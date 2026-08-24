@@ -23,6 +23,78 @@ CARDS = open(f"{HERE}/cards-fixture.json", "rb").read()
 # One real thumbnail, so twelve image loads do not make this a two-minute test.
 THUMB = open(f"{HERE}/thumb-fixture.png", "rb").read()
 
+def run_stalled():
+    """The failure path, which is the one that never gets exercised.
+
+    The painter serves one request at a time, so "blocked behind something slow"
+    is a normal state rather than an outage -- and while it lasts our proxy waits
+    out its full forty-second gateway timeout before returning 504. That is
+    forty seconds of "Reading the painter's index..." on the second section of
+    the front page.
+
+    This hangs the index call and asserts the page gives up on its own deadline
+    and says something true.
+    """
+    import time
+    with sync_playwright() as pw:
+        b = pw.chromium.launch()
+        pg = b.new_page(viewport={"width": 1400, "height": 950})
+        pending = []
+        def route(r):
+            u = r.request.url
+            if u.endswith("/local-index"):
+                r.fulfill(status=200, content_type="text/html", body=PAGE)
+            elif u.endswith(".css"):
+                name = u.rsplit("/", 1)[-1]
+                try:
+                    r.fulfill(status=200, content_type="text/css",
+                              body=open(f"/home/ubuntu/emem/web/{name}", "rb").read())
+                except OSError:
+                    r.fulfill(status=404, body=b"")
+            elif "/v1/perception/cards" in u and "thumb" not in u:
+                # LEAVE IT PENDING rather than sleeping. `time.sleep(30)` here
+                # blocked playwright's own route-handling thread, so the page
+                # could not receive anything until it returned and the measured
+                # give-up time was 30s rather than 8 -- my test of a blocked
+                # single-threaded upstream, blocked by a single-threaded test.
+                # Never fulfilling is what a hung upstream actually looks like.
+                pending.append(r)
+            elif ".png" in u or ".svg" in u:
+                r.fulfill(status=200, content_type="image/png", body=THUMB)
+            else:
+                r.fulfill(status=404, body=b"{}")
+        pg.route("**/*", route)
+        # t0 BEFORE the scroll that triggers the load. It was after, so the
+        # eight seconds elapsed while playwright was still scrolling and the
+        # measurement read 0.0s -- a control passing for a reason unrelated to
+        # the property, which is the thing this whole suite is about.
+        t0 = time.time()
+        pg.goto("http://x/local-index", wait_until="domcontentloaded", timeout=45000)
+        pg.locator("#album-split").scroll_into_view_if_needed()
+        pg.wait_for_selector(".album-retry", timeout=25000)
+        waited = time.time() - t0
+        msg = pg.eval_on_selector(".album-wait", "e => e.textContent")
+        print(f"  gave up after   : {waited:.1f}s (deadline is 8s, gateway is 40s)")
+        print(f"  message         : {' '.join(msg.split())[:96]}")
+        pg.locator("#album-split").screenshot(path=f"{HERE}/stalled.png")
+        # Release the routes left hanging on purpose. Without this playwright
+        # prints a CancelledError at teardown, and a test that ends in a
+        # traceback is one people stop reading -- the same reason a checker that
+        # cries wolf gets switched off.
+        for r in pending:
+            try:
+                r.abort()
+            except Exception:
+                pass
+        b.close()
+        # A floor as well as a ceiling: giving up instantly would also satisfy
+        # "under fifteen seconds" and would mean the deadline never ran.
+        ok = 6.0 < waited < 16.0 and "did not answer" in msg
+        if not ok:
+            print(f"  FAIL: expected to give up between 6s and 16s, not {waited:.1f}s")
+        return 0 if ok else 1
+
+
 def run():
     with sync_playwright() as pw:
         b = pw.chromium.launch()
@@ -90,4 +162,6 @@ def run():
         b.close()
         return 0 if (n == 12 and not errs) else 1
 
+if "--stalled" in sys.argv:
+    sys.exit(run_stalled())
 sys.exit(run())

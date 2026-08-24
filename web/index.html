@@ -985,6 +985,11 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    pinned panel eats the screen the index needs. */
 .album{display:grid;grid-template-columns:38fr 62fr;gap:1.618rem;align-items:start}
 @media (max-width:900px){.album{grid-template-columns:1fr}}
+/* Nothing to show, so the split does not hold. The failure message was landing
+   in the 38% index column and wrapping to thirteen two-word lines, which is a
+   sentence about a queue rendered as a column of confetti. When there is no
+   index and no plate, there is no reason for two columns. */
+.album.is-empty{grid-template-columns:1fr}
 .album-plate-wrap{position:sticky;top:1rem}
 @media (max-width:900px){.album-plate-wrap{position:static}}
 /* The selected card, so the index says which place the plate is showing.
@@ -1048,7 +1053,17 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .album-item b{font-weight:inherit}
 .album-item u{text-decoration:none;font-size:var(--t-2xs);color:var(--mute);white-space:nowrap}
 .album-plate img{display:block;width:100%;height:auto;border-radius:3px}
-.album-wait{font-size:var(--t-xs);color:var(--mute);margin:0;padding:8px 10px}
+/* Spans the grid it sits in. Collapsing the outer split was not enough: this
+   paragraph is a child of .album-grid, which tiles at minmax(108px,1fr), so a
+   sentence about a queue was still being rendered into a 108px column one or
+   two words at a time. */
+.album-wait{grid-column:1/-1;font-size:var(--t-xs);color:var(--mute);margin:0;padding:8px 10px}
+/* The retry, which exists because the painter serving one request at a time
+   means "not now" is a much more common answer than "not at all", and asking
+   again is usually all it takes. */
+.album-retry{font:inherit;font-size:var(--t-2xs);color:var(--ink-2);background:none;
+  border:1px solid var(--rule);border-radius:2px;padding:0 .382rem;cursor:pointer}
+.album-retry:hover{border-color:var(--ink-2)}
 .album-refusal{margin:26px 0 0;padding:18px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}
 .album-json{margin:10px 0 0;padding:12px;background:var(--paper-2);border-radius:3px;overflow-x:auto;
   font-size:var(--t-2xs);line-height:1.5;white-space:pre-wrap;word-break:break-word}
@@ -1412,10 +1427,25 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   function load() {
     if (loaded) return;
     loaded = true;
-    fetch('/v1/perception/cards')
-      .then(function (r) { return r.json(); })
+    /* A DEADLINE OF OUR OWN, because the gateway's is forty seconds.
+       The painter serves one request at a time on purpose -- one GPU copy --
+       so anything slow in front of us blocks everything behind it, and when
+       that happens our proxy correctly waits out its full gateway timeout
+       before returning 504. Correct, and forty seconds of "Reading the
+       painter's index..." on the second section of the front page.
+       Eight seconds is long enough for a loaded-but-working painter and short
+       enough that the honest message arrives while somebody is still looking
+       at it. The message says how long it waited, because "could not be
+       reached" and "did not answer within eight seconds" are different claims
+       and only the second one is true. */
+    var DEADLINE_MS = 8000;
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var late = setTimeout(function () { if (ctl) ctl.abort(); }, DEADLINE_MS);
+    fetch('/v1/perception/cards', ctl ? { signal: ctl.signal } : undefined)
+      .then(function (r) { clearTimeout(late); return r.json(); })
       .then(function (d) {
         var places = (d && d.places) || [];
+        root.classList.toggle('is-empty', !places.length);
         if (!places.length) {
           document.getElementById('album-grid').innerHTML =
             '<p class="album-wait">The painter is reachable and holds no ' +
@@ -1438,10 +1468,28 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
         build(places);
         refusal();
       })
-      .catch(function () {
+      .catch(function (e) {
+        clearTimeout(late);
+        root.classList.add('is-empty');
+        var aborted = e && (e.name === 'AbortError');
         document.getElementById('album-grid').innerHTML =
-          '<p class="album-wait">The painter could not be reached, so this ' +
-          'album is empty rather than illustrated.</p>';
+          '<p class="album-wait">' + (aborted
+            ? 'The painter did not answer within ' + (DEADLINE_MS / 1000) +
+              ' seconds. It serves one request at a time, so something slow in ' +
+              'front of this one is holding the queue. Nothing is shown rather ' +
+              'than something stale.'
+            : 'The painter could not be reached, so this album is empty rather ' +
+              'than illustrated.') +
+          ' <button class="album-retry" type="button">ask again</button></p>';
+        var again = document.querySelector('.album-retry');
+        if (again) {
+          again.addEventListener('click', function () {
+            root.classList.remove('is-empty');
+            document.getElementById('album-grid').innerHTML =
+              '<p class="album-wait">Reading the painter\u2019s index\u2026</p>';
+            load();
+          });
+        }
       });
   }
 
