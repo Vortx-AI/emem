@@ -373,6 +373,16 @@ jobs:
       # at the end of the trusted things, which is where the upstream found
       # theirs too. The individual steps above stay for per-step CI granularity;
       # this one enforces the order they are written in.
+      # What a credential scanner gets. The service sharing this box traced
+      # 29,636 refused requests over 35 days to an automated secret hunter --
+      # /.env, /.git/config, /.aws/credentials -- every one a 1 ms 404, which is
+      # why nobody had looked. They 404 everything because they are an API; we
+      # are the public page on the same host, with a build directory and a docs
+      # tree and a 404 page of our own. It checks BODIES, not status codes, and
+      # self-tests its own patterns first, because a clean report from a
+      # detector that stopped matching looks exactly like a clean surface.
+      - name: nothing a scanner asks for is served
+        run: python3 scripts/scanner_surface.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       - name: gates, in dependency order
         run: python3 scripts/gates.py
       # One navigation, generated from one definition. The site had SEVEN
