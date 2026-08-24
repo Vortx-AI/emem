@@ -42,6 +42,8 @@ import re
 import sys
 import urllib.request
 
+from lib_patience import patient
+
 DOC = "docs/protocol.md"
 DEFAULT_ORIGIN = "https://emem.dev"
 
@@ -96,7 +98,7 @@ def main():
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=90) as r:
+        with patient(req, timeout=90) as r:
             receipt = json.loads(r.read())["receipt"]
     except Exception as e:
         print(f"spec-verifier: {origin} did not answer: {e}", file=sys.stderr)

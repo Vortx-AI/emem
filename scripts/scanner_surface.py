@@ -45,6 +45,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 TARGETS = [
     "/.env", "/.env.local", "/.env.production",
     "/.git/config", "/.git/HEAD",
@@ -129,7 +131,7 @@ def probe(origin: str, path: str):
     req = urllib.request.Request(origin + path,
                                  headers={"User-Agent": "emem-scanner-surface-check"})
     try:
-        r = urllib.request.urlopen(req, timeout=30)
+        r = patient(req, timeout=30)
         return r.status, r.read(200_000)
     except urllib.error.HTTPError as e:
         return e.code, (e.read(200_000) if e.fp else b"")

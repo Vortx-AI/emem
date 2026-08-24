@@ -55,6 +55,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 DEFAULT_ORIGIN = "https://emem.dev"
 
 # The context an agent will spend to decide whether to call you ONCE. Not a
@@ -113,7 +115,7 @@ class Probe:
             headers={"content-type": "application/json"} if data else {},
         )
         try:
-            with urllib.request.urlopen(req, timeout=60) as r:
+            with patient(req, timeout=60) as r:
                 raw = r.read()
                 code = r.status
         except urllib.error.HTTPError as e:
@@ -181,7 +183,7 @@ def write_robots(origin):
         nonlocal changed
         url = origin.rstrip("/") + m.group("path")
         try:
-            with urllib.request.urlopen(url, timeout=30) as r:
+            with patient(url, timeout=30) as r:
                 actual = len(r.read())
         except Exception as exc:  # noqa: BLE001 - reported, not swallowed
             print(f"  {m.group('path')}: could not fetch ({exc}); left alone")

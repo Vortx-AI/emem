@@ -76,6 +76,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
+from lib_patience import patient
+
 DEFAULT_ORIGIN = "https://emem.dev"
 
 # A pinned fixture so cache state cannot flake the run. Bengaluru, one cell,
@@ -211,14 +213,14 @@ def _post(url, payload, timeout=120):
         headers={"content-type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=timeout) as r:
+    with patient(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 
 def _get(url, params, timeout=120):
     if params:
         url = f"{url}?{urllib.parse.urlencode(_flatten(params))}"
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    with patient(url, timeout=timeout) as r:
         return json.loads(r.read().decode())
 
 

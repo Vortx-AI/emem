@@ -30,6 +30,8 @@ import time
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 # AWS Bedrock/AgentCore rejected a tools/list response with "MCP server
 # response exceeds maximum allowed size of 102400 bytes". That is the only
 # ceiling any host has reported to us in a number, so it is the one we
@@ -72,7 +74,7 @@ def _post(url: str, payload: dict, accept: str, timeout: float = 30.0) -> tuple:
     )
     ctx = ssl.create_default_context()
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+        with patient(req, timeout=timeout, context=ctx) as r:
             raw = r.read()
             status, headers = r.status, dict(r.headers)
     except urllib.error.HTTPError as e:  # a 4xx/5xx is data, not a crash
@@ -105,7 +107,7 @@ def _parse(raw: bytes):
 def _get(url: str, timeout: float = 30.0) -> tuple:
     req = urllib.request.Request(url, headers={"user-agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with patient(req, timeout=timeout) as r:
             return r.status, r.read()
     except urllib.error.HTTPError as e:
         return e.code, e.read()
@@ -121,7 +123,7 @@ def _options(url: str) -> tuple:
         "user-agent": UA,
     })
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with patient(req, timeout=15) as r:
             return r.status, dict(r.headers)
     except urllib.error.HTTPError as e:
         return e.code, dict(e.headers)
@@ -472,7 +474,7 @@ def run(origin: str, endpoint: str) -> dict:
                      "application/json", "mcp-protocol-version": v,
                      "user-agent": UA})
         try:
-            with urllib.request.urlopen(req, timeout=15) as r:
+            with patient(req, timeout=15) as r:
                 echoed.append((v, r.headers.get("mcp-protocol-version")))
         except Exception:  # noqa: BLE001
             echoed.append((v, None))
@@ -483,7 +485,7 @@ def run(origin: str, endpoint: str) -> dict:
         headers={"content-type": "application/json",
                  "mcp-protocol-version": "1999-01-01", "user-agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=15) as r:
+        with patient(req, timeout=15) as r:
             bad_status = r.status
     except urllib.error.HTTPError as e:
         bad_status = e.code
@@ -525,7 +527,7 @@ def run(origin: str, endpoint: str) -> dict:
     req = urllib.request.Request(
         url, headers={"accept": "text/event-stream", "user-agent": UA})
     try:
-        with urllib.request.urlopen(req, timeout=8) as r:
+        with patient(req, timeout=8) as r:
             g_st, g_ct = r.status, r.headers.get("content-type", "")
             r.read(1)
     except urllib.error.HTTPError as e:
@@ -771,7 +773,7 @@ def check_install_badges(repo_root: str) -> None:
             try:
                 req = urllib.request.Request(
                     u, headers={"User-Agent": "Mozilla/5.0 emem-badge-check"})
-                urllib.request.urlopen(req, timeout=25).read(1)
+                patient(req, timeout=25).read(1)
             except urllib.error.HTTPError as e:
                 # 403 is a bot wall (doi.org and several directories do this),
                 # not a dead link. 404/410 is gone.

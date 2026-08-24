@@ -35,6 +35,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 BASE = os.environ.get("EMEM_BASE", "https://emem.dev")
 FETCH = re.compile(r"j\('([^']+)'\)\.then\(function\((\w+)\)\{")
 # Names that are JS, not response fields.
@@ -96,7 +98,7 @@ def main() -> int:
     problems = []
     for url in sorted(reads):
         try:
-            with urllib.request.urlopen(BASE + url, timeout=60) as r:
+            with patient(BASE + url, timeout=60) as r:
                 doc = json.loads(r.read())
         except (urllib.error.URLError, TimeoutError, OSError, ValueError) as e:
             print(f"live_fields: {url} did not answer ({str(e)[:50]}); nothing asserted.")

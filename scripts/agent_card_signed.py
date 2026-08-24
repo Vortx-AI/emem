@@ -32,6 +32,8 @@ import json
 import sys
 import urllib.request
 
+from lib_patience import patient
+
 DEFAULT_ORIGIN = "https://emem.dev"
 
 # ---------------------------------------------------------------------------
@@ -134,7 +136,7 @@ def jcs(value) -> bytes:
 
 
 def get(url: str):
-    with urllib.request.urlopen(url, timeout=30) as r:
+    with patient(url, timeout=30) as r:
         return json.loads(r.read())
 
 

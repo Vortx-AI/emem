@@ -46,6 +46,8 @@ import time
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 DEFAULT_ORIGIN = "https://emem.dev"
 PAGE = "web/guard.html"
 
@@ -90,7 +92,7 @@ def fetch(url, method="GET", body=None, timeout=45):
             method=method,
         )
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with patient(req, timeout=timeout) as r:
                 return r.status, r.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as e:
             return e.code, e.read().decode("utf-8", "replace")
@@ -105,7 +107,7 @@ def fetch_status(url, timeout=12):
 
     def attempt():
         try:
-            with urllib.request.urlopen(url, timeout=timeout) as r:
+            with patient(url, timeout=timeout) as r:
                 return r.status
         except urllib.error.HTTPError as e:
             return e.code
@@ -346,7 +348,7 @@ def main():
         try:
             req = urllib.request.Request(url, method="GET")
             try:
-                r = urllib.request.urlopen(req, timeout=15)
+                r = patient(req, timeout=15)
                 code, body = r.status, r.read()
             except urllib.error.HTTPError as e:
                 code, body = e.code, e.read()

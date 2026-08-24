@@ -51,6 +51,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_ORIGIN = "https://emem.dev"
 
@@ -80,7 +82,7 @@ def probe_jepa_trained(origin):
         headers={"content-type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(req, timeout=90) as r:
+    with patient(req, timeout=90) as r:
         body = json.loads(r.read())
     warnings = json.dumps(body.get("model", {}).get("honesty_warnings", []))
     return "untrained" if "untrained_baseline" in warnings else "trained"

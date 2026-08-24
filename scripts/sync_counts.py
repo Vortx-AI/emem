@@ -34,6 +34,8 @@ import re
 import sys
 import time
 import urllib.request
+
+from lib_patience import patient
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -139,9 +141,9 @@ def fetch_live(responder: str) -> dict | None:
         if attempt:
             time.sleep(min(2 ** attempt * 5, 40))  # 10 s, 20 s: spans a restart
         try:
-            with urllib.request.urlopen(f"{responder}/v1/agent_card", timeout=15) as r:
+            with patient(f"{responder}/v1/agent_card", timeout=15) as r:
                 card = json.load(r)
-            with urllib.request.urlopen(f"{responder}/openapi.json", timeout=15) as r:
+            with patient(f"{responder}/openapi.json", timeout=15) as r:
                 paths = json.load(r).get("paths", {})
             break
         except Exception as e:
@@ -179,7 +181,7 @@ def verify_security_limits(responder: str) -> list[str]:
     if not sec.exists():
         return ["SECURITY.md is missing (it is include_str!'d into the binary)"]
     try:
-        with urllib.request.urlopen(f"{responder}/v1/agent_card", timeout=15) as r:
+        with patient(f"{responder}/v1/agent_card", timeout=15) as r:
             rt = json.load(r).get("runtime", {})
     except Exception as e:
         print(f"  (security-limit cross-check skipped: {responder} unreachable: {e})")
@@ -1409,7 +1411,7 @@ def measure_mcp_list_bytes(responder: str) -> dict | None:
             responder + path, data=json.dumps(body).encode(),
             headers={"Content-Type": "application/json",
                      "Accept": "application/json, text/event-stream"})
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with patient(req, timeout=60) as r:
             raw = r.read()
         return raw, json.loads(raw)["result"]
 
@@ -1488,7 +1490,7 @@ def verify_id_widths(responder: str) -> list[str]:
         req = urllib.request.Request(
             responder + path, data=json.dumps(body).encode(),
             headers={"content-type": "application/json"})
-        with urllib.request.urlopen(req, timeout=90) as r:
+        with patient(req, timeout=90) as r:
             return json.loads(r.read())
 
     observed = {}

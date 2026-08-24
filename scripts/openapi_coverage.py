@@ -48,6 +48,8 @@ import re
 import sys
 import urllib.request
 
+from lib_patience import patient
+
 SRC = "crates/emem-api-rest/src/lib.rs"
 
 # Routes that are deliberately absent from the API description.
@@ -157,7 +159,7 @@ def main():
     if a.origin:
         origin = a.origin.rstrip("/")
         try:
-            with urllib.request.urlopen(f"{origin}/openapi.json", timeout=90) as r:
+            with patient(f"{origin}/openapi.json", timeout=90) as r:
                 live = set(json.load(r).get("paths") or {})
         except Exception as e:
             print(f"openapi-coverage: {origin} did not answer: {e}",

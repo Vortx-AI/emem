@@ -35,6 +35,8 @@ import sys
 import urllib.error
 import urllib.request
 
+from lib_patience import patient
+
 DEFAULT_ORIGIN = "https://emem.dev"
 # Released A2A versions, Major.Minor. A card may only claim one that exists.
 KNOWN_VERSIONS = {"0.1", "0.2", "0.3", "1.0"}
@@ -50,7 +52,7 @@ def post(url, body, timeout=60):
         url, data=json.dumps(body).encode(),
         headers={"content-type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with patient(req, timeout=timeout) as r:
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, e.read().decode("utf-8", "replace")
@@ -63,7 +65,7 @@ def main() -> int:
     ap.add_argument("--origin", default=DEFAULT_ORIGIN)
     a = ap.parse_args()
     try:
-        with urllib.request.urlopen(
+        with patient(
                 f"{a.origin}/.well-known/agent-card.json", timeout=30) as r:
             card = json.loads(r.read())
     except Exception as e:

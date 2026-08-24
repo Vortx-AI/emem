@@ -31,6 +31,8 @@ import os
 import sys
 import urllib.request
 
+from lib_patience import patient
+
 RESPONDER = os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/")
 CELL = "defi.zb4e3.zaeed.fEya"
 
@@ -57,7 +59,7 @@ def _post(path: str, body: dict, timeout: int = 90):
         RESPONDER + path, data=json.dumps(body).encode(),
         headers={"Content-Type": "application/json",
                  "Accept": "application/json, text/event-stream"})
-    return json.load(urllib.request.urlopen(req, timeout=timeout))
+    return json.load(patient(req, timeout=timeout))
 
 
 def _rpc(method: str, params: dict, ep: str = "/mcp"):
