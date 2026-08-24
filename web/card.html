@@ -21,13 +21,16 @@
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 <link rel=stylesheet href="/tokens.css">
 <style>
+/* The muted levels here are a local copy of web/tokens.css and carried the
+   pre-2026-08-24 values, which measured 2.3-2.7:1 behind 10px text. Corrected
+   to match tokens.css: both levels clear WCAG AA on all three grounds. */
 :root{
   --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
   --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
-  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  --mute:oklch(0.42 0.005 85);--mute-2:oklch(0.516 0.005 85);
   --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
   --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);
-  --warn:oklch(0.55 0.12 75);
+  --warn:oklch(0.515 0.12 75);
 }
 
 *{box-sizing:border-box}

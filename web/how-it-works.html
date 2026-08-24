@@ -50,6 +50,15 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 /* page shell */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
 .section{border-bottom:1px solid var(--rule);padding:var(--s-5) 0;display:grid;grid-template-columns:var(--col-meta) minmax(0,68ch);gap:var(--s-5);justify-content:center}
+/* A grid item's automatic minimum is its MIN-CONTENT, so `1fr` at the phone
+   breakpoint could not shrink below the widest unbreakable thing inside it:
+   the track measured 68ch (699px) inside a 353px section, and the whole page
+   scrolled sideways. The .scroll-x wrappers were already correct and were
+   being handed a box wider than the screen. Measured before and after on a
+   375px viewport: how-it-works 197px over, solutions 285, guard 317,
+   reference 162, a2a 93 -> 0 for all but how-it-works, whose two tables were
+   never wrapped. Desktop is untouched: both tracks stay 220px and 680px. */
+.section>*{min-width:0}
 .section-meta{font-size:var(--t-xs);color:var(--mute);line-height:1.6;position:sticky;top:56px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}
 .section-meta .idx{display:flex;align-items:baseline;gap:.5rem;margin-bottom:.5rem}
 .section-meta .idx-num{font-weight:700;color:var(--ink);font-size:var(--t-sm)}
@@ -63,6 +72,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-body p{max-width:64ch;margin:0 0 1.1rem;color:var(--ink-2)}
 .section-body strong{color:var(--ink);font-weight:700}
 .section-body a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+/* A filled .btn inside prose was being repainted by `.section-body a`, which
+   is (0,1,1) against the button's own (0,1,0): the label came out accent
+   green on the near-black fill, 2.53:1, on every one of these pages. The
+   button keeps its own colours inside a section body. */
+.section-body a.btn{color:var(--paper);text-decoration:none}
+.section-body a.btn.ghost{color:var(--ink)}
+
 .section-body a:hover{background:var(--accent-bg)}
 
 /* hero */
@@ -120,6 +136,13 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 /* code block */
 .code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
 .code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
+/* The header is a nowrap flex row: language, caption, spacer, copy button. On a
+   375px screen its items add up past the box and the copy button hung 108px
+   outside it, taking the page 54px sideways. It only became visible once
+   .section>* stopped being oversized -- the overflow was there before and was
+   hidden inside a bigger overflow. Wrapping puts the button on its own line.
+   Desktop never wraps: the row fits, measured at 1400px. */
+.code-head{flex-wrap:wrap}
 .code-head .tab{padding:.4rem .8rem;border-right:1px solid var(--rule);color:var(--mute)}
 .code-head .lang{padding:.4rem .8rem;border-right:1px solid var(--rule);font-weight:700;color:var(--ink-2)}
 .code-head .spacer{flex:1}
@@ -174,7 +197,9 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 /* tokens */
 .cid{color:var(--accent);font-size:.92em;word-break:break-all}
 .cell{color:var(--ink);font-weight:700;background:var(--paper-3);padding:0 .3rem}
-.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem}
+/* A band name is one long unbreakable token, and at 375px one of them ran 2px
+   past the viewport -- enough for a horizontal scrollbar on the page. */
+.band{color:var(--ink);background:var(--paper-3);padding:0 .3rem;overflow-wrap:anywhere}
 
 /* footer */
 .foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
@@ -621,7 +646,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
 
     <p>The tag is one of six classes. A <span class="band">direct_sensor</span> value is the instrument product itself, with no algorithm in the path. A <span class="band">deterministic_index</span> value is a fixed formula over raw pixels, cell coordinates, or a time series, so anyone holding the cited source recomputes the identical number with no learned weights and no human edit. An <span class="band">attested_execution</span> value is a device reading admitted through a verified OS execution trace and platform attestation &mdash; a one-time physical measurement no third party can recompute, trusted through its verified execution rather than re-derivation. A <span class="band">model_output</span> value came from a trained model or a published statistical product, so trust rests on a signed model checkpoint rather than on recomputation. A <span class="band">human_curated</span> value traces back to geometry a person drew or placed. A band that has not been tagged yet is <span class="band">unclassified</span>: treated as the lowest trust, and it never claims to be reproducible.</p>
 
-    <table class="absent-table">
+    <div class="scroll-x"><table class="absent-table">
       <tbody>
         <tr><td>direct_sensor</td><td>instrument reading, no algorithm in the path (Copernicus DEM, Sentinel-2 L2A, Sentinel-1 RTC, VIIRS nightlights)</td><td>recomputable_from_source</td></tr>
         <tr><td>deterministic_index</td><td>fixed formula over raw pixels, coordinates, or time (NDVI, Horn slope, Fourier position encodings, JRC water rules)</td><td>recomputable_from_source</td></tr>
@@ -630,7 +655,7 @@ pk.verify(<span class="tok-k">bytes</span>(r[<span class="tok-s">"signature"</sp
         <tr><td>human_curated</td><td>a person drew or placed the geometry (OpenStreetMap, Overture, WDPA, GADM admin, WWF ecoregions)</td><td>attester_only</td></tr>
         <tr><td>unclassified</td><td>not yet tagged; fail-safe lowest trust, never claims tamper-evidence</td><td>attester_only</td></tr>
       </tbody>
-    </table>
+    </table></div>
 
     <p>The split that matters is <span class="band">recomputable_from_source</span>: a direct sensor read or a deterministic index that any third party reproduces from the cited raw data, with no model and no human in the loop. Across the <span id="pv-total">43</span> bands in the ontology today, <span id="pv-det">14</span> are recomputable this way (<span id="pv-sensor">6</span> direct sensor, <span id="pv-index">8</span> deterministic index), <span id="pv-model">22</span> are model output, <span id="pv-human">5</span> are human curated, and <span id="pv-uncl">2</span> are still unclassified. These counts are read live from <a href="/v1/bands">/v1/bands</a>, the same manifest the <span class="band">bands_cid</span> in every receipt pins. An agent that only wants values it can check for itself reads the first two classes and treats the rest as claims it has to trust a signer for. The warning travels in-band: every <span class="band">model_output</span>, <span class="band">human_curated</span>, and <span class="band">unclassified</span> provenance block carries a <span class="band">caution</span> field naming its failure mode (training bias and domain shift, editorial choices and coverage gaps, undeclared method), so the caveat arrives in the same payload as the number instead of living in documentation an agent never read. Recall accepts <span class="band">deterministic: true</span> to keep only the recomputable classes; the filter runs before the receipt is signed.</p>
 
@@ -780,7 +805,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
     <p>This is what keeps an empty result honest: a signed Absence distinguishes a wrong query (you asked the wrong band) from an empty place (the band is genuinely unattested here). The reason code says which.</p>
 
-    <table class="absent-table">
+    <div class="scroll-x"><table class="absent-table">
       <tbody>
         <tr><td>unavailable_capability</td><td>sidecar extension missing. GPU off, encoder offline, or the surface is wired but the worker is not serving.</td></tr>
         <tr><td>outside_coverage</td><td>cell falls outside the upstream product footprint (e.g. Tessera 2024 over a fresh ocean cell)</td></tr>
@@ -789,7 +814,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
         <tr><td>no_auto_materializer_registered</td><td>band reserved in the cube but no upstream connector is wired. Submit a signed Attestation to seed it.</td></tr>
         <tr><td>present_only</td><td>band is now-only (e.g. met.no nowcast); past tslots will always return absence</td></tr>
       </tbody>
-    </table>
+    </table></div>
   </div>
 </section>
 

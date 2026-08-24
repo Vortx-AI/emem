@@ -26,11 +26,17 @@
 :root{
 --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
   --ink:oklch(0.20 0.005 85);--ink-2:oklch(0.32 0.005 85);
-  --mute:oklch(0.50 0.005 85);--mute-2:oklch(0.68 0.005 85);
+  /* Both muted levels clear WCAG AA (4.5:1) against all three papers.
+     --mute-2 used to be 0.68, which measured 2.68:1 on paper and 2.35:1 on
+     paper-3 -- it was carrying real text at 10-13px (audience chips, table
+     labels, the channel's attester prefixes) at roughly half the contrast a
+     reader needs. Lowering it alone would have collapsed it into --mute, so
+     both moved and the gap was kept: 6.9:1 and 4.55:1 on the worst paper. */
+  --mute:oklch(0.42 0.005 85);--mute-2:oklch(0.516 0.005 85);
   --rule:oklch(0.86 0.008 85);--rule-strong:oklch(0.72 0.010 85);
   --accent:oklch(0.45 0.09 145);--accent-bg:oklch(0.93 0.04 145);--vermilion:oklch(0.50 0.16 30);
   --absent:oklch(0.50 0.11 35);--absent-bg:oklch(0.94 0.04 35);
-  --warn:oklch(0.55 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
+  --warn:oklch(0.50 0.12 75);--highlight:oklch(0.95 0.07 95);--machine:oklch(0.50 0.13 270);
   --mono:'JetBrains Mono',ui-monospace,'SF Mono',Menlo,Consolas,monospace;
   /* Two families, and the split carries meaning rather than decoration.
      Mono is the machine record: tokens, addresses, code, measured
@@ -96,14 +102,44 @@
   --w-narrow:min(94vw, 820px);
 }
 
+/* The dark palette, selectable two ways.
+
+   It used to exist ONLY inside `@media (prefers-color-scheme: dark)`, which
+   means a page could not ask for it. web/worlds.html sets
+   `body{background:#0b0a08}` unconditionally and takes its text colours from
+   here, so on a light-preference browser it painted --ink-2 (a dark brown) on
+   near-black: 1.57:1, measured. The audience strip was there and unreadable.
+
+   Same declarations, two selectors. Nothing changes for a page that does not
+   set the attribute -- and the media-query selector stays a BARE `:root` for
+   that reason. The natural-looking `:root:not([data-theme="light"])` guard is
+   (0,2,0) and outranks the plain `:root` that scoreboard, card and the demo
+   pages use for their own palettes, so adding it silently handed those pages
+   tokens.css's dark values instead of their own. Measured: scoreboard's amber
+   chip became tokens.css amber. No page forces light against a dark OS today,
+   so the guard buys nothing and costs that. */
 @media (prefers-color-scheme: dark){
   :root{
     --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
     --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
-    --mute:oklch(0.60 0.005 85);--mute-2:oklch(0.45 0.005 85);
+    /* Same correction, mirrored: 6.78:1 and 4.63:1 on paper-3. --mute was
+       4.27:1 there, which fails AA on its own. */
+    --mute:oklch(0.72 0.005 85);--mute-2:oklch(0.619 0.005 85);
     --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
     --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
     --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
     --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
   }
 }
+:root[data-theme="dark"]{
+  --paper:oklch(0.16 0.005 85);--paper-2:oklch(0.19 0.005 85);--paper-3:oklch(0.23 0.006 85);
+  --ink:oklch(0.93 0.005 85);--ink-2:oklch(0.80 0.005 85);
+  /* Same correction, mirrored: 6.78:1 and 4.63:1 on paper-3. --mute was
+     4.27:1 there, which fails AA on its own. */
+  --mute:oklch(0.72 0.005 85);--mute-2:oklch(0.619 0.005 85);
+  --rule:oklch(0.28 0.008 85);--rule-strong:oklch(0.40 0.010 85);
+  --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
+  --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
+  --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+}
+

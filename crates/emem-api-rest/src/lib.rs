@@ -193,6 +193,13 @@ const SERVER_JSON: &str = include_str!("../../../server.json");
 // merged into agents.md; MULTIMODAL_MD into inference.md; SPEC_MD into
 // protocol.md.
 const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
+/// The register page at `/agents`, for browsers only. The nav has always
+/// offered "Who writes here -- every attester, discovered not curated" and
+/// this route answered with the agent guide: the same 70,344 bytes
+/// `/clients` serves, byte for byte. The promise was on every page of the
+/// site, through the generated nav, and nothing pointed at the roster it
+/// described. `/v1/agents` had the data the whole time.
+const AGENTS_HTML: &str = include_str!("../../../web/agents.html");
 const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper-v2.md");
 /// v1, archived and unedited. It is the version cited by the Zenodo DOI,
 /// so it is served verbatim rather than corrected: a citation that
@@ -3075,6 +3082,20 @@ fn text_response(content_type: &'static str, body: &'static str) -> Response {
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
+/// Did the caller ASK for html, rather than merely fail to ask for markdown?
+///
+/// The distinction matters on a route whose default has to stay markdown: a
+/// browser sends `Accept: text/html,application/xhtml+xml,...`, while `curl`
+/// sends `*/*` and an agent library often sends nothing at all. Only the first
+/// is a request for a web page.
+fn wants_html(headers: &HeaderMap) -> bool {
+    headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .map(|a| a.to_lowercase().contains("text/html"))
+        .unwrap_or(false)
+}
+
 fn html_or_md(headers: &HeaderMap, html: &'static str, md: &'static str) -> Response {
     if prefer_markdown(headers) {
         text_response("text/markdown; charset=utf-8", md)
@@ -3150,6 +3171,7 @@ fn served_html_pages() -> Vec<&'static str> {
         A2A_HTML,
         GUARD_HTML,
         WHITEPAPER_V1_HTML,
+        AGENTS_HTML,
     ]
 }
 
@@ -3420,9 +3442,19 @@ async fn landing(headers: HeaderMap) -> Response {
 }
 
 async fn agents_page(headers: HeaderMap) -> Response {
-    // Agents always get markdown; browsers get markdown rendered as plain text.
-    let _ = headers;
-    text_response("text/markdown; charset=utf-8", AGENTS_MD)
+    // Only a client that ASKS for html gets the register page. Every other
+    // caller keeps exactly what this route has always returned.
+    //
+    // `html_or_md` was the obvious helper and it is the wrong way round here:
+    // it serves html unless markdown is explicitly requested, so `curl
+    // /agents` -- which sends `Accept: */*` -- would start receiving a web
+    // page. This route is the agent guide's address, and the guide is what an
+    // agent fetching it without an opinion should still get.
+    if wants_html(&headers) {
+        text_response("text/html; charset=utf-8", AGENTS_HTML)
+    } else {
+        text_response("text/markdown; charset=utf-8", AGENTS_MD)
+    }
 }
 
 async fn serve_agents_md() -> Response {
@@ -10454,7 +10486,7 @@ fn errors_payload() -> JsonValue {
         ("compute_quota_exceeded",       "function call hit per-attester quota",
          "Throttle, or request quota increase via /v1/contributors leaderboard (high-score attesters get larger quotas)."),
         ("rate_limited",                 "per-IP rate limit hit",
-         "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (600 req/min sustained, 1200 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
+         "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (600 req/min sustained, 120 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
         ("cache_error",                  "responder's hot cache (sled) had an internal error",
          "Retry; if persistent, the responder's storage may need recovery, operators see the cause in the journald log."),
         ("internal",                     "responder-side bug",

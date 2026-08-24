@@ -73,9 +73,17 @@ h1 .accent{color:var(--accent)}
 .lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:60ch}
 .lede b{color:var(--ink);font-weight:500}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:1rem;margin-top:1.6rem}
+/* Same automatic-minimum trap as .section on the long-form pages: at the phone
+   breakpoint the track is 1fr, but 1fr is minmax(auto,1fr) and that auto floor is
+   the card's min-content -- 428px inside a 353px column, so the page scrolled
+   sideways by 64px. The remaining 49px after min-width:0 was one unbreakable
+   endpoint path in a tag chip, which now wraps. Desktop is unchanged: three
+   334px columns either way. */
+.grid>*{min-width:0}
+.card .tag{overflow-wrap:anywhere}
 .card{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:.55rem;transition:border-color .15s,background .15s}
 .card:hover{border-color:var(--accent);background:var(--paper-3)}
-.card a.title{font-size:var(--t-lg);font-weight:600;color:var(--ink);letter-spacing:-.01em;border-bottom:none}
+.card a.title{font-size:var(--t-lg);font-weight:600;color:var(--ink);letter-spacing:-.01em;border-bottom:none;min-height:24px;display:flex;align-items:center}
 .card:hover a.title{color:var(--accent)}
 .card .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px;align-self:flex-start;font-feature-settings:"ss01"}
 .card .desc{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;flex:1}

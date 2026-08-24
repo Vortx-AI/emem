@@ -347,6 +347,24 @@ jobs:
       # removed a dark :root it should not have. Hermetic.
       - name: the design system holds
         run: python3 scripts/design_tokens.py
+
+      # A palette that can render text unreadable is a static property of the
+      # CSS, so it does not need a browser. This exists because --mute-2 sat at
+      # 2.26-2.68:1 while carrying 10px text across the whole site, and the same
+      # values then turned up in seven pages keeping a private copy of the
+      # palette under other names, in --warn, in the scoreboard's chips, and in
+      # gen_tools_page.py which would have rewritten the fix on the next deploy.
+      # Six discoveries of one fact. This turns it into one line.
+      - name: every ink clears AA on its own surfaces
+        run: python3 scripts/contrast_tokens.py
+
+      # SECURITY.md said 1.0.x was current while the workspace was 2.3.0,
+      # CITATION.cff minted citations for 2.2.0, CONTRIBUTING.md sent people
+      # looking for 16 of 19 crates, and README opened "Honest limits" with
+      # 2.1.0. Four documents, four answers, none of them the manifest's. These
+      # are the files a stranger reads first.
+      - name: every version surface states this version
+        run: python3 scripts/version_surfaces.py
       # Every provenance_class we emit must be one we declare. The upstream
       # found an undeclared class on ELEVEN of their surfaces, with the correct
       # diagnosis already written in their own tree and reaching one call site.

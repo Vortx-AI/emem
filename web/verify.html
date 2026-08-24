@@ -39,11 +39,14 @@
   --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
   --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
   --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
-  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.68 0.005 85);
+  /* Same AA correction as web/tokens.css: this page keeps its own copy of the
+     palette under different names, so the fix there did not reach it. 0.68
+     measured 2.53:1 behind the glossary chips and the input label. */
+  --fg-3:oklch(0.42 0.005 85);   --fg-mute:oklch(0.491 0.005 85);
   --line:oklch(0.86 0.008 85);   --line-2:oklch(0.72 0.010 85);
   --accent:oklch(0.45 0.09 145); --accent-bg:oklch(0.93 0.04 145);
-  --accent-dim:oklch(0.55 0.10 145);
-  --warn:oklch(0.50 0.11 35);    --pending:oklch(0.55 0.12 75);
+  --accent-dim:oklch(0.48 0.10 145);
+  --warn:oklch(0.50 0.11 35);    --pending:oklch(0.495 0.12 75);
   --info:oklch(0.50 0.13 270);
   --sans:var(--mono);
 }
@@ -52,7 +55,7 @@
     --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
     --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
     --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
+    --fg-3:oklch(0.72 0.005 85);  --fg-mute:oklch(0.649 0.005 85);
     --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
     --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
     --accent-dim:oklch(0.66 0.10 145);
@@ -177,7 +180,12 @@ header.top .navlinks a:hover{color:var(--accent)}
 .card .grid .k{color:var(--fg-mute);font-size:var(--t-3xs);letter-spacing:.06em;text-transform:lowercase;
   padding-top:.18em;align-self:start}
 @media(min-width:601px){.card .grid .k{text-align:right}}
-.card .grid .v{color:var(--fg);word-break:break-all;line-height:1.55}
+/* break-all breaks EVERY word at the box edge, which is right for a 52-char
+   CID and wrong for the prose that shares this cell: the "what a green check
+   means" rows read "this is what the p / age has always done".
+   overflow-wrap:anywhere breaks only what genuinely cannot fit, so the CIDs
+   still wrap and the sentences stop being cut in half. */
+.card .grid .v{color:var(--fg);overflow-wrap:anywhere;line-height:1.55}
 .card .grid .v.dim{color:var(--fg-2)}
 .card .grid .v code{font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);background:var(--bg-2);
   padding:.05em .4em;border-radius:2px}
@@ -221,7 +229,12 @@ header.top .navlinks a:hover{color:var(--accent)}
 .recipes pre{margin:.55em 0 .1em;background:var(--bg);border:1px solid var(--line);
   padding:.55em .65em;border-radius:3px;font-size:var(--t-3xs);color:var(--fg);
   white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.5}
-.recipes .copy{margin-left:.6em;font-size:var(--t-3xs);padding:.1em .45em}
+/* WCAG 2.5.8 puts the floor for a pointer target at 24x24. Measured on a
+   375px viewport these were 19px and 20px tall. min-height with a centring
+   flex box reaches the floor without changing where anything sits: the chips
+   keep their padding and their place in the line. */
+.recipes .copy{margin-left:.6em;font-size:var(--t-3xs);padding:.1em .45em;
+  min-height:24px;display:inline-flex;align-items:center}
 
 /* glossary */
 .gloss{display:flex;flex-wrap:wrap;gap:.35em;margin:1.2em 0 .4em;align-items:center;
@@ -230,7 +243,8 @@ header.top .navlinks a:hover{color:var(--accent)}
   text-transform:uppercase;margin-right:.3em}
 .gloss .gchip{font-family:var(--mono);font-size:var(--t-3xs);color:var(--fg-3);
   background:var(--bg-1);border:1px solid var(--line);padding:.15em .55em;
-  border-radius:99px;cursor:help;letter-spacing:.02em}
+  border-radius:99px;cursor:help;letter-spacing:.02em;
+  min-height:24px;display:inline-flex;align-items:center}
 .gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
 .gpop{position:absolute;background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
   border-radius:4px;font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);

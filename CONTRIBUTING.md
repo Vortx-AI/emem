@@ -1,6 +1,6 @@
 # Contributing to emem
 
-emem is a Cargo workspace. Rust 1.91, edition 2021, 16 crates, one binary
+emem is a Cargo workspace. Rust 1.91, edition 2021, 19 crates, one binary
 (`emem-server`) at the centre. The agent-facing surface is a single axum
 router in `crates/emem-api-rest/src/lib.rs`; everything else feeds into it.
 

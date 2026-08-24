@@ -25,15 +25,18 @@
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <style>
+/* The muted levels here are a local copy of web/tokens.css and carried the
+   pre-2026-08-24 values, which measured 2.3-2.7:1 behind 10px text. Corrected
+   to match tokens.css: both levels clear WCAG AA on all three grounds. */
 :root{
   --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
   --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
   --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
-  --fg-3:oklch(0.50 0.005 85);   --fg-mute:oklch(0.68 0.005 85);
+  --fg-3:oklch(0.42 0.005 85);   --fg-mute:oklch(0.491 0.005 85);
   --line:oklch(0.86 0.008 85);   --line-2:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.55 0.10 145);
+  --accent:oklch(0.45 0.09 145); --accent-dim:oklch(0.48 0.10 145);
   --accent-bg:oklch(0.93 0.04 145);
-  --warn:oklch(0.55 0.16 25);
+  --warn:oklch(0.51 0.16 25);
   --pad-x:1.5rem;--col-meta:13.75rem;
 }
 @media (prefers-color-scheme: dark){
@@ -41,7 +44,7 @@
     --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
     --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
     --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.60 0.005 85);  --fg-mute:oklch(0.45 0.005 85);
+    --fg-3:oklch(0.72 0.005 85);  --fg-mute:oklch(0.649 0.005 85);
     --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
     --accent:oklch(0.78 0.13 145);--accent-dim:oklch(0.66 0.10 145);
     --accent-bg:oklch(0.26 0.05 145);

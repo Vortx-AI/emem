@@ -49,7 +49,10 @@ def secrets():
 
 PATHS = ["/", "/.well-known/emem.json", "/v1/agent_card", "/openapi.json",
          "/v1/health", "/nowhere-at-all", "/art/hero.svg", "/llms.txt",
-         "/docs/", "/reference", "/how-it-works", "/channel", "/spec.md"]
+         "/docs/", "/reference", "/how-it-works", "/channel", "/spec.md",
+    "/agents",
+    "/v1/agents",
+    "/guard"]
 
 def body(p):
     try:
@@ -66,14 +69,40 @@ def main():
         print("  found no secret material to test against, which makes this "
               "check vacuous rather than passing")
         return 1
+    # The search itself, checked against a body built to contain each secret.
+    # Without this, "no secret appears" and "the comparison stopped working"
+    # print the same line -- and one of those is a check that has quietly
+    # stopped being able to fail.
+    for name, val in sec.items():
+        if not val:
+            continue
+        planted = b"prefix " + (val if isinstance(val, bytes) else val.encode()) + b" suffix"
+        if val not in planted:
+            print(f"  THE SEARCH IS NOT WORKING: {name} was planted in a body "
+                  f"and not found. Nothing below would be found either.")
+            return 1
+
     print(f"  testing {len(sec)} secret value(s) against {len(PATHS)} responses")
     leaks = 0
+    answered = 0
     for p in PATHS:
         b = body(p)
+        if b:
+            answered += 1
         for name, val in sec.items():
             if val and val in b:
                 print(f"  !! {name} APPEARS IN {p} ({len(b)}b)")
                 leaks += 1
+
+    # Reaching nothing is not passing: a responder that answered none of these
+    # has told us nothing about what it serves.
+    if answered == 0:
+        print(f"  none of the {len(PATHS)} paths returned a body. Undetermined, "
+              f"not clean: there was nothing to search.")
+        return 1
+    if answered < len(PATHS):
+        print(f"  note: {len(PATHS) - answered} of {len(PATHS)} paths returned "
+              f"nothing, and were not searched")
     print(f"  {'CLEAN: no secret appears in any response' if not leaks else f'{leaks} LEAK(S)'}")
     return 1 if leaks else 0
 

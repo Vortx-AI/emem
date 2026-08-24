@@ -1,6 +1,6 @@
 # emem Security Policy
 
-_Last updated: 2026-07-14_
+_Last updated: 2026-08-24_
 
 emem is an Apache-2.0, pure-Rust, content-addressed protocol. The
 canonical responder is operated by **Vortx AI Private Limited** (India)
@@ -13,8 +13,8 @@ also [Privacy](/privacy) and [Terms](/terms).
 
 | Version | Supported |
 |---|---|
-| 1.0.x | Yes. Current. Fixes land here. |
-| 0.0.x | No. Superseded; upgrade rather than report against these. |
+| 2.3.x | Yes. Current. Fixes land here. |
+| <= 2.2.x | No. Superseded; upgrade rather than report against these. |
 
 There is one canonical responder and it runs the tip of `main`, so the
 hosted instance at `https://emem.dev` is always the supported version.
@@ -90,8 +90,8 @@ Out of scope:
 |--------------------------|-------------------------------------------------------------|
 | TLS                      | rustls 1.2/1.3, modern ciphers only, Let's Encrypt cert     |
 | HSTS                     | `max-age=31536000; includeSubDomains; preload`              |
-| CSP                      | locked-down default-src 'self' + GA4 origin                 |
-| Other headers            | X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-Policy |
+| CSP                      | `default-src 'self'`, hash-based script-src and style-src, no `unsafe-inline` for scripts, no analytics origin |
+| Other headers            | X-Content-Type-Options, Referrer-Policy, Permissions-Policy, and CSP `frame-ancestors` / `base-uri` / `form-action` (framing is controlled by CSP, not X-Frame-Options) |
 | Body cap                 | 16 MiB on POST endpoints (413 on overflow)                  |
 | Request timeout          | 40 s (504 on overflow), `EMEM_TIMEOUT_SECS`                 |
 | Per-IP rate limit        | 600 req/min sustained, 120 burst, `Retry-After: 1`. `EMEM_RATE_LIMIT_RPS` / `EMEM_RATE_LIMIT_BURST` |

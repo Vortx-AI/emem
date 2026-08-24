@@ -54,4 +54,15 @@
   <url><loc>https://emem.dev/v1/agent_card</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://emem.dev/v1/tools</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/v1/algorithms</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/how-it-works</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/solutions</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/whitepaper</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/whitepaper/v1</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://emem.dev/reference</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/demos</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/gallery</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/guard</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/agents</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://emem.dev/tools</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://emem.dev/scoreboard</loc><changefreq>daily</changefreq><priority>0.6</priority></url>
 </urlset>

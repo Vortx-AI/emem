@@ -25,12 +25,18 @@
     --paper: #faf6ea;
     --ink: #1b1410;
     --ink-2: #4a3d31;
-    --mute: #8a7a64;
+    /* WCAG AA against all three of this page's grounds. #8a7a64 measured
+       3.85:1 on --paper, 3.53 on --cream, 3.22 on --cream-2, and it carries
+       10px text (the atlas subtitle, the cell64 captions). Same hue, darker:
+       5.58 / 5.12 / 4.66. */
+    --mute: #6e614f;
     --rule: #d9cdaf;
     --rule-strong: #b8a982;
     --forest: #3f6b3a;
-    --ember: #c9522a;
-    --sky: #3f6b8c;
+    /* 4.11 / 3.78 / 3.44 before, on the same three grounds, under the place
+       fingerprint labels. Now 5.53 / 5.07 / 4.62, hue unchanged. */
+    --ember: #a84423;
+    --sky: #3c6786;
 
     --serif: Georgia, 'Hoefler Text', 'Source Serif Pro', Cambria, 'Times New Roman', serif;
   }
@@ -214,7 +220,7 @@
     border:1px solid var(--rule-strong);background:rgba(255,255,255,.5);
     padding:3px 6px;font-size:var(--t-3xs);color:var(--ink-2);font-family:var(--mono);
     display:inline-flex;align-items:center;gap:5px;text-decoration:none;
-  }
+  ;min-height:24px}
   .tile.similar .chip .d{font-size:var(--t-3xs);color:var(--mute)}
   .tile.similar .chip:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
   .tile.similar .chip:hover .d{color:var(--paper)}

@@ -24,17 +24,20 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 
 <style>
+/* The muted levels here are a local copy of web/tokens.css and carried the
+   pre-2026-08-24 values, which measured 2.3-2.7:1 behind 10px text. Corrected
+   to match tokens.css: both levels clear WCAG AA on all three grounds. */
   :root {
     --paper:   oklch(0.975 0.005 85);
     --paper-2: oklch(0.955 0.005 85);
     --paper-3: oklch(0.93 0.006 85);
     --ink:     oklch(0.20 0.005 85);
     --ink-2:   oklch(0.32 0.005 85);
-    --mute:    oklch(0.50 0.005 85);
+    --mute:    oklch(0.42 0.005 85);
     --rule:    oklch(0.86 0.008 85);
     --accent:  oklch(0.45 0.09 145);
-    --warn:    oklch(0.55 0.16 25);
-    --info:    oklch(0.55 0.12 230);
+    --warn:    oklch(0.53 0.16 25);
+    --info:    oklch(0.5 0.12 230);
   }
   
 
