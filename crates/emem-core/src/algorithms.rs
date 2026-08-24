@@ -285,6 +285,15 @@ pub struct Algorithm {
     pub output: AlgorithmOutput,
     /// Editorial guidance for agent routing.
     pub when_to_use: String,
+    /// Where this recipe misleads rather than fails. Optional, and it
+    /// earns its place only when the trap is invisible in the output:
+    /// an algorithm that errors tells you itself, one that returns a
+    /// confident wrong class does not. `anomaly_zscore@1` is the case
+    /// that added the field — on a band with a floor at zero its low
+    /// class can be arithmetically unreachable while every response
+    /// still reads `"normal"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitfalls: Option<String>,
     /// Concrete primitive call (REST or local) that gathers the inputs.
     pub primitive: String,
     /// Whether the formula is deterministic given the input fact_cids.
@@ -2932,6 +2941,30 @@ mod tests {
         assert!(matches!(DEFAULT.evaluate("gdd_phenology@1", &s), Ok(None)));
         s.insert("weather.temperature_2m".to_string(), 5.0);
         assert!(matches!(DEFAULT.evaluate("gdd_phenology@1", &s), Ok(None)));
+    }
+
+    #[test]
+    fn zscore_pitfall_reaches_the_wire_not_just_the_struct() {
+        // Both surfaces that explain an algorithm -- GET /v1/algorithms/:key
+        // and the MCP emem_explain_algorithm arm -- hand the whole struct to
+        // serde_json::to_value. So the question a caller cares about is not
+        // "is the field on the struct" but "does it come out the other side",
+        // and a `skip_serializing_if` added later would answer that
+        // differently while every field-level check kept passing.
+        let a = DEFAULT
+            .lookup("anomaly_zscore@1")
+            .expect("anomaly_zscore@1 is a published key");
+        let wire = serde_json::to_value(a).expect("the registry entry serializes");
+        let pitfalls = wire.get("pitfalls").and_then(|v| v.as_str()).expect(
+            "the pitfall must survive serialization; it is the only \
+                     place a caller learns the low class can be unreachable",
+        );
+        // The specific condition, not merely some prose in the slot.
+        assert!(
+            pitfalls.contains("mean - 2*sd"),
+            "the pitfall must state the threshold that goes negative, since \
+             that is what a reader checks against their own band"
+        );
     }
 
     #[test]

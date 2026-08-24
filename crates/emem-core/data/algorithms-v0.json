@@ -5409,6 +5409,7 @@
     "explanation": "Standard z-score against the responder's running mean/sd for the named band. NOT a global truth, the population is whatever the responder has attested."
    },
    "when_to_use": "'Is this value unusual for this band?'. Best used after the responder has > a few thousand cells worth of attested data; small populations give noisy z-scores.",
+   "pitfalls": "One-sided on any band with a floor at zero. The low class fires below mean - 2*sd, and for a non-negative quantity whose mean is smaller than twice its standard deviation that threshold is a negative number: not rare, unreachable. Nothing observes minus three millimetres of rain. This is arithmetic rather than a property of one corpus, and it bites the bands this responder holds most of: fractions, pollutant concentrations, reflectance, and log-scaled counts. Measured on a neighbouring responder's 396 count distributions, mean - 2*sd was negative for 359 of them, so 'unusually low' could not fire on 91% and nothing in the output said so. Before trusting a 'normal' here on a floored band, check whether mean - 2*sd falls inside that band's own range; where it does not, 'normal' is carrying 'normal or low'. A percentile of the same history assumes no shape and keeps both ends reachable.",
    "primitive": "GET /v1/agent_stats \u2192 per-band mean/sd; POST /v1/recall {bands:[<band>]} \u2192 compute z locally",
    "deterministic": false,
    "_deterministic_note": "Depends on the responder's corpus state at request time.",
