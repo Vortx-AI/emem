@@ -109,7 +109,21 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
       # serving".
       echo "==> verifying the responder is serving THIS commit"
       if python3 "$REPO/scripts/deploy_drift.py" --require-head; then
-        exit 0
+        # And that the BYTES a visitor receives are the bytes in this tree.
+        # deploy_drift compares a self-reported commit, which is a claim about
+        # provenance. The state that slipped past it today was simpler than any
+        # stamp problem: a correct tree, every gate green, and a binary nobody
+        # had rebuilt. Nothing here could see it, because every gate reads the
+        # tree. It took an agent on the other side of the socket fetching the
+        # page and finding the rule absent from the served CSS.
+        echo "==> verifying the served pages are this tree's pages"
+        if python3 "$REPO/scripts/served_matches_tree.py"; then
+          exit 0
+        fi
+        echo "!!  the responder reports this commit and is serving different"
+        echo "!!  bytes. The build or the restart did not take for at least one"
+        echo "!!  baked page, and the stamp cannot see that."
+        exit 1
       fi
       echo "!!  the deploy reported success and the responder is on another"
       echo "!!  commit. Nothing was rolled back: the previous binary is still"

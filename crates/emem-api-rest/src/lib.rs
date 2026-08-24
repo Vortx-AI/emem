@@ -67090,6 +67090,46 @@ async fn photon_lookup_candidates(q: &str, limit: usize) -> Result<Vec<Nominatim
             polygon_geojson: None,
         });
     }
+    // LAZY EXONYM LOOKUP. Photon's default response carries only the local
+    // name: "Hamamatsu, Japan" comes back as 浜松市 and "Munich, Germany" as
+    // München. The confidence floor compares the query against that label, so
+    // an English question about a place with a local endonym scores zero
+    // overlap and is refused for not looking like its own name. Measured
+    // before building this: emem refused Osaka, Seoul, Cairo, Rome and Munich
+    // while resolving every one of them correctly.
+    //
+    // `&lang=en` returns the exonym (verified: Hamamatsu, Munich), but taking
+    // it as the LABEL would undo the deliberate choice that a query in one
+    // script gets its answer in that script. So the English name is fetched
+    // only as an extra name for the fit test, and only when the label shares
+    // nothing with the query -- which is the path that was about to refuse.
+    // The happy path pays nothing.
+    if let Some(first) = out.first() {
+        let no_overlap = query_label_overlap(q_trim, &first.label)
+            .map(|o| o < QUERY_LABEL_OVERLAP_FLOOR)
+            .unwrap_or(false);
+        if no_overlap && first.alt_names.trim().is_empty() {
+            let en_url = format!(
+                "{}/api/?q={}&limit=1&lang=en",
+                base.trim_end_matches('/'),
+                urlencoding(q_trim),
+            );
+            if let Ok(r) = reqwest_client().get(&en_url).send().await {
+                if let Ok(txt) = r.text().await {
+                    if let Ok(v) = serde_json::from_str::<JsonValue>(&txt) {
+                        let en = v["features"][0]["properties"]["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_string();
+                        if !en.is_empty() {
+                            out[0].alt_names = en;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     // Zero results is a normal outcome, the place isn't in Photon's OSM
     // index. Return Ok(vec![]) so locate_inner can try Nominatim before
     // declaring "place not found", and so transport failures (Err) stay
