@@ -328,6 +328,26 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+/* The token grammar, moved here from the homepage. A reference page is where a
+   reader looks up what `emem:bundle:` proves that `emem:entity:` does not, and
+   the front page was carrying it between two live consoles. */
+.tf{margin-top:2.8rem;border-top:1px dotted var(--rule-strong);padding-top:2rem}
+.tf-h{font-family:var(--display);font-size:var(--t-2xl);font-weight:420;font-variation-settings:'opsz' 32;letter-spacing:-.012em;line-height:1.1;margin:0 0 var(--s-2);color:var(--ink)}
+.tf-sub{font-size:var(--t-sm);line-height:1.58;color:var(--ink-2);max-width:82ch;margin:0 0 1.3rem}
+.tf-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1rem}
+.tf-card{display:block;border:1.6px solid var(--ink);background:var(--paper);padding:.9rem .95rem;text-decoration:none;color:var(--ink-2)}
+.tf-card:hover{background:var(--ink);color:var(--paper)}
+.tf-card:hover .tf-pre,.tf-card:hover .tf-shape{color:var(--paper)}
+.tf-pre{font-family:var(--mono);font-size:var(--t-sm);color:var(--accent);font-weight:600;word-break:break-all}
+.tf-what{font-size:var(--t-sm);line-height:1.5;margin:.45rem 0 .55rem;color:inherit}
+.tf-shape{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute)}
+/* The grid is three columns and must not stay three on a phone. This rule
+   lived beside the others on the homepage and would have been left behind by a
+   move that only collected rules whose selector starts with .tf: it starts with
+   @media. The page would have overflowed at 375px and nothing in the move would
+   have said so. */
+@media (max-width:860px){.tf-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -392,6 +412,29 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <div class="mith-div"><span class="gem"></span></div>
 
+<section class="section page" id="token-grammar">
+  <div class="tf" aria-label="the emem token family">
+    <h2><span class="num">01</span>One token, nine shapes</h2>
+    <p class="tf-sub">The handle above is the original: one signed fact. As emem grew to carry objects, sets, fields over time, and now the machines themselves, the token grew typed variants, one per shape of memory. All of them are short addresses you can hand to another agent, but they are not equally strong, and the difference decides what a citation actually proves. <code>emem:fact:</code> hashes the complete signed body at full width, so it re-hydrates byte-identical for whoever holds it. <code>emem:entity:</code> and <code>emem:bundle:</code> hash an identity anchor and a citation list rather than the record itself, so they converge two agents on the same object or the same set without promising the same bytes underneath. <code>emem:cell:</code> is an address, not a digest: it names a place, and nothing verifies until a fact hangs on it. Each card opens its entry in the reference, which states what that shape binds.</p>
+    <div class="tf-grid">
+      <a class="tf-card" href="/reference#token-fact"><div class="tf-pre">emem:fact:</div><div class="tf-what">One signed observation at a place. Re-hydrates the exact bytes.</div><div class="tf-shape">a point</div></a>
+      <a class="tf-card" href="/reference#token-cell"><div class="tf-pre">emem:cell:</div><div class="tf-what">A bare place, the shared address every fact hangs on.</div><div class="tf-shape">a place</div></a>
+      <a class="tf-card" href="/reference#token-entity"><div class="tf-pre">emem:entity:</div><div class="tf-what">A canonical object identity, so two agents name one thing.</div><div class="tf-shape">an object</div></a>
+      <a class="tf-card" href="/reference#token-bundle"><div class="tf-pre">emem:bundle:</div><div class="tf-what">A signed set of facts, pulled in one round trip.</div><div class="tf-shape">a set</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:raster:</div><div class="tf-what">A native-resolution field over an area, the array a world model reads.</div><div class="tf-shape">a field</div></a>
+      <a class="tf-card" href="/reference#token-cube"><div class="tf-pre">emem:cube:</div><div class="tf-what">A field over time, the 4D world token, a manifest over raster slices.</div><div class="tf-shape">a field over time</div></a>
+      <a class="tf-card" href="/reference#token-raster"><div class="tf-pre">emem:rasterset:</div><div class="tf-what">Several fields as one re-derivable set, so a whole scene travels as one handle.</div><div class="tf-shape">a set of fields</div></a>
+      <a class="tf-card" href="/v1/substrates"><div class="tf-pre">emem:trace:</div><div class="tf-what">One verified OS execution trace: how a machine ran when it produced its reading.</div><div class="tf-shape">an execution</div></a>
+      <a class="tf-card" href="/v1/device_platforms"><div class="tf-pre">emem:attestation:</div><div class="tf-what">A device's platform evidence: which hardware root of trust vouched for its key.</div><div class="tf-shape">a device's proof</div></a>
+    </div>
+  </div>
+</section>
+
+</div>
+
+<div class="act" id="act-watch">
+  <h2 class="act-h" id="act-watch-h"><span class="act-n">Three</span>In practice</h2>
+
 <section class="section page" id="client-setup">
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">01</span><span class="idx-label">Client setup</span></div>
@@ -405,7 +448,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">01</span>Client setup</h2>
+    <h2><span class="num">02</span>Client setup</h2>
     <p class="lede">Same JSON in every host that speaks MCP. For runtimes without native Streamable HTTP, the <span class="band">mcp-remote</span> stdio bridge works. No keys, no install.</p>
 
     <div class="connect" id="client-tabs">
@@ -454,7 +497,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">02</span>High-traffic endpoints</h2>
+    <h2><span class="num">03</span>High-traffic endpoints</h2>
     <p class="lede">The endpoints agents call most. Each has a matching MCP tool; the full machine surface is at <a href="/openapi.json">/openapi.json</a>, mirrored at <a href="/v1/tools">/v1/tools</a>.</p>
 
     <div class="scroll-x">
@@ -549,7 +592,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">03</span>Primitives</h2>
+    <h2><span class="num">04</span>Primitives</h2>
     <p class="lede">The read surface composes from a small set of primitives. Each returns a signed receipt over a content-addressed fact, so any answer is reproducible on another peer.</p>
 
     <div class="scroll-x">
@@ -629,7 +672,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">04</span>Hunter: open-world discovery</h2>
+    <h2><span class="num">05</span>Hunter: open-world discovery</h2>
     <p class="lede"><span class="band">/v1/hunt</span> takes an event keyword plus a region, geocodes the region, fans out across up to 32 sampled cells, recalls each event's primary input band, and returns the top 8 hotspots ranked by that scalar, each with its cell64, lat/lng, recalled value, a fact_cid, and a scene.png URL.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1rem">Eleven events run today; oil_slick is registered but returns not_yet_implemented until its algorithm lands. The registry decides which algorithm runs.</p>
@@ -671,7 +714,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>Physics &amp; forecasting</h2>
+    <h2><span class="num">06</span>Physics &amp; forecasting</h2>
     <p class="lede">Four solvers run on the same signed grid. Each returns the field plus the source fact_cids its initial condition was built from, so the inputs are as verifiable as the output.</p>
 
     <div class="scroll-x">
@@ -710,7 +753,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">06</span>Transparency log</h2>
+    <h2><span class="num">07</span>Transparency log</h2>
     <p class="lede">Immutability inside one responder is a promise about a data structure. The log is the part a client can check for itself.</p>
 
     <div class="scroll-x">
@@ -731,7 +774,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
     <hr class="band-rule">
 
-    <h2><span class="num">07</span>The full machine contract</h2>
+    <h2><span class="num">08</span>The full machine contract</h2>
     <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 161 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">One algebra, nine verbs</p>

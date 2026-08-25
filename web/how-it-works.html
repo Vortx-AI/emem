@@ -676,9 +676,43 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   </div>
 </section>
 
+<section class="section page" id="device-admission">
+  <aside class="section-meta">
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Devices</span></div>
+    <dl>
+      <dt>the question</dt><dd>could the instrument itself be lying?</dd>
+      <dt>admitted on</dt><dd>a signed OS execution trace, chained window to window</dd>
+      <dt>refused when</dt><dd>a frame is dropped or reordered, by name, at ingest</dd>
+      <dt>the token</dt><dd><code>emem:trace:</code>, 63 bytes, provenance and never pixels</dd>
+      <dt>contracts</dt><dd>public, content-addressed registries</dd>
+    </dl>
+  </aside>
+  <div class="section-body">
+    <h2><span class="num">04</span>Devices: admitted on a signed execution trace</h2>
+    <p class="lede">The open archive earns its place by recomputability: anyone can re-fetch the
+      cited source and recompute the value, which is what makes it the drift anchor everything
+      else is scored against. Every other machine that watches the world, an operator&rsquo;s
+      constellation, a robot, a camera, a microscope, is respected as a contributor and never
+      believed on its word alone.</p>
+    <p>Its output is admitted only when the payload digest is bound inside a complete, signed OS
+      execution trace, chained window to window, so a dropped or reordered frame is refused at
+      ingest and refused <em>by name</em> rather than silently dropped. A streamed frame becomes a
+      63-byte <code>emem:trace:</code> token that reconstructs the verified provenance and never
+      the pixels: what travels is the proof that the bytes were what the device said they were,
+      not the bytes.</p>
+    <p>The admission contracts are public and content-addressed, so a device operator can read
+      what they must satisfy before building anything:
+      <a href="/v1/substrates">substrates</a>,
+      <a href="/v1/device_platforms">device platforms</a>,
+      <a href="/v1/trace_encodings">trace encodings</a>.
+      The whole path runs end to end from this repository, on real Sentinel-2 frames with chained
+      traces, one refusal and one reboot:</p>
+    <pre><code>cargo run -p emem-primitives --example orin_stream</code></pre>
+  </div>
+</section>
 <section class="section page" id="connect-evolve">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">Connect &amp; evolve</span></div>
+    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Connect &amp; evolve</span></div>
     <dl>
       <dt>connect</dt><dd>POST&nbsp;/v1/memory_bundle &rarr; <span class="band">emem:bundle:&lt;cid&gt;</span></dd>
       <dt>edges</dt><dd>POST&nbsp;/v1/edges/recall &middot; emem_edges_recall</dd>
@@ -690,7 +724,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">04</span>Connect &amp; evolve: typed edges, contradiction scoring, the refinement loop</h2>
+    <h2><span class="num">05</span>Connect &amp; evolve: typed edges, contradiction scoring, the refinement loop</h2>
     <p class="lede">emem stores facts and links them. When two sources disagree, it records the disagreement instead of silently picking one. A later attestation supersedes an earlier one on the transaction-time axis without erasing it; the old bytes stay replayable. Contradictions become signed, queryable evidence; nothing is overwritten in the dark.</p>
 
     <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
@@ -714,7 +748,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
 <section class="section page" id="substrate">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">05</span><span class="idx-label">Substrate</span></div>
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Substrate</span></div>
     <dl>
       <dt>read</dt><dd>POST&nbsp;/v1/state &middot; /v1/state_multi &middot; /v1/state_diff</dd>
       <dt>cite</dt><dd>POST&nbsp;/v1/memory_token &middot; /v1/memory_bundle</dd>
@@ -728,7 +762,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">05</span>The memory substrate</h2>
+    <h2><span class="num">06</span>The memory substrate</h2>
     <p class="lede">Below the recall surface sits a typed, signed, searchable memory substrate. State is the read motion (a per-place dense vector). The memory token is the cite motion (one string any pipeline can paste). Memory files give an agent a writable scratchpad whose every edit is ed25519-signed and content-addressed. Every read carries the same bi-temporal axis pair: <span class="band">as_of_tslot</span> for what the world looked like on a given date; <span class="band">as_of_signed_at</span> for what the system knew on a given date.</p>
 
     <p><strong>Memory here is operational, not metaphor.</strong> Write means attest: sign an observation and give it a content address. Read means recall: bi-temporal, receipt-signed. Remember means resolve: a token returns the byte-identical signed bytes it named, in any later session, on any conformant responder. Nothing is forgotten silently: a newer attestation supersedes on the transaction-time axis and the old bytes stay replayable. Anything that cannot be re-verified offline is not in the memory. The formal version, the observation tuple, the property table with mechanisms, and the memory algebra as shipped, is written down at <a href="/docs/model.html">the memory model</a>.</p>
@@ -790,7 +824,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
 <section class="section page" id="absence">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">Absence</span></div>
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Absence</span></div>
     <dl>
       <dt>contract</dt><dd>no silent fallbacks</dd>
       <dt>shape</dt><dd>signed Absence fact</dd>
@@ -800,7 +834,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">06</span>Absence is a signed answer, not a 404</h2>
+    <h2><span class="num">07</span>Absence is a signed answer, not a 404</h2>
     <p class="lede">When a band has no data at a cell, the responder does not return an empty array. It signs an Absence fact with a typed reason. An agent that cites <span class="band">evidence:&nbsp;["absence_cid_…"]</span> is making a verifiable claim that no data exists, rather than guessing from an HTTP code.</p>
 
     <p>This is what keeps an empty result honest: a signed Absence distinguishes a wrong query (you asked the wrong band) from an empty place (the band is genuinely unattested here). The reason code says which.</p>
@@ -822,7 +856,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
 <section class="section page" id="liveness">
   <aside class="section-meta">
-    <div class="idx"><span class="idx-num">07</span><span class="idx-label">Liveness</span></div>
+    <div class="idx"><span class="idx-num">08</span><span class="idx-label">Liveness</span></div>
     <dl>
       <dt>stream</dt><dd>GET&nbsp;/v1/stream (SSE)</dd>
       <dt>tick</dt><dd>5&ndash;300 s, query tunable</dd>
@@ -833,7 +867,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">07</span>Liveness: signed ticks, signed binary</h2>
+    <h2><span class="num">08</span>Liveness: signed ticks, signed binary</h2>
     <p class="lede">Two surfaces an operator does not get to fake. Every stream tick is an ed25519 signature over a deterministic preimage. The operator attestation binds the running binary&rsquo;s BLAKE3 hash to its git commit, signed by the same key.</p>
 
     <div class="live-grid">
