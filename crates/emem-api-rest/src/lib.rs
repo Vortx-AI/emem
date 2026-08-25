@@ -26641,6 +26641,10 @@ async fn mcp_tool_call(
             // Old Bridge and the model narrated Bosnia's readings under
             // Kolkata's name; the anchor check refuses that rather than
             // trusting the model to notice.
+            // The clock starts here, because the two halves of this tool share
+            // one transport budget and the second half is the one that can run
+            // long.
+            let started = std::time::Instant::now();
             let ask_env = Box::pin(mcp_tool_call("emem_ask", json!({ "q": q }), s)).await?;
             if let Some(mismatch) = reason_place_mismatch(&q, &ask_env) {
                 return Err((-32602, mismatch));
@@ -26650,7 +26654,38 @@ async fn mcp_tool_call(
                 .get("model")
                 .and_then(|v| v.as_str())
                 .map(str::to_string);
-            a2a_reason_compose(&q, ask_env, s, want_model.as_deref()).await
+            // BOUNDED, like the model answer on /v1/ask, and for the same
+            // reason: a cold ask measures around twenty three seconds, a
+            // deliberating model another fourteen, and the transport ceiling is
+            // forty. Past it the caller gets a bare 504 with an empty body and
+            // learns nothing about which half ran out.
+            //
+            // Unlike /v1/ask there is no signed answer to fall back on here,
+            // because the prose IS what this tool returns. So the timeout
+            // produces a typed error that names the budget and points at
+            // emem_ask, which answers signed with no model in the loop. That is
+            // still strictly better than 504: it says what happened and what to
+            // call instead.
+            let left = timeout_seconds()
+                .saturating_sub(started.elapsed().as_secs())
+                .saturating_sub(3);
+            match tokio::time::timeout(
+                std::time::Duration::from_secs(left.max(1)),
+                a2a_reason_compose(&q, ask_env, s, want_model.as_deref()),
+            )
+            .await
+            {
+                Ok(v) => v,
+                Err(_) => Err((
+                    -32050i64,
+                    format!(
+                        "the signed answer took most of this request's budget and the model did \
+                         not finish composing within the {left}s that were left. emem_ask returns \
+                         the same evidence signed, with no model in the loop, and does not need \
+                         this budget."
+                    ),
+                )),
+            }
         }
         "emem_ask" => {
             // Single-shot free-text answer. Same routing as POST /v1/ask;

@@ -877,12 +877,15 @@ curl -s -X POST https://emem.dev/v1/ask \
 ```
 
 The same parameter works on the MCP tools `emem_ask` and `emem_reason`, and
-through the A2A door:
+through the A2A door. Prefer the `emem_ask` skill there: it returns the signed
+answer whether or not the model finishes, where `emem_reason` returns only the
+prose and has nothing to fall back on when a cold question plus a deliberating
+model runs past the request budget.
 
 ```bash
 curl -s -X POST https://emem.dev/a2a/tasks \
   -H 'content-type: application/json' \
-  -d '{"skill":"emem_reason","args":{"q":"What is the air quality in Munich?","model":"cosmos"}}'
+  -d '{"skill":"emem_ask","args":{"q":"What is the air quality in Munich?","model":"cosmos"}}'
 ```
 
 Name a model by `base_model`, by `family`, or by any fragment that picks out
