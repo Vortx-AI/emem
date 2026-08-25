@@ -134,6 +134,52 @@ def main() -> int:
         print("  whether the other gates' verdicts are about the code that runs.")
         return 1
 
+    if "--check-order" in sys.argv:
+        # The property, asserted without executing anything.
+        #
+        # CI runs each gate as its own step for per-step granularity. Running
+        # this file there as well meant every gate ran TWICE in one job, and
+        # the second pass pushed the suite through the responder's own rate
+        # limit: gates then failed for being early rather than for being
+        # wrong. The order is a fact about the workflow file, so it is checked
+        # against the workflow file.
+        # PER JOB, because jobs run in parallel and "first" across a whole
+        # workflow means nothing. The first version compared against every gate
+        # step in the file and reported render_whitepaper.py, which is in a
+        # different job entirely and could not be ordered against this one if
+        # anybody wanted it to be.
+        #
+        # What this does NOT claim: that gate scripts in OTHER jobs wait for the
+        # trust check. They do not. Making them wait is a `needs:` edge between
+        # jobs, which is a real change to how this workflow runs, and asserting
+        # it here would state a property nothing enforces.
+        job, in_job = None, {}
+        for raw in CI_WORKFLOW.read_text(encoding="utf-8").split("\n"):
+            if raw.startswith("  ") and not raw.startswith("   ") and raw.rstrip().endswith(":"):
+                job = raw.strip().rstrip(":")
+                in_job.setdefault(job, [])
+            elif job is not None and "python3 scripts/" in raw and "echo" not in raw:
+                script = raw.split("python3 ", 1)[1].split()[0]
+                if not script.endswith("gates.py"):
+                    in_job[job].append(script)
+        owner = next((j for j, ss in in_job.items() if TRUST_SCRIPT in ss), None)
+        if owner is None:
+            print(f"  {TRUST_SCRIPT} is not a step in {CI_WORKFLOW.relative_to(REPO)},")
+            print(f"  so nothing establishes whether the other gates' verdicts are")
+            print("  about the code that runs.")
+            return 1
+        if in_job[owner][0] != TRUST_SCRIPT:
+            print(f"  in job {owner!r}, {TRUST_SCRIPT} runs after "
+                  f"{in_job[owner][0]}.")
+            print(f"  It has to be first, because it {TRUST_WHY}. A failing step")
+            print("  stops the ones after it, which is what makes being first")
+            print("  mean anything here.")
+            return 1
+        print(f"  job {owner!r}: the trust check runs first, ahead of "
+              f"{len(in_job[owner]) - 1} gate(s).")
+        print(f"  ({TRUST_WHY})")
+        return 0
+
     if "--list" in sys.argv:
         print(f"  0. {trust[0][1]:24} {TRUST_WHY}")
         print("     ^ if this fails, nothing below runs: their verdicts would be")

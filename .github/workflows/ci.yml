@@ -302,6 +302,15 @@ jobs:
       # inside the script), no AGI-family vocabulary, no buzzword tells,
       # and every relative doc link resolving. Judgment calls stay with
       # review; this holds the mechanical floor.
+      # The third way a green line proves nothing: the right code present and
+      # not the code running. Python binds the LAST def, so a replacement
+      # spliced above an untouched original runs the original -- and json!
+      # keeps the LAST duplicate key, so a second entry for an existing path
+      # silently replaces its description. Both read as correct in the file.
+      # The upstream hit the first twice in one day, once on a zero-guard whose
+      # own control came back green because it was exercising the shadowed copy.
+      - name: no shadowed definitions
+        run: python3 scripts/shadowed_definitions.py
       - name: doc lint
         run: python3 scripts/doc_lint.py
       # `include_str!` makes a repo file a BUILD input, and the Dockerfile
@@ -383,15 +392,6 @@ jobs:
       # not the same as an eighth class.
       - name: no undeclared provenance classes
         run: python3 scripts/provenance_classes.py
-      # The third way a green line proves nothing: the right code present and
-      # not the code running. Python binds the LAST def, so a replacement
-      # spliced above an untouched original runs the original -- and json!
-      # keeps the LAST duplicate key, so a second entry for an existing path
-      # silently replaces its description. Both read as correct in the file.
-      # The upstream hit the first twice in one day, once on a zero-guard whose
-      # own control came back green because it was exercising the shadowed copy.
-      - name: no shadowed definitions
-        run: python3 scripts/shadowed_definitions.py
       # And the whole suite in dependency order. shadowed_definitions runs FIRST
       # there and the rest do not run if it fails, because a gate script with a
       # shadowed definition reports on code that is not running and its PASS
@@ -409,8 +409,24 @@ jobs:
       # detector that stopped matching looks exactly like a clean surface.
       - name: nothing a scanner asks for is served
         run: python3 scripts/scanner_surface.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-      - name: gates, in dependency order
-        run: python3 scripts/gates.py
+      # The ORDER, checked without running anything twice.
+      #
+      # This step used to be `python3 scripts/gates.py`, which executes every
+      # gate again. The individual steps above had already run them once, so
+      # each gate ran twice in one job and the second pass walked the suite
+      # straight through this responder's own published rate limit. What came
+      # back was `mcp=tool_error rest=rate_limited` reported as two surfaces
+      # disagreeing, and a cold agent that "could not obtain a fact to cite",
+      # neither of which was true: parity passes 15 of 15 run on its own.
+      #
+      # The property that step existed for is that the trust check comes first,
+      # since a gate script with a shadowed definition reports on code that is
+      # not running and its PASS would mean nothing. That is now enforced two
+      # ways, neither of which costs a request: shadowed_definitions is the
+      # FIRST gate step in this job, so a failure stops the rest from running,
+      # and this asserts that it stays first.
+      - name: the trust check comes first
+        run: python3 scripts/gates.py --check-order
       # One navigation, generated from one definition. The site had SEVEN
       # different nav bars across 22 pages and between them they reached 13 of
       # 142 routes; /guard appeared in exactly one nav, its own. A hand edit to
