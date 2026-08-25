@@ -175,6 +175,12 @@ def resolve_via_ask(origin, query):
     cell = d.get("candidate_cell") or d.get("cell64") or d.get("cell")
     label = d.get("candidate_label") or ""
     if not cell:
+        # A NON-2xx IS NOT A PLACE FINDING. After the patience wrapper gives up,
+        # a 429 arrives here as a body with no place in it, and reporting that
+        # as "no place extracted" names the wrong thing: the responder never
+        # looked. Same category error as the gates were making, one layer up.
+        if code and not 200 <= code < 300:
+            return "unreachable", None, f"HTTP {code} after retries"
         return "no_place", None, f"status={status} extracted={d.get('extracted')!r}"
     return status or "ok", cell, label
 
@@ -271,13 +277,15 @@ def main():
     # cut in half by one. Unreachable is undetermined.
     unreachable = [f for f in failures if "unreachable" in f or "Connection refused" in f]
     probes = checked * 2
-    # A SHARE, not any at all. The first version voided the whole run on a
-    # single unreachable probe, and a run of 104 probes against a live service
-    # will occasionally lose one: it reported "undetermined" over 97 clean
-    # measurements and four blips, which is a check that cannot pass on a
-    # working day. Undetermined is for when too little was measured to say
-    # anything, not for when something was measured and a little was missed.
-    if unreachable and len(unreachable) * 4 >= probes:
+    # A MAJORITY, not any at all, and not a quarter either.
+    #
+    # The first version voided a whole run on one unreachable probe: 97 clean
+    # measurements and four blips reported as "undetermined", which is a check
+    # that cannot pass on a working day. A quarter was the second try and it
+    # was still wrong, because `--only Madras` is four probes and losing one of
+    # them is 25%. Undetermined means too little was measured to say anything,
+    # so the line is where most of it is missing.
+    if unreachable and len(unreachable) * 2 > probes:
         print(f"\n  {len(unreachable)} of {probes} probes could not reach "
               f"{args.origin}.")
         print("  Undetermined, not failed: a place check has to reach the")
