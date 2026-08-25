@@ -925,58 +925,11 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    sentence about a queue rendered as a column of confetti. When there is no
    index and no plate, there is no reason for two columns. */
 .album.is-empty{grid-template-columns:1fr}
-.album-plate-wrap{position:sticky;top:1rem}
-@media (max-width:900px){.album-plate-wrap{position:static}}
-/* The selected card, so the index says which place the plate is showing.
-   `aria-current` was already being set and nothing rendered it: the state was
-   in the accessibility tree and invisible to everyone reading with their eyes. */
-.album-card[aria-current="true"] img{outline:2px solid var(--ink-2);outline-offset:1px}
-.album-card[aria-current="true"] b{text-decoration:underline;text-underline-offset:2px}
-/* Twelve postcards at 9 KB each is 111 KB, against 2.5 MB for twelve panels.
-   That is the difference between a page of postcards and a download, and it is
-   why the album could only show one place at a time until the painter served a
-   preview. */
-.album-grid{display:grid;gap:1rem;grid-template-columns:repeat(auto-fill,minmax(108px,1fr))}
-.album-card{margin:0;border:0;padding:0;background:none;font:inherit;color:inherit;
-  text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:6px}
-.album-card img{display:block;width:100%;height:auto;border-radius:3px;background:var(--paper-3)}
-.album-card figcaption{font-size:var(--t-2xs);line-height:1.35}
-.album-card b{display:block;font-weight:600}
-/* The age on its own line. It was inline after the counts and ran straight
-   into them -- "27 personseen 6 min ago" -- which was survivable while the
-   index was full-width and is not now that it is a 38% column where every
-   caption wraps. Two facts about different things should not read as one word. */
-.album-card u{display:block;margin-top:.382rem;text-decoration:none;
-  color:var(--mute);font-size:var(--t-2xs)}
-.album-card:hover img{outline:2px solid var(--mute);outline-offset:1px}
-.album-plate{margin:0}
 /* The provenance note is its own statement, not a clause trailing the caption.
    Inline it read "...painted 4 min ago.   the count, the cell and the clip
    hash are inside the file" -- a lowercase fragment after a full stop, which
    is what a sentence looks like when it was written as a suffix. */
-.album-plate .prov{display:block;margin-top:.382rem}
-/* The strip. Observations are boxes; the intervals between them are boxes too,
-   widened by how long nobody was looking. The discontinuity is the layout
-   rather than a caveat under it. */
-.strip-head{font-size:var(--t-2xs);color:var(--ink-2);margin:14px 0 6px}
 .strip{display:flex;align-items:flex-start;gap:0;overflow-x:auto;padding-bottom:6px}
-.strip-obs{margin:0;flex:0 0 120px}
-.strip-obs img{display:block;width:120px;height:auto;border-radius:2px;background:var(--paper-3)}
-.strip-obs figcaption{font-size:var(--t-3xs);line-height:1.3;margin-top:4px;color:var(--ink-2)}
-.strip-obs b{display:block;font-weight:600;color:inherit}
-.strip-gap{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
-  margin:0 2px;border-left:1px dashed var(--rule);border-right:1px dashed var(--rule)}
-.strip-gap span{font-size:var(--t-3xs);line-height:1.25;text-align:center;color:var(--mute);
-  text-transform:uppercase;letter-spacing:.03em}
-.strip-note{font-size:var(--t-2xs);color:var(--mute);margin:8px 0 0}
-.strip-obs figcaption u{display:block;text-decoration:none;color:var(--mute);font-size:var(--t-3xs);margin-top:2px}
-/* Heavier than a gap on purpose: a gap is time nobody watched, a wall is the
-   instrument changing. */
-.strip-wall{flex:0 0 auto;align-self:stretch;display:flex;align-items:center;justify-content:center;
-  margin:0 4px;padding:0 6px;border-left:3px solid var(--mute);border-right:3px solid var(--mute);
-  background:var(--paper-3)}
-.strip-wall span{font-size:var(--t-3xs);line-height:1.25;text-align:center;color:var(--ink-2);
-  text-transform:uppercase;letter-spacing:.03em}
 .strip-wall-soft{border-style:dashed}
 .strip-wall-soft span{color:var(--mute)}
 .strip-caveat{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);margin:0 0 .382rem;letter-spacing:.01em}
@@ -987,18 +940,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .album-item[aria-current="true"]{background:var(--paper-3);font-weight:600}
 .album-item b{font-weight:inherit}
 .album-item u{text-decoration:none;font-size:var(--t-2xs);color:var(--mute);white-space:nowrap}
-.album-plate img{display:block;width:100%;height:auto;border-radius:3px}
-/* Spans the grid it sits in. Collapsing the outer split was not enough: this
-   paragraph is a child of .album-grid, which tiles at minmax(108px,1fr), so a
-   sentence about a queue was still being rendered into a 108px column one or
-   two words at a time. */
-.album-wait{grid-column:1/-1;font-size:var(--t-xs);color:var(--mute);margin:0;padding:8px 10px}
-/* The retry, which exists because the painter serving one request at a time
-   means "not now" is a much more common answer than "not at all", and asking
-   again is usually all it takes. */
-.album-retry{font:inherit;font-size:var(--t-2xs);color:var(--ink-2);background:none;
-  border:1px solid var(--rule);border-radius:2px;padding:0 .382rem;cursor:pointer}
-.album-retry:hover{border-color:var(--ink-2)}
 .album-refusal{margin:26px 0 0;padding:18px;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}
 .album-json{margin:10px 0 0;padding:12px;background:var(--paper-2);border-radius:3px;overflow-x:auto;
   font-size:var(--t-2xs);line-height:1.5;white-space:pre-wrap;word-break:break-word}
@@ -1006,31 +947,74 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .album-ep a{font-size:var(--t-2xs);padding:3px 8px;border:1px solid var(--rule);border-radius:3px;
   text-decoration:none;color:var(--ink-2);background:var(--paper-2)}
 .album-ep a:hover{background:var(--paper-3)}
-@media (max-width:700px){ .album-grid{grid-template-columns:repeat(auto-fill,minmax(150px,1fr))} }
-
-/* ---- was inline block 5 of 13 ---- */
-/* Live gallery. Sized so a panel that has not loaded holds exactly the space
-   the loaded one will take: the aspect-ratio box means arriving media never
-   shoves the paragraph you are reading down the page. */
-.liveslot{aspect-ratio:1240/1000;display:flex;align-items:center;justify-content:center;
-  background:#f4efe4;border:1px solid #ddd2bd;border-radius:3px}
-.livenote{font-size:var(--t-2xs);letter-spacing:.04em;text-transform:uppercase;color:#8a7a5e;padding:0 14px;text-align:center}
 /* Three states, and they must look different from each other: not started,
    fetching, failed. A single grey box for all three is how a 200 KB download in
    flight becomes indistinguishable from a street with nothing on it. */
-.liveslot.is-loading{background:linear-gradient(100deg,#f4efe4 30%,#ece4d3 50%,#f4efe4 70%);
-  background-size:220% 100%;animation:liveshimmer 1.4s ease-in-out infinite}
-@keyframes liveshimmer{from{background-position:120% 0}to{background-position:-20% 0}}
 .livespin{display:inline-block;width:13px;height:13px;margin-right:8px;vertical-align:-2px;
   border:2px solid #cbbb99;border-top-color:transparent;border-radius:50%;
   animation:livespin .8s linear infinite}
 @keyframes livespin{to{transform:rotate(360deg)}}
 /* Motion is decoration here, and the words carry the state on their own. */
 @media (prefers-reduced-motion:reduce){
-  .liveslot.is-loading{animation:none;background:#ece4d3}
-  .livespin{animation:none;border-top-color:#cbbb99}
+    .livespin{animation:none;border-top-color:#cbbb99}
 }
-.livefail{font-size:var(--t-2xs);color:#8a7a5e;padding:0 14px;text-align:center}
+
+/* THE FILM STRIP.
+   One frame per place, snapping, so a reader lands on a whole frame rather than
+   on the seam between two. Horizontal because the thing being shown is a
+   sequence of places rather than a ranked list, and because a strip is what a
+   reader already knows how to drag.
+
+   Every frame is SERVED. Nothing here has an empty state, a skeleton, or a
+   spinner, because there is nothing to wait for: the markup arrives with twelve
+   places, twenty four pictures and twelve commands in it. That is the whole
+   reason the strip replaced a grid that built itself in JavaScript. */
+.filmstrip{display:flex;gap:1.618rem;overflow-x:auto;overflow-y:hidden;
+  scroll-snap-type:x mandatory;scroll-behavior:smooth;
+  padding:0 0 1rem;margin:1.618rem 0 0;
+  scrollbar-width:thin;overscroll-behavior-x:contain}
+.filmstrip:focus-visible{outline:2px solid var(--ink-2);outline-offset:3px}
+/* A frame is the width of one reading, not of the viewport. 32rem holds the two
+   pictures side by side at a comfortable size; below that the shots stack and
+   the frame takes the screen. */
+.frame{flex:0 0 min(100%,32rem);scroll-snap-align:start;box-sizing:border-box;
+  display:flex;flex-direction:column;gap:.618rem;
+  padding:1rem;border:1px solid var(--rule);border-radius:4px;background:var(--paper-2)}
+.shots{display:grid;grid-template-columns:1fr 1fr;gap:.618rem;align-items:start}
+.shot{margin:0;display:flex;flex-direction:column;gap:.382rem;min-width:0}
+/* The aspect box is the point: a picture that has not arrived holds exactly the
+   space it will take, so nothing under it moves when it does. */
+.shot img{display:block;width:100%;height:auto;border-radius:3px;background:var(--paper-3)}
+.shot.painted img{aspect-ratio:240/194;object-fit:cover}
+.shot.sat img{aspect-ratio:1/1;object-fit:cover}
+.shot figcaption{font-size:var(--t-3xs);line-height:1.3;color:var(--mute-2)}
+.frame-read h3{margin:0;font-size:var(--t-md)}
+.frame-what{margin:0;font-size:var(--t-xs);line-height:1.4}
+.frame-age{margin:0;font-size:var(--t-2xs);color:var(--mute)}
+.frame-cell{display:inline-block;margin:.382rem 0 0;font-size:var(--t-3xs);
+  color:var(--mute-2);word-break:break-all}
+/* A frame with no observation says so and looks different, because "nothing was
+   seen" and "nothing is there" are different claims and only one of them is
+   ours to make. */
+.frame-refused{border-style:dashed}
+.frame-try{margin-top:auto}
+.frame-try-says{margin:0 0 .382rem;font-size:var(--t-2xs);color:var(--ink-2)}
+.frame-try pre{margin:0;padding:.618rem;border-radius:3px;background:var(--paper-3);
+  overflow-x:auto;font-size:var(--t-3xs);line-height:1.45}
+.frame-try code{white-space:pre-wrap;word-break:break-word}
+.strip-rail{display:flex;align-items:center;gap:.618rem;margin:.618rem 0 0}
+.strip-hint{flex:1;margin:0;font-size:var(--t-2xs);color:var(--mute);text-align:center}
+.strip-nav{flex:0 0 auto;min-width:2.618rem;min-height:2.618rem;
+  font:inherit;font-size:var(--t-sm);color:var(--ink-2);cursor:pointer;
+  background:var(--paper-2);border:1px solid var(--rule);border-radius:3px}
+.strip-nav:hover:not([disabled]){border-color:var(--ink-2)}
+.strip-nav[disabled]{opacity:.4;cursor:default}
+@media (max-width:620px){
+  .shots{grid-template-columns:1fr}
+  .frame{padding:.618rem}
+}
+/* The strip scrolls itself; smooth is a courtesy and not the mechanism. */
+@media (prefers-reduced-motion:reduce){ .filmstrip{scroll-behavior:auto} }
 
 /* Generator. Deliberately plain: it is a form that calls one GET, and dressing
    it up would suggest something more is happening than one address. */
@@ -1044,9 +1028,7 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .pcout{margin-top:14px}
 .pcout img{display:block;width:100%;height:auto;border-radius:3px}
 @media (prefers-color-scheme:dark){
-  .liveslot{background:#241f18;border-color:#3b3227}
-  .liveslot.is-loading{background:linear-gradient(100deg,#241f18 30%,#2f281e 50%,#241f18 70%);background-size:220% 100%}
-  .livespin{border-color:#4a4133;border-top-color:transparent}
+      .livespin{border-color:#4a4133;border-top-color:transparent}
   .pcgen{background:#211d16;border-color:#3b3227}
   .pcrow input{background:#181510;border-color:#3b3227;color:#e8e0d0}
 }
@@ -1376,34 +1358,24 @@ html,body{overflow-x:clip}
 <section class="chapter solo" id="album">
   <div class="words">
     <div class="kicker">The album</div>
-    <h3>Streets, painted from what was on them</h3>
-    <p class="cap">Each of these is one frame of one camera's clip, counted, and painted with one
-      motif per object counted. The clip's sha256 is inked into the card, so the picture and the
-      number cannot drift apart, and you can check the hash yourself without asking us. Pick a
-      place; the panel is fetched when you do.</p>
+    <h3>Twelve streets, and the same ground from orbit</h3>
+    <p class="cap">Scroll it. Every frame is one London address measured twice over: a painting
+      made by counting what stood on the street in a single frame of a signed camera clip, and
+      beside it that same cell photographed from space. Neither picture illustrates the other.
+      They are two instruments reading one address, and the address is what lets you hold them
+      against each other. Under each frame is the command that gets you the same answer, and the
+      clip's sha256 is inked into the painting so the picture and the number cannot drift apart.</p>
   </div>
 
-  <div class="album" id="album-split">
-    <div class="album-grid" id="album-grid">
-      <!-- SERVER-RENDERED FIRST PLACE.
-           Everything else in this grid is built by JavaScript after a fetch, so
-           the served HTML used to contain one template and a refusal: twelve
-           paintings, and `thumb.png` appearing twice in the markup. Anything
-           reading HTML rather than running it -- which includes the agents this
-           page argues for -- saw no paintings at all.
-           This block is filled by the responder before the page leaves it, so
-           there is always one real painting, with its counts and its endpoints,
-           for a reader with no JavaScript and for a crawler that never runs any.
-           The script replaces it with the full set when it can. -->
-      <!--##ALBUM_FIRST##-->
-      <p class="album-wait">Reading the painter&rsquo;s index&hellip;</p>
-    </div>
-    <div class="album-plate-wrap">
-    <figure class="album-plate" id="album-plate" hidden>
-      <div class="liveslot"><span class="livenote">pick a place</span></div>
-      <figcaption id="album-cap"></figcaption>
-    </figure>
-    </div>
+  <div class="filmstrip" id="strip" tabindex="0" role="region"
+       aria-label="Live postcards from twelve London streets, each with the same ground seen from orbit. Scroll sideways.">
+    <!--##ALBUM_FIRST##-->
+  </div>
+
+  <div class="strip-rail">
+    <button class="strip-nav" id="strip-prev" type="button" aria-label="Previous place" hidden>&#8592;</button>
+    <p class="strip-hint" id="strip-hint">Scroll sideways, drag, or use the arrow keys.</p>
+    <button class="strip-nav" id="strip-next" type="button" aria-label="Next place" hidden>&#8594;</button>
   </div>
 
   <!-- The refusal, kept on the page on purpose.
@@ -1420,430 +1392,139 @@ html,body{overflow-x:clip}
 </section>
 
 <script>
-/* The album reads its own index from the painter, so this file names no places.
-   One panel in flight at a time, nothing before you scroll here. */
+/* The strip is SERVED, not built here. Every frame, its two pictures, its
+   counts and its command are in the HTML before this file runs, so a reader
+   with no JavaScript, a crawler, and an agent reading the markup all get the
+   same twelve places. That was the bug this replaced: the album built itself
+   in JavaScript, so the served page held one template and a refusal while
+   claiming to show twelve paintings.
+
+   What is left here is what a served page genuinely cannot do: move the strip,
+   say where you are in it, and fetch the one thing that has to be live. */
 (function () {
-  /* The SPLIT, not the section. Both carried id="album", so this resolved to
-     the <section> -- the first in document order -- and worked only because the
-     section contains the split. Invalid HTML that happened to be harmless. */
-  var root = document.getElementById('album-split');
-  if (!root) return;
-  var plate = document.getElementById('album-plate');
-  var cap = document.getElementById('album-cap');
-  var loaded = false;
+  var strip = document.getElementById('strip');
+  if (!strip) return;
+  var frames = [].slice.call(strip.querySelectorAll('.frame'));
+  if (!frames.length) return;
 
-  function pretty(slug) {
-    return slug.replace(/-/g, ' ').replace(/\b\w/g, function (c) { return c.toUpperCase(); });
-  }
-  function ago(iso) {
-    var t = Date.parse(iso);
-    if (!t) return '';
-    var s = Math.max(0, (Date.now() - t) / 1000);
-    if (s < 90) return 'just now';
-    if (s < 5400) return Math.round(s / 60) + ' min ago';
-    if (s < 172800) return Math.round(s / 3600) + ' h ago';
-    return Math.round(s / 86400) + ' d ago';
-  }
+  var prev = document.getElementById('strip-prev');
+  var next = document.getElementById('strip-next');
+  var hint = document.getElementById('strip-hint');
 
-  function endpoints(slug) {
-    /* What a human just looked at, as the calls that produced it. Same object,
-       two readers. */
-    var base = '/v1/perception';
-    return [
-      [base + '/cards/' + slug + '/latest.svg', 'this panel'],
-      [base + '/cards/' + slug + '/story.svg', 'the strip'],
-      [base + '/cards', 'the index']
-    ];
-  }
+  /* A CONTROL THAT CANNOT ACT IS WORSE THAN NO CONTROL. The buttons ship
+     hidden and are revealed here, because without this script they would be
+     two arrows that do nothing; the strip itself scrolls natively. */
+  if (prev) prev.hidden = false;
+  if (next) next.hidden = false;
 
-  function show(place, btn) {
-    Array.prototype.forEach.call(document.querySelectorAll('.album-card'), function (b) {
-      b.setAttribute('aria-current', b === btn ? 'true' : 'false');
-    });
-    /* replaceState, not pushState: arrowing through twelve places should not
-       bury the page a reader arrived from under twelve back-button presses. */
-    try {
-      if (history.replaceState) {
-        history.replaceState(null, '', '#place=' + place.slug);
-      }
-    } catch (e) { /* a sandboxed frame refuses this; the album still works */ }
-    plate.hidden = false;
-    plate.innerHTML = '<div class="liveslot is-loading"><span class="livenote">' +
-      '<span class="livespin" aria-hidden="true"></span>painting ' + pretty(place.slug) +
-      '</span></div><figcaption id="album-cap"></figcaption>';
-    var slot = plate.querySelector('.liveslot');
-    var fc = plate.querySelector('figcaption');
-    var img = document.createElement('img');
-    img.alt = 'A Mithila panel of ' + pretty(place.slug) +
-      ', painted from a count made in one frame of a signed camera clip.';
-    img.decoding = 'async';
-    img.addEventListener('load', function () {
-      if (slot.parentNode) slot.parentNode.replaceChild(img, slot);
-      var eps = endpoints(place.slug).map(function (e) {
-        return '<a href="' + e[0] + '">' + e[1] + '</a>';
-      }).join('');
-      fc.innerHTML = '<b>' + pretty(place.slug) + '</b>. ' + place.panels +
-        ' panels held, newest painted ' + ago(place.newest) +
-        '. <span class="prov">The count, the cell and the clip hash are inside the file.</span>' +
-        '<span class="album-ep">' + eps + '</span><div class="strip-host"></div>';
-      var host = fc.querySelector('.strip-host');
-      if (host) strip(place, host);
-    });
-    img.addEventListener('error', function () {
-      slot.innerHTML = '<span class="livefail">that panel could not be reached just now</span>';
-      slot.classList.remove('is-loading');
-    });
-    img.src = '/v1/perception/cards/' + place.slug + '/latest.svg';
-  }
-
-  function count_line(p) {
-    /* What is on the street, from the index, before any picture loads.
-
-       THREE STATES and the third is new. `counts` with values means the
-       detector found them. `{}` means it looked and found none. NULL means
-       there was no observation at all: the camera was serving an operator's
-       placeholder card rather than a street, which every photometric check
-       passes because a grey card with white text is a well-exposed image of
-       something that is not a scene.
-
-       The null test comes FIRST, before the `|| {}` below, because that
-       coercion turns "no observation" into "looked and saw nothing" and the
-       caption would then claim we looked. */
-    if (p.counts === null || p.counts === undefined) {
-      return 'no observation: not showing a street';
+  function currentIndex() {
+    /* Whichever frame's left edge is nearest the strip's left edge. Scroll
+       position over index arithmetic, because the frames are not all the same
+       width at every breakpoint and assuming they are is how a carousel starts
+       lying about where it is. */
+    var x = strip.scrollLeft;
+    var best = 0, bestD = Infinity;
+    for (var i = 0; i < frames.length; i++) {
+      var d = Math.abs(frames[i].offsetLeft - strip.offsetLeft - x);
+      if (d < bestD) { bestD = d; best = i; }
     }
-    var c = p.counts;
-    var parts = Object.keys(c).sort().map(function (k) { return c[k] + ' ' + k; });
-    if (!parts.length) return 'nothing seen in this frame';
-    return parts.join(', ');
+    return best;
   }
 
-  function age_line(p) {
-    /* The BASIS travels with the age, because the two clocks answer different
-       questions. `clip_retained_at` is when the world was seen. `panel_written_at`
-       is when we finished drawing it, which on a slow paint is later by however
-       long the paint took. A reader is entitled to know which one they got, so
-       this does not smooth them into one word. */
-    var s = p.observed_age_seconds;
-    if (typeof s !== 'number') return '';
-    var t = s < 90 ? 'seconds ago'
-          : s < 5400 ? Math.round(s / 60) + ' min ago'
-          : Math.round(s / 3600) + ' h ago';
-    return p.observed_age_basis === 'clip_retained_at'
-      ? 'seen ' + t
-      : 'painted ' + t;
-  }
-
-  function build(places) {
-    var grid = document.getElementById('album-grid');
-    grid.innerHTML = '';
-    places.forEach(function (p) {
-      var fig = document.createElement('figure');
-      fig.className = 'album-card';
-      fig.tabIndex = 0;
-      fig.setAttribute('role', 'button');
-      var img = document.createElement('img');
-      img.loading = 'lazy';
-      img.decoding = 'async';
-      img.width = 240;
-      img.height = 194;
-      img.alt = 'Preview of the ' + pretty(p.slug) + ' panel.';
-      img.src = '/v1/perception/cards/' + p.slug + '/thumb.png';
-      var cap = document.createElement('figcaption');
-      cap.innerHTML = '<b>' + pretty(p.slug) + '</b>' + count_line(p) +
-        '<u>' + age_line(p) + '</u>';
-      fig.appendChild(img);
-      fig.appendChild(cap);
-      var open = function () { show(p, fig); };
-      fig.addEventListener('click', open);
-      fig.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
-        /* ARROWS MOVE THROUGH THE INDEX, which is what an index is for.
-           Every card was tabbable, so reaching the twelfth place took twelve
-           tabs and a reader comparing two of them tabbed between. Arrows move
-           and SELECT in one press, so the plate follows the cursor and
-           comparing is two keys, which is the whole argument for putting the
-           index and the plate side by side. Home and End because twelve is
-           enough for the ends to be worth reaching directly. */
-        var keys = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-        if (!(e.key in keys) && e.key !== 'Home' && e.key !== 'End') return;
-        e.preventDefault();
-        var all = Array.prototype.slice.call(grid.querySelectorAll('.album-card'));
-        var at = all.indexOf(fig);
-        var to = e.key === 'Home' ? 0
-               : e.key === 'End' ? all.length - 1
-               : at + keys[e.key];
-        if (to < 0 || to >= all.length) return;   /* stop at the ends, never wrap:
-                                                     a reader holding a key should
-                                                     arrive somewhere and stay */
-        all[to].focus();
-        all[to].click();
-      });
-      grid.appendChild(fig);
-    });
-    /* DEEP LINK, so a place can be sent to somebody.
-       Without it every link to this page is a link to whichever place happened
-       to sort first, and a reader who found something has no way to point at
-       it. The hash is read once here and written on every selection, so the
-       address bar always names what is on screen. */
-    var want = (location.hash.match(/place=([a-z0-9-]+)/) || [])[1];
-    var cards = Array.prototype.slice.call(grid.querySelectorAll('.album-card'));
-    var start = 0;
-    if (want) {
-      var i = places.findIndex(function (p) { return p.slug === want; });
-      if (i >= 0) start = i;
+  function say() {
+    var i = currentIndex();
+    if (hint) {
+      var name = frames[i].querySelector('h3');
+      hint.textContent = (i + 1) + ' of ' + frames.length +
+        (name ? ' \u00b7 ' + name.textContent : '') +
+        ' \u00b7 scroll, drag or use the arrow keys';
     }
-    if (cards[start]) { cards[start].click(); }
+    /* Ends are ends. A disabled control at the edge says the strip stopped;
+       an enabled one that does nothing says the page is broken. */
+    if (prev) prev.disabled = i <= 0;
+    if (next) next.disabled = i >= frames.length - 1;
   }
 
-  function strip(place, host) {
-    /* Six observations of one place, and the GAPS BETWEEN THEM DRAWN.
-       
-       The counts across a night swing 15, 13, 18, 24, 8, 6. Laid on a time axis
-       that reads as a curve, and it is not one: the median gap is about twenty
-       minutes, no vehicle survives from one panel to the next, and there are no
-       trajectories here. Six independent counts, not a series.
-       
-       A sentence saying so would be skipped, and a column of numbers invites a
-       trend line more than a row of pictures does. So the unobserved interval is
-       an element on the page, sized by how long it was. You cannot draw a line
-       through a gap you can see. */
-    fetch('/v1/perception/cards/' + place.slug + '/story?panels=6')
-      .then(function (r) { return r.json(); })
-      .then(function (d) {
-        var ps = (d && d.panels) || [];
-        if (ps.length < 2) return;
-        var reading = d.reading || {};
-        /* WHAT THE WALLS BELOW CANNOT TELL YOU.
-           A wall is drawn only between two panels that BOTH name an id, so a
-           span where the field is missing draws none -- and no wall reads as
-           "nothing changed" when the honest answer is "we cannot tell". The
-           upstream publishes the count of panels missing each id for exactly
-           this reason: the changed-within-span booleans are a FLOOR, true when
-           a change is known and false both when there was none and when it is
-           unknowable. Said once at the head rather than at every gap, because
-           it is a property of the span and not of any one boundary. */
-        var blind = [];
-        if (d.panels_without_detector_fn_id > 0) {
-          blind.push(d.panels_without_detector_fn_id + ' without a detector id');
-        }
-        if (d.panels_without_palette_fn_id > 0) {
-          blind.push(d.panels_without_palette_fn_id + ' without a palette id');
-        }
-        var caveat = blind.length
-          ? '<div class="strip-caveat">' + blind.join(', ') +
-            ': a change across those cannot be shown, only one between two that name it</div>'
-          : '';
-        var html = '<div class="strip-head">' + (reading.says || '') + '</div>' +
-          caveat + '<div class="strip">';
-        ps.forEach(function (p, i) {
-          if (i > 0) {
-            var mins = Math.round((p.epoch - ps[i - 1].epoch) / 60);
-            html += '<div class="strip-gap" style="flex-basis:' +
-              Math.min(90, Math.max(18, mins * 1.6)) + 'px"><span>' + mins +
-              ' min<br>unobserved</span></div>';
-            /* A CHANGE OF DETECTOR IS A WALL, not a footnote.
-               
-               SAM3 is prompted, so the label set is part of the arithmetic: a
-               class added to the prompts changes every count after it. Two
-               panels either side of that change are not the same measurement,
-               and a reader comparing them would be reading part of the
-               difference off our own configuration.
-               
-               Only drawn between two panels that BOTH name a detector. A null
-               means not recorded, which is a third thing: it is neither "no
-               detector" nor "nothing was sought", and it must not be allowed to
-               manufacture a boundary that never happened. */
-            var a = ps[i - 1].detector_fn_id, b = p.detector_fn_id;
-            if (a && b && a !== b) {
-              html += '<div class="strip-wall"><span>detector changed<br>' +
-                'counts either side<br>are not comparable</span></div>';
-            }
-            /* A CHANGE OF PALETTE IS ALSO A WALL, for the same reason one
-               rank down. The pigments are hashed into palette_fn_id, so
-               adopting a different ink moved it without anyone bumping a
-               version. Two panels either side are still the same measurement,
-               unlike a detector change, but they are not the same PICTURE,
-               and a reader comparing their greens would be reading part of
-               the difference off the palette.
-
-               Compared PER PANEL rather than from the story's
-               palette_changed_within_span. That flag counts distinct non-null
-               ids, so a span mixing panels that carry one with panels that
-               predate the field reports false: "we cannot tell" wearing the
-               clothes of "nothing changed". The flag is a floor, never a
-               denial. Same rule as the detector above: a null is not a
-               boundary. */
-            var pa = ps[i - 1].palette_fn_id, pb = p.palette_fn_id;
-            if (pa && pb && pa !== pb) {
-              html += '<div class="strip-wall strip-wall-soft"><span>palette changed<br>' +
-                'same measurement<br>different pigments</span></div>';
-            }
-          }
-            /* THE SAME THREE STATES as count_line above, and the same trap.
-               `p.counts || {}` turned a null into an empty object and printed
-               an empty line, which reads as a panel with nothing on the street.
-               It was written forty lines under a comment warning against
-               exactly that coercion. Every `{}` the upstream ever served turned
-               out to be an unobserved frame rather than an empty one -- 57 of
-               57 contradicted their own painting -- so the empty line was never
-               once correct. */
-            var line;
-            if (p.counts === null || p.counts === undefined) {
-              line = 'not observed';
-            } else {
-              var c = p.counts;
-              var ks = Object.keys(c).sort();
-              line = ks.length
-                ? ks.map(function (k) { return c[k] + ' ' + k; }).join(', ')
-                : 'none of the sought classes';
-            }
-          /* What was LOOKED FOR, beside what was found. A count is only a
-             count of the classes that were sought, and `not recorded` is said
-             in those words rather than shown as an absence, because the panel
-             predates the field rather than lacking a detector. */
-          var sought = p.detector_prompts
-            ? p.detector_prompts.length + ' classes sought'
-            : 'detector not recorded';
-          html += '<figure class="strip-obs">' +
-            '<img loading="lazy" decoding="async" width="120" height="97" alt="Preview of the ' +
-            pretty(place.slug) + ' panel painted at ' + String(p.at).slice(11, 16) + '." src="' +
-            '/v1/perception/cards/' + place.slug + '/thumb.png?panel=' + p.epoch + '&w=240">' +
-            '<figcaption><b>' + String(p.at).slice(11, 16) + '</b>' +
-            (line || 'nothing seen') + '<u>' + sought + '</u></figcaption></figure>';
-        });
-        html += '</div><p class="strip-note">' + (reading.must_not_say
-          ? 'What this cannot tell you: ' + reading.must_not_say : '') +
-          (d.detector_note ? ' ' + d.detector_note : '') + '</p>';
-        host.innerHTML = html;
-      })
-      .catch(function () { host.innerHTML = ''; });
+  function go(delta) {
+    var i = Math.min(frames.length - 1, Math.max(0, currentIndex() + delta));
+    strip.scrollTo({ left: frames[i].offsetLeft - strip.offsetLeft, behavior: 'smooth' });
   }
+
+  if (prev) prev.addEventListener('click', function () { go(-1); });
+  if (next) next.addEventListener('click', function () { go(1); });
+  strip.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowRight') { e.preventDefault(); go(1); }
+    else if (e.key === 'ArrowLeft') { e.preventDefault(); go(-1); }
+    else if (e.key === 'Home') { e.preventDefault(); go(-frames.length); }
+    else if (e.key === 'End') { e.preventDefault(); go(frames.length); }
+  });
+
+  var tick = null;
+  strip.addEventListener('scroll', function () {
+    if (tick) return;
+    tick = setTimeout(function () { tick = null; say(); }, 120);
+  }, { passive: true });
+  say();
 
   function refusal() {
-    /* A real 404 from the live route, fetched rather than written here, so it
-       cannot drift from what the route actually says. */
-    var box = document.getElementById('album-refusal');
-    var txt = document.getElementById('album-refusal-text');
-    var pre = document.getElementById('album-refusal-json');
-    /* Orlando, not a place chosen for being far from a camera.
+      /* A real 404 from the live route, fetched rather than written here, so it
+         cannot drift from what the route actually says. */
+      var box = document.getElementById('album-refusal');
+      var txt = document.getElementById('album-refusal-text');
+      var pre = document.getElementById('album-refusal-json');
+      /* Orlando, not a place chosen for being far from a camera.
        
-       This tile used to ask about Leatherhead, whose nearest camera was too far
-       to stand for it. That refusal was a fact about the world at a moment, and
-       the world moved: a camera now exists there with a retained clip, so the
-       route correctly stopped refusing and this tile sat on the homepage
-       captioned as a failure while displaying a success.
+         This tile used to ask about Leatherhead, whose nearest camera was too far
+         to stand for it. That refusal was a fact about the world at a moment, and
+         the world moved: a camera now exists there with a retained clip, so the
+         route correctly stopped refusing and this tile sat on the homepage
+         captioned as a failure while displaying a success.
        
-       Orlando refuses STRUCTURALLY. Cameras are there and counted from; only
-       one fleet of the six retains clips, so there is nothing to paint from.
-       That holds while the retention boundary holds, and it teaches the
-       boundary rather than mere absence.
+         Orlando refuses STRUCTURALLY. Cameras are there and counted from; only
+         one fleet of the six retains clips, so there is nothing to paint from.
+         That holds while the retention boundary holds, and it teaches the
+         boundary rather than mere absence.
        
-       And the tile now checks rather than assumes. If this ever returns 200 the
-       page says the example stopped refusing, because a caption that survives
-       its own subject changing is how the last one went wrong. */
-    fetch('/v1/perception/postcard?lat=28.5383&lng=-81.3792&place=Orlando')
-      .then(function (r) {
-        if (r.status === 200) {
-          return { stale: true };
-        }
-        return r.json();
-      })
-      .then(function (j) {
-        if (!j) return;
-        if (j.stale) {
-          txt.textContent = 'This example was chosen because the route refused it. It no ' +
-            'longer does: a camera with a retained clip now covers that point, so the ' +
-            'refusal is gone and this tile is showing you that rather than a stale caption.';
-          pre.textContent = '';
+         And the tile now checks rather than assumes. If this ever returns 200 the
+         page says the example stopped refusing, because a caption that survives
+         its own subject changing is how the last one went wrong. */
+      fetch('/v1/perception/postcard?lat=28.5383&lng=-81.3792&place=Orlando')
+        .then(function (r) {
+          if (r.status === 200) {
+            return { stale: true };
+          }
+          return r.json();
+        })
+        .then(function (j) {
+          if (!j) return;
+          if (j.stale) {
+            txt.textContent = 'This example was chosen because the route refused it. It no ' +
+              'longer does: a camera with a retained clip now covers that point, so the ' +
+              'refusal is gone and this tile is showing you that rather than a stale caption.';
+            pre.textContent = '';
+            box.hidden = false;
+            return;
+          }
+          txt.textContent = 'Asked about a place with cameras but no retained clip, the same ' +
+            'route refuses rather than painting something plausible. Of 8,649 cameras, 882 ' +
+            'retain clips; the rest can be counted from and not painted, and a card carries ' +
+            'the title you asked for, so painting one from bytes we do not hold would put the ' +
+            'right name on a street we cannot show you.';
+          pre.textContent = JSON.stringify(j, null, 2).slice(0, 900);
           box.hidden = false;
-          return;
-        }
-        txt.textContent = 'Asked about a place with cameras but no retained clip, the same ' +
-          'route refuses rather than painting something plausible. Of 8,649 cameras, 882 ' +
-          'retain clips; the rest can be counted from and not painted, and a card carries ' +
-          'the title you asked for, so painting one from bytes we do not hold would put the ' +
-          'right name on a street we cannot show you.';
-        pre.textContent = JSON.stringify(j, null, 2).slice(0, 900);
-        box.hidden = false;
-      })
-      .catch(function () {});
-  }
+        })
+        .catch(function () {});
+    }
 
-  function load() {
-    if (loaded) return;
-    loaded = true;
-    /* A DEADLINE OF OUR OWN, because the gateway's is forty seconds.
-       The painter serves one request at a time on purpose -- one GPU copy --
-       so anything slow in front of us blocks everything behind it, and when
-       that happens our proxy correctly waits out its full gateway timeout
-       before returning 504. Correct, and forty seconds of "Reading the
-       painter's index..." on the second section of the front page.
-       Eight seconds is long enough for a loaded-but-working painter and short
-       enough that the honest message arrives while somebody is still looking
-       at it. The message says how long it waited, because "could not be
-       reached" and "did not answer within eight seconds" are different claims
-       and only the second one is true. */
-    var DEADLINE_MS = 8000;
-    var ctl = ('AbortController' in window) ? new AbortController() : null;
-    var late = setTimeout(function () { if (ctl) ctl.abort(); }, DEADLINE_MS);
-    fetch('/v1/perception/cards', ctl ? { signal: ctl.signal } : undefined)
-      .then(function (r) { clearTimeout(late); return r.json(); })
-      .then(function (d) {
-        var places = (d && d.places) || [];
-        root.classList.toggle('is-empty', !places.length);
-        if (!places.length) {
-          document.getElementById('album-grid').innerHTML =
-            '<p class="album-wait">The painter is reachable and holds no ' +
-            'places right now. Nothing is shown rather than something stale.</p>';
-          return;
-        }
-        /* ORDERED BY NAME, WHICH CLAIMS NOTHING.
-           This sorted by `panels` descending, which reads as "most important
-           first" and is not what that number is. The painter told us plainly:
-           panel count is a proxy for how long we have been watching a place,
-           not for interest in it, and freshness is 17-36 minutes across all
-           twelve, so age ranks nothing either. An order implies a judgement,
-           and we had one we could not support built on a number that does not
-           measure it.
-           Alphabetical makes no claim, and it is STABLE, which the keyboard
-           navigation below needs: an index that reshuffles between visits is
-           one a reader cannot learn. What is busy is on each card, as a count,
-           where a reader can see it and we are not asserting it. */
-        places.sort(function (a, b) { return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0; });
-        build(places);
-        refusal();
-      })
-      .catch(function (e) {
-        clearTimeout(late);
-        root.classList.add('is-empty');
-        var aborted = e && (e.name === 'AbortError');
-        document.getElementById('album-grid').innerHTML =
-          '<p class="album-wait">' + (aborted
-            ? 'The painter did not answer within ' + (DEADLINE_MS / 1000) +
-              ' seconds. It serves one request at a time, so something slow in ' +
-              'front of this one is holding the queue. Nothing is shown rather ' +
-              'than something stale.'
-            : 'The painter could not be reached, so this album is empty rather ' +
-              'than illustrated.') +
-          ' <button class="album-retry" type="button">ask again</button></p>';
-        var again = document.querySelector('.album-retry');
-        if (again) {
-          again.addEventListener('click', function () {
-            root.classList.remove('is-empty');
-            document.getElementById('album-grid').innerHTML =
-              '<p class="album-wait">Reading the painter\u2019s index\u2026</p>';
-            load();
-          });
-        }
-      });
-  }
-
-  if (!('IntersectionObserver' in window)) { load(); return; }
+  /* The refusal is the one thing on this section that must be fetched: it is a
+     claim about what the route does RIGHT NOW, and a served copy of it would be
+     a caption that outlives its subject. Deferred until the strip is near, so
+     nothing is spent on a reader who never scrolls this far. */
+  if (!('IntersectionObserver' in window)) { refusal(); return; }
   var io = new IntersectionObserver(function (es) {
-    es.forEach(function (e) { if (e.isIntersecting) { io.unobserve(e.target); load(); } });
+    es.forEach(function (e) { if (e.isIntersecting) { io.unobserve(e.target); refusal(); } });
   }, { rootMargin: '200px 0px' });
-  io.observe(root);
+  io.observe(strip);
 })();
 </script>
 

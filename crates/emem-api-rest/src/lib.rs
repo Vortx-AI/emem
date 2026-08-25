@@ -3472,8 +3472,7 @@ async fn landing(headers: HeaderMap) -> Response {
     if prefer_markdown(&headers) {
         return text_response("text/markdown; charset=utf-8", LLMS_TXT);
     }
-    let page =
-        rendered_index_html().replace("<!--##ALBUM_FIRST##-->", &album_first_place_html().await);
+    let page = rendered_index_html().replace("<!--##ALBUM_FIRST##-->", &album_frames_html().await);
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/html; charset=utf-8")
@@ -63335,26 +63334,31 @@ fn rfc3339_to_unix_secs(t: &str) -> Option<i64> {
     Some(secs)
 }
 
-/// The homepage's first painting, rendered by the responder rather than by the
+/// The homepage's film strip, rendered by the responder rather than by the
 /// reader's browser.
 ///
 /// The album fetches its places from the painter at runtime, which is right: a
 /// list of places written into the page went stale within a day and showed a
-/// quarter of what existed. But building ALL of it in JavaScript meant the
-/// served HTML held one template and a refusal, so `thumb.png` appeared twice in
-/// a page that claims to show twelve paintings. Anything that reads HTML without
-/// running it saw none of them, and that includes the agents this page exists to
-/// argue for.
+/// quarter of what existed. But building it in JavaScript meant the served HTML
+/// held one template and a refusal, so `thumb.png` appeared twice in a page that
+/// claims to show twelve paintings. Anything that reads HTML without running it
+/// saw none of them, and that includes the agents this page exists to argue for.
 ///
-/// So one place is filled in here, with its counts and the calls that produced
-/// it, and the script adds the other eleven when it can. A page about
-/// machine-readable evidence should not need a script to reveal that it has any.
+/// So EVERY frame is filled in here. Not one and a promise: a reader with no
+/// JavaScript, a crawler, and an agent reading the markup all get twelve places,
+/// each with what was counted, when it was seen, the cell it happened at, and a
+/// command they can run against this responder to get the same thing back.
+///
+/// Two instruments per frame, on the same cell64, which is the point of the
+/// whole page in one picture: the painting is a count from one camera frame at
+/// street level, and beside it is the same ground from orbit. Neither is the
+/// other's illustration. They are two ways of measuring one address, and the
+/// address is what makes them comparable.
 ///
 /// Cached, because this runs on every homepage load and the painter's index is a
 /// fan-out of object reads on its side. Stale by up to the TTL and never wrong:
-/// a place that stops being painted disappears on the next refresh, and the
-/// worst case is one card older than the eleven beside it.
-async fn album_first_place_html() -> String {
+/// a place that stops being painted disappears on the next refresh.
+async fn album_frames_html() -> String {
     type Cached = (std::time::Instant, String);
     static CACHE: std::sync::OnceLock<Mutex<Option<Cached>>> = std::sync::OnceLock::new();
     const TTL_S: u64 = 300;
@@ -63383,85 +63387,172 @@ async fn album_first_place_html() -> String {
             .await
             .ok()?;
         let places = idx.get("places")?.as_array()?;
-        // The busiest place rather than the newest: an album's first card should
-        // be one with something in it, and `panels` is how many observations we
-        // hold rather than how recently we looked.
-        let p = places
-            .iter()
-            .max_by_key(|p| p.get("panels").and_then(|v| v.as_u64()).unwrap_or(0))?;
-        let slug = p.get("slug")?.as_str()?;
-        if !slug
-            .chars()
-            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
-        {
-            // The slug is interpolated into markup and a URL. It comes from
-            // another service, so it is checked here rather than trusted.
-            return None;
+
+        // Busiest first. `panels` is how many observations we hold, so the frame
+        // a reader lands on is one with something in it rather than whichever
+        // place sorted first alphabetically.
+        let mut ordered: Vec<&JsonValue> = places.iter().collect();
+        ordered.sort_by_key(|p| {
+            std::cmp::Reverse(p.get("panels").and_then(|v| v.as_u64()).unwrap_or(0))
+        });
+
+        let mut out = String::with_capacity(16 * 1024);
+        for (i, p) in ordered.iter().enumerate() {
+            let Some(slug) = p.get("slug").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            // Both of these are interpolated into markup AND into a URL, and both
+            // arrive from another service. Checked here rather than trusted.
+            if !slug
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+            {
+                continue;
+            }
+            let cell = p.get("cell64").and_then(|v| v.as_str()).unwrap_or("");
+            let cell_ok = !cell.is_empty()
+                && cell
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_');
+            let pretty = slug
+                .split('-')
+                .map(|w| {
+                    let mut ch = w.chars();
+                    match ch.next() {
+                        Some(f) => f.to_uppercase().collect::<String>() + ch.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(" ");
+
+            // Counts, or the honest absence. Three states, as everywhere else: a
+            // null is no observation and must not become "nothing seen".
+            let (what, refused) = match p.get("counts") {
+                None | Some(JsonValue::Null) => (
+                    "no observation here, which is not a count of zero".to_string(),
+                    true,
+                ),
+                Some(c) => {
+                    let mut parts: Vec<String> = c
+                        .as_object()
+                        .map(|m| {
+                            let mut v: Vec<String> = m
+                                .iter()
+                                .filter_map(|(k, n)| n.as_u64().map(|n| format!("{n} {k}")))
+                                .collect();
+                            v.sort();
+                            v
+                        })
+                        .unwrap_or_default();
+                    if parts.is_empty() {
+                        (
+                            "nothing was on this street in that frame".to_string(),
+                            false,
+                        )
+                    } else {
+                        (
+                            parts.remove(0)
+                                + &parts.iter().map(|s| format!(", {s}")).collect::<String>(),
+                            false,
+                        )
+                    }
+                }
+            };
+            let age = match (
+                p.get("observed_age_seconds").and_then(|v| v.as_i64()),
+                p.get("observed_age_basis").and_then(|v| v.as_str()),
+            ) {
+                (Some(a), basis) => {
+                    let t = if a < 90 {
+                        "seconds ago".to_string()
+                    } else if a < 5400 {
+                        format!("{} min ago", a / 60)
+                    } else {
+                        format!("{} h ago", a / 3600)
+                    };
+                    match basis {
+                        Some("clip_retained_at") => format!("seen {t}"),
+                        _ => format!("painted {t}"),
+                    }
+                }
+                _ => String::new(),
+            };
+
+            // One runnable call per frame, cycling, so browsing the places is
+            // also a tour of the read surface. Every one of these is executed
+            // against production by scripts/example_check.py on the way into the
+            // build, which is why none of them is an image download: the checker
+            // reads a status and a body, and `-o file` would take the body from
+            // it. The pictures are shown; the commands return something a reader
+            // can inspect.
+            let (call_says, call) = if !cell_ok {
+                (
+                    "read the painter's whole index",
+                    "curl -s https://emem.dev/v1/perception/cards".to_string(),
+                )
+            } else {
+                match i % 3 {
+                    0 => (
+                        "count what is on it right now",
+                        format!(
+                            "curl -s -X POST https://emem.dev/v1/perception/at \
+                             -H 'content-type: application/json' \
+                             -d '{{\"cell\":\"{cell}\",\"stages\":[\"detect\"]}}'"
+                        ),
+                    ),
+                    1 => (
+                        "read every signed fact at this address",
+                        format!("curl -s https://emem.dev/v1/cells/{cell}"),
+                    ),
+                    _ => (
+                        "see where this address is, to the metre",
+                        format!("curl -s https://emem.dev/v1/cells/{cell}/info"),
+                    ),
+                }
+            };
+
+            // The first frame is what a reader sees before anything scrolls, so
+            // its two pictures load eagerly and the other twenty two do not.
+            let load = if i == 0 { "eager" } else { "lazy" };
+            let sat = if cell_ok {
+                format!(
+                    "<figure class=\"shot sat\">\
+                     <img loading=\"{load}\" decoding=\"async\" width=\"256\" height=\"256\" \
+                     alt=\"Sentinel-2 true colour of the same cell as the painting beside it, \
+                     about 2.5 km across.\" \
+                     src=\"/v1/cells/{cell}/scene.png?max_cloud=60\">\
+                     <figcaption>the same ground from orbit</figcaption></figure>"
+                )
+            } else {
+                String::new()
+            };
+            let cellline = if cell_ok {
+                format!("<code class=\"frame-cell\">{cell}</code>")
+            } else {
+                String::new()
+            };
+
+            out.push_str(&format!(
+                "<article class=\"frame{}\" id=\"frame-{slug}\" data-slug=\"{slug}\">\
+                 <div class=\"shots\">\
+                 <figure class=\"shot painted\">\
+                 <img loading=\"{load}\" decoding=\"async\" width=\"240\" height=\"194\" \
+                 alt=\"The {pretty} panel: one motif painted for each object counted in a single \
+                 frame of a signed camera clip.\" \
+                 src=\"/v1/perception/cards/{slug}/thumb.png\">\
+                 <figcaption>painted from one camera frame</figcaption></figure>\
+                 {sat}</div>\
+                 <div class=\"frame-read\"><h3>{pretty}</h3>\
+                 <p class=\"frame-what\">{what}</p>\
+                 <p class=\"frame-age\">{age}</p>{cellline}</div>\
+                 <div class=\"frame-try\"><p class=\"frame-try-says\">{call_says}</p>\
+                 <pre><code>{call}</code></pre></div>\
+                 </article>",
+                if refused { " frame-refused" } else { "" }
+            ));
         }
-        let pretty = slug
-            .split('-')
-            .map(|w| {
-                let mut ch = w.chars();
-                match ch.next() {
-                    Some(f) => f.to_uppercase().collect::<String>() + ch.as_str(),
-                    None => String::new(),
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(" ");
-
-        // Counts, or the honest absence. Three states, as everywhere else: a
-        // null is no observation and must not become "nothing seen".
-        let what = match p.get("counts") {
-            None | Some(JsonValue::Null) => "no observation: not showing a street".to_string(),
-            Some(c) => {
-                let mut parts: Vec<String> = c
-                    .as_object()
-                    .map(|m| {
-                        let mut v: Vec<String> = m
-                            .iter()
-                            .filter_map(|(k, n)| n.as_u64().map(|n| format!("{n} {k}")))
-                            .collect();
-                        v.sort();
-                        v
-                    })
-                    .unwrap_or_default();
-                if parts.is_empty() {
-                    "nothing seen in this frame".to_string()
-                } else {
-                    parts.remove(0) + &parts.iter().map(|s| format!(", {s}")).collect::<String>()
-                }
-            }
-        };
-        let age = match (
-            p.get("observed_age_seconds").and_then(|v| v.as_i64()),
-            p.get("observed_age_basis").and_then(|v| v.as_str()),
-        ) {
-            (Some(a), basis) => {
-                let t = if a < 90 {
-                    "seconds ago".to_string()
-                } else if a < 5400 {
-                    format!("{} min ago", a / 60)
-                } else {
-                    format!("{} h ago", a / 3600)
-                };
-                // The basis travels with the age: one clock says when the world
-                // was seen, the other when the drawing finished.
-                match basis {
-                    Some("clip_retained_at") => format!("seen {t}"),
-                    _ => format!("painted {t}"),
-                }
-            }
-            _ => String::new(),
-        };
-
-        Some(format!(
-            "<figure class=\"album-card\" tabindex=\"0\" role=\"button\" data-slug=\"{slug}\">\
-             <img loading=\"eager\" decoding=\"async\" width=\"240\" height=\"194\" \
-             alt=\"Preview of the {pretty} panel, painted from a count made in one frame of a \
-             signed camera clip.\" src=\"/v1/perception/cards/{slug}/thumb.png\">\
-             <figcaption><b>{pretty}</b>{what}<u>{age}</u></figcaption></figure>"
-        ))
+        (!out.is_empty()).then_some(out)
     }
     .await
     .unwrap_or_default();
