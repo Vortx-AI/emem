@@ -160,7 +160,27 @@ jobs:
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
+      # THIRD PARTIES DO NOT GET A VOTE ON WHETHER OUR BUILD IS GREEN.
+      #
+      # crates/emem-fetch/tests/live_cog_fetch.rs reads real COGs from AWS, GCS
+      # and Copernicus over the network. It is tolerant of a transport error,
+      # which is the failure mode it was written for, and not of the one that
+      # actually happens: an endpoint under load answers with an error body or a
+      # partial range, the fetch succeeds at the transport layer, and
+      # assert_tiff_magic panics on what came back. Intermittently, on a runner
+      # far from the data, with a message about a TIFF header.
+      #
+      # That cannot tell anyone whether THIS change broke something, which is
+      # the only question a per-commit gate is asked, and a red that means "S3
+      # was slow" is how people learn to ignore red. The file already carries
+      # the switch and says it exists for exactly this.
+      #
+      # The coverage is real and is not deleted: `cargo test -p emem-fetch
+      # --test live_cog_fetch` runs the wire paths on demand, and it is the
+      # right thing to run after touching a connector or the source registry.
       - run: cargo test --workspace --release
+        env:
+          EMEM_NO_NETWORK: "1"
 
   msrv:
     name: minimum supported rust 1.91
