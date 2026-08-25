@@ -347,9 +347,11 @@ pub fn lookup(query: &str) -> Option<&'static GeonameRecord> {
 /// primary-name match beat an alternate-name match at any size. Measured
 /// against the bundled corpus, that is what it cost:
 ///
+/// ```text
 ///     "Cologne"   ->  Cologne, Italy      7,032    over  Köln       1,024,621
 ///     "Calcutta"  ->  Calcutta, S. Africa 35,864   over  Kolkata    4,631,392
 ///     "Madras"    ->  Madras, Oregon      6,662    over  Chennai    4,681,087
+/// ```
 ///
 /// Each of those answered with real coordinates on the wrong continent, and a
 /// caller asking about Calcutta got a village in Mpumalanga. The rule was not

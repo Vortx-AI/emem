@@ -50,6 +50,11 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from pathlib import Path
+
+# scripts/ is the parent of scripts/manual/, and lib_patience lives there.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from lib_patience import patient  # noqa: E402
 
 # lat, lon, and how far the resolution may land from it. Coordinates are
 # the world's, not ours: any atlas settles them, which is exactly why they
@@ -115,7 +120,7 @@ def post(origin, path, body, timeout=120):
                  "User-Agent": "emem-place-resolution-check"},
     )
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with patient(req, timeout=timeout) as r:
             return r.status, json.load(r)
     except urllib.error.HTTPError as e:
         try:
@@ -130,7 +135,7 @@ def get(origin, path, timeout=60):
     req = urllib.request.Request(
         origin + path, headers={"User-Agent": "emem-place-resolution-check"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
+        with patient(req, timeout=timeout) as r:
             return json.load(r)
     except Exception:
         return {}
@@ -265,16 +270,27 @@ def main():
     # port down for about ninety seconds, and the first run of this file was
     # cut in half by one. Unreachable is undetermined.
     unreachable = [f for f in failures if "unreachable" in f or "Connection refused" in f]
-    if unreachable:
-        print(f"\n  {len(unreachable)} of {checked * 2} probes could not reach "
+    probes = checked * 2
+    # A SHARE, not any at all. The first version voided the whole run on a
+    # single unreachable probe, and a run of 104 probes against a live service
+    # will occasionally lose one: it reported "undetermined" over 97 clean
+    # measurements and four blips, which is a check that cannot pass on a
+    # working day. Undetermined is for when too little was measured to say
+    # anything, not for when something was measured and a little was missed.
+    if unreachable and len(unreachable) * 4 >= probes:
+        print(f"\n  {len(unreachable)} of {probes} probes could not reach "
               f"{args.origin}.")
         print("  Undetermined, not failed: a place check has to reach the")
         print("  responder to say anything about what it resolves. If a deploy")
         print("  is running, wait for the restart and run this again.")
         return 1
+    failures = [f for f in failures if f not in unreachable]
 
     print(f"\n  {checked} spellings across {len(rows)} places, "
           f"{args.origin}, control passed")
+    if unreachable:
+        print(f"  {len(unreachable)} of {probes} probes did not reach the "
+              f"responder and are not counted either way.")
     if failures:
         print(f"\n  {len(failures)} did not resolve to the place they name:")
         for f in failures:

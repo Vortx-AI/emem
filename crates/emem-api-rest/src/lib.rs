@@ -61940,8 +61940,42 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         // is the failure this whole surface exists to prevent. Ordering by first
         // appearance costs nothing and makes the subject win: it does not change
         // which candidates exist, only which is asked about first.
+        // A SENTENCE IS A LAST RESORT, AND IT WAS SORTING FIRST.
+        //
+        // `extract_place_candidates` falls back to the longest capitalised run
+        // and, failing that, to something close to the whole question. Ordering
+        // by first appearance then puts that fallback at position 0, ahead of
+        // every real span, because a question starts at the start. So the
+        // geocoder was handed "What is the air quality in Madras" before it was
+        // ever handed "Madras". Measured on production:
+        //
+        //   "...air quality in Madras"      -> Muhiyuddeen Masjid & Thajul
+        //                                      Islam Madrassa, 547 km away
+        //   "...air quality in Canton"      -> Quality Food (convenience),
+        //                                      London, 9,492 km away
+        //
+        // Both cleared the confidence floor by matching the QUESTION'S OWN
+        // WORDS: `quality` is in "Quality Food" and `madras` is a prefix of
+        // "Madrassa". That is the shape the floor exists to catch, arriving
+        // through the one candidate the floor cannot judge, because a sentence
+        // shares words with anything long enough.
+        //
+        // A candidate carrying a question stem word is a sentence, not a place
+        // name. It stays in the list, because sometimes it is all there is, and
+        // it goes to the back where a last resort belongs. `is_stem_only`
+        // above already drops the ones that are NOTHING but stem words; this is
+        // the same judgement applied to the ones that merely contain them.
         let ql = req.q.to_lowercase();
-        place_candidates.sort_by_key(|c| ql.find(&c.to_lowercase()).unwrap_or(usize::MAX));
+        let carries_a_question_stem = |c: &str| -> bool {
+            c.split(|ch: char| !ch.is_alphanumeric())
+                .any(|w| STEM_WORDS.contains(&w.to_ascii_lowercase().as_str()))
+        };
+        place_candidates.sort_by_key(|c| {
+            (
+                carries_a_question_stem(c),
+                ql.find(&c.to_lowercase()).unwrap_or(usize::MAX),
+            )
+        });
 
         // AND OFFER THE HEAD OF A COMMA'D SPAN, after the span itself.
         //
@@ -66881,7 +66915,7 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
 ///     embassy at high confidence. An exonym belongs to a place, not to a
 ///     building in one. Those stored verdicts must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 12;
+const LOCATE_RESOLVER_VERSION: u32 = 13;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
