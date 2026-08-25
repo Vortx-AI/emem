@@ -37,17 +37,28 @@ and is that a measurement or a guess?
 ```bash
 curl -s -X POST https://emem.dev/v1/perception/at \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"],"detect_from_clip":true}'
+  -d '{"cell":"defi.zb64a.cEjo.zfa47","question":"what is on this street?","stages":["detect"]}'
 ```
 
-That cell is London. `detect_from_clip` is the part that matters, and it is not
-the default. Without it the count comes from the camera's current frame:
-`source: live_frame`, `tamper_evidence: none`, and those bytes are gone the
-moment they are read, so nobody can recompute the number afterwards. With it,
-`source: retained_clip` and `tamper_evidence: recomputable_from_source`, and the
-response carries the S3 key, the frame index and the hash at
-`camera.clip.clip_sha256`. A machine that may have to defend a decision later
-wants the second one.
+That cell is London, and that call answers in about four and a half seconds.
+The count comes from the camera's current frame: `source: live_frame`,
+`tamper_evidence: none`. Those bytes are gone the moment they are read, so
+nobody, including you, can recompute the number afterwards. For a robot
+deciding whether to cross, that is usually the right trade.
+
+For a decision you may have to defend later, add `"detect_from_clip": true` to
+the same body. The count is then taken from the retained clip the receipt
+commits to: `source: retained_clip`, `tamper_evidence:
+recomputable_from_source`, and the response carries the S3 key, the frame index
+and the hash at `camera.clip.clip_sha256`. Anyone with the clip can rerun the
+detector and get your number.
+
+Budget for it. It fetches a clip, decodes a frame and runs a detector on a GPU
+that other work is sharing, and measured on this responder it has taken
+anywhere from 34 seconds to 165. The door allows 120 (`EMEM_PERCEPTION_TIMEOUT_S`)
+and returns a typed 504 beyond that, so treat it as a job to start and wait on
+rather than something to block a control loop behind. The live-frame form above
+is the one to call when a machine is moving.
 
 The response names the camera it used, how far away it
 was, and why that camera was chosen, because a count from a camera 300 m away
