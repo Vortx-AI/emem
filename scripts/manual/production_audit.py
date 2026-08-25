@@ -59,6 +59,9 @@ to demand: an audit where everything passes may be a broken audit.
 """
 import argparse
 import json
+import re
+import urllib.error
+import urllib.request
 import sys
 
 try:
@@ -73,12 +76,68 @@ except ImportError:
 # an HTML page. Auditing them here would report five findings each, forever,
 # about a deliberate decision -- which is how a checker teaches people to skim
 # past it.
-PAGES = [
+# The hand-written list this file used to carry, kept ONLY as the pages that are
+# checked when the sitemap cannot be read. It is twenty, and the site serves
+# forty one HTML pages.
+#
+# That gap was the whole finding. This sweep reported 24 undersized targets and
+# read as a survey of the site; a neighbouring responder's accessibility pass
+# over all forty one found 940 real failures, 885 of them under /docs, which
+# this list has never contained. The twenty pages it enumerates are the twenty
+# with almost none of the problem, and a count from them was being quoted as if
+# it were the site's.
+#
+# So the list is DISCOVERED now, from the sitemap this responder publishes,
+# filtered to the ones that actually serve HTML. A page added to the site is
+# audited without anyone remembering to add it here.
+FALLBACK_PAGES = [
     "/", "/how-it-works", "/solutions", "/whitepaper", "/whitepaper/v1",
     "/demos", "/demos/signed-answer", "/demos/state-cube", "/demos/trajectory",
     "/worlds", "/scoreboard", "/gallery", "/verify", "/guard", "/agents",
     "/reference", "/a2a", "/tools", "/card", "/404-does-not-exist",
 ]
+
+
+def discovered_pages(origin: str):
+    """Every path in /sitemap.xml that serves text/html, plus the 404 probe."""
+    try:
+        with urllib.request.urlopen(f"{origin}/sitemap.xml", timeout=60) as r:
+            xml = r.read().decode("utf-8", "replace")
+    except Exception as e:
+        print(f"  could not read {origin}/sitemap.xml ({e}); falling back to the "
+              f"{len(FALLBACK_PAGES)} written-down pages, which is NOT the site")
+        return list(FALLBACK_PAGES)
+    locs = re.findall(r"<loc>\s*([^<]+?)\s*</loc>", xml)
+    paths = []
+    for u in locs:
+        path = re.sub(r"^https?://[^/]+", "", u) or "/"
+        # JSON, markdown and the event stream are in the sitemap and are not
+        # pages; asking a browser to audit them measures nothing.
+        if re.search(r"\.(json|md|txt|xml|png|svg)$", path) or path.endswith("/stream"):
+            continue
+        paths.append(path)
+    if "/404-does-not-exist" not in paths:
+        paths.append("/404-does-not-exist")
+
+    # And ask each one what it actually serves. Filtering by extension leaves
+    # paths that carry no suffix and answer with JSON or a redirect; a browser
+    # dutifully loads those and measures nothing, and the page COUNT in the
+    # report is then a number about URLs rather than about pages. Cheap: one
+    # HEAD each, and it makes the total honest.
+    html = []
+    for path in sorted(set(paths)):
+        req = urllib.request.Request(f"{origin}{path}", method="HEAD",
+                                     headers={"User-Agent": "emem-production-audit"})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                ct = r.headers.get("content-type", "")
+        except urllib.error.HTTPError as e:
+            ct = e.headers.get("content-type", "") if e.headers else ""
+        except Exception:
+            continue
+        if "text/html" in ct.lower():
+            html.append(path)
+    return html
 
 AUDIT_JS = r"""() => {
   const out = {overflow: [], contrast: [], document: [], images: [], targets: []};
@@ -299,7 +358,7 @@ def main() -> int:
     ap.add_argument("--width", type=int, default=375)
     ap.add_argument("--json", help="write the full result here")
     args = ap.parse_args()
-    pages = args.page or PAGES
+    pages = args.page or discovered_pages(args.origin)
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
