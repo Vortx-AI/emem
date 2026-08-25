@@ -182,18 +182,32 @@ mark, .content mark { color: var(--ink); }
   font-size: 0.84375rem;
   line-height: 1.5;
 }
-/* THE SIDEBAR LINK IS THE TAP TARGET, so it has to be the size of one.
-   mdbook gives these anchors `padding: 5px 0` and no `display`, so they stay
-   inline and the vertical padding does not grow the line box: measured from
-   outside, 13 px tall. A neighbouring responder's accessibility pass, which
-   implements WCAG 2.5.8's spacing exception rather than thresholding on size,
-   found 940 real failures across this site and 885 of them here, in this one
-   template, on the section list of every /docs page.
-   Block makes the row the target: 13.5 px of text at line-height 1.5 plus the
-   5 px above and below is about 30, and the whole row becomes clickable rather
-   than just the glyphs, which is the behaviour a reader expects from a sidebar
-   anyway. The fold arrow keeps its own layout. */
-.chapter li a:not(.toggle) { display: block; }
+/* TAP TARGETS IN mdBOOK'S OWN CHROME.
+   These four selectors are the default mdBook theme, not ours, and between them
+   they are 885 of the 940 real target failures on this site: the page-summary
+   anchors and the sidebar chapter list, about 83 per whitepaper page. mdBook
+   gives the anchors `padding: 5px 0` and no `display`, so they stay inline and
+   the padding never grows the line box. Measured from outside: 13 px tall.
+
+   Three things a neighbouring responder measured while fixing it, each of which
+   would have cost me a wrong patch:
+
+   `line-height: 24px` on these links does NOTHING. 84 failures before, 84
+   after. An inline box does not take its hit-testing height from line-height,
+   so it has to be `display: block` and padding.
+
+   Padding on ONE axis is not enough. The criterion is min(width, height) >= 24,
+   and `padding-top/bottom` alone left a short link 25 px tall and 18 px wide.
+
+   And the docs failures are DESKTOP-ONLY, because the sidebar is hidden at
+   mobile width. An audit running one narrow viewport sees none of this, which
+   is exactly why ours reported 24 findings for the whole site.
+
+   .382rem is 6.1 px, which is the phi scale's value and at least the 6 px that
+   was measured, so this satisfies the spacing scale and the criterion at once. */
+a.header-in-summary { display: block; padding: .382rem 0; }
+.chapter li.chapter-item a { display: block; padding: .382rem .382rem; }
+.menu-bar .right-buttons a { display: inline-block; min-width: 24px; min-height: 24px; }
 .chapter li a:hover { color: var(--accent); background: var(--paper-3); }
 .chapter li a.active { color: var(--accent); font-weight: 700; }
 .chapter li.part-title { color: var(--mute); letter-spacing: 0.06em; text-transform: uppercase; }

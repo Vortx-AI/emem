@@ -124,6 +124,9 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 .intro p{margin:0 0 .6rem}
 .intro-do{opacity:.75}
 @media (max-width:760px){.intro{display:none}}
+/* The panel's minimise control is an icon with no text, so nothing sized it.
+   min(width,height) >= 24 is the criterion, not height alone. */
+.panel button.min-btn,.min-btn{min-width:24px;min-height:24px}
 </style>
 </head>
 <body>

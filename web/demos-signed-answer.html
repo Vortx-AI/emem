@@ -217,6 +217,13 @@ input[type=text],input[type=search],input[type=email],input[type=url],input[type
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* Tap targets, measured from outside rather than judged by eye. A link that is
+   the only child of a list item is a row in a list, so it is a row-sized target;
+   the header nav crowds only at mobile width. Padding on BOTH axes because the
+   criterion is min(width, height) >= 24 and a short link fails on width first.
+   .382rem is 6.1px, the phi scale's value and above what was measured. */
+ul li > a:only-child{display:inline-block;padding:.382rem 0}
+header.top nav.navlinks a{display:inline-block;padding:.382rem;min-width:24px;text-align:center}
 </style>
 </head>
 <body>
