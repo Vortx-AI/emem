@@ -76968,12 +76968,87 @@ mod tests {
     /// receipt tests since `std::env::set_var` is process-global and
     /// `cargo test` shares a process. Each test takes the lock, sets
     /// only the vars it needs, runs to completion, then drops the lock.
-    fn eudr_test_env_guard() -> std::sync::MutexGuard<'static, ()> {
+    /// The vars these tests reach for. Named here so the guard can put every
+    /// one of them back, including ones a future test starts setting.
+    const EUDR_TEST_ENV_VARS: &[&str] = &[
+        "EMEM_MATERIALIZER_TIMEOUT_SECS",
+        "EMEM_MATERIALIZER_RETRIES",
+        "EMEM_EUDR_RECEIPT_MAX_CELLS",
+        "EMEM_EUDR_RECEIPT_MAX_FACTS",
+    ];
+
+    /// Serialise the env-mutating tests AND put the env back afterwards.
+    ///
+    /// The lock alone was not enough, and the gap was doing real damage. Two of
+    /// these tests set `EMEM_MATERIALIZER_TIMEOUT_SECS=2` and never unset it,
+    /// so once either had run, every later test in the process materialised
+    /// under a two-second cap instead of fourteen. Which tests those were
+    /// depended on thread scheduling, so it passed here and failed on a
+    /// four-core CI runner, intermittently, for reasons no failure message
+    /// mentioned. Their own sibling `eudr_dds_receipt_cells_capped` had been
+    /// restoring its two vars by hand all along, which is the tell: the
+    /// discipline existed and was applied unevenly, which is what a guard is
+    /// for.
+    ///
+    /// What this does NOT fix: a test that never takes the lock still reads
+    /// whatever is set while a holder is mid-run. Restoring bounds that window
+    /// to the holder's own body instead of the rest of the process, which is
+    /// the difference between a race and a leak. Closing it properly means the
+    /// readers taking the lock too, or the timeout coming from AppState rather
+    /// than from the environment at call time.
+    struct EudrTestEnv {
+        _lock: std::sync::MutexGuard<'static, ()>,
+        saved: Vec<(&'static str, Option<String>)>,
+    }
+
+    impl Drop for EudrTestEnv {
+        fn drop(&mut self) {
+            for (k, v) in &self.saved {
+                match v {
+                    Some(v) => std::env::set_var(k, v),
+                    None => std::env::remove_var(k),
+                }
+            }
+        }
+    }
+
+    fn eudr_test_env_guard() -> EudrTestEnv {
         static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
         // Map a poisoned mutex (a prior test panicked while holding the
         // lock) into a still-usable guard, env state isn't structural
         // here, just a serialisation point.
-        LOCK.lock().unwrap_or_else(|p| p.into_inner())
+        let lock = LOCK.lock().unwrap_or_else(|p| p.into_inner());
+        EudrTestEnv {
+            _lock: lock,
+            saved: EUDR_TEST_ENV_VARS
+                .iter()
+                .map(|k| (*k, std::env::var(k).ok()))
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn the_env_guard_puts_back_what_it_found() {
+        // The property the lock alone did not have. Two EUDR tests set
+        // EMEM_MATERIALIZER_TIMEOUT_SECS=2 and never unset it, so every later
+        // test in the process materialised under a two-second cap. Nothing
+        // failed here; things failed on a four-core runner, sometimes, in
+        // whichever test happened to be scheduled after.
+        const VAR: &str = "EMEM_MATERIALIZER_TIMEOUT_SECS";
+        let g = eudr_test_env_guard();
+        let before = std::env::var(VAR).ok();
+        std::env::set_var(VAR, "2");
+        assert_eq!(
+            std::env::var(VAR).as_deref(),
+            Ok("2"),
+            "the test's own value"
+        );
+        drop(g);
+        assert_eq!(
+            std::env::var(VAR).ok(),
+            before,
+            "the guard must put back what it found, or it is a leak with a lock on it"
+        );
     }
 
     /// Build a 1-plot EudrDdsReq at the given (lat, lng) with a POINT
