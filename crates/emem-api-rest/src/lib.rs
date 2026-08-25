@@ -22420,6 +22420,22 @@ async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppStat
     }
 }
 
+/// Open a model's fenced reply so the action object inside can be parsed.
+///
+/// `trim_start_matches` only strips a prefix that is actually at the start, so
+/// the original chain no-opped on one leading newline: the object then failed
+/// to parse and the raw "```json\n{ \"answer\": ... }" went out as
+/// `answer_prose`, JSON in a field the envelope calls plain language, beside a
+/// signed grounding block. Observed on Cosmos in production.
+fn strip_action_fences(content: &str) -> &str {
+    content
+        .trim()
+        .trim_start_matches("```json")
+        .trim_start_matches("```")
+        .trim_end_matches("```")
+        .trim()
+}
+
 async fn a2a_reason_compose(
     q: &str,
     ask_env: JsonValue,
@@ -22772,11 +22788,13 @@ async fn a2a_reason_compose(
         }
         // Strict action protocol: a fenced or bare JSON object is an action;
         // anything else is the final prose.
-        let stripped = content
-            .trim_start_matches("```json")
-            .trim_start_matches("```")
-            .trim_end_matches("```")
-            .trim();
+        //
+        // TRIMMED FIRST. `trim_start_matches` only strips a prefix that is
+        // actually at the start, so one leading newline before the fence made
+        // every strip below a no-op, the object failed to parse, and the raw
+        // "```json\n{ \"answer\": ..." went out as `answer_prose`. Observed on
+        // Cosmos, in production, beside a signed grounding block.
+        let stripped = strip_action_fences(&content);
         let action: Option<JsonValue> = serde_json::from_str(stripped).ok();
         match action {
             Some(act) if act.get("tool").is_some() && tool_trace.len() < max_tool_calls => {
@@ -22856,8 +22874,17 @@ async fn a2a_reason_compose(
     // action object cannot produce a tool call either, and the envelope it
     // already has is the evidence it is being asked to read.
     let has_words = |t: &str| t.chars().filter(|c| c.is_alphabetic()).count() >= 12;
+    // A reply that still begins with a fence or a brace is a wrapper we failed
+    // to open, not prose. It has plenty of words in it -- the answer is in
+    // there, wearing punctuation -- so the emptiness test above cannot see it,
+    // and handing it to a caller as the model's reading puts raw JSON in a
+    // field the envelope says is plain language.
+    let still_wrapped = |t: &str| {
+        let t = t.trim_start();
+        t.starts_with("```") || t.starts_with('{')
+    };
     let mut answer_protocol = "action";
-    if !has_words(&prose) {
+    if !has_words(&prose) || still_wrapped(&prose) {
         answer_protocol = "prose";
         let plain = "You are the reasoning tier of emem, a shared verifiable memory for AI                      agents. Answer the question in plain language using ONLY the evidence in                      the signed envelope below. Name the resolved place explicitly and cite                      bands by name. Never invent a number. If the envelope cannot support an                      answer, begin your reply with `ABSTAIN:` and say what is missing.";
         let mut payload = json!({
@@ -22891,7 +22918,7 @@ async fn a2a_reason_compose(
             },
             Err(_) => String::new(),
         };
-        if has_words(&recovered) {
+        if has_words(&recovered) && !still_wrapped(&recovered) {
             prose = recovered;
         } else {
             // Both protocols tried, neither produced language. Say that,
@@ -71869,6 +71896,35 @@ mod tests {
     /// "DROP TABLE facts" matched "La Table Ronde" on the single word
     /// `table` and scored 0.6, because that quarter really is a notable
     /// place. The overlap ratio is the missing signal.
+    #[test]
+    fn a_fenced_reply_opens_even_with_a_newline_in_front_of_the_fence() {
+        // The exact shape that leaked: a leading newline, so every
+        // trim_start_matches below it matched nothing.
+        let wrapped = "\n```json\n{\"answer\": \"PM2.5 is 5.9\"}\n```";
+        let inner = strip_action_fences(wrapped);
+        let v: JsonValue = serde_json::from_str(inner)
+            .unwrap_or_else(|e| panic!("{inner:?} must parse as the action object: {e}"));
+        assert_eq!(v["answer"], json!("PM2.5 is 5.9"));
+
+        // The shapes that already worked keep working.
+        for w in [
+            "```json\n{\"answer\": \"PM2.5 is 5.9\"}\n```",
+            "{\"answer\": \"PM2.5 is 5.9\"}",
+            "  ```\n{\"answer\": \"PM2.5 is 5.9\"}\n```  ",
+        ] {
+            let v: JsonValue = serde_json::from_str(strip_action_fences(w))
+                .unwrap_or_else(|e| panic!("{w:?}: {e}"));
+            assert_eq!(v["answer"], json!("PM2.5 is 5.9"));
+        }
+
+        // And plain prose is returned untouched, since it is the other thing
+        // this function is handed.
+        assert_eq!(
+            strip_action_fences("  The air is clean.  "),
+            "The air is clean."
+        );
+    }
+
     #[test]
     fn naming_the_country_must_not_make_a_correct_place_look_worse() {
         // The fit test is a share of the query's substantive tokens, so every
