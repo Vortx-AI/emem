@@ -66104,7 +66104,18 @@ impl QueryFeatureClass {
             Self::Forest => {
                 c == "natural" && matches!(t.as_str(), "wood" | "forest")
                     || c == "landuse" && matches!(t.as_str(), "forest")
-                    || c == "boundary" && t == "national_park"
+                    // A PROTECTED FOREST IS STILL A FOREST. `protected_area`
+                    // was on Park and not here, so Epping Forest resolved
+                    // correctly and was then refused for being the wrong kind
+                    // of thing: `class_mismatch_with_query` on a question about
+                    // tree cover, which is what this responder's carbon topic
+                    // exists to answer. The New Forest and Sherwood are encoded
+                    // the same way. `nature_reserve` joins it for the same
+                    // reason: a reserve asked about by the word forest is not a
+                    // mismatch, it is the same ground under a designation.
+                    || c == "boundary"
+                        && matches!(t.as_str(), "national_park" | "protected_area")
+                    || c == "leisure" && t == "nature_reserve"
             }
             Self::Park => {
                 c == "leisure" && matches!(t.as_str(), "park" | "nature_reserve")
@@ -67217,7 +67228,7 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
 ///     embassy at high confidence. An exonym belongs to a place, not to a
 ///     building in one. Those stored verdicts must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 13;
+const LOCATE_RESOLVER_VERSION: u32 = 14;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -72219,6 +72230,39 @@ mod tests {
             strip_action_fences("  The air is clean.  "),
             "The air is clean."
         );
+    }
+
+    #[test]
+    fn a_protected_forest_is_not_a_class_mismatch() {
+        // Epping Forest resolves to boundary=protected_area, and the Forest
+        // matcher accepted national_park and not that, so a question about its
+        // tree cover was refused with class_mismatch_with_query while the
+        // geocoder had found exactly the right ground. Park already accepted
+        // it; the asymmetry was the whole bug.
+        for (class_, type_) in [
+            ("boundary", "protected_area"),
+            ("boundary", "national_park"),
+            ("natural", "wood"),
+            ("natural", "forest"),
+            ("landuse", "forest"),
+            ("leisure", "nature_reserve"),
+        ] {
+            assert!(
+                QueryFeatureClass::Forest.matches_osm(class_, type_),
+                "a question about a forest must accept {class_}={type_}"
+            );
+        }
+        // And it must still be able to disagree, or it is not a check.
+        for (class_, type_) in [
+            ("place", "city"),
+            ("amenity", "restaurant"),
+            ("waterway", "river"),
+        ] {
+            assert!(
+                !QueryFeatureClass::Forest.matches_osm(class_, type_),
+                "a forest question must not silently accept {class_}={type_}"
+            );
+        }
     }
 
     #[test]
