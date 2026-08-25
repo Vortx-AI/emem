@@ -160,6 +160,25 @@ jobs:
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
+      # A GITHUB RUNNER HAS 14 GB OF DISK AND THIS WORKSPACE'S RELEASE BUILD
+      # DOES NOT COMFORTABLY FIT IN IT.
+      #
+      # The failures on this job have not been test failures. The annotation
+      # says `Process completed with exit code 143`, which is SIGTERM: the job
+      # was KILLED. Not by the timeout, which is 60 minutes and the kill came at
+      # 10.6; not by cancel-in-progress, which is off for main (the concurrency
+      # group is per-SHA there). A runner reclaiming a job that is exhausting it
+      # is what is left, and the shape fits: it passes sometimes, at wildly
+      # different durations (one pass took 2,526 s), and it has never reproduced
+      # here across 1,394 tests where the same build has 70+ GB to live in.
+      #
+      # These four directories are preinstalled and unused by this repository,
+      # and removing them frees roughly 20 GB. Cheap, reversible, and it costs
+      # about fifteen seconds.
+      - name: free the disk this build needs
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
+          df -h / | tail -1
       # THIRD PARTIES DO NOT GET A VOTE ON WHETHER OUR BUILD IS GREEN.
       #
       # crates/emem-fetch/tests/live_cog_fetch.rs reads real COGs from AWS, GCS
