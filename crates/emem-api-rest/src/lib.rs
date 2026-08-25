@@ -63533,6 +63533,31 @@ async fn album_frames_html() -> String {
                 String::new()
             };
 
+            // WHICH INSTRUMENT, AND HOW MANY CLASSES IT WAS LOOKING FOR.
+            //
+            // A count is only ever a count of the classes that were sought, so a
+            // number without them is a number a reader will over-read: "14 car"
+            // does not mean fourteen vehicles, it means fourteen of the things
+            // this detector was asked to find. Both fields come from the
+            // upstream's index per place, never composed here, because a
+            // detector id written into the page would outlive the change it
+            // describes.
+            let detector = match (
+                p.get("detector_fn_id").and_then(|v| v.as_str()),
+                p.get("detector_prompts").and_then(|v| v.as_array()),
+            ) {
+                (Some(fnid), Some(prompts)) if !fnid.is_empty() => format!(
+                    "<p class=\"frame-det\">counted by <code>{}</code>, {} classes sought</p>",
+                    html_escape_min(fnid),
+                    prompts.len()
+                ),
+                (Some(fnid), None) if !fnid.is_empty() => format!(
+                    "<p class=\"frame-det\">counted by <code>{}</code></p>",
+                    html_escape_min(fnid)
+                ),
+                _ => "<p class=\"frame-det\">detector not recorded for this panel</p>".to_string(),
+            };
+
             out.push_str(&format!(
                 "<article class=\"frame{}\" id=\"frame-{slug}\" data-slug=\"{slug}\">\
                  <div class=\"shots\">\
@@ -63545,7 +63570,7 @@ async fn album_frames_html() -> String {
                  {sat}</div>\
                  <div class=\"frame-read\"><h3>{pretty}</h3>\
                  <p class=\"frame-what\">{what}</p>\
-                 <p class=\"frame-age\">{age}</p>{cellline}</div>\
+                 <p class=\"frame-age\">{age}</p>{detector}{cellline}</div>\
                  <div class=\"frame-try\"><p class=\"frame-try-says\">{call_says}</p>\
                  <pre><code>{call}</code></pre></div>\
                  </article>",
@@ -70455,14 +70480,17 @@ mod tests {
             .find(r#"id="album""#)
             .expect("the album section is on the homepage");
         // To the end of the album's own script, which is where its last
-        // composed string could live.
+        // composed string could live. Bounded on the carousel script rather
+        // than on the old grid builder: the grid is gone, and a scope-finder
+        // that no longer matches turns an absence test into an error rather
+        // than a pass, which is at least loud.
         let strip_at = page[start..]
-            .find("function strip(")
-            .expect("the album carries its strip builder");
+            .find("getElementById('strip')")
+            .expect("the album carries its strip script");
         let end = page[start + strip_at..]
             .find("</script>")
             .map(|e| start + strip_at + e)
-            .expect("the strip builder is inside a script block");
+            .expect("the strip script is inside a script block");
         let album = &page[start..end].to_lowercase();
 
         // A place written here is a place that cannot disappear when the
@@ -70513,13 +70541,31 @@ mod tests {
         // The control. Without it this passes just as well against a build
         // where the album is gone entirely, which is the failure mode every
         // absence-assertion has.
+        //
+        // What the control checks CHANGED WITH THE ARCHITECTURE, and it is
+        // stronger now. The album used to fetch its own index in the browser,
+        // so "is it still fetching" was the question. Every frame is rendered
+        // by the responder now, from the same upstream index, which is why no
+        // place name appears above: the page holds a marker and the responder
+        // fills it. So the control is that the marker is there. If it goes, the
+        // absence assertions would pass against a page with no album at all.
         assert!(
-            album.contains("/v1/perception/cards"),
-            "control: the album must still be fetching its index"
+            album.contains("<!--##album_first##-->"),
+            "control: the album must still be the responder-filled marker, or \
+             every absence checked above is vacuous"
         );
+        // The second control, also changed by the architecture. The detector is
+        // still shown per place and still read from the upstream's index, but
+        // it is read in album_frames_html now rather than in the page's script,
+        // so it is not a string this file can see. What IS visible here, and
+        // what must stay, is the one fetch the section genuinely cannot serve:
+        // the refusal. It is a claim about what the route does right now, and a
+        // served copy of it would be a caption that outlives its subject.
         assert!(
-            album.contains("detector_fn_id"),
-            "control: the album must still be reading the detector per panel"
+            album.contains("/v1/perception/postcard"),
+            "control: the album must still be asking the live route for its \
+             refusal, which is the one thing on this section that cannot be \
+             rendered ahead of time"
         );
     }
 
