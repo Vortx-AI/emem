@@ -200,6 +200,42 @@ jobs:
       - run: cargo test --workspace --release
         env:
           EMEM_NO_NETWORK: "1"
+          # THE TEST HARNESS FOR ONE CRATE TAKES 14 GB TO BUILD, AND A RUNNER
+          # HAS 16.
+          #
+          # The kill is during COMPILATION, before a test runs: the log ends
+          # partway through the crate list with `exit code 143`, which is
+          # SIGTERM. Measured here, per build of emem-api-rest:
+          #
+          #     lib, production profile                     5,077,996 KB
+          #     TEST HARNESS, production profile           14,325,284 KB   <-- the kill
+          #     test harness, LTO and debuginfo off         5,226,804 KB
+          #
+          # 14.3 GB is one build. A runner has 16 GB for everything including
+          # itself, so this was never going to fit and did not need help to
+          # fail. It never reproduced on the box this is developed on because
+          # that box has 216 GB.
+          #
+          # LTO holds the whole crate's IR at link time and debug info is
+          # generated alongside it, so turning both off for the TEST build takes
+          # it to 5.2 GB and, as it happens, from 9:12 to 6:45.
+          #
+          # The profile on disk is NOT changed. `lto = "thin"`,
+          # `codegen-units = 1` and `debug = "line-tables-only"` are there for
+          # the deployed binary and for readable backtraces out of the
+          # watchdog's wedge snapshots, and redeploy.sh still builds with them.
+          # These are overrides for a test run that does not need either.
+          #
+          # What I tried first, so nobody repeats it: I assumed
+          # `codegen-units = 1` was the memory hog and overrode it to 16.
+          # Measured, that made peak RSS WORSE, 7,432,916 KB against 5,077,996,
+          # because sixteen codegen units run at once. The setting that looks
+          # like it serialises work is the one that keeps peak memory down.
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_DEBUG: "0"
+          # Two 5.2 GB builds fit; four do not. cargo defaults to one job per
+          # CPU and a runner has four.
+          CARGO_BUILD_JOBS: "2"
 
   msrv:
     name: minimum supported rust 1.91
