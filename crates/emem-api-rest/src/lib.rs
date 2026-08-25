@@ -27548,6 +27548,23 @@ async fn mcp_tool_call(
                         "green": { "p2": scene.stretch_p2_p98.1.0, "p98": scene.stretch_p2_p98.1.1 },
                         "blue":  { "p2": scene.stretch_p2_p98.2.0, "p98": scene.stretch_p2_p98.2.1 },
                     },
+                    // WHERE THESE PIXELS ARE. Without it an agent holds a
+                    // 256x256 image, an EPSG and no way to say which pixel is
+                    // which place, so anything it draws on top is placed by
+                    // eye. In the scene's own CRS, because this responder has a
+                    // forward projection and no inverse and an approximated
+                    // bbox is a georeference that is quietly wrong.
+                    "georeference": {
+                        "crs_epsg": scene.epsg,
+                        "bbox_crs": [scene.bbox_crs.0, scene.bbox_crs.1,
+                                     scene.bbox_crs.2, scene.bbox_crs.3],
+                        "pixel_size": [scene.pixel_size.0, scene.pixel_size.1],
+                        "size_px": [scene.w, scene.h],
+                        "how": "convert your point to crs_epsg, then col = (x - bbox_crs[0]) / \
+                                pixel_size[0] and row = (bbox_crs[3] - y) / pixel_size[1]. The \
+                                bbox covers the pixels returned, including any that fall outside \
+                                the source image and came back zero: those have a location too.",
+                    },
                     "rest_url": format!("{}/v1/cells/{cell}/scene.png?max_cloud={max_cloud}",
                         public_origin().unwrap_or_else(|| "urn:emem".into())),
                 },
@@ -53727,6 +53744,15 @@ struct SceneRgb {
     /// Per-channel `(p2, p98)` reflectance values used for the stretch
     /// (×10000 to recover S2's stored DN).
     stretch_p2_p98: ((f64, f64), (f64, f64), (f64, f64)),
+    /// Where the returned pixels are, as `(min_x, min_y, max_x, max_y)` in the
+    /// scene's own CRS (`epsg` above). Not WGS84 on purpose: this responder has
+    /// a forward projection and no inverse, and a bbox converted by an
+    /// approximation is a georeference that is quietly wrong. In the scene's
+    /// own metres it is exact, and a caller places a point by converting THEIR
+    /// point forward with this EPSG, which is the direction that exists.
+    bbox_crs: (f64, f64, f64, f64),
+    /// Ground size of one pixel in the scene's CRS units, `(x, y)`.
+    pixel_size: (f64, f64),
 }
 
 /// Build a Sentinel-2 L2A true-colour PNG centred on the cell. Picks
@@ -53907,6 +53933,8 @@ async fn build_cell_scene_rgb(
         cloud_cover: item.cloud_cover,
         epsg,
         stretch_p2_p98: ((r_lo, r_hi), (g_lo, g_hi), (b_lo, b_hi)),
+        bbox_crs: red_prof.window_bbox(utm.easting, utm.northing, W, H),
+        pixel_size: red_prof.pixel_scale,
     })
 }
 
@@ -54002,6 +54030,31 @@ async fn get_cell_scene_rgb(
                 .unwrap_or_default(),
         )
         .header("x-emem-scene-epsg", scene.epsg.to_string())
+        // WHERE THESE PIXELS ARE, so something can be drawn on them.
+        //
+        // A tile with an EPSG and no bounds is 256x256 pixels nobody can index:
+        // a caller holding a camera's lat/lng cannot say which pixel it is, so
+        // anything overlaid on this image -- a camera, a view cone, a detection
+        // -- is placed by eye, and placed by eye is how an overlay becomes
+        // confidently wrong.
+        //
+        // In the scene's OWN CRS, not WGS84. This responder has a forward
+        // projection and no inverse, and a bbox produced by an approximation is
+        // a georeference that is quietly off. A caller converts THEIR point
+        // forward with x-emem-scene-epsg, then indexes:
+        //   col = (x - min_x) / pixel_size_x
+        //   row = (max_y - y) / pixel_size_y
+        .header(
+            "x-emem-scene-bbox-crs",
+            format!(
+                "{:.3},{:.3},{:.3},{:.3}",
+                scene.bbox_crs.0, scene.bbox_crs.1, scene.bbox_crs.2, scene.bbox_crs.3
+            ),
+        )
+        .header(
+            "x-emem-scene-pixel-size",
+            format!("{:.4},{:.4}", scene.pixel_size.0, scene.pixel_size.1),
+        )
         .body(axum::body::Body::from(scene.rgb))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -54070,6 +54123,19 @@ async fn get_cell_scene_png(
                 .unwrap_or_default(),
         )
         .header("x-emem-scene-epsg", scene.epsg.to_string())
+        // Same bounds on the PNG route. See the note on the .rgb route above:
+        // an EPSG without a bbox is a tile nobody can index.
+        .header(
+            "x-emem-scene-bbox-crs",
+            format!(
+                "{:.3},{:.3},{:.3},{:.3}",
+                scene.bbox_crs.0, scene.bbox_crs.1, scene.bbox_crs.2, scene.bbox_crs.3
+            ),
+        )
+        .header(
+            "x-emem-scene-pixel-size",
+            format!("{:.4},{:.4}", scene.pixel_size.0, scene.pixel_size.1),
+        )
         // THE STRETCH, because without it this image cannot be reproduced.
         //
         // The 2-98 percentile is computed PER SCENE, per channel, so the same

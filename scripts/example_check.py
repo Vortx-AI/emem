@@ -57,6 +57,12 @@ FROZEN = (
     "CHANGELOG.md",           # every entry is a past release
 )
 
+# `curl` at a line start, after whitespace, or straight after a tag. The last
+# case is the one that was missing: a served page writes `<pre><code>curl ...`,
+# so the character before the command is `>` and a pattern wanting whitespace
+# matched nothing at all. Twelve commands on the homepage, none of them seen.
+CURL_START = re.compile(r"(?:^|[\s>])(?P<c>curl\b)")
+
 PLACEHOLDER = re.compile(r"<[a-z_]+>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
 
 
@@ -71,9 +77,41 @@ def sources():
     return sorted(set(out))
 
 
+# COMMANDS THE FILES DO NOT CONTAIN.
+#
+# The homepage's film strip is rendered by the responder: twelve frames, each
+# with a command parameterised by that place's real cell64, none of which exists
+# in web/index.html. A gate that reads the repository therefore checks every
+# published example EXCEPT the ones a reader is most likely to try, which is the
+# wrong twelve to miss.
+#
+# So the served page is scanned too, as one more source. It is fetched, not
+# built, because what is being checked is what a reader receives.
+SERVED = ["/"]
+
+
+def served_sources(origin: str):
+    """The pages whose commands only exist after the responder fills them in."""
+    out = []
+    for path in SERVED:
+        code, body = _run_once(f"curl -s {origin}{path}", origin, timeout=60)
+        if code and code.isdigit() and 200 <= int(code) < 300 and body:
+            out.append((f"{origin}{path} (served)", body))
+        else:
+            # Undetermined, and said so: a served page that did not arrive is
+            # not a page with no examples in it.
+            print(f"  note: could not read {origin}{path} (status {code}), so any "
+                  f"commands the responder injects there went unchecked")
+    return out
+
+
 def extract(path: pathlib.Path):
     """Every curl invocation, with the file and line it came from."""
-    text = path.read_text(encoding="utf-8", errors="ignore")
+    return _extract_from(path.read_text(encoding="utf-8", errors="ignore"))
+
+
+def _extract_from(text: str):
+    """The same, from markup already in hand (a served page, say)."""
     # Unescape with the stdlib rather than a hand-written table: my table
     # covered &#39; and not &#x27;, so every example in web/tools.html came out
     # carrying literal entity text and would have "failed" as a shell parse
@@ -88,7 +126,7 @@ def extract(path: pathlib.Path):
     lines = text.split("\n")
     i = 0
     while i < len(lines):
-        if not re.search(r"(^|\s)curl\b", lines[i]):
+        if not CURL_START.search(lines[i]):
             i += 1
             continue
         start = i
@@ -108,15 +146,35 @@ def extract(path: pathlib.Path):
             if joined.count("'") % 2 or joined.count('"') % 2:
                 continue
             break
-        cmd = " ".join(p for p in parts if p).strip()
-        cmd = cmd[cmd.index("curl"):] if "curl" in cmd else cmd
-        # strip a trailing ``` or prose that shares the closing line
-        cmd = cmd.split("```")[0].strip()
-        # HTML pages carry the command inside <code>; the closing tags ride
-        # along on the last line and became part of the URL.
-        cmd = re.split(r"</code>|</pre>|</div>|<br\s*/?>", cmd)[0].strip()
-        if "http" in cmd:
-            out.append((start + 1, cmd))
+        joined = " ".join(p for p in parts if p).strip()
+        # EVERY command on the line, not the first.
+        #
+        # A file puts one command per block, so taking the first `curl` and
+        # stopping was right for files and wrong the moment a page was rendered
+        # by the responder: the homepage's film strip is twelve commands on one
+        # 14,900-character line, and eleven of them went unchecked while the
+        # report said everything was checked.
+        for m in CURL_START.finditer(joined):
+            cmd = joined[m.start("c"):]
+            # strip a trailing ``` or prose that shares the closing line
+            cmd = cmd.split("```")[0].strip()
+            # HTML pages carry the command inside <code>; the closing tags ride
+            # along on the last line and became part of the URL.
+            cmd = re.split(r"</code>|</pre>|</div>|<br\s*/?>", cmd)[0].strip()
+            # SYNTAX HIGHLIGHTING IS NOT PART OF THE COMMAND.
+            #
+            # Three pages wrap every token of their examples in a <span> for
+            # colour, so the command reads `curl</span> <span
+            # class="tok-flag">-sX</span> ...`. The old pattern wanted whitespace
+            # before `curl` and those start with `>`, so those examples were
+            # never extracted and never checked -- silently, while the report
+            # said every published example answers. They are extracted now, and
+            # the tags come out here, which is what makes them runnable rather
+            # than four new false findings.
+            cmd = re.sub(r"<[^>]+>", "", cmd)
+            cmd = html.unescape(cmd).strip()
+            if "http" in cmd:
+                out.append((start + 1, cmd))
     return out
 
 
@@ -132,6 +190,14 @@ def runnable(cmd: str):
     # checked them would be worse than saying I did not.
     if re.search(r"\$\(|\$[A-Z_]{2,}", cmd):
         return False, "depends on a value from an earlier step"
+    # A command that lives inside a SCRIPT STRING, which the page renders and
+    # this file cannot. The giveaway is JavaScript escaping: `\'` is how a quote
+    # survives inside a single-quoted JS literal and is never valid inside a
+    # single-quoted shell word. Reconstructing it would mean writing a JS string
+    # parser into a curl checker, and guessing at the unescaping is how a
+    # checker starts inventing the commands it then reports on.
+    if "\\'" in cmd or "\\n" in cmd:
+        return False, "lives inside a script string; the page renders it, the file cannot"
     # A stream has no end, so "did it finish" is the wrong question for it.
     if " -N" in cmd or "/sse" in cmd or "text/event-stream" in cmd:
         return False, "a stream: correct behaviour is not to finish"
@@ -158,7 +224,14 @@ TRANSPORT_PAUSE_S = (1.0, 4.0, 10.0, 25.0)
 def run_one(cmd: str, origin: str, timeout: int = 90):
     for attempt in range(TRANSPORT_RETRIES):
         status, body = _run_once(cmd, origin, timeout)
-        transient = status is None or status == "" or status == "000" or status == "429"
+        # 502/503/504 join 429 and the transport failures. All four say the
+        # responder was busy or in front of something that was, and none of them
+        # is a statement about the command. Both examples this caught were
+        # correct: /v1/verify answered in 30 ms and the ask-with-a-model in 6 s
+        # when asked again, while the suite that reported them broken was itself
+        # the load. A persistent one still fails, because five attempts over
+        # forty seconds is patience, not blindness.
+        transient = (status is None or status in ("", "000", "429", "502", "503", "504"))
         if not transient or attempt + 1 == TRANSPORT_RETRIES:
             return status, body
         time.sleep(TRANSPORT_PAUSE_S[min(attempt, len(TRANSPORT_PAUSE_S) - 1)])
@@ -220,6 +293,14 @@ def main() -> int:
         for line, cmd in extract(path):
             ok, why = runnable(cmd)
             (found if ok else skipped).append((path, line, cmd, why))
+
+    # And the commands that only exist once the responder has filled the page
+    # in. The homepage's film strip is twelve of them, each carrying a real
+    # cell64, and none of them appears in any file in this repository.
+    for label, body in served_sources(args.origin):
+        for line, cmd in _extract_from(body):
+            ok, why = runnable(cmd)
+            (found if ok else skipped).append((label, line, cmd, why))
 
     if not found:
         print("MATCHED NOTHING: no runnable curl example found. Either the docs "

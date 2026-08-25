@@ -146,6 +146,49 @@ impl CogProfile {
         let row = (j + (y - world_y) / sy).round() as i64;
         (col, row)
     }
+
+    /// The world coordinate of a pixel's upper-left corner. Exact inverse of
+    /// `world_to_pixel` before its rounding.
+    pub fn pixel_to_world(&self, col: i64, row: i64) -> (f64, f64) {
+        let (sx, sy) = self.pixel_scale;
+        let (i, j, x, y) = self.tiepoint;
+        (x + (col as f64 - i) * sx, y - (row as f64 - j) * sy)
+    }
+
+    /// Where on the ground a `w`x`h` window CENTRED on `(centre_x, centre_y)`
+    /// lands, as `(min_x, min_y, max_x, max_y)` in this COG's own CRS.
+    ///
+    /// This is what makes a scene tile georeferenced rather than decorative.
+    /// Without it a caller holds 256x256 pixels, an EPSG code and no way to say
+    /// which pixel is which place, so anything drawn on top of it -- a camera,
+    /// a view cone, a detection -- is placed by eye. Placed by eye is how an
+    /// overlay ends up confidently wrong, which is worse than absent.
+    ///
+    /// The window is the one `sample_window` reads, INCLUDING the part that
+    /// falls outside the image. Those pixels come back zero and they still have
+    /// a location; clipping the bbox to the image would describe a different
+    /// picture from the one returned. `window_bbox_matches_sample_window` holds
+    /// the two together, because they are the same arithmetic written twice and
+    /// that is exactly the pair that drifts.
+    pub fn window_bbox(
+        &self,
+        centre_x: f64,
+        centre_y: f64,
+        w: u32,
+        h: u32,
+    ) -> (f64, f64, f64, f64) {
+        let (sx, sy) = self.pixel_scale;
+        let (centre_col, centre_row) = self.world_to_pixel(centre_x, centre_y);
+        let col0 = centre_col - (w as i64) / 2;
+        let row0 = centre_row - (h as i64) / 2;
+        let (min_x, max_y) = self.pixel_to_world(col0, row0);
+        (
+            min_x,
+            max_y - (h as f64) * sy,
+            min_x + (w as f64) * sx,
+            max_y,
+        )
+    }
 }
 
 /// One slot in the profile cache: a shared `OnceCell` that holds the
@@ -2297,5 +2340,84 @@ mod tests {
 
         // The cap itself stays a bounded cost per window.
         assert_eq!((MAX_WINDOW_PX * 8) / (1024 * 1024), 128, "128 MiB ceiling");
+    }
+}
+
+#[cfg(test)]
+mod window_geo {
+    use super::CogProfile;
+
+    fn s2_like() -> CogProfile {
+        // A Sentinel-2 style north-up tile: 10 m pixels, tiepoint mapping pixel
+        // (0,0)'s upper-left to a UTM origin. Numbers chosen to be checkable by
+        // hand rather than to match any particular granule.
+        CogProfile {
+            width: 10_980,
+            height: 10_980,
+            bits_per_sample: 16,
+            sample_format: 1,
+            compression: 8,
+            predictor: 1,
+            tile_w: 512,
+            tile_h: 512,
+            tile_cols: 22,
+            tile_rows: 22,
+            samples_per_pixel: 1,
+            planar_config: 1,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
+            pixel_scale: (10.0, 10.0),
+            tiepoint: (0.0, 0.0, 600_000.0, 5_700_000.0),
+            epsg: Some(32630),
+            nodata: None,
+        }
+    }
+
+    #[test]
+    fn pixel_to_world_inverts_world_to_pixel() {
+        let p = s2_like();
+        for (col, row) in [(0i64, 0i64), (1, 1), (255, 255), (5000, 7000)] {
+            let (x, y) = p.pixel_to_world(col, row);
+            assert_eq!(
+                p.world_to_pixel(x, y),
+                (col, row),
+                "pixel ({col},{row}) -> world ({x},{y}) -> not back again"
+            );
+        }
+    }
+
+    /// The bbox must describe the window `sample_window` actually reads.
+    ///
+    /// They are the same arithmetic written in two places, which is the pair
+    /// that drifts. This recomputes the window origin the way sample_window
+    /// does and asserts the bbox corners land on it.
+    #[test]
+    fn window_bbox_matches_sample_window() {
+        let p = s2_like();
+        let (cx, cy) = (612_345.0, 5_688_888.0);
+        let (w, h) = (256u32, 256u32);
+
+        let (centre_col, centre_row) = p.world_to_pixel(cx, cy);
+        let col0 = centre_col - (w as i64) / 2;
+        let row0 = centre_row - (h as i64) / 2;
+
+        let (min_x, min_y, max_x, max_y) = p.window_bbox(cx, cy, w, h);
+        assert_eq!(
+            p.world_to_pixel(min_x, max_y),
+            (col0, row0),
+            "the bbox's north-west corner is not the window's first pixel"
+        );
+        assert!(
+            (max_x - min_x - (w as f64) * 10.0).abs() < 1e-6,
+            "width should be 256 pixels of 10 m: got {}",
+            max_x - min_x
+        );
+        assert!(
+            (max_y - min_y - (h as f64) * 10.0).abs() < 1e-6,
+            "height should be 256 pixels of 10 m: got {}",
+            max_y - min_y
+        );
+        // North-up: max_y is north of min_y, and the first row is the top.
+        assert!(max_y > min_y, "y must increase northward");
     }
 }

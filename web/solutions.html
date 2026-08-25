@@ -785,6 +785,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">score disagreement across attesters</span><span class="spacer"></span><button class="copy" data-copy-target="#code-contra">copy</button></div>
 <pre id="code-contra"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/memory_contradictions</span> \
+    <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
     <span class="tok-flag">-d</span> <span class="tok-s">'{"cell_prefix":"defi.zb5f9","band":"indices.ndvi","min_severity":0.2}'</span>
 <span class="tok-c"># returns [{ cell, band, tslot, attestations:[…signed disagreements…], severity, kind }]</span></code></pre>
     </div>
