@@ -33,6 +33,7 @@ reports a coverage it does not have, which is the same defect in the checker
 that it exists to find in the docs.
 """
 import argparse
+import concurrent.futures
 import glob
 import html
 import json
@@ -94,7 +95,11 @@ def served_sources(origin: str):
     """The pages whose commands only exist after the responder fills them in."""
     out = []
     for path in SERVED:
-        code, body = _run_once(f"curl -s {origin}{path}", origin, timeout=60)
+        # run_one, not _run_once: this fetch competes with the very checks it
+        # is fetching FOR, and a page that did not arrive silently drops every
+        # command the responder injects into it. Which is the twelve on the
+        # homepage's film strip, the ones a reader is most likely to try.
+        code, body = run_one(f"curl -s {origin}{path}", origin, timeout=90)
         if code and code.isdigit() and 200 <= int(code) < 300 and body:
             out.append((f"{origin}{path} (served)", body))
         else:
@@ -286,6 +291,8 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default="https://emem.dev")
     ap.add_argument("--list", action="store_true")
+    ap.add_argument("--workers", type=int, default=4,
+                    help="concurrent commands; kept well under the published rate")
     args = ap.parse_args()
 
     found, skipped = [], []
@@ -314,12 +321,37 @@ def main() -> int:
         print(f"\n  {len(found)} runnable, {len(skipped)} skipped")
         return 0
 
+    # RUN THEM CONCURRENTLY, at a rate this responder is happy to serve.
+    #
+    # Sequentially this is 198 commands at one to three seconds each, and the
+    # job that runs it has a five minute budget for every step it carries. It
+    # was cancelled mid-run: a checker that cannot finish inside its own job
+    # reports nothing at all, which is the least useful of the three possible
+    # outcomes.
+    #
+    # Four at a time, not more. This responder publishes about ten requests a
+    # second and four workers land nowhere near it, which matters because the
+    # thing being measured is also the thing being asked; a checker that trips
+    # the limiter it is checking against manufactures its own failures, and this
+    # file has done exactly that twice.
     failures = []
-    for path, line, cmd, _ in found:
-        status, body = run_one(cmd, args.origin)
-        v = verdict(status, body)
-        if v != "ok":
-            failures.append((path, line, cmd, v))
+    with concurrent.futures.ThreadPoolExecutor(max_workers=args.workers) as pool:
+        futures = {
+            pool.submit(run_one, cmd, args.origin): (path, line, cmd)
+            for path, line, cmd, _ in found
+        }
+        for fut in concurrent.futures.as_completed(futures):
+            path, line, cmd = futures[fut]
+            try:
+                status, body = fut.result()
+            except Exception as e:  # a worker that died is a finding, not a pass
+                failures.append((path, line, cmd, f"checker error: {e}"))
+                continue
+            v = verdict(status, body)
+            if v != "ok":
+                failures.append((path, line, cmd, v))
+    # Deterministic output regardless of which finished first.
+    failures.sort(key=lambda f: (str(f[0]), f[1]))
 
     print(f"example check: {len(found)} runnable example(s) across "
           f"{len({p for p, _, _, _ in found})} file(s); {len(skipped)} skipped "

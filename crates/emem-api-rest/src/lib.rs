@@ -24469,10 +24469,26 @@ fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(45_000);
+    // 92 KB, and the number has to be read against the only ceiling any host
+    // has ever reported to us: AWS's 102,400 bytes.
+    //
+    // This was 68,000, chosen when the curated profile was smaller. The core
+    // profile is now sixteen tools that serialise to a 71,127-byte JSON-RPC
+    // response, so the budget split a page the host would have taken whole,
+    // and the split was ours rather than the transport's: 31,273 bytes of
+    // headroom were going unused while a client had to page to reach the
+    // sixteenth tool. A tool reachable only by cursor is a tool most clients
+    // never see.
+    //
+    // 92,000 admits the profile with room to grow and still leaves ten
+    // kilobytes under the reported ceiling. It is a bound, not an absence of
+    // one: the whole point of paging here is that some host somewhere refuses
+    // a large body, and the enumeration page (EMEM_MCP_LIST_BUDGET_BYTES,
+    // 45,000) is unchanged.
     let max_bytes: usize = std::env::var("EMEM_MCP_LIST_MAX_BYTES")
         .ok()
         .and_then(|v| v.parse().ok())
-        .unwrap_or(68_000);
+        .unwrap_or(92_000);
     // A curated selection gets the whole ceiling so it arrives in one
     // piece; an enumeration gets the small page. `.max` keeps a curated
     // page from being *smaller* than an enumeration page if an operator

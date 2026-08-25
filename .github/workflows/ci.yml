@@ -366,7 +366,14 @@ jobs:
   doc-lint:
     name: prose convention holds
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Fifteen, measured rather than guessed. This job carries twenty one
+    # gates now, a pre-flight wait for the responder, and an example check
+    # that grew from 72 commands to 198 when the extractor stopped missing
+    # the ones inside <pre><code> and on the served page. At five minutes it
+    # was CANCELLED mid-run, which reports nothing at all: the least useful
+    # of the three possible outcomes. The example check alone measures 231 s
+    # with four workers, against over ten minutes sequentially.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
