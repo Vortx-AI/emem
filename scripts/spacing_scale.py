@@ -20,6 +20,20 @@ interval to trust. The ratio was chosen once, written down, and then not used.
 This does not ask for beauty. It asks that a spacing value be one of the six,
 so the page has an interval a reader can learn.
 
+WHAT IT DOES NOT COUNT, said here because the headline number invites the wrong
+reading. It looks at rem values only: a declaration with no rem in it is skipped
+entirely, so `padding: 5px 0` is neither on the scale nor off it. "89% ad-hoc"
+therefore means "of the REM values used, 89% are not on the scale" and says
+nothing about px. A page written entirely in px would score a clean sheet.
+
+That is deliberate for one case and a gap in general. The deliberate case is
+tap-target padding: WCAG 2.5.8's 24 is a CSS-PIXEL threshold, and this site's
+root font-size varies by template (mdBook 62.5%, the demo pages 88%, the rest
+100%), so a rem value there is a different number of CSS pixels on each and
+cannot be verified once. Those stay in px on purpose. The gap is everything
+else, and closing it would add several hundred findings on the first run, which
+is a ratchet somebody should choose deliberately rather than discover.
+
     python3 scripts/spacing_scale.py            # report
     python3 scripts/spacing_scale.py --budget N # fail above N ad-hoc values
 

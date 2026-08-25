@@ -203,10 +203,20 @@ mark, .content mark { color: var(--ink); }
    mobile width. An audit running one narrow viewport sees none of this, which
    is exactly why ours reported 24 findings for the whole site.
 
-   .382rem is 6.1 px, which is the phi scale's value and at least the 6 px that
-   was measured, so this satisfies the spacing scale and the criterion at once. */
-a.header-in-summary { display: block; padding: .382rem 0; }
-.chapter li.chapter-item a { display: block; padding: .382rem .382rem; }
+   AND THESE ARE IN PIXELS ON PURPOSE. I first converted them to the phi scale,
+   .382rem, on the reasoning that a fix should not buy accessibility by breaking
+   the design system. That was wrong here and was caught before it deployed: the
+   root font-size on this site VARIES BY TEMPLATE. mdBook sets 62.5%, the demo
+   pages set 88%, the rest 100%. So .382rem is 3.82px here, 5.35px there and
+   6.11px elsewhere, and only the last clears the criterion.
+
+   WCAG 2.5.8's 24 is a CSS-PIXEL threshold. A rem value makes conformance
+   depend on a root font-size that differs across our own templates, so it
+   cannot be verified once and trusted everywhere, and the next template with a
+   different root silently un-fixes it. Design spacing stays on the phi scale;
+   this is not design spacing, it is a distance to a standard defined in px. */
+a.header-in-summary { display: block; padding: 6px 0; }
+.chapter li.chapter-item a { display: block; padding: 6px 6px; }
 .menu-bar .right-buttons a { display: inline-block; min-width: 24px; min-height: 24px; }
 .chapter li a:hover { color: var(--accent); background: var(--paper-3); }
 .chapter li a.active { color: var(--accent); font-weight: 700; }

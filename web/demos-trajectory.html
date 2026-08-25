@@ -196,9 +196,11 @@ input::placeholder{color:var(--mute,#7a7363)}
    the only child of a list item is a row in a list, so it is a row-sized target;
    the header nav crowds only at mobile width. Padding on BOTH axes because the
    criterion is min(width, height) >= 24 and a short link fails on width first.
-   .382rem is 6.1px, the phi scale's value and above what was measured. */
-ul li > a:only-child{display:inline-block;padding:.382rem 0}
-header.top nav.navlinks a{display:inline-block;padding:.382rem;min-width:24px;text-align:center}
+   In PIXELS, not on the phi scale: the root font-size here is 88%, so a rem
+   value is a different number of CSS pixels than on the docs pages (62.5%) or
+   the rest of the site (100%), and 24 is defined in CSS pixels. */
+ul li > a:only-child{display:inline-block;padding:5px 0}
+header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;text-align:center}
 </style>
 </head>
 <body>
