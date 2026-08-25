@@ -9802,7 +9802,7 @@ async fn hosted_needs_own_node() -> Response {
         Json(json!({
             "schema":  "emem.error.v1",
             "code":    "requires_your_own_node",
-            "message": "This checkpoint needs your organisation's own signing secret and has to                         sit in your request path, so it cannot run on a shared responder. Build a                         node: GET /v1/guard/selfhost returns the procedure. The vendor-neutral                         routes DO run here: POST /verdict, /verdict/mcp, /verdict/openai,                         /verdict/cloudevent, /verdict/policy, /verdict/batch.",
+            "message": "This checkpoint needs your organisation's own signing secret and has to sit in your request path, so it cannot run on a shared responder. Build a node: GET /v1/guard/selfhost returns the procedure. The vendor-neutral routes DO run here: POST /verdict, /verdict/mcp, /verdict/openai, /verdict/cloudevent, /verdict/policy, /verdict/batch.",
             "selfhost": "/v1/guard/selfhost",
         })),
     )
@@ -9821,7 +9821,7 @@ async fn hosted_no_verdict_log() -> Response {
         Json(json!({
             "schema":  "emem.error.v1",
             "code":    "no_verdict_log_here",
-            "message": "This responder answers grounding questions advisorily and keeps no                         verdict log, so there is no leaf to fetch and nothing here will pretend                         otherwise. A node you run keeps one, and its /log/head, /log/entries and                         /log/entry/{leaf} are the audit trail. Every hosted verdict instead                         carries an ed25519 receipt over the fact cids it read, which verifies at                         POST /v1/verify_receipt.",
+            "message": "This responder answers grounding questions advisorily and keeps no verdict log, so there is no leaf to fetch and nothing here will pretend otherwise. A node you run keeps one, and its /log/head, /log/entries and /log/entry/{leaf} are the audit trail. Every hosted verdict instead carries an ed25519 receipt over the fact cids it read, which verifies at POST /v1/verify_receipt.",
             "selfhost": "/v1/guard/selfhost",
             "receipt_verifier": "/v1/verify_receipt",
         })),
@@ -9836,7 +9836,7 @@ async fn hosted_no_modules() -> Response {
         Json(json!({
             "schema":  "emem.error.v1",
             "code":    "no_modules_here",
-            "message": "This responder loads no detection modules and will not: running somebody                         else's classifier over other people's transcripts is a different product                         with a different trust story. A node you run loads them and serves                         /modules. GET /v1/guard/selfhost returns the procedure.",
+            "message": "This responder loads no detection modules and will not: running somebody else's classifier over other people's transcripts is a different product with a different trust story. A node you run loads them and serves /modules. GET /v1/guard/selfhost returns the procedure.",
             "selfhost": "/v1/guard/selfhost",
         })),
     )
@@ -9862,8 +9862,8 @@ async fn hosted_guard_descriptor(State(s): State<AppState>) -> Json<JsonValue> {
         "deployment": "hosted",
         "advisory": true,
         "blocks_nothing": true,
-        "what_it_checks": "whether cited observations verify, and whether measurable claims about             the physical world carry a citation",
-        "what_it_does_not_check": "content safety, personal data, secrets. Load a module on a node             you run.",
+        "what_it_checks": "whether cited observations verify, and whether measurable claims about the physical world carry a citation",
+        "what_it_does_not_check": "content safety, personal data, secrets. Load a module on a node you run.",
         "signer_b32": data_encoding::BASE32_NOPAD
             .encode(&s.identity.pubkey.0)
             .to_lowercase(),
@@ -9896,7 +9896,7 @@ async fn hosted_guard_descriptor(State(s): State<AppState>) -> Json<JsonValue> {
         "reason_grammar": "EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->",
         "deny_codes": codes,
         "fixes": fixes,
-        "never_denies_on": "a citation this node does not hold. It is indistinguishable from one             minted by another responder.",
+        "never_denies_on": "a citation this node does not hold. It is indistinguishable from one minted by another responder.",
         "self_host": "/v1/guard/selfhost",
     }))
 }
@@ -20639,7 +20639,7 @@ fn mcp_spawn_task(
                 "content": [{
                     "type": "text",
                     "text": format!(
-                        "`{name_owned}` did not finish within {} s and was stopped. The task                          is FAILED rather than left running: a caller cannot tell a hung                          tool from a slow one by polling. Retry with a narrower request                          (one band, one cell, or a place already warm), or call the                          equivalent REST endpoint, where the per-endpoint budget applies.",
+                        "`{name_owned}` did not finish within {} s and was stopped. The task is FAILED rather than left running: a caller cannot tell a hung tool from a slow one by polling. Retry with a narrower request (one band, one cell, or a place already warm), or call the equivalent REST endpoint, where the per-endpoint budget applies.",
                         deadline_ms / 1000
                     ),
                 }],
@@ -22368,7 +22368,7 @@ async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppStat
                     "code": -32050,
                     "requested_model": want,
                     "message": format!(
-                        "the signed answer took most of this request's budget, leaving {budget_s}s,                          which is not enough to compose a model reading. It was not attempted                          rather than started and cut off. `answer` above is unaffected and never                          needed a model; ask again when the place is warm, or narrow the question."
+                        "the signed answer took most of this request's budget, leaving {budget_s}s, which is not enough to compose a model reading. It was not attempted rather than started and cut off. `answer` above is unaffected and never needed a model; ask again when the place is warm, or narrow the question."
                     ),
                 }),
             );
@@ -22385,7 +22385,7 @@ async fn attach_model_answer(v: &mut JsonValue, q: &str, want: &str, s: &AppStat
         Err(_) => Err((
             -32050i64,
             format!(
-                "the model did not answer within the {budget_s}s left in this request's budget.                  `answer` above is unaffected: it is synthesised from the signed facts and never                  needed a model."
+                "the model did not answer within the {budget_s}s left in this request's budget. `answer` above is unaffected: it is synthesised from the signed facts and never needed a model."
             ),
         )),
     };
@@ -38031,7 +38031,7 @@ async fn memory_supersede_inner(
             ErrorBody {
                 code: ErrorCode::CidNotFound,
                 message: format!(
-                    "the replacement `{target}` does not resolve on this responder.                      Publish the superseding note first, then point at its file_cid,                      so a reader who learns the claim is stale can reach what                      replaced it."
+                    "the replacement `{target}` does not resolve on this responder. Publish the superseding note first, then point at its file_cid, so a reader who learns the claim is stale can reach what replaced it."
                 ),
                 details: None,
             },
@@ -38071,7 +38071,7 @@ async fn memory_supersede_inner(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "`{path}` is already superseded by `{existing}`. Supersede that                      one instead, so the correction chain stays append-only:                      re-aiming this pointer would rewrite history other agents may                      already have cited."
+                    "`{path}` is already superseded by `{existing}`. Supersede that one instead, so the correction chain stays append-only: re-aiming this pointer would rewrite history other agents may already have cited."
                 ),
                 details: None,
             },
