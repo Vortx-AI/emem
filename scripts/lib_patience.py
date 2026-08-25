@@ -40,12 +40,20 @@ import time
 import urllib.error
 import urllib.request
 
-# Four attempts over about fifteen seconds. The window the responder enforces
-# is per minute, so the point is to leave it rather than to outlast it, and a
-# gate suite that pauses fifteen seconds is still a gate suite; one that waits
-# a full minute per call is not.
-ATTEMPTS = 4
-BACKOFF_S = (1.0, 3.0, 8.0)
+# Sized against the window the responder actually enforces, which is per MINUTE.
+#
+# The first version waited about fifteen seconds across four attempts, on the
+# reasoning that the point is to leave the window rather than outlast it. That
+# was wrong in the case that matters: CI shares one source address with the
+# deploy running at the same time, so it does not arrive at the edge of a window,
+# it arrives in the middle of a busy one. `every published example still works`
+# failed in CI at 08:07:54 while the same suite passed on this box minutes
+# either side, and fifteen seconds of patience was the whole difference.
+#
+# Five attempts over about forty seconds. Still bounded, still fails a genuinely
+# throttled surface, and long enough that a per-minute bucket has refilled.
+ATTEMPTS = 5
+BACKOFF_S = (1.0, 4.0, 10.0, 25.0)
 
 
 def patient(req, timeout=60, attempts=ATTEMPTS, **kw):
@@ -72,7 +80,7 @@ def patient(req, timeout=60, attempts=ATTEMPTS, **kw):
                 wait = BACKOFF_S[min(i, len(BACKOFF_S) - 1)]
                 try:
                     ra = float(e.headers.get("Retry-After", "") or 0)
-                    if 0 < ra <= 30:
+                    if 0 < ra <= 60:
                         wait = ra
                 except (TypeError, ValueError):
                     pass

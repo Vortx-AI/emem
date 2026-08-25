@@ -347,6 +347,14 @@ jobs:
       # HTML. Five tiles did, three had gone stale against the responder they
       # claimed to report, and the caption above them said nothing there was
       # typed in. Hermetic: it reads the markup, not the network.
+      # Half the steps below read the live responder, and a deploy restarts it
+      # for about ninety seconds. Without this, every one of them reports a
+      # finding about the thing it checks rather than about the service being
+      # down: route_truth has failed on /.well-known/emem-guard.json while
+      # three curls seconds later returned 200 in 28 ms. One wait here costs
+      # the ninety seconds once, in a place that says what it is waiting for.
+      - name: wait for the responder
+        run: python3 scripts/await_responder.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       - name: live numbers are fetched, not typed
         run: python3 scripts/live_numbers.py
       # One token file, one scale, and a dark mode on every page. Every page

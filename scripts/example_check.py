@@ -147,8 +147,12 @@ def runnable(cmd: str):
 # the example was never exercised, and reporting it as broken sends somebody to
 # fix a document that is correct. Both of those clear on their own within
 # seconds, so they are waited out before they are believed.
-TRANSPORT_RETRIES = 3
-TRANSPORT_PAUSE_S = (1.0, 4.0)
+# Same sizing as lib_patience, and for the same reason: the limiter's window is
+# per minute and CI shares one source address with whatever else is running.
+# This failed in CI at 08:07:54 on five seconds of patience while the same suite
+# passed on the box minutes either side.
+TRANSPORT_RETRIES = 5
+TRANSPORT_PAUSE_S = (1.0, 4.0, 10.0, 25.0)
 
 
 def run_one(cmd: str, origin: str, timeout: int = 90):
