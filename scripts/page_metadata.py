@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Does every page say what it is, once, in a length that survives?
 
-    scripts/meta_descriptions.py [--max 175] [--verbose]
+    scripts/page_metadata.py [--max 175] [--verbose]
 
 Why this exists
 ---------------
@@ -17,10 +17,12 @@ do not render. So it is measured here instead.
 
 What it checks
 --------------
-  present     every served page has a `<meta name=description>`. A page with
-              none is described by whatever a search engine scrapes.
-  length      MAX_CHARS or under, and at least MIN_CHARS, because a stub is
-              the same failure from the other end.
+  present     every served page has a `<title>` and a `<meta name=description>`.
+              A page with no description is described by whatever a search
+              engine scrapes.
+  length      descriptions MAX_CHARS or under and at least MIN_CHARS, because a
+              stub is the same failure from the other end; titles MAX_TITLE or
+              under, which is where a result stops showing them.
   distinct    no two pages share a description. Two pages with one sentence
               between them means one of them is unlabelled, and the duplicate
               usually arrives by copying a template and forgetting the slot.
@@ -39,6 +41,9 @@ import sys
 
 MAX_CHARS = 175
 MIN_CHARS = 50
+# A result shows about sixty characters of a title. Seventy is the slack this
+# holds to, so a page has room to be specific without the end being cut off.
+MAX_TITLE = 70
 
 # Not a browsed page. `mcp-fact-card.html` is `ui://emem/fact-card`, an MCP
 # Apps view (SEP-1865) rendered inside a host's chrome from a resource read,
@@ -54,6 +59,8 @@ GENERATED = {
     "tools.html": "scripts/gen_tools_page.py",
     "whitepaper-v2.html": "scripts/render_whitepaper.py",
 }
+
+TITLE_RE = re.compile(r"<title>(.*?)</title>", re.S | re.I)
 
 DESC_RE = re.compile(
     r'<meta\s+name=["\']?description["\']?\s+content=["\'](.*?)["\']\s*/?>', re.S | re.I
@@ -81,8 +88,16 @@ def main() -> int:
     problems: list[str] = []
     seen: dict[str, str] = {}
     for p in pages:
-        d = described(p)
+        raw = p.read_text(encoding="utf-8", errors="replace")
+        tm = TITLE_RE.search(raw)
         where = f"(fix in {GENERATED[p.name]})" if p.name in GENERATED else ""
+        if not tm:
+            problems.append(f"{p.name}: no <title> {where}")
+        else:
+            t = " ".join(H.unescape(tm.group(1)).split())
+            if len(t) > MAX_TITLE:
+                problems.append(f"{p.name}: title is {len(t)} chars, over {MAX_TITLE} {where}")
+        d = described(p)
         if d is None:
             problems.append(f"{p.name}: no meta description {where}")
             continue
@@ -100,7 +115,8 @@ def main() -> int:
         if args.verbose:
             print(f"    {p.name:28} {len(d):4}")
 
-    print(f"meta descriptions: {len(pages)} page(s) checked, limit {args.max} chars")
+    print(f"page metadata: {len(pages)} page(s) checked, "
+          f"title <= {MAX_TITLE}, description {MIN_CHARS}-{args.max} chars")
     if problems:
         print("\nA PAGE DESCRIBES ITSELF IN MORE THAN A RESULT WILL SHOW:")
         for pr in problems:

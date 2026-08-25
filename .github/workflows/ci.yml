@@ -361,7 +361,7 @@ jobs:
       # because every page looked correct in a browser, and the only surface
       # where the length mattered is one we do not render.
       - name: every page says what it is, in a length a result shows
-        run: python3 scripts/meta_descriptions.py
+        run: python3 scripts/page_metadata.py
       - name: the design system holds
         run: python3 scripts/design_tokens.py
 

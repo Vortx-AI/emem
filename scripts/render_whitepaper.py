@@ -46,7 +46,7 @@ SRC = ROOT / "docs" / "whitepaper-v2.md"
 SHELL = ROOT / "web" / "whitepaper-v1.html"
 OUT = ROOT / "web" / "whitepaper-v2.html"
 
-TITLE = "emem whitepaper v2: an external identity layer for verifiable agent memory"
+TITLE = "emem whitepaper v2: an external identity layer for agent memory"
 DESC = (
     "An external identity layer for verifiable agent memory: the token grammar, "
     "cell64 and tslot addressing, ed25519 receipts over a tagged preimage, and the "
