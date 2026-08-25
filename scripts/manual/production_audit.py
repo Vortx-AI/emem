@@ -355,7 +355,15 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default="https://emem.dev")
     ap.add_argument("--page", action="append", default=[])
-    ap.add_argument("--width", type=int, default=375)
+    # TWO VIEWPORTS, because a page can be clean at one and broken at the other
+    # and this reported only the narrow one.
+    #
+    # The /docs sidebar is HIDDEN at mobile width, so its 885 undersized targets
+    # were invisible to a 375px sweep: 86 at 1280, 2 at 375, on the same page.
+    # Between running one viewport and enumerating twenty pages, this file was
+    # reporting 24 findings for a site that had 940.
+    ap.add_argument("--width", type=int, action="append",
+                    help="viewport width; repeatable. Default: 375 and 1280.")
     ap.add_argument("--json", help="write the full result here")
     args = ap.parse_args()
     pages = args.page or discovered_pages(args.origin)
@@ -363,7 +371,8 @@ def main() -> int:
     with sync_playwright() as pw:
         browser = pw.chromium.launch()
 
-        broken = self_test(browser, args.width)
+        widths = args.width or [375, 1280]
+        broken = self_test(browser, widths[0])
         if broken:
             print("THE DETECTORS ARE NOT WORKING, so nothing below would be found:")
             for b in broken:
@@ -375,7 +384,19 @@ def main() -> int:
         results = {}
         for path in pages:
             pg = browser.new_page()
-            results[path] = audit(pg, args.origin.rstrip("/") + path, args.width)
+            # Worst of the two: a finding at either width is a finding, and
+            # reporting the narrow one alone is what hid the sidebar.
+            merged = {}
+            for w in widths:
+                r = audit(pg, args.origin.rstrip("/") + path, w)
+                for k, v in r.items():
+                    if isinstance(v, list):
+                        merged.setdefault(k, [])
+                        for item in v:
+                            tagged = f"{item}  [{w}px]" if isinstance(item, str) else item
+                            if tagged not in merged[k]:
+                                merged[k].append(tagged)
+            results[path] = merged
             pg.close()
         browser.close()
 
@@ -385,7 +406,8 @@ def main() -> int:
 
     total = 0
     unreachable = 0
-    print(f"  {len(pages)} pages at {args.width}px wide, {args.origin}\n")
+    print(f"  {len(pages)} pages at {' and '.join(str(w) for w in widths)}px wide, "
+          f"{args.origin}\n")
     for path, d in results.items():
         if "unreachable" in d:
             unreachable += 1
