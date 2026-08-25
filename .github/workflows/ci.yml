@@ -354,6 +354,14 @@ jobs:
       # 13.5px because of it, three pages requested no webfont at all, and
       # /verify shipped a light body over a dark palette when the migration
       # removed a dark :root it should not have. Hermetic.
+      # Eighteen of twenty pages described themselves in more than a search
+      # result shows, the worst at 407 characters. None was wrong; they were
+      # paragraphs in a slot that displays a sentence, so the half a reader saw
+      # was chosen by a truncation rule rather than by us. Nothing caught it
+      # because every page looked correct in a browser, and the only surface
+      # where the length mattered is one we do not render.
+      - name: every page says what it is, in a length a result shows
+        run: python3 scripts/meta_descriptions.py
       - name: the design system holds
         run: python3 scripts/design_tokens.py
 
