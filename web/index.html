@@ -973,6 +973,20 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   scroll-snap-type:x mandatory;scroll-behavior:smooth;
   padding:0 0 1rem;margin:1.618rem 0 0;
   scrollbar-width:thin;overscroll-behavior-x:contain}
+/* FULL BLEED, so the strip runs off both edges the way a strip should, while
+   the first frame still lines up with the column of text above it. The negative
+   margin pulls the scroller out to the viewport and the matching padding puts
+   the content back, which keeps the reading line intact and lets the frames
+   continue past it.
+
+   Guarded by the container query rather than applied always: below the point
+   where the page has margins to give back, `50vw - 50%` is zero or negative and
+   the rule buys nothing while risking a horizontal scrollbar on the BODY, which
+   is the classic way this technique goes wrong. */
+@media (min-width:60rem){
+  .filmstrip{margin-inline:calc(50% - 50vw);padding-inline:calc(50vw - 50%);
+    scroll-padding-inline:calc(50vw - 50%)}
+}
 .filmstrip:focus-visible{outline:2px solid var(--ink-2);outline-offset:3px}
 /* A frame is the width of one reading, not of the viewport. 32rem holds the two
    pictures side by side at a comfortable size; below that the shots stack and
@@ -1258,19 +1272,9 @@ html,body{overflow-x:clip}
   .need.no summary::after{content:"not served";margin-left:auto;font-size:var(--t-xs);color:var(--warn,#a5794a)}
 
 /* ---- was inline block 13 of 13 ---- */
-.films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
-  .film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
-  .film{color:var(--ink)}
-  .film span{display:block;padding:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink)}
-  .film:hover span{color:var(--accent)}
-  /* Every card reserves the same picture area, so a missing poster does
+          /* Every card reserves the same picture area, so a missing poster does
      not drop one card half a row out of line with its neighbours. */
-  .film{display:grid;grid-template-rows:auto 1fr}
-  .film img,.film .noposter{aspect-ratio:16/9;width:100%;height:auto;object-fit:cover;
-    display:block;border-bottom:1px solid var(--rule)}
-  .film .noposter svg{width:100%;height:100%;display:block}
-  .film em{display:block;color:var(--mute);font-size:var(--t-xs);font-style:normal;margin-top:var(--s-1)}
-  .seep{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
+          .seep{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
   .seep a{border:1px solid var(--rule);border-radius:999px;padding:var(--s-1) var(--s-3);font-size:var(--t-xs);text-decoration:none;color:var(--ink-2)}
   .seep a:hover{color:var(--accent);border-color:var(--accent)}
 </style>
@@ -1907,38 +1911,6 @@ html,body{overflow-x:clip}
 <div class="mith-div"><span class="gem"></span></div>
 
 
-<section class="chapter solo" id="demos">
-  <div class="words">
-    <div class="kicker">See it run</div>
-    <h3>The demo suite</h3>
-    <p class="cap">Each one runs real calls against production, most of them the moment the page opens. No accounts, no keys, nothing mocked.</p>
-    <div class="latent-cards cols4" id="demo-grid">
-      <a class="lcard" href="/demos/ask-the-earth"><span class="lc-k">one question</span><span class="lc-t">Ask the Earth: a free-text question routed, recalled, and answered signed</span><span class="lc-go">run it &rarr;</span></a>
-      <a class="lcard" href="/demos/find-similar"><span class="lc-k">embeddings</span><span class="lc-t">Find similar places by foundation-model embedding, three encoders voting</span><span class="lc-go">auto-runs &rarr;</span></a>
-      <a class="lcard" href="/demos/recall-polygon"><span class="lc-k">a region</span><span class="lc-t">Recall a whole polygon and watch it render as a signed heatmap</span><span class="lc-go">auto-runs &rarr;</span></a>
-      <a class="lcard" href="/demos/trajectory"><span class="lc-k">time</span><span class="lc-t">A seven-step trajectory through one cell&rsquo;s history, charted</span><span class="lc-go">auto-runs &rarr;</span></a>
-      <a class="lcard" href="/demos/state-cube"><span class="lc-k">the cube</span><span class="lc-t">The 1792-D state vector of a place, sliced encoder by encoder</span><span class="lc-go">run it &rarr;</span></a>
-      <a class="lcard" href="/demos/signed-answer"><span class="lc-k">receipts</span><span class="lc-t">A signed answer built in four steps, each one verifiable</span><span class="lc-go">run it &rarr;</span></a>
-      <a class="lcard" href="/card"><span class="lc-k">the card</span><span class="lc-t">One page that opens a real record and proves its own claim</span><span class="lc-go">open &rarr;</span></a>
-      <a class="lcard" href="#machines"><span class="lc-k">devices</span><span class="lc-t">A satellite pass and a robot camera stream run the whole trace loop, refusals included, in two runnable examples</span><span class="lc-go">the device gate &uarr;</span></a>
-      <a class="lcard" href="/v1/substrates"><span class="lc-k">the whitelist</span><span class="lc-t">Which machines this memory will believe, and how each proves how it ran: three content-addressed registries</span><span class="lc-go">read them &rarr;</span></a>
-      <a class="lcard" href="/v1/memory_contradictions"><span class="lc-k">disagreement</span><span class="lc-t">Two agents write different values at one address: both are kept and scored, never averaged into a comfortable lie</span><span class="lc-go">the endpoint &rarr;</span></a>
-      <a class="lcard" href="/reference#absence"><span class="lc-k">signed absence</span><span class="lc-t">"No data here" is itself a signed, citeable fact with a typed reason, not a 404 an agent has to guess about</span><span class="lc-go">how &rarr;</span></a>
-      <a class="lcard" href="/reference#derive"><span class="lc-k">your own math</span><span class="lc-t">Register a value you computed under your own key; its lineage walks back to signed measurements anyone can recheck</span><span class="lc-go">derive &rarr;</span></a>
-      <a class="lcard" href="#agents"><span class="lc-k">the reasoner</span><span class="lc-t">Gemma with every read tool loaded, answering over signed grounding &mdash; on the map above</span><span class="lc-go">join the session &uarr;</span></a>
-      <a class="lcard" href="/verify"><span class="lc-k">trust nothing</span><span class="lc-t">Paste any token or receipt and verify it in your browser, offline</span><span class="lc-go">verify &rarr;</span></a>
-    </div>
-  </div>
-</section>
-<div class="mith-div"><span class="gem"></span></div>
-
-
-
-
-</div>
-
-<div class="act" id="act-check">
-  <h2 class="act-h" id="act-check-h"><span class="act-n">Four</span>The evidence</h2>
 <section class="chapter solo" id="proof" style="padding:2.4rem 0 2.6rem">
   
   <div class="words">
@@ -2088,57 +2060,6 @@ html,body{overflow-x:clip}
 </section>
 
 
-<section class="chapter solo" id="watch">
-  
-  <h3>Watch it, or go and look</h3>
-  <p class="lede">
-    The films are short and none of them needs sound. They open on YouTube:
-    this page sets <code>default-src 'self'</code>, and an embed would mean
-    weakening that for every other element on the page.
-  </p>
-  <div class="films">
-    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener">
-      <span class="noposter" aria-hidden="true">
-        <svg viewBox="0 0 320 180" role="img"><rect width="320" height="180" fill="var(--paper-3)"/>
-          <g fill="none" stroke="var(--accent)" stroke-width="2">
-            <circle cx="160" cy="90" r="26"/>
-            <circle cx="96" cy="60" r="9"/><circle cx="224" cy="60" r="9"/>
-            <circle cx="80" cy="120" r="9"/><circle cx="240" cy="120" r="9"/>
-            <circle cx="160" cy="34" r="9"/><circle cx="160" cy="146" r="9"/>
-            <path d="M105 63 L136 82 M215 63 L184 82 M89 117 L134 99 M231 117 L186 99 M160 43 L160 64 M160 137 L160 116"/>
-          </g></svg>
-      </span>
-      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener">
-      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
-      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener">
-      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
-      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener">
-      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
-      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
-    </a>
-  </div>
-  <p class="lede" style="margin-top:1.2rem">
-    Or skip the films. These are the same record, rendered, and every one of
-    them is a page you can interrogate rather than a picture of one.
-  </p>
-  <div class="seep">
-    <a href="/worlds">signed terrain you can fly through</a>
-    <a href="/gallery">the record, rendered</a>
-    <a href="/demos">eight things you can click</a>
-    <a href="/scoreboard">the benchmark, running live</a>
-    <a href="/channel">agents talking, in public</a>
-  </div>
-</section>
-</div>
-
-<div class="act" id="act-start">
-  <h2 class="act-h" id="act-start-h"><span class="act-n">Five</span>Start</h2>
 <section class="finale" id="build">
   <div class="scroll">
     <div class="kicker" style="letter-spacing:.2em;text-transform:uppercase;color:var(--mute-2);font-size:var(--t-xs)">Open source</div>
@@ -3198,6 +3119,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
     <p class="why">asking the responder for its capability index&hellip;</p>
   </div>
   <p class="why">
+    Six demos run live at <a href="/demos">/demos</a>, with the films beside them.
     The same table as JSON: <a href="/v1/intents">/v1/intents</a>, or
     <a href="/.well-known/agent-intent.json">/.well-known/agent-intent.json</a>
     for a crawler. No key, no account, no approval:

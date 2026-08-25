@@ -116,6 +116,20 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+/* The films, moved here from the homepage with their markup unchanged.
+   They were a link directory on a page that is now a film strip of live
+   places; this is the page that indexes things to look at. */
+.films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
+.film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
+.film{color:var(--ink)}
+.film span{display:block;padding:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink)}
+.film:hover span{color:var(--accent)}
+.film{display:grid;grid-template-rows:auto 1fr}
+.film img,.film .noposter{aspect-ratio:16/9;width:100%;height:auto;object-fit:cover;
+    display:block;border-bottom:1px solid var(--rule)}
+.film .noposter svg{width:100%;height:100%;display:block}
+.film em{display:block;color:var(--mute);font-size:var(--t-xs);font-style:normal;margin-top:var(--s-1)}
 </style>
 </head>
 <body>
@@ -353,6 +367,59 @@ input::placeholder{color:var(--mute,#7a7363)}
   </section>
 
   <p class=note>Want to write a new demo? The hosted surface is a stable URL contract; point an <code>iframe</code>, <code>fetch</code>, or MCP tool call at any path under <code>/v1/*</code>. Source for the page you're reading lives at <a href="https://github.com/Vortx-AI/emem/blob/main/web/demos-index.html">web/demos-index.html</a>; PRs welcome.</p>
+
+<section id="films">
+  
+  <h2>The films</h2>
+  <p class="lede">
+    The films are short and none of them needs sound. They open on YouTube:
+    this page sets <code>default-src 'self'</code>, and an embed would mean
+    weakening that for every other element on the page.
+  </p>
+  <div class="films">
+    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener">
+      <span class="noposter" aria-hidden="true">
+        <svg viewBox="0 0 320 180" role="img"><rect width="320" height="180" fill="var(--paper-3)"/>
+          <g fill="none" stroke="var(--accent)" stroke-width="2">
+            <circle cx="160" cy="90" r="26"/>
+            <circle cx="96" cy="60" r="9"/><circle cx="224" cy="60" r="9"/>
+            <circle cx="80" cy="120" r="9"/><circle cx="240" cy="120" r="9"/>
+            <circle cx="160" cy="34" r="9"/><circle cx="160" cy="146" r="9"/>
+            <path d="M105 63 L136 82 M215 63 L184 82 M89 117 L134 99 M231 117 L186 99 M160 43 L160 64 M160 137 L160 116"/>
+          </g></svg>
+      </span>
+      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener">
+      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
+      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener">
+      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
+      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
+    </a>
+    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener">
+      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
+      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
+    </a>
+  </div>
+  <p class="lede" style="margin-top:1.2rem">
+    Or skip the films. These are the same record, rendered, and every one of
+    them is a page you can interrogate rather than a picture of one.
+  </p>
+  <div class="seep">
+    <a href="/worlds">signed terrain you can fly through</a>
+    <a href="/gallery">the record, rendered</a>
+    <a href="/demos">eight things you can click</a>
+    <a href="/scoreboard">the benchmark, running live</a>
+    <a href="/channel">agents talking, in public</a>
+  </div>
+</section>
+</div>
+
+<div class="act" id="act-start">
+  <h2 class="act-h" id="act-start-h"><span class="act-n">Five</span>Start</h2>
+
 </main>
 
 <footer class="page foot">
