@@ -958,10 +958,6 @@ pub fn router(state: AppState) -> Router {
         // construction. That took production down for the length of a rebuild,
         // on a syntax difference between two versions of the same crate that
         // every other wildcard route in this file already had right.
-        .route(
-            "/v1/perception/*path",
-            get(perception_proxy).post(perception_proxy),
-        )
         .route("/postcard", get(get_postcard))
         .route("/v1/scoreboard", get(get_scoreboard))
         .route("/v1/a2a/tasks", post(post_a2a_task_async))
@@ -1585,6 +1581,7 @@ pub fn router(state: AppState) -> Router {
         // per-route middleware stack, so /v1/eudr_dds gets the EUDR timeout
         // and every other route keeps the 40 s gateway timeout.
         .merge(splats_router(state.clone()))
+        .merge(perception_router(state.clone()))
         .merge(eudr_router(state))
         // LAST, and it has to be last: axum sets this on the method routers
         // registered so far, so calling it before the merges above leaves the
@@ -1658,6 +1655,49 @@ fn splats_router(state: AppState) -> Router {
 /// guard. The handler self-frees its socket via its internal
 /// `tokio::time::timeout`, so a larger transport ceiling here cannot
 /// reintroduce the 2026-05-31 CLOSE-WAIT wedge.
+/// The fronted perception surface, with a budget that fits what it does.
+///
+/// `POST /v1/perception/at` with `detect_from_clip` does not read a live
+/// frame; it fetches the retained clip the receipt commits to, decodes a
+/// frame and runs detection on it, which is the whole point of that flag and
+/// is not free. Measured against the London example published in
+/// docs/robots.md: 33.7 s on a success and a 504 on the attempt before it,
+/// against the 40 s blanket. A documented example that works or fails
+/// depending on how busy a GPU was is not a documented example.
+///
+/// Same shared security, rate-limit, CORS and access-log posture as the main
+/// router. Only the transport ceiling differs, and it is the upstream's work
+/// that justifies it: this door adds TLS, the public name and the per-IP
+/// limit to a service that must not listen publicly, and it should not also
+/// impose a deadline shorter than the work behind it.
+fn perception_router(state: AppState) -> Router {
+    let timeout_s: u64 = std::env::var("EMEM_PERCEPTION_TIMEOUT_S")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .map(|v: u64| v.clamp(40, 600))
+        .unwrap_or(120);
+    Router::new()
+        .route(
+            "/v1/perception/*path",
+            get(perception_proxy).post(perception_proxy),
+        )
+        .layer(axum::middleware::from_fn(security_headers_layer))
+        .layer(axum::middleware::from_fn(rate_limit_layer))
+        .layer(axum::middleware::from_fn(cors_layer))
+        .layer(axum::middleware::from_fn(cache_hint_layer))
+        .layer(axum::middleware::from_fn(agent_access_log_layer))
+        .layer(tower_http::trace::TraceLayer::new_for_http())
+        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+            StatusCode::GATEWAY_TIMEOUT,
+            std::time::Duration::from_secs(timeout_s),
+        ))
+        .layer(tower_http::limit::RequestBodyLimitLayer::new(
+            body_limit_bytes(),
+        ))
+        .layer(tower_http::compression::CompressionLayer::new().gzip(true))
+        .with_state(state)
+}
+
 fn eudr_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds))

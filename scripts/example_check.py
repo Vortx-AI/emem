@@ -40,6 +40,7 @@ import pathlib
 import re
 import shlex
 import subprocess
+import time
 import sys
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -140,7 +141,27 @@ def runnable(cmd: str):
     return True, ""
 
 
+# A published example is judged by what the responder SAYS about it. When the
+# responder says nothing -- a refused connection during a restart, or a 429
+# because this suite and everything else on the box share one source address --
+# the example was never exercised, and reporting it as broken sends somebody to
+# fix a document that is correct. Both of those clear on their own within
+# seconds, so they are waited out before they are believed.
+TRANSPORT_RETRIES = 3
+TRANSPORT_PAUSE_S = (1.0, 4.0)
+
+
 def run_one(cmd: str, origin: str, timeout: int = 90):
+    for attempt in range(TRANSPORT_RETRIES):
+        status, body = _run_once(cmd, origin, timeout)
+        transient = status is None or status == "" or status == "000" or status == "429"
+        if not transient or attempt + 1 == TRANSPORT_RETRIES:
+            return status, body
+        time.sleep(TRANSPORT_PAUSE_S[min(attempt, len(TRANSPORT_PAUSE_S) - 1)])
+    return status, body
+
+
+def _run_once(cmd: str, origin: str, timeout: int = 90):
     cmd = re.sub(r"https?://emem\.dev", origin, cmd)
     cmd = cmd.split("|")[0].strip()          # drop a trailing | jq
     try:
