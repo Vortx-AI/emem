@@ -54071,6 +54071,38 @@ async fn get_cell_scene_png(
                 .unwrap_or_default(),
         )
         .header("x-emem-scene-epsg", scene.epsg.to_string())
+        // THE STRETCH, because without it this image cannot be reproduced.
+        //
+        // The 2-98 percentile is computed PER SCENE, per channel, so the same
+        // ground at two capture dates comes back stretched differently and the
+        // brightnesses are not comparable between them. The MCP tool has
+        // published these values in structuredContent all along, with the
+        // instruction to quote them alongside the image so the receipt is
+        // reproducible. The REST route, which is what a browser and every
+        // non-MCP client uses, published the scene id and not the numbers, so
+        // the instruction could not be followed on the surface that needed it
+        // most.
+        .header(
+            "x-emem-scene-stretch-r",
+            format!(
+                "{:.0}-{:.0}",
+                scene.stretch_p2_p98.0 .0, scene.stretch_p2_p98.0 .1
+            ),
+        )
+        .header(
+            "x-emem-scene-stretch-g",
+            format!(
+                "{:.0}-{:.0}",
+                scene.stretch_p2_p98.1 .0, scene.stretch_p2_p98.1 .1
+            ),
+        )
+        .header(
+            "x-emem-scene-stretch-b",
+            format!(
+                "{:.0}-{:.0}",
+                scene.stretch_p2_p98.2 .0, scene.stretch_p2_p98.2 .1
+            ),
+        )
         .body(axum::body::Body::from(scene.png))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -64118,8 +64150,29 @@ fn attach_imagery(body: &mut JsonValue, cell: &str) {
         "url":              format!("{origin}/v1/cells/{cell}/scene.png"),
         "instrument":       "sentinel-2 l2a true colour",
         "provenance_class": "direct_sensor",
+        // `direct_sensor` and not a rendering class, deliberately: the pixels
+        // are the instrument's measured reflectance and the 2-98 percentile is
+        // display, the way a contrast curve on a photograph does not make it a
+        // painting. A neighbouring responder reached the same reading
+        // independently.
+        //
+        // But the stretch is computed PER SCENE, per channel, which has a
+        // consequence a reader will otherwise discover by being wrong: the same
+        // ground on two capture dates comes back stretched differently, so
+        // brightness cannot be compared between them and "it got darker" is not
+        // a finding. The numbers that would undo it now travel with the image,
+        // in x-emem-scene-stretch-r/g/b, so the comparison can be made properly
+        // by whoever needs it.
+        "comparable_across_scenes": false,
+        "comparability_note": "the 2-98 percentile stretch is per scene and per channel, so \
+                               brightness is not comparable between two captures of the same \
+                               ground. The per-channel values are published in the \
+                               x-emem-scene-stretch-r/g/b response headers; undo them before \
+                               comparing, or compare band values rather than pixels.",
         "answers":          "what the surface looks like from orbit",
-        "cannot_answer":    "what is happening at this minute: revisit is multi-day",
+        "cannot_answer":    "what is happening at this minute: revisit is multi-day, and how \
+                             bright a scene looks against another one, because the stretch is \
+                             fitted per scene",
     })];
 
     // Only offered when cameras actually cover this cell. A postcard URL for a
