@@ -1077,12 +1077,16 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         var bx = amp*Math.exp(-Math.pow((y-mu)/sd, 2)/2);
         d += (y === 0 ? 'M' : 'L') + bx.toFixed(1) + ',' + y;
       }
-      g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
-        opacity:0.015, 'data-s':0 }));
+      /* Outline only. The filled version carried 39,047 of the left bank's
+         43,897 graph pixels at 1440: four translucent masses at 0.015 each,
+         overlapping, and four stacked go well past the point an eye reads a
+         shape rather than a hint. The tree was 5,972 of that total, so for two
+         rounds I culled the TREE and the number barely moved. A curve says
+         "distribution" with its edge; it does not need the area. */
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1, opacity:0.05, 'data-s':0 }));
+        'stroke-width':1, opacity:0.06, 'data-s':0 }));
     }
-    var DEPTH = 10;
+    var DEPTH = 9;
     function bough(x, y, ang, len, depth){
       if(depth === 0 || len < 2.5) return;
       var x2 = x + Math.cos(ang)*len, y2 = y + Math.sin(ang)*len;
@@ -1093,7 +1097,15 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
          not walked one per step. Two generations per reach, so each one is a
          visible wave rather than a jump. */
       var gen = DEPTH - depth;
-      /* Front-loaded on purpose. A linear map put ONE branch on the first
+      /* Culled on DENSITY, which is the axis that matters. The tree went to
+         0.085 opacity and its ink still outweighed the scene on its own bank
+         4:1 at 1440, because thicker strokes at lower alpha cover MORE area
+         while each pixel is fainter. Coverage and count are what a reader's
+         eye adds up: ten generations of a 2-to-3-way split is about 1,500
+         branches and 243x the other bank's graph ink. Eight generations, a
+         thinner floor, and a three-way split at 6% rather than 18%.
+
+         Front-loaded on purpose. A linear map put ONE branch on the first
          screen, so the page opened on an empty bank and the reader met the
          argument before either side of it existed. The first four generations
          arrive together, which is a small recognisable tree, and the rest
@@ -1101,10 +1113,10 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       var s = Math.min(STEPS, Math.max(0, Math.round((gen - 3) * STEPS / (DEPTH - 4))));
       g.appendChild(el('line', {
         x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
-        stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
-        'stroke-linecap':'round', 'data-s':s, opacity:0.085
+        stroke:'currentColor', 'stroke-width':Math.max(0.18, depth*0.30).toFixed(2),
+        'stroke-linecap':'round', 'data-s':s, opacity:0.05
       }));
-      var n = Math.random() < 0.18 ? 3 : 2;
+      var n = Math.random() < 0.12 ? 3 : 2;
       for(var i = 0; i < n; i++)
         bough(x2, y2, ang + (Math.random()-0.5)*0.98,
               len*(0.67 + Math.random()*0.15), depth-1);
@@ -1155,14 +1167,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
           x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
           x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
           stroke:'currentColor', 'stroke-width':0.6,
-          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.055*w).toFixed(3)
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.15*w).toFixed(3)
         }));
       }
     }
     pts.forEach(function(p){
       g.appendChild(el('circle', {
         cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
-        fill:'currentColor', 'data-s':p.s, opacity:(0.12*p.w).toFixed(3)
+        fill:'currentColor', 'data-s':p.s, opacity:(0.30*p.w).toFixed(3)
       }));
     });
     R.appendChild(g);
