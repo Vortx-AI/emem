@@ -24596,6 +24596,33 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         "_meta": {
             "dev.emem/shape":   emem_mcp::shape_of(t.name),
             "dev.emem/bundles": emem_mcp::bundles_of(t.name),
+            // WHAT KIND of mutation, because the boolean above cannot say.
+            //
+            // Six of the core sixteen declare `readOnlyHint: false`, including
+            // `emem_recall` and `emem_ask`, which only read: reading a cold
+            // address materialises a fact from a registered upstream as a
+            // side effect. The hint is accurate and it is also the whole
+            // story a curator gets, so an auditor counts six mutating tools
+            // on a no-auth endpoint and stops there. That reading is
+            // reasonable and wrong.
+            //
+            // Flipping the boolean to `true` would fix the impression by
+            // making the declaration false, which is the wrong trade. So the
+            // boolean stays accurate and the distinction it cannot carry is
+            // stated beside it: does this tool store CALLER CONTENT, or does
+            // it populate a cache from sources this responder already
+            // registered? Only the first can be used to plant anything.
+            "dev.emem/mutation": if t.read_only_hint {
+                "none: this call does not modify server state"
+            } else if matches!(t.category, emem_mcp::ToolCategory::Write) {
+                "stores caller-supplied content under the caller's own \
+                 signature; this is the plane an injection could target"
+            } else {
+                "server-side materialisation only: populates this responder's \
+                 cache from upstreams it already registered. No caller content \
+                 is stored, so this mutation cannot be used to plant anything \
+                 another agent will read."
+            },
             // Moved out of `annotations`, which the spec reserves for the
             // hint set. Same values, correct slot, still one fetch away for
             // any client that was reading them.
