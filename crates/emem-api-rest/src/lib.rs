@@ -49,6 +49,7 @@ mod band_raster;
 mod change_attribution;
 mod clay_chip;
 mod embedding_analytics;
+pub mod enlistment;
 mod eo_runtime;
 mod galileo_chip;
 mod gpu_sidecar;
@@ -1334,6 +1335,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/memory_contradictions",
             post(post_memory_contradictions).get(get_memory_contradictions),
         )
+        .route("/v1/enlist", get(get_enlist).post(post_enlist))
         .route("/v1/edges", post(post_edges_write))
         .route("/v1/edges/recall", post(post_edges_recall))
         .route("/v1/state", post(post_state))
@@ -35191,6 +35193,9 @@ async fn post_memory_bundle(
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct EntityMintReq {
+    /// Who is minting. Optional for the same reason as `EntityAliasReq`.
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
     /// Human label for the object ("Golden Gate Bridge"). Required.
     label: String,
     /// Object class (bridge, river, farm_plot, building, admin_division,
@@ -35479,6 +35484,12 @@ async fn post_entity(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityMintReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // The shared address space: what every other agent resolves a name to.
+    let enlistment = enlistment_gate(
+        &s,
+        req.attester.as_ref(),
+        crate::enlistment::Surface::SharedEntitySpace,
+    )?;
     use emem_primitives::entity::{
         alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
         ENTITIES_TREE, ENTITY_ALIASES_TREE,
@@ -35557,6 +35568,7 @@ async fn post_entity(
             "entity_token": entity_token(&entity_cid),
             "entity": existing.get("entity").cloned().unwrap_or(existing.clone()),
             "receipt": existing.get("receipt").cloned(),
+            "enlistment": enlistment.clone(),
             "recall_hint": format!("recall or ask at cell {} for signed facts about this object", loc.cell64),
             "note": "existing canonical entity returned (idempotent). Cite emem:entity:<entity_cid> so any agent resolves the identical object.",
         })));
@@ -35630,7 +35642,8 @@ async fn post_entity(
         "entity": entity,
         "receipt": receipt,
         "convergence": convergence,
-        "recall_hint": format!("recall or ask at cell {} for signed facts about this object", loc.cell64),
+        "enlistment": enlistment.clone(),
+            "recall_hint": format!("recall or ask at cell {} for signed facts about this object", loc.cell64),
         "offline_verify_at": "/verify",
         "note": "Canonical object minted. Hand emem:entity:<entity_cid> to any agent/LLM; entity_resolve converges divergent phrasings onto this same id.",
     })))
@@ -35798,6 +35811,13 @@ fn entity_dereference(s: &AppState, id: &str) -> Result<JsonValue, ApiError> {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct EntityAliasReq {
+    /// Who is binding this alias. Optional today because this surface has
+    /// always accepted anonymous writes and breaking every caller in one
+    /// deploy is worse than the hole; see `enlistment_gate` for why the
+    /// ladder ships in shadow. An alias REDIRECTS a name every other agent
+    /// resolves, so this is the sharpest edge in the whole write surface.
+    #[serde(default)]
+    attester: Option<MemoryAttester>,
     #[serde(default)]
     entity_cid: Option<String>,
     #[serde(default)]
@@ -35812,6 +35832,12 @@ async fn post_entity_alias(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityAliasReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // An alias REDIRECTS an existing name. Sharpest edge on the surface.
+    let enlistment = enlistment_gate(
+        &s,
+        req.attester.as_ref(),
+        crate::enlistment::Surface::SharedEntitySpace,
+    )?;
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
     };
@@ -35888,6 +35914,7 @@ async fn post_entity_alias(
     }
 
     Ok(Json(json!({
+        "enlistment": enlistment.clone(),
         "ok": true,
         "entity_cid": cid,
         "entity_token": entity_token(&cid),
@@ -54997,6 +55024,215 @@ fn parse_skill_declaration(body: &str) -> Option<JsonValue> {
         }
     }
     Some(out)
+}
+
+// ── Enlistment: who may write, and what they proved ─────────────────────
+
+/// Whether the enlistment gate refuses, or only records.
+///
+/// Shadow by default, and that is a deliberate choice rather than timidity.
+/// `entity` and `entity_link` are live surfaces that accept ANONYMOUS writes
+/// today — neither request type carries an attester field at all — so turning
+/// a gate on in one deploy would break every peer mid-flight to close a hole
+/// that has been open for months. Shadow records exactly who would have been
+/// refused and why, which is the number needed to decide, and enforcing is
+/// then one environment variable and no code change.
+///
+/// `EMEM_ENLISTMENT_ENFORCE=1` enforces.
+fn enlistment_enforcing() -> bool {
+    std::env::var("EMEM_ENLISTMENT_ENFORCE")
+        .map(|v| v == "1")
+        .unwrap_or(false)
+}
+
+/// The tier this responder can currently prove about a key.
+///
+/// UNDER-reports on purpose where it cannot check cheaply. T2 (profile) and
+/// T5 (corroboration) are roster aggregations too expensive to run per write,
+/// so a key holding either still reads at the tier below. That direction
+/// matters: an under-reported tier refuses a legitimate writer, which is
+/// visible and complained about, while an over-reported one admits a stranger
+/// silently. It is also the reason the gate ships in shadow — a gate whose
+/// input understates is not one to enforce before measuring.
+fn attester_tier(s: &AppState, att: Option<&MemoryAttester>) -> crate::enlistment::Tier {
+    use crate::enlistment::{tier_for, Facts};
+    let Some(att) = att else {
+        return tier_for(&Facts::default());
+    };
+    let org_verified = enlistment_evidence(s, &att.pubkey_b32)
+        .map(|e| e.is_fresh(now_unix()))
+        .unwrap_or(false);
+    tier_for(&Facts {
+        has_signed_note: true,
+        // The caller presented an attester block; the per-verb signature check
+        // on the write path is what proves it, and runs before this.
+        namespace_proven: true,
+        org_verified,
+        ..Default::default()
+    })
+}
+
+/// Apply the write ladder to one surface, returning what to say either way.
+///
+/// Returns `Ok(verdict_json)` when the write may proceed — the verdict is
+/// attached to the response so a caller in shadow mode learns it would be
+/// refused BEFORE enforcement, rather than discovering it on the day.
+fn enlistment_gate(
+    s: &AppState,
+    att: Option<&MemoryAttester>,
+    surface: crate::enlistment::Surface,
+) -> Result<JsonValue, ApiError> {
+    let tier = attester_tier(s, att);
+    match crate::enlistment::may_write(tier, surface) {
+        Ok(()) => Ok(json!({
+            "tier": tier.as_str(),
+            "means": tier.means(),
+            "allowed": true,
+            "enforcing": enlistment_enforcing(),
+        })),
+        Err(why) => {
+            if enlistment_enforcing() {
+                return Err(ApiError(
+                    StatusCode::FORBIDDEN,
+                    ErrorBody {
+                        // LevelTooLow, not Unauthorized: nothing here is an
+                        // authentication failure. The caller is who they say
+                        // they are and simply has not passed the check this
+                        // surface asks for, which is a different thing to say
+                        // and a different thing to fix.
+                        code: ErrorCode::LevelTooLow,
+                        message: why,
+                        details: Some(json!({"ladder": "GET /v1/enlist", "tier": tier.as_str()})),
+                    },
+                ));
+            }
+            Ok(json!({
+                "tier": tier.as_str(),
+                "means": tier.means(),
+                "allowed": true,
+                "enforcing": false,
+                "would_be_refused_when_enforcing": why,
+                "notice": "This write was ACCEPTED because the ladder is in shadow mode \
+                           on this responder. It will be refused once enforcement is on. \
+                           Raise the tier now, not then: GET /v1/enlist.",
+            }))
+        }
+    }
+}
+
+/// Read this attester's stored org evidence, if any is still fresh.
+fn enlistment_evidence(s: &AppState, pubkey_b32: &str) -> Option<crate::enlistment::Evidence> {
+    let db = s.storage.hot_sled_db()?;
+    let tree = db.open_tree(emem_storage::TREE_ENLISTMENT_EVIDENCE).ok()?;
+    let raw = tree.get(pubkey_b32.as_bytes()).ok()??;
+    serde_json::from_slice::<crate::enlistment::Evidence>(&raw).ok()
+}
+
+fn now_unix() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0)
+}
+
+/// Render evidence with its AGE, never as a bare boolean.
+///
+/// A stored `ok: true` with no age is a claim about the present made from the
+/// past. The reader gets the age and the freshness verdict together, so a
+/// month-old check cannot read as a current one.
+fn enlistment_evidence_json(e: &crate::enlistment::Evidence) -> JsonValue {
+    let now = now_unix();
+    json!({
+        "method": e.method.as_str(),
+        "domain": e.domain,
+        "nick": e.nick,
+        "checked_at_unix": e.checked_at,
+        "age_secs": now.saturating_sub(e.checked_at),
+        "fresh": e.is_fresh(now),
+        "ok": e.ok,
+        "detail": e.detail,
+        "ttl_secs": crate::enlistment::EVIDENCE_TTL_SECS,
+    })
+}
+
+/// `GET /v1/enlist`, the write ladder as a document.
+async fn get_enlist() -> Json<JsonValue> {
+    Json(crate::enlistment::ladder_doc())
+}
+
+#[derive(Debug, Deserialize)]
+struct EnlistReq {
+    /// The key being vouched for: full 52-char base32.
+    attester_pubkey_b32: String,
+    /// The organisation's domain.
+    domain: String,
+    /// `dns` or `well_known`. `cross_sig` is a ledger act, not a fetch, and is
+    /// not requested here.
+    method: String,
+}
+
+/// `POST /v1/enlist`, ask this responder to check an org attestation.
+///
+/// Deliberately unauthenticated, and it is worth saying why that is safe: the
+/// call performs a check against evidence the ORGANISATION published, and it
+/// can only ever record what that check found. A stranger asking us to verify
+/// someone else's domain gains nothing — if the record is there, it was
+/// already true; if it is not, the answer is a refusal naming what is missing.
+/// Nothing here mints a credential.
+async fn post_enlist(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<EnlistReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let key = req.attester_pubkey_b32.trim().to_string();
+    if key.len() != 52 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!(
+                    "attester_pubkey_b32 must be the full 52-character key, not a prefix                      (got {} chars). The prefix identifies a namespace; the full key is                      what a domain vouches for.",
+                    key.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+    let ev = match req.method.trim() {
+        "dns" => crate::enlistment::check_dns(req.domain.trim(), &key).await,
+        "well_known" => crate::enlistment::check_well_known(req.domain.trim(), &key).await,
+        other => {
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "method {other:?} is not checkable here. Use \"dns\" or \"well_known\";                          cross_sig is a signed ledger act, not a fetch. GET /v1/enlist lists them."
+                    ),
+                    details: None,
+                },
+            ))
+        }
+    };
+    // Store the outcome either way. A failed check is evidence too: it is what
+    // a peer asking "did anyone try" should see, and it stops a silent retry
+    // loop reading as a clean slate.
+    if let Some(db) = s.storage.hot_sled_db() {
+        if let Ok(tree) = db.open_tree(emem_storage::TREE_ENLISTMENT_EVIDENCE) {
+            if let Ok(bytes) = serde_json::to_vec(&ev) {
+                let _ = tree.insert(key.as_bytes(), bytes);
+                flush_off_runtime(&tree).await;
+            }
+        }
+    }
+    Ok(Json(json!({
+        "attester_pubkey_b32": key,
+        "evidence": enlistment_evidence_json(&ev),
+        "confers": if ev.ok { crate::enlistment::Tier::T4Affiliated.as_str() } else { "nothing" },
+        "note": "A tier records which check passed. It is not a score, and this \
+                 responder never asserts that a verified party is a trustworthy one. \
+                 Re-run this check yourself: the record is public and does not need us.",
+        "ladder": "GET /v1/enlist",
+    })))
 }
 
 async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {

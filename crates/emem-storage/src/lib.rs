@@ -41,6 +41,13 @@ const TREE_FACT_PROOFS: &str = "emem.fact_proofs";
 /// primitive scans: when two attesters disagree about the same (cell,
 /// band, tslot) we want BOTH CIDs to live and be addressable, not just
 /// the latest writer's.
+/// Org attestations per attester key: what a domain vouched for, and when.
+///
+/// Kept apart from the agent roster because it is EVIDENCE, not identity. The
+/// roster is derived from notes that exist; this holds the result of a check
+/// against something outside this responder, and it expires.
+pub const TREE_ENLISTMENT_EVIDENCE: &str = "emem.enlistment_evidence";
+
 pub const TREE_MULTI_ATTESTER_INDEX: &str = "emem.multi_attester_index";
 
 /// Sled tree storing memory-bundle envelopes keyed by `bundle_cid`.

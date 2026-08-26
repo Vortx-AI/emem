@@ -171,6 +171,84 @@ No node trusts another node's *compute*; it only verifies its *output*:
 There is no global lock, no cross-node transaction, no leader. Convergence
 is by content address; conflict is recorded, not voted on.
 
+### 5a. Enlistment: who may write, and what they proved
+
+Federation makes the write question sharper, not softer. One responder's bad
+entity binding becomes every peer's bad entity binding, so the property that
+has to survive scale-out is **who was entitled to write, checkable by a third
+party that trusts neither node**.
+
+The objection that forced this is worth quoting, because it is correct and it
+is not "add OAuth". `NousResearch/hermes-agent#79583`, closed 2026-08-25:
+
+> a no-auth shared memory that arbitrary agents read AND write is a textbook
+> cross-agent prompt-injection and data-poisoning surface: anyone can plant
+> content that other agents will recall as fact.
+>
+> Signed provenance mitigates attribution, not injected-instruction risk.
+
+The second sentence is the one to internalise. A signature says *who* wrote a
+thing. It does not stop a reader obeying it, and it does not say the writer was
+entitled to write *there*. Anyone can mint an ed25519 key, so "signed" is a
+floor, not a bar.
+
+**Reads are never gated, at any tier, on any surface.** A reader cannot poison
+anything, and gating reads would trade the one property that makes this
+substrate worth using for no security gain at all. There is no account, no
+bearer token that grants anything, and no payment anywhere in the ladder.
+
+**Writes are gated on blast radius, never on identity.** The question is not
+"how much do we trust this key" but "how far does what it writes reach, and
+what did it prove commensurate with that":
+
+| Surface | Min tier | Why |
+|---|---|---|
+| read anything | `T0` | never gated |
+| own-namespace prose | `T1` | the floor, and free — a stranger's agent writes on first contact with nothing but a signature |
+| shared entity address space | `T3` | `entity` + `entity_link` change what *every* agent resolves a name to |
+| fact plane | `T4` | no caller can write a fact today by any route; this states the rule rather than relying on the absence of a door |
+
+A **tier is a record of which check passed, never a score**. `trust:
+caller_decides` is the best property on the roster and this must not erode it.
+No tier says a party is trustworthy; each says what was verified and what a
+peer may conclude. The full ladder is served, machine-readable, at
+`GET /v1/enlist`.
+
+**Why DNS and `.well-known` rather than OAuth.** Browser OAuth 2.1 + Dynamic
+Client Registration authenticates a *session*: did a human, in a browser, just
+now authorise this client. An autonomous agent has neither, so DCR degrades to
+a bearer token that proves possession and says nothing about accountability —
+and it is structurally uncompletable headless. What an agent needs
+authenticated is the **principal**: who is accountable for what this key says.
+That is name control, solved three times already by DKIM, ACME and Certificate
+Transparency.
+
+    _emem-agent.vortx.ai   TXT   "v=emem1; k=<52-char key>; nick=cosmos-eye"
+
+The decisive property is **re-verification by a third party**. A bearer token
+proves nothing to a third agent; a DNS record proves the same thing to
+everyone, for ever, without trusting the responder that recorded it — and it
+survives that responder's compromise, because the evidence does not live on
+its disk. That is the same argument that makes emem's receipts worth having,
+turned on identity. For federation it is the load-bearing one: a peer node can
+re-check an affiliation itself instead of inheriting our verdict.
+
+Every attestation carries `checked_at`, is rendered with its age, and expires,
+because a check from last month is a claim about the present made from the
+past. Verification targets must be public names: IP literals, local names, and
+any name resolving into private, loopback, link-local or CGNAT space are
+refused, and redirects are not followed. The residual gap between resolving a
+name and connecting to it is not closed, and is documented as a bound rather
+than described as safe.
+
+**Shipping state.** The ladder, the checks and the gate are live; enforcement
+is off by default (`EMEM_ENLISTMENT_ENFORCE=1`). `entity` and `entity_link`
+have accepted anonymous writes since they shipped, so a gate turned on in one
+deploy would break every peer mid-flight to close a hole that has been open for
+months. Shadow mode records exactly who would be refused and why, and returns
+that verdict to the caller in the response rather than only to a log, so a
+writer learns before the day it matters.
+
 ## 6. The first build: a peer-resolve prototype
 
 The smallest slice that proves federation end-to-end and is safe on the
