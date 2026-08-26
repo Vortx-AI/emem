@@ -381,6 +381,18 @@ html, body{overflow-x:clip}
    diptych keeps its slate/ochre reading in both themes without inventing a
    second set of greys. */
 .river{
+  /* ONE mono size for the whole page. Literal machine text had three sizes
+     (16.6px for the seed, 15px for the connect config, 12.6px for the API
+     output) purely because each inherited from whatever it sat inside. The
+     mono face has one job here, showing bytes the reader can check, so it gets
+     one size. 0.9rem is the smallest that stays comfortable for a 52-character
+     token on a phone. */
+  --mono-size:.9rem;
+  /* The two flank labels. Their sub-line was 11.1px on a desktop and 10.4px on
+     a phone, which is under the floor where a reader stops reading and starts
+     squinting. */
+  --label-note:.78rem;
+
   --slate:#4e678a;          /* the guessing bank */
   --ochre:#9d7420;          /* the measuring bank */
   /* The drawing ochre and the LABEL ochre are two different jobs. #9d7420 is
@@ -444,8 +456,10 @@ html, body{overflow-x:clip}
   .side{ position:static; max-width:none; }
   .side-l, .side-r{ left:auto; right:auto; }
   .side-r{ text-align:right; }
-  .side{ font-size:1rem; }
-  .side span{ font-size:.62rem; letter-spacing:.04em; }
+  /* The name was 16.5px against body copy at 16.9px, so the label read as
+     another sentence. It is a label: smaller than the prose, and its note
+     stays on the same floor the desktop uses. */
+  .side span{ letter-spacing:.03em; }
 }
 @media (max-width:520px){
   /* Narrower still: the veil has to work harder, so the banks step back a
@@ -518,11 +532,16 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .side{
   position:absolute; top:0; margin:0;
   font-family:var(--display,Georgia,serif);
-  font-size:clamp(1.1rem,2.4vw,1.7rem); letter-spacing:.01em; color:var(--ink);
+  /* One clamp rather than a base rule plus a mobile override: the override
+     sat in a media block EARLIER in this file and lost on source order, so
+     the name rendered at body size on a phone and read as another sentence.
+     The floor is below the 1.05rem body copy on purpose. */
+  font-size:clamp(.95rem, 1.9vw, 1.7rem); letter-spacing:.01em; color:var(--ink);
 }
-.side span{ display:block; font-family:var(--sans,inherit); font-size:var(--t-3xs,.72rem);
+.side span{ display:block; font-family:var(--sans,inherit); font-size:var(--label-note);
   letter-spacing:.06em; color:var(--mute); margin-top:.2rem; font-weight:400; }
 .side-l, #callsub, #whobest{ transition:opacity .28s ease; }
+#callsub{ font-style:normal; }
 .side-l.fade, #callsub.fade, #whobest.fade{ opacity:0; }
 #whobest{ font-style:normal; }
 
@@ -531,7 +550,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .call{ margin:.15rem 0 0; }
 .call code{
   font-family:var(--mono,ui-monospace,monospace);
-  font-size:var(--t-sm,.95rem); letter-spacing:.02em;
+  font-size:var(--mono-size); letter-spacing:.02em;
   color:var(--ink); background:var(--paper-2);
   border:1px solid var(--rule-strong); border-radius:999px;
   padding:.4rem .9rem; display:inline-block;
@@ -558,7 +577,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   color:var(--ink); text-decoration:none;
   border-bottom:1px solid var(--rule-strong);
 }
-.ways a span{ font-family:var(--sans,inherit); font-size:var(--t-3xs,.72rem);
+.ways a span{ font-family:var(--sans,inherit); font-size:var(--label-note);
   letter-spacing:.05em; color:var(--mute); }
 .ways a:hover{ border-bottom-color:var(--ink); }
 .ways a:focus-visible{ outline:2px solid var(--ink); outline-offset:3px; }
@@ -584,7 +603,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
    page, so it leads; the two graphs are the argument laid over it and they
    read at a quarter weight. It crossfades one scene to the next rather than
    accumulating, because only the graphs accumulate. */
-.bank .scenery{ opacity:.88; }
+.bank .scenery{ opacity:1; }
 .bank [data-scene]{ opacity:0; transition:opacity .9s ease; }
 .bank [data-scene].on{ opacity:1; }
 .banks.turning .bank{ opacity:0; }
@@ -615,17 +634,18 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 }
 /* The label and the note are their own row, so the config and the button sit
    together as one control instead of a pill floating beside a block of code. */
-.c-lbl, .c-note{ flex:1 0 100%; text-align:center; }
-.c-lbl{ font-size:var(--t-3xs,.72rem); letter-spacing:.1em; color:var(--mute); text-transform:lowercase; }
+.c-lbl, .c-note{ flex:1 0 100%; text-align:center; font-size:var(--label-note); }
+.c-lbl{ letter-spacing:.1em; color:var(--mute); text-transform:lowercase; }
 .connect code{
-  font-family:var(--mono,ui-monospace,monospace); font-size:var(--t-2xs,.82rem);
+  font-family:var(--mono,ui-monospace,monospace); font-size:var(--mono-size);
   color:var(--ink); background:var(--paper-2);
   border:1px solid var(--rule); border-radius:6px;
   padding:.5rem .7rem; overflow-wrap:anywhere;
 }
 .connect code{ border-radius:6px 0 0 6px; border-right:0; }
 .copyb{
-  font:inherit; font-size:var(--t-3xs,.72rem); letter-spacing:.06em;
+  font:inherit; font-size:var(--mono-size); font-family:var(--mono,ui-monospace,monospace);
+  letter-spacing:.02em;
   color:var(--ink-2); background:var(--paper-2);
   border:1px solid var(--rule); border-left:1px solid var(--rule-strong);
   border-radius:0 6px 6px 0;
@@ -633,19 +653,19 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 }
 .copyb:hover{ border-color:var(--ink-2); color:var(--ink); }
 .copyb:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
-.c-note{ font-size:var(--t-3xs,.72rem); color:var(--mute); }
+.c-note{ color:var(--mute); }
 
 /* The seed, printed. Every other claim on this page has a button; this one
    asked to be believed, and it was doing real work sitting among claims that
    could be checked. Now it can be run. */
 .seed{
-  font-family:var(--mono,ui-monospace,monospace); font-size:.92em;
+  font-family:var(--mono,ui-monospace,monospace); font-size:var(--mono-size);
   background:var(--paper-2); border:1px solid var(--rule);
   border-radius:4px; padding:.05em .35em; white-space:nowrap;
 }
 
 .scroll-cue{ margin:.4rem 0 0; }
-.scroll-cue span{ font-size:var(--t-3xs,.72rem); letter-spacing:.14em; color:var(--mute); text-transform:lowercase; }
+.scroll-cue span{ font-size:var(--label-note); letter-spacing:.14em; color:var(--mute); text-transform:lowercase; }
 
 /* The channel: everything runnable happens between the banks. */
 .run{
@@ -663,7 +683,8 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .go[disabled]{ opacity:.55; cursor:progress; }
 .out{ margin:0; color:var(--ink-2); font-size:var(--t-sm,.95rem); line-height:1.55; max-width:34rem; }
 .out.mono{
-  font-family:var(--mono,ui-monospace,monospace); font-size:var(--t-2xs,.82rem);
+  font-family:var(--mono,ui-monospace,monospace); font-size:var(--mono-size);
+  line-height:1.6;
   text-align:left; white-space:pre-wrap; word-break:break-word;
   background:var(--paper-2); border:1px solid var(--rule); border-radius:6px;
   padding:.85rem 1rem; width:100%;
@@ -751,7 +772,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
      thing that does not move, and only what it is doing changes underneath it. -->
 <div class="names">
   <p class="side side-l" id="who">ChatGPT<span>non-deterministic &middot; <i id="whobest">reasons well</i></span></p>
-  <p class="side side-r">@emem<span id="callsub">repeats exactly</span></p>
+  <p class="side side-r">@emem<span>deterministic &middot; <i id="callsub">repeats exactly</i></span></p>
 </div>
 
 <header class="reach reach-open" data-step="0" data-who="ChatGPT" data-best="reasons well" data-sub="repeats exactly">
@@ -977,9 +998,9 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       if(pc.k === 'tree' || pc.k === 'node') return;   /* the graph says this */
       var close = pc.k === 'box';
       g.appendChild(el('path', { d:d_of(pc.p, close, 4), fill:'none', stroke:'currentColor',
-        'stroke-width':1.45, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.62 }));
+        'stroke-width':1.7, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.8 }));
       g.appendChild(el('path', { d:d_of(pc.p, close, 6.5), fill:'none', stroke:'currentColor',
-        'stroke-width':0.85, 'stroke-linecap':'round', opacity:0.4 }));
+        'stroke-width':1.0, 'stroke-linecap':'round', opacity:0.5 }));
     });
   }
 
@@ -993,11 +1014,11 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         d += (i ? 'L' : 'M') + pc.p[i][0].toFixed(1) + ',' + pc.p[i][1].toFixed(1);
       if(close) d += 'Z';
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1.2, opacity:0.62 }));
+        'stroke-width':1.4, opacity:0.8 }));
       for(var i = 0; i < pc.p.length; i++){
         if(pc.k === 'ridge' && (i % 2)) continue;
         g.appendChild(el('circle', { cx:pc.p[i][0].toFixed(1), cy:pc.p[i][1].toFixed(1),
-          r:(1.9 + rnd()*1.3).toFixed(2), fill:'currentColor', opacity:0.9 }));
+          r:(2.2 + rnd()*1.4).toFixed(2), fill:'currentColor', opacity:1 }));
       }
     });
   }
@@ -1028,7 +1049,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
         opacity:0.025, 'data-s':0 }));
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1, opacity:0.15, 'data-s':0 }));
+        'stroke-width':1, opacity:0.09, 'data-s':0 }));
     }
     var DEPTH = 10;
     function bough(x, y, ang, len, depth){
@@ -1050,7 +1071,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       g.appendChild(el('line', {
         x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
         stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
-        'stroke-linecap':'round', 'data-s':s, opacity:0.34
+        'stroke-linecap':'round', 'data-s':s, opacity:0.17
       }));
       var n = Math.random() < 0.18 ? 3 : 2;
       for(var i = 0; i < n; i++)
@@ -1103,14 +1124,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
           x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
           x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
           stroke:'currentColor', 'stroke-width':0.6,
-          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.20*w).toFixed(3)
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.11*w).toFixed(3)
         }));
       }
     }
     pts.forEach(function(p){
       g.appendChild(el('circle', {
         cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
-        fill:'currentColor', 'data-s':p.s, opacity:(0.40*p.w).toFixed(3)
+        fill:'currentColor', 'data-s':p.s, opacity:(0.24*p.w).toFixed(3)
       }));
     });
     R.appendChild(g);

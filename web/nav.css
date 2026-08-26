@@ -86,7 +86,13 @@
   position: absolute;
   top: 100%;
   left: 0;
-  min-width: 21rem;
+  /* 21rem is a floor, and a floor wider than the viewport is an overflow. It
+     was released only below one breakpoint, so at 320px the menu ran past the
+     right edge with nothing clipping it and the notes under each link were
+     cut. min() keeps the comfortable width wherever there is room and gives it
+     up where there is not, at every width rather than at one. */
+  min-width: min(21rem, calc(100vw - 2rem));
+  max-width: calc(100vw - 1.5rem);
   background: var(--paper);
   border: 1.6px solid var(--ink);
   border-top: 0;
@@ -196,10 +202,17 @@
 .ports {
   display: flex;
   align-items: center;
+  /* Wrapping was set only below 860px. Between that breakpoint and the width
+     where the bar has room for four, the row overflowed: at 900px the last
+     port sat at x=972 in a 900px viewport, unclipped, so it could not be
+     clicked or seen. A row of links must wrap at every width or not be a row. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
   gap: var(--s-1);
   margin: 0;
   padding: 0;
   list-style: none;
+  min-width: 0;
 }
 .ports li { display: flex }
 .port {
