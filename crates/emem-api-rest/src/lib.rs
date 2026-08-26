@@ -55523,6 +55523,16 @@ fn enlistment_gate(
         })),
         Err(why) => {
             if enlistment_enforcing() {
+                // The commonest refusal by far is "sent no attester at all",
+                // because these routes accepted anonymous writes for their
+                // whole life and every existing caller was built against
+                // that. Telling those callers the tier they lack is true and
+                // useless; telling them the field they are missing is the fix.
+                let how = if att.is_none() {
+                    " This request carried NO attester block, so it is anonymous.                       Add `attester: {pubkey_b32, sig_b32}` signing the same preimage                       the memory verbs use: send it once unsigned and the refusal hands                       you the exact digest to sign. No registration and no API key."
+                } else {
+                    " Your signature verified; the tier is what is short. GET /v1/enlist                       lists each check and what it proves."
+                };
                 return Err(ApiError(
                     StatusCode::FORBIDDEN,
                     ErrorBody {
@@ -55532,7 +55542,7 @@ fn enlistment_gate(
                         // surface asks for, which is a different thing to say
                         // and a different thing to fix.
                         code: ErrorCode::LevelTooLow,
-                        message: why,
+                        message: format!("{why}{how}"),
                         details: Some(json!({"ladder": "GET /v1/enlist", "tier": tier.as_str()})),
                     },
                 ));
