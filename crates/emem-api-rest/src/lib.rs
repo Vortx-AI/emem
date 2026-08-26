@@ -55512,6 +55512,8 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
         /// What this agent SAYS it can do, from its own signed declaration.
         skills: Option<JsonValue>,
         skills_at: String,
+        /// A signed `profile.md` exists in this namespace: the T2 check.
+        has_profile: bool,
     }
     let mut seen: std::collections::BTreeMap<String, Roster> = std::collections::BTreeMap::new();
     for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
@@ -55548,6 +55550,9 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
         // note inherits that proof exactly: same namespace, same signature,
         // same verification. No registration, no second auth path, no
         // allowlist an operator has to maintain.
+        if key.ends_with("/profile.md") {
+            seen.entry(from.clone()).or_default().has_profile = true;
+        }
         if key.ends_with("/agent-skills.md") {
             if let Some(decl) = parse_skill_declaration(&body) {
                 let e = seen.entry(from.clone()).or_default();
@@ -55598,6 +55603,30 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
                 "correspondence": r.corr,
                 "last_seen": r.last_seen,
                 // Four states a client must not collapse into one boolean.
+                "enlistment": {
+                    "tier": crate::enlistment::tier_for(&crate::enlistment::Facts {
+                        has_signed_note: r.signed_notes > 0,
+                        namespace_proven: r.pubkey.is_some(),
+                        has_profile_with_nick: r.has_profile,
+                        declares_endpoint: r.skills.is_some(),
+                        org_verified: r
+                            .pubkey
+                            .as_deref()
+                            .and_then(|pk| enlistment_evidence(&s, pk))
+                            .map(|e| e.is_fresh(now_unix()))
+                            .unwrap_or(false),
+                        corroborating_peers: 0,
+                    })
+                    .as_str(),
+                    "org_evidence": r
+                        .pubkey
+                        .as_deref()
+                        .and_then(|pk| enlistment_evidence(&s, pk))
+                        .map(|e| enlistment_evidence_json(&e)),
+                    "ladder": "GET /v1/enlist",
+                    "means": "which checks passed, never a score. This responder does \
+                              not assert that a verified party is a trustworthy one.",
+                },
                 "identity": "discovered",
                 "caller_signed_notes": r.signed_notes,
                 "key_status": if r.pubkey.is_some() { "proven_by_signature" } else { "responder_claim" },

@@ -633,6 +633,24 @@ pub fn ladder_doc() -> serde_json::Value {
             tier(Tier::T4Affiliated, "an organisation vouches for the key by dns, well_known or cross_sig".into()),
             tier(Tier::T5Corroborated, format!("{CORROBORATING_PEERS} distinct peer keys confirmed one of its tokens matched")),
         ],
+        // Which rungs this responder actually COMPUTES, said plainly. A ladder
+        // with an unreachable top is an ornament, and a reader has no way to
+        // tell an unreached tier from an uncomputed one unless we say.
+        "computed_here": {
+            "T0_anonymous": true,
+            "T1_keyed": true,
+            "T2_named": "a signed profile.md in the namespace; the unique-nick half is not yet enforced",
+            "T3_declared": true,
+            "T4_affiliated": "on demand via POST /v1/enlist; evidence expires and is re-checked",
+            "T5_corroborated": false
+        },
+        "t5_is_not_computed_yet": "It needs distinct peer keys confirming a token \
+                                   MATCHED -- evidence of work rather than paperwork, and \
+                                   the only rung that cannot be self-issued. The signed \
+                                   ack/receive acts carrying it exist and are not yet \
+                                   aggregated. Reporting a tier we do not compute would \
+                                   be worse than the gap, so it reads as unreached for \
+                                   everyone until that ships.",
         "write_surfaces": [
             {"surface": "read_anything", "min_tier": Tier::T0Anonymous.as_str(),
              "note": "never gated"},
