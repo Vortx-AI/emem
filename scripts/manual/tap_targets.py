@@ -37,6 +37,11 @@ number that was true of what it measured and false of what it described:
      1.2s, 6s and 12s, so waiting longer would never have exposed it. Every
      rect is now intersected with its clipping ancestors.
 
+What it still cannot see: an element with a click handler, no interactive
+semantics, and no cursor:pointer. Nothing in computed style distinguishes that
+from a paragraph, so a zero here means "nothing that declares itself a target,
+or paints itself as one, fails" -- not "the page conforms".
+
 So it runs a control first, and refuses to report without it: a page built to
 fail must fail and a page built to pass must pass. An audit where everything
 passes may be a broken audit, and this one returned a confident 0 on a page
@@ -83,8 +88,14 @@ JS_LIB = r"""
   }
   for (const e of document.querySelectorAll('div,span,li,td,p,section,header')) {
     if (getComputedStyle(e).cursor !== 'pointer') continue;
-    if (e.querySelector(SEL)) continue;          // a wrapper, not the target
     if (e.closest(SEL) !== null) continue;       // already inside a target
+    // A clickable row that CONTAINS a link used to be skipped as "a wrapper,
+    // not the target". It is both: the row responds to a click anywhere in it
+    // and the link is a separate target inside it. Skipping it meant never
+    // measuring the row's own size. Nesting is handled by the outermost rule
+    // below, not by refusing containers -- cursor:pointer is not inherited
+    // upward from a child <a>, so a div only computes it when something set
+    // it on the div or above.
     // cursor:pointer INHERITS, so every span inside a clickable row reports
     // it too. Counting them all turned one target into five and inflated the
     // total ~5x. Keep only the outermost element of each pointer region:
