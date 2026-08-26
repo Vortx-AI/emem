@@ -217,6 +217,13 @@ mark, .content mark { color: var(--ink); }
    this is not design spacing, it is a distance to a standard defined in px. */
 a.header-in-summary { display: block; padding: 6px 0; }
 .chapter li.chapter-item a { display: block; padding: 6px 6px; }
+/* The fold arrow got height from the rule above and never got width:
+   a 5.1px glyph plus 12px of padding is a 17.1px target. It passed on
+   most pages only because its nearest neighbour happened to be far
+   enough away for 2.5.8's spacing exception, which makes compliance a
+   property of how long the chapter title next to it is. 24px wide and
+   the criterion stops applying at all. */
+.chapter li a.chapter-fold-toggle { min-width: 24px; text-align: center; }
 .menu-bar .right-buttons a { display: inline-block; min-width: 24px; min-height: 24px; }
 .chapter li a:hover { color: var(--accent); background: var(--paper-3); }
 .chapter li a.active { color: var(--accent); font-weight: 700; }

@@ -36,16 +36,18 @@ a browser:
               DECISION (decorative) and is not flagged; a missing one is a
               question nobody answered.
   targets     links and buttons smaller than 24px in either direction. Read
-              this as UNDERSIZED, not as "fails WCAG 2.5.8": the criterion has a
-              SPACING exception, and an undersized target passes if a 24px
-              circle centred on it meets no other target. Measured with the
-              exception implemented, 189 undersized elements on this site were
-              52 inline-exempt, 116 spacing-exempt and 21 real failures. So this
-              number over-reports by roughly 5x and must not be quoted as a
-              compliance count -- I nearly "fixed" two dozen already-compliant
-              targets on the strength of it, which would have moved layout for
-              nothing. The spacing pass lives in the other agent's harness; this
-              column is a candidate list for it, not a verdict.
+              this as UNDERSIZED, not as "fails WCAG 2.5.8": the criterion has
+              INLINE and SPACING exceptions, and an undersized target passes if
+              a 24px circle centred on it meets no other target. This column
+              implements neither, so it over-reports by roughly 5x and must
+              never be quoted as a compliance count -- I nearly "fixed" two
+              dozen already-compliant targets on the strength of it, which
+              would have moved layout for nothing.
+                  It is a candidate list. The verdict is
+              scripts/manual/tap_targets.py, which implements both exceptions
+              and runs a control. On 2026-08-26 this column's candidates across
+              65 paths at 1280 came to 23 real failures there; /verify
+              contributed 7 candidates and 0 failures.
 
 Why the self-test is not optional
 ---------------------------------
