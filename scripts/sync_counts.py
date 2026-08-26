@@ -59,8 +59,8 @@ CANON = {
     "mcp_core": 16,
     "mcp_extended": 92,
     "algorithms": 168,
-    "rest_paths_v1": 161,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 170,  # all paths in OpenAPI
+    "rest_paths_v1": 163,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 172,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -485,6 +485,15 @@ def near_miss_claims(canon):
 # Prose that asserts a canonical quantity as a fact about this responder. Each
 # pattern names one CANON key and one way the docs phrase it.
 PROSE_CLAIMS = (
+    # The FAQ answer baked into the JSON-LD on / and /the-long-version: "Point
+    # at https://emem.dev/mcp/full instead to have all 105 registered up front."
+    # `_TOOL_CLAIMS` already carries a loose `all (\d+)` pattern and would have
+    # caught this, but _TOOL_CLAIMS is scanned over a fixed FILE LIST that does
+    # not include web/index.html, so the claim sat two counts stale on the most
+    # read page on the site. Written tight rather than adding index.html to that
+    # list, because `all (\d+)` over a page full of JSON-LD numbers would start
+    # rewriting things that are not tool counts.
+    ("mcp_tools",    r"to have all\s+(\d{2,4})\s+registered"),
     ("mcp_tools",    r"(\d{2,4})\s+MCP tools\b"),
     # The twelve phrasings the coverage ratchet measured as unread, added as
     # patterns rather than carried as a baseline. Written to catch the CLAIM and
@@ -517,6 +526,17 @@ PROSE_CLAIMS = (
     # sentences were current, which is the tell: whoever updated them updated
     # only what a pattern here was watching.
     ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?/v1\s+paths"),
+    # The SECOND number in a two-number phrasing. The detector reads both and
+    # the corrector only ever had a pattern for the first, so "172 documented,
+    # 161 under /v1/*" would have its total corrected and its /v1 count left
+    # behind, for ever, and each --write run looked like progress.
+    ("rest_paths_v1",            r"\d{2,4}\s+documented,\s*(\d{2,4})\s+under\s*`?/v1"),
+    ("rest_paths_openapi_total", r"\((\d{2,4})\s+total\s+in\s*`?/?openapi\.json"),
+    # An HTML page can put markup between the words and the path:
+    # `161 documented paths under <span class="band">/v1/*</span>`. Without the
+    # optional tag this pattern reads the .md form and silently skips the .html
+    # one, which is the surface a reader actually lands on.
+    ("rest_paths_v1",            r"(\d{2,4})\s+documented\s+paths\s+under\s*(?:<[^>]+>\s*)?`?/v1"),
     # Any adjectives between the number and "paths". This family had five exact
     # spellings and metadata-pack.md still slipped through with "114 REST paths
     # under /v1/*" against a live 157, because no spelling had REST in that

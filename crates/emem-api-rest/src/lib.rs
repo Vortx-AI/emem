@@ -6561,6 +6561,13 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             { "url": format!("{origin}/v1/a2a/tasks"),          "transport": "HTTP+JSON", "protocol": "a2a-async-tasks" },
             { "url": format!("{origin}/v1/a2a/skills"),         "transport": "HTTP+JSON", "protocol": "a2a-skill-query" },
             { "url": format!("{origin}/openapi.json"),          "transport": "HTTP+JSON", "protocol": "openapi-3.1" },
+            // The SAME surface, cut to what an action-shaped importer can hold.
+            // The full document is 190 operations and ~350 KB: a ChatGPT Custom
+            // GPT that imports it either fails or arrives with a tool list no
+            // model can choose from. The submission guide and the GPT Action
+            // example both read this row now rather than naming a path of their
+            // own, which is how they came to point at the wrong one.
+            { "url": format!("{origin}/openapi.action.json"),   "transport": "HTTP+JSON", "protocol": "openapi-3.1-action" },
             { "url": format!("{origin}/.well-known/emem.json"), "transport": "HTTP+JSON", "protocol": "well-known-json" },
             { "url": format!("{origin}/v1/agent_card"),         "transport": "HTTP+JSON", "protocol": "agent-card-v1" },
             { "url": format!("{origin}/mcp"),                   "transport": "JSONRPC",   "protocol": "mcp-streamable-http" },

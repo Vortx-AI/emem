@@ -274,8 +274,8 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface documents 161 paths under
-`/v1/*` (170 total in `/openapi.json`), 108 MCP tools (16 core, 92 extended, with
+port 5051. The live surface documents 163 paths under
+`/v1/*` (172 total in `/openapi.json`), 108 MCP tools (16 core, 92 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 108), 20 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
@@ -299,7 +299,7 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 170 documented, 161 under `/v1/*` |
+| REST paths (OpenAPI) | 172 documented, 163 under `/v1/*` |
 | MCP tools | 107 (16 core / 92 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
