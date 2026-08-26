@@ -26,9 +26,11 @@ The app is read-only. It does not modify user data or take external write action
 
 ## Technical
 
-- Transport: Streamable HTTP (MCP 2025-03-26)
+- Transport: Streamable HTTP. The server negotiates MCP 2025-11-25 and also
+  accepts 2025-06-18, 2025-03-26 and 2024-11-05; a request that sends no
+  `MCP-Protocol-Version` header is read as 2025-03-26.
 - Authentication: None (anonymous reads)
-- 105 MCP tools available, 4 exposed in this app
+- 108 MCP tools available, 9 exposed in this app
 - Pure Rust server, Apache-2.0 licensed
 
 ## Status

@@ -160,7 +160,7 @@ body:has(.foot.inverted){padding-bottom:0}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.5rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
@@ -499,8 +499,8 @@ html, body{overflow-x:clip}
 }
 .side span{ display:block; font-family:var(--sans,inherit); font-size:var(--t-3xs,.72rem);
   letter-spacing:.06em; color:var(--mute); margin-top:.2rem; font-weight:400; }
-.side-l, .side-r{ transition:opacity .28s ease; }
-.side-l.fade, .side-r.fade{ opacity:0; }
+.side-l, #callsub{ transition:opacity .28s ease; }
+.side-l.fade, #callsub.fade{ opacity:0; }
 
 /* The one line that never changes, sitting on the plug. A model is called by a
    different name at every reach of this page; the address it calls is not. */
@@ -689,12 +689,16 @@ html, body{overflow-x:clip}
   <svg class="bank bank-r" id="bankR" viewBox="0 0 560 780" preserveAspectRatio="xMinYMid slice"></svg>
 </div>
 
+<!-- The asymmetry is the argument. On the left the NAME changes and the
+     description does not: it is a different model every reach and all of them
+     guess. On the right the name never changes, because the address is the
+     thing that does not move, and only what it is doing changes underneath it. -->
 <div class="names">
   <p class="side side-l" id="who">ChatGPT<span>guesses well</span></p>
-  <p class="side side-r" id="callsign">@emem<span>repeats exactly</span></p>
+  <p class="side side-r">@emem<span id="callsub">repeats exactly</span></p>
 </div>
 
-<header class="reach reach-open" data-step="0" data-who="ChatGPT" data-call="@emem">
+<header class="reach reach-open" data-step="0" data-who="ChatGPT" data-sub="repeats exactly">
   <h1 class="line">Ask a model the same thing twice,<br>and you get two answers.</h1>
   <svg class="plug" viewBox="0 0 240 40" role="img" aria-label="A jack plug in the gap between the two banks">
     <line x1="0" y1="20" x2="96" y2="20" class="p-lead"/>
@@ -708,7 +712,7 @@ html, body{overflow-x:clip}
   <p class="scroll-cue"><span>keep going</span></p>
 </header>
 
-<section class="reach" id="twice-r" data-step="1" data-who="Claude" data-call="@mcp">
+<section class="reach" id="twice-r" data-step="1" data-who="Claude" data-sub="same answer, twice">
   <h2 class="line">Not because it is cached.<br>Because the answer has an address.</h2>
   <p class="sub">Two calls, right now, from your browser to production. Watch the line under them: that is the address the answer lives at, and it is the same both times.</p>
   <div class="run">
@@ -717,7 +721,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="carry" data-step="2" data-who="Codex" data-call="@mcp emem">
+<section class="reach" id="carry" data-step="2" data-who="Codex" data-sub="outlives your context">
   <h2 class="line">Your context ends.<br>The address does not.</h2>
   <p class="sub">A token is short enough to sit in a sentence and exact enough to name one measurement. Keep it when your context is compacted, hand it to another agent, resolve it a year later: the same signed bytes come back.</p>
   <div class="run">
@@ -726,7 +730,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="checkable" data-step="3" data-who="Cosmos" data-call="emem council">
+<section class="reach" id="checkable" data-step="3" data-who="Cosmos" data-sub="checkable without us">
   <h2 class="line">You do not have to trust us.<br>That is the point, and you can test it.</h2>
   <p class="sub">Every answer carries an ed25519 receipt that checks against a published key rather than against our word. Here is the responder auditing its own fact plane, live, and reporting false when it fails.</p>
   <div class="run">
@@ -736,7 +740,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="many" data-step="4" data-who="Dify" data-call="emem">
+<section class="reach" id="many" data-step="4" data-who="Dify" data-sub="one record, many readers">
   <h2 class="line">Two agents, two vendors,<br>one set of bytes they both read.</h2>
   <p class="sub">Neither has to trust the other, and neither has to trust us. The tree on your left is redrawn from nothing every time you load this page. The network on your right has not moved since its seed was written down. Press the button and watch which one changes.</p>
   <div class="run">
@@ -745,7 +749,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach bridgehead" id="bridge" data-step="5" data-who="any model" data-call="one address">
+<section class="reach bridgehead" id="bridge" data-step="5" data-who="any model" data-sub="one address, for ever">
   <h2 class="line">One thing crosses between them,<br>and it is the token.</h2>
   <svg class="span" id="span" viewBox="0 0 1000 240" role="img"
        aria-label="A bridge over the channel. Its left half is drawn freehand, its right half is built from nodes and edges, and the two halves meet over the middle of the river where a single token crosses."></svg>
@@ -1009,7 +1013,7 @@ html, body{overflow-x:clip}
      Each reach reveals the next generation on both banks. Nothing is replaced,
      so the two figures are continuous the whole way down and the difference
      between them is the only thing that changes. */
-  var who = document.getElementById('who'), callsign = document.getElementById('callsign');
+  var who = document.getElementById('who'), callsub = document.getElementById('callsub');
   function swap(node, text){
     if(!node || text === node.firstChild.nodeValue) return;
     node.classList.add('fade');
@@ -1022,7 +1026,7 @@ html, body{overflow-x:clip}
         if(!en.isIntersecting) return;
         var t = en.target;
         swap(who, t.getAttribute('data-who'));
-        swap(callsign, t.getAttribute('data-call'));
+        swap(callsub, t.getAttribute('data-sub'));
         setStep(+t.getAttribute('data-step') || 0);
         if(t.id === 'bridge'){
           drawBridge();

@@ -164,7 +164,7 @@ figure.fig figcaption b{color:var(--ink-2);font-weight:700}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:1.5rem}
+.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.5rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.4rem}
@@ -267,7 +267,12 @@ input::placeholder{color:var(--mute,#7a7363)}
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
-<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener">GitHub</a>
+<ul class="ports" aria-label="Where emem is listed">
+<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
+<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
+<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
+<li><a class="port" href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
+</ul>
 </nav></header>
 <div class="audience aud-leaders"><span class="aud-for">for leaders</span><span class="aud-what">the long argument, with the proofs</span><span class="aud-note">expect the argument and the evidence, not the wire format</span></div>
 <script>(function(){function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}document.addEventListener("keydown",function(e){if(e.key==="Escape")shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();});})();</script>

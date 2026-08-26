@@ -58,8 +58,25 @@ def column() -> str:
             f"      {END}")
 
 
+# The column count was hard-coded per page: repeat(4,1fr) on some, repeat(5,1fr)
+# on others. Adding a column to a fixed grid wraps it onto a second row on its
+# own, which is what made the footer stop looking deliberate. auto-fit sizes to
+# whatever columns are actually there, so the next addition does not need a
+# second edit in seventeen files.
+GRID = re.compile(r'\.foot-grid\{display:grid;grid-template-columns:repeat\(\d+,1fr\);gap:([^}]*)\}')
+
+
+def widen_grid(html: str) -> str:
+    return GRID.sub(
+        lambda m: (".foot-grid{display:grid;"
+                   "grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));"
+                   f"gap:{m.group(1)}}}"),
+        html)
+
+
 def apply(html: str) -> str | None:
     """Return the updated page, or None when there is nothing to do."""
+    html = widen_grid(html)
     m = FOOTER.search(html)
     if not m:
         return None
@@ -78,9 +95,8 @@ def apply(html: str) -> str | None:
             return None
         cut = close + len("</div>")
         new_foot = foot[:cut] + "\n" + col + foot[cut:]
-    if new_foot == foot:
-        return None
-    return html[:m.start(1)] + new_foot + html[m.end(1):]
+    out = html[:m.start(1)] + new_foot + html[m.end(1):]
+    return out
 
 
 def main() -> int:
@@ -91,6 +107,8 @@ def main() -> int:
     for path in sorted((REPO / "web").glob("*.html")):
         html = path.read_text(encoding="utf-8")
         out = apply(html)
+        if out == html:
+            continue
         if out is None:
             if FOOTER.search(html) is None:
                 skipped.append(path.name)

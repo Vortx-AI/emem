@@ -433,7 +433,7 @@ def near_miss_claims(canon):
 
     out = []
     targets = (
-        sorted(REPO.glob("docs/**/*.md"))
+        sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md"))
         + sorted(REPO.glob("web/*.html"))
         + sorted(REPO.glob("web/*.txt"))
         + [REPO / "README.md", REPO / "AGENTS.md"]
@@ -660,7 +660,7 @@ def verify_prose_version() -> list[str]:
     """
     want = CANON["version"]
     hits: list[str] = []
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + [
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + [
         REPO / "README.md", REPO / "AGENTS.md", REPO / "CHANGELOG.md",
     ]
     for path in targets:
@@ -859,7 +859,7 @@ def verify_prose_counts() -> list[str]:
     # file every registry submission copies its numbers out of, sat two levels
     # down saying "114 REST paths under /v1/*" against a live 157. The pattern
     # to catch that was here; the file was not.
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
     # The RENDER of those same docs. `docs/book/` is mdbook output, it is
     # gitignored, and `crates/emem-api-rest` bakes it with include_dir!, so
     # https://emem.dev/docs serves whatever happened to be on the builder's disk
@@ -1212,7 +1212,7 @@ def write_prose_counts(check_only: bool) -> list[str]:
         REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
         REPO / "docs" / "ARCHITECTURE_NOTES.md", REPO / "web" / "llms.txt",
     ]
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
     out: list[str] = []
     for path in targets:
         if not path.exists() or any(h in path.name for h in COUNT_HISTORY):

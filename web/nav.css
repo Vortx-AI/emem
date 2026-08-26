@@ -245,3 +245,63 @@
   .ports { gap: .25rem; flex-wrap: wrap }
   .port { padding: .3rem .5rem; letter-spacing: 0 }
 }
+
+/* ── The footer edge ────────────────────────────────────────────────────────
+   The footer read like a different website from the page above it: six dense
+   columns of links under a page that says one thing at a time. Rather than
+   thin it out, which would cost the links that make it useful, it gets the
+   page's own edge: a hairline that is the guessing bank on the left and the
+   measuring bank on the right, meeting in the middle where the channel runs.
+
+   Two colour stops and nothing else, so this adds one line to the page and no
+   markup at all. The two hues are the same ones the homepage draws with. */
+.page.foot {
+  position: relative;
+  border-top: 0;
+}
+.page.foot::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: linear-gradient(90deg,
+    color-mix(in oklab, var(--slate-edge, #4e678a) 70%, transparent) 0%,
+    color-mix(in oklab, var(--slate-edge, #4e678a) 70%, transparent) 46%,
+    var(--rule) 50%,
+    color-mix(in oklab, var(--ochre-edge, #9d7420) 70%, transparent) 54%,
+    color-mix(in oklab, var(--ochre-edge, #9d7420) 70%, transparent) 100%);
+  opacity: 1;
+  height: 2px;
+}
+:root:not([data-theme="light"]) .page.foot::before {
+  --slate-edge: #93a9c6;
+  --ochre-edge: #dcb161;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .page.foot::before {
+    --slate-edge: #4e678a;
+    --ochre-edge: #9d7420;
+  }
+}
+:root[data-theme="dark"] .page.foot::before {
+  --slate-edge: #93a9c6;
+  --ochre-edge: #dcb161;
+}
+
+/* The "Listed on" column reads as the same sockets the bar carries, so the two
+   places emem publishes its destinations look like one decision. */
+.foot-col a[rel="noopener"][title] {
+  display: inline-flex;
+  align-items: center;
+  gap: .4em;
+}
+.foot-col a[rel="noopener"][title]::before {
+  content: "";
+  width: .5em;
+  height: .5em;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background: radial-gradient(circle at 50% 50%, currentColor 0 38%, transparent 39%);
+  opacity: .6;
+  flex: none;
+}
