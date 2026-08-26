@@ -67,6 +67,28 @@ CURL_START = re.compile(r"(?:^|[\s>])(?P<c>curl\b)")
 PLACEHOLDER = re.compile(r"<[a-z_]+>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
 
 
+def where(path) -> str:
+    """Render a source label, whichever KIND of source it came from.
+
+    `sources()` yields `pathlib.Path` under the repo; `served_sources()` yields
+    a STRING like "https://emem.dev/ (served)", because a command injected into
+    a page by the responder has no file. This line called
+    `path.relative_to(REPO)` unconditionally and crashed with AttributeError on
+    the string.
+
+    It only ever ran when there WAS a failure, and only for a served-page one --
+    exactly the case served scanning was added to catch. So the reporting path
+    took out the finding it existed to report, and CI showed a traceback
+    instead of which example is broken.
+    """
+    if isinstance(path, pathlib.Path):
+        try:
+            return str(path.relative_to(REPO))
+        except ValueError:
+            return str(path)
+    return str(path)
+
+
 def sources():
     out = []
     for pat in SOURCES:
@@ -353,13 +375,21 @@ def main() -> int:
     # Deterministic output regardless of which finished first.
     failures.sort(key=lambda f: (str(f[0]), f[1]))
 
+    # Exercise the label renderer on EVERY source before reporting anything.
+    # It used to run only when a failure existed, and only for a served-page
+    # one, so a type error in it survived until the day it had something to
+    # report -- and then hid it. Formatting every label costs nothing and
+    # cannot be reached only on the unhappy path.
+    for src in {p for p, _, _, _ in found} | {p for p, _, _, _ in skipped}:
+        where(src)
+
     print(f"example check: {len(found)} runnable example(s) across "
           f"{len({p for p, _, _, _ in found})} file(s); {len(skipped)} skipped "
           f"for placeholders or pipes")
     if failures:
         print("\nA PUBLISHED EXAMPLE DOES NOT DO WHAT IT SAYS:")
         for path, line, cmd, v in failures:
-            print(f"  {path.relative_to(REPO)}:{line}  -> {v}")
+            print(f"  {where(path)}:{line}  -> {v}")
             print(f"      {cmd[:150]}")
         return 1
     print("Every runnable example we publish answers, and none of them answers "
