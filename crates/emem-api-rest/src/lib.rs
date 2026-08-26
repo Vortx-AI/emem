@@ -20432,7 +20432,9 @@ async fn post_log_witness(
             },
         )
     })?;
-    flush_off_runtime(&tree).await;
+    if let Err(e) = flush_off_runtime(&tree).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
 
     Ok(Json(json!({
         "ok": true,
@@ -34765,11 +34767,15 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             let mut key = derived_index_key(&attester.pubkey_b32, Some(&cell), Some(&band));
             key.extend_from_slice(fact_cid.as_bytes());
             let _ = tree.insert(key, fact_cid.as_bytes());
-            flush_off_runtime(&tree).await;
+            if let Err(e) = flush_off_runtime(&tree).await {
+                tracing::error!(target: "emem::durability", error = %e, "flush failed");
+            }
         }
         if let Ok(tree) = db.open_tree(DERIVED_BY_BODY_TREE) {
             let _ = tree.insert(dedup_key, fact_cid.as_bytes());
-            flush_off_runtime(&tree).await;
+            if let Err(e) = flush_off_runtime(&tree).await {
+                tracing::error!(target: "emem::durability", error = %e, "flush failed");
+            }
         }
     }
 
@@ -35420,7 +35426,9 @@ async fn post_memory_bundle(
             let mut buf = Vec::with_capacity(1024);
             if ciborium::ser::into_writer(&resp, &mut buf).is_ok() {
                 let _ = tree.insert(bundle_cid.as_bytes(), buf);
-                flush_off_runtime(&tree).await;
+                if let Err(e) = flush_off_runtime(&tree).await {
+                    tracing::error!(target: "emem::durability", error = %e, "flush failed");
+                }
             }
         }
     }
@@ -35864,13 +35872,17 @@ async fn post_entity(
                 format!("persist entity: {e}"),
             )
         })?;
-    flush_off_runtime(&entities).await;
+    if let Err(e) = flush_off_runtime(&entities).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
 
     if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
         for k in alias_keys(&entity) {
             entity_alias_append(&aliases, &k, &entity_cid);
         }
-        flush_off_runtime(&aliases).await;
+        if let Err(e) = flush_off_runtime(&aliases).await {
+            tracing::error!(target: "emem::durability", error = %e, "flush failed");
+        }
     }
 
     // Tell the agent how strong this object's convergence is, so a weak
@@ -36155,7 +36167,9 @@ async fn post_entity_alias(
         for k in &keys {
             entity_alias_append(&aliases, k, &cid);
         }
-        flush_off_runtime(&aliases).await;
+        if let Err(e) = flush_off_runtime(&aliases).await {
+            tracing::error!(target: "emem::durability", error = %e, "flush failed");
+        }
     }
 
     Ok(Json(json!({
@@ -37359,10 +37373,22 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
 /// shared by every tree, so a flush already running makes this write durable
 /// too; ten of them queued on the blocking pool would still be ten whole
 /// database fsyncs where one suffices.
-async fn flush_off_runtime(tree: &sled::Tree) {
+async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
     static FLUSHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
     let t = tree.clone();
-    let _ = tokio::task::spawn_blocking(move || {
+    // `let _ = ...` here discarded TWO results at once: the JoinError, and
+    // sled's own io::Result from `flush()`. A flush that FAILED was
+    // indistinguishable from one that succeeded, and every caller went on to
+    // report the write as durable.
+    //
+    // That is the best explanation available for a note an auditor published
+    // on 2026-08-23, which verified at write time and was gone after the next
+    // restart. Both its blob and its path index are absent, and NOTHING in
+    // this responder removes a blob, so it was not a delete. A write that was
+    // never persisted, reported as persisted, and lost with the page cache is
+    // the shape that fits. Not proven, and it is the only remaining
+    // explanation that fits every observation.
+    match tokio::task::spawn_blocking(move || {
         let _held = match FLUSHING.lock() {
             Ok(g) => g,
             // A poisoned lock means a previous flush panicked. Refusing to
@@ -37371,7 +37397,12 @@ async fn flush_off_runtime(tree: &sled::Tree) {
         };
         t.flush()
     })
-    .await;
+    .await
+    {
+        Ok(Ok(_bytes)) => Ok(()),
+        Ok(Err(e)) => Err(format!("fsync failed: {e}")),
+        Err(join) => Err(format!("flush task did not finish: {join}")),
+    }
 }
 
 /// The same fsync from a synchronous caller, for the background tasks that
@@ -37590,7 +37621,23 @@ async fn persist_memory_write(
     // PANICS on a current-thread runtime, which is what #[tokio::test] builds
     // by default. So the flavour is checked rather than assumed: a test, or
     // any caller off the runtime, flushes inline exactly as before.
-    flush_off_runtime(&metas).await;
+    // A write that cannot be made durable must not report success. This is
+    // the call whose swallowed error is the leading explanation for a note
+    // that verified at write time and was gone after the next restart.
+    flush_off_runtime(&metas).await.map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!(
+                    "the write was accepted and verified but could NOT be made durable \
+                     ({e}). Treat it as not written: it may vanish at the next restart. \
+                     Retry, and if this repeats the responder's storage is failing."
+                ),
+                details: None,
+            },
+        )
+    })?;
 
     // Publish the SSE event after the sled commit succeeds.
     let event = if let Some(prev) = prev_file_cid {
@@ -38836,7 +38883,9 @@ async fn memory_supersede_inner(
             },
         )
     })?;
-    flush_off_runtime(&metas).await;
+    if let Err(e) = flush_off_runtime(&metas).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
 
     Ok(json!({
         "ok": true,
@@ -38881,7 +38930,9 @@ async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: 
     });
     if let Ok(bytes) = serde_json::to_vec(&rec) {
         let _ = tree.insert(path.as_bytes(), bytes);
-        flush_off_runtime(&tree).await;
+        if let Err(e) = flush_off_runtime(&tree).await {
+            tracing::error!(target: "emem::durability", error = %e, "flush failed");
+        }
     }
 }
 
@@ -38927,7 +38978,9 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             )
         })?;
         let _ = tree.remove(path.as_bytes());
-        flush_off_runtime(&tree).await;
+        if let Err(e) = flush_off_runtime(&tree).await {
+            tracing::error!(target: "emem::durability", error = %e, "flush failed");
+        }
         write_tombstone(s, &path, None, attester_pk.as_deref()).await;
         return Ok(json!({
             "ok": true,
@@ -39039,7 +39092,9 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         removed.push((path.clone(), kind_str, prior));
     }
     // One fsync covers every tree: the pagecache is shared by the Db.
-    flush_off_runtime(&paths).await;
+    if let Err(e) = flush_off_runtime(&paths).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
 
     // Sign a receipt over the delete. The audit binds the deleted
     // path(s) to the responder identity. When an attester is present
@@ -39262,7 +39317,9 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
         cid_str.as_bytes(),
     );
     // One fsync covers every tree: the pagecache is shared by the Db.
-    flush_off_runtime(&paths).await;
+    if let Err(e) = flush_off_runtime(&paths).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
 
     let started = std::time::Instant::now();
     let mut cells: Vec<String> = Vec::new();
@@ -55594,7 +55651,9 @@ async fn post_enlist(
         if let Ok(tree) = db.open_tree(emem_storage::TREE_ENLISTMENT_EVIDENCE) {
             if let Ok(bytes) = serde_json::to_vec(&ev) {
                 let _ = tree.insert(key.as_bytes(), bytes);
-                flush_off_runtime(&tree).await;
+                if let Err(e) = flush_off_runtime(&tree).await {
+                    tracing::error!(target: "emem::durability", error = %e, "flush failed");
+                }
             }
         }
     }
