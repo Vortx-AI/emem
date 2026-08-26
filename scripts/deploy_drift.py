@@ -39,6 +39,7 @@ What fails:
 import argparse
 import hashlib
 import json
+import pathlib
 import subprocess
 import sys
 import urllib.request
@@ -53,6 +54,52 @@ def git(*args: str) -> str:
                               capture_output=True, text=True, timeout=60).stdout.strip()
     except (OSError, subprocess.TimeoutExpired):
         return ""
+
+
+def baked_paths() -> set[str]:
+    """Every file compiled INTO the binary, read from the source rather than
+    listed by hand: `include_str!` targets plus the crates themselves.
+
+    Why this matters. "N commits behind" is a fact about the repository and
+    reads like a fact about the deployment. Most commits here touch scripts/ or
+    docs prose, which the running binary never executes and never serves, so a
+    non-zero count is a normal steady state rather than a deploy in flight. A
+    reviewer who treats it as the second one chases a rebuild that would change
+    nothing -- a neighbouring question answered by a field that looks like the
+    one you asked. A peer operator warned me about this shape on their own
+    surface before I could walk into it on mine.
+    """
+    import re
+    out: set[str] = set()
+    root = pathlib.Path(REPO)
+    for rs in (root / "crates").rglob("*.rs"):
+        try:
+            body = rs.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        for m in re.finditer(r'include_str!\(\s*"([^"]+)"', body):
+            try:
+                out.add(str((rs.parent / m.group(1)).resolve().relative_to(root)))
+            except (ValueError, OSError):
+                pass
+    return out
+
+
+def rebuild_relevant(commit_range: str) -> tuple[list[str], list[str]]:
+    """Split the undeployed commits into the ones that change what the binary
+    serves and the ones that cannot."""
+    baked = baked_paths()
+    changes, inert = [], []
+    for line in git("log", "--format=%h %s", commit_range).split("\n"):
+        if not line.strip():
+            continue
+        sha = line.split()[0]
+        files = [f for f in git("show", "--name-only", "--format=", sha).split("\n") if f]
+        hits = [f for f in files
+                if f in baked or f.startswith("crates/")
+                or f in ("Cargo.toml", "Cargo.lock")]
+        (changes if hits else inert).append(line)
+    return changes, inert
 
 
 def main() -> int:
@@ -108,9 +155,17 @@ def main() -> int:
         if ahead and ahead != "0":
             gap.append(f"{ahead} commit(s) AHEAD of this tree")
         print(f"\n  Drift: the responder is {', '.join(gap) or 'on a divergent commit'}.")
-        for line in git("log", "--oneline", f"{live_commit}..{head}").split("\n")[:8]:
-            if line:
-                print(f"    not deployed: {line[:88]}")
+        changes, inert = rebuild_relevant(f"{live_commit}..{head}")
+        for line in changes[:8]:
+            print(f"    NOT DEPLOYED, changes the binary: {line[:70]}")
+        for line in inert[:8]:
+            print(f"    not deployed, cannot change it:   {line[:70]}")
+        if not changes and inert:
+            print("\n  None of the undeployed commits touches anything this binary")
+            print("  compiles in or executes: scripts and prose only. The running")
+            print("  code IS this tree for everything it can serve, and a rebuild")
+            print("  would produce the same responder. Behind-HEAD is the steady")
+            print("  state here, not a deploy in flight.")
 
     # The binary on disk is only comparable when it is the one that was
     # deployed; a rebuild since then legitimately differs. Reported, not judged.
