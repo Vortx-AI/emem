@@ -1186,8 +1186,16 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 /* the reply graph */
 .rel{display:flex;gap:var(--s-1) var(--s-1);align-items:baseline;flex-wrap:wrap;margin:var(--s-1) 0;min-width:0;max-width:100%}
 .up{flex:1 1 100%}
+/* The vertical padding is the tap bound, not decoration. This is a block link
+   at --t-3xs, whose line box is ~17.8px against the 24px floor in WCAG 2.5.8,
+   and it is not covered by the inline exception: its only sibling is a button,
+   so there is no run of text setting its height. .22rem top and bottom carries
+   it to ~24.8px. Re-derive with:
+     python3 scripts/manual/tap_targets.py --origin https://emem.dev \
+       --page /channel --width 390 */
 .up{font-size:var(--t-3xs);color:var(--mute);text-decoration:none;border-left:2px solid var(--rule);
-  padding-left:var(--s-2);display:block;max-width:100%;min-width:0;overflow:hidden;
+  padding-left:var(--s-2);padding-top:.22rem;padding-bottom:.22rem;
+  display:block;max-width:100%;min-width:0;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap;flex:1 1 100%}
 .up:hover{color:var(--accent);border-left-color:var(--accent)}
 .down{font-size:var(--t-3xs);color:var(--mute);margin-top:.3rem}

@@ -468,6 +468,14 @@ input::placeholder{color:var(--mute,#7a7363)}
 .uc-list a{font-weight:700;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
 .uc-list span{display:block;color:var(--mute);font-size:var(--t-xs);margin-top:.1rem}
 @media (max-width:760px){.uc-list{columns:1}}
+
+/* A row of links joined by a middot is navigation, not prose. The inline
+   exception in WCAG 2.5.8 covers a target whose height is set by the text
+   around it; a single "middot" between two links is not that text, so these
+   measured 19px against the 24px floor. Re-derive with:
+     python3 scripts/manual/tap_targets.py --origin https://emem.dev \
+       --page /solutions --width 390 */
+.linkrow a{ display:inline-block; padding:.32rem 0; }
 </style>
 </head>
 <body>
@@ -479,6 +487,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <summary>Understand</summary>
 <div class="navmenu">
 <a href="/how-it-works"><b>How it works</b><span>the address, the fact, the receipt</span></a>
+<a href="/the-long-version"><b>The long version</b><span>the whole argument, at length</span></a>
 <a href="/solutions" aria-current="page"><b>Solutions</b><span>four agents already running on it</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>the long form, with the proofs</span></a>
 <a href="/spec"><b>The spec</b><span>wire format, preimages, canonical bytes</span></a>
@@ -806,7 +815,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <span class="tok-c"># emits: data: { "type":"created", "path", "file_cid", "kind", "attester_pubkey_b32", "signed_at", "size_bytes" }</span></code></pre>
     </div>
 
-    <p style="margin-top:1.5rem"><a href="/reference">Full read surface &rarr;</a> &middot; <a href="/how-it-works">How the substrate works &rarr;</a></p>
+    <p class="linkrow" style="margin-top:1.5rem"><a href="/reference">Full read surface &rarr;</a> &middot; <a href="/how-it-works">How the substrate works &rarr;</a></p>
   </div>
 </section>
 
