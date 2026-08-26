@@ -21,15 +21,6 @@ UNIT=emem-server.service
 
 cd "$REPO"
 
-# Rebuild the embedded mdbook docs site so the binary picks up the
-# latest `docs/*.md` content. `docs/book/` is baked into the binary via
-# `include_dir!`; without this step a prod rebuild would ship stale docs.
-# `mdbook` copies `book.toml` into its output because `src = "."` —
-# drop it post-build so the responder doesn't leak its own build config.
-echo "==> mdbook build (docs/)"
-( cd "$REPO/docs" && mdbook build )
-rm -f "$REPO/docs/book/book.toml"
-
 # web/whitepaper-v2.html is generated from docs/whitepaper-v2.md and baked
 # into the binary by include_str!, so it has to be regenerated BEFORE cargo
 # build or the deploy ships a page that disagrees with its own source. v1
@@ -55,6 +46,24 @@ python3 "$REPO/scripts/build_channel.py" || \
 echo "==> generate the static tool explorer (web/tools.html)"
 python3 "$REPO/scripts/gen_tools_page.py" || \
   echo "    ! tool-explorer generation failed; keeping the previous page"
+
+# Rebuild the embedded mdbook docs site so the binary picks up the latest
+# `docs/*.md` content. `docs/book/` is baked into the binary via
+# `include_dir!`; without this step a prod rebuild would ship stale docs.
+# `mdbook` copies `book.toml` into its output because `src = "."` — drop it
+# post-build so the responder doesn't leak its own build config.
+#
+# THIS RUNS LAST, after everything that WRITES a docs/*.md. It used to run
+# first, which meant build_channel.py regenerated docs/collaboration-log.md
+# immediately after mdbook had already consumed the previous version — so
+# every deploy baked the log as it stood one deploy ago, permanently. Caught
+# on 2026-08-26: the live /docs/collaboration-log.html was missing the newest
+# entry right after a successful deploy that had just written it. Not a
+# stale-cache problem and not a missed step; the ritual's own ordering
+# guaranteed it, so no amount of redeploying would have fixed it.
+echo "==> mdbook build (docs/)"
+( cd "$REPO/docs" && mdbook build )
+rm -f "$REPO/docs/book/book.toml"
 
 echo "==> cargo build --release -p emem-cli"
 cargo build --release -p emem-cli
