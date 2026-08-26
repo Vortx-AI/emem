@@ -112,7 +112,15 @@ def main() -> int:
     # bytes to open with the prefix and close with the suffix. That still catches
     # a stale binary -- the prefix contains the whole head and most of the body --
     # without asserting anything about the part that is meant to differ.
-    TEMPLATED = {"index.html": "<!--##ALBUM_FIRST##-->"}
+    # Empty since 2026-08-26, and that is a STRENGTHENING: the homepage carried
+    # `<!--##ALBUM_FIRST##-->` while lib.rs rendered the album into it at request
+    # time, so a byte comparison was wrong for that one page by construction.
+    # `rendered_index_html()` is now a pass-through and the album is gone, so `/`
+    # falls through to the same sha256 comparison every other page gets. Add a
+    # row here only for a page the responder genuinely substitutes into, and note
+    # that a row whose marker is missing from the file is reported as drift
+    # rather than skipped, which is how this one announced itself.
+    TEMPLATED = {}
 
     # THE SECOND DEPLOY PATH, which this file did not watch.
     #
