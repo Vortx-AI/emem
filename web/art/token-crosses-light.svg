@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 380" width="1100" height="380" role="img" aria-label="Two agents facing a single signed record between them. A short token passes from one to the other along a dotted line; no line runs directly between the two agents."><rect width="1100" height="380" fill="#faf7f0"/>
+<line x1="550.0" y1="28" x2="550.0" y2="352" stroke="#d8d2c6" stroke-width="1" opacity="0.85"/>
+<rect x="160" y="150" width="60" height="76" rx="3" fill="none" stroke="#4e678a" stroke-width="2.2" opacity="0.85"/><rect x="174" y="108" width="32" height="34" rx="3" fill="none" stroke="#4e678a" stroke-width="2.2" opacity="0.85"/><line x1="190" y1="108" x2="190" y2="92" stroke="#4e678a" stroke-width="2.2" opacity="0.85"/><circle cx="190" cy="88" r="4" fill="#4e678a" opacity="0.85"/><text x="190" y="258" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#4e678a">agent A</text>
+<rect x="880" y="150" width="60" height="76" rx="3" fill="none" stroke="#9d7420" stroke-width="2.2" opacity="0.85"/><rect x="894" y="108" width="32" height="34" rx="3" fill="none" stroke="#9d7420" stroke-width="2.2" opacity="0.85"/><line x1="910" y1="108" x2="910" y2="92" stroke="#9d7420" stroke-width="2.2" opacity="0.85"/><circle cx="910" cy="88" r="4" fill="#9d7420" opacity="0.85"/><text x="910" y="258" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#9d7420">agent B</text>
+<line x1="228" y1="188" x2="872" y2="188" stroke="#6f6a60" stroke-width="1" stroke-dasharray="3 6" opacity="0.55"/>
+<rect x="374.0" y="172" width="352" height="32" rx="16" fill="#faf7f0" stroke="#1a1814" stroke-width="1.2"/>
+<text x="550.0" y="193" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#1a1814">emem:fact:…</text>
+<text x="550.0" y="300" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#1a1814">the only thing that crosses</text>
+<text x="550.0" y="322" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="#6f6a60">each checks it alone, neither has to trust the other</text>
+</svg>

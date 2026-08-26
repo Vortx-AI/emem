@@ -463,7 +463,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <section class="hero page hero-lean">
   <div>
-    <img class="mith-sun" src="/art/hero.svg" alt=""><h1>How emem works</h1>
+    <picture><source media="(prefers-color-scheme: dark)" srcset="/art/one-address-dark.svg"><img src="/art/one-address-light.svg" width="760" loading="lazy" decoding="async" alt="Five different phrasings of one place on the left, each drawn loosely and none matching another; on the right, one address drawn as a node with edges, which every agent resolves to identically."></picture><h1>How emem works</h1>
     <p class="sub">Two models asked about the same thing will each write their own description of it, and those descriptions drift apart while both stay plausible. emem stops that by giving the thing one name everybody points at instead of describing it again. Every object gets a canonical identity, every place resolves to a stable address, and every observation there becomes a signed, content-addressed record tagged with how it was produced, so an agent can tell a raw sensor reading from a model&rsquo;s estimate. Records link through typed edges and improve through contradiction scoring and a refinement loop, over a typed, bi-temporal memory substrate. Earth observation is what fills it first; nothing in the record, the receipt, or the token grammar is specific to satellites.</p>
     <div class="hero-cta">
       <a class="btn" href="/">Back to home</a>
@@ -735,7 +735,7 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
     <div class="cev" aria-label="Diagram: facts link into a signed bundle; disagreeing attestations are recorded as a scored contradiction; the refinement loop feeds re-attestation">
       <div class="cev-head"><span class="label">connect &amp; evolve</span><span>facts &rarr; typed connections &rarr; recorded disagreement &rarr; refinement</span></div>
-      <figure class="cev-art"><img src="/art/connect-evolve.svg" alt="Facts at one cell fold into a signed bundle; a disagreeing attestation is recorded as a scored contradiction; a refinement loop re-attests" loading="lazy"></figure>
+      <figure class="cev-art"><picture><source media="(prefers-color-scheme: dark)" srcset="/art/token-crosses-dark.svg"><img src="/art/token-crosses-light.svg" width="760" loading="lazy" decoding="async" alt="Two agents facing one signed record. A short token passes between them along a dotted line; no line runs directly from one agent to the other."></picture></figure>
       <div class="cev-legend">
         <div class="e"><b>connect</b><span><code>/v1/memory_bundle</code> groups N signed facts into one <code>emem:bundle:&lt;cid&gt;</code> envelope an agent cites as a unit.</span></div>
         <div class="e"><b>disagree</b><span><code>/v1/memory_contradictions</code> scores per-band spread and keeps every conflicting <code>fact_cid</code>, with no last-writer-wins.</span></div>

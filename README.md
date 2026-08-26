@@ -10,6 +10,13 @@
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Whitepaper DOI](https://img.shields.io/badge/whitepaper-10.5281%2Fzenodo.20706893-3b5)](https://doi.org/10.5281/zenodo.20706893)
 
+[![ChatGPT](https://img.shields.io/badge/ChatGPT-emem-10a37f?logo=openai&logoColor=white)](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77)
+[![Dify](https://img.shields.io/badge/Dify-emem-1C64F2)](https://marketplace.dify.ai/plugin/vortx-ai/emem)
+[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
+[![Glama](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="web/art/two-banks-dark.svg">
   <img alt="Two banks of one river. On the left, a village and a mill drawn freehand, every line twice and never in the same place. On the right, the identical forms resolved into vertices and edges. A jack plug lies in the gap between them, labelled: call @emem. The caption reads: two ways to know where something is, only one of them repeats." src="web/art/two-banks-light.svg" width="880">
@@ -23,14 +30,7 @@ signed bytes come back. The token is the only thing that crosses between them.
 
 [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Use it in two minutes](#use-it-in-two-minutes) · [Agent guide](https://emem.dev/agents.md) · [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8)
 
-**Listed on** ·
-[ChatGPT](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77) ·
-[Dify](https://marketplace.dify.ai/plugin/vortx-ai/emem) ·
-[GitHub MCP registry](https://github.com/mcp/Vortx-AI/emem) ·
-[Glama](https://glama.ai/mcp/servers/Vortx-AI/emem) ·
-[MCP Toplist](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem) ·
-[VS Code](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D) ·
-[VS Code Insiders](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D&quality=insiders)
+
 
 </div>
 
@@ -41,8 +41,8 @@ column that is you. Both paths are read-only and neither needs an account, so
 you can finish either one before deciding whether to trust anything below it.
 
 <table>
-<tr><th align="left" width="50%">If you are a person building something</th>
-    <th align="left" width="50%">If you are an agent reading this</th></tr>
+<tr><th align="left" width="34%">If you are a person building something</th>
+    <th align="left" width="66%">If you are an agent reading this</th></tr>
 <tr valign="top"><td>
 
 **1. Point your client at one URL.**
@@ -121,15 +121,59 @@ surface because the model behind them scored below persistence.
 
 ## What emem is
 
-A model's memory ends where its context does. When a session is compacted, a task hands off, or the model is swapped, what a model verified turns into a paraphrase, and the paraphrase drifts. Retrieval does not fix this: it hands back the closest document from a store you have to trust, scoped to one product and one vendor.
+A model's memory ends where its context does. Compact the session, hand the task
+to another agent, or swap the model, and what it verified becomes a paraphrase.
+The paraphrase drifts. Retrieval does not fix that: it returns the nearest
+document from a store you have to trust.
 
-emem is memory that lives **outside** any one model. Every fact is one small, signed record at a permanent address. Any agent reads it with no account. Any keyholder writes to it with a local key. Anyone checks any of it offline, trusting neither the sender nor the server. Because the address is derived from the fact's own bytes, the same reference resolves to the same value for every agent, on every model, in every session, forever.
+emem is a record of **what happened, when it happened, and how much that is
+worth**. Three things, and each one is checkable rather than promised.
 
-**Earth is the first substrate, not the only one.** A fact can have a permanent address because it is anchored to a real subject and a real observation: one signed record per measurement, at an address two parties resolve identically. Satellite Earth observation fills the memory today and is the drift anchor everything else is scored against, because its sources are public archives anyone can re-fetch.
+**What happened.** One observation is one small signed record, at an address
+derived from the record's own bytes. Change the value and you change the
+address. So a reference cannot quietly come to mean something else, which is
+the failure every shared store eventually has and cannot see.
 
-Nothing in the record, the receipt or the token grammar is Earth-specific, and that is now a checked property rather than a claim: the same signed record carries a subject that is a **place** (`cell64`) or one that is **not a place at all** (`emem:entity:`), and a test asserts the canonical index, the receipt preimage and the storage key never look at which. So a telescope's target, a file at a commit, a table at a schema version and a model at a checkpoint address the same way a mountain does.
+**When.** Every record carries two clocks: when the world was like that, and
+when we wrote it down. You can ask for either. A reading that was true in March
+still reads as true-in-March after we learn better in June, because a
+correction is a new record and not an edit. Nothing in this store is revised in
+place; a deletion unpublishes and says that it happened.
 
-Each contributor class is a profile in a public registry that states its admission rule, its address space and the measurement grain it resolves at: [`/v1/substrates`](https://emem.dev/v1/substrates). The rule is the load-bearing part. Earth is admitted by **recomputability**; a machine observer is admitted by proof of **how it ran**, never by promise ([Direct from the device](#direct-from-the-device)). A profile may not claim to be shipping on an address space this build cannot key a fact by, and the registry refuses to load if it does.
+**How much it is worth.** Every record says how it was made: a sensor read it, a
+formula recomputed it from a cited source, a model guessed it, or a person typed
+it. Those are four different kinds of thing and the record never lets them look
+alike. A confirmed absence is signed and citeable. An unknown is typed and never
+poses as a value. A refusal names its reason.
+
+And it is **shared**, in the only sense of that word that is load-bearing: two
+agents that run different models, at different companies, with no reason to
+trust each other, resolve the same reference to the same bytes. Each checks it
+alone, with no account, and without calling us to ask whether it is true. Nobody
+is the authority. The bytes are.
+
+That last property is the only one worth building a protocol for. Everything
+else here is in service of it.
+
+**Earth is the first subject, not the only one.** Something can hold a permanent
+address because it is anchored to a real thing and a real observation of it.
+Satellites fill this memory today for one reason: their sources are public
+archives, so anyone can re-fetch the input and recompute the answer. That makes
+Earth the hardest case to cheat at, which is why it goes first.
+
+Nothing in the record or the citation is Earth-specific, and that is tested
+rather than asserted: the same signed record can carry a subject that is a place
+or one that is not a place at all, and a test asserts the index, the receipt and
+the storage key never look at which. A telescope's target, a file at a commit, a
+table at a schema version and a model at a checkpoint get an address the way a
+mountain does.
+
+What lets a new kind of contributor in is a published rule, not our permission.
+Earth is admitted by **recomputability**: cite your source and anyone can rerun
+you. A machine is admitted by **proof of how it ran**, never by its own word.
+The rules are readable at [`/v1/substrates`](https://emem.dev/v1/substrates), and
+a profile that claims an address space this build cannot key a fact by is
+refused at load rather than trusted.
 
 <p align="center">
   <img src="web/emem-strip.png" width="880"

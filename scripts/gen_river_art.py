@@ -213,15 +213,108 @@ def build(theme: str) -> str:
     return "\n".join(parts) + "\n"
 
 
+# ── Story diagrams ──────────────────────────────────────────────────────────
+# The same two-bank language as the hero: cream ground, a hairline channel, the
+# guessing hand on the left and the measuring hand on the right, and as few
+# words as the picture can carry. These replace the Mithila-styled art, which
+# was beautiful and said something else.
+
+SW, SH = 1100, 380
+
+
+def _svg_open(t, label):
+    return (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SW} {SH}" '
+            f'width="{SW}" height="{SH}" role="img" aria-label="{label}">'
+            f'<rect width="{SW}" height="{SH}" fill="{t["paper"]}"/>')
+
+
+def _channel(t):
+    return (f'<line x1="{SW/2}" y1="28" x2="{SW/2}" y2="{SH-28}" stroke="{t["rule"]}" '
+            f'stroke-width="1" opacity="0.85"/>')
+
+
+def _cap(t, x, y, s, anchor_="middle", size=13, mono=True, fill=None):
+    fam = "ui-monospace,monospace" if mono else "Georgia,serif"
+    return (f'<text x="{x}" y="{y}" text-anchor="{anchor_}" font-family="{fam}" '
+            f'font-size="{size}" fill="{fill or t["mute"]}">{s}</text>')
+
+
+def story_one_address(t) -> str:
+    """Many ways of saying a place on the left; one address on the right."""
+    r = Rng(4242)
+    p = [_svg_open(t, "On the left, five different phrasings of the same place, each drawn "
+                      "loosely and none matching another. On the right, one address, drawn "
+                      "once as a node with edges. A dotted line runs from the five to the one."),
+         _channel(t)]
+    words = ["\u201cthe old mill\u201d", "\u201cby the river\u201d", "\u201cMill Lane\u201d",
+             "\u201cnear the bridge\u201d", "\u201cthat field\u201d"]
+    for i, w in enumerate(words):
+        y = 96 + i * 42
+        wob = (r() - 0.5) * 16
+        p.append(_cap(t, 300 + wob, y, w, "middle", 15, False, t["slate"]))
+        p.append(f'<path d="M{430 + wob},{y - 5} C {SW/2 - 40},{y - 5} {SW/2 - 20},190 {SW/2 - 6},190" '
+                 f'fill="none" stroke="{t["slate"]}" stroke-width="1" opacity="0.35"/>')
+    cx, cy = SW / 2 + 150, 190
+    for a in range(6):
+        import math as _m
+        ex, ey = cx + _m.cos(a * 1.047) * 74, cy + _m.sin(a * 1.047) * 58
+        p.append(f'<line x1="{cx}" y1="{cy}" x2="{ex:.1f}" y2="{ey:.1f}" stroke="{t["ochre"]}" '
+                 f'stroke-width="1.1" opacity="0.55"/>')
+        p.append(f'<circle cx="{ex:.1f}" cy="{ey:.1f}" r="3.4" fill="{t["ochre"]}" opacity="0.8"/>')
+    p.append(f'<circle cx="{cx}" cy="{cy}" r="9" fill="{t["ochre"]}"/>')
+    p.append(_cap(t, cx, cy + 96, "one address", "middle", 14, True, t["ink"]))
+    p.append(_cap(t, cx, cy + 116, "every agent resolves to it identically", "middle", 12))
+    p.append(_cap(t, 300, 64, "five ways to say it", "middle", 14, True, t["ink"]))
+    p.append("</svg>")
+    return "\n".join(p) + "\n"
+
+
+def story_token_crosses(t) -> str:
+    """Two agents that share nothing, and the one thing that passes between."""
+    p = [_svg_open(t, "Two agents facing a single signed record between them. A short token "
+                      "passes from one to the other along a dotted line; no line runs directly "
+                      "between the two agents."),
+         _channel(t)]
+
+    def figure(x, colour, name):
+        return "".join([
+            f'<rect x="{x-30}" y="150" width="60" height="76" rx="3" fill="none" '
+            f'stroke="{colour}" stroke-width="2.2" opacity="0.85"/>',
+            f'<rect x="{x-16}" y="108" width="32" height="34" rx="3" fill="none" '
+            f'stroke="{colour}" stroke-width="2.2" opacity="0.85"/>',
+            f'<line x1="{x}" y1="108" x2="{x}" y2="92" stroke="{colour}" stroke-width="2.2" opacity="0.85"/>',
+            f'<circle cx="{x}" cy="88" r="4" fill="{colour}" opacity="0.85"/>',
+            _cap(t, x, 258, name, "middle", 14, True, colour),
+        ])
+    p.append(figure(190, t["slate"], "agent A"))
+    p.append(figure(SW - 190, t["ochre"], "agent B"))
+    p.append(f'<line x1="228" y1="188" x2="{SW-228}" y2="188" stroke="{t["mute"]}" '
+             f'stroke-width="1" stroke-dasharray="3 6" opacity="0.55"/>')
+    p.append(f'<rect x="{SW/2-176}" y="172" width="352" height="32" rx="16" fill="{t["paper"]}" '
+             f'stroke="{t["ink"]}" stroke-width="1.2"/>')
+    p.append(_cap(t, SW/2, 193, "emem:fact:\u2026", "middle", 14, True, t["ink"]))
+    p.append(_cap(t, SW/2, 300, "the only thing that crosses", "middle", 14, True, t["ink"]))
+    p.append(_cap(t, SW/2, 322, "each checks it alone, neither has to trust the other", "middle", 12))
+    p.append("</svg>")
+    return "\n".join(p) + "\n"
+
+
+STORIES = {"one-address": story_one_address, "token-crosses": story_token_crosses}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check", action="store_true")
     a = ap.parse_args()
     OUT.mkdir(parents=True, exist_ok=True)
     stale = []
-    for theme in THEMES:
-        path = OUT / f"two-banks-{theme}.svg"
-        body = build(theme)
+    jobs = [(f"two-banks-{th}.svg", (lambda th=th: build(th))) for th in THEMES]
+    for name, fn in STORIES.items():
+        for th in THEMES:
+            jobs.append((f"{name}-{th}.svg", (lambda fn=fn, th=th: fn(THEMES[th]))))
+    for fname, make in jobs:
+        path = OUT / fname
+        body = make()
         if a.check:
             if not path.exists() or path.read_text(encoding="utf-8") != body:
                 stale.append(str(path.relative_to(REPO)))

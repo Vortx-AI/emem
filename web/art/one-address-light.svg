@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 380" width="1100" height="380" role="img" aria-label="On the left, five different phrasings of the same place, each drawn loosely and none matching another. On the right, one address, drawn once as a node with edges. A dotted line runs from the five to the one."><rect width="1100" height="380" fill="#faf7f0"/>
+<line x1="550.0" y1="28" x2="550.0" y2="352" stroke="#d8d2c6" stroke-width="1" opacity="0.85"/>
+<text x="300.7472981363535" y="96" text-anchor="middle" font-family="Georgia,serif" font-size="15" fill="#4e678a">“the old mill”</text>
+<path d="M430.7472981363535,91 C 510.0,91 530.0,190 544.0,190" fill="none" stroke="#4e678a" stroke-width="1" opacity="0.35"/>
+<text x="296.4577406272292" y="138" text-anchor="middle" font-family="Georgia,serif" font-size="15" fill="#4e678a">“by the river”</text>
+<path d="M426.4577406272292,133 C 510.0,133 530.0,190 544.0,190" fill="none" stroke="#4e678a" stroke-width="1" opacity="0.35"/>
+<text x="306.899790674448" y="180" text-anchor="middle" font-family="Georgia,serif" font-size="15" fill="#4e678a">“Mill Lane”</text>
+<path d="M436.899790674448,175 C 510.0,175 530.0,190 544.0,190" fill="none" stroke="#4e678a" stroke-width="1" opacity="0.35"/>
+<text x="300.1155594624579" y="222" text-anchor="middle" font-family="Georgia,serif" font-size="15" fill="#4e678a">“near the bridge”</text>
+<path d="M430.1155594624579,217 C 510.0,217 530.0,190 544.0,190" fill="none" stroke="#4e678a" stroke-width="1" opacity="0.35"/>
+<text x="302.70045248419046" y="264" text-anchor="middle" font-family="Georgia,serif" font-size="15" fill="#4e678a">“that field”</text>
+<path d="M432.70045248419046,259 C 510.0,259 530.0,190 544.0,190" fill="none" stroke="#4e678a" stroke-width="1" opacity="0.35"/>
+<line x1="700.0" y1="190" x2="774.0" y2="190.0" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="774.0" cy="190.0" r="3.4" fill="#9d7420" opacity="0.8"/>
+<line x1="700.0" y1="190" x2="737.0" y2="240.2" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="737.0" cy="240.2" r="3.4" fill="#9d7420" opacity="0.8"/>
+<line x1="700.0" y1="190" x2="663.0" y2="240.2" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="663.0" cy="240.2" r="3.4" fill="#9d7420" opacity="0.8"/>
+<line x1="700.0" y1="190" x2="626.0" y2="190.0" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="626.0" cy="190.0" r="3.4" fill="#9d7420" opacity="0.8"/>
+<line x1="700.0" y1="190" x2="662.9" y2="139.8" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="662.9" cy="139.8" r="3.4" fill="#9d7420" opacity="0.8"/>
+<line x1="700.0" y1="190" x2="736.9" y2="139.7" stroke="#9d7420" stroke-width="1.1" opacity="0.55"/>
+<circle cx="736.9" cy="139.7" r="3.4" fill="#9d7420" opacity="0.8"/>
+<circle cx="700.0" cy="190" r="9" fill="#9d7420"/>
+<text x="700.0" y="286" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#1a1814">one address</text>
+<text x="700.0" y="306" text-anchor="middle" font-family="ui-monospace,monospace" font-size="12" fill="#6f6a60">every agent resolves to it identically</text>
+<text x="300" y="64" text-anchor="middle" font-family="ui-monospace,monospace" font-size="14" fill="#1a1814">five ways to say it</text>
+</svg>
