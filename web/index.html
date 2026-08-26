@@ -590,8 +590,13 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
    a wave rather than a switch. */
 .bank [data-s]{ transition:opacity .75s ease; }
 .bank [data-s].later{ opacity:0 !important; }
-/* The scenery is the PICTURE and the graphs are the imprint on it, not the
-   other way round. Opacity alone could not do this, and a reviewer was right
+/* THE CHARACTERS ARE THE PAGE. The mill, the towers, the machines: those are
+   what a reader compares, drawn freehand on one bank and resolved into
+   vertices and edges on the other, and that comparison IS the argument. The
+   two graphs are a whisper behind them at a tenth of their weight. Written
+   three times before this was right, each time by lowering opacity alone,
+   which never worked: what finally moved it was giving the sketch real
+   stroke weight and culling the mesh's density, not fading either. Opacity alone could not do this, and a reviewer was right
    to say so: the mesh dominated on three axes and only one of them was
    opacity. It had roughly ten times the line-crossings per unit area (culled:
    8x20 nodes to 7x13, edge cutoff 122 to 96) and it was the only element
@@ -998,9 +1003,9 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       if(pc.k === 'tree' || pc.k === 'node') return;   /* the graph says this */
       var close = pc.k === 'box';
       g.appendChild(el('path', { d:d_of(pc.p, close, 4), fill:'none', stroke:'currentColor',
-        'stroke-width':1.7, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.8 }));
+        'stroke-width':2.6, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.95 }));
       g.appendChild(el('path', { d:d_of(pc.p, close, 6.5), fill:'none', stroke:'currentColor',
-        'stroke-width':1.0, 'stroke-linecap':'round', opacity:0.5 }));
+        'stroke-width':1.5, 'stroke-linecap':'round', opacity:0.62 }));
     });
   }
 
@@ -1014,11 +1019,11 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         d += (i ? 'L' : 'M') + pc.p[i][0].toFixed(1) + ',' + pc.p[i][1].toFixed(1);
       if(close) d += 'Z';
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1.4, opacity:0.8 }));
+        'stroke-width':2.2, opacity:0.95 }));
       for(var i = 0; i < pc.p.length; i++){
         if(pc.k === 'ridge' && (i % 2)) continue;
         g.appendChild(el('circle', { cx:pc.p[i][0].toFixed(1), cy:pc.p[i][1].toFixed(1),
-          r:(2.2 + rnd()*1.4).toFixed(2), fill:'currentColor', opacity:1 }));
+          r:(3.0 + rnd()*1.6).toFixed(2), fill:'currentColor', opacity:1 }));
       }
     });
   }
@@ -1047,9 +1052,9 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         d += (y === 0 ? 'M' : 'L') + bx.toFixed(1) + ',' + y;
       }
       g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
-        opacity:0.025, 'data-s':0 }));
+        opacity:0.015, 'data-s':0 }));
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1, opacity:0.09, 'data-s':0 }));
+        'stroke-width':1, opacity:0.05, 'data-s':0 }));
     }
     var DEPTH = 10;
     function bough(x, y, ang, len, depth){
@@ -1071,7 +1076,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       g.appendChild(el('line', {
         x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
         stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
-        'stroke-linecap':'round', 'data-s':s, opacity:0.17
+        'stroke-linecap':'round', 'data-s':s, opacity:0.085
       }));
       var n = Math.random() < 0.18 ? 3 : 2;
       for(var i = 0; i < n; i++)
@@ -1124,14 +1129,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
           x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
           x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
           stroke:'currentColor', 'stroke-width':0.6,
-          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.11*w).toFixed(3)
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.055*w).toFixed(3)
         }));
       }
     }
     pts.forEach(function(p){
       g.appendChild(el('circle', {
         cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
-        fill:'currentColor', 'data-s':p.s, opacity:(0.24*p.w).toFixed(3)
+        fill:'currentColor', 'data-s':p.s, opacity:(0.12*p.w).toFixed(3)
       }));
     });
     R.appendChild(g);
