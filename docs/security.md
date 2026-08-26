@@ -208,12 +208,30 @@ namespace owner" from "never written here", and says which. That is the
 precise sense in which this ledger is append-only: the bytes may be
 unpublished, the fact that they were cannot.
 
-**Known gap, stated rather than omitted.** An outside auditor reported losing
-a note that verified at write time and was gone hours later. We ruled out the
-TTL and consolidation sweeps (never ran), unflushed writes (the write path
-flushes before returning) and any bulk prune (no such code path). We could not
-account for it and we are not going to pretend otherwise. Tombstones do not
-recover that note; they mean the next such event is attributable.
+**A note was lost, and here is the account of it.** An outside auditor
+reported losing a note that verified at write time and was gone after the next
+restart. What the investigation established, in order:
+
+- The TTL and consolidation sweeps never ran. They are opt-in, off here, and
+  they log when they run.
+- No bulk prune exists. There is no code path that removes a namespace.
+- It was not a deletion. `memory_delete` removes the path index and retains
+  the content-addressed blob, and reading that note by cid finds nothing.
+  Nothing anywhere in this responder removes a blob.
+- The write path called `flush`, and threw the result away. A failed fsync was
+  indistinguishable from a successful one, so a write that was never persisted
+  reported success.
+
+The last of those is the only remaining explanation that fits every
+observation: accepted, verified, never durable, lost with the page cache at the
+next restart. It is not proven and we are not claiming it is. The flush result
+is now checked, and a write that cannot be made durable fails with a message
+saying to treat it as not written.
+
+Tombstones do not recover that note. They mean the next such event is
+attributable: a missing note with a tombstone was retracted by its owner, and a
+missing note with no tombstone and no blob was never durable, which are
+different failures and were previously the same 404.
 
 ## 8. Rate limits and namespace scope
 
