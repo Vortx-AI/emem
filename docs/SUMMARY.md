@@ -15,6 +15,15 @@
 
 ---
 
+# Security
+
+<!-- First, not last. An agent or a reviewer deciding whether to read from us,
+     write to us, or cite us to a third party should not have to reconstruct
+     the trust model from the protocol spec and four surface pages. This one
+     page states what is checked, what is proven, and what we do not claim. -->
+
+- [Security and trust](./security.md)
+
 # Protocol
 
 - [Whitepaper](./whitepaper-v2.md)

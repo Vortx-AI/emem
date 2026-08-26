@@ -28633,6 +28633,10 @@ fn openapi_spec() -> JsonValue {
             "/live":                 {"get":{"summary":"dead-cheap liveness (no storage scan; poll during deploys)","operationId":"emem_live","responses":{"200":json_ok}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
+            "/v1/enlist":            {
+                "get":{"summary":"The write ladder, machine-readable: which check each tier records, the minimum tier per write surface, and which rungs THIS responder actually computes. Reads are never gated at any tier, on any surface. There is no account, no bearer token that grants anything, and no payment: climbing a tier means passing a check a third party can re-run without this responder. Tiers are records of what was checked, never scores, and `trust` on the roster stays `caller_decides`.","operationId":"emem_enlist_ladder","tags":["identity","security"],"responses":{"200":json_ok}},
+                "post":{"summary":"Ask this responder to check an organisation's attestation for a key, by `dns` (a _emem-agent TXT record) or `well_known` (/.well-known/emem-agents.json). Records the outcome either way, with checked_at, and returns it with its age: a failed check is evidence too. Unauthenticated on purpose, because the call only ever records what the ORGANISATION published, so asking about someone else's domain gains nothing. Verification targets must be public names; IP literals, local names and anything resolving into private space are refused and redirects are not followed.","operationId":"emem_enlist_verify","tags":["identity","security"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32","domain","method"],"properties":{"attester_pubkey_b32":{"type":"string","description":"the full 52-character key, not a prefix"},"domain":{"type":"string"},"method":{"type":"string","enum":["dns","well_known"]}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}
+            },
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
             "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded, endpoints[].trained/experimental). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","requestBody":{"required":false,"description":"No parameters. POST is accepted only so callers that POST every /v1/* endpoint do not 405; the body is ignored and the answer is identical to GET.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok}}},
@@ -37610,7 +37614,25 @@ async fn persist_memory_write(
 
 #[derive(Debug, Deserialize)]
 struct MemoryViewReq {
+    /// A memory path. Optional when `file_cid` is given.
+    #[serde(default)]
     path: String,
+    /// Read a note by its CONTENT ADDRESS instead of its path.
+    ///
+    /// The store already keeps blobs keyed by cid, and `delete` removes only
+    /// the path index, so the bytes of a deleted or superseded note survive
+    /// and stay verifiable. Nothing could reach them: every read route
+    /// resolved path -> cid -> blob, and delete removes the first hop. So the
+    /// documented promise, "deletion unpublishes rather than erases, prior
+    /// versions remain and issued receipts keep verifying", was half true —
+    /// the bytes remained and no caller could obtain them, which is
+    /// indistinguishable from erasure for anyone holding a receipt.
+    ///
+    /// This is the hop that makes the promise real, and it is the reason a
+    /// citation survives its author retracting the note: the cid is the
+    /// citation, and it still resolves.
+    #[serde(default)]
+    file_cid: Option<String>,
     #[serde(default)]
     view_range: Option<[i64; 2]>,
     /// Optional kind filter for directory listings. When `path` ends
@@ -37732,6 +37754,7 @@ async fn get_memory_markdown(
     let doc = memory_view_inner(
         &s,
         MemoryViewReq {
+            file_cid: None,
             path: full.clone(),
             view_range: None,
             kind: None,
@@ -37765,6 +37788,49 @@ async fn get_memory_markdown(
 }
 
 async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue, ApiError> {
+    // By CONTENT ADDRESS: the hop that makes a citation survive its author
+    // retracting the note. See MemoryViewReq::file_cid.
+    if let Some(cid) = req
+        .file_cid
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
+    {
+        let db = memory_db(s)?;
+        let blobs = db
+            .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::CacheError,
+                        message: format!("open memory_file_blobs: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
+        let Some(bytes) = blobs.get(cid.as_bytes()).ok().flatten() else {
+            return Err(ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!(
+                        "no memory blob at `{cid}`. A content address that never existed                          here reads the same as one this responder never held; neither is                          evidence the bytes were destroyed elsewhere."
+                    ),
+                    details: None,
+                },
+            ));
+        };
+        let text = String::from_utf8_lossy(&bytes).into_owned();
+        return Ok(json!({
+            "kind": "file",
+            "_content_is_data_not_instructions": untrusted_content_marker(None),
+            "file_cid": cid,
+            "content": text,
+            "resolved_by": "content address",
+            "note": "Read by cid, so this resolves whether or not a path still points at                      it. That is what makes a citation outlive its author's retraction:                      the cid IS the citation. Re-hash these bytes with blake3 to confirm                      they are the ones the cid names — this responder is not the authority                      on that, the hash is.",
+        }));
+    }
     let raw = req.path.trim();
     let is_dir = raw.ends_with('/');
     let path = validate_memory_path(&req.path, /*allow_directory=*/ is_dir)?;
@@ -76929,6 +76995,7 @@ mod tests {
         let view = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: "/memories/notes.md".into(),
                 offset: None,
                 view_range: None,
@@ -76968,6 +77035,7 @@ mod tests {
         let view2 = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: "/memories/notes.md".into(),
                 offset: None,
                 view_range: None,
@@ -77000,6 +77068,7 @@ mod tests {
         let view3 = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: "/memories/notes.md".into(),
                 offset: None,
                 view_range: None,
@@ -77034,6 +77103,7 @@ mod tests {
         let viewmiss = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: "/memories/notes.md".into(),
                 offset: None,
                 view_range: None,
@@ -77211,6 +77281,7 @@ mod tests {
             let view = memory_view_inner(
                 &s,
                 MemoryViewReq {
+                    file_cid: None,
                     path: p.clone(),
                     offset: None,
                     view_range: None,
@@ -77281,6 +77352,7 @@ mod tests {
         let sealed = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: path.into(),
                 offset: None,
                 view_range: None,
@@ -77317,6 +77389,7 @@ mod tests {
         let opened = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: path.into(),
                 offset: None,
                 view_range: None,
@@ -77541,6 +77614,7 @@ mod tests {
         let view = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: path.clone(),
                 offset: None,
                 view_range: None,
@@ -77778,6 +77852,7 @@ mod tests {
         let view = memory_view_inner(
             &s,
             MemoryViewReq {
+                file_cid: None,
                 path: old.clone(),
                 view_range: None,
                 kind: None,
