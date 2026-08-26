@@ -287,6 +287,16 @@ def call_mcp(origin, case):
 # the MCP side renders `tool error (-N): <the REST message>` and the message
 # is the part both surfaces share verbatim.
 _CODE_HINTS = [
+    # Both transports now name compute_timeout for one cause: MCP says
+    # "exceeded the Ns call budget", REST says "exceeded the responder's Ns
+    # transport budget" in a typed emem.error.v1 body. Before that, REST's
+    # timeout was a BODYLESS 504 and this check scored one event as a
+    # divergence -- correctly, because the two surfaces really did disagree.
+    # Matched on "budget", which is the word both messages share and which no
+    # other refusal here uses; matching on "timeout" would swallow genuine
+    # upstream-timeout divergences.
+    ("call budget", "compute_timeout"),
+    ("transport budget", "compute_timeout"),
     ("excludes every requested band", "invalid_argument"),
     ("not_found", "not_found"),
     ("invalid", "invalid_argument"),

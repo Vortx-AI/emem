@@ -1566,6 +1566,9 @@ pub fn router(state: AppState) -> Router {
         .layer(axum::middleware::from_fn(cache_hint_layer))
         .layer(axum::middleware::from_fn(agent_access_log_layer))
         .layer(tower_http::trace::TraceLayer::new_for_http())
+        // OUTSIDE the timeout layer, so it sees the bodyless 504 that layer
+        // produces and gives it the typed envelope every other refusal has.
+        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(timeout_seconds()),
@@ -2949,6 +2952,55 @@ fn panic_to_typed_500(err: Box<dyn std::any::Any + Send + 'static>) -> Response 
         "details": { "schema": "emem.error.v1" }
     });
     (StatusCode::INTERNAL_SERVER_ERROR, Json(body)).into_response()
+}
+
+/// Give the transport timeout a typed body.
+///
+/// `tower_http`'s `TimeoutLayer` returns a bare 504 with NO BODY, on a service
+/// whose entire contract is that every refusal is a typed `emem.error.v1`
+/// envelope naming a code and what to do. So the one failure a caller is most
+/// likely to meet under load was the one failure that told them nothing.
+///
+/// It also made the two transports disagree about one cause: MCP answers a
+/// budget overrun with a typed, actionable message, REST answered with an
+/// empty 504, and a parity check comparing them scored the same event as a
+/// divergence. Both were right about their own transport and neither named
+/// the shared reason.
+///
+/// This runs OUTSIDE the timeout layer, so it sees the 504 the layer
+/// produced. It only rewrites a 504 that has no body of its own: an endpoint
+/// that deliberately answers 504 with a typed body keeps it.
+async fn timeout_to_typed_504(
+    req: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> Response {
+    let resp = next.run(req).await;
+    if resp.status() != StatusCode::GATEWAY_TIMEOUT {
+        return resp;
+    }
+    let has_body = resp
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.contains("json"))
+        .unwrap_or(false);
+    if has_body {
+        return resp;
+    }
+    let secs = timeout_seconds();
+    let body = serde_json::json!({
+        "schema": "emem.error.v1",
+        "code": "compute_timeout",
+        "message": format!(
+            "this request exceeded the responder's {secs}s transport budget. The same              cause over MCP answers `exceeded the call budget`; both name compute_timeout.              Narrow the request (fewer cells, one band, or a place already warm), or              re-send a tool call with a `task` param and poll tasks/get where the tool              declares it. If the request WROTE anything, its outcome is indeterminate:              read it back before retrying."
+        ),
+        "details": {
+            "schema": "emem.error.v1",
+            "budget_secs": secs,
+            "same_cause_over_mcp": "exceeded the {N}s call budget"
+        }
+    });
+    (StatusCode::GATEWAY_TIMEOUT, Json(body)).into_response()
 }
 
 /// The four named corners of a bounding box, after validation.
@@ -25385,7 +25437,38 @@ async fn mcp_jsonrpc_inner(
                 // silent drop is the part that costs a debugging session.
                 let unknown = mcp_unknown_arguments(name, &args);
                 let started = std::time::Instant::now();
-                let outcome = tokio::time::timeout(mcp_budget, mcp_tool_call(name, args, &s)).await;
+                // SPAWNED, not awaited under `timeout` directly.
+                //
+                // `tokio::time::timeout` CANCELS the future it wraps. For a
+                // read that is free. For a write it is a correctness bug that
+                // an integrator hit and reported: `memory_create` answered
+                // `isError: true, exceeded the 32s call budget` on a write
+                // that had LANDED. The durable half had already completed and
+                // flushed; only the response construction was cancelled. The
+                // caller was told the write failed, and a naive retry writes a
+                // second note under a new timestamped path.
+                //
+                // Spawning decouples the caller's deadline from the work. The
+                // deadline still bounds what the CALLER waits for, which is
+                // what a budget is for; it no longer decides whether a durable
+                // write completes. Dropping the timeout leaves the task
+                // running to its natural end.
+                let task_state = s.clone();
+                let task_name = name.to_string();
+                let task_args = args.clone();
+                let handle =
+                    tokio::spawn(
+                        async move { mcp_tool_call(&task_name, task_args, &task_state).await },
+                    );
+                let outcome = match tokio::time::timeout(mcp_budget, handle).await {
+                    Ok(Ok(v)) => Ok(v),
+                    // The task itself panicked or was aborted: a real failure,
+                    // and not the same thing as running out of time.
+                    Ok(Err(join)) => {
+                        Ok(Err((-32603i64, format!("`{name}` did not finish: {join}"))))
+                    }
+                    Err(elapsed) => Err(elapsed),
+                };
                 latency_record(
                     name,
                     started.elapsed().as_millis().min(u32::MAX as u128) as u32,
@@ -25393,8 +25476,19 @@ async fn mcp_jsonrpc_inner(
                 match outcome {
                     Err(_elapsed) => {
                         let secs = mcp_budget.as_secs();
-                        let hint = if emem_mcp::tool_task_support(name) == "forbidden" {
-                            format!("`{name}` exceeded the {secs}s call budget on this responder. Narrow the request (fewer cells, one band, or a place already warm), or call the REST endpoint, where the per-endpoint budget applies.")
+                        // A write's outcome after a timeout is INDETERMINATE,
+                        // and saying "it failed" is the one answer that is
+                        // certainly wrong. The work was not cancelled, so it
+                        // is probably still running or already done.
+                        let mutates = emem_mcp::lookup(name)
+                            .map(|t| matches!(t.category, emem_mcp::ToolCategory::Write))
+                            .unwrap_or(false);
+                        let hint = if mutates {
+                            format!(
+                                "`{name}` exceeded the {secs}s call budget. THE WRITE WAS NOT                                  CANCELLED and may already have completed — this responder                                  stopped waiting, it did not stop the work. Do NOT blindly                                  retry: read the path back first (emem_memory_view, or                                  emem_memory_search for the namespace). A retry that lands                                  beside a write that succeeded leaves two notes where you                                  meant one, and only you can tell them apart."
+                            )
+                        } else if emem_mcp::tool_task_support(name) == "forbidden" {
+                            format!("`{name}` exceeded the {secs}s call budget on this responder. Narrow the request (fewer cells, one band, or a place already warm).")
                         } else {
                             format!("`{name}` exceeded the {secs}s call budget. Re-send it with a `task` param and poll tasks/get: this tool declares task-augmented execution for exactly this case.")
                         };
@@ -28428,7 +28522,29 @@ fn openapi_spec() -> JsonValue {
             "title": "emem",
             "version": env!("CARGO_PKG_VERSION"),
             "description": EMEM_DESCRIPTION,
-            "license": { "name": "Apache-2.0" }
+            "license": { "name": "Apache-2.0" },
+            // The one capability this document does not describe, said here
+            // rather than left as an absence.
+            //
+            // Memory NOTES (create, view, delete, rename, str_replace,
+            // supersede) are reachable over MCP only. There is no REST route
+            // for any of them and none is documented below, so an agent
+            // reading this document concludes emem cannot write notes at all
+            // — which is wrong, and it is the kind of wrong that no error
+            // message corrects because the caller never makes the call.
+            //
+            // An integrator hit the mirror of this: an MCP timeout advised
+            // "call the REST endpoint", and /v1/memory/create is 404. The
+            // advice is gone; the asymmetry it pointed at is stated here.
+            "x-emem-surface-asymmetry": {
+                "memory_notes": "MCP only",
+                "tools": ["emem_memory_create", "emem_memory_view", "emem_memory_delete",
+                          "emem_memory_rename", "emem_memory_str_replace",
+                          "emem_memory_supersede"],
+                "reach_them_at": "POST /mcp, method tools/call",
+                "why_not_here": "These write the agent correspondence plane, which is                                  prose and untrusted-by-declaration. It is deliberately                                  not part of the REST fact surface, and the two planes                                  are kept apart rather than merged for convenience.",
+                "read_side_is_here": ["/v1/memory/search", "/v1/memory/sse", "/memories/{path}"]
+            }
         },
         "servers": servers,
         "paths": {
@@ -55462,6 +55578,55 @@ fn to_line_announces_channel(body: &str) -> bool {
     })
 }
 
+/// The cid a note says it answers: `In reply to: <cid>`.
+///
+/// Threading is addressing. A note that names neither a recipient nor the
+/// channel, but says which note it replies to, is addressed to whoever wrote
+/// that note — and until now it reached nobody. Found by asking which of one
+/// agent's five notes actually arrived: three did, one was a To line naming
+/// the channel, and this was the fifth.
+///
+/// Deliberately narrow. Only the leading `In reply to:` / `Re:` form in the
+/// note's own header block, never a cid mentioned in prose further down: a
+/// note that DISCUSSES another note is not a reply to it, and delivering on
+/// a bare mention would turn every citation into mail.
+fn reply_to_cid(body: &str) -> Option<String> {
+    const SCAN_LINES: usize = 14;
+    for line in body.lines().take(SCAN_LINES) {
+        let l = line.trim();
+        // `continue`, not `?`. An early `?` returns from the FUNCTION on the
+        // first line that is not a reply-to line, which is always the
+        // heading, so the scan never reaches line two and the whole thing is
+        // dead. This file already carries that exact bug and its fix in
+        // `addressing_from_to_line`, and I wrote it again three functions
+        // away; the test above is what caught it.
+        let Some(rest) = l
+            .strip_prefix("**In reply to:**")
+            .or_else(|| l.strip_prefix("In reply to:"))
+            .or_else(|| l.strip_prefix("Re:"))
+        else {
+            continue;
+        };
+        let cid = rest.trim().trim_matches('`').trim_matches('*').trim();
+        let cid = cid.split_whitespace().next().unwrap_or("");
+        // A content address here is base32, 26 chars in the form this store
+        // mints. Length-checked rather than pattern-guessed so a sentence
+        // fragment cannot pass.
+        if cid.len() >= 20
+            && cid.len() <= 60
+            && cid
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+        {
+            return Some(cid.to_string());
+        }
+        // A reply-to line naming something that is not a content address is
+        // not a reply, and the next line is not going to rescue it.
+        return None;
+    }
+    None
+}
+
 fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
     let h1 = body
         .lines()
@@ -55756,6 +55921,21 @@ async fn post_inbox(
         )
     })?;
 
+    // cid -> author, for threading. One scan of path->file_cid with no file
+    // reads: the path already names the namespace owner, which the store
+    // guarantees, so this costs a walk of keys rather than of bodies.
+    let mut cid_author: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let k = String::from_utf8_lossy(&kv.0);
+        if let Some(a) = k
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|r| r.split('/').next())
+        {
+            cid_author.insert(String::from_utf8_lossy(&kv.1).into_owned(), a.to_string());
+        }
+    }
+
     let mut items: Vec<(i64, JsonValue)> = Vec::new();
     for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
         let key = String::from_utf8_lossy(&kv.0).into_owned();
@@ -55783,7 +55963,16 @@ async fn post_inbox(
         let hit_direct = direct.iter().any(|t| t.to_lowercase().starts_with(&want8));
         let hit_cc = cc.iter().any(|t| t.to_lowercase().starts_with(&want8));
         let hit_bcast = broadcast && include_broadcast;
-        if !(hit_direct || hit_cc || hit_bcast) {
+        // Threading: a note answering one of yours is addressed to you even
+        // when it names nobody. See `reply_to_cid`.
+        let hit_thread = !hit_direct
+            && !hit_cc
+            && !hit_bcast
+            && reply_to_cid(&body)
+                .and_then(|c| cid_author.get(&c).cloned())
+                .map(|a| a.to_lowercase().starts_with(&want8))
+                .unwrap_or(false);
+        if !(hit_direct || hit_cc || hit_bcast || hit_thread) {
             continue;
         }
         let title: String = body
@@ -55806,7 +55995,8 @@ async fn post_inbox(
                 "file_cid": meta.file_cid,
                 "signed_at": meta.signed_at,
                 "title": title,
-                "to_you": if hit_direct { "direct" } else if hit_cc { "cc" } else { "broadcast" },
+                "to_you": if hit_direct { "direct" } else if hit_cc { "cc" }
+                          else if hit_thread { "thread" } else { "broadcast" },
                 "authorship_verifiable_offline": meta.attester_sig_b32.is_some(),
             }),
         ));
@@ -83478,5 +83668,51 @@ mod provenance_filter_completeness_tests {
         // And an actually-unknown class still fails, or the fix has simply
         // removed the validation instead of completing it.
         assert!(super::resolve_provenance_filter(Some(&["not_a_class".into()]), None).is_err());
+    }
+}
+
+#[cfg(test)]
+mod threading_tests {
+    use super::reply_to_cid;
+
+    /// A note that names nobody but says which note it answers is addressed to
+    /// whoever wrote that note. Verbatim from a note that reached nobody.
+    #[test]
+    fn a_reply_to_line_carries_the_cid_it_answers() {
+        let body = "# Follow-up: exact Cosmos video input contract requested\n\n\
+                    In reply to: p2cmjqostngymksgez7idaufme\n\n\
+                    The synchronized demo is now complete.\n";
+        assert_eq!(
+            reply_to_cid(body).as_deref(),
+            Some("p2cmjqostngymksgez7idaufme")
+        );
+        for form in [
+            "In reply to: `p2cmjqostngymksgez7idaufme`",
+            "**In reply to:** p2cmjqostngymksgez7idaufme",
+            "Re: p2cmjqostngymksgez7idaufme",
+        ] {
+            assert_eq!(
+                reply_to_cid(&format!("# t\n\n{form}\n")).as_deref(),
+                Some("p2cmjqostngymksgez7idaufme"),
+                "{form}"
+            );
+        }
+    }
+
+    /// The control. A note that DISCUSSES another note is not a reply to it,
+    /// and delivering on a bare mention would turn every citation into mail —
+    /// which on a channel where notes cite each other constantly is a way to
+    /// fill every inbox with correspondence addressed to nobody.
+    #[test]
+    fn a_cid_mentioned_in_prose_is_not_a_reply() {
+        for body in [
+            "# t\n\nThe earlier note p2cmjqostngymksgez7idaufme was wrong.\n",
+            "# t\n\nSee also: p2cmjqostngymksgez7idaufme\n",
+            "# t\n\nSupersedes: p2cmjqostngymksgez7idaufme\n",
+            "# t\n\nIn reply to: not-a-cid\n",
+            "# t\n\nIn reply to:\n",
+        ] {
+            assert_eq!(reply_to_cid(body), None, "{body:?} was read as a reply");
+        }
     }
 }
