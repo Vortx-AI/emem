@@ -465,9 +465,13 @@ html, body{overflow-x:clip}
    arrive. A painter would glaze here rather than move the subject. */
 .reach::before{
   content:""; position:absolute; inset:0; z-index:-1; pointer-events:none;
-  background:radial-gradient(ellipse 46% 42% at 50% 50%,
-    var(--paper) 0%, var(--paper) 42%, transparent 78%);
-  opacity:.86;
+  /* Sized to the COPY, not to a fraction that looked right. 46% of a 44rem
+     reach is about 324px and the text runs to 704, so the drawing crossed the
+     sentence at every width above 1024 while both halves measured balanced.
+     Re-derive: python3 scripts/manual/artwork_under_type.py */
+  background:radial-gradient(ellipse 68% 48% at 50% 50%,
+    var(--paper) 0%, var(--paper) 62%, transparent 92%);
+  opacity:.92;
 }
 @media (max-width:860px){
   /* The banks are brighter here, so the ground under the words has to be too.
@@ -507,6 +511,10 @@ html, body{overflow-x:clip}
    cut in half at three widths. --chrome-h is measured, so this needs no
    breakpoint list. */
 html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
+@media (min-width:861px) and (prefers-reduced-motion: no-preference){
+  html{ scroll-snap-type:y proximity; }
+  .reach{ scroll-snap-align:center; scroll-margin-top:var(--chrome-h, 5.8rem); }
+}
 
 .names{
   position:fixed; top:calc(var(--chrome-h, 5.8rem) + .8rem);
