@@ -424,10 +424,24 @@ html, body{overflow-x:clip}
 .bank{ height:100vh; width:50vw; opacity:.85; }
 /* Fade each bank toward the channel, so the middle of the page stays water and
    the line always has paper under it. The banks are a margin, not a backdrop. */
-.bank-l{ color:var(--slate); -webkit-mask-image:linear-gradient(90deg,#000 58%,transparent 99%);
-         mask-image:linear-gradient(90deg,#000 58%,transparent 99%); }
-.bank-r{ color:var(--ochre); -webkit-mask-image:linear-gradient(270deg,#000 58%,transparent 99%);
-         mask-image:linear-gradient(270deg,#000 58%,transparent 99%); }
+/* Two masks, intersected: the horizontal one keeps the middle of the page as
+   water, and the vertical one keeps the artwork out of the band where the two
+   flank captions are pinned. At 2560 the ochre towers reached up to y=109 and
+   sat behind "@emem / deterministic", 5.4% ink inside the caption's box. The
+   caption is not the thing to change there; the drawing simply should not be
+   in that band. --chrome-h is measured, so the clear band tracks the bar. */
+.bank-l{ color:var(--slate);
+  -webkit-mask-image:linear-gradient(90deg,#000 58%,transparent 99%),
+    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+  mask-image:linear-gradient(90deg,#000 58%,transparent 99%),
+    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+  -webkit-mask-composite:source-in; mask-composite:intersect; }
+.bank-r{ color:var(--ochre);
+  -webkit-mask-image:linear-gradient(270deg,#000 58%,transparent 99%),
+    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+  mask-image:linear-gradient(270deg,#000 58%,transparent 99%),
+    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+  -webkit-mask-composite:source-in; mask-composite:intersect; }
 /* The channel itself: one hairline the whole scroll, which the two banks
    approach and never cross. */
 .banks::after{
@@ -757,7 +771,17 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   .reach-names{
     display:flex; justify-content:space-between; align-items:baseline;
     gap:.8rem; width:100%; margin:0 0 .3rem;
-    padding-bottom:.45rem; border-bottom:1px solid var(--rule);
+    /* A ground, not a halo. This caption is IN THE FLOW below 860px, so it
+       travels with the content and comes to rest wherever the scroll stops,
+       including in the middle of the towers: measured at 12.5% artwork ink
+       inside its box at 768x2052. A halo paints around glyph edges and left
+       that at 12.3%. It already spans the column and already carries a rule,
+       so a paper ground is the honest shape and costs no new furniture. */
+    padding:.35rem clamp(.7rem,3.4vw,2.6rem) .45rem;
+    margin-left:calc(-1 * clamp(.7rem,3.4vw,2.6rem));
+    margin-right:calc(-1 * clamp(.7rem,3.4vw,2.6rem));
+    width:auto; align-self:stretch;
+    background:var(--paper); border-bottom:1px solid var(--rule);
     text-align:left;
   }
   .reach-names b{
