@@ -40,6 +40,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import pathlib
 import re
 import sys
 import time
@@ -361,6 +362,48 @@ def main():
     for p in bare[:5]:
         fails.append(f"{p} returns a 405 with no body, so a reader who follows a "
                      f"link to it learns nothing")
+
+    # A /v1 route absent from openapi.json does not exist as far as an agent
+    # is concerned. Nothing enforced that, which is how /v1/enlist shipped
+    # routed and undocumented on the same afternoon its own commit message
+    # complained about undiscoverable surfaces.
+    #
+    # Scoped to /v1 on purpose. The 189 routes outside it are .well-known
+    # discovery documents, HTML pages and verification files, and documenting
+    # "/" in an OpenAPI teaches nobody anything. Counting those made the gap
+    # look 30x worse than it is, and a number that overstates gets ignored
+    # exactly like one that understates.
+    def _norm(path):
+        # axum wildcard, axum param, openapi param -> one shape. The param
+        # regex must consume trailing digits: `:cell64` truncated to `{}64`
+        # and reported six live routes as undocumented that were fine.
+        path = re.sub(r"\*[A-Za-z_][A-Za-z0-9_]*", "{}", path)
+        path = re.sub(r":[A-Za-z_][A-Za-z0-9_]*", "{}", path)
+        return re.sub(r"\{[^/}]*\}", "{}", path)
+
+    try:
+        src = pathlib.Path(__file__).resolve().parent.parent.joinpath(
+            "crates/emem-api-rest/src/lib.rs"
+        ).read_text()
+    except Exception:
+        src = ""
+    routed_v1 = sorted(
+        {r for r in re.findall(r'\.route\(\s*"([^"]+)"', src) if r.startswith("/v1/")}
+    )
+    documented = {_norm(k) for k in paths}
+    # Asset and file-serving routes: real, and an OpenAPI entry for each file
+    # under a preset is noise rather than navigation.
+    ASSET_ROUTES = {"/v1/demos/:run", "/v1/demos/:run/:file", "/v1/worlds/:preset/:file",
+                    "/v1/places/scene_overlay.svg", "/v1/openapi.action.json"}
+    undocumented = [
+        r for r in routed_v1 if _norm(r) not in documented and r not in ASSET_ROUTES
+    ]
+    if routed_v1:
+        print(f"\n  {'ok  ' if not undocumented else 'FAIL'} {len(routed_v1)} /v1 routes, "
+              f"{len(routed_v1) - len(undocumented)} documented in openapi.json")
+        for r in undocumented:
+            fails.append(f"{r} is routed but absent from openapi.json, so an agent "
+                         f"reading the spec cannot find it")
 
     # Reported before any finding: a run that could not reach the origin has
     # not checked the origin, and must read as neither pass nor fail of it.
