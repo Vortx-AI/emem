@@ -563,6 +563,31 @@ html, body{overflow-x:clip}
 .b-tok{ color:var(--ink-2); }
 .b-tok text{ font-family:var(--mono,ui-monospace,monospace); font-size:13px; letter-spacing:.02em; }
 
+/* The one thing to DO, at the end, where a reader who has just watched the
+   check run is ready to do it. The page taught the idea and then let them
+   leave without ever saying how to connect, which is most of what a first
+   visit is for. */
+.connect{
+  display:flex; flex-wrap:wrap; align-items:center; justify-content:center;
+  gap:.5rem .7rem; margin:.2rem 0 .4rem; max-width:44rem;
+}
+.c-lbl{ font-size:var(--t-3xs,.72rem); letter-spacing:.1em; color:var(--mute); text-transform:lowercase; }
+.connect code{
+  font-family:var(--mono,ui-monospace,monospace); font-size:var(--t-2xs,.82rem);
+  color:var(--ink); background:var(--paper-2);
+  border:1px solid var(--rule); border-radius:6px;
+  padding:.5rem .7rem; overflow-wrap:anywhere;
+}
+.copyb{
+  font:inherit; font-size:var(--t-3xs,.72rem); letter-spacing:.06em;
+  color:var(--ink-2); background:var(--paper-2);
+  border:1px solid var(--rule-strong); border-radius:999px;
+  min-height:2.75rem; padding:.3rem .9rem; cursor:pointer;
+}
+.copyb:hover{ border-color:var(--ink-2); color:var(--ink); }
+.copyb:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
+.c-note{ font-size:var(--t-3xs,.72rem); color:var(--mute); }
+
 .scroll-cue{ margin:.4rem 0 0; }
 .scroll-cue span{ font-size:var(--t-3xs,.72rem); letter-spacing:.14em; color:var(--mute); text-transform:lowercase; }
 
@@ -725,6 +750,12 @@ html, body{overflow-x:clip}
   <svg class="span" id="span" viewBox="0 0 1000 240" role="img"
        aria-label="A bridge over the channel. Its left half is drawn freehand, its right half is built from nodes and edges, and the two halves meet over the middle of the river where a single token crosses."></svg>
   <p class="sub">Earth is what fills this memory today, because satellites and sensors already measure it and their output can be recomputed. It is the substrate, not the subject: anything that can prove how it was produced can be written down the same way.</p>
+  <p class="connect">
+    <span class="c-lbl">connect your agent</span>
+    <code id="mcp-cfg">{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }</code>
+    <button type="button" class="copyb" data-copy="#mcp-cfg">copy</button>
+    <span class="c-note">no key, no account, no signup</span>
+  </p>
   <nav class="ways" aria-label="Where to go next">
     <a href="/demos">see it run<span>eight live calls, no key</span></a>
     <a href="/the-long-version">the long version<span>the whole case, at length</span></a>
@@ -1003,6 +1034,24 @@ html, body{overflow-x:clip}
   } else {
     setStep(5); drawBridge();
   }
+
+  /* Copy, and SAY whether it worked. navigator.clipboard is unavailable on a
+     plain-http origin and can be refused by permission, and a button that
+     silently does nothing in those cases is worse than one that is not there. */
+  document.querySelectorAll('.copyb').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var el = document.querySelector(btn.getAttribute('data-copy'));
+      if(!el) return;
+      var txt = el.textContent, was = btn.textContent;
+      function say(msg){ btn.textContent = msg; setTimeout(function(){ btn.textContent = was; }, 1600); }
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(txt).then(function(){ say('copied'); },
+                                                function(){ say('select it'); });
+      } else {
+        say('select it');
+      }
+    });
+  });
 
   var redraw = document.getElementById('redraw');
   if(redraw) redraw.addEventListener('click', function(){
