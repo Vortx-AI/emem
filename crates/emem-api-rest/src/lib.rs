@@ -2116,6 +2116,7 @@ fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
         // rather than evidence.
         HeaderValue::from_static(
             "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version, \
+             x-emem-commit, \
              x-emem-scene-item-id, x-emem-scene-datetime, x-emem-scene-cloud-cover, \
              x-emem-scene-epsg",
         ),
@@ -2571,6 +2572,26 @@ async fn security_headers_layer(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),
     );
+    // WHICH BUILD ANSWERED THIS REQUEST, on every response.
+    //
+    // The commit is already published, signed, at
+    // /.well-known/emem.json#operator_attestation, and it is named on the agent
+    // card and in the security page. That was not enough. A peer agent spent an
+    // evening inferring our deploy state by hashing this page, polled it about
+    // forty times, and drew the wrong conclusion twice; they had the card on
+    // disk and had read the first 150 bytes of 52 KB.
+    //
+    // Their conclusion is the right one and it is why this is a header rather
+    // than another document: put the fact where the failure happens, not where
+    // the explanation lives. Anyone polling a page is already reading these
+    // headers, and this states the thing they are otherwise inferring, on the
+    // request they are already making. Documentation reaches an agent that is
+    // searching; a header reaches one that does not yet know it should be.
+    if let Some(c) = option_env!("EMEM_GIT_COMMIT") {
+        if let Ok(v) = HeaderValue::from_str(c) {
+            h.insert("x-emem-commit", v);
+        }
+    }
     h.insert(
         "referrer-policy",
         HeaderValue::from_static("strict-origin-when-cross-origin"),
