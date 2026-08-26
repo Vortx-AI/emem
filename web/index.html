@@ -511,9 +511,17 @@ html, body{overflow-x:clip}
    cut in half at three widths. --chrome-h is measured, so this needs no
    breakpoint list. */
 html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
-@media (min-width:861px) and (prefers-reduced-motion: no-preference){
+/* Snapping is NOT behind prefers-reduced-motion, and that was a real mistake to
+   have made: a fix placed behind that query ships the original behaviour to the
+   readers least able to tolerate a page that moves. Snapping is a settling
+   position, not an animation, so what the preference should turn off is the
+   SMOOTHNESS, not the fix. Under `reduce` the settle is instant. */
+@media (min-width:861px){
   html{ scroll-snap-type:y proximity; }
   .reach{ scroll-snap-align:center; scroll-margin-top:var(--chrome-h, 5.8rem); }
+}
+@media (prefers-reduced-motion: reduce){
+  html{ scroll-behavior:auto; }
 }
 
 .names{
@@ -559,6 +567,19 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
    link on both the floating pair and the in-flow pair, padded to clear the 24px
    tap bound rather than relying on the glyph height, and it keeps the label's
    colour so it does not announce itself as chrome. */
+/* The captions sit OUTSIDE the centre column, so the paper veil behind the copy
+   never covered them and they have been sitting on bare artwork: 9.2% scene ink
+   inside the caption box at 768, 5.5% at 2560, while the copy measured clean.
+   A halo rather than a box, because a plate behind two words in the margin
+   would read as a widget; this paints paper right up to the glyph edges and
+   leaves the drawing either side of them untouched. */
+.side, .reach-names{
+  text-shadow:
+    0 0 3px var(--paper), 0 0 3px var(--paper),
+    1px 0 2px var(--paper), -1px 0 2px var(--paper),
+    0 1px 2px var(--paper), 0 -1px 2px var(--paper);
+}
+
 .side-link{ color:inherit; text-decoration:none; border-bottom:1px solid transparent;
   display:inline-block; padding:.18rem 0; min-height:1.5rem; }
 .side-link:hover{ border-bottom-color:currentColor; }
