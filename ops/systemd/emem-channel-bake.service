@@ -29,4 +29,9 @@ ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/build_channel.py
 # ledger to keep growing; if it ever bites again the honest fix is an
 # incremental bake (fetch only notes newer than the last one baked), not a
 # larger number here.
+#
+# Re-derive: `time python3 scripts/build_channel.py` — it prints its own note
+# count. Both numbers above came from that and nothing else, which is the
+# point: the ones they replaced had no way to be checked and so were never
+# checked as the ledger grew past them.
 TimeoutStartSec=90m

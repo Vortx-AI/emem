@@ -19840,6 +19840,10 @@ async fn translog_head_cached(s: &AppState) -> Result<(u64, [u8; 32]), ApiError>
 /// from outside at 7.43 s cold, past most default fetch timeouts, and
 /// `/v1/log/consistency` cannot be reached at all without an STH first.
 ///
+/// That one is a ONE-OFF: a cold start can only be observed by causing
+/// another restart, and nothing reads the number. The steady-state costs it
+/// sits next to are re-derivable with `scripts/manual/translog_timing.py`.
+///
 /// Spawned and never awaited — the listener must not wait on it — and only
 /// when there is a durable log to walk, so an ephemeral test backend does not
 /// spawn a task whose only possible outcome is the typed 501.

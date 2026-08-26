@@ -42,6 +42,12 @@ semantics, and no cursor:pointer. Nothing in computed style distinguishes that
 from a paragraph, so a zero here means "nothing that declares itself a target,
 or paints itself as one, fails" -- not "the page conforms".
 
+Every number in this docstring came from running this file and nothing else;
+re-derive any of them with the invocations at the top. A number written into a
+comment is a claim that rots exactly like a constant, while looking like
+commentary and getting commentary's scrutiny — the 299 and the 32 below were
+BOTH true when written, and only one of them still is.
+
 So it runs a control first, and refuses to report without it: a page built to
 fail must fail and a page built to pass must pass. An audit where everything
 passes may be a broken audit, and this one returned a confident 0 on a page

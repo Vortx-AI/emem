@@ -400,6 +400,10 @@ mod tests {
 /// The elapsed time was held fixed across all six, so the cost tracked
 /// growth, not staleness.
 ///
+/// Re-derive: `scripts/manual/translog_timing.py`. It FORCES an append rather
+/// than waiting for one, because probing on a timer mostly lands between
+/// arrivals and reports the cheap case, which is how this stayed hidden.
+///
 /// The saving is a property of append-only trees. Level `l+1` entry `i` is
 /// `node(level l [2i], [2i+1])`, and once that pair is complete neither
 /// input can ever move, so the entry is final. The only entry of a level
@@ -479,6 +483,9 @@ impl IncrementalTree {
     /// first=740,000 took 0.68 s and first=1,479,000 took 0.90 s against
     /// 0.46 s for a small prefix. The cost was hidden behind a parameter
     /// nobody varies.
+    ///
+    /// Re-derive: `scripts/manual/translog_timing.py` — the `consistency by
+    /// first` block. Flat is the fix; a slope is this defect returning.
     ///
     /// It does not need folding, by the same argument as the right-spine
     /// extension run backwards. Write `k` in binary: each set bit names one

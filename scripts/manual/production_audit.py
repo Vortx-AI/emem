@@ -47,7 +47,9 @@ a browser:
               scripts/manual/tap_targets.py, which implements both exceptions
               and runs a control. On 2026-08-26 this column's candidates across
               65 paths at 1280 came to 23 real failures there; /verify
-              contributed 7 candidates and 0 failures.
+              contributed 7 candidates and 0 failures. Re-derive with
+              `scripts/manual/tap_targets.py --width 1280 --page <each>`;
+              these are not numbers to trust on the strength of this file.
 
 Why the self-test is not optional
 ---------------------------------
