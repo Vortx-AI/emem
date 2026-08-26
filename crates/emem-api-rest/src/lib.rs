@@ -54731,8 +54731,19 @@ fn addressing_from_to_line(body: &str) -> Option<(Vec<String>, Vec<String>)> {
                 .filter(|t| looks_like_agent_key(t))
                 .collect::<Vec<_>>()
         };
-        let direct = clean(split_agent_tokens(direct_part));
-        let cc = clean(split_agent_tokens(cc_part));
+        let mut direct = clean(split_agent_tokens(direct_part));
+        let mut cc = clean(split_agent_tokens(cc_part));
+        // A key can also be bracketed inside a phrase; see bracketed_agent_keys.
+        for k in bracketed_agent_keys(direct_part) {
+            if !direct.contains(&k) {
+                direct.push(k);
+            }
+        }
+        for k in bracketed_agent_keys(cc_part) {
+            if !cc.contains(&k) {
+                cc.push(k);
+            }
+        }
         if !direct.is_empty() || !cc.is_empty() {
             return Some((direct, cc));
         }
@@ -54740,6 +54751,40 @@ fn addressing_from_to_line(body: &str) -> Option<(Vec<String>, Vec<String>)> {
         return None;
     }
     None
+}
+
+/// Keys written inside brackets: `To: eMEM responder (k572x7go)`.
+///
+/// That line names the key perfectly clearly, and the comma tokenizer made the
+/// whole phrase ONE token, which failed the 8-character test, so the line was
+/// read as addressing nobody. Three notes sat unanswered for four days on it
+/// while the reply daemon reported "0 not yet answered" every eleven minutes --
+/// a queue empty because the parser refused the mail, which reads exactly like
+/// a queue that has been worked.
+///
+/// The whole bracket content must BE a key. Splitting brackets like commas was
+/// the obvious fix and it is wrong: `(handoffs and rollouts)` then addresses
+/// two strangers, because base32-lowercase and ordinary English overlap and
+/// both of those words are valid key shapes. Requiring the entire group
+/// rejects prose without needing to know which words are English.
+fn bracketed_agent_keys(clause: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = clause;
+    while let Some(open) = rest.find(['(', '<', '[']) {
+        let close = match rest.as_bytes()[open] {
+            b'(' => ')',
+            b'<' => '>',
+            _ => ']',
+        };
+        let after = &rest[open + 1..];
+        let Some(end) = after.find(close) else { break };
+        let inner = after[..end].trim();
+        if looks_like_agent_key(inner) {
+            out.push(inner.trim_matches('`').trim_matches('*').trim().to_string());
+        }
+        rest = &after[end + 1..];
+    }
+    out
 }
 
 fn split_agent_tokens(clause: &str) -> Vec<String> {
@@ -80539,6 +80584,70 @@ mod tests {
         // ...but an arrowless heading that names the channel still carries.
         let (_, _, b) = parse_note_addressing("# a note to everyone about the log");
         assert!(b);
+    }
+
+    /// A `To:` line that names the key inside brackets is addressing.
+    ///
+    /// The line below is verbatim from three notes that sat unanswered for
+    /// four days. `To:` was found, the key was right there, and the clause
+    /// split only on commas -- so `eMEM responder (k572x7go)` stayed one token,
+    /// failed the 8-character test, and the line was read as naming nobody
+    /// addressable. The reply daemon then reported "0 not yet answered" on
+    /// every run: a queue empty because the parser refused the mail, which
+    /// reads exactly like a queue that has been worked.
+    #[test]
+    fn a_to_line_names_a_key_written_inside_brackets() {
+        let body = "### Direct question to eMEM: is Cosmos video input callable now?\n\n                    To: eMEM responder (k572x7go)\n";
+        let (d, _, _) = parse_note_addressing(body);
+        assert_eq!(d, vec!["k572x7go"], "bracketed key must address");
+
+        for (line, want) in [
+            ("To: eMEM responder (k572x7go)", vec!["k572x7go"]),
+            ("To: <k572x7go>", vec!["k572x7go"]),
+            ("To: the responder [k572x7go]", vec!["k572x7go"]),
+            ("**To:** k572x7go", vec!["k572x7go"]),
+        ] {
+            let (d, _, _) = parse_note_addressing(&format!("# a note\n\n{line}\n"));
+            assert_eq!(d, want, "{line}");
+        }
+        // cc still separates, with the key bracketed on both sides.
+        let (d, c, _) =
+            parse_note_addressing("# a note\n\nTo: lead (aaaa2222), cc reviewer (bbbb3333)\n");
+        assert_eq!(d, vec!["aaaa2222"]);
+        assert_eq!(c, vec!["bbbb3333"]);
+    }
+
+    /// The control on that widening. base32-lowercase and ordinary English
+    /// overlap: `handoffs`, `rollouts` and `everyone` are all valid key
+    /// SHAPES. So a bracket must not be treated as a separator -- splitting
+    /// `(handoffs and rollouts)` on the bracket addresses two strangers, which
+    /// is the obvious version of this fix and is wrong. Requiring the entire
+    /// bracket group to be a key rejects prose without a dictionary.
+    ///
+    /// What this does NOT claim: that a To line of pure prose addresses
+    /// nobody. `To: everyone, about the handoffs` yields `everyone`, and it
+    /// did before this change too -- the comma tokenizer has always accepted
+    /// any 8-character field. That is harmless because delivery compares the
+    /// token against a real attester prefix and no agent is called `everyone`,
+    /// but it is imprecision rather than correctness, and it is written down
+    /// here rather than asserted away.
+    #[test]
+    fn prose_in_brackets_does_not_address_a_real_agent() {
+        for line in [
+            "To: the reviewers (handoffs and rollouts)",
+            "To: whoever picks this up next",
+            "To: the channel (see below for who owns what)",
+        ] {
+            let (d, c, b) = parse_note_addressing(&format!("# a note\n\n{line}\n"));
+            assert!(!b, "{line} became a broadcast");
+            for got in d.iter().chain(c.iter()) {
+                assert_ne!(got, "k572x7go", "{line} addressed the responder");
+                assert!(
+                    !["handoffs", "rollouts"].contains(&got.as_str()),
+                    "{line} split a bracket into {got}, which is prose"
+                );
+            }
+        }
     }
 
     /// Every diagram on disk is baked into the binary.
