@@ -35,6 +35,7 @@ it is expected to differ and is listed with that reason rather than silently
 skipped.
 """
 import argparse
+import re
 import difflib
 import hashlib
 import pathlib
@@ -113,7 +114,48 @@ def main() -> int:
     # without asserting anything about the part that is meant to differ.
     TEMPLATED = {"index.html": "<!--##ALBUM_FIRST##-->"}
 
+    # THE SECOND DEPLOY PATH, which this file did not watch.
+    #
+    # web/*.html is baked into the binary, so a stale binary shows up above. The
+    # /docs tree is NOT: mdBook rebuilds it separately, into its own artifact,
+    # with its own fingerprinted filenames. That path can be a full revert behind
+    # while every check here is green, and it just was: a padding fix landed in
+    # the tree, the binary picked it up, and the docs kept serving the previous
+    # theme because the mdBook build had already run earlier in the same deploy.
+    # Nothing inside this repository noticed. A neighbouring responder measuring
+    # the live pages did.
+    #
+    # The served theme is byte-identical to docs/theme/emem.css, so the check is
+    # the same one as above: follow the fingerprinted href a docs page actually
+    # links, fetch it, compare.
+    def check_docs_theme():
+        page, err = fetch(f"{args.origin}/docs/protocol.html")
+        if page is None:
+            return ("unreachable", f"/docs/protocol.html did not answer: {err}")
+        m = re.search(rb'href="(theme/emem-[a-f0-9]+\.css)"', page)
+        if not m:
+            return ("drift", "no fingerprinted theme href on /docs/protocol.html; "
+                             "mdBook's output shape changed and this check is now blind")
+        href = m.group(1).decode()
+        served, err = fetch(f"{args.origin}/docs/{href}")
+        if served is None:
+            return ("unreachable", f"/docs/{href} did not answer: {err}")
+        disk = (REPO / "docs" / "theme" / "emem.css").read_bytes()
+        if served == disk:
+            return ("ok", href)
+        return ("drift", f"/docs/{href} differs from docs/theme/emem.css at "
+                         f"{first_difference(disk.decode('utf-8', 'replace'), served.decode('utf-8', 'replace'))}; "
+                         f"the mdBook tree was not rebuilt from this theme")
+
     checked, drifted, unreachable = 0, [], 0
+    verdict, detail = check_docs_theme()
+    if verdict == "drift":
+        drifted.append(("/docs/*", "docs/theme/emem.css", detail))
+    elif verdict == "unreachable":
+        unreachable += 1
+    else:
+        checked += 1
+
     for path, name in PAGES:
         disk = REPO / "web" / name
         if not disk.exists():
