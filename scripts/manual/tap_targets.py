@@ -93,20 +93,38 @@ MEASURE = r"""
   // still collides; only what is out of view right now is dropped. What this
   // does NOT do is measure the other scroll positions, which is the same
   // limitation as measuring one fold state.
-  const visibleRect = e => {
-    let r = e.getBoundingClientRect();
-    let x1 = r.left, y1 = r.top, x2 = r.right, y2 = r.bottom;
+  // Two different questions, and conflating them cost a round in each
+  // direction. PRESENCE: is any of this element in view right now? Every
+  // clipping ancestor counts, scrollable ones included -- a ticker row
+  // scrolled out of an overflow:auto box is clickable by nobody at the rect
+  // it reports, and using that rect invented a blocker for a link nothing
+  // was near. SIZE: how big is the target? Only PERMANENT clipping
+  // (hidden/clip) shrinks it. A sidebar link half-scrolled past the edge of
+  // a scrollable box is a full-size target one scroll away, and measuring
+  // the visible sliver reported 1.3px-tall "failures" on twelve docs pages
+  // that were nothing of the kind.
+  const CLIPS_FOREVER = /^(hidden|clip)$/;
+  const rects = e => {
+    const r = e.getBoundingClientRect();
+    let vx1 = r.left, vy1 = r.top, vx2 = r.right, vy2 = r.bottom;
+    let sx1 = r.left, sy1 = r.top, sx2 = r.right, sy2 = r.bottom;
     for (let p = e.parentElement; p; p = p.parentElement) {
       const cs = getComputedStyle(p);
-      const clips = cs.overflow !== 'visible' || cs.overflowX !== 'visible' || cs.overflowY !== 'visible';
-      if (!clips) continue;
+      const axes = [cs.overflowX, cs.overflowY];
+      if (axes.every(v => v === 'visible')) continue;
       const pr = p.getBoundingClientRect();
-      x1 = Math.max(x1, pr.left); y1 = Math.max(y1, pr.top);
-      x2 = Math.min(x2, pr.right); y2 = Math.min(y2, pr.bottom);
-      if (x2 <= x1 || y2 <= y1) return null;
+      vx1 = Math.max(vx1, pr.left); vy1 = Math.max(vy1, pr.top);
+      vx2 = Math.min(vx2, pr.right); vy2 = Math.min(vy2, pr.bottom);
+      if (vx2 <= vx1 || vy2 <= vy1) return null;   // not in view at all
+      if (axes.some(v => CLIPS_FOREVER.test(v))) {
+        sx1 = Math.max(sx1, pr.left); sy1 = Math.max(sy1, pr.top);
+        sx2 = Math.min(sx2, pr.right); sy2 = Math.min(sy2, pr.bottom);
+        if (sx2 <= sx1 || sy2 <= sy1) return null;
+      }
     }
-    return { left: x1, top: y1, width: x2 - x1, height: y2 - y1 };
+    return { left: sx1, top: sy1, width: sx2 - sx1, height: sy2 - sy1 };
   };
+  const visibleRect = rects;
   for (const e of els) {
     const r = visibleRect(e);
     if (r === null) continue;
