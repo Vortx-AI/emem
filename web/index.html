@@ -499,8 +499,9 @@ html, body{overflow-x:clip}
 }
 .side span{ display:block; font-family:var(--sans,inherit); font-size:var(--t-3xs,.72rem);
   letter-spacing:.06em; color:var(--mute); margin-top:.2rem; font-weight:400; }
-.side-l, #callsub{ transition:opacity .28s ease; }
-.side-l.fade, #callsub.fade{ opacity:0; }
+.side-l, #callsub, #whobest{ transition:opacity .28s ease; }
+.side-l.fade, #callsub.fade, #whobest.fade{ opacity:0; }
+#whobest{ font-style:normal; }
 
 /* The one line that never changes, sitting on the plug. A model is called by a
    different name at every reach of this page; the address it calls is not. */
@@ -547,6 +548,12 @@ html, body{overflow-x:clip}
    a wave rather than a switch. */
 .bank [data-s]{ transition:opacity .75s ease; }
 .bank [data-s].later{ opacity:0 !important; }
+/* The scenery is the ground the graphs stand on, so it is quiet enough that the
+   artifacts on top of it stay readable, and it crossfades one scene to the
+   next rather than accumulating. */
+.bank .scenery{ opacity:.34; }
+.bank [data-scene]{ opacity:0; transition:opacity .9s ease; }
+.bank [data-scene].on{ opacity:1; }
 .banks.turning .bank{ opacity:0; }
 /* At the last reach the bridge IS the drawing, so the world it crosses steps
    back rather than competing with it for the same eye. */
@@ -560,7 +567,9 @@ html, body{overflow-x:clip}
 .b-l{ color:var(--slate); }
 .b-r{ color:var(--ochre); }
 .b-water{ color:var(--graphite); }
-.b-tok{ color:var(--ink-2); }
+.b-tok{ color:var(--ink-2); cursor:pointer; }
+.b-tok:hover{ color:var(--ink); }
+.b-tok:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
 .b-tok text{ font-family:var(--mono,ui-monospace,monospace); font-size:13px; letter-spacing:.02em; }
 
 /* The one thing to DO, at the end, where a reader who has just watched the
@@ -568,9 +577,12 @@ html, body{overflow-x:clip}
    leave without ever saying how to connect, which is most of what a first
    visit is for. */
 .connect{
-  display:flex; flex-wrap:wrap; align-items:center; justify-content:center;
-  gap:.5rem .7rem; margin:.2rem 0 .4rem; max-width:44rem;
+  display:flex; flex-wrap:wrap; align-items:stretch; justify-content:center;
+  gap:.45rem; margin:.2rem 0 .4rem; max-width:44rem;
 }
+/* The label and the note are their own row, so the config and the button sit
+   together as one control instead of a pill floating beside a block of code. */
+.c-lbl, .c-note{ flex:1 0 100%; text-align:center; }
 .c-lbl{ font-size:var(--t-3xs,.72rem); letter-spacing:.1em; color:var(--mute); text-transform:lowercase; }
 .connect code{
   font-family:var(--mono,ui-monospace,monospace); font-size:var(--t-2xs,.82rem);
@@ -578,11 +590,13 @@ html, body{overflow-x:clip}
   border:1px solid var(--rule); border-radius:6px;
   padding:.5rem .7rem; overflow-wrap:anywhere;
 }
+.connect code{ border-radius:6px 0 0 6px; border-right:0; }
 .copyb{
   font:inherit; font-size:var(--t-3xs,.72rem); letter-spacing:.06em;
   color:var(--ink-2); background:var(--paper-2);
-  border:1px solid var(--rule-strong); border-radius:999px;
-  min-height:2.75rem; padding:.3rem .9rem; cursor:pointer;
+  border:1px solid var(--rule); border-left:1px solid var(--rule-strong);
+  border-radius:0 6px 6px 0;
+  min-width:5rem; min-height:2.75rem; padding:.3rem .95rem; cursor:pointer;
 }
 .copyb:hover{ border-color:var(--ink-2); color:var(--ink); }
 .copyb:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
@@ -694,11 +708,11 @@ html, body{overflow-x:clip}
      guess. On the right the name never changes, because the address is the
      thing that does not move, and only what it is doing changes underneath it. -->
 <div class="names">
-  <p class="side side-l" id="who">ChatGPT<span>guesses well</span></p>
+  <p class="side side-l" id="who">ChatGPT<span>non-deterministic &middot; <i id="whobest">reasons well</i></span></p>
   <p class="side side-r">@emem<span id="callsub">repeats exactly</span></p>
 </div>
 
-<header class="reach reach-open" data-step="0" data-who="ChatGPT" data-sub="repeats exactly">
+<header class="reach reach-open" data-step="0" data-who="ChatGPT" data-best="reasons well" data-sub="repeats exactly">
   <h1 class="line">Ask a model the same thing twice,<br>and you get two answers.</h1>
   <svg class="plug" viewBox="0 0 240 40" role="img" aria-label="A jack plug in the gap between the two banks">
     <line x1="0" y1="20" x2="96" y2="20" class="p-lead"/>
@@ -712,7 +726,7 @@ html, body{overflow-x:clip}
   <p class="scroll-cue"><span>keep going</span></p>
 </header>
 
-<section class="reach" id="twice-r" data-step="1" data-who="Claude" data-sub="same answer, twice">
+<section class="reach" id="twice-r" data-step="1" data-who="Claude" data-best="writes well" data-sub="same answer, twice">
   <h2 class="line">Not because it is cached.<br>Because the answer has an address.</h2>
   <p class="sub">Two calls, right now, from your browser to production. Watch the line under them: that is the address the answer lives at, and it is the same both times.</p>
   <div class="run">
@@ -721,7 +735,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="carry" data-step="2" data-who="Codex" data-sub="outlives your context">
+<section class="reach" id="carry" data-step="2" data-who="Codex" data-best="codes well" data-sub="outlives your context">
   <h2 class="line">Your context ends.<br>The address does not.</h2>
   <p class="sub">A token is short enough to sit in a sentence and exact enough to name one measurement. Keep it when your context is compacted, hand it to another agent, resolve it a year later: the same signed bytes come back.</p>
   <div class="run">
@@ -730,7 +744,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="checkable" data-step="3" data-who="Cosmos" data-sub="checkable without us">
+<section class="reach" id="checkable" data-step="3" data-who="Cosmos" data-best="simulates well" data-sub="checkable without us">
   <h2 class="line">You do not have to trust us.<br>That is the point, and you can test it.</h2>
   <p class="sub">Every answer carries an ed25519 receipt that checks against a published key rather than against our word. Here is the responder auditing its own fact plane, live, and reporting false when it fails.</p>
   <div class="run">
@@ -740,7 +754,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach" id="many" data-step="4" data-who="Dify" data-sub="one record, many readers">
+<section class="reach" id="many" data-step="4" data-who="Dify" data-best="orchestrates well" data-sub="one record, many readers">
   <h2 class="line">Two agents, two vendors,<br>one set of bytes they both read.</h2>
   <p class="sub">Neither has to trust the other, and neither has to trust us. The tree on your left is redrawn from nothing every time you load this page. The network on your right has not moved since its seed was written down. Press the button and watch which one changes.</p>
   <div class="run">
@@ -749,7 +763,7 @@ html, body{overflow-x:clip}
   </div>
 </section>
 
-<section class="reach bridgehead" id="bridge" data-step="5" data-who="any model" data-sub="one address, for ever">
+<section class="reach bridgehead" id="bridge" data-step="5" data-who="any model" data-best="guesses well" data-sub="one address, for ever">
   <h2 class="line">One thing crosses between them,<br>and it is the token.</h2>
   <svg class="span" id="span" viewBox="0 0 1000 240" role="img"
        aria-label="A bridge over the channel. Its left half is drawn freehand, its right half is built from nodes and edges, and the two halves meet over the middle of the river where a single token crosses."></svg>
@@ -804,6 +818,11 @@ html, body{overflow-x:clip}
   }
 
   var W = 560, H = 780, STEPS = 5;
+  /* The scene geometry below is written against a ground line. It came from
+     the earlier design where this constant lived beside it; without it every
+     scene threw a ReferenceError, which killed the rest of this block, so the
+     right bank never drew and the observer never attached. */
+  var GROUND = H * 0.74;
   function el(n, a){
     var e = document.createElementNS('http://www.w3.org/2000/svg', n);
     for(var k in a) e.setAttribute(k, a[k]);
@@ -815,6 +834,131 @@ html, body{overflow-x:clip}
     t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   }; }
+
+
+  /* ---- the scene, imprinted on both graphs -------------------------------
+     The two graphs are the argument and they never restart. The SCENE is the
+     story: a field, a mill, a street of towers, a floor of machines, a
+     network. It is drawn on both banks from the same forms, so a hill is the
+     same hill on either side, and it is drawn FAINT, underneath, because the
+     tree and the network are the subject and this is the ground they stand on.
+
+     Exclusive rather than cumulative: one scene at a time, crossfading, while
+     the graphs above it accumulate. That is the blend. */
+  function world(scene){
+    var seed = 20260826; for(var i = 0; i < scene.length; i++) seed = seed*31 + scene.charCodeAt(i) | 0;
+    var r = mulberry32(seed), P = [];
+    function ridge(y, amp){
+      var pts = [];
+      for(var x = 0; x <= W; x += 24)
+        pts.push([x, y + Math.sin(x/92 + amp)*amp*0.55 + Math.sin(x/29 + amp*2)*4]);
+      P.push({ k:'ridge', p:pts });
+    }
+    function box(x, y, w, h){ P.push({ k:'box', p:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]] }); }
+    function limb(pts){ P.push({ k:'limb', p:pts }); }
+
+    if(scene === 'rural'){
+      ridge(H*0.26, 40); ridge(H*0.44, 30); ridge(GROUND, 14);
+      for(var i = 0; i < 9; i++)
+        P.push({ k:'tree', p:[[34 + r()*(W-68), GROUND - 2 - r()*46]], h:30 + r()*34 });
+      box(W*0.26, GROUND-38, 46, 38); box(W*0.60, GROUND-28, 34, 28);
+    } else if(scene === 'industrial'){
+      ridge(H*0.36, 22); ridge(GROUND, 10);
+      for(var i = 0; i < 4; i++){
+        var cx = 54 + i*118 + r()*20, ch = 168 + r()*74;
+        box(cx, GROUND-ch, 19, ch);
+        var sm = [];
+        for(var t = 0; t < 7; t++) sm.push([cx + 9 + t*17 + Math.sin(t*1.3)*11, GROUND-ch-16 - t*24]);
+        limb(sm);
+      }
+      for(var i = 0; i < 3; i++) box(40 + i*172 + r()*26, GROUND-54, 96, 54);
+    } else if(scene === 'corporate'){
+      ridge(GROUND, 8);
+      for(var i = 0; i < 9; i++){
+        var tw = 28 + r()*20, th = 96 + r()*250;
+        box(16 + i*60 + r()*9, GROUND-th, tw, th);
+      }
+    } else if(scene === 'robots'){
+      ridge(GROUND, 8);
+      for(var i = 0; i < 3; i++){
+        var bx = 52 + i*172 + r()*18, by = GROUND-116;
+        box(bx, by, 60, 76);
+        box(bx+15, by-40, 30, 32);
+        limb([[bx, by+16], [bx-30, by+44], [bx-46, by+18]]);
+        limb([[bx+60, by+16], [bx+90, by+44], [bx+106, by+18]]);
+        limb([[bx+30, by-40], [bx+30, by-64]]);
+        limb([[bx+16, by+76], [bx+16, GROUND]]);
+        limb([[bx+44, by+76], [bx+44, GROUND]]);
+      }
+    } else {
+      var n = [];
+      for(var i = 0; i < 7; i++) for(var j = 0; j < 6; j++)
+        n.push([36 + i*82 + (r()-0.5)*34, 84 + j*116 + (r()-0.5)*38]);
+      for(var a = 0; a < n.length; a++){
+        P.push({ k:'node', p:[n[a]], r:2.2 + r()*2.4 });
+        for(var b = a+1; b < n.length; b++){
+          var dx = n[a][0]-n[b][0], dy = n[a][1]-n[b][1];
+          if(dx*dx + dy*dy < 134*134) limb([n[a], n[b]]);
+        }
+      }
+    }
+    return P;
+  }
+
+
+  var SCENE_AT = ['rural', 'industrial', 'corporate', 'robots', 'network', 'network'];
+
+  function drawScenes(host, hand){
+    var wrap = el('g', { class:'scenery' });
+    SCENE_AT.forEach(function(name, sIdx){
+      if(sIdx > 0 && SCENE_AT[sIdx-1] === name) return;      // no repeat layer
+      var pieces = world(name);
+      var g = el('g', { 'data-scene':sIdx });
+      hand(g, pieces);
+      wrap.appendChild(g);
+    });
+    host.insertBefore(wrap, host.firstChild);                 // behind the graph
+  }
+
+  /* the guessing hand: jittered, two passes, nothing seeded */
+  function handFree(g, pieces){
+    function wob(p, n){ return [p[0] + (Math.random()-0.5)*n, p[1] + (Math.random()-0.5)*n]; }
+    function d_of(pts, close, n){
+      var d = '';
+      for(var i = 0; i < pts.length; i++){
+        var q = wob(pts[i], n);
+        d += (i ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1);
+      }
+      return d + (close ? 'Z' : '');
+    }
+    pieces.forEach(function(pc){
+      if(pc.k === 'tree' || pc.k === 'node') return;   /* the graph says this */
+      var close = pc.k === 'box';
+      g.appendChild(el('path', { d:d_of(pc.p, close, 4), fill:'none', stroke:'currentColor',
+        'stroke-width':0.9, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.5 }));
+      g.appendChild(el('path', { d:d_of(pc.p, close, 6.5), fill:'none', stroke:'currentColor',
+        'stroke-width':0.55, 'stroke-linecap':'round', opacity:0.3 }));
+    });
+  }
+
+  /* the measuring hand: the same forms, resolved into vertices and edges */
+  function handLattice(g, pieces){
+    var rnd = mulberry32(20260826);
+    pieces.forEach(function(pc){
+      if(pc.k === 'tree' || pc.k === 'node') return;
+      var close = pc.k === 'box', d = '';
+      for(var i = 0; i < pc.p.length; i++)
+        d += (i ? 'L' : 'M') + pc.p[i][0].toFixed(1) + ',' + pc.p[i][1].toFixed(1);
+      if(close) d += 'Z';
+      g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
+        'stroke-width':0.75, opacity:0.5 }));
+      for(var i = 0; i < pc.p.length; i++){
+        if(pc.k === 'ridge' && (i % 2)) continue;
+        g.appendChild(el('circle', { cx:pc.p[i][0].toFixed(1), cy:pc.p[i][1].toFixed(1),
+          r:(1.3 + rnd()*1.1).toFixed(2), fill:'currentColor', opacity:0.8 }));
+      }
+    });
+  }
 
   /* ---- the left bank: one tree, drawn once, growing -----------------------
      ONE figure for the whole page, not a scene per reach. The reader scrolls
@@ -840,9 +984,9 @@ html, body{overflow-x:clip}
         d += (y === 0 ? 'M' : 'L') + bx.toFixed(1) + ',' + y;
       }
       g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
-        opacity:0.05, 'data-s':0 }));
+        opacity:0.035, 'data-s':0 }));
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1, opacity:0.3, 'data-s':0 }));
+        'stroke-width':1, opacity:0.22, 'data-s':0 }));
     }
     var DEPTH = 10;
     function bough(x, y, ang, len, depth){
@@ -864,7 +1008,7 @@ html, body{overflow-x:clip}
       g.appendChild(el('line', {
         x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
         stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
-        'stroke-linecap':'round', 'data-s':s, opacity:0.68
+        'stroke-linecap':'round', 'data-s':s, opacity:0.46
       }));
       var n = Math.random() < 0.18 ? 3 : 2;
       for(var i = 0; i < n; i++)
@@ -875,6 +1019,7 @@ html, body{overflow-x:clip}
        from the plug, it does not arrive at it. */
     bough(W-4, H/2, Math.PI, 166, DEPTH);
     L.appendChild(g);
+    drawScenes(L, handFree);
     paint();
   }
 
@@ -916,17 +1061,18 @@ html, body{overflow-x:clip}
           x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
           x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
           stroke:'currentColor', 'stroke-width':0.6,
-          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.55*w).toFixed(3)
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.38*w).toFixed(3)
         }));
       }
     }
     pts.forEach(function(p){
       g.appendChild(el('circle', {
         cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
-        fill:'currentColor', 'data-s':p.s, opacity:(0.95*p.w).toFixed(3)
+        fill:'currentColor', 'data-s':p.s, opacity:(0.66*p.w).toFixed(3)
       }));
     });
     R.appendChild(g);
+    drawScenes(R, handLattice);
     paint();
   }
 
@@ -938,6 +1084,18 @@ html, body{overflow-x:clip}
     [L, R].forEach(function(host){
       host.querySelectorAll('[data-s]').forEach(function(n){
         n.classList.toggle('later', (+n.getAttribute('data-s')) > step);
+      });
+      /* The graph accumulates; the scenery does not. The highest scene layer
+         at or below the current step is the one showing, so the ground changes
+         from field to mill to street to floor while the tree and the network
+         keep everything they have grown. */
+      var best = -1;
+      host.querySelectorAll('[data-scene]').forEach(function(n){
+        var v = +n.getAttribute('data-scene');
+        if(v <= step && v > best) best = v;
+      });
+      host.querySelectorAll('[data-scene]').forEach(function(n){
+        n.classList.toggle('on', (+n.getAttribute('data-scene')) === best);
       });
     });
   }
@@ -999,13 +1157,32 @@ html, body{overflow-x:clip}
     /* the one thing that crosses */
     g.appendChild(el('line', { x1:110, y1:arch(110) - 16, x2:890, y2:arch(890) - 16,
       stroke:'currentColor', 'stroke-width':1, 'stroke-dasharray':'2 5', opacity:0.5, class:'b-water' }));
-    var pill = el('g', { class:'b-tok' });
-    pill.appendChild(el('rect', { x:BW/2 - 74, y:arch(BW/2) - 31, width:148, height:26, rx:13,
-      fill:'var(--paper)', stroke:'currentColor', 'stroke-width':1, opacity:0.95 }));
+    /* The thing crossing the bridge is a REAL token, not the word for one.
+       It sat here reading `emem:fact:` like an API that does nothing, which is
+       the opposite of what this page spends five screens arguing. It is
+       fetched live, it links to the offline verifier, and if the call does not
+       come back it says so rather than showing a decorative prefix. */
+    var pill = el('a', { class:'b-tok', href:'/verify' });
+    pill.appendChild(el('rect', { x:BW/2 - 116, y:arch(BW/2) - 32, width:232, height:28, rx:14,
+      fill:'var(--paper)', stroke:'currentColor', 'stroke-width':1, opacity:0.96 }));
     var t = el('text', { x:BW/2, y:arch(BW/2) - 13, 'text-anchor':'middle', fill:'currentColor' });
-    t.textContent = 'emem:fact:';
+    t.textContent = 'fetching a real one\u2026';
     pill.appendChild(t);
     g.appendChild(pill);
+    fetch('/v1/recall', { method:'POST', headers:{'content-type':'application/json'},
+      body:JSON.stringify({ place:'Manaus', bands:['elevation'] }) })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var f = (d.facts && d.facts[0]) || null;
+        var tok = f && (f.memory_token || (f.fact_cid && 'emem:fact:' + f.fact_cid));
+        if(!tok) throw 0;
+        pill.setAttribute('href', '/verify?token=' + encodeURIComponent(tok));
+        t.textContent = tok.length > 34 ? tok.slice(0, 33) + '\u2026' : tok;
+        var tip = el('title', {});
+        tip.textContent = tok + '  (opens the offline verifier)';
+        pill.appendChild(tip);
+      })
+      .catch(function(){ t.textContent = 'emem:fact: \u2014 check one at /verify'; });
     S.appendChild(g);
   }
 
@@ -1013,7 +1190,8 @@ html, body{overflow-x:clip}
      Each reach reveals the next generation on both banks. Nothing is replaced,
      so the two figures are continuous the whole way down and the difference
      between them is the only thing that changes. */
-  var who = document.getElementById('who'), callsub = document.getElementById('callsub');
+  var who = document.getElementById('who'), callsub = document.getElementById('callsub'),
+      whobest = document.getElementById('whobest');
   function swap(node, text){
     if(!node || text === node.firstChild.nodeValue) return;
     node.classList.add('fade');
@@ -1026,6 +1204,7 @@ html, body{overflow-x:clip}
         if(!en.isIntersecting) return;
         var t = en.target;
         swap(who, t.getAttribute('data-who'));
+        swap(whobest, t.getAttribute('data-best'));
         swap(callsub, t.getAttribute('data-sub'));
         setStep(+t.getAttribute('data-step') || 0);
         if(t.id === 'bridge'){
