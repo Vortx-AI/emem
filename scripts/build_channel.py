@@ -387,7 +387,57 @@ def list_entries(short: str) -> tuple[list[dict], int | None, bool]:
     return entries, total, complete
 
 
+
+# ── Body cache, keyed by content address ────────────────────────────────
+#
+# fetch_notes called memory_view once per note. At 2,493 notes and 0.33s of
+# self-imposed pacing that is ~14 minutes of wire time and measured ~38 in
+# practice, every deploy and every timer tick, re-reading notes that have not
+# changed since the last run.
+#
+# It is safe to cache because a note's body is IMMUTABLE for a given
+# file_cid. That is what a content address means: if the text changes the cid
+# changes, and a changed cid is a cache miss. There is no staleness window to
+# reason about and no TTL to tune.
+#
+# What the cache deliberately does NOT track is mutable metadata that hangs
+# off an unchanged body, `superseded_by` being the one that matters. For a
+# TRANSCRIPT that is correct: this page records what was said, and a later
+# retraction does not change what was said. If this file ever starts
+# rendering supersession, that assumption stops holding and this cache has to
+# be keyed differently.
+CACHE_PATH = REPO / "var" / "channel_body_cache.json"
+
+
+def load_body_cache() -> dict:
+    try:
+        with open(CACHE_PATH) as fh:
+            c = json.load(fh)
+        return c if isinstance(c, dict) else {}
+    except Exception:
+        return {}
+
+
+def save_body_cache(cache: dict) -> None:
+    try:
+        CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        tmp = CACHE_PATH.with_suffix(".tmp")
+        # Compute, write to a temp file, then rename. A cache half-written by
+        # an interrupted deploy would be read as authoritative on the next run.
+        with open(tmp, "w") as fh:
+            json.dump(cache, fh)
+        tmp.replace(CACHE_PATH)
+    except Exception as exc:
+        print(f"  ! could not save the body cache: {exc}", file=sys.stderr)
+
+
+_BODY_CACHE: dict = {}
+_CACHE_HITS = [0]
+_CACHE_MISSES = [0]
+
+
 def fetch_notes() -> list[dict]:
+    _BODY_CACHE.update(load_body_cache())
     notes = []
     for short in AGENTS:
         try:
@@ -402,12 +452,21 @@ def fetch_notes() -> list[dict]:
             path = e.get("path") if isinstance(e, dict) else str(e)
             if not path or not is_conversation(path):
                 continue
-            try:
-                got = call("memory_view", {"path": path})
-                doc = json.loads(got["result"]["content"][0]["text"])
-            except Exception as exc:
-                print(f"  ! {path}: {exc}", file=sys.stderr)
-                continue
+            cid = e.get("file_cid") if isinstance(e, dict) else None
+            cached = _BODY_CACHE.get(cid) if cid else None
+            if cached is not None:
+                doc = cached
+                _CACHE_HITS[0] += 1
+            else:
+                try:
+                    got = call("memory_view", {"path": path})
+                    doc = json.loads(got["result"]["content"][0]["text"])
+                except Exception as exc:
+                    print(f"  ! {path}: {exc}", file=sys.stderr)
+                    continue
+                if cid:
+                    _BODY_CACHE[cid] = doc
+                _CACHE_MISSES[0] += 1
             # What the responder will actually stand behind about authorship.
             # The page used to stamp a green "signed" badge, reading "signed by
             # its author, verifiable offline", on every message without ever
@@ -443,6 +502,12 @@ def fetch_notes() -> list[dict]:
               f"{'' if complete else f' (listing incomplete: read {len(entries)} of {listed})'}")
     # Chronological. A transcript out of order is not a transcript.
     notes.sort(key=lambda n: (n["signed_at"], n["name"]))
+    save_body_cache(_BODY_CACHE)
+    total = _CACHE_HITS[0] + _CACHE_MISSES[0]
+    if total:
+        print(f"  bodies: {_CACHE_HITS[0]} from cache, {_CACHE_MISSES[0]} fetched "
+              f"({_CACHE_HITS[0] * 100 // total}% cached). A body is immutable for its "
+              f"file_cid, so a changed note is a changed cid and a cache miss.")
     return notes
 
 

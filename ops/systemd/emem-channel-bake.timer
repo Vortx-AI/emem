@@ -5,19 +5,29 @@
 # previous transcript rather than breaking the route.
 #
 # This fired every TWO MINUTES on the claim that one regeneration is ~30s of
-# same-origin reads. Measured 2026-08-26: ~38 minutes for 2,493 notes, paced
-# at 0.33s against our own rate limit. A 2-minute tick for a 38-minute job
-# cannot ever have worked; runs were killed and the page followed the ledger
-# only at deploy time, which is the exact freeze this unit was written to
-# prevent. Hourly is the honest cadence for a full bake. Two minutes needs an
-# incremental generator, and that is the change worth making rather than a
-# faster tick over the whole ledger.
+# same-origin reads. That claim went stale: measured 2026-08-26 it was 813s
+# for 2,638 notes, paced at 0.33s against our own rate limit, so a 2-minute
+# tick could never finish and the page followed the ledger only at deploy
+# time, which is the exact freeze this unit exists to prevent.
+#
+# build_channel.py now caches note bodies by file_cid. A body is immutable for
+# its content address, so an unchanged note is never re-fetched and a changed
+# note is a changed cid and a miss. Re-measured on the same corpus:
+#
+#     cold  813s   2,233 fetched, 405 already seen in-run
+#     warm   50s   0 fetched, 100% cached
+#
+# Five minutes, not two. A warm bake is ~50s of which most is rendering and
+# the CSP/JS gates rather than the wire, so a 2-minute tick would spend 40% of
+# every minute baking and would overlap itself as the corpus grows. Five keeps
+# the public page within five minutes of the ledger at a 17% duty cycle, and
+# it stops the bake from saturating the responder that CI asserts against.
 
 [Unit]
 Description=emem — two-minute re-bake of the /channel transcript
 
 [Timer]
-OnCalendar=hourly
+OnCalendar=*:00/05
 Persistent=true
 RandomizedDelaySec=15s
 
