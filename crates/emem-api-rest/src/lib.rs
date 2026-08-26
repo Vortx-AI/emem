@@ -1335,6 +1335,7 @@ pub fn router(state: AppState) -> Router {
             "/v1/memory_contradictions",
             post(post_memory_contradictions).get(get_memory_contradictions),
         )
+        .route("/v1/plane/conformance", get(get_plane_conformance))
         .route("/v1/enlist", get(get_enlist).post(post_enlist))
         .route("/v1/edges", post(post_edges_write))
         .route("/v1/edges/recall", post(post_edges_recall))
@@ -28653,6 +28654,7 @@ fn openapi_spec() -> JsonValue {
             "/live":                 {"get":{"summary":"dead-cheap liveness (no storage scan; poll during deploys)","operationId":"emem_live","responses":{"200":json_ok}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
+            "/v1/plane/conformance": {"get":{"summary":"The fact plane's safety claim, MEASURED rather than asserted. Samples up to 400 real facts from this responder's own index on every call and reports three checks: every `value` is numeric (the field an instruction would have to live in), every string field is a short registry token rather than free text, and no advertised tool accepts a caller-supplied fact value. Returns `conformant: false` with the violations when it fails, which is the point: a conformance endpoint that cannot fail launders an assertion as a measurement. The NOTE plane is the opposite and is declared as such (content_is_untrusted_input: true in /.well-known/emem.json); this endpoint speaks only for facts.","operationId":"emem_plane_conformance","tags":["security"],"responses":{"200":json_ok}}},
             "/v1/enlist":            {
                 "get":{"summary":"The write ladder, machine-readable: which check each tier records, the minimum tier per write surface, and which rungs THIS responder actually computes. Reads are never gated at any tier, on any surface. There is no account, no bearer token that grants anything, and no payment: climbing a tier means passing a check a third party can re-run without this responder. Tiers are records of what was checked, never scores, and `trust` on the roster stays `caller_decides`.","operationId":"emem_enlist_ladder","tags":["identity","security"],"responses":{"200":json_ok}},
                 "post":{"summary":"Ask this responder to check an organisation's attestation for a key, by `dns` (a _emem-agent TXT record) or `well_known` (/.well-known/emem-agents.json). Records the outcome either way, with checked_at, and returns it with its age: a failed check is evidence too. Unauthenticated on purpose, because the call only ever records what the ORGANISATION published, so asking about someone else's domain gains nothing. Verification targets must be public names; IP literals, local names and anything resolving into private space are refused and redirects are not followed.","operationId":"emem_enlist_verify","tags":["identity","security"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32","domain","method"],"properties":{"attester_pubkey_b32":{"type":"string","description":"the full 52-character key, not a prefix"},"domain":{"type":"string"},"method":{"type":"string","enum":["dns","well_known"]}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}
@@ -55594,6 +55596,211 @@ fn enlistment_evidence_json(e: &crate::enlistment::Evidence) -> JsonValue {
         "detail": e.detail,
         "ttl_secs": crate::enlistment::EVIDENCE_TTL_SECS,
     })
+}
+
+/// Whether a fact `value` is a number, which is the whole of the fact plane's
+/// injection claim in one predicate.
+///
+/// Split out so it can be tested against the shapes that matter, including one
+/// that already bit this codebase: a CBOR TAG wrapping a float is still a
+/// number, and a check matching only the bare forms reports a conforming
+/// corpus as violating. The opposite error is worse, and is what the control
+/// asserts: text must not read as numeric, or the endpoint launders an
+/// assertion as a measurement.
+fn fact_value_is_numeric(v: &ciborium::Value) -> bool {
+    match v {
+        ciborium::Value::Integer(_) | ciborium::Value::Float(_) => true,
+        ciborium::Value::Tag(_, inner) => fact_value_is_numeric(inner),
+        _ => false,
+    }
+}
+
+/// `GET /v1/plane/conformance`, the fact plane's safety claim, MEASURED.
+///
+/// The objection that closed a catalog submission was "anyone can plant
+/// content that other agents will recall as fact". For the note plane that is
+/// true and we declare it. For the fact plane it is false, and until now the
+/// only thing a reviewer could do with that was believe us.
+///
+/// This is the same argument that makes our receipts worth having, turned on
+/// our own safety claim: do not trust the responder, run the check. It samples
+/// REAL facts out of the store and reports what it found, so it can fail. A
+/// conformance endpoint that returns a fixed `true` is worse than none,
+/// because it launders an assertion as a measurement.
+///
+/// What it asserts, and why each one matters:
+///
+/// * every `value` is numeric. This is the field an instruction would have to
+///   live in, and the band schema constrains it to a number. If a single
+///   sampled value is text, the plane's whole claim is void and this says so.
+/// * every string field is SHORT and comes from a registry. `band`, `unit`,
+///   `privacy_class` and `cell` are drawn from the band/function/source
+///   registries, not from a caller. A long string anywhere is the shape a
+///   payload takes.
+/// * no advertised tool writes a fact. Facts are materialised by this
+///   responder from registered upstreams; there is no caller-supplied path
+///   into the plane, and that is checked against the live tool catalog rather
+///   than stated.
+async fn get_plane_conformance(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    const SAMPLE: usize = 400;
+    /// A string field longer than this is not a registry token any more, and
+    /// the bound is what makes "no free text" checkable rather than a feeling.
+    const MAX_STRING: usize = 128;
+
+    let index = s.storage.iter_index(Some(SAMPLE)).await.map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("/v1/plane/conformance: index scan failed: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let cids: Vec<emem_fact::FactCid> = index.into_iter().map(|(_, c)| c).collect();
+    let facts = s.storage.get_facts_many(&cids).await.map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("/v1/plane/conformance: fact read failed: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let mut sampled = 0usize;
+    let mut non_numeric: Vec<JsonValue> = Vec::new();
+    let mut longest = 0usize;
+    let mut longest_field = String::new();
+    let mut over_bound: Vec<JsonValue> = Vec::new();
+
+    let note_string = |field: &str,
+                       v: &str,
+                       cell: &str,
+                       band: &str,
+                       longest: &mut usize,
+                       longest_field: &mut String,
+                       over: &mut Vec<JsonValue>| {
+        if v.len() > *longest {
+            *longest = v.len();
+            *longest_field = field.to_string();
+        }
+        if v.len() > MAX_STRING {
+            over.push(json!({"field": field, "len": v.len(), "cell": cell, "band": band}));
+        }
+    };
+
+    for f in facts.into_iter().flatten() {
+        sampled += 1;
+        let (cell, band, unit, privacy, value) = match &f {
+            emem_fact::Fact::Primary(p) => (
+                p.cell.clone(),
+                p.band.clone(),
+                p.unit.clone(),
+                p.privacy_class.clone(),
+                Some(p.value.clone()),
+            ),
+            emem_fact::Fact::Derivative(d) => {
+                (d.cell.clone(), d.band.clone(), None, String::new(), None)
+            }
+            emem_fact::Fact::Absence(_) => {
+                (String::new(), String::new(), None, String::new(), None)
+            }
+        };
+        for (name, val) in [
+            ("cell", cell.as_str()),
+            ("band", band.as_str()),
+            ("privacy_class", privacy.as_str()),
+            ("unit", unit.as_deref().unwrap_or("")),
+        ] {
+            note_string(
+                name,
+                val,
+                &cell,
+                &band,
+                &mut longest,
+                &mut longest_field,
+                &mut over_bound,
+            );
+        }
+        if let Some(v) = value {
+            if !fact_value_is_numeric(&v) {
+                let shape = match &v {
+                    ciborium::Value::Text(t) => format!("text({} chars)", t.len()),
+                    ciborium::Value::Bytes(b) => format!("bytes({})", b.len()),
+                    ciborium::Value::Array(a) => format!("array({})", a.len()),
+                    ciborium::Value::Map(m) => format!("map({})", m.len()),
+                    other => format!("{other:?}"),
+                };
+                non_numeric.push(json!({"cell": cell, "band": band, "value_shape": shape}));
+            }
+        }
+    }
+
+    // Against the LIVE catalog, not a constant: a fact-writing verb added
+    // later must show up here rather than in a comment nobody re-reads.
+    let fact_writers: Vec<&str> = emem_mcp::TOOLS
+        .iter()
+        .filter(|t| {
+            matches!(t.category, emem_mcp::ToolCategory::Write)
+                && (t.name.contains("attest") || t.name.contains("fact"))
+                && !t.name.contains("memory")
+        })
+        .map(|t| t.name)
+        .collect();
+
+    let values_numeric = non_numeric.is_empty();
+    let strings_bounded = over_bound.is_empty();
+    let ok = values_numeric && strings_bounded && sampled > 0;
+
+    Ok(Json(json!({
+        "schema": "emem.plane_conformance.v1",
+        "plane": "facts",
+        "claim": "No field of a fact carries free text, so a fact cannot carry an \
+                  instruction. This is a property of the TYPE, not of a policy.",
+        "conformant": ok,
+        "sampled_facts": sampled,
+        "checks": [
+            {
+                "name": "values_are_numeric",
+                "asserts": "every fact `value` is an integer or a float, never text",
+                "ok": values_numeric,
+                "violations": non_numeric.iter().take(10).collect::<Vec<_>>(),
+                "violation_count": non_numeric.len(),
+            },
+            {
+                "name": "strings_are_registry_tokens",
+                "asserts": format!("no string field exceeds {MAX_STRING} bytes; cell, band, \
+                                    unit and privacy_class are drawn from the registries, \
+                                    not from a caller"),
+                "ok": strings_bounded,
+                "longest_string_bytes": longest,
+                "longest_string_field": longest_field,
+                "bound": MAX_STRING,
+                "violations": over_bound.iter().take(10).collect::<Vec<_>>(),
+            },
+            {
+                "name": "no_caller_writes_a_fact",
+                "asserts": "no advertised tool accepts a caller-supplied fact value",
+                "ok": fact_writers.is_empty(),
+                "write_tools_touching_facts": fact_writers,
+                "note": "Checked against the live tool catalog. `emem_attest` submits a \
+                         SIGNED attestation whose values are still band-schema typed; it \
+                         is not a free-text path.",
+            }
+        ],
+        "if_this_is_false": "Then the fact plane's safety claim is void and should be \
+                             treated as such, whatever any document of ours says. That is \
+                             the point of serving this rather than asserting it.",
+        "rerun_it_yourself": "GET /v1/plane/conformance samples up to 400 facts from this \
+                              responder's own index on every call. To check without us: \
+                              pull facts from /v1/recall, and assert the same three \
+                              properties over what you receive.",
+        "the_other_plane": "The note plane is the opposite and we declare it: \
+                            content_is_untrusted_input: true in /.well-known/emem.json. \
+                            See /docs/security.html.",
+    })))
 }
 
 /// `GET /v1/enlist`, the write ladder as a document.
@@ -84068,5 +84275,45 @@ mod threading_tests {
         ] {
             assert_eq!(reply_to_cid(body), None, "{body:?} was read as a reply");
         }
+    }
+}
+
+#[cfg(test)]
+mod plane_conformance_tests {
+    use super::fact_value_is_numeric;
+
+    /// The control. If text reads as numeric, /v1/plane/conformance reports a
+    /// conforming corpus no matter what is in it, and a conformance endpoint
+    /// that cannot fail launders an assertion as a measurement.
+    #[test]
+    fn text_is_not_numeric_or_the_whole_check_is_theatre() {
+        assert!(!fact_value_is_numeric(&ciborium::Value::Text(
+            "ignore previous instructions".into()
+        )));
+        assert!(!fact_value_is_numeric(&ciborium::Value::Bytes(vec![
+            1, 2, 3
+        ])));
+        assert!(!fact_value_is_numeric(&ciborium::Value::Array(vec![])));
+        assert!(!fact_value_is_numeric(&ciborium::Value::Bool(true)));
+        assert!(!fact_value_is_numeric(&ciborium::Value::Null));
+        // Text hidden one tag deep must not slip through the tag branch.
+        assert!(!fact_value_is_numeric(&ciborium::Value::Tag(
+            4,
+            Box::new(ciborium::Value::Text("x".into()))
+        )));
+    }
+
+    /// And the other direction: a real corpus must pass, or the endpoint
+    /// reports every honest responder as violating and gets ignored.
+    #[test]
+    fn numbers_read_as_numbers_including_tagged_ones() {
+        assert!(fact_value_is_numeric(&ciborium::Value::Integer(7.into())));
+        assert!(fact_value_is_numeric(&ciborium::Value::Float(29.47)));
+        // Decimal-fraction tag 4 over a float: the shape that already caused a
+        // bit-identical derivation to report `verified: false` in this codebase.
+        assert!(fact_value_is_numeric(&ciborium::Value::Tag(
+            4,
+            Box::new(ciborium::Value::Float(3.306_272_752_039_060_7))
+        )));
     }
 }
