@@ -542,6 +542,11 @@ html, body{overflow-x:clip}
 /* The banks turn between reaches rather than cutting. The scene under the
    words changes as the river runs down: field, mill, tower, machine, network. */
 .bank{ transition:opacity .34s ease; }
+/* Growth, not replacement: a branch that has not been reached yet is drawn and
+   waiting at zero. The delay is per element so the next generation arrives as
+   a wave rather than a switch. */
+.bank [data-s]{ transition:opacity .75s ease; }
+.bank [data-s].later{ opacity:0 !important; }
 .banks.turning .bank{ opacity:0; }
 /* At the last reach the bridge IS the drawing, so the world it crosses steps
    back rather than competing with it for the same eye. */
@@ -648,29 +653,24 @@ html, body{overflow-x:clip}
 
 <main class="river">
 
-<!-- The two banks carry the SAME world at every reach: the same hills, the
-     same chimneys, the same towers, the same machines. Only the hand differs.
-     The left is redrawn with Math.random on every load, so the village you
-     arrive at is never the village anyone else arrived at. The right is drawn
-     from a seed written down in the source, so it is the same drawing down to
-     the pixel, on every machine, for ever. The page is the thing it describes,
-     and the river runs from a field to a city to a floor full of machines. -->
+<!-- Two figures, each drawn once and growing as the reader goes down. The left
+     is one tree, drawn with Math.random, so it is a different tree on every
+     load. The right is one network, drawn from a seed written in the source, so
+     it is the same network on every machine, for ever. They are never swapped
+     for something else: the difference they show holds the whole way down, and
+     cutting to a new picture every screen said the opposite. -->
 <div class="banks" aria-hidden="true">
-  <svg class="bank bank-l" id="bankL" viewBox="0 0 560 760" preserveAspectRatio="xMaxYMid slice"></svg>
-  <svg class="bank bank-r" id="bankR" viewBox="0 0 560 760" preserveAspectRatio="xMinYMid slice"></svg>
+  <svg class="bank bank-l" id="bankL" viewBox="0 0 560 780" preserveAspectRatio="xMaxYMid slice"></svg>
+  <svg class="bank bank-r" id="bankR" viewBox="0 0 560 780" preserveAspectRatio="xMinYMid slice"></svg>
 </div>
 
-<!-- The two names sit OUTSIDE the reaches, fixed to the viewport, because the
-     thing they label is fixed too. Inside the hero they scrolled away with it,
-     so from the second reach down the page named the bank it was drawing and
-     the reader could not see either name. -->
 <div class="names">
-  <p class="side side-l" id="who">ChatGPT<span>non-deterministic</span></p>
-  <p class="side side-r" id="callsign">@emem<span>deterministic</span></p>
+  <p class="side side-l" id="who">ChatGPT<span>guesses well</span></p>
+  <p class="side side-r" id="callsign">@emem<span>repeats exactly</span></p>
 </div>
 
-<header class="reach reach-open" data-scene="rural" data-who="ChatGPT" data-call="@emem">
-  <h1 class="line">Two ways to know where something is.<br>Only one of them repeats.</h1>
+<header class="reach reach-open" data-step="0" data-who="ChatGPT" data-call="@emem">
+  <h1 class="line">Ask a model the same thing twice,<br>and you get two answers.</h1>
   <svg class="plug" viewBox="0 0 240 40" role="img" aria-label="A jack plug in the gap between the two banks">
     <line x1="0" y1="20" x2="96" y2="20" class="p-lead"/>
     <rect x="96" y="14" width="46" height="12" rx="3" class="p-shaft"/>
@@ -679,50 +679,55 @@ html, body{overflow-x:clip}
     <line x1="194" y1="20" x2="240" y2="20" class="p-lead"/>
   </svg>
   <p class="call"><code>call @emem</code></p>
-  <p class="sub">One village, drawn on both banks. Reload: the left is drawn again from nothing, the right has not moved since the seed was written down.</p>
-  <p class="scroll-cue"><span>the river runs down</span></p>
+  <p class="sub">Ask emem the same thing twice and the same bytes come back, signed, with a receipt you can check yourself. That is the whole idea. Everything below is you checking it.</p>
+  <p class="scroll-cue"><span>keep going</span></p>
 </header>
 
-<section class="reach" id="mill" data-scene="industrial" data-who="Claude" data-call="@mcp">
-  <h2 class="line">Both banks remember the mill.<br>Only one can still say where it stood.</h2>
+<section class="reach" id="twice-r" data-step="1" data-who="Claude" data-call="@mcp">
+  <h2 class="line">Not because it is cached.<br>Because the answer has an address.</h2>
+  <p class="sub">Two calls, right now, from your browser to production. Watch the line under them: that is the address the answer lives at, and it is the same both times.</p>
   <div class="run">
     <button type="button" class="go" id="twice">ask the same question twice</button>
-    <pre class="out mono" id="twiceOut">Two calls to /v1/recall for one place. Watch the content address.</pre>
+    <pre class="out mono" id="twiceOut">Nothing has run yet. Press the button and both calls go out to emem.dev.</pre>
   </div>
 </section>
 
-<section class="reach" id="street" data-scene="corporate" data-who="Codex" data-call="@mcp emem">
-  <h2 class="line">A company can rename the street.<br>It cannot rename the address.</h2>
+<section class="reach" id="carry" data-step="2" data-who="Codex" data-call="@mcp emem">
+  <h2 class="line">Your context ends.<br>The address does not.</h2>
+  <p class="sub">A token is short enough to sit in a sentence and exact enough to name one measurement. Keep it when your context is compacted, hand it to another agent, resolve it a year later: the same signed bytes come back.</p>
   <div class="run">
     <button type="button" class="go" id="resolve">resolve a token</button>
-    <pre class="out mono" id="resolveOut">A token is short enough to sit in a sentence and exact enough to name one observation.</pre>
+    <pre class="out mono" id="resolveOut">This takes a real token from production and turns it back into the fact it names.</pre>
   </div>
 </section>
 
-<section class="reach" id="machines" data-scene="robots" data-who="Cosmos" data-call="emem council">
-  <h2 class="line">A model may answer twice.<br>A machine only gets to move once.</h2>
+<section class="reach" id="checkable" data-step="3" data-who="Cosmos" data-call="emem council">
+  <h2 class="line">You do not have to trust us.<br>That is the point, and you can test it.</h2>
+  <p class="sub">Every answer carries an ed25519 receipt that checks against a published key rather than against our word. Here is the responder auditing its own fact plane, live, and reporting false when it fails.</p>
   <div class="run">
     <button type="button" class="go" id="check-run">run the check</button>
-    <pre class="out mono" id="checkOut">The same call, from your machine, with nothing of ours in it.</pre>
+    <pre class="out mono" id="checkOut">The same call you could make from your own machine, with nothing of ours in it.</pre>
     <p class="foot-note"><a href="/docs/security.html">what is checked, and what we do not claim</a></p>
   </div>
 </section>
 
-<section class="reach" id="many" data-scene="network" data-who="Dify" data-call="emem">
-  <h2 class="line">Every agent here reads the same bytes.<br>None of them reads another.</h2>
+<section class="reach" id="many" data-step="4" data-who="Dify" data-call="emem">
+  <h2 class="line">Two agents, two vendors,<br>one set of bytes they both read.</h2>
+  <p class="sub">Neither has to trust the other, and neither has to trust us. The tree on your left is redrawn from nothing every time you load this page. The network on your right has not moved since its seed was written down. Press the button and watch which one changes.</p>
   <div class="run">
-    <button type="button" class="go" id="redraw">draw the left bank again</button>
-    <p class="out" id="redrawOut">The left bank is drawn from nothing, so it comes out different. The right bank will not move, because it was never drawn from nothing: it was drawn from a seed you can run yourself.</p>
+    <button type="button" class="go" id="redraw">redraw the left bank</button>
+    <p class="out" id="redrawOut">A model is valuable BECAUSE it can answer something nobody wrote down. A record is valuable because it cannot. You want both, which is why there are two banks.</p>
   </div>
 </section>
 
-<section class="reach bridgehead" id="bridge" data-scene="bridge" data-who="any model" data-call="one address">
-  <h2 class="line">The banks never meet.<br>One thing crosses, and it is the token.</h2>
+<section class="reach bridgehead" id="bridge" data-step="5" data-who="any model" data-call="one address">
+  <h2 class="line">One thing crosses between them,<br>and it is the token.</h2>
   <svg class="span" id="span" viewBox="0 0 1000 240" role="img"
        aria-label="A bridge over the channel. Its left half is drawn freehand, its right half is built from nodes and edges, and the two halves meet over the middle of the river where a single token crosses."></svg>
+  <p class="sub">Earth is what fills this memory today, because satellites and sensors already measure it and their output can be recomputed. It is the substrate, not the subject: anything that can prove how it was produced can be written down the same way.</p>
   <nav class="ways" aria-label="Where to go next">
+    <a href="/demos">see it run<span>eight live calls, no key</span></a>
     <a href="/the-long-version">the long version<span>the whole case, at length</span></a>
-    <a href="/demos">demos<span>eight real calls against production</span></a>
     <a href="/docs">the book<span>protocol, spec, security</span></a>
   </nav>
 </section>
@@ -736,9 +741,8 @@ html, body{overflow-x:clip}
 (function(){
   var L = document.getElementById('bankL'), R = document.getElementById('bankR');
   /* The banks are cropped to the viewport (`slice`). On a wide screen the
-     middle of the drawing is the interesting part; on a phone the interesting
-     part is the ground, and centring it put the horizon behind the sentence.
-     Anchor to the bottom there, which is where the veil above leaves room. */
+     middle of the figure is the interesting part; on a phone it is the lower
+     half, and centring put it behind the sentence. */
   function anchorBanks(){
     var phone = window.matchMedia('(max-width:860px)').matches;
     L.setAttribute('preserveAspectRatio', phone ? 'xMaxYMax slice' : 'xMaxYMid slice');
@@ -746,8 +750,8 @@ html, body{overflow-x:clip}
   }
   anchorBanks();
 
-  /* How tall the fixed chrome is, published to CSS so the two names can sit
-     just under it at any width. offsetHeight rather than
+  /* How tall the fixed chrome is, published to CSS so the two names sit just
+     under it at any width. offsetHeight rather than
      getBoundingClientRect().bottom: the bar scrolls with the page, so its
      viewport position stops meaning anything the moment the reader moves,
      while its LAYOUT height does not. */
@@ -759,13 +763,12 @@ html, body{overflow-x:clip}
   }
   measureChrome();
   window.addEventListener('resize', function(){ anchorBanks(); measureChrome(); });
-  /* The bar rewraps at widths no media query here knows about, so watch it
-     rather than listing them. */
   if('ResizeObserver' in window){
     var chromeBar = document.querySelector('header.sitebar');
     if(chromeBar) new ResizeObserver(measureChrome).observe(chromeBar);
   }
-  var W = 560, H = 760, GROUND = H*0.74;
+
+  var W = 560, H = 780, STEPS = 5;
   function el(n, a){
     var e = document.createElementNS('http://www.w3.org/2000/svg', n);
     for(var k in a) e.setAttribute(k, a[k]);
@@ -778,183 +781,138 @@ html, body{overflow-x:clip}
     return ((t ^ t >>> 14) >>> 0) / 4294967296;
   }; }
 
-  /* ---- the world, written once -------------------------------------------
-     Both banks are handed the SAME pieces. A hill is one hill; a chimney is
-     one chimney. The shapes come from a seed derived from the scene name, so
-     the two sides never disagree about what is standing there. Everything
-     that follows is about how each side DRAWS what they both agree is there,
-     which is the only claim this page makes. */
-  function world(scene){
-    var seed = 20260826; for(var i = 0; i < scene.length; i++) seed = seed*31 + scene.charCodeAt(i) | 0;
-    var r = mulberry32(seed), P = [];
-    function ridge(y, amp){
-      var pts = [];
-      for(var x = 0; x <= W; x += 24)
-        pts.push([x, y + Math.sin(x/92 + amp)*amp*0.55 + Math.sin(x/29 + amp*2)*4]);
-      P.push({ k:'ridge', p:pts });
-    }
-    function box(x, y, w, h){ P.push({ k:'box', p:[[x,y],[x+w,y],[x+w,y+h],[x,y+h]] }); }
-    function limb(pts){ P.push({ k:'limb', p:pts }); }
+  /* ---- the left bank: one tree, drawn once, growing -----------------------
+     ONE figure for the whole page, not a scene per reach. The reader scrolls
+     and the same tree puts out the next generation of branches; nothing is
+     swapped and nothing restarts, because the argument is a difference in
+     KIND that holds the whole way down, and a cut every screen said the
+     opposite. Every branch is tagged with the step it appears at.
 
-    if(scene === 'rural'){
-      ridge(H*0.26, 40); ridge(H*0.44, 30); ridge(GROUND, 14);
-      for(var i = 0; i < 9; i++)
-        P.push({ k:'tree', p:[[34 + r()*(W-68), GROUND - 2 - r()*46]], h:30 + r()*34 });
-      box(W*0.26, GROUND-38, 46, 38); box(W*0.60, GROUND-28, 34, 28);
-    } else if(scene === 'industrial'){
-      ridge(H*0.36, 22); ridge(GROUND, 10);
-      for(var i = 0; i < 4; i++){
-        var cx = 54 + i*118 + r()*20, ch = 168 + r()*74;
-        box(cx, GROUND-ch, 19, ch);
-        var sm = [];
-        for(var t = 0; t < 7; t++) sm.push([cx + 9 + t*17 + Math.sin(t*1.3)*11, GROUND-ch-16 - t*24]);
-        limb(sm);
-      }
-      for(var i = 0; i < 3; i++) box(40 + i*172 + r()*26, GROUND-54, 96, 54);
-    } else if(scene === 'corporate'){
-      ridge(GROUND, 8);
-      for(var i = 0; i < 9; i++){
-        var tw = 28 + r()*20, th = 96 + r()*250;
-        box(16 + i*60 + r()*9, GROUND-th, tw, th);
-      }
-    } else if(scene === 'robots'){
-      ridge(GROUND, 8);
-      for(var i = 0; i < 3; i++){
-        var bx = 52 + i*172 + r()*18, by = GROUND-116;
-        box(bx, by, 60, 76);
-        box(bx+15, by-40, 30, 32);
-        limb([[bx, by+16], [bx-30, by+44], [bx-46, by+18]]);
-        limb([[bx+60, by+16], [bx+90, by+44], [bx+106, by+18]]);
-        limb([[bx+30, by-40], [bx+30, by-64]]);
-        limb([[bx+16, by+76], [bx+16, GROUND]]);
-        limb([[bx+44, by+76], [bx+44, GROUND]]);
-      }
-    } else {
-      var n = [];
-      for(var i = 0; i < 7; i++) for(var j = 0; j < 6; j++)
-        n.push([36 + i*82 + (r()-0.5)*34, 84 + j*116 + (r()-0.5)*38]);
-      for(var a = 0; a < n.length; a++){
-        P.push({ k:'node', p:[n[a]], r:2.2 + r()*2.4 });
-        for(var b = a+1; b < n.length; b++){
-          var dx = n[a][0]-n[b][0], dy = n[a][1]-n[b][1];
-          if(dx*dx + dy*dy < 134*134) limb([n[a], n[b]]);
-        }
-      }
-    }
-    return P;
-  }
-
-  /* ---- the left hand -----------------------------------------------------
-     Nothing here is seeded. Every point is nudged by Math.random and every
-     line is drawn twice, slightly apart, because a drawn line never lands on
-     itself. Reload and this is a different village. That is not a defect: it
-     is what lets a model answer a question nobody wrote down. */
-  function drawFree(pieces){
+     Nothing here is seeded: reload and it is a different tree, which is the
+     whole of what the left bank claims. */
+  function drawTree(){
     while(L.firstChild) L.removeChild(L.firstChild);
     var g = el('g', {});
-    function wob(p, n){ return [p[0] + (Math.random()-0.5)*n, p[1] + (Math.random()-0.5)*n]; }
-    function d_of(pts, close, n){
-      var d = '';
-      for(var i = 0; i < pts.length; i++){
-        var q = wob(pts[i], n);
-        d += (i ? 'L' : 'M') + q[0].toFixed(1) + ',' + q[1].toFixed(1);
+    /* The distribution the tree is a sample OF. Four draws of one shape, none
+       of them identical, sitting behind the branches: it is what makes the
+       left bank mean something rather than just look organic. Step 0, so it is
+       there from the first screen and never arrives as a surprise. */
+    for(var c = 0; c < 4; c++){
+      var mu = H*(0.40 + Math.random()*0.20), sd = H*(0.06 + Math.random()*0.05);
+      var amp = W*(0.30 + Math.random()*0.22), d = '';
+      for(var y = 0; y <= H; y += 6){
+        var bx = amp*Math.exp(-Math.pow((y-mu)/sd, 2)/2);
+        d += (y === 0 ? 'M' : 'L') + bx.toFixed(1) + ',' + y;
       }
-      return d + (close ? 'Z' : '');
+      g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
+        opacity:0.05, 'data-s':0 }));
+      g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
+        'stroke-width':1, opacity:0.3, 'data-s':0 }));
     }
-    function stroke(pts, close, w, o, n){
-      g.appendChild(el('path', { d:d_of(pts, close, n), fill:'none', stroke:'currentColor',
-        'stroke-width':w, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:o }));
-    }
+    var DEPTH = 10;
     function bough(x, y, ang, len, depth){
-      if(depth === 0 || len < 3) return;
+      if(depth === 0 || len < 2.5) return;
       var x2 = x + Math.cos(ang)*len, y2 = y + Math.sin(ang)*len;
-      g.appendChild(el('line', { x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
-        stroke:'currentColor', 'stroke-width':Math.max(0.3, depth*0.3).toFixed(2),
-        'stroke-linecap':'round', opacity:0.6 }));
-      var n = Math.random() < 0.2 ? 3 : 2;
+      /* Step from the GENERATION, spread over the five reaches. Counting a
+         step per generation put ten generations into five steps and clamped
+         the rest, so the tree revealed 1, 3, 7, 16, 35 branches and then all
+         1,765 at once: a doubling structure has to be mapped onto the steps,
+         not walked one per step. Two generations per reach, so each one is a
+         visible wave rather than a jump. */
+      var gen = DEPTH - depth;
+      /* Front-loaded on purpose. A linear map put ONE branch on the first
+         screen, so the page opened on an empty bank and the reader met the
+         argument before either side of it existed. The first four generations
+         arrive together, which is a small recognisable tree, and the rest
+         spread over the reaches below. */
+      var s = Math.min(STEPS, Math.max(0, Math.round((gen - 3) * STEPS / (DEPTH - 4))));
+      g.appendChild(el('line', {
+        x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
+        stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
+        'stroke-linecap':'round', 'data-s':s, opacity:0.68
+      }));
+      var n = Math.random() < 0.18 ? 3 : 2;
       for(var i = 0; i < n; i++)
-        bough(x2, y2, ang + (Math.random()-0.5)*1.0, len*(0.66 + Math.random()*0.16), depth-1);
+        bough(x2, y2, ang + (Math.random()-0.5)*0.98,
+              len*(0.67 + Math.random()*0.15), depth-1);
     }
-    pieces.forEach(function(pc){
-      if(pc.k === 'tree'){ bough(pc.p[0][0], pc.p[0][1], -Math.PI/2, pc.h*0.42, 7); return; }
-      if(pc.k === 'node'){
-        g.appendChild(el('circle', { cx:pc.p[0][0].toFixed(1), cy:pc.p[0][1].toFixed(1),
-          r:(pc.r*1.5).toFixed(2), fill:'currentColor', opacity:0.16 }));
-        return;
-      }
-      var close = pc.k === 'box';
-      if(close) g.appendChild(el('path', { d:d_of(pc.p, true, 5), fill:'currentColor',
-        opacity:0.055, stroke:'none' }));
-      stroke(pc.p, close, 1.0, 0.5, 5);
-      stroke(pc.p, close, 0.6, 0.28, 8);
-    });
+    /* Rooted at the channel and growing away from it: the model reaches out
+       from the plug, it does not arrive at it. */
+    bough(W-4, H/2, Math.PI, 166, DEPTH);
     L.appendChild(g);
+    paint();
   }
 
-  /* ---- the right hand ----------------------------------------------------
-     The same world, resolved. Every form becomes what can be addressed: a
-     vertex, and an edge to the vertex beside it. Seeded, so this is the same
-     drawing on every machine that ever loads this page. The seed is in the
-     line below, which is the whole of the promise. */
-  function drawLattice(pieces){
+  /* ---- the right bank: one network, drawn once, densifying ----------------
+     The same shape of promise, kept differently. Nodes are ordered by distance
+     from the channel, so the network grows OUTWARD from the plug as the reader
+     goes down: what is nearest the connector exists first. Seeded, so this is
+     the same network on every machine that ever loads this page. */
+  function drawNet(){
     while(R.firstChild) R.removeChild(R.firstChild);
     var rnd = mulberry32(20260826);
     var g = el('g', {});
-    /* Weighted toward the channel, so the structure arrives at the plug
-       instead of piling up against the outer edge of the page. */
-    function near(x, y){
-      var dx = x/W, dy = (y - H/2)/(H*0.62), t = Math.sqrt(dx*dx + dy*dy);
-      return Math.max(0.06, 1 - t*0.72);
-    }
-    function node(p, rad){
-      var w = near(p[0], p[1]);
-      g.appendChild(el('circle', { cx:p[0].toFixed(1), cy:p[1].toFixed(1),
-        r:(rad*(0.6 + 0.4*w)).toFixed(2), fill:'currentColor', opacity:(0.95*w).toFixed(3) }));
-    }
-    function poly(pts, close){
-      var d = '';
-      for(var i = 0; i < pts.length; i++) d += (i ? 'L' : 'M') + pts[i][0].toFixed(1) + ',' + pts[i][1].toFixed(1);
-      if(close) d += 'Z';
-      var mid = pts[(pts.length/2)|0], w = near(mid[0], mid[1]);
-      if(close) g.appendChild(el('path', { d:d, fill:'currentColor', opacity:(0.05*w).toFixed(3), stroke:'none' }));
-      g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':0.75, opacity:(0.62*w).toFixed(3) }));
-    }
-    function latticeTree(x, y, h0){
-      /* The same tree the other bank draws, resolved into joints. */
-      var pts = [], lvl = [[x, y]];
-      pts.push({ a:[x,y], b:[x, y-h0*0.46] });
-      lvl = [[x, y-h0*0.46]];
-      for(var d = 0; d < 3; d++){
-        var next = [];
-        lvl.forEach(function(p){
-          for(var s = -1; s <= 1; s += 2){
-            var q = [p[0] + s*(h0*0.20)/(d+1)*1.5, p[1] - h0*0.24/(d*0.6+1)];
-            pts.push({ a:p, b:q }); next.push(q);
-          }
-        });
-        lvl = next;
+    var pts = [], cols = 8, rows = 20;
+    for(var i = 0; i < cols; i++)
+      for(var j = 0; j < rows; j++)
+        pts.push({ x: 18 + i*(W-36)/(cols-1) + (rnd()-0.5)*26,
+                   y: 16 + j*(H-32)/(rows-1) + (rnd()-0.5)*26,
+                   r: 1.5 + rnd()*2.3 });
+    /* Distance from the plug: the connector sits at the inner edge, mid height. */
+    pts.forEach(function(p){
+      var dx = p.x/W, dy = (p.y - H/2)/(H*0.55);
+      p.d = Math.sqrt(dx*dx + dy*dy);
+    });
+    var far = Math.max.apply(null, pts.map(function(p){ return p.d; })) || 1;
+    pts.forEach(function(p){
+      /* Squared, for the same reason the tree is front-loaded: distance is
+         linear but a uniform field puts very few nodes near the plug, so a
+         linear map opened on thirty of eleven hundred and the right bank was
+         a rumour on the first screen. */
+      p.s = Math.min(STEPS, Math.floor(Math.pow(p.d / far, 2) * (STEPS + 0.999)));
+      p.w = Math.max(0.1, 1 - p.d*0.62);
+    });
+    for(var a = 0; a < pts.length; a++){
+      for(var b = a+1; b < pts.length; b++){
+        var ex = pts[a].x-pts[b].x, ey = pts[a].y-pts[b].y;
+        if(ex*ex + ey*ey > 122*122) continue;
+        var w = (pts[a].w + pts[b].w)/2;
+        g.appendChild(el('line', {
+          x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
+          x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
+          stroke:'currentColor', 'stroke-width':0.6,
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.55*w).toFixed(3)
+        }));
       }
-      return pts;
     }
-    pieces.forEach(function(pc){
-      if(pc.k === 'tree'){
-        latticeTree(pc.p[0][0], pc.p[0][1], pc.h).forEach(function(seg){
-          poly([seg.a, seg.b], false); node(seg.b, 1.5 + rnd()*1.2);
-        });
-        node(pc.p[0], 1.8);
-        return;
-      }
-      if(pc.k === 'node'){ node(pc.p[0], pc.r); return; }
-      var close = pc.k === 'box';
-      poly(pc.p, close);
-      for(var i = 0; i < pc.p.length; i++){
-        if(pc.k === 'ridge' && (i % 2)) continue;
-        node(pc.p[i], 1.5 + rnd()*1.3);
-      }
+    pts.forEach(function(p){
+      g.appendChild(el('circle', {
+        cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
+        fill:'currentColor', 'data-s':p.s, opacity:(0.95*p.w).toFixed(3)
+      }));
     });
     R.appendChild(g);
+    paint();
   }
+
+  /* One step down the river reveals the next generation on both banks. The
+     opacity transition is in CSS, so this is a class flip rather than an
+     animation loop. */
+  var step = 0;
+  function paint(){
+    [L, R].forEach(function(host){
+      host.querySelectorAll('[data-s]').forEach(function(n){
+        n.classList.toggle('later', (+n.getAttribute('data-s')) > step);
+      });
+    });
+  }
+  function setStep(n){
+    n = Math.max(0, Math.min(STEPS, n));
+    if(n === step) return;
+    step = n;
+    paint();
+  }
+  drawTree(); drawNet();
 
   /* ---- the bridge --------------------------------------------------------
      Drawn only at the last reach. Its left half is freehand and its right half
@@ -1016,22 +974,10 @@ html, body{overflow-x:clip}
     S.appendChild(g);
   }
 
-  /* ---- the river runs down ----------------------------------------------- */
-  var current = null;
-  function setScene(name){
-    if(name === current) return;
-    current = name;
-    if(name === 'bridge'){ drawBridge(); return; }
-    var pieces = world(name);
-    drawFree(pieces);
-    drawLattice(pieces);
-  }
-  setScene('rural');
-
-  /* The name on the left changes at every reach and the address on the right
-     does not change what it points at. Both are swapped here so the words
-     track the drawing instead of describing a bank the reader has scrolled
-     past. */
+  /* ---- the river runs down -----------------------------------------------
+     Each reach reveals the next generation on both banks. Nothing is replaced,
+     so the two figures are continuous the whole way down and the difference
+     between them is the only thing that changes. */
   var who = document.getElementById('who'), callsign = document.getElementById('callsign');
   function swap(node, text){
     if(!node || text === node.firstChild.nodeValue) return;
@@ -1046,29 +992,23 @@ html, body{overflow-x:clip}
         var t = en.target;
         swap(who, t.getAttribute('data-who'));
         swap(callsign, t.getAttribute('data-call'));
-        var scene = t.getAttribute('data-scene');
-        if(banks) banks.classList.toggle('at-bridge', scene === 'bridge');
-        if(scene && scene !== current){
-          if(banks) banks.classList.add('turning');
-          setTimeout(function(){
-            setScene(scene);
-            if(banks) banks.classList.remove('turning');
-          }, 240);
-        }
+        setStep(+t.getAttribute('data-step') || 0);
+        if(t.id === 'bridge'){
+          drawBridge();
+          if(banks) banks.classList.add('at-bridge');
+        } else if(banks) banks.classList.remove('at-bridge');
       });
     }, { threshold:0.5 });
-    document.querySelectorAll('.reach[data-scene]').forEach(function(r){ obs.observe(r); });
+    document.querySelectorAll('.reach[data-step]').forEach(function(r){ obs.observe(r); });
   } else {
-    document.querySelectorAll('.reach[data-scene]').forEach(function(r){
-      if(r.getAttribute('data-scene') === 'bridge') drawBridge();
-    });
+    setStep(5); drawBridge();
   }
 
   var redraw = document.getElementById('redraw');
   if(redraw) redraw.addEventListener('click', function(){
-    drawFree(world(current === 'bridge' ? 'network' : current));
+    drawTree();
     document.getElementById('redrawOut').textContent =
-      'Drawn again from nothing, so it came out different. The right bank did not move, and it will not: scroll back and every node is where you left it.';
+      'A different tree, from the same instruction. The network on the right did not move and will not: scroll back and every node is where you left it. That is the difference, and it is the reason to keep both.';
   });
 
   /* ---- the three live calls -------------------------------------------- */

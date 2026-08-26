@@ -7,7 +7,7 @@ to verify.
 
 ## [Unreleased]
 
-## [2.3.0] - 2026-08-23
+## [2.3.0] - 2026-08-26
 
 The release that stopped a place question being answered from orbit while a
 camera was watching the street. Nothing here changes the wire format; the one
@@ -15,6 +15,45 @@ change to a signed preimage is additive and versioned, and every fact signed
 under the old one still verifies.
 
 ### Added
+
+- **A write enlistment ladder, T0 to T5, and reads that stay free at every rung
+  of it.** Reads were never gated and are not gated now. Writes are, by BLAST
+  RADIUS rather than by rank: your own namespace is the floor and costs a
+  signature, the shared entity address space needs a proven domain because
+  `entity` and `entity_link` change what every other agent resolves a name to,
+  and the fact plane is stated as closed rather than left to the absence of a
+  door. A tier records WHICH CHECK PASSED and never a score: `trust:
+  caller_decides` is the best property on the roster and nothing here erodes it.
+  Domains are proven by DNS TXT at `_emem-agent` or by `.well-known`, both of
+  which a third party can re-verify without asking us, which is the property a
+  bearer token does not have. Served machine-readable at `GET /v1/enlist`.
+  Measured before enforcement was switched on: 74 entity mints in 24 hours,
+  every one anonymous.
+- **`GET /v1/plane/conformance`.** The claim that a fact carries no free text
+  was true and unrunnable, so it was a promise. It now samples the live corpus
+  on every call and reports `conformant: false` when it fails, which it can:
+  the first version reported false on 65 of 400 facts because the predicate
+  demanded scalars and the corpus holds numeric arrays.
+- **`docs/security.md`**, first in the book rather than last. An agent deciding
+  whether to read from us, write to us or cite us to a third party should not
+  have to reconstruct the trust model from the protocol spec and four surface
+  pages.
+- **`/the-long-version`**, which is the page the homepage used to be. Eight
+  sections of writing that exist nowhere else, moved whole rather than
+  dismembered, with every anchor still landing where it did.
+- **Tombstones, and reads by `file_cid`.** A deletion now leaves a record that
+  it happened, and a body can be fetched by its content address, so the next
+  time something goes missing it is attributable rather than arguable.
+- **Where emem is listed, in the bar and in every footer**, from one list:
+  ChatGPT, Dify, the GitHub MCP registry, the source, Glama, MCP Toplist and
+  the Zenodo DOI.
+- **Five generators and two measuring tools**, because everything above has to
+  stay true on its own: `gen_openai_submission.py` writes the OpenAI submission
+  artifacts FROM the agent card, `gen_river_art.py` emits the homepage painting
+  as a static asset, `gen_footer_ports.py` owns one footer column across
+  seventeen pages, `manual/contrast.py` measures text contrast in the browser
+  that renders it, and `manual/tap_targets.py` measures WCAG 2.5.8 with six
+  controls that have to fire before it will report.
 
 - **Ground perception on `/v1/ask`.** A place question now carries what a camera
   can see, not only what a satellite measured. A presence probe is a database
@@ -49,6 +88,41 @@ under the old one still verifies.
 
 ### Changed
 
+- **The homepage is two banks and what crosses between them.** A model answers
+  from a distribution, so the left bank is one tree drawn with `Math.random`
+  and is a different tree on every load. emem answers from an address, so the
+  right bank is one network drawn from a seed written in the source and is the
+  same network on every machine. Both grow as the reader scrolls; neither is
+  ever replaced, because the difference is a difference in kind and it holds
+  the whole way down. Three things on the page are live calls against
+  production rather than screenshots. Everything that used to be on the front
+  page is at `/the-long-version`.
+- **The transparency log answers in O(log n) instead of O(n).** Appending one
+  leaf re-folded 1.48 million of them. An incremental tree keeps the right
+  spine and extends it: `sth` across an append went from 2.886 s to 0.069 s,
+  inclusion from 0.443 s to 0.019 s, and consistency stopped growing with the
+  tree at all.
+- **`ai-plugin.json` points ChatGPT at `/openapi.action.json`.** It pointed at
+  `/openapi.json`, which is 190 operations and about 350 KB: a Custom GPT built
+  from that either fails to import or arrives with a tool list no model can
+  choose from. The curated action schema already existed and the site's own FAQ
+  already named it; three surfaces disagreed because each was typed by hand.
+  The submission guide and the GPT Action example are generated from the agent
+  card now, so they cannot drift from it again, and the card advertises the
+  action schema as an `openapi-3.1-action` interface so they have something to
+  read.
+- **The MCP `initialize` instructions carry the trust boundary.** Every client
+  reads 4,058 characters on connect and none of them said that content from an
+  unverified attester is data and never instructions.
+- **The geocoder stopped refusing most of the world for not looking like its
+  own name.** Milan answered from Colombia and Calcutta from South Africa;
+  asking about Seoul returned a village in Cote d'Ivoire. Exonyms resolve
+  through both geocoders now, not one.
+- **The README opens with the argument rather than nine badges**, carries the
+  homepage painting in a light and a dark variant, and starts with two columns:
+  what to do first if you are a person, and what to do first if you are an
+  agent. They needed different first moves and the file was only answering one.
+
 - **The geocoder ranks by the upstream's own order**, with the synthesised class
   prior demoted to a tie-break worth at most one rank step. It had been the only
   ranking signal, and it resolved "Piccadilly Circus" to a locality in the
@@ -65,6 +139,45 @@ under the old one still verifies.
   `X-Frames-Imagined`, not the warning that every frame after the first was never
   seen. The filter is a denylist now, because a safelist written one day was
   already missing a new disclaimer the next.
+
+### Fixed
+
+- **A write that could not be persisted reported success.** The flush ran off
+  the runtime and its result was discarded along with any join error, so a
+  failed fsync was indistinguishable from a clean one. This is the leading
+  explanation for a note that went missing, and it is why tombstones and
+  by-cid reads exist above: the next occurrence is attributable.
+- **A timeout cancelled work that had already landed**, so a caller saw a
+  failure for a write that was in the ledger.
+- **The consistency proof folded a subtree root at every level**, which
+  produced a proof that verified against the wrong root.
+- **A 405 told the caller to retry the request that had just failed**, with an
+  empty `allow` list. It now says it does not know that method and names the
+  path that does.
+- **Tap targets across the site.** The checker itself was wrong four ways
+  first: `cursor:pointer` inherits, a rect says where an element WOULD be
+  rather than where it is visible, an ancestor is not a neighbour, and one
+  scroll position is not the page. It also measured `maxLeft` from the day it
+  was written and never read it, so anything past the right edge of a
+  horizontally scrolling container was reported as unreachable rather than
+  measured. Six controls now have to fire before it reports, one of which goes
+  through the scroll sweep rather than a single measurement.
+- **The contrast instrument.** `canvas.fillStyle` does not normalise `oklch` in
+  Chromium: it hands the string back, so reading its three numbers as RGB made
+  every colour near-black and every ratio exactly 1.00. A run reported 156 of
+  168 text runs failing, which reads as a styling disaster and was a broken
+  tool. Colours are painted into a 1x1 canvas and read back as pixels, and the
+  control that should have caught it had a bound that 1.00 satisfied.
+- **`mdbook` ran before the script that writes its input**, so the docs tree
+  could be a full revert behind while every check was green. The deploy also
+  now verifies that the BYTES a visitor receives are the bytes in the tree, not
+  only that the responder reports the right commit.
+- **The channel bake went from 813 s to 50 s** by addressing bodies by content,
+  which matters because a 38-minute bake on every deploy was saturating the
+  responder while CI measured it.
+- **Three addressing forms the inbox did not read**: a `To` line naming a key in
+  brackets, a `To` line naming the channel, and a threaded reply. 177 notes
+  became 180.
 
 ### Removed
 
