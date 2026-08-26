@@ -143,6 +143,14 @@ def main() -> int:
         br.close()
 
     print(f"\nTOTAL below bound (including instrument failures): {total_fail}")
+    # WHAT THIS DID NOT LOOK AT, printed rather than left in the docstring. A
+    # count of runs that pass reads as "the page passes"; it means "the elements
+    # this selector names, at the positions I visited, pass".
+    print(f"  scope: selector {a.selector!r}")
+    print(f"         {'stepped down the page' if a.scroll else 'ONE viewport, no scrolling (pass --scroll to sweep)'}"
+          f", widths {a.width}px, themes light+dark.")
+    print("  NOT covered: text this selector does not name, text behind a closed")
+    print("  <details>, and any colour with alpha (those are skipped, not passed).")
     return 1 if total_fail else 0
 
 

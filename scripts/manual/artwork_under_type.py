@@ -21,10 +21,12 @@ ap.add_argument("--reach", default="#checkable",
 ARGS = ap.parse_args()
 URL = ARGS.origin.rstrip("/") + ARGS.page
 
+WIDTHS = (768, 1024, 1440, 1920, 2560)
+
 with sync_playwright() as pw:
     br = pw.chromium.launch()
     worst = 0.0
-    for w in (768, 1024, 1440, 1920, 2560):
+    for w in WIDTHS:
         pg = br.new_page(viewport={"width": w, "height": 900}, color_scheme="light")
         pg.add_init_script(SEED)
         pg.goto(URL, wait_until="domcontentloaded"); pg.wait_for_timeout(1100)
@@ -60,4 +62,16 @@ with sync_playwright() as pw:
         worst = max(worst, top[0])
         print(f"  {w:5}  worst {top[0]:5.1f}% of box  {top[1]!r}   ({len(rows)} text boxes)")
     br.close()
+    # WHAT THIS DID NOT LOOK AT. The number above is one scroll position per
+    # width, and the whole reason this file exists is that a caption below the
+    # mobile breakpoint is IN THE FLOW and comes to rest wherever the scroll
+    # stops: two of us measured the same page at different rests and got 0.1%
+    # and 12.8%. A clean line here means "clean at these rests", and saying
+    # otherwise would be the defect this tool was written to catch.
     print(f"\nworst artwork-under-type anywhere: {worst:.1f}%")
+    print(f"  scope: {len(WIDTHS)} width(s), ONE scroll position each "
+          f"(reach {ARGS.reach}, nudged up 10%), selector: main .line, main .sub,")
+    print("         main .out, .names .side, .reach-names > span.")
+    print("  NOT covered: any other rest, and any text this selector does not name.")
+    print("  A caption in the flow moves with the scroll, so re-run with --reach")
+    print("  at other sections before reading a clean line as a clean page.")
