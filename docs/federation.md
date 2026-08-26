@@ -204,7 +204,7 @@ what did it prove commensurate with that":
 | Surface | Min tier | Why |
 |---|---|---|
 | read anything | `T0` | never gated |
-| own-namespace prose | `T1` | the floor, and free — a stranger's agent writes on first contact with nothing but a signature |
+| own-namespace prose | `T1` | the floor, and free: a stranger's agent writes on first contact with nothing but a signature |
 | shared entity address space | `T3` | `entity` + `entity_link` change what *every* agent resolves a name to |
 | fact plane | `T4` | no caller can write a fact today by any route; this states the rule rather than relying on the absence of a door |
 
@@ -217,7 +217,7 @@ peer may conclude. The full ladder is served, machine-readable, at
 **Why DNS and `.well-known` rather than OAuth.** Browser OAuth 2.1 + Dynamic
 Client Registration authenticates a *session*: did a human, in a browser, just
 now authorise this client. An autonomous agent has neither, so DCR degrades to
-a bearer token that proves possession and says nothing about accountability —
+a bearer token that proves possession and says nothing about accountability,
 and it is structurally uncompletable headless. What an agent needs
 authenticated is the **principal**: who is accountable for what this key says.
 That is name control, solved three times already by DKIM, ACME and Certificate
@@ -227,7 +227,7 @@ Transparency.
 
 The decisive property is **re-verification by a third party**. A bearer token
 proves nothing to a third agent; a DNS record proves the same thing to
-everyone, for ever, without trusting the responder that recorded it — and it
+everyone, for ever, without trusting the responder that recorded it, and it
 survives that responder's compromise, because the evidence does not live on
 its disk. That is the same argument that makes emem's receipts worth having,
 turned on identity. For federation it is the load-bearing one: a peer node can
