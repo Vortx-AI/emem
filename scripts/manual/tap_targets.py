@@ -15,7 +15,7 @@ has two exceptions. This implements both, so the number here is a verdict.
            is about CIRCLE CENTRES, not the gap between boxes. Four links 12.8px
            apart passed here, because their centres were 52.8px apart.
 
-Three things this had to learn the hard way, each of which had it reporting a
+Four things this had to learn the hard way, each of which had it reporting a
 number that was true of what it measured and false of what it described:
 
   1. `a[href]` misses mdBook's fold toggle, an <a> with no href and a JS click
@@ -27,9 +27,12 @@ number that was true of what it measured and false of what it described:
      collided with every small link on the page; a focusable scroll region did
      the same. That was 32 findings where there were 24.
   4. A rect says where an element WOULD be, not where it can be clicked. The
-     homepage ticker translates its rows out of an overflow:hidden parent;
-     they still report full-size rects, hundreds of pixels away, over content
-     they neither cover nor intercept. One of those phantom rows was the sole
+     homepage ticker scrolls its rows out of an overflow:auto parent; they
+     still report full-size rects, hundreds of pixels away, over content they
+     neither cover nor intercept. A closed <details> does the same by another
+     route: it render-skips its content instead of laying it out at zero size,
+     so the links inside report full-size rects and nothing is overflowing
+     anything for a clip walk to catch. One of those phantom rows was the sole
      blocker behind the last finding on the homepage, and it was stable across
      1.2s, 6s and 12s, so waiting longer would never have exposed it. Every
      rect is now intersected with its clipping ancestors.
@@ -78,6 +81,18 @@ MEASURE = r"""
   // ticker row translated out of its overflow:hidden parent still reports a
   // full-size rect at a position where nothing is visible or clickable.
   // Intersect with every clipping ancestor and use what survives.
+  //
+  // Any non-visible overflow counts, `auto` and `scroll` included, not only
+  // `hidden`/`clip`. The objection to that is false negatives: content
+  // scrolled out of a scrollable box is reachable by scrolling to it. True,
+  // but at the rect it reports WHILE scrolled out it is clickable by nobody,
+  // so a spatial collision test must not use it -- this responder's homepage
+  // ticker is overflow:auto, and its out-of-view rows were the phantom
+  // blocker behind a finding on a link nothing was near. Intersecting keeps
+  // whatever is currently in view, so a crowded pair inside a scroll box
+  // still collides; only what is out of view right now is dropped. What this
+  // does NOT do is measure the other scroll positions, which is the same
+  // limitation as measuring one fold state.
   const visibleRect = e => {
     let r = e.getBoundingClientRect();
     let x1 = r.left, y1 = r.top, x2 = r.right, y2 = r.bottom;
@@ -98,6 +113,13 @@ MEASURE = r"""
     if (r.width <= 0 || r.height <= 0) continue;
     const cs = getComputedStyle(e);
     if (cs.visibility === 'hidden' || cs.display === 'none' || cs.pointerEvents === 'none') continue;
+    // A CLOSED <details> render-skips its content rather than laying it out at
+    // zero size, so links inside still report full-size rects and neither a
+    // size test nor the clip walk sees anything wrong: nothing is overflowing
+    // anything. checkVisibility catches this and does NOT catch the clipping
+    // case, so both are needed. Left at defaults -- widening it starts
+    // dropping things that are genuinely tappable.
+    if (typeof e.checkVisibility === 'function' && !e.checkVisibility()) continue;
     if (e.disabled) continue;
     boxes.push({
       el: e,
