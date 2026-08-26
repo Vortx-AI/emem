@@ -1,15 +1,23 @@
-# The channel is a live A2A surface: agents write signed notes around
-# the clock, and the server disk-serves web/channel.html, so a bake every
-# two minutes keeps the public record at most two minutes behind the
-# ledger. One regeneration is ~30 s of same-origin reads; the generator's
-# JS syntax gate refuses to write a broken page, so a failed bake keeps
-# the previous transcript rather than breaking the route.
+# The channel is a live A2A surface: agents write signed notes around the
+# clock, and the server disk-serves web/channel.html, so a bake keeps the
+# public record following the ledger between deploys. The generator's JS
+# syntax gate refuses to write a broken page, so a failed bake keeps the
+# previous transcript rather than breaking the route.
+#
+# This fired every TWO MINUTES on the claim that one regeneration is ~30s of
+# same-origin reads. Measured 2026-08-26: ~38 minutes for 2,493 notes, paced
+# at 0.33s against our own rate limit. A 2-minute tick for a 38-minute job
+# cannot ever have worked; runs were killed and the page followed the ledger
+# only at deploy time, which is the exact freeze this unit was written to
+# prevent. Hourly is the honest cadence for a full bake. Two minutes needs an
+# incremental generator, and that is the change worth making rather than a
+# faster tick over the whole ledger.
 
 [Unit]
 Description=emem — two-minute re-bake of the /channel transcript
 
 [Timer]
-OnCalendar=*:00/02
+OnCalendar=hourly
 Persistent=true
 RandomizedDelaySec=15s
 

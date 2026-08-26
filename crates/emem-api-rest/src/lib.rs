@@ -19870,6 +19870,29 @@ fn warm_translog_head(state: &AppState) {
     });
 }
 
+/// Root over the first `k` leaves, from the level tree rather than a fold.
+///
+/// The tree lives behind the builder mutex rather than in the snapshot,
+/// because putting it in the snapshot would mean cloning ~94 MB of levels on
+/// every append to publish it — more than the append itself now costs. The
+/// lock is uncontended except during a refresh, and a caller that got here
+/// already went through `translog_snapshot`.
+///
+/// `k` may come from an older snapshot than the tree: a prefix root cannot
+/// move when the log grows, which is the append-only claim itself.
+async fn translog_with_tree<T>(
+    f: impl FnOnce(&emem_attest::translog::IncrementalTree) -> Option<T>,
+) -> Option<T> {
+    let builder = TRANSLOG_BUILDER.get_or_init(|| tokio::sync::Mutex::new(None));
+    let guard = builder.lock().await;
+    f(&guard.as_ref()?.tree)
+}
+
+/// Root over the first `k` leaves, read rather than folded.
+async fn translog_prefix_root(k: usize) -> Option<[u8; 32]> {
+    translog_with_tree(|t| t.prefix_root(k)).await
+}
+
 /// `GET /v1/log/sth`, the current Signed Tree Head over the whole log.
 async fn get_log_sth(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
     let (tree_size, root) = translog_head_cached(&s).await?;
@@ -20014,9 +20037,17 @@ async fn get_log_inclusion(
             "pass leaf_index=<i> or entry_hash=<base32 of the record's blake3>",
         ));
     };
-    let path = emem_attest::translog::inclusion_path(m, leaves).ok_or_else(|| {
-        translog_bad_arg(format!("leaf_index {m} out of range for tree_size {n}"))
-    })?;
+    // Read the path out of the level tree. The slice recursion folds a
+    // subtree root at EVERY level, which is O(n log n) in the leaves and was
+    // the floor under both proof routes; every root it computes is already a
+    // node in the tree. Falls back to the fold if the tree is unavailable, so
+    // a missing cache degrades to slow rather than to wrong.
+    let path = match translog_with_tree(|t| t.inclusion_path(m, n)).await {
+        Some(p) => p,
+        None => emem_attest::translog::inclusion_path(m, leaves).ok_or_else(|| {
+            translog_bad_arg(format!("leaf_index {m} out of range for tree_size {n}"))
+        })?,
+    };
     let leaf = emem_attest::translog::leaf_hash(&leaves[m]);
     // The current head, which the snapshot already holds: sign_sth would
     // re-fold all n leaves to arrive at the same 32 bytes.
@@ -20061,16 +20092,29 @@ async fn get_log_consistency(
     if first == 0 || first > second {
         return Err(translog_bad_arg("require 0 < first <= second"));
     }
-    let proof = emem_attest::translog::consistency_proof(first, &leaves[..second])
-        .ok_or_else(|| translog_bad_arg("invalid (first, second) for consistency proof"))?;
-    // `first` is a historical size, so its root has to be folded. `second`
-    // defaults to the current size, and at that size the cached root is the
-    // same value for none of the work.
-    let first_root = emem_attest::translog::merkle_tree_hash(&leaves[..first]);
+    let proof = match translog_with_tree(|t| t.consistency_proof(first, second)).await {
+        Some(p) => p,
+        None => emem_attest::translog::consistency_proof(first, &leaves[..second])
+            .ok_or_else(|| translog_bad_arg("invalid (first, second) for consistency proof"))?,
+    };
+    // Both roots come out of the level tree. This used to fold `first` from
+    // scratch, which made the route linear in a parameter nobody varies:
+    // first=740,000 measured 0.68 s and first=1,479,000 measured 0.90 s from
+    // outside, against 0.46 s for a small prefix. The fold remains as a
+    // fallback for the case where the tree is somehow unavailable, so a
+    // missing cache degrades to slow rather than to wrong.
+    let fold = |k: usize| emem_attest::translog::merkle_tree_hash(&leaves[..k]);
+    let first_root = match translog_prefix_root(first).await {
+        Some(r) => r,
+        None => fold(first),
+    };
     let second_root = if second == n {
         snap.root
     } else {
-        emem_attest::translog::merkle_tree_hash(&leaves[..second])
+        match translog_prefix_root(second).await {
+            Some(r) => r,
+            None => fold(second),
+        }
     };
     Ok(Json(json!({
         "first_size": first,
@@ -20167,7 +20211,10 @@ async fn post_log_witness(
     let own_root = if req.tree_size == n {
         snap.root
     } else {
-        emem_attest::translog::merkle_tree_hash(&leaves[..req.tree_size as usize])
+        match translog_prefix_root(req.tree_size as usize).await {
+            Some(r) => r,
+            None => emem_attest::translog::merkle_tree_hash(&leaves[..req.tree_size as usize]),
+        }
     };
     if own_root != root {
         return Err(ApiError(

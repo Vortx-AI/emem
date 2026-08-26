@@ -472,6 +472,148 @@ impl IncrementalTree {
         }
     }
 
+    /// Merkle Tree Hash of the FIRST `k` entries, without folding them.
+    ///
+    /// `consistency_proof` needs the root at a historical size, and folding it
+    /// made `/v1/log/consistency` linear in `first`: measured from outside,
+    /// first=740,000 took 0.68 s and first=1,479,000 took 0.90 s against
+    /// 0.46 s for a small prefix. The cost was hidden behind a parameter
+    /// nobody varies.
+    ///
+    /// It does not need folding, by the same argument as the right-spine
+    /// extension run backwards. Write `k` in binary: each set bit names one
+    /// COMPLETE subtree, aligned to its own level, and RFC 6962 combines them
+    /// right to left. Every one of those subtree roots is already an entry in
+    /// `levels` — `levels[l][i]` is the node over leaves `[i*2^l,
+    /// (i+1)*2^l)`, and it is complete whenever the tree holds that many
+    /// leaves. So this is `O(log k)` lookups and `O(log k)` hashes, and
+    /// touches no leaf at all.
+    ///
+    /// `None` if `k` exceeds what has been appended. Note that a prefix root
+    /// is stable under later appends — that is the whole point of the
+    /// append-only construction — so a caller may hold `k` from an older
+    /// snapshot safely.
+    pub fn prefix_root(&self, k: usize) -> Option<[u8; 32]> {
+        if k > self.len() {
+            return None;
+        }
+        if k == 0 {
+            return Some(empty_root());
+        }
+        // Components high bit first, so `start` walks left to right.
+        let mut comps: Vec<[u8; 32]> = Vec::new();
+        let (mut start, mut remaining) = (0usize, k);
+        while remaining > 0 {
+            let l = (usize::BITS - 1 - remaining.leading_zeros()) as usize;
+            comps.push(*self.levels.get(l)?.get(start >> l)?);
+            start += 1 << l;
+            remaining -= 1 << l;
+        }
+        // RFC 6962 puts the largest complete subtree on the LEFT at every
+        // split, so the combine runs right to left.
+        let mut acc = *comps.last()?;
+        for c in comps.iter().rev().skip(1) {
+            acc = node_hash(c, &acc);
+        }
+        Some(acc)
+    }
+
+    /// Root over leaves `[start, start + len)`, from the level tree.
+    ///
+    /// `None` if the range runs past the tree, or if `start` is not aligned to
+    /// the components `len` decomposes into — an unaligned range is not a
+    /// union of complete subtrees and has no node in this structure. Every
+    /// range the RFC 6962 recursions ask for IS aligned, because each step
+    /// takes a power-of-two block strictly smaller than the offset already
+    /// accumulated.
+    pub fn range_root(&self, start: usize, len: usize) -> Option<[u8; 32]> {
+        if start + len > self.len() {
+            return None;
+        }
+        if len == 0 {
+            return Some(empty_root());
+        }
+        let mut comps: Vec<[u8; 32]> = Vec::new();
+        let (mut pos, mut remaining) = (start, len);
+        while remaining > 0 {
+            let l = (usize::BITS - 1 - remaining.leading_zeros()) as usize;
+            if pos & ((1 << l) - 1) != 0 {
+                return None; // unaligned: not a complete subtree
+            }
+            comps.push(*self.levels.get(l)?.get(pos >> l)?);
+            pos += 1 << l;
+            remaining -= 1 << l;
+        }
+        let mut acc = *comps.last()?;
+        for c in comps.iter().rev().skip(1) {
+            acc = node_hash(c, &acc);
+        }
+        Some(acc)
+    }
+
+    /// Inclusion path for leaf `m` in the tree of the first `size` leaves,
+    /// reading subtree roots instead of folding them.
+    ///
+    /// [`inclusion_path`] recurses over slices and calls `merkle_tree_hash` on
+    /// one at EVERY level, which is `O(n log n)` in the leaves. Every root it
+    /// computes is already a node here.
+    pub fn inclusion_path(&self, m: usize, size: usize) -> Option<Vec<[u8; 32]>> {
+        if m >= size || size > self.len() {
+            return None;
+        }
+        // Top-down, then reversed: the recursion emits bottom-up.
+        let (mut path, mut offset, mut n, mut m) = (Vec::new(), 0usize, size, m);
+        while n > 1 {
+            let k = largest_pow2_below(n);
+            if m < k {
+                path.push(self.range_root(offset + k, n - k)?);
+                n = k;
+            } else {
+                path.push(self.range_root(offset, k)?);
+                offset += k;
+                m -= k;
+                n -= k;
+            }
+        }
+        path.reverse();
+        Some(path)
+    }
+
+    /// Consistency proof between sizes `m` and `size`, reading subtree roots
+    /// instead of folding them. Same saving as [`inclusion_path`], and it
+    /// matters more here: this is the proof that the log did not rewrite
+    /// history, so it is the one an auditor calls repeatedly.
+    pub fn consistency_proof(&self, m: usize, size: usize) -> Option<Vec<[u8; 32]>> {
+        if m == 0 || m > size || size > self.len() {
+            return None;
+        }
+        if m == size {
+            return Some(Vec::new());
+        }
+        let (mut path, mut offset, mut n, mut m, mut b) = (Vec::new(), 0usize, size, m, true);
+        loop {
+            if m == n {
+                if !b {
+                    path.push(self.range_root(offset, n)?);
+                }
+                break;
+            }
+            let k = largest_pow2_below(n);
+            if m <= k {
+                path.push(self.range_root(offset + k, n - k)?);
+                n = k;
+            } else {
+                path.push(self.range_root(offset, k)?);
+                offset += k;
+                m -= k;
+                n -= k;
+                b = false;
+            }
+        }
+        path.reverse();
+        Some(path)
+    }
+
     /// Merkle Tree Hash of everything appended so far. Equal, for every
     /// size, to `merkle_tree_hash` over the same entries in the same order —
     /// which is asserted rather than assumed, at every size across several
@@ -643,5 +785,185 @@ mod incremental_tests {
         tree.extend(&[]);
         assert_eq!(tree.root(), before);
         assert_eq!(tree.len(), 5);
+    }
+}
+
+#[cfg(test)]
+mod prefix_root_tests {
+    use super::*;
+
+    fn entry(i: usize) -> [u8; 32] {
+        let mut e = [0u8; 32];
+        e[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        e[8] = 0x5a;
+        e
+    }
+
+    /// Every prefix of every tree, against the fold it replaces.
+    ///
+    /// The binary decomposition is easy to get subtly wrong — an off-by-one in
+    /// the level index or combining left-to-right instead of right-to-left
+    /// still returns a plausible 32 bytes — so this checks all k for all n
+    /// rather than a handful of sizes.
+    #[test]
+    fn a_prefix_root_matches_folding_that_prefix_at_every_size() {
+        const N: usize = 260;
+        let all: Vec<[u8; 32]> = (0..N).map(entry).collect();
+        let mut tree = IncrementalTree::new();
+        for n in 0..=N {
+            if n > 0 {
+                tree.extend(std::slice::from_ref(&all[n - 1]));
+            }
+            for k in 0..=n {
+                assert_eq!(
+                    tree.prefix_root(k),
+                    Some(merkle_tree_hash(&all[..k])),
+                    "prefix {k} of a {n}-leaf tree"
+                );
+            }
+        }
+    }
+
+    /// The full-length prefix is the tree's own root, so the two paths cannot
+    /// disagree about the head everything else is signed against.
+    #[test]
+    fn the_whole_prefix_is_the_root() {
+        let all: Vec<[u8; 32]> = (0..37).map(entry).collect();
+        let mut tree = IncrementalTree::new();
+        tree.extend(&all);
+        assert_eq!(tree.prefix_root(tree.len()), Some(tree.root()));
+        assert_eq!(tree.prefix_root(0), Some(empty_root()));
+        assert_eq!(tree.prefix_root(38), None, "past the end must not answer");
+    }
+
+    /// A prefix root cannot move when the log grows — that IS the append-only
+    /// claim, and a pinned STH is worthless without it. Asserted here because
+    /// callers are allowed to pass a `k` from an older snapshot.
+    #[test]
+    fn a_prefix_root_does_not_move_when_the_log_grows() {
+        let all: Vec<[u8; 32]> = (0..90).map(entry).collect();
+        let mut tree = IncrementalTree::new();
+        tree.extend(&all[..30]);
+        let pinned: Vec<[u8; 32]> = (0..=30).map(|k| tree.prefix_root(k).unwrap()).collect();
+        tree.extend(&all[30..]);
+        for (k, was) in pinned.iter().enumerate() {
+            assert_eq!(tree.prefix_root(k).as_ref(), Some(was), "prefix {k} moved");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tree_proof_tests {
+    use super::*;
+
+    fn entry(i: usize) -> [u8; 32] {
+        let mut e = [0u8; 32];
+        e[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        e[8] = 0x33;
+        e
+    }
+
+    fn tree_of(n: usize) -> (IncrementalTree, Vec<[u8; 32]>) {
+        let all: Vec<[u8; 32]> = (0..n).map(entry).collect();
+        let mut t = IncrementalTree::new();
+        t.extend(&all);
+        (t, all)
+    }
+
+    /// Every proof, at every size, byte-identical to the recursion it
+    /// replaces. Not sampled: a consistency proof is the non-equivocation
+    /// mechanism, and a proof that differs from the reference by one node
+    /// still looks like a proof.
+    #[test]
+    fn tree_read_proofs_are_byte_identical_to_the_folding_ones() {
+        const N: usize = 120;
+        let (tree, all) = tree_of(N);
+        for size in 1..=N {
+            for m in 0..size {
+                assert_eq!(
+                    tree.inclusion_path(m, size),
+                    inclusion_path(m, &all[..size]),
+                    "inclusion path for leaf {m} of {size}"
+                );
+            }
+            for m in 1..=size {
+                assert_eq!(
+                    tree.consistency_proof(m, size),
+                    consistency_proof(m, &all[..size]),
+                    "consistency proof {m} -> {size}"
+                );
+            }
+        }
+    }
+
+    /// And they have to VERIFY, not merely match: an auditor runs the
+    /// verifier, not a diff against our other implementation.
+    #[test]
+    fn tree_read_proofs_verify_against_the_roots_they_claim() {
+        const N: usize = 70;
+        let (tree, all) = tree_of(N);
+        for size in 1..=N {
+            let root = tree.prefix_root(size).unwrap();
+            for (m, entry) in all.iter().enumerate().take(size) {
+                let path = tree.inclusion_path(m, size).unwrap();
+                assert!(
+                    verify_inclusion(&leaf_hash(entry), m, size, &path, &root),
+                    "inclusion {m} of {size} did not verify"
+                );
+            }
+            for m in 1..=size {
+                let proof = tree.consistency_proof(m, size).unwrap();
+                let first = tree.prefix_root(m).unwrap();
+                assert!(
+                    verify_consistency(m, &first, size, &root, &proof),
+                    "consistency {m} -> {size} did not verify"
+                );
+            }
+        }
+    }
+
+    /// The control. The blocks of a range combine RIGHT to left; left to right
+    /// is correct for every power of two and wrong otherwise, so a test that
+    /// only used aligned sizes would pass on a broken implementation. This
+    /// asserts the wrong order really is wrong, and names where it first
+    /// shows: n=7, the smallest size with three components.
+    #[test]
+    fn combining_range_blocks_the_other_way_is_caught() {
+        let (tree, all) = tree_of(7);
+        // Reimplement range_root with the fold reversed.
+        let left_to_right = |start: usize, len: usize| -> [u8; 32] {
+            let mut comps: Vec<[u8; 32]> = Vec::new();
+            let (mut pos, mut remaining) = (start, len);
+            while remaining > 0 {
+                let l = (usize::BITS - 1 - remaining.leading_zeros()) as usize;
+                comps.push(tree.levels[l][pos >> l]);
+                pos += 1 << l;
+                remaining -= 1 << l;
+            }
+            let mut acc = comps[0];
+            for c in comps.iter().skip(1) {
+                acc = node_hash(&acc, c);
+            }
+            acc
+        };
+        assert_ne!(
+            left_to_right(0, 7),
+            merkle_tree_hash(&all[..7]),
+            "combining left to right produced the CORRECT root at n=7, so this \
+             test cannot detect the bug it exists to detect"
+        );
+        // Powers of two agree either way, which is why they cannot be the test.
+        assert_eq!(left_to_right(0, 4), merkle_tree_hash(&all[..4]));
+        assert_eq!(tree.range_root(0, 7), Some(merkle_tree_hash(&all[..7])));
+    }
+
+    /// An unaligned range is not a union of complete subtrees, and answering
+    /// with a plausible hash would be worse than refusing.
+    #[test]
+    fn an_unaligned_range_is_refused_not_guessed() {
+        let (tree, _) = tree_of(16);
+        assert_eq!(tree.range_root(1, 4), None, "start 1 is not aligned to 4");
+        assert_eq!(tree.range_root(4, 4), Some(tree.range_root(4, 4).unwrap()));
+        assert_eq!(tree.range_root(8, 16), None, "runs past the end");
     }
 }

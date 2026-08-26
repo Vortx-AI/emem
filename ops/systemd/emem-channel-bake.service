@@ -21,6 +21,12 @@ Wants=emem-server.service
 Type=oneshot
 WorkingDirectory=/home/ubuntu/emem
 ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/build_channel.py
-# Reading ~250 notes over the wire takes tens of seconds; a wedged run
-# must not linger into the next tick.
-TimeoutStartSec=10m
+# This said "reading ~250 notes over the wire takes tens of seconds" and set
+# 10m. Measured 2026-08-26: 2,493 notes and ~38 minutes, because the generator
+# paces itself at 0.33s against our own published rate limit and the ledger
+# has grown 10x since the number was written. Every run was therefore killed
+# before it could finish. The timeout now exceeds a real run with room for the
+# ledger to keep growing; if it ever bites again the honest fix is an
+# incremental bake (fetch only notes newer than the last one baked), not a
+# larger number here.
+TimeoutStartSec=90m
