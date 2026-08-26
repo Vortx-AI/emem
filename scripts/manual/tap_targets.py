@@ -334,6 +334,19 @@ CONTROL_REGION_ALONE = """<!doctype html><meta charset=utf-8><body style="margin
 # first with a 15px gap, which puts them 31px apart and passes -- the same
 # gap-versus-centre-distance mistake this checker exists to avoid making, and
 # it cost a control that could not fail.
+# Two clickable ROWS that each CONTAIN a link, crowded. Named as the case a
+# checker collecting only declared targets cannot see, and one collecting
+# pointer regions only when they contain no declared target cannot see either.
+# Four findings, not two: the rows AND the links inside them are undersized
+# and crowded. The rows are the point -- they are what a wrapper skip hides,
+# and before that skip was removed this page reported two.
+CONTROL_ROWS_WITH_LINKS = """<!doctype html><meta charset=utf-8><body style="margin:0">
+<div style="padding:40px">
+<div style="cursor:pointer;width:200px;height:16px;overflow:hidden">
+  <a href=# style="display:inline-block;width:80px;height:16px">one</a></div>
+<div style="cursor:pointer;width:200px;height:16px;margin-top:4px;overflow:hidden">
+  <a href=# style="display:inline-block;width:80px;height:16px">two</a></div>
+</div></body>"""
 CONTROL_REGION_CROWDED = """<!doctype html><meta charset=utf-8><body style="margin:0">
 <div tabindex=0 style="overflow:auto;width:400px;height:200px;padding:60px">
 <a href=# style="display:block;width:16px;height:16px">a</a>
@@ -428,6 +441,7 @@ def run_control(ctx):
         ("known-good", CONTROL_GOOD, False),
         ("lone-target-in-a-focusable-region", CONTROL_REGION_ALONE, False),
         ("crowded-inside-that-same-region", CONTROL_REGION_CROWDED, True),
+        ("crowded-clickable-rows-containing-links", CONTROL_ROWS_WITH_LINKS, True),
     ):
         pg.set_content(html)
         pg.wait_for_timeout(100)
