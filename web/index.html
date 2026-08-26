@@ -7,6 +7,9 @@
 <link rel=alternate type=text/markdown href=/llms.txt>
 <link rel=alternate type=text/markdown href=/agents.md>
 <link rel=alternate type=application/json href=/v1/discover>
+<!-- The A2A card was reachable only by convention or from a footer six screens
+     down. Every other machine surface is one <head> read away; this one was not. -->
+<link rel=alternate type=application/json href=/.well-known/agent-card.json>
 <link rel=alternate type=application/json href=/openapi.json>
 <link rel="service mcp" href=/mcp>
 <link rel=icon type="image/gif" href="/vortxgola.gif">
@@ -427,6 +430,20 @@ html, body{overflow-x:clip}
      a drawing. The words keep their ground from the paper veil below, which is
      what that veil is for. */
   .bank{ width:50vw; opacity:.62; }
+  /* THE WORST THING ON THE PAGE, until now: the two flank labels are fixed and
+     absolutely positioned, and on a phone the centre column is the full width,
+     so they printed straight through the body text. Not cramped, illegible:
+     two different strings on the same pixels. Below this width they stop being
+     margin notes and become a caption bar with its own ground, which cannot
+     overprint anything because it is opaque and the text scrolls under it. */
+  .names{
+    display:flex; justify-content:space-between; align-items:baseline;
+    gap:.6rem; padding:.4rem clamp(.7rem,3.4vw,2.6rem) .45rem;
+    background:var(--paper); border-bottom:1px solid var(--rule);
+  }
+  .side{ position:static; max-width:none; }
+  .side-l, .side-r{ left:auto; right:auto; }
+  .side-r{ text-align:right; }
   .side{ font-size:1rem; }
   .side span{ font-size:.62rem; letter-spacing:.04em; }
 }
@@ -479,6 +496,12 @@ html, body{overflow-x:clip}
 
 /* The two names, set as far apart as the banks they label, and fixed for the
    same reason the banks are: they name what is on screen now. */
+/* The header is sticky and scroll-padding-top was unset, so anchor jumps and
+   scroll-into-view parked headlines UNDER it: "The address does not." arrived
+   cut in half at three widths. --chrome-h is measured, so this needs no
+   breakpoint list. */
+html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
+
 .names{
   position:fixed; top:calc(var(--chrome-h, 5.8rem) + .8rem);
   left:0; right:0; z-index:2;
@@ -548,10 +571,20 @@ html, body{overflow-x:clip}
    a wave rather than a switch. */
 .bank [data-s]{ transition:opacity .75s ease; }
 .bank [data-s].later{ opacity:0 !important; }
-/* The scenery is the ground the graphs stand on, so it is quiet enough that the
-   artifacts on top of it stay readable, and it crossfades one scene to the
-   next rather than accumulating. */
-.bank .scenery{ opacity:.34; }
+/* The scenery is the PICTURE and the graphs are the imprint on it, not the
+   other way round. Opacity alone could not do this, and a reviewer was right
+   to say so: the mesh dominated on three axes and only one of them was
+   opacity. It had roughly ten times the line-crossings per unit area (culled:
+   8x20 nodes to 7x13, edge cutoff 122 to 96) and it was the only element
+   owning the full frame floor to ceiling (falloff tightened so it reads as a
+   band, the way the scene does). The scene was competing at hairline width
+   against a saturated mesh, so its strokes are heavier now too. Written first at .34 against graphs at .46, which put the
+   tree and the network in front of the world they are drawn on and made the
+   scene look like a smudge behind them. The scene carries the story down the
+   page, so it leads; the two graphs are the argument laid over it and they
+   read at a quarter weight. It crossfades one scene to the next rather than
+   accumulating, because only the graphs accumulate. */
+.bank .scenery{ opacity:.88; }
 .bank [data-scene]{ opacity:0; transition:opacity .9s ease; }
 .bank [data-scene].on{ opacity:1; }
 .banks.turning .bank{ opacity:0; }
@@ -601,6 +634,15 @@ html, body{overflow-x:clip}
 .copyb:hover{ border-color:var(--ink-2); color:var(--ink); }
 .copyb:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
 .c-note{ font-size:var(--t-3xs,.72rem); color:var(--mute); }
+
+/* The seed, printed. Every other claim on this page has a button; this one
+   asked to be believed, and it was doing real work sitting among claims that
+   could be checked. Now it can be run. */
+.seed{
+  font-family:var(--mono,ui-monospace,monospace); font-size:.92em;
+  background:var(--paper-2); border:1px solid var(--rule);
+  border-radius:4px; padding:.05em .35em; white-space:nowrap;
+}
 
 .scroll-cue{ margin:.4rem 0 0; }
 .scroll-cue span{ font-size:var(--t-3xs,.72rem); letter-spacing:.14em; color:var(--mute); text-transform:lowercase; }
@@ -756,7 +798,7 @@ html, body{overflow-x:clip}
 
 <section class="reach" id="many" data-step="4" data-who="Dify" data-best="orchestrates well" data-sub="one record, many readers">
   <h2 class="line">Two agents, two vendors,<br>one set of bytes they both read.</h2>
-  <p class="sub">Neither has to trust the other, and neither has to trust us. The tree on your left is redrawn from nothing every time you load this page. The network on your right has not moved since its seed was written down. Press the button and watch which one changes.</p>
+  <p class="sub">Neither has to trust the other, and neither has to trust us. The tree on your left is redrawn from nothing every time you load this page. The network on your right is drawn from <code class="seed">mulberry32(20260826)</code> and has not moved since that seed was written down. Press the button and watch which one changes: reloading changes the tree and never the network, and the seed is in this page's source so you can run it yourself.</p>
   <div class="run">
     <button type="button" class="go" id="redraw">redraw the left bank</button>
     <p class="out" id="redrawOut">A model is valuable BECAUSE it can answer something nobody wrote down. A record is valuable because it cannot. You want both, which is why there are two banks.</p>
@@ -935,9 +977,9 @@ html, body{overflow-x:clip}
       if(pc.k === 'tree' || pc.k === 'node') return;   /* the graph says this */
       var close = pc.k === 'box';
       g.appendChild(el('path', { d:d_of(pc.p, close, 4), fill:'none', stroke:'currentColor',
-        'stroke-width':0.9, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.5 }));
+        'stroke-width':1.45, 'stroke-linecap':'round', 'stroke-linejoin':'round', opacity:0.62 }));
       g.appendChild(el('path', { d:d_of(pc.p, close, 6.5), fill:'none', stroke:'currentColor',
-        'stroke-width':0.55, 'stroke-linecap':'round', opacity:0.3 }));
+        'stroke-width':0.85, 'stroke-linecap':'round', opacity:0.4 }));
     });
   }
 
@@ -951,11 +993,11 @@ html, body{overflow-x:clip}
         d += (i ? 'L' : 'M') + pc.p[i][0].toFixed(1) + ',' + pc.p[i][1].toFixed(1);
       if(close) d += 'Z';
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':0.75, opacity:0.5 }));
+        'stroke-width':1.2, opacity:0.62 }));
       for(var i = 0; i < pc.p.length; i++){
         if(pc.k === 'ridge' && (i % 2)) continue;
         g.appendChild(el('circle', { cx:pc.p[i][0].toFixed(1), cy:pc.p[i][1].toFixed(1),
-          r:(1.3 + rnd()*1.1).toFixed(2), fill:'currentColor', opacity:0.8 }));
+          r:(1.9 + rnd()*1.3).toFixed(2), fill:'currentColor', opacity:0.9 }));
       }
     });
   }
@@ -984,9 +1026,9 @@ html, body{overflow-x:clip}
         d += (y === 0 ? 'M' : 'L') + bx.toFixed(1) + ',' + y;
       }
       g.appendChild(el('path', { d:d + 'L0,' + H + 'L0,0Z', fill:'currentColor',
-        opacity:0.035, 'data-s':0 }));
+        opacity:0.025, 'data-s':0 }));
       g.appendChild(el('path', { d:d, fill:'none', stroke:'currentColor',
-        'stroke-width':1, opacity:0.22, 'data-s':0 }));
+        'stroke-width':1, opacity:0.15, 'data-s':0 }));
     }
     var DEPTH = 10;
     function bough(x, y, ang, len, depth){
@@ -1008,7 +1050,7 @@ html, body{overflow-x:clip}
       g.appendChild(el('line', {
         x1:x.toFixed(1), y1:y.toFixed(1), x2:x2.toFixed(1), y2:y2.toFixed(1),
         stroke:'currentColor', 'stroke-width':Math.max(0.32, depth*0.36).toFixed(2),
-        'stroke-linecap':'round', 'data-s':s, opacity:0.46
+        'stroke-linecap':'round', 'data-s':s, opacity:0.34
       }));
       var n = Math.random() < 0.18 ? 3 : 2;
       for(var i = 0; i < n; i++)
@@ -1032,7 +1074,7 @@ html, body{overflow-x:clip}
     while(R.firstChild) R.removeChild(R.firstChild);
     var rnd = mulberry32(20260826);
     var g = el('g', {});
-    var pts = [], cols = 8, rows = 20;
+    var pts = [], cols = 7, rows = 13;
     for(var i = 0; i < cols; i++)
       for(var j = 0; j < rows; j++)
         pts.push({ x: 18 + i*(W-36)/(cols-1) + (rnd()-0.5)*26,
@@ -1040,7 +1082,7 @@ html, body{overflow-x:clip}
                    r: 1.5 + rnd()*2.3 });
     /* Distance from the plug: the connector sits at the inner edge, mid height. */
     pts.forEach(function(p){
-      var dx = p.x/W, dy = (p.y - H/2)/(H*0.55);
+      var dx = p.x/W, dy = (p.y - H/2)/(H*0.40);
       p.d = Math.sqrt(dx*dx + dy*dy);
     });
     var far = Math.max.apply(null, pts.map(function(p){ return p.d; })) || 1;
@@ -1050,25 +1092,25 @@ html, body{overflow-x:clip}
          linear map opened on thirty of eleven hundred and the right bank was
          a rumour on the first screen. */
       p.s = Math.min(STEPS, Math.floor(Math.pow(p.d / far, 2) * (STEPS + 0.999)));
-      p.w = Math.max(0.1, 1 - p.d*0.62);
+      p.w = Math.max(0.06, 1 - p.d*0.80);
     });
     for(var a = 0; a < pts.length; a++){
       for(var b = a+1; b < pts.length; b++){
         var ex = pts[a].x-pts[b].x, ey = pts[a].y-pts[b].y;
-        if(ex*ex + ey*ey > 122*122) continue;
+        if(ex*ex + ey*ey > 96*96) continue;
         var w = (pts[a].w + pts[b].w)/2;
         g.appendChild(el('line', {
           x1:pts[a].x.toFixed(1), y1:pts[a].y.toFixed(1),
           x2:pts[b].x.toFixed(1), y2:pts[b].y.toFixed(1),
           stroke:'currentColor', 'stroke-width':0.6,
-          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.38*w).toFixed(3)
+          'data-s':Math.max(pts[a].s, pts[b].s), opacity:(0.20*w).toFixed(3)
         }));
       }
     }
     pts.forEach(function(p){
       g.appendChild(el('circle', {
         cx:p.x.toFixed(1), cy:p.y.toFixed(1), r:(p.r*(0.6 + 0.4*p.w)).toFixed(2),
-        fill:'currentColor', 'data-s':p.s, opacity:(0.66*p.w).toFixed(3)
+        fill:'currentColor', 'data-s':p.s, opacity:(0.40*p.w).toFixed(3)
       }));
     });
     R.appendChild(g);

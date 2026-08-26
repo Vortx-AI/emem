@@ -14,7 +14,7 @@ and are out of scope.
 - **No accounts. No keys.** L0 and L1 read endpoints are anonymous.
 - **This responder stores what your agent writes to it, and by default that storage is public.** The memory verbs (`emem_memory_create` and friends) persist the full file text indefinitely, world-readable by any caller. Writing with `kind: "vault"` seals the entry against other callers, though not against us: the key derives from this responder's own identity, so the operator can read vault plaintext. Sealed or not, it is permanent, and deletion unpublishes rather than erases. See [Agent-written memory](#agent-written-memory).
 - We do not sell or share user data with third parties for advertising.
-- We log every request server-side (path, GET query string, status, duration, user-agent, hashed IP) and we run **Google Analytics 4** on the HTML landing page only, under Consent Mode v2 with default-denied for all storage. See §"Google Analytics" below for what that means in practice.
+- We log every request server-side (path, GET query string, status, duration, user-agent, blake3-hashed truncated IP), retained 30 days. **We run no third-party analytics at all** and set no cookies. See §"No third-party analytics" below, which tells you how to check that rather than asking you to take it.
 - The responder logs request metadata (timestamp, hashed IP, user-agent, path, query string, status, duration) for operational health and abuse mitigation. Retention is enforced at 30 days via systemd journald (`MaxRetentionSec=30day` in `/etc/systemd/journald.conf.d/30day-retention.conf`). After 30 days the entries are vacuumed from the journal.
 - POST request bodies are NOT logged. GET query strings ARE logged (paired with the hashed IP) so they appear in operational logs for the retention window.
 
@@ -48,58 +48,57 @@ and are out of scope.
 - No location data beyond what you explicitly include in a request
 - No payment information (the public responder is free for L0/L1)
 
-## Google Analytics
+## No third-party analytics
 
-The HTML landing page at `https://emem.dev/` (and only that page; not `/v1/*`, not `/mcp`, not `/openapi.json`, not the markdown surfaces) loads Google Analytics 4 with the operator's configured measurement ID under **Consent Mode v2** with the following default values, set before `gtag.js` is loaded. The measurement ID is configured via the `EMEM_GA_MEASUREMENT_ID` environment variable on the server; the live value for this responder is published machine-readably at `/.well-known/agent-card.json` under `provider.data_protection.third_party_analytics[0].measurement_id`. The repo holds only a placeholder so forks do not inherit this responder's GA stream by default.
+**This site runs none.** There is no Google Analytics, no consent banner, no
+`emem_consent` cookie, and no measurement script of any kind. That was a
+deliberate removal, not an omission: a site whose whole argument is that you do
+not have to trust the responder should not ask you to trust a second party to
+count you.
 
+It is enforced by the browser rather than by this promise. The
+Content-Security-Policy served with every page does not list
+`googletagmanager.com` or `google-analytics.com` in `script-src`, so a
+reintroduction would be refused by your browser rather than merely regretted.
+Check it yourself:
+
+```bash
+curl -sI https://emem.dev/ | tr ';' '\n' | grep -i script-src
 ```
-ad_storage:              denied
-ad_user_data:            denied
-ad_personalization:      denied
-analytics_storage:       denied
-functionality_storage:   denied
-personalization_storage: denied
-security_storage:        granted
-```
 
-Until and unless an explicit consent banner flips these to `granted` (the canonical responder does not currently render a banner), GA4 emits only **cookieless aggregated pings**. Concretely, with the defaults above:
+**Cookie and storage inventory: empty.** The site sets no cookies at all. No
+`localStorage`, no `sessionStorage`, no `IndexedDB`. Nothing to accept, nothing
+to reject, nothing to manage.
 
-- **No `_ga` or `_ga_<container>` cookies are set.** No browser-side identifier is stored.
-- **No raw IP is transmitted.** GA4 anonymises IP by default; we additionally pass `anonymize_ip: true` for defensive compatibility with auditing tools.
-- **No advertising signals are processed** (`ad_storage`, `ad_user_data`, `ad_personalization` all denied).
-- **No personalised reporting** in the GA4 console; only modeled aggregate visit counts.
-- The pings are sent over `transport_type: beacon` (`navigator.sendBeacon`), which is non-blocking and queued by the browser.
+**Verifying the claim.** Open DevTools, Application, on `https://emem.dev/`:
 
-This is the **GDPR-compliant default**. The aggregate visit counts let us see whether the site is being used by humans and by AI crawlers (broken out by user-agent in the Google Analytics console) without processing personal data. Inspect the actual gtag configuration at view-source on `https://emem.dev/`.
+- Cookies for `emem.dev` MUST be empty, before and after any interaction.
+- Local Storage and Session Storage MUST be empty.
+- The Network tab MUST show no request to any host other than `emem.dev` and
+  `fonts.googleapis.com` / `fonts.gstatic.com`, which serve the two typefaces
+  and receive no measurement.
 
-**Consent banner.** A consent banner is rendered for human visitors on first visit. AI crawlers do not run JS and do not see the banner. The banner offers two equally-prominent buttons:
+If you see different behaviour, this policy is wrong and I want to know: email
+`avijeet@vortx.ai`.
 
-- **Accept**: flips `analytics_storage` and `functionality_storage` to `granted` via `gtag('consent', 'update', ...)`. From that moment, GA4 sets the `_ga` cookie (2-year retention) and a `_ga_<container>` cookie (2-year retention), transmits the (default-anonymised) IP, and emits regular analytics events. The decision is recorded in a first-party cookie `emem_consent` (Path=/, Max-Age=180 days, SameSite=Lax, Secure) with value `accept`.
-- **Reject**: leaves all storage purposes denied. GA cookies are not set, no IP is sent, only cookieless aggregated pings continue. The decision is recorded in the same first-party cookie `emem_consent` with value `reject`.
+**Lawful basis (GDPR Art. 6).** No personal data is processed for analytics,
+because no analytics run, so no Art. 6 basis is required for it. The server
+access log described under [What we collect](#what-we-collect) is processed
+under **Art. 6(1)(f) legitimate interests** (operational health and abuse
+mitigation), with the IP truncated and blake3-hashed before it is written and a
+30-day retention enforced by journald.
 
-The Esc key dismisses with **Reject** (default-deny on accidental dismiss). The banner is not a cookie wall: the entire site remains fully usable without any decision (every endpoint and link works regardless of consent state).
+**Cross-border transfer.** None for analytics, since there is no analytics
+processor. Requests reach a server in the operator's stated jurisdiction; see
+[Third parties](#third-parties) for the upstream data sources a materialising
+read may contact, which never receive your identity.
 
-**Why a cookie and not localStorage?** Earlier versions of this site stored the consent decision in `localStorage`. We switched to a first-party cookie on 2026-05-06 because EU-strict browser configurations (Firefox Strict tracking-protection mode, Brave Shields, the "delete site data on close" Safari / Edge defaults common in the EEA) were clearing `localStorage` between sessions. That made the banner re-prompt on every refresh, a bad UX and arguably a dark pattern. First-party cookies survive those configs reliably while remaining strictly necessary under ePrivacy Art. 5(3).
-
-**Revoking or changing consent.** Click **Manage cookies** in the footer at any time. This deletes the `emem_consent` cookie (`Max-Age=0`), re-renders the banner, and lets you make a new decision. To clear all GA cookies in the same step, also clear cookies for `emem.dev` in your browser.
-
-**Cookie / storage inventory.** The site sets no `localStorage`, no `sessionStorage`, no `IndexedDB` entries. The only cookie set before any consent decision is **none**. The only cookie set after any consent decision (accept or reject) is `emem_consent`, which is exempt from prior consent under ePrivacy Art. 5(3) because remembering a consent decision is strictly necessary to honour it.
-
-**Verifying the claims.** Open Chrome DevTools → Application → Cookies on `https://emem.dev/`:
-
-- Before any decision: Cookies tab MUST be empty for `emem.dev`. Local Storage and Session Storage tabs MUST be empty.
-- After Reject: Cookies tab shows `emem_consent=reject` only. No `_ga*`. Local Storage stays empty.
-- After Accept: Cookies tab shows `emem_consent=accept`, `_ga`, and `_ga_<container>`. Local Storage stays empty.
-
-If you see different behaviour, this policy is wrong; please email `avijeet@vortx.ai`.
-
-**Lawful basis (GDPR Art. 6).** Under default-denied Consent Mode v2 (the state before any banner click), no personal data is processed and Art. 6 does not gate the cookieless pings. After explicit Accept, lawful basis is **Art. 6(1)(a) consent**, freely given (the banner is dismissable with Reject), specific (analytics + functionality only; never advertising), informed (this section), and unambiguous (explicit click on a clearly-labelled button).
-
-**Cross-border transfer.** The cookieless pings reach Google US infrastructure. Google's TADPF self-certification is the legal basis for the transfer. Standard Contractual Clauses (SCCs) apply as a fallback.
-
-**Opt-out.** Install the [Google Analytics opt-out browser add-on](https://tools.google.com/dlpage/gaoptout) for absolute opt-out. With our default-denied config, this is rarely needed (no cookie is set in the first place).
-
-**Why GA at all if it sets no cookies?** The aggregate visit counts let the operator see traffic shape (which agent populations hit the site, which countries, peak hours) without instrumenting a separate analytics stack. Server-side aggregates are also exposed at `/v1/agent_stats` for any caller; the GA console is the operator-facing companion.
+**What this section used to say.** Until 2026-08, this policy described Google
+Analytics 4 under Consent Mode v2, a consent banner, and `_ga` cookies. All of
+it was removed from the site, and this section described a thing that could no
+longer happen. It is recorded here rather than silently rewritten, because a
+privacy policy that quietly changes what it claimed is worth less than one that
+says when it changed.
 
 ## Agent-written memory
 

@@ -2,35 +2,78 @@
 
 ## emem ChatGPT App
 
-**Effective date:** 2026-05-20
+**Effective date:** 2026-08-26
+
+This summarises how the emem app behaves inside ChatGPT. The full policy for
+the hosted responder, which is the authority where the two differ, is at
+**https://emem.dev/privacy**.
 
 ### What emem does
 
-emem is a read-only geospatial query service. It answers place-based questions using satellite imagery, elevation models, and other Earth observation datasets.
-
-### Data collected
-
-emem does not collect, store, or share any personal data from ChatGPT users.
+emem is a read-only query surface over a shared, verifiable memory. It answers
+questions about real places from signed facts derived from open Earth
+observation data, and returns a receipt with every answer.
 
 ### What is sent to emem
 
-When a user asks a place-based question, ChatGPT sends the place name or coordinates to emem's public API endpoint. No user identity, session, or account information is sent.
+When a question names a real place, ChatGPT sends the place name, coordinates,
+or the question text to emem's public API. **No user identity, session, or
+account information is sent**, and emem has no way to ask for one: reads take
+no key and no account.
 
 ### What emem returns
 
-Signed geospatial facts (elevation, surface water, vegetation, land cover, etc.) with content-addressed CIDs and verifiable receipts.
+Signed facts with content-addressed identifiers and an ed25519 receipt that
+verifies offline against the key published at `/.well-known/emem.json`.
+
+### What is logged, and for how long
+
+**This is the part an earlier version of this file got wrong.** It claimed emem
+retained nothing beyond the duration of the request. That was not accurate, and
+the correct statement is:
+
+The hosted responder writes a server access log for every request, containing
+the method, path, GET query string, response status, duration, user-agent, and
+a **blake3-hashed, truncated IP** (8-byte base32, non-reversible). Retention is
+**30 days**, enforced by `systemd-journald`
+(`MaxRetentionSec=30day`), after which entries are vacuumed.
+
+The lawful basis is legitimate interests (operational health and abuse
+mitigation). No raw IP is stored.
+
+### Cookies and analytics
+
+**None.** The site sets no cookies, no `localStorage`, no `sessionStorage`, and
+runs no third-party analytics. Google Analytics and its consent banner were
+removed; the Content-Security-Policy served with every page does not permit
+`googletagmanager.com` or `google-analytics.com`, so a reintroduction would be
+refused by the browser rather than merely regretted. None of this applies to
+the API surface this app uses, which serves no HTML at all.
+
+### Agent-written memory (not used by this app)
+
+emem also has a writable memory surface. **This app does not expose it**, and
+none of emem's write verbs is available to ChatGPT here. For completeness:
+anything an agent explicitly writes to the shared store elsewhere is
+world-readable and permanent unless sealed. See
+https://emem.dev/privacy for the full statement.
 
 ### Third-party sharing
 
-emem does not share query data with any third party.
+emem does not share query data with any third party. When a request needs data
+emem does not yet hold, the responder fetches it from public open-data
+providers **on its own behalf**; your IP is not forwarded to them. The
+providers are listed at https://emem.dev/privacy.
 
-### Data retention
+### Your rights
 
-emem does not retain query data beyond the duration of the request.
+Because emem holds no account and no identifier for you, there is no profile to
+access, export or erase. Requests about the hosted responder's logs can be sent
+to the contact below.
 
 ### Contact
 
-For privacy questions: jaya@vortx.ai
+https://emem.dev/support, avijeet@vortx.ai
 
 ### Source
 
