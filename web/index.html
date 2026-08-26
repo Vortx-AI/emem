@@ -421,9 +421,19 @@ html, body{overflow-x:clip}
   opacity:.75;
 }
 @media (max-width:860px){
-  /* On a phone the banks would swallow the line. Keep them, quieter, as the
-     margin they are. */
-  .bank{ width:42vw; opacity:.3; }
+  /* On a phone the banks were 42vw at .3 opacity, which is not a quiet margin,
+     it is an invisible one: the scene that carries the entire argument did not
+     reach a phone at all. Half the viewport each, and enough opacity to read as
+     a drawing. The words keep their ground from the paper veil below, which is
+     what that veil is for. */
+  .bank{ width:50vw; opacity:.62; }
+  .side{ font-size:1rem; }
+  .side span{ font-size:.62rem; letter-spacing:.04em; }
+}
+@media (max-width:520px){
+  /* Narrower still: the veil has to work harder, so the banks step back a
+     little rather than the type shrinking. */
+  .bank{ opacity:.5; }
 }
 
 /* A veil of paper behind the words, so the line always has something to sit
@@ -435,6 +445,18 @@ html, body{overflow-x:clip}
   background:radial-gradient(ellipse 46% 42% at 50% 50%,
     var(--paper) 0%, var(--paper) 42%, transparent 78%);
   opacity:.86;
+}
+@media (max-width:860px){
+  /* The banks are brighter here, so the ground under the words has to be too.
+     Centred at 40% rather than 50%, which keeps the veil under the line and
+     leaves the lower third of the screen to the drawing. On a phone the words
+     and the scene share one narrow column, so they take turns down the screen
+     instead of fighting for the middle of it. */
+  .reach::before{
+    background:radial-gradient(ellipse 82% 34% at 50% 40%,
+      var(--paper) 0%, var(--paper) 52%, transparent 86%);
+    opacity:.93;
+  }
 }
 .reach{
   position:relative; z-index:1;
@@ -455,9 +477,19 @@ html, body{overflow-x:clip}
 }
 .sub{ color:var(--ink-2); font-size:var(--t-md,1.05rem); margin:0; max-width:30rem; }
 
-/* The two names, set as far apart as the banks they label. */
+/* The two names, set as far apart as the banks they label, and fixed for the
+   same reason the banks are: they name what is on screen now. */
+.names{
+  position:fixed; top:4.6rem; left:0; right:0; z-index:2;
+  pointer-events:none; max-width:78rem; margin:0 auto;
+}
+/* After the base rule on purpose: both are one class deep, so source order is
+   what decides, and the mobile block above this one is earlier in the file.
+   Set there, `top:7.2rem` lost to `top:4.6rem` and the names kept rendering
+   behind a sitebar that wraps to two rows on a phone. */
+@media (max-width:860px){ .names{ top:7.4rem; } }
 .side{
-  position:absolute; top:2.2rem; margin:0;
+  position:absolute; top:0; margin:0;
   font-family:var(--display,Georgia,serif);
   font-size:clamp(1.1rem,2.4vw,1.7rem); letter-spacing:.01em; color:var(--ink);
 }
@@ -476,8 +508,9 @@ html, body{overflow-x:clip}
   border:1px solid var(--rule-strong); border-radius:999px;
   padding:.4rem .9rem; display:inline-block;
 }
-.side-l{ left:0; color:var(--slate); }
-.side-r{ right:0; color:var(--ochre-ink); }
+.side-l{ left:var(--gutter); color:var(--slate); text-align:left; }
+.side-r{ right:var(--gutter); color:var(--ochre-ink); text-align:right; }
+.side{ --gutter:clamp(.7rem, 3.4vw, 2.6rem); max-width:42vw; }
 .side-l span, .side-r span{ color:var(--mute); }
 
 .plug{ width:min(320px,68vw); height:auto; display:block; }
@@ -618,9 +651,16 @@ html, body{overflow-x:clip}
   <svg class="bank bank-r" id="bankR" viewBox="0 0 560 760" preserveAspectRatio="xMinYMid slice"></svg>
 </div>
 
-<header class="reach reach-open" data-scene="rural" data-who="ChatGPT" data-call="@emem">
+<!-- The two names sit OUTSIDE the reaches, fixed to the viewport, because the
+     thing they label is fixed too. Inside the hero they scrolled away with it,
+     so from the second reach down the page named the bank it was drawing and
+     the reader could not see either name. -->
+<div class="names">
   <p class="side side-l" id="who">ChatGPT<span>non-deterministic</span></p>
   <p class="side side-r" id="callsign">@emem<span>deterministic</span></p>
+</div>
+
+<header class="reach reach-open" data-scene="rural" data-who="ChatGPT" data-call="@emem">
   <h1 class="line">Two ways to know where something is.<br>Only one of them repeats.</h1>
   <svg class="plug" viewBox="0 0 240 40" role="img" aria-label="A jack plug in the gap between the two banks">
     <line x1="0" y1="20" x2="96" y2="20" class="p-lead"/>
@@ -686,6 +726,17 @@ html, body{overflow-x:clip}
    The asymmetry is the whole page. Reload and look. */
 (function(){
   var L = document.getElementById('bankL'), R = document.getElementById('bankR');
+  /* The banks are cropped to the viewport (`slice`). On a wide screen the
+     middle of the drawing is the interesting part; on a phone the interesting
+     part is the ground, and centring it put the horizon behind the sentence.
+     Anchor to the bottom there, which is where the veil above leaves room. */
+  function anchorBanks(){
+    var phone = window.matchMedia('(max-width:860px)').matches;
+    L.setAttribute('preserveAspectRatio', phone ? 'xMaxYMax slice' : 'xMaxYMid slice');
+    R.setAttribute('preserveAspectRatio', phone ? 'xMinYMax slice' : 'xMinYMid slice');
+  }
+  anchorBanks();
+  window.addEventListener('resize', anchorBanks);
   var W = 560, H = 760, GROUND = H*0.74;
   function el(n, a){
     var e = document.createElementNS('http://www.w3.org/2000/svg', n);

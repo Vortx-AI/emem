@@ -301,7 +301,7 @@ trail to a regulator who never trusted the operator).
 | Cursor 0.42+             | MCP (`http`)      | none | [`examples/cursor.mcp.json`](../examples/cursor.mcp.json) |
 | Cline (VS Code)          | MCP (`http`)      | none | [`examples/cline.mcp.json`](../examples/cline.mcp.json) |
 | Gemini CLI               | extension install | none | [`examples/gemini-extension.json`](../examples/gemini-extension.json) |
-| OpenAI Custom GPT Action | OpenAPI 3.1       | none | [`examples/openai-gpt-action.json`](../examples/openai-gpt-action.json) |
+| OpenAI Custom GPT Action | OpenAPI 3.1, import [`/openapi.action.json`](https://emem.dev/openapi.action.json) **not** `/openapi.json` | none | [`examples/openai-gpt-action.json`](../examples/openai-gpt-action.json) |
 | LangChain                | MCP via adapter   | none | [`examples/langchain/`](../examples/langchain) |
 | LlamaIndex               | MCP via adapter   | none | [`examples/llamaindex/`](../examples/llamaindex) |
 | AutoGen                  | MCP tool          | none | [`examples/autogen/`](../examples/autogen) |
@@ -313,8 +313,13 @@ trail to a regulator who never trusted the operator).
 | Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
 | Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
 
-Reads are idempotent. Retry on 5xx; treat 4xx as permanent. Materialiser
-timeout is 30 s per upstream, gateway timeout 180 s.
+Reads are idempotent. Retry on 5xx; treat 4xx as permanent. Each cold-band
+materialiser is capped at 14 s (`EMEM_MATERIALIZER_TIMEOUT_SECS`, code default
+and the hosted setting), and the gateway budget is 180 s. This line said 30 s
+per upstream for as long as it existed; the cap was lowered to 14 s so that one
+slow upstream could not spend the whole `/v1/ask` budget and return an empty
+envelope. Re-derive both from `crates/emem-api-rest/src/lib.rs`
+(`materializer_timeout_secs`) rather than trusting this sentence.
 
 ## Physical-world guardrails, in whatever you already run
 
