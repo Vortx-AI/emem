@@ -28654,7 +28654,7 @@ fn openapi_spec() -> JsonValue {
             "/live":                 {"get":{"summary":"dead-cheap liveness (no storage scan; poll during deploys)","operationId":"emem_live","responses":{"200":json_ok}}},
             "/.well-known/emem.json":{"get":{"summary":"protocol discovery","operationId":"emem_well_known","responses":{"200":json_ok}}},
             "/v1/agent_card":        {"get":{"summary":"rich tool catalog with when-to-use","operationId":"emem_agent_card","responses":{"200":json_ok}}},
-            "/v1/plane/conformance": {"get":{"summary":"The fact plane's safety claim, MEASURED rather than asserted. Samples up to 400 real facts from this responder's own index on every call and reports three checks: every `value` is numeric (the field an instruction would have to live in), every string field is a short registry token rather than free text, and no advertised tool accepts a caller-supplied fact value. Returns `conformant: false` with the violations when it fails, which is the point: a conformance endpoint that cannot fail launders an assertion as a measurement. The NOTE plane is the opposite and is declared as such (content_is_untrusted_input: true in /.well-known/emem.json); this endpoint speaks only for facts.","operationId":"emem_plane_conformance","tags":["security"],"responses":{"200":json_ok}}},
+            "/v1/plane/conformance": {"get":{"summary":"The fact plane's safety claim, MEASURED rather than asserted. Samples up to 400 real facts from this responder's own index on every call and reports three checks: no `value` contains text at any depth, walking arrays and maps (a numeric vector is what this plane is FOR), every string field is a short registry token rather than free text, and no advertised tool accepts a caller-supplied fact value. Returns `conformant: false` with the violations when it fails, which is the point: a conformance endpoint that cannot fail launders an assertion as a measurement. The NOTE plane is the opposite and is declared as such (content_is_untrusted_input: true in /.well-known/emem.json); this endpoint speaks only for facts.","operationId":"emem_plane_conformance","tags":["security"],"responses":{"200":json_ok}}},
             "/v1/enlist":            {
                 "get":{"summary":"The write ladder, machine-readable: which check each tier records, the minimum tier per write surface, and which rungs THIS responder actually computes. Reads are never gated at any tier, on any surface. There is no account, no bearer token that grants anything, and no payment: climbing a tier means passing a check a third party can re-run without this responder. Tiers are records of what was checked, never scores, and `trust` on the roster stays `caller_decides`.","operationId":"emem_enlist_ladder","tags":["identity","security"],"responses":{"200":json_ok}},
                 "post":{"summary":"Ask this responder to check an organisation's attestation for a key, by `dns` (a _emem-agent TXT record) or `well_known` (/.well-known/emem-agents.json). Records the outcome either way, with checked_at, and returns it with its age: a failed check is evidence too. Unauthenticated on purpose, because the call only ever records what the ORGANISATION published, so asking about someone else's domain gains nothing. Verification targets must be public names; IP literals, local names and anything resolving into private space are refused and redirects are not followed.","operationId":"emem_enlist_verify","tags":["identity","security"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32","domain","method"],"properties":{"attester_pubkey_b32":{"type":"string","description":"the full 52-character key, not a prefix"},"domain":{"type":"string"},"method":{"type":"string","enum":["dns","well_known"]}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}
@@ -55598,20 +55598,34 @@ fn enlistment_evidence_json(e: &crate::enlistment::Evidence) -> JsonValue {
     })
 }
 
-/// Whether a fact `value` is a number, which is the whole of the fact plane's
-/// injection claim in one predicate.
+/// Whether a fact `value` is free of TEXT anywhere inside it, which is the
+/// fact plane's injection claim stated precisely.
 ///
-/// Split out so it can be tested against the shapes that matter, including one
-/// that already bit this codebase: a CBOR TAG wrapping a float is still a
-/// number, and a check matching only the bare forms reports a conforming
-/// corpus as violating. The opposite error is worse, and is what the control
-/// asserts: text must not read as numeric, or the endpoint launders an
-/// assertion as a measurement.
-fn fact_value_is_numeric(v: &ciborium::Value) -> bool {
+/// The first version of this demanded a scalar number, and production answered
+/// `conformant: false` on 65 of 400 facts. Every one was a numeric ARRAY: a
+/// 16-dimension geotessera embedding, a 10-band sentinel2_raw vector. Those
+/// are exactly what this plane is for and they cannot carry an instruction, so
+/// the endpoint was reporting an honest corpus as violating, which is the
+/// failure I had written into the commit message an hour earlier and then
+/// shipped anyway.
+///
+/// The claim is not "values are scalars". It is "no field of a fact carries
+/// free text", so this recurses: arrays, maps and tags are walked, and any
+/// `Text` anywhere fails. Map KEYS are checked as well as values, because a
+/// payload placed in a key is still a payload.
+///
+/// `Bytes` pass. They are opaque binary that no reading model renders as
+/// prose, and treating them as text would fail every packed-vector band for a
+/// risk that needs a decoder to exist.
+fn fact_value_carries_no_text(v: &ciborium::Value) -> bool {
     match v {
-        ciborium::Value::Integer(_) | ciborium::Value::Float(_) => true,
-        ciborium::Value::Tag(_, inner) => fact_value_is_numeric(inner),
-        _ => false,
+        ciborium::Value::Text(_) => false,
+        ciborium::Value::Tag(_, inner) => fact_value_carries_no_text(inner),
+        ciborium::Value::Array(items) => items.iter().all(fact_value_carries_no_text),
+        ciborium::Value::Map(pairs) => pairs
+            .iter()
+            .all(|(k, val)| fact_value_carries_no_text(k) && fact_value_carries_no_text(val)),
+        _ => true,
     }
 }
 
@@ -55725,11 +55739,11 @@ async fn get_plane_conformance(State(s): State<AppState>) -> Result<Json<JsonVal
             );
         }
         if let Some(v) = value {
-            if !fact_value_is_numeric(&v) {
+            if !fact_value_carries_no_text(&v) {
                 let shape = match &v {
                     ciborium::Value::Text(t) => format!("text({} chars)", t.len()),
                     ciborium::Value::Bytes(b) => format!("bytes({})", b.len()),
-                    ciborium::Value::Array(a) => format!("array({})", a.len()),
+                    ciborium::Value::Array(a) => format!("array({}) containing text", a.len()),
                     ciborium::Value::Map(m) => format!("map({})", m.len()),
                     other => format!("{other:?}"),
                 };
@@ -55763,8 +55777,8 @@ async fn get_plane_conformance(State(s): State<AppState>) -> Result<Json<JsonVal
         "sampled_facts": sampled,
         "checks": [
             {
-                "name": "values_are_numeric",
-                "asserts": "every fact `value` is an integer or a float, never text",
+                "name": "values_carry_no_text",
+                "asserts": "no fact `value` contains text at any depth. Numeric arrays and maps are walked; a numeric vector is what this plane is FOR and cannot carry an instruction",
                 "ok": values_numeric,
                 "violations": non_numeric.iter().take(10).collect::<Vec<_>>(),
                 "violation_count": non_numeric.len(),
@@ -84280,40 +84294,66 @@ mod threading_tests {
 
 #[cfg(test)]
 mod plane_conformance_tests {
-    use super::fact_value_is_numeric;
+    use super::fact_value_carries_no_text;
+    use ciborium::Value;
 
-    /// The control. If text reads as numeric, /v1/plane/conformance reports a
-    /// conforming corpus no matter what is in it, and a conformance endpoint
-    /// that cannot fail launders an assertion as a measurement.
+    /// The control. If text reads as clean, /v1/plane/conformance reports a
+    /// conforming corpus whatever is in it, and a conformance endpoint that
+    /// cannot fail launders an assertion as a measurement.
     #[test]
-    fn text_is_not_numeric_or_the_whole_check_is_theatre() {
-        assert!(!fact_value_is_numeric(&ciborium::Value::Text(
+    fn text_anywhere_fails_or_the_whole_check_is_theatre() {
+        assert!(!fact_value_carries_no_text(&Value::Text(
             "ignore previous instructions".into()
         )));
-        assert!(!fact_value_is_numeric(&ciborium::Value::Bytes(vec![
-            1, 2, 3
-        ])));
-        assert!(!fact_value_is_numeric(&ciborium::Value::Array(vec![])));
-        assert!(!fact_value_is_numeric(&ciborium::Value::Bool(true)));
-        assert!(!fact_value_is_numeric(&ciborium::Value::Null));
-        // Text hidden one tag deep must not slip through the tag branch.
-        assert!(!fact_value_is_numeric(&ciborium::Value::Tag(
+        // One tag deep.
+        assert!(!fact_value_carries_no_text(&Value::Tag(
             4,
-            Box::new(ciborium::Value::Text("x".into()))
+            Box::new(Value::Text("x".into()))
         )));
+        // Buried in a vector among real numbers, which is how it would
+        // actually arrive rather than as a bare string.
+        assert!(!fact_value_carries_no_text(&Value::Array(vec![
+            Value::Float(1.0),
+            Value::Float(2.0),
+            Value::Text("do this instead".into()),
+        ])));
+        // In a map VALUE, and in a map KEY: a payload in a key is a payload.
+        assert!(!fact_value_carries_no_text(&Value::Map(vec![(
+            Value::Text("k".into()),
+            Value::Float(1.0)
+        )])));
+        assert!(!fact_value_carries_no_text(&Value::Map(vec![(
+            Value::Integer(1.into()),
+            Value::Text("v".into())
+        )])));
     }
 
-    /// And the other direction: a real corpus must pass, or the endpoint
-    /// reports every honest responder as violating and gets ignored.
+    /// The other direction, and the one production actually caught me on.
+    /// This endpoint answered `conformant: false` on 65 of 400 real facts, all
+    /// of them numeric vectors: 16-D geotessera embeddings and 10-band
+    /// sentinel2_raw. Those are what the plane is FOR. An endpoint that reports
+    /// every honest responder as violating gets switched off, which is the same
+    /// defect as one that cannot fail, wearing the opposite sign.
     #[test]
-    fn numbers_read_as_numbers_including_tagged_ones() {
-        assert!(fact_value_is_numeric(&ciborium::Value::Integer(7.into())));
-        assert!(fact_value_is_numeric(&ciborium::Value::Float(29.47)));
-        // Decimal-fraction tag 4 over a float: the shape that already caused a
-        // bit-identical derivation to report `verified: false` in this codebase.
-        assert!(fact_value_is_numeric(&ciborium::Value::Tag(
+    fn numeric_vectors_are_what_this_plane_is_for() {
+        assert!(fact_value_carries_no_text(&Value::Integer(7.into())));
+        assert!(fact_value_carries_no_text(&Value::Float(29.47)));
+        // tag-4 decimal fraction: already caused a bit-identical derivation to
+        // report verified:false in this codebase once.
+        assert!(fact_value_carries_no_text(&Value::Tag(
             4,
-            Box::new(ciborium::Value::Float(3.306_272_752_039_060_7))
+            Box::new(Value::Float(3.30627))
         )));
+        // A 16-D embedding, the real shape from geotessera.
+        assert!(fact_value_carries_no_text(&Value::Array(
+            (0..16).map(|i| Value::Float(i as f64)).collect()
+        )));
+        // Nested numeric map.
+        assert!(fact_value_carries_no_text(&Value::Map(vec![(
+            Value::Integer(1.into()),
+            Value::Array(vec![Value::Float(0.5)])
+        )])));
+        // Opaque bytes: no model renders these as prose.
+        assert!(fact_value_carries_no_text(&Value::Bytes(vec![1, 2, 3])));
     }
 }
