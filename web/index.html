@@ -429,18 +429,23 @@ html, body{overflow-x:clip}
    flank captions are pinned. At 2560 the ochre towers reached up to y=109 and
    sat behind "@emem / deterministic", 5.4% ink inside the caption's box. The
    caption is not the thing to change there; the drawing simply should not be
-   in that band. --chrome-h is measured, so the clear band tracks the bar. */
+   in that band. --chrome-h is measured, so the clear band tracks the bar.
+
+   The ramp has to be FLAT through the band and only then rise. Ramping from
+   y=0 leaves the band half-masked, which is why two attempts at this moved
+   5.4% to 4.9% to 4.6%: a tower 101x750 starting at y=128 was still painting
+   at roughly half strength inside a caption whose box ends at y=182. */
 .bank-l{ color:var(--slate);
   -webkit-mask-image:linear-gradient(90deg,#000 58%,transparent 99%),
-    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+    linear-gradient(180deg,transparent 0,transparent calc(var(--chrome-h,5.8rem) + 6rem),#000 calc(var(--chrome-h,5.8rem) + 13rem));
   mask-image:linear-gradient(90deg,#000 58%,transparent 99%),
-    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+    linear-gradient(180deg,transparent 0,transparent calc(var(--chrome-h,5.8rem) + 6rem),#000 calc(var(--chrome-h,5.8rem) + 13rem));
   -webkit-mask-composite:source-in; mask-composite:intersect; }
 .bank-r{ color:var(--ochre);
   -webkit-mask-image:linear-gradient(270deg,#000 58%,transparent 99%),
-    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+    linear-gradient(180deg,transparent 0,transparent calc(var(--chrome-h,5.8rem) + 6rem),#000 calc(var(--chrome-h,5.8rem) + 13rem));
   mask-image:linear-gradient(270deg,#000 58%,transparent 99%),
-    linear-gradient(180deg,transparent 0,#000 calc(var(--chrome-h,5.8rem) + 11rem));
+    linear-gradient(180deg,transparent 0,transparent calc(var(--chrome-h,5.8rem) + 6rem),#000 calc(var(--chrome-h,5.8rem) + 13rem));
   -webkit-mask-composite:source-in; mask-composite:intersect; }
 /* The channel itself: one hairline the whole scroll, which the two banks
    approach and never cross. */
