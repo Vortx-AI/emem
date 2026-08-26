@@ -12,9 +12,16 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
+# Which files sync_counts ACTUALLY rewrites, rather than which files happen to
+# be dirty. Comparing the whole working tree cannot tell "the corrector wrote
+# this" from "you wrote this", so any commit made with an unstaged prose edit
+# in the tree was refused with a message naming a corrector that had changed
+# nothing. Snapshot first, and blame only what moved.
+before="$(git diff --stat -- '*.md' '*.html' web/llms.txt | md5sum)"
 python3 scripts/sync_counts.py --write >/dev/null 2>&1 || true
+after="$(git diff --stat -- '*.md' '*.html' web/llms.txt | md5sum)"
 
-if ! git diff --quiet -- '*.md' '*.html' web/llms.txt 2>/dev/null; then
+if [ "$before" != "$after" ]; then
   echo "sync_counts corrected prose counts that had drifted from the responder."
   echo "The fixes are in your working tree. Review, 'git add', and commit again:"
   git diff --stat -- '*.md' '*.html' web/llms.txt | sed 's/^/  /'

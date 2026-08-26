@@ -55,6 +55,7 @@ END = "<!--nav:end-->"
 NAV = [
     ("Understand", [
         ("How it works", "/how-it-works", "the address, the fact, the receipt"),
+        ("The long version", "/the-long-version", "the whole argument, at length"),
         ("Solutions", "/solutions", "four agents already running on it"),
         ("Whitepaper", "/whitepaper", "the long form, with the proofs"),
         ("The spec", "/spec", "wire format, preimages, canonical bytes"),
@@ -113,6 +114,9 @@ AUDIENCE = {
     "/scoreboard":  ("anyone",    "the benchmark, live"),
     "/whitepaper-v1": ("leaders", "superseded, kept as it shipped"),
     "/how-it-works":  ("anyone",    "the address, the fact, the receipt, in order"),
+    # This WAS the homepage until 2026-08-26. It is the whole case at length,
+    # for a reader who wants more than the one line the front page now carries.
+    "/the-long-version": ("anyone", "the whole case, at length"),
     "/404":           ("anyone",    "the page you asked for is not here"),
     # The demos are the one place a reader of any kind can just press a button,
     # so none of them is marked for a specialist.

@@ -55,6 +55,7 @@
   <url><loc>https://emem.dev/v1/tools</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/v1/algorithms</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/how-it-works</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://emem.dev/the-long-version</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://emem.dev/solutions</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
   <url><loc>https://emem.dev/whitepaper</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://emem.dev/whitepaper/v1</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>

@@ -287,6 +287,14 @@ const API_REDOC_HTML: &str = include_str!("../../../web/api-redoc.html");
 // protocol map (the canonical markdown alternate advertised in their <head>).
 const HOW_IT_WORKS_HTML: &str = include_str!("../../../web/how-it-works.html");
 const SOLUTIONS_HTML: &str = include_str!("../../../web/solutions.html");
+/// `/the-long-version`, the narrative that used to BE the homepage: the
+/// living album, what drifts without a shared memory, the loop, the proof,
+/// and the 30-second connect. It moved here on 2026-08-26 when the homepage
+/// became the two-bank diptych, which states the claim in one line and
+/// nothing else. Nothing was rewritten in the move, so a link into any of
+/// its anchors (#album, #drift, #loop, #agents, #proof, #build, #start)
+/// still lands on the section it always did.
+const THE_LONG_VERSION_HTML: &str = include_str!("../../../web/the-long-version.html");
 const REFERENCE_HTML: &str = include_str!("../../../web/reference.html");
 /// The whitepaper as a first-class web page (sticky TOC, styled math) in
 /// the same paper/ink design as the rest of the site. Browsers get this;
@@ -888,6 +896,7 @@ pub fn router(state: AppState) -> Router {
         // Redesign sub-pages: depth moved off the homepage funnel.
         .route("/how-it-works", get(serve_how_it_works))
         .route("/solutions", get(serve_solutions))
+        .route("/the-long-version", get(serve_the_long_version))
         .route("/reference", get(serve_reference))
         // The living atlas: type a place, get its signed facts rendered.
         // It carried the label "coverage map" on 14 footers for a while after
@@ -2120,8 +2129,9 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         // the heuristic cache held it. A page that changes whenever an agent
         // writes a note must not be cached by guess. /card and /a2a are baked
         // but iterated for the same reason.
-        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/reference" | "/channel"
-        | "/collaboration" | "/card" | "/a2a" | "/guard" | "/verify" => Some("no-cache"),
+        "/" | "/index.html" | "/how-it-works" | "/solutions" | "/the-long-version"
+        | "/reference" | "/channel" | "/collaboration" | "/card" | "/a2a" | "/guard"
+        | "/verify" => Some("no-cache"),
         // Stable across deploys (build-pinned constants).
         "/v1/grid_info"
         | "/v1/agent_card"
@@ -3257,6 +3267,7 @@ fn served_html_pages() -> Vec<&'static str> {
         DOCS_DIAGRAMS_INDEX_HTML,
         HOW_IT_WORKS_HTML,
         SOLUTIONS_HTML,
+        THE_LONG_VERSION_HTML,
         REFERENCE_HTML,
         WHITEPAPER_HTML,
         // Every page served from this binary MUST be listed here. The CSP is
@@ -3598,6 +3609,9 @@ async fn serve_whitepaper_page(headers: HeaderMap) -> Response {
 }
 async fn serve_solutions(headers: HeaderMap) -> Response {
     html_or_md(&headers, SOLUTIONS_HTML, LLMS_TXT)
+}
+async fn serve_the_long_version(headers: HeaderMap) -> Response {
+    html_or_md(&headers, THE_LONG_VERSION_HTML, LLMS_TXT)
 }
 async fn serve_reference(headers: HeaderMap) -> Response {
     html_or_md(&headers, REFERENCE_HTML, LLMS_TXT)
