@@ -388,3 +388,260 @@ mod tests {
         assert!(consistency_proof(5, &e).is_none());
     }
 }
+
+/// An RFC 6962 tree that grows by extension instead of rebuilding.
+///
+/// [`merkle_tree_hash`] is `O(n)` and correct, and for a log that is read
+/// far more often than it is written that is the wrong shape: this
+/// responder's `/v1/log/sth` cache is keyed on the record count, so ONE
+/// arriving leaf re-folded 1.48M of them. Measured from outside at a
+/// constant 35 s probe interval, five calls that spanned no append answered
+/// in 9-32 ms and the one call that spanned a single append took 2.886 s.
+/// The elapsed time was held fixed across all six, so the cost tracked
+/// growth, not staleness.
+///
+/// The saving is a property of append-only trees. Level `l+1` entry `i` is
+/// `node(level l [2i], [2i+1])`, and once that pair is complete neither
+/// input can ever move, so the entry is final. The only entry of a level
+/// that an append can invalidate is its LAST one, because a lone rightmost
+/// node is promoted unchanged and may since have gained a sibling. So an
+/// extension drops one entry per level and refolds from there: `O(k + log n)`
+/// for `k` new leaves, against `O(n)`.
+///
+/// `levels[0]` holds the promoted [`leaf_hash`] of each entry, so the raw
+/// per-record hashes are hashed exactly once, on arrival.
+#[derive(Debug, Clone, Default)]
+pub struct IncrementalTree {
+    levels: Vec<Vec<[u8; 32]>>,
+}
+
+impl IncrementalTree {
+    /// An empty tree. `root()` is [`empty_root`] until leaves are added.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Leaves committed so far.
+    pub fn len(&self) -> usize {
+        self.levels.first().map_or(0, Vec::len)
+    }
+
+    /// Whether the tree holds no leaves.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Append `entries` (raw per-record hashes, in log order) and refold the
+    /// right spine.
+    pub fn extend(&mut self, entries: &[[u8; 32]]) {
+        if entries.is_empty() {
+            return;
+        }
+        if self.levels.is_empty() {
+            self.levels.push(Vec::new());
+        }
+        self.levels[0].extend(entries.iter().map(leaf_hash));
+        let mut l = 0usize;
+        loop {
+            if self.levels[l].len() <= 1 {
+                // This level is the root; anything above it is stale.
+                self.levels.truncate(l + 1);
+                return;
+            }
+            if self.levels.len() == l + 1 {
+                self.levels.push(Vec::new());
+            }
+            // Drop the one entry an append can invalidate: the last, which
+            // may have been a lone promotion that now has a sibling. Every
+            // earlier entry is a complete pair of settled inputs.
+            let keep = self.levels[l + 1].len().saturating_sub(1);
+            self.levels[l + 1].truncate(keep);
+            let want = self.levels[l].len().div_ceil(2);
+            for i in keep..want {
+                let src = &self.levels[l];
+                let node = if 2 * i + 1 < src.len() {
+                    node_hash(&src[2 * i], &src[2 * i + 1])
+                } else {
+                    // Lone rightmost node: promoted unchanged, never
+                    // self-paired (see the module header on CVE-2012-2459).
+                    src[2 * i]
+                };
+                self.levels[l + 1].push(node);
+            }
+            l += 1;
+        }
+    }
+
+    /// Merkle Tree Hash of everything appended so far. Equal, for every
+    /// size, to `merkle_tree_hash` over the same entries in the same order —
+    /// which is asserted rather than assumed, at every size across several
+    /// append plans, in this module's tests.
+    pub fn root(&self) -> [u8; 32] {
+        match self.levels.last() {
+            None => empty_root(),
+            Some(top) => match top.first() {
+                None => empty_root(),
+                Some(r) => *r,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod incremental_tests {
+    use super::*;
+
+    fn entry(i: usize) -> [u8; 32] {
+        let mut e = [0u8; 32];
+        e[..8].copy_from_slice(&(i as u64).to_le_bytes());
+        e[8] = 0xa5;
+        e
+    }
+
+    /// The claim the whole endpoint rests on: growing a tree by extension
+    /// and folding it from scratch give the same root, at EVERY size, no
+    /// matter how the leaves were grouped on the way in. Sizes and grouping
+    /// are separated deliberately — a bug in the right-spine refold shows up
+    /// only when a lone promoted node later gains a sibling, which depends
+    /// on where the chunk boundaries fall, not on the final size.
+    #[test]
+    fn incremental_root_matches_the_naive_fold_at_every_size() {
+        const N: usize = 400;
+        let all: Vec<[u8; 32]> = (0..N).map(entry).collect();
+        // Chunk plans: one at a time, powers of two either side of a level
+        // boundary, primes (so boundaries land off every alignment), and a
+        // deliberately irregular one.
+        let plans: Vec<Vec<usize>> = vec![
+            vec![1],
+            vec![2],
+            vec![3],
+            vec![4],
+            vec![5],
+            vec![7],
+            vec![8],
+            vec![16],
+            vec![N],
+            vec![1, 2, 3, 5, 8, 13, 21],
+            vec![9, 1, 1, 1, 17, 2],
+            vec![63, 1, 64, 1],
+        ];
+        for plan in &plans {
+            let mut tree = IncrementalTree::new();
+            let mut fed = 0usize;
+            assert_eq!(
+                tree.root(),
+                merkle_tree_hash(&all[..0]),
+                "empty tree must be the empty root, plan {plan:?}"
+            );
+            let mut step = 0usize;
+            while fed < N {
+                let take = plan[step % plan.len()].min(N - fed);
+                tree.extend(&all[fed..fed + take]);
+                fed += take;
+                step += 1;
+                assert_eq!(tree.len(), fed, "leaf count drifted, plan {plan:?}");
+                assert_eq!(
+                    tree.root(),
+                    merkle_tree_hash(&all[..fed]),
+                    "root diverged at size {fed} with plan {plan:?}"
+                );
+            }
+        }
+    }
+
+    /// The control. A checker that cannot fail proves nothing, and the
+    /// specific way this optimisation goes wrong is subtle: keep a lone
+    /// promoted node instead of refolding it once it gains a sibling and
+    /// every root is still a plausible 32 bytes. So break it exactly that
+    /// way and require the comparison above to catch it.
+    ///
+    /// It must be caught at n=4, the first size where a promoted node
+    /// acquires a sibling: leaves [0,1,2] promote node(0,1) and leaf 2, and
+    /// the arrival of leaf 3 turns leaf 2 into the left half of a pair.
+    #[test]
+    fn a_broken_increment_is_caught_at_four_leaves() {
+        /// `extend` with the one line that matters removed: the last entry
+        /// of each level is KEPT rather than refolded.
+        fn extend_without_refolding(t: &mut IncrementalTree, entries: &[[u8; 32]]) {
+            if t.levels.is_empty() {
+                t.levels.push(Vec::new());
+            }
+            t.levels[0].extend(entries.iter().map(leaf_hash));
+            let mut l = 0usize;
+            loop {
+                if t.levels[l].len() <= 1 {
+                    t.levels.truncate(l + 1);
+                    return;
+                }
+                if t.levels.len() == l + 1 {
+                    t.levels.push(Vec::new());
+                }
+                let keep = t.levels[l + 1].len(); // <- the defect
+                let want = t.levels[l].len().div_ceil(2);
+                for i in keep..want {
+                    let src = &t.levels[l];
+                    let node = if 2 * i + 1 < src.len() {
+                        node_hash(&src[2 * i], &src[2 * i + 1])
+                    } else {
+                        src[2 * i]
+                    };
+                    t.levels[l + 1].push(node);
+                }
+                l += 1;
+            }
+        }
+
+        let all: Vec<[u8; 32]> = (0..4).map(entry).collect();
+        let mut broken = IncrementalTree::new();
+        for e in &all {
+            extend_without_refolding(&mut broken, std::slice::from_ref(e));
+        }
+        assert_ne!(
+            broken.root(),
+            merkle_tree_hash(&all),
+            "the broken increment produced the CORRECT root, so this test \
+             cannot detect the bug it exists to detect"
+        );
+
+        // And the real one, fed identically, does not.
+        let mut good = IncrementalTree::new();
+        for e in &all {
+            good.extend(std::slice::from_ref(e));
+        }
+        assert_eq!(good.root(), merkle_tree_hash(&all));
+    }
+
+    /// An incrementally grown root has to be usable, not merely equal: every
+    /// leaf's inclusion path must still verify against it. This is the
+    /// property an auditor actually exercises after pinning an STH.
+    #[test]
+    fn inclusion_paths_verify_against_an_incrementally_grown_root() {
+        const N: usize = 70;
+        let all: Vec<[u8; 32]> = (0..N).map(entry).collect();
+        let mut tree = IncrementalTree::new();
+        for (i, e) in all.iter().enumerate() {
+            tree.extend(std::slice::from_ref(e));
+            let size = i + 1;
+            let root = tree.root();
+            for m in 0..size {
+                let path = inclusion_path(m, &all[..size]).expect("path in range");
+                assert!(
+                    verify_inclusion(&leaf_hash(&all[m]), m, size, &path, &root),
+                    "leaf {m} of {size} failed to verify against the incremental root"
+                );
+            }
+        }
+    }
+
+    /// Extending by nothing is not a way to change the tree.
+    #[test]
+    fn extending_with_no_entries_leaves_the_root_alone() {
+        let all: Vec<[u8; 32]> = (0..5).map(entry).collect();
+        let mut tree = IncrementalTree::new();
+        tree.extend(&all);
+        let before = tree.root();
+        tree.extend(&[]);
+        assert_eq!(tree.root(), before);
+        assert_eq!(tree.len(), 5);
+    }
+}

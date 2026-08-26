@@ -680,6 +680,11 @@ pub fn router(state: AppState) -> Router {
         agent_stats_init_persistence(db_arc);
     }
 
+    // Build the transparency-tree head now, so no auditor pays for it. See
+    // warm_translog_head: the cache is process-local and every deploy
+    // restarts the process.
+    warm_translog_head(&state);
+
     // W3: scheduled memory consolidation + TTL background tasks.
     // Opt-in via EMEM_MEMORY_TTL_ENABLED=1 /
     // EMEM_MEMORY_CONSOLIDATION_ENABLED=1.
@@ -19486,46 +19491,6 @@ fn translog_bad_arg(msg: impl Into<String>) -> ApiError {
     )
 }
 
-/// Read every leaf hash of the durable transparency log in append order,
-/// or a typed error when this responder runs without one (ephemeral
-/// in-memory deploys) or the read fails.
-fn read_translog_leaves(s: &AppState) -> Result<Vec<[u8; 32]>, ApiError> {
-    let log = s.storage.transparency_log().ok_or_else(|| {
-        ApiError(
-            StatusCode::NOT_IMPLEMENTED,
-            ErrorBody {
-                code: ErrorCode::Internal,
-                message: "this responder runs without a durable transparency log; \
-                          STH and inclusion/consistency proofs are unavailable"
-                    .into(),
-                details: None,
-            },
-        )
-    })?;
-    log.leaf_hashes().map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("read transparency log leaves: {e}"),
-                details: None,
-            },
-        )
-    })
-}
-
-/// Build and sign a Signed Tree Head over `leaves` (the whole log). The
-/// signature covers a domain-separated preimage of (tree_size, root,
-/// signed_at, responder pubkey) so it verifies offline against the
-/// responder key without trusting this endpoint.
-fn sign_sth(s: &AppState, leaves: &[[u8; 32]]) -> JsonValue {
-    sign_sth_over(
-        s,
-        leaves.len() as u64,
-        emem_attest::translog::merkle_tree_hash(leaves),
-    )
-}
-
 /// Sign an STH over an ALREADY-COMPUTED `(tree_size, root)`.
 ///
 /// The split exists so a cached head and a freshly-walked one go through the
@@ -19581,14 +19546,13 @@ fn sign_sth_over(s: &AppState, tree_size: u64, root: [u8; 32]) -> JsonValue {
 /// `(record_count_at_build, tree_size, root)`.
 type CachedTreeHead = (u64, u64, [u8; 32]);
 
-static STH_TREE_CACHE: std::sync::OnceLock<std::sync::RwLock<Option<CachedTreeHead>>> =
-    std::sync::OnceLock::new();
-
 /// Which cached head, if any, is still valid at `current_records`.
 ///
 /// Split out so the invalidation rule is testable without a 1.09M-leaf log:
 /// the property that matters is that a stale key can never be served, and a
-/// test asserting that must not need a filesystem.
+/// test asserting that must not need a filesystem. Every read path below
+/// decides staleness by calling this and nothing else, so there is one rule
+/// with one reader.
 fn sth_cache_hit(cached: Option<CachedTreeHead>, current_records: u64) -> Option<(u64, [u8; 32])> {
     match cached {
         Some((key, tree_size, root)) if key == current_records => Some((tree_size, root)),
@@ -19596,27 +19560,301 @@ fn sth_cache_hit(cached: Option<CachedTreeHead>, current_records: u64) -> Option
     }
 }
 
-/// `(tree_size, root)` for the whole log, rebuilt only when it has grown.
-async fn translog_head_cached(s: &AppState) -> Result<(u64, [u8; 32]), ApiError> {
-    let cache = STH_TREE_CACHE.get_or_init(|| std::sync::RwLock::new(None));
+/// The whole transparency log in memory: the leaves every proof is computed
+/// over, and the root over them.
+///
+/// Handed out behind an `Arc` because it is ~47 MB at 1.48M leaves and four
+/// routes want it concurrently. Readers clone the pointer, never the log.
+struct TranslogSnapshot {
+    /// Raw per-record hashes in append order — the input to `inclusion_path`,
+    /// `consistency_proof` and `merkle_tree_hash`.
+    leaves: Vec<[u8; 32]>,
+    /// Root over `leaves`, grown by extension (see [`IncrementalTree`]).
+    root: [u8; 32],
+}
+
+/// What the builder keeps between refreshes so a refresh can be incremental.
+struct TranslogState {
+    /// Highest segment index read. It is the only segment that can still
+    /// grow, so the next refresh re-reads from here and no earlier.
+    active_segment: u64,
+    /// Leaves contributed by segments strictly BELOW `active_segment`, i.e.
+    /// the length of the prefix that cannot change.
+    settled: usize,
+    tree: emem_attest::translog::IncrementalTree,
+    snapshot: Arc<TranslogSnapshot>,
+}
+
+/// The published snapshot: `(record_count_at_build, snapshot)`. Read without
+/// blocking on the builder, so a hit costs an `RwLock` read and a pointer
+/// clone.
+#[allow(clippy::type_complexity)]
+static TRANSLOG_PUBLISHED: std::sync::OnceLock<
+    std::sync::RwLock<Option<(u64, Arc<TranslogSnapshot>)>>,
+> = std::sync::OnceLock::new();
+
+/// Serialises refreshes, and carries the incremental state between them.
+///
+/// Also the single-flight gate: the snapshot is published at the END of a
+/// refresh, so without this every request arriving during one starts its own.
+static TRANSLOG_BUILDER: std::sync::OnceLock<tokio::sync::Mutex<Option<TranslogState>>> =
+    std::sync::OnceLock::new();
+
+/// The typed 501 for a responder running without a durable log. Not an
+/// invented answer: a log that does not exist cannot be proved about.
+fn translog_unavailable() -> ApiError {
+    ApiError(
+        StatusCode::NOT_IMPLEMENTED,
+        ErrorBody {
+            code: ErrorCode::Internal,
+            message: "this responder runs without a durable transparency log; \
+                      STH and inclusion/consistency proofs are unavailable"
+                .into(),
+            details: None,
+        },
+    )
+}
+
+/// Fold a freshly-read tail into the leaves already held.
+///
+/// Returns `(leaves, settled, active_segment)`, or `None` if the read did not
+/// extend what was held — the one thing an append-only log must never do.
+///
+/// Pure, and split out for the same reason `sth_cache_hit` is: the bookkeeping
+/// that decides which prefix is immutable is the part that can silently commit
+/// to the wrong bytes, and a test asserting it must not need a 6.6 GB log.
+#[allow(clippy::type_complexity)]
+fn translog_merge(
+    prev: Option<(&[[u8; 32]], usize)>,
+    read_from: u64,
+    segs: Vec<(u64, Vec<[u8; 32]>)>,
+) -> Option<(Vec<[u8; 32]>, usize, u64)> {
+    // The highest index read is the segment that can still grow; everything
+    // below it is sealed and will never be read again.
+    let active_segment = segs.last().map_or(read_from, |(i, _)| *i);
+    let newly_settled: usize = segs
+        .iter()
+        .filter(|(i, _)| *i < active_segment)
+        .map(|(_, v)| v.len())
+        .sum();
+    let tail: Vec<[u8; 32]> = segs.into_iter().flat_map(|(_, v)| v).collect();
+
+    let (mut leaves, settled) = match prev {
+        Some((held, held_settled)) => {
+            let old_tail = &held[held_settled..];
+            if tail.len() < old_tail.len() || &tail[..old_tail.len()] != old_tail {
+                return None;
+            }
+            let mut prefix = held[..held_settled].to_vec();
+            prefix.reserve(tail.len());
+            (prefix, held_settled)
+        }
+        None => (Vec::with_capacity(tail.len()), 0),
+    };
+    leaves.extend_from_slice(&tail);
+    Some((leaves, settled + newly_settled, active_segment))
+}
+
+/// Re-read only what can have changed, and extend the tree by the difference.
+///
+/// Blocking: it reads files. Called only from `spawn_blocking`.
+///
+/// Two independent `O(n)` costs used to be paid on every call to all four
+/// `/v1/log/*` routes. This removes both:
+///
+/// - the DISK read walked all 1,390 segments and 6.6 GB. All but the
+///   highest-indexed segment are sealed and immutable, so `leaf_hashes_from`
+///   re-reads one.
+/// - the FOLD rebuilt the tree over every leaf. An append-only tree can be
+///   extended instead; see `IncrementalTree`.
+///
+/// The prefix check is the safety property. Everything here assumes the log
+/// only ever grows at its right edge; if that is ever false the incremental
+/// path would silently commit to a root nobody can reproduce, so a mismatch
+/// discards the cached state and rebuilds from zero rather than trusting it.
+fn translog_refresh(s: &AppState, prev: Option<TranslogState>) -> Result<TranslogState, ApiError> {
+    let log = s
+        .storage
+        .transparency_log()
+        .ok_or_else(translog_unavailable)?;
+    let read_from = prev.as_ref().map_or(0, |p| p.active_segment);
+    let segs = log.leaf_hashes_from(read_from).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read transparency log leaves: {e}"),
+                details: None,
+            },
+        )
+    })?;
+
+    let merged = translog_merge(
+        prev.as_ref().map(|p| (&p.snapshot.leaves[..], p.settled)),
+        read_from,
+        segs,
+    );
+    let (leaves, settled, active_segment) = match merged {
+        Some(m) => m,
+        None => {
+            // The log did not grow at its right edge. This must never
+            // happen; say so loudly and rebuild rather than extend.
+            tracing::error!(
+                target: "emem::translog",
+                active_segment = read_from,
+                "transparency log tail diverged from the cached copy; \
+                 discarding the incremental state and rebuilding"
+            );
+            return translog_refresh(s, None);
+        }
+    };
+    let mut tree = prev.map_or_else(emem_attest::translog::IncrementalTree::new, |p| p.tree);
+    let already = tree.len();
+    // The tree is grown by extension, so its leaf count and the leaf vector
+    // must agree exactly. If they ever did not, the root would commit to a
+    // different set of leaves than the proofs are computed over, and both
+    // would still look like plausible bytes. Refuse rather than serve it.
+    if already > leaves.len() {
+        tracing::error!(
+            target: "emem::translog",
+            tree = already,
+            leaves = leaves.len(),
+            "transparency tree is ahead of the log; rebuilding from zero"
+        );
+        return translog_refresh(s, None);
+    }
+    tree.extend(&leaves[already..]);
+    if tree.len() != leaves.len() {
+        return Err(ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!(
+                    "transparency tree size {} disagrees with {} leaves",
+                    tree.len(),
+                    leaves.len()
+                ),
+                details: None,
+            },
+        ));
+    }
+
+    Ok(TranslogState {
+        active_segment,
+        settled,
+        snapshot: Arc::new(TranslogSnapshot {
+            root: tree.root(),
+            leaves,
+        }),
+        tree,
+    })
+}
+
+/// The log's leaves and root, rebuilt only when the log has grown, and then
+/// only by the difference.
+///
+/// Shared by `/v1/log/sth`, `/v1/log/inclusion`, `/v1/log/consistency` and
+/// witness submission. The last three previously read the whole 6.6 GB log on
+/// EVERY call with no cache at all, which made them permanently as slow as a
+/// cold STH.
+async fn translog_snapshot(s: &AppState) -> Result<Arc<TranslogSnapshot>, ApiError> {
+    let published = TRANSLOG_PUBLISHED.get_or_init(|| std::sync::RwLock::new(None));
     let current = match s.storage.transparency_log() {
         Some(log) => log.record_count().await,
-        // No durable log: fall through and let read_translog_leaves emit the
-        // typed 501 rather than inventing an answer here.
+        // No durable log: let the refresh emit the typed 501 rather than
+        // inventing an answer here.
         None => u64::MAX,
     };
-    if let Some(hit) = cache.read().ok().and_then(|c| sth_cache_hit(*c, current)) {
+    let fresh = |p: &Option<(u64, Arc<TranslogSnapshot>)>| -> Option<Arc<TranslogSnapshot>> {
+        let (key, snap) = p.as_ref()?;
+        sth_cache_hit(Some((*key, snap.leaves.len() as u64, snap.root)), current)
+            .map(|_| Arc::clone(snap))
+    };
+    if let Some(hit) = published.read().ok().and_then(|p| fresh(&p)) {
         return Ok(hit);
     }
-    // Miss: walk the log and rebuild. Blocking work on the sled/disk path,
-    // kept off the async executor for the same reason the recall hot path is.
-    let leaves = read_translog_leaves(s)?;
-    let tree_size = leaves.len() as u64;
-    let root = emem_attest::translog::merkle_tree_hash(&leaves);
-    if let Ok(mut c) = cache.write() {
-        *c = Some((current, tree_size, root));
+
+    let builder = TRANSLOG_BUILDER.get_or_init(|| tokio::sync::Mutex::new(None));
+    let mut guard = builder.lock().await;
+    // Re-check under the lock: while this task waited, the winner may have
+    // published the very snapshot it is about to build.
+    if let Some(hit) = published.read().ok().and_then(|p| fresh(&p)) {
+        return Ok(hit);
     }
-    Ok((tree_size, root))
+
+    // On the BLOCKING POOL. The comment here used to claim the work was
+    // "kept off the async executor for the same reason the recall hot path
+    // is", and the code did not do it: this reads files, so a cold call
+    // parked an async worker and every other request that worker owned
+    // waited behind it. `prior_records` in merkle_log.rs offloads the same
+    // read for the same reason; this is that fix one layer up.
+    let prev = guard.take();
+    let owned = s.clone();
+    let state = tokio::task::spawn_blocking(move || translog_refresh(&owned, prev))
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("transparency tree build task failed: {e}"),
+                    details: None,
+                },
+            )
+        })??;
+
+    let snap = Arc::clone(&state.snapshot);
+    *guard = Some(state);
+    if let Ok(mut p) = published.write() {
+        *p = Some((current, Arc::clone(&snap)));
+    }
+    Ok(snap)
+}
+
+/// `(tree_size, root)` for the whole log.
+async fn translog_head_cached(s: &AppState) -> Result<(u64, [u8; 32]), ApiError> {
+    let snap = translog_snapshot(s).await?;
+    Ok((snap.leaves.len() as u64, snap.root))
+}
+
+/// Build the transparency-tree snapshot once, off the request path, at
+/// startup.
+///
+/// The cache above is process-local and every deploy restarts this process,
+/// so without this the first auditor after each restart pays the full read.
+/// Pinning an STH is documented as step one of an audit, which put the
+/// slowest call in the product at the entrance to the trust story: measured
+/// from outside at 7.43 s cold, past most default fetch timeouts, and
+/// `/v1/log/consistency` cannot be reached at all without an STH first.
+///
+/// Spawned and never awaited — the listener must not wait on it — and only
+/// when there is a durable log to walk, so an ephemeral test backend does not
+/// spawn a task whose only possible outcome is the typed 501.
+fn warm_translog_head(state: &AppState) {
+    if state.storage.transparency_log().is_none() {
+        return;
+    }
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    let warm = state.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        match translog_head_cached(&warm).await {
+            Ok((tree_size, _)) => tracing::info!(
+                target: "emem::translog",
+                tree_size,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "transparency tree head warmed"
+            ),
+            Err(e) => tracing::warn!(
+                target: "emem::translog",
+                status = %e.0,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "transparency tree head warm failed; first /v1/log/sth will rebuild"
+            ),
+        }
+    });
 }
 
 /// `GET /v1/log/sth`, the current Signed Tree Head over the whole log.
@@ -19733,7 +19971,8 @@ async fn get_log_inclusion(
     State(s): State<AppState>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let leaves = read_translog_leaves(&s)?;
+    let snap = translog_snapshot(&s).await?;
+    let leaves = &snap.leaves[..];
     let n = leaves.len();
     let m: usize = if let Some(li) = q.get("leaf_index") {
         li.parse()
@@ -19762,11 +20001,13 @@ async fn get_log_inclusion(
             "pass leaf_index=<i> or entry_hash=<base32 of the record's blake3>",
         ));
     };
-    let path = emem_attest::translog::inclusion_path(m, &leaves).ok_or_else(|| {
+    let path = emem_attest::translog::inclusion_path(m, leaves).ok_or_else(|| {
         translog_bad_arg(format!("leaf_index {m} out of range for tree_size {n}"))
     })?;
     let leaf = emem_attest::translog::leaf_hash(&leaves[m]);
-    let sth = sign_sth(&s, &leaves);
+    // The current head, which the snapshot already holds: sign_sth would
+    // re-fold all n leaves to arrive at the same 32 bytes.
+    let sth = sign_sth_over(&s, n as u64, snap.root);
     Ok(Json(json!({
         "leaf_index": m,
         "tree_size": n,
@@ -19785,7 +20026,8 @@ async fn get_log_consistency(
     State(s): State<AppState>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let leaves = read_translog_leaves(&s)?;
+    let snap = translog_snapshot(&s).await?;
+    let leaves = &snap.leaves[..];
     let n = leaves.len();
     let first: usize = q
         .get("first")
@@ -19808,8 +20050,15 @@ async fn get_log_consistency(
     }
     let proof = emem_attest::translog::consistency_proof(first, &leaves[..second])
         .ok_or_else(|| translog_bad_arg("invalid (first, second) for consistency proof"))?;
+    // `first` is a historical size, so its root has to be folded. `second`
+    // defaults to the current size, and at that size the cached root is the
+    // same value for none of the work.
     let first_root = emem_attest::translog::merkle_tree_hash(&leaves[..first]);
-    let second_root = emem_attest::translog::merkle_tree_hash(&leaves[..second]);
+    let second_root = if second == n {
+        snap.root
+    } else {
+        emem_attest::translog::merkle_tree_hash(&leaves[..second])
+    };
     Ok(Json(json!({
         "first_size": first,
         "second_size": second,
@@ -19893,7 +20142,8 @@ async fn post_log_witness(
 
     // The responder will not vouch for a root it cannot reproduce: check
     // the claimed root against its own history at that size first.
-    let leaves = read_translog_leaves(&s)?;
+    let snap = translog_snapshot(&s).await?;
+    let leaves = &snap.leaves[..];
     let n = leaves.len() as u64;
     if req.tree_size == 0 || req.tree_size > n {
         return Err(translog_bad_arg(format!(
@@ -19901,7 +20151,11 @@ async fn post_log_witness(
             req.tree_size
         )));
     }
-    let own_root = emem_attest::translog::merkle_tree_hash(&leaves[..req.tree_size as usize]);
+    let own_root = if req.tree_size == n {
+        snap.root
+    } else {
+        emem_attest::translog::merkle_tree_hash(&leaves[..req.tree_size as usize])
+    };
     if own_root != root {
         return Err(ApiError(
             StatusCode::CONFLICT,
@@ -82192,21 +82446,143 @@ mod sth_cache_tests {
         );
     }
 
+    fn leaf(n: u8) -> [u8; 32] {
+        [n; 32]
+    }
+
+    /// The incremental refresh must keep exactly the bytes the log has, in
+    /// the order the log has them, whatever the segment boundaries do.
+    ///
+    /// The bookkeeping this checks is the part that can commit to the wrong
+    /// bytes silently: `settled` says which prefix will never be read again,
+    /// so if it runs ahead of what is actually sealed, the next refresh keeps
+    /// a stale copy of a segment that was still growing and the root commits
+    /// to leaves the log does not have.
+    #[test]
+    fn a_refresh_keeps_the_settled_prefix_and_appends_the_rest() {
+        // Cold: read everything. Segment 2 is the highest, so it is the only
+        // one that can still grow; 0 and 1 are settled.
+        let segs = vec![
+            (0u64, vec![leaf(1), leaf(2)]),
+            (1u64, vec![leaf(3)]),
+            (2u64, vec![leaf(4), leaf(5)]),
+        ];
+        let (leaves, settled, active) = translog_merge(None, 0, segs).expect("cold read");
+        assert_eq!(leaves, vec![leaf(1), leaf(2), leaf(3), leaf(4), leaf(5)]);
+        assert_eq!(
+            settled, 3,
+            "segments 0 and 1 contributed the settled prefix"
+        );
+        assert_eq!(active, 2);
+
+        // Warm: the active segment grew by one record. Only segment 2 is
+        // re-read, and the settled prefix is reused untouched.
+        let segs = vec![(2u64, vec![leaf(4), leaf(5), leaf(6)])];
+        let (leaves2, settled2, active2) =
+            translog_merge(Some((&leaves, settled)), 2, segs).expect("warm read");
+        assert_eq!(
+            leaves2,
+            vec![leaf(1), leaf(2), leaf(3), leaf(4), leaf(5), leaf(6)]
+        );
+        assert_eq!(
+            settled2, 3,
+            "nothing new sealed, so the prefix is unchanged"
+        );
+        assert_eq!(active2, 2);
+
+        // A restart rolls a new segment: 2 is now sealed and 3 is active.
+        let segs = vec![
+            (2u64, vec![leaf(4), leaf(5), leaf(6)]),
+            (3u64, vec![leaf(7)]),
+        ];
+        let (leaves3, settled3, active3) =
+            translog_merge(Some((&leaves2, settled2)), 2, segs).expect("rolled read");
+        assert_eq!(
+            leaves3,
+            vec![
+                leaf(1),
+                leaf(2),
+                leaf(3),
+                leaf(4),
+                leaf(5),
+                leaf(6),
+                leaf(7)
+            ]
+        );
+        assert_eq!(settled3, 6, "segment 2 sealed, so its 3 records settled");
+        assert_eq!(active3, 3);
+    }
+
+    /// The control on the safety property. An append-only log only ever grows
+    /// at its right edge; if a re-read ever comes back with different bytes
+    /// where the held copy had them, extending would commit to a root nobody
+    /// can reproduce. That must be refused, not merged.
+    #[test]
+    fn a_tail_that_changed_underneath_is_refused_rather_than_extended() {
+        let held = vec![leaf(1), leaf(2), leaf(3)];
+        // Same length, different bytes in the active segment.
+        assert_eq!(
+            translog_merge(Some((&held, 1)), 1, vec![(1u64, vec![leaf(2), leaf(9)])]),
+            None,
+            "a rewritten tail must not be merged"
+        );
+        // Shorter than what is held: the log shrank.
+        assert_eq!(
+            translog_merge(Some((&held, 1)), 1, vec![(1u64, vec![leaf(2)])]),
+            None,
+            "a truncated log must not be merged"
+        );
+        // And the honest case still merges, so the check above is not simply
+        // refusing everything.
+        assert!(
+            translog_merge(
+                Some((&held, 1)),
+                1,
+                vec![(1u64, vec![leaf(2), leaf(3), leaf(4)])]
+            )
+            .is_some(),
+            "a genuine append must still be accepted"
+        );
+    }
+
+    /// A read that returns nothing is the common case — the log has not grown
+    /// since the last refresh — and must not lose the leaves already held.
+    #[test]
+    fn an_empty_read_keeps_what_is_already_held() {
+        let held = vec![leaf(1), leaf(2)];
+        let (leaves, settled, active) =
+            translog_merge(Some((&held, 2)), 5, Vec::new()).expect("empty read");
+        assert_eq!(leaves, held);
+        assert_eq!(settled, 2);
+        assert_eq!(active, 5, "with nothing read, the active segment stands");
+    }
+
     /// A cached head and a freshly-walked head must produce byte-identical
     /// signed bytes for the same tree, or the cache is a second signer.
     /// Guaranteed structurally: both routes call `sign_sth_over`, and
     /// `sign_sth` is now a thin wrapper that computes the root and hands it to
     /// the same function.
     #[test]
-    fn both_routes_sign_through_one_function() {
+    fn every_route_signs_through_one_function() {
         let src = include_str!("lib.rs");
         assert!(
             src.contains("fn sign_sth_over(s: &AppState, tree_size: u64, root: [u8; 32])"),
             "the shared signing path is the thing that keeps cached and fresh heads identical"
         );
-        assert!(
-            src.contains("sign_sth_over(\n        s,\n        leaves.len() as u64,"),
-            "sign_sth must delegate rather than duplicate the preimage construction"
+        // There used to be a second entry point, `sign_sth`, which took the
+        // leaves and re-folded them to reach the root it signed. It was the
+        // last full-tree fold left on a request path, and it is gone: the
+        // routes hand `sign_sth_over` a root they already have. What must
+        // stay true is that the preimage is built in exactly one place, so
+        // count the construction rather than trusting the shape of a call.
+        // Assembled rather than written out: a literal here would appear in
+        // this file too and the count would be one higher than the code.
+        let needle = format!("PreimageV1::new({})", "TRANSLOG_STH_DOMAIN");
+        assert_eq!(
+            src.matches(needle.as_str()).count(),
+            1,
+            "an STH preimage is built somewhere other than sign_sth_over; two \
+             signers can drift, and every pinned STH depends on them not doing so"
         );
     }
 }

@@ -152,10 +152,32 @@ impl AttestationLog {
     /// (new records extend the current segment; new segments take a higher
     /// index), which is what makes consistency proofs meaningful.
     ///
-    /// `O(total_bytes)` — the caller (STH construction) caches the result
-    /// by the log's record count so a rebuild only happens when the log
-    /// has grown.
+    /// `O(total_bytes)`. Prefer [`leaf_hashes_from`] on any path that runs
+    /// more than once: this responder's log is 6.6 GB across 1,390 segments,
+    /// and all but the highest-indexed one are sealed and immutable, so
+    /// re-reading them to learn about one appended record is the expensive
+    /// way to ask a cheap question.
     pub fn leaf_hashes(&self) -> std::io::Result<Vec<[u8; 32]>> {
+        let mut leaves = Vec::new();
+        for (_, seg) in self.leaf_hashes_from(0)? {
+            leaves.extend(seg);
+        }
+        Ok(leaves)
+    }
+
+    /// Leaf hashes of every segment with index >= `from`, as
+    /// `(segment_index, leaves)` in ascending index order.
+    ///
+    /// Exists so a caller holding leaves from a previous read can refresh
+    /// without re-reading the whole log. Only the HIGHEST-indexed segment can
+    /// still grow: a segment is sealed when it passes `SEGMENT_BYTES` or when
+    /// the process that owned it exits, and a sealed segment's bytes never
+    /// change again. So a caller that remembers the highest index it saw can
+    /// pass it here and re-read one segment instead of 1,390.
+    ///
+    /// Returns per-segment rather than flattened precisely so the caller can
+    /// tell where the immutable prefix ends; flattening throws that away.
+    pub fn leaf_hashes_from(&self, from: u64) -> std::io::Result<Vec<(u64, Vec<[u8; 32]>)>> {
         let mut indices: Vec<u64> = Vec::new();
         for entry in std::fs::read_dir(&self.root)? {
             let entry = entry?;
@@ -165,12 +187,14 @@ impl AttestationLog {
                 .and_then(|n| n.strip_prefix("merkle.log.").map(|s| s.to_string()))
             {
                 if let Ok(n) = rest.parse::<u64>() {
-                    indices.push(n);
+                    if n >= from {
+                        indices.push(n);
+                    }
                 }
             }
         }
         indices.sort_unstable();
-        let mut leaves: Vec<[u8; 32]> = Vec::new();
+        let mut out: Vec<(u64, Vec<[u8; 32]>)> = Vec::with_capacity(indices.len());
         for idx in indices {
             let path = self.root.join(format!("merkle.log.{idx}"));
             let mut bytes = Vec::new();
@@ -179,6 +203,7 @@ impl AttestationLog {
             // A sealed segment has a trailing 32-byte segment hash after
             // the last record; the length-driven walk below stops before
             // it (the leftover < a full record is ignored).
+            let mut leaves: Vec<[u8; 32]> = Vec::new();
             let mut i = 0usize;
             while i + 4 <= bytes.len() {
                 let len = u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]])
@@ -192,8 +217,9 @@ impl AttestationLog {
                 leaves.push(leaf);
                 i += needed;
             }
+            out.push((idx, leaves));
         }
-        Ok(leaves)
+        Ok(out)
     }
 
     /// Return the raw attestation CBOR for the half-open global index range
@@ -581,6 +607,65 @@ mod tests {
         let third = AttestationLog::open(tmp.path()).unwrap();
         let _ = third.append(&sample_attestation()).await.unwrap();
         assert_eq!(third.record_count().await, 6);
+    }
+
+    /// The incremental read has to be the same read.
+    ///
+    /// `leaf_hashes_from` exists so a caller can refresh without re-reading
+    /// 6.6 GB, which is only safe if the pieces compose back to exactly what
+    /// `leaf_hashes` returns, in the same order. Segments are rolled the way
+    /// production rolls them — every `open` starts a new one, which is why
+    /// this responder has 1,390 of them — so the boundaries here are real
+    /// boundaries and not a fixture's idea of one.
+    #[tokio::test]
+    async fn leaf_hashes_from_composes_to_the_whole_log_across_segments() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut appended: Vec<[u8; 32]> = Vec::new();
+        let mut seq = 0u64;
+        for count in [3u64, 4, 2] {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..count {
+                appended.push(
+                    log.append(&distinct_attestation(seq))
+                        .await
+                        .unwrap()
+                        .record_hash,
+                );
+                seq += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+
+        let whole = log.leaf_hashes().unwrap();
+        assert_eq!(whole, appended, "the flat read lost or reordered records");
+
+        let segs = log.leaf_hashes_from(0).unwrap();
+        assert_eq!(
+            segs.iter().map(|(i, _)| *i).collect::<Vec<_>>(),
+            vec![0, 1, 2],
+            "segments must come back in ascending index order"
+        );
+        assert_eq!(
+            segs.iter().map(|(_, v)| v.len()).collect::<Vec<_>>(),
+            vec![3, 4, 2]
+        );
+        let flat: Vec<[u8; 32]> = segs.into_iter().flat_map(|(_, v)| v).collect();
+        assert_eq!(
+            flat, whole,
+            "per-segment read did not compose to the flat one"
+        );
+
+        // Resuming from a segment returns that segment and everything above
+        // it, and nothing below: this is the property the cache relies on to
+        // keep its settled prefix.
+        let tail = log.leaf_hashes_from(2).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].0, 2);
+        assert_eq!(tail[0].1, whole[7..].to_vec());
+
+        // Past the end is empty, not an error: a caller that has already read
+        // the highest segment asks this every time the log has not grown.
+        assert!(log.leaf_hashes_from(99).unwrap().is_empty());
     }
 
     #[tokio::test]
