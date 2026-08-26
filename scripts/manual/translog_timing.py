@@ -66,12 +66,17 @@ def main():
 
     if not a.no_append:
         print("\nsth, spanning a forced append:")
-        # Distinct coordinates per round: a repeat is served from cache and
-        # appends nothing, which would silently measure the quiet case again.
+        # Widely separated coordinates per round. Nearby points resolve to a
+        # cell that is already materialised, the recall is served from cache,
+        # and nothing is appended -- which silently re-measures the quiet case.
+        # Two of three rounds did exactly that at 0.37 degrees apart. The run
+        # SAYS when it happens rather than averaging it in, because a probe
+        # that reproduces the wrong case is a control that cannot fail.
+        spread = [(-3.4, -62.2), (34.8, 138.6), (-25.3, 131.0),
+                  (64.1, -21.9), (-33.9, 18.4), (55.7, 37.6)]
         for i in range(a.rounds):
-            post(f"{o}/v1/recall",
-                 {"lat": -3.4 - i * 0.37, "lng": -62.2 + i * 0.41,
-                  "bands": ["elevation"]})
+            lat, lng = spread[i % len(spread)]
+            post(f"{o}/v1/recall", {"lat": lat, "lng": lng, "bands": ["elevation"]})
             t, s = get(f"{o}/v1/log/sth")
             grew = s["sth"]["tree_size"] - n
             n = s["sth"]["tree_size"]
