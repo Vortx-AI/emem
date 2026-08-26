@@ -195,6 +195,25 @@ CONTROL_BAD = """<!doctype html><meta charset=utf-8><body style="margin:0">
 CONTROL_GOOD = """<!doctype html><meta charset=utf-8><body style="margin:0">
 <div style="padding:40px"><a href=# style="display:block;width:40px;height:40px">a</a>
 <a href=# style="display:block;width:40px;height:40px;margin-top:40px">b</a></div></body>"""
+# One small link ALONE inside a focusable scroll region. The region's box
+# contains it, so without the ancestor exclusion this is flagged and nothing
+# on the page is wrong. Must report nothing.
+CONTROL_REGION_ALONE = """<!doctype html><meta charset=utf-8><body style="margin:0">
+<div tabindex=0 style="overflow:auto;width:400px;height:200px;padding:60px">
+<a href=# style="display:block;width:16px;height:16px">a</a></div></body>"""
+# Two small links CROWDED inside that same region. The ancestor exclusion must
+# skip the region and nothing else: these two still block each other. Without
+# this control, widening the exclusion from "my own ancestors" to "anything
+# sharing a region" looks identical and empties the whole check.
+#
+# 16px tall with a 4px gap puts the centres 20px apart, inside 24. Written
+# first with a 15px gap, which puts them 31px apart and passes -- the same
+# gap-versus-centre-distance mistake this checker exists to avoid making, and
+# it cost a control that could not fail.
+CONTROL_REGION_CROWDED = """<!doctype html><meta charset=utf-8><body style="margin:0">
+<div tabindex=0 style="overflow:auto;width:400px;height:200px;padding:60px">
+<a href=# style="display:block;width:16px;height:16px">a</a>
+<a href=# style="display:block;width:16px;height:16px;margin-top:4px">b</a></div></body>"""
 
 
 def run_control(ctx):
@@ -211,6 +230,8 @@ def run_control(ctx):
     for name, html, want_failures in (
         ("known-bad", CONTROL_BAD, True),
         ("known-good", CONTROL_GOOD, False),
+        ("lone-target-in-a-focusable-region", CONTROL_REGION_ALONE, False),
+        ("crowded-inside-that-same-region", CONTROL_REGION_CROWDED, True),
     ):
         pg.set_content(html)
         pg.wait_for_timeout(100)
@@ -257,6 +278,14 @@ def main():
                     print(f"{path}  -- not html, skipped")
                     pg.close(); continue
                 pg.wait_for_timeout(1200)
+                # Measure at the width that was asked for. A page loaded at
+                # one width and measured at another is a layout no visitor
+                # has ever seen, and it reports findings to match.
+                got_w = pg.evaluate("() => window.innerWidth")
+                if got_w != a.width:
+                    raise RuntimeError(
+                        f"viewport is {got_w}px, asked for {a.width}px"
+                    )
                 if css:
                     pg.add_style_tag(content=css)
                     pg.wait_for_timeout(250)
