@@ -547,6 +547,15 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   border:1px solid var(--rule-strong); border-radius:999px;
   padding:.4rem .9rem; display:inline-block;
 }
+/* @emem is the one name on this page that is also a place you can go. It is a
+   link on both the floating pair and the in-flow pair, padded to clear the 24px
+   tap bound rather than relying on the glyph height, and it keeps the label's
+   colour so it does not announce itself as chrome. */
+.side-link{ color:inherit; text-decoration:none; border-bottom:1px solid transparent;
+  display:inline-block; padding:.18rem 0; min-height:1.5rem; }
+.side-link:hover{ border-bottom-color:currentColor; }
+.side-link:focus-visible{ outline:2px solid var(--ink); outline-offset:3px; }
+
 .side-l{ left:var(--gutter); color:var(--slate); text-align:left; }
 .side-r{ right:var(--gutter); color:var(--ochre-ink); text-align:right; }
 .side{ --gutter:clamp(.7rem, 3.4vw, 2.6rem); max-width:42vw; }
@@ -810,7 +819,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
      thing that does not move, and only what it is doing changes underneath it. -->
 <div class="names">
   <p class="side side-l" id="who">ChatGPT<span>non-deterministic &middot; <i id="whobest">reasons well</i></span></p>
-  <p class="side side-r">@emem<span>deterministic &middot; <i id="callsub">repeats exactly</i></span></p>
+  <p class="side side-r"><a class="side-link" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">@emem</a><span>deterministic &middot; <i id="callsub">repeats exactly</i></span></p>
 </div>
 
 <header class="reach reach-open" data-step="0" data-who="ChatGPT" data-best="reasons well" data-sub="repeats exactly">
@@ -1315,7 +1324,10 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
     p.className = 'reach-names';
     p.innerHTML =
       '<span class="rn-l"><b></b><span>non-deterministic &middot; </span></span>' +
-      '<span class="rn-r"><b>@emem</b><span>deterministic &middot; </span></span>';
+      '<span class="rn-r"><b><a class="side-link" rel="noopener" ' +
+        'href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" ' +
+        'title="emem in the ChatGPT plugin directory">@emem</a></b>' +
+        '<span>deterministic &middot; </span></span>';
     p.querySelector('.rn-l b').textContent = r.getAttribute('data-who') || '';
     p.querySelector('.rn-l span').textContent = 'non-deterministic \u00b7 ' + (r.getAttribute('data-best') || '');
     p.querySelector('.rn-r span').textContent = 'deterministic \u00b7 ' + (r.getAttribute('data-sub') || '');
