@@ -1273,7 +1273,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         var f = (d.facts && d.facts[0]) || null;
         var tok = f && (f.memory_token || (f.fact_cid && 'emem:fact:' + f.fact_cid));
         if(!tok) throw 0;
-        pill.setAttribute('href', '/verify?token=' + encodeURIComponent(tok));
+        pill.setAttribute('href', '/verify?q=' + encodeURIComponent(tok));
         t.textContent = tok.length > 72 ? tok.slice(0, 71) + '\u2026' : tok;
         var tip = el('title', {});
         tip.textContent = tok + '  (opens the offline verifier)';

@@ -1416,7 +1416,11 @@ $('btnShareLink').onclick = () => {
   }
   // Query: ?q=<emem: token | /memories/ path>, ?receipt=<base64>, or ?cid=<cid>
   const p = new URLSearchParams(location.search || '');
-  const q = p.get('q');
+  // `token` is an alias for `q`. It is the obvious name for an emem: token and
+  // a link elsewhere on the site guessed it, landing readers on an empty form
+  // with their token in the address bar. Accepting the obvious spelling costs
+  // one line; making every caller learn ours costs a reader every time.
+  const q = p.get('q') || p.get('token');
   if (q) { $('cidInput').value = q; runVerify(q); return; }
   const r = p.get('receipt');
   if (r) {
