@@ -72,17 +72,67 @@ def baked_paths() -> set[str]:
     import re
     out: set[str] = set()
     root = pathlib.Path(REPO)
+    unknown: set[str] = set()
     for rs in (root / "crates").rglob("*.rs"):
         try:
             body = rs.read_text(encoding="utf-8", errors="ignore")
         except OSError:
             continue
-        for m in re.finditer(r'include_str!\(\s*"([^"]+)"', body):
+        # Strip line comments first, or the prose ABOUT these macros counts as
+        # a use of them: this file documents both, in comments, at length.
+        code = re.sub(r"//[^\n]*", "", body)
+
+        def resolve(raw: str) -> pathlib.Path | None:
+            raw = raw.replace("$CARGO_MANIFEST_DIR", str(rs_crate_root(rs, root)))
             try:
-                out.add(str((rs.parent / m.group(1)).resolve().relative_to(root)))
-            except (ValueError, OSError):
-                pass
+                return (rs.parent / raw).resolve()
+            except OSError:
+                return None
+
+        for m in re.finditer(r'include_(?:str|bytes)!\(\s*"([^"]+)"', code):
+            p2 = resolve(m.group(1))
+            if p2:
+                try:
+                    out.add(str(p2.relative_to(root)))
+                except ValueError:
+                    pass
+        # include_dir! bakes a WHOLE TREE. This repository has already shipped a
+        # bug from missing it: a sibling source-shape test recognised only
+        # include_str!, so the mdbook tree was structurally invisible and all six
+        # of mdbook's bootstrap scripts shipped CSP-blocked on every doc page,
+        # with the pages still rendering so nothing looked wrong. I wrote this
+        # scanner with the identical blind spot hours after reading that note.
+        for m in re.finditer(r'include_dir!\(\s*"([^"]+)"', code):
+            p2 = resolve(m.group(1))
+            if p2 and p2.is_dir():
+                for f in p2.rglob("*"):
+                    if f.is_file():
+                        try:
+                            out.add(str(f.relative_to(root)))
+                        except ValueError:
+                            pass
+        # ANY OTHER BAKING MACRO IS AN UNKNOWN, NOT AN ABSENCE. Adding the one
+        # macro I missed would leave the next one silently under-reported, which
+        # is how this class of bug survives. Name what is not handled instead.
+        # Anything else that bakes a path in. `include!` splices Rust source,
+        # and a future macro would be invisible the way include_dir! was.
+        for m in re.finditer(r'(?<!_)\binclude!\(\s*"', code):
+            unknown.add("include!")
+    if unknown:
+        print(f"  NOTE: {', '.join(sorted(unknown))} also bakes files in and this")
+        print("  scan does not resolve it, so the list below may be short. A commit")
+        print("  touching only such a file would read as inert and would not be.")
     return out
+
+
+def rs_crate_root(rs: pathlib.Path, root: pathlib.Path) -> pathlib.Path:
+    """The crate directory holding this .rs file, for $CARGO_MANIFEST_DIR."""
+    for parent in rs.parents:
+        if (parent / "Cargo.toml").exists():
+            return parent
+        if parent == root:
+            break
+    return rs.parent
 
 
 def rebuild_relevant(commit_range: str) -> tuple[list[str], list[str]]:
