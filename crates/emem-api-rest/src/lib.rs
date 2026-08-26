@@ -4134,10 +4134,37 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
         return resp;
     }
     let allowed = methods_for_path(&path);
+    // When the spec documents no method for this path, we do NOT know that it
+    // takes POST, and saying so sends the caller back to the request that just
+    // failed. That is what happened: POSTing /a2a answered 405 with
+    // `allow: []` and the message "It accepts POST. ... call it with POST",
+    // which is the same call, and the body contradicted its own prose. The
+    // real endpoint is /a2a/tasks and the card says so; the error did not.
     let allow_hdr = if allowed.is_empty() {
-        "POST".to_string()
+        String::new()
     } else {
         allowed.join(", ")
+    };
+    // A documented sibling that DOES answer the method tried. `/a2a` -> the
+    // card's `/a2a/tasks` is the case this exists for, and a guessed parent
+    // path is the commonest way to arrive at a 405 here.
+    let did_you_mean: Vec<String> = {
+        let tried_l = tried.to_lowercase();
+        openapi_spec()
+            .get("paths")
+            .and_then(|p| p.as_object())
+            .map(|o| {
+                o.iter()
+                    .filter(|(k, v)| {
+                        k.starts_with(path.trim_end_matches('/'))
+                            && k.as_str() != path
+                            && v.get(&tried_l).is_some()
+                    })
+                    .map(|(k, _)| k.clone())
+                    .take(4)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let primary = allowed
         .iter()
@@ -4189,7 +4216,24 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
     let body = json!({
         "schema":  "emem.error.v1",
         "code":    "method_not_allowed",
+        "did_you_mean": did_you_mean,
         "message": format!(
+            "{path} is a wired endpoint but does not answer {tried}.{}", if allow_hdr.is_empty() {
+                let alt = if did_you_mean.is_empty() {
+                    " No method is documented for this exact path; GET /openapi.json lists \
+                     every path this responder answers.".to_string()
+                } else {
+                    format!(
+                        " No method is documented for this exact path. {tried} IS answered at \
+                         {}, which is what the agent card advertises.",
+                        did_you_mean.join(", ")
+                    )
+                };
+                alt
+            } else {
+                format!(" It accepts {allow_hdr}.")
+            }),
+        "_legacy_message": format!(
             "{path} is a wired endpoint but does not answer {tried}. It accepts {allow_hdr}. \
              This is not a missing route: call it with {primary} and the request shape from \
              GET /openapi.json."),
