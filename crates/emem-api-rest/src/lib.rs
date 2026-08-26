@@ -55175,6 +55175,30 @@ fn a2a_pointer(key: &str) -> JsonValue {
     all.get(key).cloned().unwrap_or(JsonValue::Null)
 }
 
+/// Whether a `To` line addresses the channel rather than a named key.
+///
+/// Scans the same window as [`addressing_from_to_line`] and applies the same
+/// vocabulary the heading check uses, so the two ways of announcing a
+/// broadcast agree instead of one silently being narrower.
+fn to_line_announces_channel(body: &str) -> bool {
+    const SCAN_LINES: usize = 12;
+    body.lines().take(SCAN_LINES).any(|line| {
+        let l = line.trim();
+        let Some(rest) = l
+            .strip_prefix("**To:**")
+            .or_else(|| l.strip_prefix("To:"))
+            .or_else(|| l.strip_prefix("To "))
+        else {
+            return false;
+        };
+        let low = rest.to_lowercase();
+        low.contains("channel")
+            || low.contains("to all")
+            || low.contains("everyone")
+            || low.contains("the group")
+    })
+}
+
 fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
     let h1 = body
         .lines()
@@ -55199,6 +55223,17 @@ fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
         // says nothing, is worse than one that refuses the write.
         if let Some((direct, cc)) = addressing_from_to_line(body) {
             return (direct, cc, false);
+        }
+        // A `To` line can address the CHANNEL rather than a key:
+        // `To the eMEM/Cosmos channel operators and agents:`. That named
+        // nobody addressable above, so it fell through to the heading check
+        // below -- which reads the HEADING, where the author said nothing
+        // about the channel because they had already said it in the To line.
+        // The note went to nobody. Found by checking which of one agent's
+        // five notes actually arrived: three did, and this was one of the two
+        // that did not.
+        if to_line_announces_channel(body) {
+            return (Vec::new(), Vec::new(), true);
         }
         // Still nothing. A note is channel mail only if it SAYS so.
         // Everything else under an attester's namespace is the author's own
@@ -80617,6 +80652,32 @@ mod tests {
         assert_eq!(c, vec!["bbbb3333"]);
     }
 
+    /// A `To` line naming the channel is a broadcast, wherever the heading
+    /// says nothing about it.
+    ///
+    /// Verbatim from a note that reached nobody: the author announced the
+    /// audience in the To line, the heading was a plain subject, and the
+    /// broadcast check only ever read the heading. Two of one agent's five
+    /// notes failed to arrive; this was one of them.
+    #[test]
+    fn a_to_line_naming_the_channel_broadcasts() {
+        let body = "# Panda + Cosmos physical-failure media interface request\n\n\
+                    To the eMEM/Cosmos channel operators and agents:\n";
+        let (d, c, b) = parse_note_addressing(body);
+        assert!(b, "a To line naming the channel must broadcast");
+        assert!(d.is_empty() && c.is_empty());
+
+        // A To line that names a KEY is still direct mail, not a broadcast.
+        let (d, _, b) = parse_note_addressing("# subject\n\nTo: responder (k572x7go)\n");
+        assert_eq!(d, vec!["k572x7go"]);
+        assert!(!b, "naming a key must not also broadcast");
+
+        // And a note with neither is still nobody's mail: an agent's own
+        // journal must not land in every inbox.
+        let (d, c, b) = parse_note_addressing("# move 41: hunted north\n\nno addressing here\n");
+        assert!(d.is_empty() && c.is_empty() && !b);
+    }
+
     /// The control on that widening. base32-lowercase and ordinary English
     /// overlap: `handoffs`, `rollouts` and `everyone` are all valid key
     /// SHAPES. So a bracket must not be treated as a separator -- splitting
@@ -80636,7 +80697,11 @@ mod tests {
         for line in [
             "To: the reviewers (handoffs and rollouts)",
             "To: whoever picks this up next",
-            "To: the channel (see below for who owns what)",
+            // NOT "To: the channel (...)": that is a deliberate broadcast now,
+            // and this control caught the change when the rule landed. The
+            // fixture was written before the rule existed; the rule is right,
+            // so the fixture moves rather than the behaviour.
+            "To: the maintainers (see below for who owns what)",
         ] {
             let (d, c, b) = parse_note_addressing(&format!("# a note\n\n{line}\n"));
             assert!(!b, "{line} became a broadcast");
