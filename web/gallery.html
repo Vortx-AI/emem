@@ -267,7 +267,7 @@
     .photo{width:130px;top:14px;right:14px;padding:4px 4px 22px}
     .headline{font-size:var(--t-xs);left:18px;right:18px;bottom:14px}
     .tiles{
-      grid-template-columns:repeat(8,minmax(200px,1fr));grid-template-rows:1fr;
+      grid-template-columns:repeat(8,minmax(min(200px,100%),1fr));grid-template-rows:1fr;
       overflow-x:auto;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;
     }
     .tile{scroll-snap-align:start;border-right:1px solid var(--rule);border-bottom:0;min-height:130px}

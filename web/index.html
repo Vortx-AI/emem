@@ -109,7 +109,7 @@ a{color:var(--accent)}
 .fact-verify .check{color:var(--accent);font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 
 /* connect grid */
-.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));border:1px solid var(--rule);margin:1.5rem 0}
+.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(140px,100%),1fr));border:1px solid var(--rule);margin:1.5rem 0}
 .connect .client{padding:.8rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);cursor:pointer;background:var(--paper-2);display:flex;flex-direction:column;gap:.3rem}
 .connect .client:hover{background:var(--paper-3)}
 .connect .client.active{background:var(--ink);color:var(--paper)}
@@ -448,18 +448,10 @@ html, body{overflow-x:clip}
      two different strings on the same pixels. Below this width they stop being
      margin notes and become a caption bar with its own ground, which cannot
      overprint anything because it is opaque and the text scrolls under it. */
-  .names{
-    display:flex; justify-content:space-between; align-items:baseline;
-    gap:.6rem; padding:.4rem clamp(.7rem,3.4vw,2.6rem) .45rem;
-    background:var(--paper); border-bottom:1px solid var(--rule);
-  }
-  .side{ position:static; max-width:none; }
-  .side-l, .side-r{ left:auto; right:auto; }
-  .side-r{ text-align:right; }
-  /* The name was 16.5px against body copy at 16.9px, so the label read as
-     another sentence. It is a label: smaller than the prose, and its note
-     stays on the same floor the desktop uses. */
-  .side span{ letter-spacing:.03em; }
+  /* The caption-bar rules that used to live here are at the END of this
+     stylesheet now. See the note beside them: set here they lost to base rules
+     further down the file, and a reviewer measured the served page still
+     rendering them absolutely positioned and transparent. */
 }
 @media (max-width:520px){
   /* Narrower still: the veil has to work harder, so the banks step back a
@@ -560,11 +552,6 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .side{ --gutter:clamp(.7rem, 3.4vw, 2.6rem); max-width:42vw; }
 .side-l span, .side-r span{ color:var(--mute); }
 
-.plug{ width:min(320px,68vw); height:auto; display:block; }
-.p-lead{ stroke:var(--graphite); stroke-width:1; stroke-dasharray:2 4; opacity:.7; }
-.p-shaft{ fill:var(--graphite); opacity:.55; }
-.p-body{ fill:var(--graphite); opacity:.8; }
-.p-ring{ fill:var(--paper); opacity:.9; }
 
 /* The mouth. The one place on this page that points off it: three ways out,
    set as plainly as the rest so the page ends rather than sells. Each is a
@@ -627,7 +614,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .b-tok{ color:var(--ink-2); cursor:pointer; }
 .b-tok:hover{ color:var(--ink); }
 .b-tok:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
-.b-tok text{ font-family:var(--mono,ui-monospace,monospace); font-size:13px; letter-spacing:.02em; }
+.b-tok text{ font-family:var(--mono,ui-monospace,monospace); font-size:12px; letter-spacing:.01em; }
 
 /* The one thing to DO, at the end, where a reader who has just watched the
    check run is ready to do it. The page taught the idea and then let them
@@ -700,6 +687,52 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .foot-note a{ color:var(--ink-2); }
 
 @media (prefers-reduced-motion: reduce){ .bank{ transition:none !important; } }
+/* ── Phone: the flank labels become a caption bar ────────────────────────────
+   LAST IN THIS FILE ON PURPOSE, and that is the whole fix.
+
+   These rules are one class deep and so are the base rules they override, so
+   the cascade is decided by source order alone. Written inside the earlier
+   `max-width:860px` block they sat ABOVE `.side{position:absolute}` and
+   `.side{max-width:42vw}` and lost, silently: the class was present, the media
+   query matched, and the served page still rendered the labels absolutely
+   positioned and fully transparent, printing straight through the body text.
+
+   This is the FOURTH time this file has produced that bug (the names offset,
+   the label size, the mobile top, and this). It is not a media-query problem
+   and raising specificity would only hide it. Overrides go after what they
+   override; when they cannot, they do not belong in a media block. */
+@media (max-width:860px){
+  .names{
+    display:flex; justify-content:space-between; align-items:baseline;
+    gap:.6rem; padding:.4rem clamp(.7rem,3.4vw,2.6rem) .45rem;
+    background:var(--paper); border-bottom:1px solid var(--rule);
+  }
+  .names .side{ position:static; max-width:none; left:auto; right:auto; }
+  .names .side-r{ text-align:right; }
+  .names .side span{ letter-spacing:.03em; }
+}
+/* The in-flow pair, one per reach. Hidden on a desktop, where the floating
+   labels sit in the margins beside the text and cover nothing. */
+.reach-names{ display:none; }
+@media (max-width:860px){
+  .names{ display:none; }
+  .reach-names{
+    display:flex; justify-content:space-between; align-items:baseline;
+    gap:.8rem; width:100%; margin:0 0 .3rem;
+    padding-bottom:.45rem; border-bottom:1px solid var(--rule);
+    text-align:left;
+  }
+  .reach-names b{
+    display:block; font-family:var(--display,Georgia,serif); font-weight:400;
+    font-size:1.05rem; letter-spacing:.01em;
+  }
+  .reach-names span span, .reach-names > span > span{
+    display:block; font-family:var(--sans,inherit); font-size:var(--label-note);
+    letter-spacing:.03em; color:var(--mute); margin-top:.1rem;
+  }
+  .rn-l{ color:var(--slate); }
+  .rn-r{ color:var(--ochre-ink); text-align:right; }
+}
 </style>
 </head>
 <body>
@@ -782,13 +815,6 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 
 <header class="reach reach-open" data-step="0" data-who="ChatGPT" data-best="reasons well" data-sub="repeats exactly">
   <h1 class="line">Ask a model the same thing twice,<br>and you get two answers.</h1>
-  <svg class="plug" viewBox="0 0 240 40" role="img" aria-label="A jack plug in the gap between the two banks">
-    <line x1="0" y1="20" x2="96" y2="20" class="p-lead"/>
-    <rect x="96" y="14" width="46" height="12" rx="3" class="p-shaft"/>
-    <rect x="142" y="9"  width="52" height="22" rx="5" class="p-body"/>
-    <circle cx="182" cy="20" r="6" class="p-ring"/>
-    <line x1="194" y1="20" x2="240" y2="20" class="p-lead"/>
-  </svg>
   <p class="call"><code>call @emem</code></p>
   <p class="sub">Ask emem the same thing twice and the same bytes come back, signed, with a receipt you can check yourself. That is the whole idea. Everything below is you checking it.</p>
   <p class="scroll-cue"><span>keep going</span></p>
@@ -1231,7 +1257,10 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
        fetched live, it links to the offline verifier, and if the call does not
        come back it says so rather than showing a decorative prefix. */
     var pill = el('a', { class:'b-tok', href:'/verify' });
-    pill.appendChild(el('rect', { x:BW/2 - 116, y:arch(BW/2) - 32, width:232, height:28, rx:14,
+    /* Sized for a REAL token, not for the placeholder. A descriptor token is
+       about 70 characters; the box was 232px and cut it at 33, which reads as
+       an arbitrary truncation rather than as an address. */
+    pill.appendChild(el('rect', { x:BW/2 - 232, y:arch(BW/2) - 33, width:464, height:30, rx:15,
       fill:'var(--paper)', stroke:'currentColor', 'stroke-width':1, opacity:0.96 }));
     var t = el('text', { x:BW/2, y:arch(BW/2) - 13, 'text-anchor':'middle', fill:'currentColor' });
     t.textContent = 'fetching a real one\u2026';
@@ -1245,7 +1274,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         var tok = f && (f.memory_token || (f.fact_cid && 'emem:fact:' + f.fact_cid));
         if(!tok) throw 0;
         pill.setAttribute('href', '/verify?token=' + encodeURIComponent(tok));
-        t.textContent = tok.length > 34 ? tok.slice(0, 33) + '\u2026' : tok;
+        t.textContent = tok.length > 72 ? tok.slice(0, 71) + '\u2026' : tok;
         var tip = el('title', {});
         tip.textContent = tok + '  (opens the offline verifier)';
         pill.appendChild(tip);
@@ -1260,6 +1289,26 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
      between them is the only thing that changes. */
   var who = document.getElementById('who'), callsub = document.getElementById('callsub'),
       whobest = document.getElementById('whobest');
+
+  /* On a phone the two names cannot be a floating bar. Fixed or sticky, it
+     covers whatever scrolls under it, and an opaque bar hides a line of body
+     text rather than overprinting it, which is quieter but still a line gone.
+     So below the breakpoint each reach carries its OWN pair, in the flow,
+     above its own sentence: nothing floats, nothing is covered, and every
+     screen still names both banks. Built from the same data attributes the
+     floating pair reads, so there is one source for the words. */
+  document.querySelectorAll('.reach[data-who]').forEach(function(r){
+    if(r.querySelector('.reach-names')) return;
+    var p = document.createElement('p');
+    p.className = 'reach-names';
+    p.innerHTML =
+      '<span class="rn-l"><b></b><span>non-deterministic &middot; </span></span>' +
+      '<span class="rn-r"><b>@emem</b><span>deterministic &middot; </span></span>';
+    p.querySelector('.rn-l b').textContent = r.getAttribute('data-who') || '';
+    p.querySelector('.rn-l span').textContent = 'non-deterministic \u00b7 ' + (r.getAttribute('data-best') || '');
+    p.querySelector('.rn-r span').textContent = 'deterministic \u00b7 ' + (r.getAttribute('data-sub') || '');
+    r.insertBefore(p, r.firstElementChild);
+  });
   function swap(node, text){
     if(!node || text === node.firstChild.nodeValue) return;
     node.classList.add('fade');

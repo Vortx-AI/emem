@@ -131,7 +131,14 @@
   .sitebar-in { flex-wrap: wrap; font-size: var(--t-2xs); padding: 0 var(--s-3) }
   .sitebar .brand { padding-right: var(--s-3) }
   .navgrp { position: static }
-  .navmenu { left: 0; right: 0; min-width: 0 }
+  /* width:auto with both offsets set, or the menu keeps its content width and
+     sits wherever the summary left it: at 320 it was 111px wide starting at
+     x=94, and its links ran to x=331 with nothing clipping them. */
+  .navmenu { left: 0; right: 0; width: auto; min-width: 0; max-width: none }
+  /* A link's min-content is its longest word. `min-width:auto` on a grid item
+     lets that push past the menu, so the label overflowed the box that was
+     supposed to contain it. */
+  .navmenu a { min-width: 0; overflow-wrap: anywhere }
 }
 
 @media (prefers-reduced-motion: reduce) {

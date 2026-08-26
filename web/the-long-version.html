@@ -140,7 +140,6 @@ a{color:var(--accent)}
 .hero-pillars .pillar:last-child{border-right:0}
 .hero-pillars .pillar .word{font-weight:700;color:var(--ink);font-size:var(--t-md);letter-spacing:-.01em}
 .hero-pillars .pillar .gloss{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.06em;color:var(--mute)}
-@media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
 .hero-cta{display:flex;gap:.75rem;flex-wrap:wrap;margin-top:1.6rem}
 
 /* Lean hero (fold 1): drops the kv sidebar, the formula box, the pillars,
@@ -151,13 +150,7 @@ a{color:var(--accent)}
 .hero.hero-lean .sub{font-size:var(--t-lg);max-width:54ch;line-height:1.45;margin:0 0 1.6rem;color:var(--ink-2);font-weight:400}
 .hero.hero-lean .hero-cta{margin-top:1.4rem}
 .hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-@media (max-width:680px){.hero-trust{white-space:normal}}
 .hero-trust code{color:var(--ink-2);font-size:var(--t-xs);background:var(--paper-2);padding:.05em .35em;border:1px solid var(--rule);border-radius:2px}
-@media (max-width:560px){
-  .hero.hero-lean{padding:3rem 0 2.5rem}
-  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
-  .hero.hero-lean .hero-cta .btn{justify-content:center}
-}
 
 .btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
 .btn:hover{background:var(--ink-2)}
@@ -202,7 +195,7 @@ a{color:var(--accent)}
 .fact-verify a{color:var(--accent)}
 
 /* connect grid */
-.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));border:1px solid var(--rule);margin:1.5rem 0}
+.connect{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(140px,100%),1fr));border:1px solid var(--rule);margin:1.5rem 0}
 .connect .client{padding:.8rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);cursor:pointer;background:var(--paper-2);display:flex;flex-direction:column;gap:.3rem}
 .connect .client:hover{background:var(--paper-3)}
 .connect .client.active{background:var(--ink);color:var(--paper)}
@@ -220,7 +213,6 @@ a{color:var(--accent)}
 .stats .stat .lbl{margin-top:.5rem;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
 .stats.network .stat .n{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em}
 .stats.network .stat .lbl{text-transform:none;font-size:var(--t-xs);letter-spacing:.01em;line-height:1.35}
-@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
 
 /* endpoints table */
 .endpoints{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm)}
@@ -254,7 +246,6 @@ a{color:var(--accent)}
 .loop .step .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.4}
 .loop .step::after{content:"→";position:absolute;right:-8px;top:50%;transform:translateY(-50%);background:var(--paper);border:1px solid var(--rule);width:18px;height:18px;display:flex;align-items:center;justify-content:center;font-size:var(--t-3xs);color:var(--mute);z-index:2}
 .loop .step:last-child::after{display:none}
-@media (max-width:900px){.loop{grid-template-columns:repeat(2,1fr)}.loop .step::after{display:none}.loop .step{border-bottom:1px solid var(--rule)}}
 
 /* hunter cards */
 .hunter{display:grid;grid-template-columns:repeat(2,1fr);border:1px solid var(--rule);margin:1.5rem 0}
@@ -266,7 +257,6 @@ a{color:var(--accent)}
 .hunter .case .row:last-child{border-bottom:0}
 .hunter .case .row .cid{color:var(--accent)}
 .hunter .case .row .val{font-weight:700;color:var(--ink)}
-@media (max-width:720px){.hunter{grid-template-columns:1fr}}
 
 /* absent table */
 .absent-table{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
@@ -338,7 +328,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .substrate-grid .lane .title{font-size:var(--t-md);font-weight:700;color:var(--ink);letter-spacing:-.01em}
 .substrate-grid .lane .endpoint{font-family:var(--mono);font-size:var(--t-xs);color:var(--accent);word-break:break-all}
 .substrate-grid .lane .desc{font-size:var(--t-xs);color:var(--mute);line-height:1.5}
-@media (max-width:720px){.substrate-grid{grid-template-columns:1fr}.substrate-grid .lane{border-right:0;border-bottom:1px solid var(--rule)}.substrate-grid .lane:last-child{border-bottom:0}}
 
 /* connect-and-evolve diagram: facts → typed edges → refinement loop.
    Pure CSS/HTML + one inline SVG, no external assets. */
@@ -361,7 +350,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .cev-legend .e{display:flex;flex-direction:column;gap:.15rem}
 .cev-legend .e b{color:var(--ink);font-weight:700}
 .cev-legend code{color:var(--accent);background:var(--paper);padding:0 .25em;border:1px solid var(--rule)}
-@media (max-width:560px){.cev-legend{grid-template-columns:1fr}}
 
 /* peer comparison: feature matrix vs adjacent memory systems */
 .peer{width:100%;border-collapse:collapse;margin:1.5rem 0;font-size:var(--t-sm);border:1px solid var(--rule)}
@@ -391,8 +379,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .live-grid .pane .pulse .dot{width:6px;height:6px;border-radius:50%;background:var(--mute-2)}
 .live-grid .pane .pulse.live .dot{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:livepulse 1.6s cubic-bezier(.66,0,0,1) infinite}
 @keyframes livepulse{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .6)}80%,100%{box-shadow:0 0 0 8px oklch(from var(--accent) l c h / 0)}}
-@media (prefers-reduced-motion:reduce){.live-grid .pane .pulse.live .dot{animation:none}}
-@media (max-width:720px){.live-grid{grid-template-columns:1fr}.live-grid .pane{border-right:0;border-bottom:1px solid var(--rule)}.live-grid .pane:last-child{border-bottom:0}}
 
 /* horizontal scroll wrapper for wide tables on small screens */
 .scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -404,37 +390,6 @@ body:has(.foot.inverted){padding-bottom:0}
 
 /* responsive */
 @media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
-@media (max-width:720px){
-  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
-  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
-  .section-meta{display:none}
-  .foot-grid{grid-template-columns:repeat(2,1fr)}
-  .endpoints{font-size:var(--t-xs)}
-  .endpoints th,.endpoints td{padding:.4rem .5rem}
-  .statusbar a.nav-sec{display:none}
-  .statusbar-inner{height:36px}
-  .memt-block .memt-parts{grid-template-columns:1fr}
-  .hero-cta{flex-direction:column;align-items:stretch}
-  .hero-cta .btn{justify-content:center}
-}
-@media (max-width:560px){
-  .hero h1{font-size:var(--t-2xl);line-height:1.05}
-  .hero .sub{font-size:var(--t-md)}
-  .hero-pillars{flex-direction:column}
-  .hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}
-  .hero-pillars .pillar:last-child{border-bottom:0}
-  .code pre{font-size:var(--t-xs)}
-  .loop{grid-template-columns:1fr}
-  .loop .step{border-right:0;border-bottom:1px solid var(--rule)}
-  .loop .step:last-child{border-bottom:0}
-}
-@media (max-width:480px){
-  html{font-size:93.75%}
-  .page{padding:0 1rem}
-  .stats{grid-template-columns:1fr}
-  .connect{grid-template-columns:repeat(2,1fr)}
-}
-@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 /* ── Earth-memory rail, decorative Mithila (Kachni) scroll story ──────────
    One continuous vine/river drawn down the right-hand whitespace; motifs reveal
    as you scroll. Decoration only: aria-hidden + pointer-events:none. Off below
@@ -446,8 +401,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .ev-dot{fill:var(--accent);stroke:none;opacity:.45}
 .ev-spine{fill:none;stroke:var(--accent);stroke-width:1.3;stroke-linecap:round;opacity:.42;stroke-dasharray:1;stroke-dashoffset:0}
 .ev-motif{opacity:.9}
-@media (min-width:1100px){html:not(.no-art) .earth-rail{display:block}}
-@media (min-width:1100px) and (max-width:1320px){.earth-rail{right:1.25rem}}
 @supports (animation-timeline: scroll()){@media (prefers-reduced-motion: no-preference){
   .ev-spine{animation:ev-draw linear both;animation-timeline:scroll(root block);animation-range:2% 94%}
   .ev-motif{animation:ev-show linear both;animation-timeline:scroll(root block);animation-range:calc(var(--i)*11% + 2%) calc(var(--i)*11% + 16%)}
@@ -496,7 +449,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .mc-head .spacer{flex:1}
 .mc-body{padding:1.1rem 1.2rem}
 .mc-form{display:grid;grid-template-columns:1fr auto auto;gap:.6rem;align-items:end}
-@media (max-width:620px){.mc-form{grid-template-columns:1fr}}
 .mc-field{display:flex;flex-direction:column;gap:.3rem;min-width:0}
 .mc-field label{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
 .mc-field input,.mc-field select{font-family:var(--mono);font-size:var(--t-sm);color:var(--ink);background-color:var(--paper);border:1px solid var(--ink);padding:.55rem .7rem;border-radius:0;outline:none;width:100%}
@@ -511,7 +463,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .mc-egs .eg:hover{background:var(--accent-bg);color:var(--ink);border-color:var(--accent)}
 .mc-status{margin-top:1rem;border-top:1px dashed var(--rule);padding-top:1rem;font-size:var(--t-sm);color:var(--ink-2);display:flex;align-items:center;gap:.6rem;min-height:1.4em}
 .mc-status .spin{width:12px;height:12px;border:2px solid var(--rule-strong);border-top-color:var(--accent);border-radius:50%;animation:mcspin .8s linear infinite;flex:0 0 auto}
-@media (prefers-reduced-motion:reduce){.mc-status .spin{animation:none}}
 @keyframes mcspin{to{transform:rotate(360deg)}}
 .mc-status.err{color:var(--absent)}
 .mc-status.err .glyph{color:var(--absent);font-weight:700}
@@ -522,7 +473,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .mc-card .ctitle .signed{display:inline-flex;align-items:center;gap:.3rem;color:var(--accent);font-weight:700}
 .mc-card .ctitle .signed::before{content:"";width:6px;height:6px;background:var(--accent);border-radius:50%}
 .mc-grid{display:grid;grid-template-columns:7.5rem 1fr;gap:.4rem 1rem;align-items:baseline;font-size:var(--t-sm)}
-@media (max-width:520px){.mc-grid{grid-template-columns:1fr;gap:.15rem .6rem}}
 .mc-grid .k{color:var(--mute);font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.05em}
 .mc-grid .v{color:var(--ink);word-break:break-all;font-family:var(--mono)}
 .mc-grid .v.big{font-size:var(--t-2xl);font-weight:700;color:var(--ink);line-height:1.1}
@@ -543,7 +493,6 @@ body:has(.foot.inverted){padding-bottom:0}
 .mc-heartbeat .pulse .dot{width:6px;height:6px;border-radius:50%;background:var(--mute-2);flex:0 0 auto}
 .mc-heartbeat .pulse.live .dot{background:var(--accent);animation:mcbeat 1.6s cubic-bezier(.66,0,0,1) infinite}
 @keyframes mcbeat{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .6)}80%,100%{box-shadow:0 0 0 7px oklch(from var(--accent) l c h / 0)}}
-@media (prefers-reduced-motion:reduce){.mc-heartbeat .pulse.live .dot{animation:none}}
 .mc-heartbeat .metric{color:var(--ink-2)}
 .mc-heartbeat .metric b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
 .mc-heartbeat .metric.bumped b{color:var(--accent);transition:color .1s}
@@ -613,17 +562,6 @@ body{counter-reset:chapter}
        it was thinking about; these are the ones they were not. */
     --mute-2:oklch(0.651 0.005 85);--vermilion:oklch(0.67 0.16 30);}
 .inverted a{color:var(--accent)}
-@media (prefers-color-scheme:dark){
-  :root:not([data-theme="light"]) .inverted{
-    --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
-    --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
-    --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
-    --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
-    --accent:oklch(0.45 0.09 145);
-    /* Mirror of the light-mode case: here .inverted is the LIGHT panel and
-       inherits tokens.css's DARK --mute-2, which measured 2.89:1 on it. */
-    --mute-2:oklch(0.504 0.005 85);}
-}
 :root[data-theme="dark"] .inverted{
   --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
   --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
@@ -648,7 +586,6 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .ask-egs .lbl{font-size:var(--t-xs);color:var(--mute);text-transform:uppercase;letter-spacing:.1em}
 .ask-egs .ask-eg{font:inherit;font-size:var(--t-xs);padding:.2rem .5rem;border:1px solid var(--rule-strong);background:color-mix(in oklch,var(--paper) 85%,transparent);color:var(--ink-2);cursor:pointer}
 .ask-egs .ask-eg:hover{border-color:var(--accent);color:var(--ink);background:var(--accent-bg)}
-@media (max-width:880px){.ask-bar{max-width:none}}
 /* the answer card, appears directly under the ask bar, over the map, where
    the eye already is. Opaque paper + ink frame so it reads over the busy map. */
 /* the optional Gemma-4 "explain" affordance, clearly an UNSIGNED commentary
@@ -682,8 +619,6 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .plate img{width:100%;height:auto;display:block;border:1px solid var(--rule)}
 .plate figcaption{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);
   margin-top:.55rem;letter-spacing:.01em}
-@media (max-width:680px){.plate{margin-top:2.2rem}}
-@media (min-width:900px){.chapter:not(.solo) .words{position:sticky;top:5.2rem}}
 .chapter:nth-of-type(even) .art{order:2}
 .chapter:nth-of-type(even) .words{order:1}
 .chapter .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--mute-2);display:flex;align-items:center;gap:.6rem}
@@ -734,10 +669,8 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .latent-band{max-width:780px;margin:0 auto;padding:3.4rem 0 1.2rem;text-align:center}
 .latent-band .lb-lead{font-size:var(--t-lg);color:var(--ink);line-height:1.4;margin:0 auto;max-width:28em;font-weight:600}
 .latent-band .latent-cards{margin-top:1.5rem;text-align:left}
-@media (max-width:680px){.latent-band{padding:2.4rem 0 .8rem}}
 .chapter .latent-band{grid-column:1/-1;max-width:860px;margin:1.6rem auto 0;padding-top:1.9rem;border-top:1px solid var(--rule)}
 .latent-cards{display:grid;grid-template-columns:1fr 1fr;gap:.7rem;margin-top:1.1rem}
-@media (max-width:680px){.latent-cards{grid-template-columns:1fr}}
 .latent-cards .lcard{display:flex;flex-direction:column;gap:.35rem;text-decoration:none;padding:.7rem .8rem;
   background:var(--paper-2);border:1px solid var(--ink);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule)}
 .latent-cards .lcard:hover{box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
@@ -745,11 +678,6 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .latent-cards .lc-t{font-size:var(--t-sm);color:var(--ink-2);line-height:1.4}
 .latent-cards .lc-go{font-size:var(--t-xs);color:var(--accent);margin-top:auto}
 .chapter .go a+a{margin-left:1.1rem}
-@media (max-width:880px){
-  .chapter{grid-template-columns:1fr;gap:1.4rem;padding:2.8rem 0}
-  .chapter:nth-of-type(even) .art{order:0}
-  .chapter:nth-of-type(even) .words{order:0}
-}
 
 /* the live console + verify card sit inside their chapter's words column */
 .chapter .live{margin:1.3rem 0 0}
@@ -775,7 +703,6 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .builton-rows .bk{display:inline-block;min-width:5.5rem;text-align:right;margin-right:.7rem;color:var(--accent);font-weight:700;font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.06em}
 .builton-note{margin-top:1.1rem;font-size:var(--t-xs);color:var(--mute)}
 .builton-note a{color:var(--accent);text-decoration:none;border-bottom:1px solid color-mix(in oklch,var(--accent) 35%,transparent)}
-@media (max-width:620px){.builton-rows .bk{display:block;text-align:center;min-width:0;margin:0 0 .15rem}}
 .finale p{color:var(--ink-2);font-size:var(--t-md);max-width:56ch;margin:0 auto 1.6rem}
 .finale .hero-cta{justify-content:center}
 
@@ -796,7 +723,6 @@ input::placeholder{color:var(--mute,#7a7363)}
 .who-list a{font-weight:700;color:var(--ink);text-decoration:none;border-bottom:1px solid var(--rule-strong)}
 .who-list span{display:block;color:var(--mute);font-size:var(--t-xs);margin-top:.1rem}
 .who-more{margin-top:1.4rem;font-size:var(--t-sm)}
-@media (max-width:760px){.who-list{columns:1}}
 
 .bench-line{color:var(--mute);font-size:var(--t-xs);margin-top:.9rem}
 .bench-line a{color:var(--mute)}
@@ -839,7 +765,6 @@ input::placeholder{color:var(--mute,#7a7363)}
 .th-seed{transform-origin:120px 120px;animation:th-pulse 3.6s ease-in-out infinite}
 @keyframes th-spin{to{transform:rotate(360deg)}}
 @keyframes th-pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.045)}}
-@media (prefers-reduced-motion:reduce){.th-ring,.th-seed{animation:none}}
 /* live demo */
 .th-demo{margin-top:2.6rem;border:1.6px solid var(--ink);background:var(--paper-2)}
 .th-demo-head{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;padding:.7rem .95rem;border-bottom:1.6px solid var(--ink);background:var(--paper-3);flex-wrap:wrap}
@@ -880,7 +805,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .th-beats .beat h3{font-size:var(--t-base);margin:0 0 .5rem}
 .th-beats .beat p{font-size:var(--t-sm);line-height:1.55;color:var(--ink-2);margin:0 0 .7rem}
 .th-beats .beat-tech{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);border-top:1px dotted var(--rule-strong);padding-top:.55rem}
-@media (max-width:860px){.th-top{grid-template-columns:1fr;gap:var(--s-4)}.th-core{max-width:200px;margin:var(--s-2) auto 0}.th-beats{grid-template-columns:1fr}}
 
 /* the decay demo: one real recorded run, two presses. Placed in the hero on the
    benchmark author's evidence that position decides what gets seen, and that an
@@ -908,7 +832,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    900px the split collapses and the plate stops sticking, because on a phone a
    pinned panel eats the screen the index needs. */
 .album{display:grid;grid-template-columns:38fr 62fr;gap:1.618rem;align-items:start}
-@media (max-width:900px){.album{grid-template-columns:1fr}}
 /* Nothing to show, so the split does not hold. The failure message was landing
    in the 38% index column and wrapping to thirteen two-word lines, which is a
    sentence about a queue rendered as a column of confetti. When there is no
@@ -1018,10 +941,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   background:var(--paper-2);border:1px solid var(--rule);border-radius:3px}
 .strip-nav:hover:not([disabled]){border-color:var(--ink-2)}
 .strip-nav[disabled]{opacity:.4;cursor:default}
-@media (max-width:620px){
-  .shots{grid-template-columns:1fr}
-  .frame{padding:.618rem}
-}
 /* The strip scrolls itself; smooth is a courtesy and not the mechanism. */
 @media (prefers-reduced-motion:reduce){ .filmstrip{scroll-behavior:auto} }
 
@@ -1036,11 +955,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
 .pcstatus{font-size:var(--t-xs);color:#6b5f49;margin:10px 0 0}
 .pcout{margin-top:14px}
 .pcout img{display:block;width:100%;height:auto;border-radius:3px}
-@media (prefers-color-scheme:dark){
-      .livespin{border-color:#4a4133;border-top-color:transparent}
-  .pcgen{background:#211d16;border-color:#3b3227}
-  .pcrow input{background:#181510;border-color:#3b3227;color:#e8e0d0}
-}
 
 /* ---- was inline block 6 of 13 ---- */
 /* `start`, never `stretch`: the SVG overlay is absolutely positioned over
@@ -1056,7 +970,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .mp-sel{stroke:var(--vermilion);stroke-width:2}
   .mp-pulse{animation:mpp 2.4s ease-out infinite;transform-origin:center;transform-box:fill-box}
   @keyframes mpp{0%{opacity:.7;transform:scale(1)}70%{opacity:0;transform:scale(3.2)}100%{opacity:0;transform:scale(3.2)}}
-  @media (prefers-reduced-motion:reduce){.mp-pulse{animation:none}}
   .mp-cap{position:absolute;left:.6rem;bottom:.45rem;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);background:color-mix(in oklch,var(--paper) 80%,transparent);padding:.15rem .4rem}
   .mp-tag{font-family:var(--mono);font-size:var(--t-2xs);fill:var(--ink);paint-order:stroke;stroke:var(--paper);stroke-width:3.5px;stroke-linejoin:round;pointer-events:none}
   .stream{border:1.6px solid var(--ink);background:var(--paper-2);display:flex;flex-direction:column;min-height:0}
@@ -1092,10 +1005,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
      four contexts set it. */
   :root{--chip-l:0.5}
   .inverted{--chip-l:0.72}
-  @media (prefers-color-scheme:dark){
-    :root:not([data-theme="light"]){--chip-l:0.72}
-    :root:not([data-theme="light"]) .inverted{--chip-l:0.5}
-  }
   /* The attester chips are coloured per agent. They used to be
      hsl(h 60% 40%), and HSL lightness is not perceptual: across the hue
      circle at that one lightness the contrast against the card ran from
@@ -1125,7 +1034,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .join-note{padding:0 .8rem .6rem;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
   .join-out{padding:0 .8rem .8rem;font-size:var(--t-xs);color:var(--ink-2);line-height:1.5;display:none}
   .join-out .jo-meta{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);margin-top:.3rem}
-  @media (max-width:880px){.mapwrap{grid-template-columns:1fr}.stream-rows{max-height:260px}}
 
 /* ---- was inline block 7 of 13 ---- */
 .echo{border:1.6px solid var(--ink);background:var(--paper-2);margin:1.1rem 0 0}
@@ -1172,10 +1080,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
    the same content loss for a different reader. `tabindex` and the label fix
    that; the note below appears only where the scrolling exists. */
 .proofT-hint{display:none}
-@media (max-width:680px){
-  .proofT-hint{display:block;font-family:var(--mono);font-size:var(--t-3xs);
-    color:var(--mute);margin:0 0 .382rem}
-}
 .proofT:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .proofT th,.proofT td{border:1px solid var(--rule-strong);padding:.5rem .7rem;text-align:left;vertical-align:top}
   .proofT th{background:var(--paper-3);font-size:var(--t-xs);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
@@ -1184,7 +1088,6 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .proofT a{color:var(--mute);font-size:var(--t-xs);text-decoration:none;border-bottom:1px dotted var(--rule-strong)}
   .proof-notes{font-size:var(--t-xs);color:var(--mute);max-width:78ch;line-height:1.55}
   .proof-notes a{color:var(--accent)}
-  @media (max-width:680px){.proofT{display:block;overflow-x:auto}}
 
 /* ---- was inline block 10 of 13 ---- */
 /* the relay: a recorded cross-model handoff, replayed. Mithila rules and
@@ -1238,18 +1141,12 @@ html,body{overflow-x:clip}
 .chapter.solo .cap{max-width:70ch}
 .chapter .cap+.cap{margin-top:-.4rem}
 .latent-cards.cols4{grid-template-columns:repeat(4,1fr)}
-@media (max-width:880px){.latent-cards.cols4{grid-template-columns:1fr 1fr}}
-@media (max-width:540px){.latent-cards.cols4{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}}
-@media (max-width:680px){
-  .cap code,.th-connect code{overflow-wrap:anywhere}
-}
 .tiles{display:grid;grid-template-columns:repeat(6,1fr);gap:.7rem;margin:1.3rem 0 1.5rem}
 .tile{border:1.6px solid var(--ink);background:var(--paper);padding:.7rem .8rem;text-decoration:none;display:flex;flex-direction:column;gap:.2rem}
 .tile:hover{background:var(--accent-bg)}
 .tile b{font-family:var(--mono);font-size:var(--t-2xl);color:var(--ink);font-weight:600;line-height:1.05;letter-spacing:-.02em}
 .tile b[data-pending],.tile span [data-pending]{color:var(--mute-2)}
 .tile span{font-size:var(--t-xs);color:var(--mute);line-height:1.35}
-@media (max-width:880px){.tiles{grid-template-columns:repeat(2,1fr)}.latent-cards[style]{grid-template-columns:1fr 1fr !important}}
 
 /* ---- was inline block 12 of 13 ---- */
 .needs{display:grid;gap:var(--s-2);margin:var(--s-3) 0 var(--s-1)}
@@ -1270,6 +1167,117 @@ html,body{overflow-x:clip}
           .seep{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:var(--s-3) 0 0}
   .seep a{border:1px solid var(--rule);border-radius:999px;padding:var(--s-1) var(--s-3);font-size:var(--t-xs);text-decoration:none;color:var(--ink-2)}
   .seep a:hover{color:var(--accent);border-color:var(--accent)}
+
+/* ── Conditional blocks, last ───────────────────────────────────────────────
+   A media query adds NO specificity, so an override written above the rule
+   it overrides loses on source order and does nothing: the class matches,
+   the query matches, and the declaration is struck through. This page had
+   overrides that could not win. Every @media block now sits after every
+   unconditional rule, which makes that impossible rather than remembered.
+   Checked by scripts/css_override_order.py. */
+@media (max-width:560px){.hero-pillars{flex-direction:column}.hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}.hero-pillars .pillar:last-child{border-bottom:0}}
+@media (max-width:680px){.hero-trust{white-space:normal}}
+@media (max-width:560px){
+  .hero.hero-lean{padding:3rem 0 2.5rem}
+  .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
+  .hero.hero-lean .hero-cta .btn{justify-content:center}
+}
+@media (max-width:720px){.stats{grid-template-columns:repeat(2,1fr)}.stats .stat{border-bottom:1px solid var(--rule)}}
+@media (max-width:900px){.loop{grid-template-columns:repeat(2,1fr)}.loop .step::after{display:none}.loop .step{border-bottom:1px solid var(--rule)}}
+@media (max-width:720px){.hunter{grid-template-columns:1fr}}
+@media (max-width:720px){.substrate-grid{grid-template-columns:1fr}.substrate-grid .lane{border-right:0;border-bottom:1px solid var(--rule)}.substrate-grid .lane:last-child{border-bottom:0}}
+@media (max-width:560px){.cev-legend{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.live-grid .pane .pulse.live .dot{animation:none}}
+@media (max-width:720px){.live-grid{grid-template-columns:1fr}.live-grid .pane{border-right:0;border-bottom:1px solid var(--rule)}.live-grid .pane:last-child{border-bottom:0}}
+@media (max-width:720px){
+  .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
+  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{display:none}
+  .foot-grid{grid-template-columns:repeat(2,1fr)}
+  .endpoints{font-size:var(--t-xs)}
+  .endpoints th,.endpoints td{padding:.4rem .5rem}
+  .statusbar a.nav-sec{display:none}
+  .statusbar-inner{height:36px}
+  .memt-block .memt-parts{grid-template-columns:1fr}
+  .hero-cta{flex-direction:column;align-items:stretch}
+  .hero-cta .btn{justify-content:center}
+}
+@media (max-width:560px){
+  .hero h1{font-size:var(--t-2xl);line-height:1.05}
+  .hero .sub{font-size:var(--t-md)}
+  .hero-pillars{flex-direction:column}
+  .hero-pillars .pillar{border-right:0;border-bottom:1px solid var(--rule)}
+  .hero-pillars .pillar:last-child{border-bottom:0}
+  .code pre{font-size:var(--t-xs)}
+  .loop{grid-template-columns:1fr}
+  .loop .step{border-right:0;border-bottom:1px solid var(--rule)}
+  .loop .step:last-child{border-bottom:0}
+}
+@media (max-width:480px){
+  html{font-size:93.75%}
+  .page{padding:0 1rem}
+  .stats{grid-template-columns:1fr}
+  .connect{grid-template-columns:repeat(2,1fr)}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (min-width:1100px){html:not(.no-art) .earth-rail{display:block}}
+@media (min-width:1100px) and (max-width:1320px){.earth-rail{right:1.25rem}}
+@media (max-width:620px){.mc-form{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){.mc-status .spin{animation:none}}
+@media (max-width:520px){.mc-grid{grid-template-columns:1fr;gap:.15rem .6rem}}
+@media (prefers-reduced-motion:reduce){.mc-heartbeat .pulse.live .dot{animation:none}}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]) .inverted{
+    --paper:oklch(0.965 0.005 85);--paper-2:oklch(0.945 0.005 85);
+    --paper-3:oklch(0.92 0.006 85);--ink:oklch(0.20 0.005 85);
+    --ink-2:oklch(0.32 0.005 85);--mute:oklch(0.48 0.006 85);
+    --rule:oklch(0.86 0.006 85);--rule-strong:oklch(0.72 0.010 85);
+    --accent:oklch(0.45 0.09 145);
+    /* Mirror of the light-mode case: here .inverted is the LIGHT panel and
+       inherits tokens.css's DARK --mute-2, which measured 2.89:1 on it. */
+    --mute-2:oklch(0.504 0.005 85);}
+}
+@media (max-width:880px){.ask-bar{max-width:none}}
+@media (max-width:680px){.plate{margin-top:2.2rem}}
+@media (min-width:900px){.chapter:not(.solo) .words{position:sticky;top:5.2rem}}
+@media (max-width:680px){.latent-band{padding:2.4rem 0 .8rem}}
+@media (max-width:680px){.latent-cards{grid-template-columns:1fr}}
+@media (max-width:880px){
+  .chapter{grid-template-columns:1fr;gap:1.4rem;padding:2.8rem 0}
+  .chapter:nth-of-type(even) .art{order:0}
+  .chapter:nth-of-type(even) .words{order:0}
+}
+@media (max-width:620px){.builton-rows .bk{display:block;text-align:center;min-width:0;margin:0 0 .15rem}}
+@media (max-width:760px){.who-list{columns:1}}
+@media (prefers-reduced-motion:reduce){.th-ring,.th-seed{animation:none}}
+@media (max-width:860px){.th-top{grid-template-columns:1fr;gap:var(--s-4)}.th-core{max-width:200px;margin:var(--s-2) auto 0}.th-beats{grid-template-columns:1fr}}
+@media (max-width:900px){.album{grid-template-columns:1fr}}
+@media (max-width:620px){
+  .shots{grid-template-columns:1fr}
+  .frame{padding:.618rem}
+}
+@media (prefers-color-scheme:dark){
+      .livespin{border-color:#4a4133;border-top-color:transparent}
+  .pcgen{background:#211d16;border-color:#3b3227}
+  .pcrow input{background:#181510;border-color:#3b3227;color:#e8e0d0}
+}
+@media (prefers-reduced-motion:reduce){.mp-pulse{animation:none}}
+@media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){--chip-l:0.72}
+    :root:not([data-theme="light"]) .inverted{--chip-l:0.5}
+  }
+@media (max-width:880px){.mapwrap{grid-template-columns:1fr}.stream-rows{max-height:260px}}
+@media (max-width:680px){
+  .proofT-hint{display:block;font-family:var(--mono);font-size:var(--t-3xs);
+    color:var(--mute);margin:0 0 .382rem}
+}
+@media (max-width:680px){.proofT{display:block;overflow-x:auto}}
+@media (max-width:880px){.latent-cards.cols4{grid-template-columns:1fr 1fr}}
+@media (max-width:540px){.latent-cards.cols4{grid-template-columns:1fr}.tiles{grid-template-columns:1fr 1fr}}
+@media (max-width:680px){
+  .cap code,.th-connect code{overflow-wrap:anywhere}
+}
+@media (max-width:880px){.tiles{grid-template-columns:repeat(2,1fr)}.latent-cards[style]{grid-template-columns:1fr 1fr !important}}
 </style>
 </head>
 <body>

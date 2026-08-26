@@ -27,7 +27,6 @@
 :root{ /* tokens come from /tokens.css */ }
 
 html{font-size:100%}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 *{box-sizing:border-box}
 html,body{margin:0;padding:0;min-height:100%}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-variant-numeric:tabular-nums}
@@ -52,7 +51,6 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
-@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
 
 /* footer — shared with index.html */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
@@ -69,17 +67,8 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .foot-bottom a{color:inherit;border-bottom:none}
 .foot-bottom a:hover{color:var(--accent)}
-@media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
 
 .wrap{max-width:1040px;margin:0 auto;padding:2rem 1.4rem 5rem}
-@media(max-width:760px){
-  .wrap{padding:1.4rem 1rem 4rem}
-}
-@media(max-width:480px){
-  html{font-size:88%}
-  h1{font-size:var(--t-xl);line-height:1.18}
-  .lede{font-size:var(--t-sm)}
-}
 header.masthead{padding-bottom:1.4rem;border-bottom:1px solid var(--rule);margin-bottom:1.6rem}
 .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .55rem}
 h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .65rem;line-height:1.18}
@@ -92,14 +81,22 @@ h1 .accent{color:var(--accent)}
 .run-all .status{flex:1;font-size:var(--t-xs);color:var(--ink-3)}
 
 .cards{display:grid;grid-template-columns:1fr;gap:1rem}
-.q{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.05rem 1.2rem;transition:border-color .15s}
+/* min-width:0 because `1fr` is `minmax(auto,1fr)` and that auto floor is the
+   item's MIN-CONTENT width. `.req` is white-space:pre, so a long request line
+   cannot wrap, its min-content was 450px, and the grid column grew to fit it
+   inside a 362px container: the page overflowed at every phone width while
+   the pre itself had overflow-x:auto and looked innocent. */
+.q{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.05rem 1.2rem;transition:border-color .15s;min-width:0}
 .q.busy{border-color:var(--pending)}
 .q.ok{border-left:3px solid var(--accent)}
 .q.fail{border-left:3px solid var(--warn);border-color:var(--warn)}
 .q .head{display:flex;align-items:baseline;gap:.6rem;margin-bottom:.55rem;flex-wrap:wrap}
 .q .num{font-size:var(--t-xs);letter-spacing:.18em;color:var(--ink-3);text-transform:uppercase;font-weight:500}
 .q.ok .num,.q.busy .num,.q.fail .num{color:var(--accent)}
-.q h2{font-size:var(--t-lg);font-weight:600;margin:0;color:var(--ink);letter-spacing:-.005em;flex:1;min-width:240px}
+/* min-width:240px is a floor, and a floor wider than the space available is
+   an overflow: at 390px this pushed the article to 464px and took the whole
+   page with it. min() keeps the comfortable width where there is room. */
+.q h2{font-size:var(--t-lg);font-weight:600;margin:0;color:var(--ink);letter-spacing:-.005em;flex:1;min-width:min(240px,100%)}
 .q .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px}
 .q .req{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.5rem .7rem;border:1px solid var(--rule);border-radius:3px;margin:.4rem 0;overflow-x:auto;white-space:pre}
 .q .actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.45rem 0}
@@ -137,6 +134,25 @@ input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:
 input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
+
+/* ── Conditional blocks, last ───────────────────────────────────────────────
+   A media query adds NO specificity, so an override written above the rule
+   it overrides loses on source order and does nothing: the class matches,
+   the query matches, and the declaration is struck through. This page had
+   overrides that could not win. Every @media block now sits after every
+   unconditional rule, which makes that impossible rather than remembered.
+   Checked by scripts/css_override_order.py. */
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+@media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:760px){
+  .wrap{padding:1.4rem 1rem 4rem}
+}
+@media(max-width:480px){
+  html{font-size:88%}
+  h1{font-size:var(--t-xl);line-height:1.18}
+  .lede{font-size:var(--t-sm)}
+}
 </style>
 </head>
 <body>

@@ -72,7 +72,7 @@ h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing
 h1 .accent{color:var(--accent)}
 .lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:60ch}
 .lede b{color:var(--ink);font-weight:500}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:1rem;margin-top:1.6rem}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr));gap:1rem;margin-top:1.6rem}
 /* Same automatic-minimum trap as .section on the long-form pages: at the phone
    breakpoint the track is 1fr, but 1fr is minmax(auto,1fr) and that auto floor is
    the card's min-content -- 428px inside a 353px column, so the page scrolled
@@ -120,7 +120,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 /* The films, moved here from the homepage with their markup unchanged.
    They were a link directory on a page that is now a film strip of live
    places; this is the page that indexes things to look at. */
-.films{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
+.films{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(248px,100%),1fr));gap:var(--s-3);margin:var(--s-3) 0 var(--s-2)}
 .film{border:1px solid var(--rule);border-radius:8px;overflow:hidden;background:var(--paper-2);text-decoration:none;display:block}
 .film{color:var(--ink)}
 .film span{display:block;padding:var(--s-2) var(--s-3);font-size:var(--t-sm);color:var(--ink)}
