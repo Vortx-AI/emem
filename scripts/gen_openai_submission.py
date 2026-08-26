@@ -52,7 +52,7 @@ def iface(card: dict, protocol: str) -> str | None:
     return None
 
 
-def build(card: dict) -> tuple[dict, str]:
+def build(card: dict, origin: str) -> tuple[dict, str]:
     """The two artifacts, derived. Raises if the card lacks something they need,
     because a submission generated around a gap is worse than no submission."""
     action = iface(card, "openapi-3.1-action")
@@ -96,7 +96,12 @@ def build(card: dict) -> tuple[dict, str]:
     }
 
     rows = [
-        f"| Agent card | `{card.get('url','')}` | name `{card.get('name','')}`, version `{card.get('version','')}` |",
+        # card["url"] is the A2A endpoint the card POINTS AT, not the address of
+        # the card itself. Labelling it "Agent card" made the table say the card
+        # lives at /a2a/tasks, which is where you send it work.
+        f"| Agent card | `{origin}/.well-known/agent-card.json` | name `{card.get('name','')}`, "
+        f"version `{card.get('version','')}`, A2A protocol `{card.get('protocolVersion','')}` |",
+        f"| A2A endpoint | `{card.get('url','')}` | JSON-RPC `message/send` and `message/stream` |",
         f"| Action schema (import THIS) | `{action}` | the cut-down surface a Custom GPT can hold |",
         f"| Full OpenAPI | `{iface(card,'openapi-3.1')}` | every route; too large for a GPT Action |",
         f"| MCP endpoint | `{mcp}` | Streamable HTTP, for clients that speak MCP |",
@@ -149,7 +154,7 @@ def main() -> int:
         print("so an unreachable card means they were not checked at all.")
         return 2
 
-    example, block = build(card)
+    example, block = build(card, a.origin.rstrip('/'))
     new_json = json.dumps(example, indent=2, ensure_ascii=False) + "\n"
 
     doc = SUBMISSION_DOC.read_text(encoding="utf-8")

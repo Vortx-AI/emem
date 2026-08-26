@@ -309,9 +309,17 @@ trail to a regulator who never trusted the operator).
 | Pydantic AI              | MCP tool          | none | standard MCP client config over `https://emem.dev/mcp`; no example directory yet |
 | Mastra (TypeScript)      | MCP tool          | none | [`examples/mastra/`](../examples/mastra) |
 | Agno                     | MCP tool          | none | [`examples/agno/`](../examples/agno) |
+| Dify                     | MCP (`http`)      | none | add `https://emem.dev/mcp` as an MCP server in the workspace's tool settings |
+| OpenAI Codex             | MCP               | none | native Streamable HTTP where the build supports it, otherwise the `mcp-remote` bridge below |
 | stdio bridge             | `mcp-remote`      | none | (any runtime without native Streamable HTTP)  |
 | Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
 | Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
+
+Any host that speaks MCP reaches the same 108 tools at the same URL, whether or
+not it has a row here: the endpoint is `https://emem.dev/mcp` and reads need no
+key. The rows above are the ones with a checked-in example. Where a host has no
+native Streamable HTTP transport, the `mcp-remote` stdio bridge covers it, and
+that is the only reason a runtime would need anything emem-specific at all.
 
 Reads are idempotent. Retry on 5xx; treat 4xx as permanent. Each cold-band
 materialiser is capped at 14 s (`EMEM_MATERIALIZER_TIMEOUT_SECS`, code default

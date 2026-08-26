@@ -179,7 +179,13 @@ def render(current: str) -> str:
         out.append('</div></details>')
     out.append('<span class="sitebar-gap"></span>')
     out.append('<a class="navplain" href="/mcp">MCP</a>')
-    out.append(f'<a class="navplain" href="{GITHUB}" rel="noopener">GitHub</a>')
+    # The sockets. A <ul> because it IS a list of places, and a screen reader
+    # should be told how many before it reads them.
+    out.append('<ul class="ports" aria-label="Where emem is listed">')
+    for label, href, note in PORTS:
+        out.append(f'<li><a class="port" href="{href}" rel="noopener" title="{note}">'
+                   f'<span class="port-pin" aria-hidden="true"></span>{label}</a></li>')
+    out.append('</ul>')
     out.append('</nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.
@@ -218,6 +224,29 @@ def served_as(name: str) -> str:
         return "/demos/" + name[len("demos-"):-len(".html")]
     return "/" + name[:-len(".html")]
 
+
+# Where emem is listed, as sockets rather than as vendor badges.
+#
+# These drive traffic and they are the one part of the bar a reader is likely
+# to click on their way OUT, so they sit at the end of it. Drawn as sockets to
+# match the plug the homepage is built around, and labelled with words rather
+# than redrawn vendor logos: a hand-approximated brand mark reads as a cheap
+# copy of the brand, and at 20px an unfamiliar glyph is a mystery-meat link.
+# The word is the recognisable part, so the word is what is shown.
+#
+# The README badge wall carries the rest (CI, licence, Glama, MCP Toplist, VS
+# Code install, Zenodo DOI). Four here is the whole point: a fifth would make
+# this a second navigation.
+PORTS = [
+    ("ChatGPT", "https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77",
+     "emem in the ChatGPT plugin directory"),
+    ("Dify", "https://marketplace.dify.ai/plugin/vortx-ai/emem",
+     "emem in the Dify marketplace"),
+    ("MCP registry", "https://github.com/mcp/Vortx-AI/emem",
+     "emem in the GitHub MCP registry"),
+    ("GitHub", "https://github.com/Vortx-AI/emem",
+     "the source, Apache-2.0"),
+]
 
 SKIP = {# channel.html was skipped for "owning its markup". It did own it, and it
         # froze: the channel was the only page of twenty-two still carrying the

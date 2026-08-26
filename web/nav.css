@@ -179,3 +179,69 @@
   .audience { gap: var(--s-2); padding: var(--s-2) var(--s-3) }
   .aud-note { display: none }
 }
+
+/* ── The ports ──────────────────────────────────────────────────────────────
+   Where emem is listed, at the end of the bar, because they are the one part
+   of it a reader is likely to click on the way OUT.
+
+   Drawn as sockets rather than as vendor badges. The homepage is built around
+   a jack plug; these are the sockets it goes into, so the site says the same
+   thing in the bar that it says in the painting. A hand-redrawn brand mark
+   would read as a cheap copy of the brand, and at 20px an unfamiliar glyph is
+   a mystery-meat link, so the recognisable part is the word and the word is
+   what is shown.
+
+   Each is a full 44px tall so it clears the tap bound on a phone; the visible
+   pill is smaller, and the padding makes up the rest. */
+.ports {
+  display: flex;
+  align-items: center;
+  gap: var(--s-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ports li { display: flex }
+.port {
+  display: inline-flex;
+  align-items: center;
+  gap: .38em;
+  min-height: 2.75rem;            /* the tap bound, not a rounded-up guess */
+  padding: .3rem .62rem;
+  font-family: var(--mono);
+  font-size: var(--t-3xs);
+  letter-spacing: .02em;
+  color: var(--mute);
+  text-decoration: none;
+  white-space: nowrap;
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  transition: color .18s ease, border-color .18s ease;
+}
+/* The socket: a ring with a dark centre, the shape the plug on the homepage
+   is drawn to enter. It is the only ornament here and it carries no meaning a
+   screen reader needs, so it is aria-hidden in the markup. */
+.port-pin {
+  width: .58em;
+  height: .58em;
+  border-radius: 50%;
+  border: 1px solid currentColor;
+  background:
+    radial-gradient(circle at 50% 50%, currentColor 0 38%, transparent 39%);
+  opacity: .75;
+  flex: none;
+}
+.port:hover, .port:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink-2);
+}
+.port:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px }
+
+@media (max-width: 860px) {
+  /* The bar already wraps to two rows here. Keep every port, drop the gaps and
+     the tracking rather than dropping a destination: these are the links that
+     take a reader to where emem is listed, and hiding them on a phone hides
+     them from most readers. */
+  .ports { gap: .25rem; flex-wrap: wrap }
+  .port { padding: .3rem .5rem; letter-spacing: 0 }
+}

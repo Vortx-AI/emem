@@ -10,7 +10,7 @@
   },
   "api": {
     "type": "openapi",
-    "url": "/openapi.json"
+    "url": "/openapi.action.json"
   },
   "logo_url": "/logo.png",
   "contact_email": "avijeet@vortx.ai",
