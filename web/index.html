@@ -1072,6 +1072,10 @@ button.th-copy{font-family:var(--mono);font-size:var(--t-3xs);padding:.28rem .5r
   .sh-claim.sh-lead{font-size:var(--t-sm);color:var(--ink);margin-top:0;-webkit-line-clamp:4}
   .sh-line{font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);margin-top:.45rem;display:flex;flex-wrap:wrap;gap:.45rem;align-items:baseline}
   .sh-line .sh-who{font-weight:700}
+  /* The verify link in the live hero line is 17.8px tall and, at some
+     scroll positions, sits inside 12px of another target. Only a sweep
+     that walks the ticker's scroll range sees it: at load it is clear. */
+  .sh-line a{display:inline-block;padding-block:4px}
   /* Sized so head + hero + rows + foot lands near the map's own height
      (the map is 2:1, so its height is just over half the pane width). */
   .stream-rows{flex:1 1 auto;min-height:0;overflow-y:auto;max-height:224px;padding:0}
