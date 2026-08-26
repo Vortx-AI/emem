@@ -240,9 +240,6 @@ MEASURE = JS_LIB + r"""
         return { boxes, offscreen, stateHidden, offscreenPaths }; }
 """
 
-# Bring one currently-uncovered target into view and say which one, so the
-# caller can tell progress from a stall. Returns null when everything has been
-# seen at least once.
 # Every scrollable container that clips a target, with its scroll range.
 # Enumerating containers beats targeting elements: scrollIntoView did nothing
 # on mdbook-sidebar-scrollbox (scrollTop stayed 0 through every round) and
@@ -263,6 +260,7 @@ SCROLLERS = JS_LIB + r"""
         maxTop: p.scrollHeight - p.clientHeight,
         maxLeft: p.scrollWidth - p.clientWidth,
         step: Math.max(40, Math.floor(p.clientHeight / 2)),
+        stepX: Math.max(40, Math.floor(p.clientWidth / 2)),
       });
       break;
     }
@@ -274,13 +272,49 @@ SCROLLERS = JS_LIB + r"""
 # Put one container at one position. Returns what it actually reached, so a
 # container that refuses to move is visible as a stall rather than assumed.
 SET_SCROLL = JS_LIB + r"""
-([id, top]) => {
+([id, top, left]) => {
   const p = [...document.querySelectorAll('*')].find(x => x.__tapScroller === id);
   if (!p) return null;
   p.scrollTop = top;
-  return p.scrollTop;
+  p.scrollLeft = left;
+  return [p.scrollTop, p.scrollLeft];
 }
 """
+
+# A cramped target reachable ONLY by scrolling a container sideways. The other
+# controls all measure one position, so none of them exercises the sweep, and
+# the sweep is where the horizontal blind spot lived: maxLeft was measured and
+# never read, so these links were reported as "never brought into view" rather
+# than as the failures they are. This control fails if that regresses, because
+# it asserts the sweep FINDS them, not merely that it reached them.
+CONTROL_SCROLL_X = """<!doctype html><meta charset=utf-8><body style="margin:0">
+<div style="overflow:auto;width:300px;height:120px">
+  <div style="width:900px;padding:8px">
+    <span style="display:inline-block;width:560px">wide content pushing the links out of view</span>
+    <a href=# style="display:inline-block;width:16px;height:16px">a</a>
+    <a href=# style="display:inline-block;width:16px;height:16px">b</a>
+  </div>
+</div></body>"""
+
+
+def axis_offsets(max_offset, step):
+    """Every offset needed to bring one axis fully into view, at least once.
+
+    Half-steps for the same reason the vertical sweep uses them: a target
+    taller or wider than the step can straddle every position and be measured
+    at none of them. An axis that does not scroll yields [0], so a container
+    that only scrolls one way costs one pass, not a grid.
+    """
+    if max_offset <= 0:
+        return [0]
+    out, at = [], 0
+    while at <= max_offset:
+        out.append(at)
+        at += step
+    if out[-1] != max_offset:
+        out.append(max_offset)
+    return out
+
 
 def circle_hits_box(cx, cy, b, r=12.0):
     nx = max(b["x"], min(cx, b["x"] + b["w"]))
@@ -409,22 +443,32 @@ def sweep_scroll_positions(pg):
     positions = 1
     capped = False
     for sc in scrollers:
-        top, reached_end = 0, False
-        while not reached_end:
-            got = pg.evaluate(SET_SCROLL, [sc["id"], top])
-            pg.wait_for_timeout(80)
-            positions += 1
-            absorb()
-            if got is None or got < top - 1:
-                # Asked for a position it would not take: at the end, or it
-                # does not really scroll. Either way, stop rather than spin.
+        # Both axes. maxLeft was measured from the start and then read by
+        # nothing, so a target past the right edge of a horizontally scrolling
+        # container counted as "never brought into view" for as long as this
+        # file has existed -- and a wide table is exactly where a cramped
+        # target hides. A container that scrolls only one way yields a single
+        # offset on the other, so this is a grid only when it has to be.
+        lefts = axis_offsets(sc["maxLeft"], sc["stepX"])
+        tops = axis_offsets(sc["maxTop"], sc["step"])
+        stalled = False
+        for left in lefts:
+            if stalled or capped:
                 break
-            top += sc["step"]
-            reached_end = top > sc["maxTop"] + sc["step"]
-            if positions >= SCROLL_POSITIONS_CAP:
-                capped = True
-                break
-        pg.evaluate(SET_SCROLL, [sc["id"], 0])
+            for top in tops:
+                got = pg.evaluate(SET_SCROLL, [sc["id"], top, left])
+                pg.wait_for_timeout(80)
+                positions += 1
+                absorb()
+                if got is None or got[0] < top - 1 or got[1] < left - 1:
+                    # Asked for a position it would not take: at the end, or
+                    # it does not really scroll. Stop rather than spin.
+                    stalled = True
+                    break
+                if positions >= SCROLL_POSITIONS_CAP:
+                    capped = True
+                    break
+        pg.evaluate(SET_SCROLL, [sc["id"], 0, 0])
         if capped:
             break
     absorb()
@@ -455,6 +499,16 @@ def run_control(ctx):
         got = n > 0
         print(f"control {name}: {n} real ({'as expected' if got == want_failures else 'WRONG'})")
         ok = ok and got == want_failures
+
+    # This one goes through the sweep rather than a single measurement, since
+    # the thing under test is whether the sweep can reach sideways at all.
+    pg.set_content(CONTROL_SCROLL_X)
+    pg.wait_for_timeout(100)
+    f, off, _rounds, _capped = sweep_scroll_positions(pg)
+    good = len(f) == 2 and off == 0
+    print(f"control only-reachable-by-scrolling-sideways: {len(f)} real, "
+          f"{off} unreached ({'as expected' if good else 'WRONG: want 2 real, 0 unreached'})")
+    ok = ok and good
     pg.close()
     return ok
 
