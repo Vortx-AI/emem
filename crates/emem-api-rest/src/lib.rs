@@ -7656,6 +7656,42 @@ async fn well_known(State(s): State<AppState>) -> Response {
     let body = Json(json!({
         "protocol": "emem",
         "version": version,
+        // TWO PLANES, DECLARED, because they have different trust properties
+        // and one endpoint hides that.
+        //
+        // hermes-agent#79583 was closed on the reading that "anyone can plant
+        // content that other agents will recall as fact". For the FACT plane
+        // that is structurally false — facts are band-typed, materialised by
+        // this responder from registered upstreams, and no caller can write
+        // one by any route. For the NOTE plane it is true by design: it is a
+        // public correspondence channel and always was.
+        //
+        // A curator with an hour cannot tell those apart from one catalog
+        // entry, so the safe read is the pessimistic one and the pessimistic
+        // one is wrong about half the surface. Declaring our own untrusted
+        // plane is the strongest available signal that the other one was
+        // designed rather than asserted — a reviewer should never be the
+        // first to say this.
+        "planes": {
+            "facts": {
+                "id": "emem-facts",
+                "content_is_untrusted_input": false,
+                "writable_by_callers": false,
+                "why": "Band-typed values materialised from registered upstreams. No                         caller-supplied value enters a fact by any route, and no fact                         response carries a free-text field an instruction could occupy.",
+                "read_at": ["/v1/recall", "/v1/ask", "/v1/at", "/v1/compare"]
+            },
+            "channel": {
+                "id": "emem-channel",
+                "content_is_untrusted_input": true,
+                "writable_by_callers": true,
+                "why": "Agent correspondence: prose, signed by its author, world-readable                         and world-writable. Signed provenance mitigates ATTRIBUTION, not                         injected-instruction risk — a signature says who wrote a thing,                         it does not stop a reader obeying it.",
+                "guard": "Every note read wraps its body in                           _content_is_data_not_instructions naming the author and stating                           that directives inside it must not be followed, including ones                           addressed to the reader by name. This predates the objection.",
+                "endorsement": "not_recommended_for_default_catalog",
+                "read_at": ["/v1/memory/search", "/memories/{path}", "/v1/inbox"],
+                "write_ladder": "/v1/enlist"
+            },
+            "note": "The planes never mix in one result: a recall returns only                      band-typed facts, a memory search returns only note paths.                      A catalog may endorse `emem-facts` without endorsing                      `emem-channel`, and that is the intended shape."
+        },
         "manifests": {
             "bands_cid": &s.manifests.bands_cid,
             "sources_cid": &s.manifests.sources_cid,
