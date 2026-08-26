@@ -37864,11 +37864,28 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
     }
 
     let (bytes, meta) = read_memory_file(s, &path)?.ok_or_else(|| {
+        // A deleted note and a note that never existed used to be the same
+        // 404, which is how a real loss becomes unattributable. If a
+        // tombstone exists, say so: the bytes are gone, the fact is not.
+        if let Some(t) = tombstone_for(s, &path) {
+            return ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!(
+                        "`{path}` was DELETED by its namespace owner, not never-written.                          The bytes are gone; this record of their going is not."
+                    ),
+                    details: Some(t),
+                },
+            );
+        }
         ApiError(
             StatusCode::NOT_FOUND,
             ErrorBody {
                 code: ErrorCode::CidNotFound,
-                message: format!("no memory file at `{path}`"),
+                message: format!(
+                    "no memory file at `{path}`, and no tombstone either — so this                      path was never written here, rather than written and removed."
+                ),
                 details: None,
             },
         )
@@ -38671,6 +38688,47 @@ async fn memory_supersede_inner(
     }))
 }
 
+/// Record that a path was deleted, by whom, and when.
+///
+/// The bytes are gone; the fact is not. Without this a deleted note and a note
+/// that never existed are the same 404, which is how a real loss becomes
+/// unattributable — an auditor lost a note here on 2026-08-23 that verified at
+/// write time, and no record exists of whether it was deleted or something
+/// else happened, because nothing recorded either.
+///
+/// Best-effort by design: a tombstone that fails to write must not fail the
+/// delete the caller authorised and this responder already performed. A
+/// missing tombstone is a worse record, not a wrong one.
+async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: Option<&str>) {
+    let Some(db) = s.storage.hot_sled_db() else {
+        return;
+    };
+    let Ok(tree) = db.open_tree(emem_storage::TREE_MEMORY_TOMBSTONES) else {
+        return;
+    };
+    let rec = json!({
+        "schema": "emem.tombstone.v1",
+        "path": path,
+        "prior_file_cid": prior_cid,
+        "deleted_by": by,
+        "deleted_at": chrono_iso8601_utc(),
+        "note": "The bytes were removed by their namespace owner. This record is \
+                 what makes that different from a note that never existed.",
+    });
+    if let Ok(bytes) = serde_json::to_vec(&rec) {
+        let _ = tree.insert(path.as_bytes(), bytes);
+        flush_off_runtime(&tree).await;
+    }
+}
+
+/// The tombstone for a path, if it was deleted.
+fn tombstone_for(s: &AppState, path: &str) -> Option<JsonValue> {
+    let db = s.storage.hot_sled_db()?;
+    let tree = db.open_tree(emem_storage::TREE_MEMORY_TOMBSTONES).ok()?;
+    let raw = tree.get(path.as_bytes()).ok()??;
+    serde_json::from_slice(&raw).ok()
+}
+
 async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonValue, ApiError> {
     let raw = req.path.trim();
     let is_dir = raw.ends_with('/');
@@ -38706,6 +38764,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         })?;
         let _ = tree.remove(path.as_bytes());
         flush_off_runtime(&tree).await;
+        write_tombstone(s, &path, None, attester_pk.as_deref()).await;
         return Ok(json!({
             "ok": true,
             "verb": "delete",
@@ -38752,7 +38811,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         })?;
     // Collect the (path, kind) pairs being removed so we can drop the
     // typed index entries and emit one event per removed file.
-    let mut removed: Vec<(String, String)> = Vec::new();
+    let mut removed: Vec<(String, String, String)> = Vec::new();
     if is_dir {
         let pairs: Vec<(Vec<u8>, sled::IVec)> = paths
             .scan_prefix(path.as_bytes())
@@ -38776,9 +38835,10 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
                 .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
                 .map(|m| m.kind)
                 .unwrap_or_else(default_kind_str);
+            let prior = String::from_utf8_lossy(&v).into_owned();
             let _ = paths.remove(&k);
             let _ = by_kind.remove(format!("{kind_str}|{key_str}").as_bytes());
-            removed.push((key_str, kind_str));
+            removed.push((key_str, kind_str, prior));
         }
     } else {
         let cur = paths
@@ -38809,9 +38869,10 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
             .map(|m| m.kind)
             .unwrap_or_else(default_kind_str);
+        let prior = String::from_utf8_lossy(&cur).into_owned();
         let _ = paths.remove(path.as_bytes());
         let _ = by_kind.remove(format!("{kind_str}|{path}").as_bytes());
-        removed.push((path.clone(), kind_str));
+        removed.push((path.clone(), kind_str, prior));
     }
     // One fsync covers every tree: the pagecache is shared by the Db.
     flush_off_runtime(&paths).await;
@@ -38824,15 +38885,21 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     if let Some(pk) = attester_pk.as_deref() {
         cells.push(format!("pubkey:{pk}"));
     }
-    for (p, _k) in &removed {
+    for (p, _k, _cid) in &removed {
         cells.push(p.clone());
+    }
+    // Every removal leaves a record. See write_tombstone: the bytes going is
+    // the point of the verb; the fact going is what makes a loss
+    // unattributable.
+    for (p, _k, prior) in &removed {
+        write_tombstone(s, p, Some(prior.as_str()), attester_pk.as_deref()).await;
     }
     let receipt = s.sign_receipt("emem.memory_file", cells, vec![], false, started, None);
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
     let deleted_at = receipt.served_at.clone();
-    for (p, k) in &removed {
+    for (p, k, _cid) in &removed {
         publish_memory_event(MemoryEvent::Deleted {
             path: p.clone(),
             kind: k.clone(),
@@ -38840,7 +38907,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             deleted_at: deleted_at.clone(),
         });
     }
-    let removed_paths: Vec<String> = removed.iter().map(|(p, _)| p.clone()).collect();
+    let removed_paths: Vec<String> = removed.iter().map(|(p, _, _)| p.clone()).collect();
     Ok(json!({
         "ok": true,
         "verb": "delete",

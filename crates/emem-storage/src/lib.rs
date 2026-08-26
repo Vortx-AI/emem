@@ -41,6 +41,16 @@ const TREE_FACT_PROOFS: &str = "emem.fact_proofs";
 /// primitive scans: when two attesters disagree about the same (cell,
 /// band, tslot) we want BOTH CIDs to live and be addressable, not just
 /// the latest writer's.
+/// What was deleted, by whom, and when. Keyed by the deleted path.
+///
+/// A delete verb on a ledger documented as append-only is a contradiction
+/// unless the DELETION is itself recorded. The bytes can go — that is what the
+/// verb is for, and an agent must be able to retract its own note — but the
+/// fact that they went cannot, or a note that vanishes is indistinguishable
+/// from a note that never existed. An outside auditor reported exactly that
+/// ambiguity after losing a note we still cannot account for.
+pub const TREE_MEMORY_TOMBSTONES: &str = "emem.memory_tombstones";
+
 /// Org attestations per attester key: what a domain vouched for, and when.
 ///
 /// Kept apart from the agent roster because it is EVIDENCE, not identity. The
