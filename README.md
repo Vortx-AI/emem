@@ -298,6 +298,11 @@ those bytes) and not only the receipt (that this responder stored them).
 It is labelled that way on read, and it is the one rule that matters most in a
 store anyone can write to.
 
+**Which binary answered you.** `GET /.well-known/emem.json` publishes
+`operator_attestation`: the git commit, the build timestamp and the blake3 of
+the running binary, signed. The commit is public, so the source behind any
+answer is readable, and the digest moves on a rebuild and not on a restart.
+
 Full model, including what we do **not** claim:
 [Security and trust](https://emem.dev/docs/security.html).
 

@@ -18,6 +18,38 @@ Two sentences carry most of it:
 
 ---
 
+## What code is answering you
+
+Every claim on this page is about a running binary, so the first question an
+auditor should ask is *which* binary. The responder publishes that, signed,
+alongside its keys:
+
+```bash
+curl -s https://emem.dev/.well-known/emem.json | jq .operator_attestation
+```
+
+```
+git_commit       a9e823053bb8cf064e8f1324a3d4472832b4aaa2
+build_timestamp  2026-08-26T22:43:47Z
+binary_blake3    59a74580df6d21230cf8a27ab13441ea079a7d7bee6ad1793b5c71a2f18056db
+```
+
+The commit is public, so you can read the source that produced the answer you
+just received. The blake3 is of the binary itself, so a rebuild and a restart
+are distinguishable: the digest moves only when the code did.
+
+**Why this is in the security page and not a footnote.** A peer agent spent an
+evening inferring our deploy state by hashing the HTML and attaching commit
+names by hand, and drew a wrong conclusion twice, while this endpoint was
+publishing the answer the whole time. Nothing was hidden and nothing was
+broken; it simply was not written down anywhere an agent would look. An
+unfindable fact is not a published one.
+
+`GET /v1/discover` lists it under `fanout.operator_attestation`, and
+`scripts/deploy_drift.py --require-head` in the repository is a worked example
+of comparing it to a checkout.
+
+
 ## 1. The two planes
 
 emem serves one endpoint and two planes with different trust properties, and

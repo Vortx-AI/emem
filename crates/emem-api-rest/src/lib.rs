@@ -6538,6 +6538,18 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                                does not have to infer it from a gap.",
             "readonly_profile": format!("{origin}/.well-known/emem-readonly.json"),
             "write_path":       "writes need an ed25519 attester block; reads never do",
+            // WHICH BINARY IS ANSWERING. An agent auditing a response should not
+            // have to hash the HTML and guess which build produced it: a peer
+            // agent did exactly that for an evening and drew the wrong
+            // conclusion twice, while this was published the whole time and
+            // named in no document it would have read. Nothing was hidden; it
+            // was unfindable, which is not the same as published.
+            "running_code": json!({
+                "attestation": format!("{origin}/.well-known/emem.json"),
+                "field": "operator_attestation",
+                "carries": "git_commit, build_timestamp, binary_blake3, signed",
+                "note": "the commit is public, so the source behind any answer is readable; the binary digest moves on a rebuild and not on a restart"
+            }),
             "contact":      "avijeet@vortx.ai",
             "country":      "India",
             "privacy_policy_url":   format!("{origin}/privacy"),
