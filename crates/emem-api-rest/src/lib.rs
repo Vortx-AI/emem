@@ -19789,6 +19789,8 @@ async fn translog_snapshot(s: &AppState) -> Result<Arc<TranslogSnapshot>, ApiErr
     // waited behind it. `prior_records` in merkle_log.rs offloads the same
     // read for the same reason; this is that fix one layer up.
     let prev = guard.take();
+    let read_from_for_log = prev.as_ref().map_or(0, |p| p.active_segment);
+    let held_before = prev.as_ref().map_or(0, |p| p.snapshot.leaves.len());
     let owned = s.clone();
     let state = tokio::task::spawn_blocking(move || translog_refresh(&owned, prev))
         .await
@@ -19803,6 +19805,17 @@ async fn translog_snapshot(s: &AppState) -> Result<Arc<TranslogSnapshot>, ApiErr
             )
         })??;
 
+    // Say how much work the refresh actually did. A regression to the old
+    // shape shows up here as segments_read jumping from 1 to 1,390 and
+    // leaves_added staying at 1: a fold count, not a timing, so it is
+    // readable from a log rather than only from a caller who waited.
+    tracing::info!(
+        target: "emem::translog",
+        segments_read = state.active_segment.saturating_sub(read_from_for_log) + 1,
+        tree_size = state.snapshot.leaves.len(),
+        leaves_added = state.snapshot.leaves.len().saturating_sub(held_before),
+        "transparency tree refreshed"
+    );
     let snap = Arc::clone(&state.snapshot);
     *guard = Some(state);
     if let Ok(mut p) = published.write() {
