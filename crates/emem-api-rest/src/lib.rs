@@ -3234,6 +3234,91 @@ fn prefer_markdown(headers: &HeaderMap) -> bool {
         .unwrap_or(false)
 }
 
+/// Who runs THIS node.
+///
+/// Every field here is per-operator, and every one of them used to be a literal
+/// in this file. A self-hosted node therefore published this operator's
+/// company, country, website and e-mail as its own contact, in the agent card,
+/// the plugin manifest, the discovery card and security.txt -- so a security
+/// report about somebody else's deployment was addressed here, and a user
+/// looking for whoever runs the node they were actually talking to found us.
+///
+/// The URLs beside them had already been made portable for exactly this
+/// reason: "Path-relative so a self-hosted operator on a different origin
+/// doesn't publish broken external links." The links were fixed; the identity
+/// behind them was not.
+///
+/// UNSET MEANS ABSENT, never a default. A node that has not said who runs it
+/// should say nothing rather than borrow a name -- the same rule
+/// EMEM_TLS_CONTACT already follows, where a compiled-in fallback would have
+/// made somebody else the registrant.
+fn op_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty())
+}
+
+fn operator_contact() -> Option<String> {
+    op_env("EMEM_CONTACT")
+}
+
+/// The `operator` block, carrying only the fields this node actually declares.
+/// An operator that sets nothing emits `{}`, which is honest, rather than a
+/// borrowed identity, which is not.
+fn operator_json() -> JsonValue {
+    let mut m = serde_json::Map::new();
+    for (k, v) in [
+        ("name", op_env("EMEM_OPERATOR_NAME")),
+        ("country", op_env("EMEM_OPERATOR_COUNTRY")),
+        ("url", op_env("EMEM_OPERATOR_URL")),
+        ("contact", operator_contact()),
+    ] {
+        if let Some(v) = v {
+            m.insert(k.to_owned(), JsonValue::String(v));
+        }
+    }
+    JsonValue::Object(m)
+}
+
+/// `Value::Null` for an undeclared field, so the site can stay inside a `json!`
+/// block; [`drop_undeclared`] then removes the key entirely.
+fn op_value(v: Option<String>) -> JsonValue {
+    v.map(JsonValue::String).unwrap_or(JsonValue::Null)
+}
+
+/// Remove the NAMED keys wherever they are null, at any depth.
+///
+/// Key-restricted on purpose. A blanket null-strip would also delete the nulls
+/// this API emits deliberately -- `change_attribution` returns a null numeric
+/// split BY DESIGN, and deleting it would turn "we do not claim this" into "we
+/// never mentioned it", which is the opposite of what it means.
+fn drop_undeclared(v: &mut JsonValue, keys: &[&str]) {
+    match v {
+        JsonValue::Object(m) => {
+            m.retain(|k, val| !(keys.contains(&k.as_str()) && val.is_null()));
+            for val in m.values_mut() {
+                drop_undeclared(val, keys);
+            }
+        }
+        JsonValue::Array(a) => {
+            for val in a.iter_mut() {
+                drop_undeclared(val, keys);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The identity keys that are absent rather than null when undeclared.
+const OPERATOR_KEYS: &[&str] = &[
+    "contact",
+    "contact_email",
+    "vendor",
+    "author",
+    "operator_erasure",
+];
+
 fn text_response(content_type: &'static str, body: &'static str) -> Response {
     Response::builder()
         .status(StatusCode::OK)
@@ -6607,14 +6692,14 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "carries": "git_commit, build_timestamp, binary_blake3, signed",
                 "note": "the commit is public, so the source behind any answer is readable; the binary digest moves on a rebuild and not on a restart"
             }),
-            "contact":      "avijeet@vortx.ai",
+            "contact":      op_value(operator_contact()),
             "country":      "India",
             "privacy_policy_url":   format!("{origin}/privacy"),
             "terms_of_service_url": format!("{origin}/terms"),
             "support_url":          format!("{origin}/support"),
             "data_protection": {
                 "regimes":  ["GDPR", "UK-GDPR", "DPDP-2023", "CCPA-CPRA"],
-                "contact":  "avijeet@vortx.ai",
+                "contact":  op_value(operator_contact()),
                 // The responder emits no PII of its own. It cannot promise the
                 // channel is free of it, because agents write arbitrary text
                 // into shared memory and some of that text is about people.
@@ -6629,7 +6714,10 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                     "retention": "indefinite",
                     "deletion": "memory_delete unlinks the path from the index; the content-addressed blob and prior versions remain, because the write log is append-only and issued receipts must stay verifiable. Unpublish, not erasure.",
                     "enumerate_your_own": "GET /memories/by_attester/<your-pubkey8>/",
-                    "operator_erasure": "email avijeet@vortx.ai with the path or file_cid",
+                    "operator_erasure": match operator_contact() {
+                        Some(c) => JsonValue::String(format!("email {c} with the path or file_cid")),
+                        None => JsonValue::Null,
+                    },
                     "policy": "https://emem.dev/privacy#agent-written-memory",
                 },
                 "ip_handling": "blake3-truncated-8B (one-way hash of client IP)",
@@ -6679,6 +6767,7 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     // Signed last, over everything above it. sign_agent_card documents exactly
     // what a verifier has to reproduce.
     let signature = sign_agent_card(&card, &s, &origin);
+    drop_undeclared(&mut card, OPERATOR_KEYS);
     card["signatures"] = json!([signature]);
     Json(card)
 }
@@ -6740,12 +6829,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         "documentation": format!("{origin}/agents.md"),
         "icon":        format!("{origin}/favicon.svg"),
         "license":     "Apache-2.0",
-        "operator": {
-            "name":    "Vortx AI Private Limited",
-            "country": "India",
-            "contact": "avijeet@vortx.ai",
-            "url":     "https://vortx.ai",
-        },
+        "operator": operator_json(),
         // Universal mcpServers shape, the same blob a user would paste
         // into Claude Desktop / Cursor / Cline / Gemini CLI / Continue
         // / Open WebUI. Clients that auto-install pull this directly.
@@ -7480,7 +7564,12 @@ async fn serve_example_gemini() -> Response {
         "description": format!(
             "Shared, verifiable memory for AI agents that stops referential drift, the paraphrase side pinned by the token, the world-readout side reported by the change-attribution ledger (the numeric split is roadmap): one canonical, citeable identity per place, fact, and object (emem:entity:<entity_cid>), so different models reason from the same world object. Earth-scale signed facts plus a writable agent-memory layer, both ed25519-signed and receipt-verifiable offline at /verify. {n_tools} MCP tools, {n_bands} bands, {n_algorithms} composition algorithms. Bi-temporal recall (as_of_tslot + as_of_signed_at), CoALA-typed memory files, capability-bound writes, signed bundles (emem:bundle:<bundle_cid>), multi-attester contradiction scoring. No API keys."
         ),
-        "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
+        "author": match (op_env("EMEM_OPERATOR_NAME"), operator_contact()) {
+            (Some(n), Some(c)) => JsonValue::String(format!("{n} <{c}>")),
+            (Some(n), None) => JsonValue::String(n),
+            (None, Some(c)) => JsonValue::String(c),
+            (None, None) => JsonValue::Null,
+        },
         "license": "Apache-2.0",
         "homepage": "https://emem.dev",
         "repository": "https://github.com/Vortx-AI/emem",
@@ -7560,6 +7649,19 @@ async fn serve_example_llamaindex() -> Response {
 /// and self-describing; an LLM that lands here knows where to go next
 /// without rendering HTML.
 async fn serve_agents_txt() -> Response {
+    // security.txt / agents.txt must carry at least one Contact, so this line
+    // cannot simply vanish when the operator has not declared an address.
+    // Falling back to the PROJECT's security policy is honest -- a flaw in
+    // unmodified emem really is reportable there -- and the comment above it
+    // says plainly that it is not this node's operator, so a reader is not
+    // misled into thinking this deployment has someone watching it.
+    let contact_line = match operator_contact() {
+        Some(c) => format!("         Contact: {c}\n"),
+        None => "         # This node's operator has not declared a contact (EMEM_CONTACT).\n\
+         # The address below reaches the emem PROJECT, not whoever runs this node.\n\
+         Contact: https://github.com/Vortx-AI/emem/security/policy\n"
+            .to_string(),
+    };
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     let body = format!(
         "# {origin}, shared verifiable memory for AI agents.\n\
@@ -7587,7 +7689,7 @@ async fn serve_agents_txt() -> Response {
          Operator-Attestation: {origin}/.well-known/emem.json\n\
          Repository: https://github.com/Vortx-AI/emem\n\
          License: Apache-2.0\n\
-         Contact: avijeet@vortx.ai\n\
+{contact_line}\
          Auth: none (reads); ed25519-signed responses; offline-verifiable\n\
          Allow: *\n\
          Disallow:\n"
@@ -7817,7 +7919,7 @@ async fn well_known(State(s): State<AppState>) -> Response {
     // is now stripped from the global middleware (see headers fn) so
     // auditors stop dinging us for server-version disclosure on every
     // /v1/* response, but it stays here.
-    let body = Json(json!({
+    let mut body = Json(json!({
         "protocol": "emem",
         "version": version,
         // TWO PLANES, DECLARED, because they have different trust properties
@@ -7942,17 +8044,17 @@ async fn well_known(State(s): State<AppState>) -> Response {
         // Limited, India); the flat `vendor`/`*_url` keys below are
         // kept as compatibility shims for tools that scrape the older
         // shape from earlier in the directory-prep work.
-        "vendor": "Vortx-AI",
-        "contact_email": "avijeet@vortx.ai",
+        // The vendor SLUG is not the legal name: this published "Vortx-AI"
+        // while the operator block published "Vortx AI Private Limited".
+        // Folding them into one variable would have quietly changed a value
+        // on a public manifest, so they stay separate and the slug falls
+        // back to the name only when no slug is declared.
+        "vendor": op_value(op_env("EMEM_OPERATOR_VENDOR").or_else(|| op_env("EMEM_OPERATOR_NAME"))),
+        "contact_email": op_value(operator_contact()),
         "privacy_url": "/privacy",
         "terms_url":   "/terms",
         "support_url": "/support",
-        "operator": {
-            "name":    "Vortx AI Private Limited",
-            "country": "India",
-            "url":     "https://vortx.ai",
-            "contact": "avijeet@vortx.ai",
-        },
+        "operator": operator_json(),
         "policies": {
             "privacy_policy":   "/privacy",
             "terms_of_service": "/terms",
@@ -7960,6 +8062,7 @@ async fn well_known(State(s): State<AppState>) -> Response {
             "security":         "https://github.com/Vortx-AI/emem/blob/main/SECURITY.md",
         },
     }));
+    drop_undeclared(&mut body.0, OPERATOR_KEYS);
     let mut resp = body.into_response();
     resp.headers_mut()
         .insert("x-emem-version", version_header_value().clone());
@@ -10879,7 +10982,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         "mcp": format!("POST /mcp {{\"method\":\"tools/list\"}} returns all {} tools by default; pass {{\"tier\":\"core\"}} for just the {} essentials", emem_mcp::TOOLS.len(), core_count),
         "note": "Full descriptors (input_schema, when_to_use, annotations) at /v1/tools or via MCP tools/list. Summarized here to keep discovery token-cheap.",
     });
-    Json(json!({
+    let mut card = json!({
         "name": "emem",
         "version": env!("CARGO_PKG_VERSION"),
         "purpose": EMEM_DESCRIPTION,
@@ -10951,8 +11054,13 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // support contact. These point to the markdown docs served from
         // /privacy and /terms; vendor + contact email are explicit so the
         // reviewer can reach the maintainer without scraping the repo.
-        "vendor": "Vortx-AI",
-        "contact_email": "avijeet@vortx.ai",
+        // The vendor SLUG is not the legal name: this published "Vortx-AI"
+        // while the operator block published "Vortx AI Private Limited".
+        // Folding them into one variable would have quietly changed a value
+        // on a public manifest, so they stay separate and the slug falls
+        // back to the name only when no slug is declared.
+        "vendor": op_value(op_env("EMEM_OPERATOR_VENDOR").or_else(|| op_env("EMEM_OPERATOR_NAME"))),
+        "contact_email": op_value(operator_contact()),
         // Path-relative so a self-hosted operator on a different origin
         // doesn't publish broken external links. Mirrors the same shape
         // already used at /.well-known/emem.json.
@@ -11217,7 +11325,9 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "walkthrough": "examples/connect-and-evolve.md"
         },
         "tools": tools_summary,
-    }))
+    });
+    drop_undeclared(&mut card, OPERATOR_KEYS);
+    Json(card)
 }
 
 async fn quickstart() -> Json<JsonValue> {
