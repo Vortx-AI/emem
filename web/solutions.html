@@ -36,7 +36,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
 .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
 .statusbar a:hover{color:var(--ink);background:var(--paper-3)}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 
@@ -77,8 +77,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .section-body a:hover{background:var(--accent-bg)}
 
 /* hero */
-.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem}
-.hero-meta{font-size:var(--t-xs);color:var(--mute);display:flex;flex-direction:column;gap:1.5rem}
+.hero{padding:4rem 0 3rem;border-bottom:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem}
+.hero-meta{font-size:var(--t-xs);color:var(--mute);display:flex;flex-direction:column;gap:1.618rem}
 .hero-meta .kv{display:grid;grid-template-columns:1fr;gap:.3rem}
 .hero-meta .kv .k{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .hero-meta .kv .v{color:var(--ink-2);font-size:var(--t-xs);word-break:break-all}
@@ -302,17 +302,17 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero-tryit .tryit-result{min-height:0;padding-top:.8rem}
 
 /* footer */
-.foot{padding:3rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--mute);font-size:var(--t-xs)}
+.foot{padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
 .foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--mute);line-height:1.5}
 .foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.5rem}
-.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .7rem;font-weight:700}
+.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
-.foot-col ul li{margin-bottom:.4rem}
+.foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--ink-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
 .foot-bottom a{color:inherit}
 
 /* substrate (memory primitives walkthrough) */
@@ -372,7 +372,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .live-grid .pane .row .k{color:var(--mute);text-transform:uppercase;letter-spacing:.05em}
 .live-grid .pane .row .v{color:var(--ink);word-break:break-all;font-family:var(--mono)}
 .live-grid .pane .row .v.cid,.live-grid .pane .row .v.sig{color:var(--accent);font-size:var(--t-3xs)}
-.live-grid .pane .pulse{display:inline-flex;align-items:center;gap:.4rem;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.4rem}
+.live-grid .pane .pulse{display:inline-flex;align-items:center;gap:.4rem;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin-bottom:.382rem}
 .live-grid .pane .pulse .dot{width:6px;height:6px;border-radius:50%;background:var(--mute-2)}
 .live-grid .pane .pulse.live .dot{background:var(--accent);box-shadow:0 0 0 0 var(--accent);animation:livepulse 1.6s cubic-bezier(.66,0,0,1) infinite}
 @keyframes livepulse{0%{box-shadow:0 0 0 0 oklch(from var(--accent) l c h / .6)}80%,100%{box-shadow:0 0 0 8px oklch(from var(--accent) l c h / 0)}}
@@ -452,7 +452,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .mith-div .gem{width:12px;height:12px;border:1.5px solid var(--accent);transform:rotate(45deg);opacity:.8;flex:0 0 auto}
 
 /* ===== Mithila form controls — coherent native UI across the product ===== */
-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.382rem 1.618rem .382rem .618rem;border-radius:0;cursor:pointer}
 select:hover{border-color:var(--accent,#3f7a4e)}
 option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
 optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}

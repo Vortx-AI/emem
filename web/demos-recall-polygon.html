@@ -148,7 +148,7 @@ header.top .navlinks a:hover{color:var(--accent)}
 .statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
 .statusbar a.on{opacity:1;color:var(--accent)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:var(--t-xs);letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand{font-weight:700;font-size:var(--t-xs);letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.382rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 .statusbar .spacer{flex:1}
 @media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
@@ -156,23 +156,23 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 /* footer — shared with index.html */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
-.foot{position:relative;background:var(--bg);padding:3rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:3rem;color:var(--fg-3);font-size:var(--t-2xs)}
+.foot{position:relative;background:var(--bg);padding:2.618rem 0;border-top:1px solid var(--line);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--fg-3);font-size:var(--t-2xs)}
 .foot-meta .name{color:var(--fg);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
 .foot-meta .desc{color:var(--fg-3);line-height:1.5}
 .foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line);border-bottom:none}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.5rem}
-.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);margin:0 0 .7rem;font-weight:700}
+.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
-.foot-col ul li{margin-bottom:.4rem}
+.foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--fg-2);text-decoration:none;border-bottom:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--line);margin-top:2rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute)}
+.foot-bottom{border-top:1px solid var(--line);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-mute)}
 .foot-bottom a{color:inherit;border-bottom:none}
 .foot-bottom a:hover{color:var(--accent)}
 @media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
 
 /* ===== Mithila form controls — coherent native UI across the product ===== */
-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.45rem 1.7rem .45rem .6rem;border-radius:0;cursor:pointer}
+select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.382rem 1.618rem .382rem .618rem;border-radius:0;cursor:pointer}
 select:hover{border-color:var(--accent,#3f7a4e)}
 option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
 optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
