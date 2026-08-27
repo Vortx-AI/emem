@@ -3,7 +3,7 @@
   "schema_version": 1,
   "app_info": {
     "display_name": "emem",
-    "subtitle": "Verifiable memory of the physical world",
+    "subtitle": "Shared, verifiable AI memory",
     "description": "emem is a shared, verifiable memory of the physical world for AI. Every place resolves to one canonical address, every observation about it becomes one signed fact you can verify offline, and every fact has a short citation token that resolves anywhere to the byte-identical signed value. Ask about a place (elevation, vegetation, surface water, built-up context, flood signals), an area (a native-resolution raster field, or a field over time), change over time, or similarity between places; get back cite-able, ed25519-signed receipts. No API key or signup required.",
     "category": "DEVELOPER_TOOLS"
   },

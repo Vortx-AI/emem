@@ -76,6 +76,18 @@ def catalogue(origin: str) -> dict:
 CLAIMS_CHECKED = 0
 
 
+# Field limits the directory enforces, as they are learned.
+#
+# subtitle was 39 characters against a 30 limit and a REVIEWER told us, which
+# means the schema was doing work we were not. Only limits actually confirmed go
+# in here; guessing one and enforcing it would be inventing a constraint. What
+# is not listed is not checked, and the clean line says so rather than implying
+# the whole schema is validated.
+FIELD_LIMITS = {
+    "subtitle": 30,   # stated by the app-directory reviewer, 2026-08-27
+}
+
+
 def check(sub: dict, live: dict, card: dict) -> list[str]:
     global CLAIMS_CHECKED
     bad = []
@@ -156,6 +168,12 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
         bad.append("no read-only COUNT claim was found in any bundle file, and these "
                    "files do state one; the wording moved and this check is now "
                    "reading nothing")
+
+    info = sub.get("app_info") or {}
+    for field, cap in FIELD_LIMITS.items():
+        v = info.get(field)
+        if isinstance(v, str) and len(v) > cap:
+            bad.append(f"app_info.{field} is {len(v)} characters, limit {cap}: {v!r}")
 
     contact = (card.get("emem") or {}).get("contact")
     for f in sorted(BUNDLE.glob("*.md")):
@@ -278,6 +296,8 @@ def main() -> int:
               f"{len(list(BUNDLE.glob('*.md')))} .md file(s).")
         print(f"  Cross-checked {CLAIMS_CHECKED} read-only COUNT claim(s) across every file "
               f"in the bundle against the live annotations.")
+        print(f"  Checked {len(FIELD_LIMITS)} field length limit(s) "
+              f"({', '.join(FIELD_LIMITS)}); every OTHER field in this schema is unchecked.")
         print("  NOT covered: the rest of the prose, whether the declared set is the")
         print("  right set, and the domain-verification token, which the portal")
         print("  reissues per submission and no check here can know.")
