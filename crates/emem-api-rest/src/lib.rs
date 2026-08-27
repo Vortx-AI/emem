@@ -72248,10 +72248,19 @@ mod tests {
     /// started saying something instead of showing what it was told.
     #[test]
     fn the_album_prints_from_the_upstream_and_composes_nothing_it_could_print() {
-        let page = include_str!("../../../web/index.html");
+        // The album moved to /the-long-version when the homepage was cut back to
+        // one story (25d29ca). This test kept reading index.html and failed on
+        // its own scope-finder -- which is what its author designed it to do
+        // rather than pass silently over a section that had gone. It was right,
+        // and it stayed red for eleven hours because nobody read the failure.
+        //
+        // The guard is still needed: the album is still assembled from an
+        // upstream index, and a place name written here would still be a second
+        // copy that cannot go stale visibly. Only the file changed.
+        let page = include_str!("../../../web/the-long-version.html");
         let start = page
             .find(r#"id="album""#)
-            .expect("the album section is on the homepage");
+            .expect("the album section is on /the-long-version");
         // To the end of the album's own script, which is where its last
         // composed string could live. Bounded on the carousel script rather
         // than on the old grid builder: the grid is gone, and a scope-finder

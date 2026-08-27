@@ -160,8 +160,15 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_entity",
         rest: "POST /v1/entity",
-        first_call: "POST /v1/entity {\"label\":\"Mount Fuji\",\"kind\":\"place\",\"place\":\"Mount Fuji\"}",
-        verify: "Register the same object from a second phrasing via POST /v1/entity/resolve and confirm it converges on the identical entity_cid. Note the honest limit: an entity token is hashed from an anchor, not the whole record, so it is a shared reference rather than shared bytes.",
+        // The first call has to be one a COLD agent can actually make. Minting
+        // (POST /v1/entity) writes the SHARED address space, so enlistment
+        // enforcement refuses it without an attester block -- deliberately, and
+        // the discovery gate was right to call this a stranding: it advertised
+        // a first call that answers 403 to the anonymous reader it was written
+        // for. Resolving is a read, reads are never gated at any tier, and it
+        // demonstrates the same property: two phrasings converging on one cid.
+        first_call: "POST /v1/entity/resolve {\"label\":\"Mount Fuji\",\"kind\":\"place\"}",
+        verify: "Resolve a second phrasing of the same object and confirm it converges on the identical entity_cid. To MINT a new identity rather than resolve an existing one, POST /v1/entity needs an ed25519 attester block: it writes the shared address space, so it is gated where reads are not, and the 403 names the missing field. Honest limit: an entity token is hashed from an anchor, not the whole record, so it is a shared reference rather than shared bytes.",
     },
     Intent {
         need: "I need to verify a claim someone handed me",
