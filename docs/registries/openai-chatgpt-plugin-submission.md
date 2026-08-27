@@ -34,7 +34,7 @@
 | Requirement | emem endpoint | Status |
 |---|---|---|
 | OpenAI plugin manifest | `GET /.well-known/ai-plugin.json` | ✅ exists, `auth.type: "none"` |
-| Domain verification endpoint | `GET /.well-known/openai-apps-challenge` | ✅ route exists, **token must be updated per submission** (see below) |
+| Domain verification endpoint | `GET /.well-known/openai-apps-challenge` | ✅ route exists; the token is read from `EMEM_APPS_CHALLENGE` and is **404 unless a submission is in flight** (see below) |
 | MCP discovery | `GET /.well-known/openai-mcp.json` | ✅ exists |
 | OpenAPI spec | `GET /openapi.action.json` | ✅ exists, and it is what `ai-plugin.json` references now. It used to reference `/openapi.json`, which is 190 operations and ~350 KB: a Custom GPT built from that either fails to import or arrives with a tool list no model can choose from. The full document is still served for clients that want every route. |
 | Logo | `GET /logo.png` | ✅ exists at `web/logo.png` |
@@ -48,8 +48,11 @@
 curl -s https://emem.dev/.well-known/ai-plugin.json | jq '{name: .name_for_human, auth: .auth.type, logo: .logo_url}'
 # Expected: { name: "emem shared memory", auth: "none", logo: "/logo.png" }
 
-curl -s https://emem.dev/.well-known/openai-apps-challenge
-# Returns the current hardcoded token (plain text, no JSON)
+curl -s https://<your_domain>/.well-known/openai-apps-challenge
+# 404 is the RESTING STATE and the correct answer. The token is issued per
+# submission and read from EMEM_APPS_CHALLENGE, so a node that is not mid-
+# submission serves nothing. 200 with the token as plain text, no JSON, means
+# a submission is in flight.
 ```
 
 ---
@@ -84,8 +87,9 @@ operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
    and CI does not deploy this server - `scripts/redeploy.sh` runs on the host.
 4. `systemctl --user restart emem-server` - no rebuild is needed, because the
    value is no longer compiled in. This is the point of the change.
-5. Verify: `curl -s https://emem.dev/.well-known/openai-apps-challenge` returns
-   the new token as plain text and nothing else.
+5. Verify against your own host: `curl -s https://<your_domain>/.well-known/openai-apps-challenge`
+   returns the new token as plain text and nothing else. Before you set it, and
+   after you unset it, that path is a 404 by design.
 6. Return to the portal and verify the domain.
 7. After the submission is decided, remove the line and restart. A challenge
    left serving after it is needed is a stale assertion nobody is checking.
@@ -209,7 +213,7 @@ all reviewer-relevant flows are read-only and require no credentials.
 3. **Copy the challenge token** OpenAI displays
 4. Update `serve_openai_apps_challenge()` in `crates/emem-api-rest/src/lib.rs` (~line 3534) with the new token
 5. Build and deploy
-6. Confirm live: `curl -s https://emem.dev/.well-known/openai-apps-challenge`
+6. Confirm live: `curl -s https://<your_domain>/.well-known/openai-apps-challenge`
 7. Return to portal → click **Verify domain** ✅
 8. Auth tab → select **None**
 9. Tools tab → let portal scan; confirm annotations detected
