@@ -70,7 +70,14 @@ def catalogue(origin: str) -> dict:
     return out
 
 
+# How many read-only COUNT claims the last check() call actually examined.
+# main() prints it: "0 problems" over 0 claims examined is not the same result
+# as "0 problems" over nine, and the two must not print the same line.
+CLAIMS_CHECKED = 0
+
+
 def check(sub: dict, live: dict, card: dict) -> list[str]:
+    global CLAIMS_CHECKED
     bad = []
     for name, decl in sub["tools"].items():
         t = live.get(name)
@@ -91,6 +98,65 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
                     if m and decl.get(other) is not (m.group(1) == "true"):
                         bad.append(f"{name}: {flag}_justification says "
                                    f"'{other} is {m.group(1)}' but {other} is {decl.get(other)}")
+    # Every COUNT the bundle states about read-only tools, checked against the
+    # live annotations.
+    #
+    # This is the hole the scope line used to name and not fill. On 2026-08-27
+    # the prose said "Seven of the nine tools are strictly read-only" while the
+    # annotations said four, and the same wrong sentence sat in SEVEN
+    # openWorldHint_justifications inside the submission JSON -- three of them
+    # on tools that are themselves among the five that can add state, so the
+    # sentence contradicted itself in place. The flags were right the whole
+    # time and agreed with the server; only the sentences counting them were
+    # wrong, and nothing compared a sentence to a flag.
+    #
+    # Scanned over every FILE in the bundle, not *.md, because the worst copies
+    # were in the .json.
+    ro_true = sum(1 for n in sub["tools"]
+                  if ((live.get(n) or {}).get("annotations") or {}).get("readOnlyHint") is True)
+    total = len(sub["tools"])
+    rw_true = total - ro_true
+    claims = 0
+
+    def _num(tok: str):
+        words = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+                 "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+        tok = tok.lower()
+        return words.get(tok, int(tok) if tok.isdigit() else None)
+
+    for f in sorted(x for x in BUNDLE.iterdir() if x.is_file()):
+        text = f.read_text(encoding="utf-8")
+        for m in re.finditer(r"(\w+)(?:\s+of the (\w+) tools?)?[^.]{0,80}?strictly read-only",
+                             text, re.I):
+            n = _num(m.group(1))
+            if n is None:
+                continue
+            claims += 1
+            if n != ro_true:
+                bad.append(f"{f.name}: says {m.group(1)} tools are strictly read-only, "
+                           f"the live annotations say {ro_true}")
+            t = _num(m.group(2)) if m.group(2) else None
+            if t is not None and t != total:
+                bad.append(f"{f.name}: says 'of the {m.group(2)} tools', "
+                           f"the submission declares {total}")
+        # "the other five ... materialise" -- only where it is plainly about
+        # the writing half, so an unrelated "the other two" cannot be accused.
+        for m in re.finditer(r"the other (\w+)[^.]{0,160}?(materialis|readOnlyHint|add state)",
+                             text, re.I):
+            n = _num(m.group(1))
+            if n is None:
+                continue
+            claims += 1
+            if n != rw_true:
+                bad.append(f"{f.name}: says the other {m.group(1)} can add state, "
+                           f"the live annotations say {rw_true}")
+
+    CLAIMS_CHECKED = claims
+    if claims == 0:
+        bad.append("no read-only COUNT claim was found in any bundle file, and these "
+                   "files do state one; the wording moved and this check is now "
+                   "reading nothing")
+
     contact = (card.get("emem") or {}).get("contact")
     for f in sorted(BUNDLE.glob("*.md")):
         text = f.read_text(encoding="utf-8")
@@ -210,8 +276,10 @@ def main() -> int:
         print(f"  scope: the {len(sub['tools'])} tools this submission DECLARES, checked against")
         print(f"  the live catalogue, plus tools.md and the e-mail addresses in "
               f"{len(list(BUNDLE.glob('*.md')))} .md file(s).")
-        print("  NOT covered: whether the prose is accurate, whether the declared set")
-        print("  is the right set, and the domain-verification token, which the portal")
+        print(f"  Cross-checked {CLAIMS_CHECKED} read-only COUNT claim(s) across every file "
+              f"in the bundle against the live annotations.")
+        print("  NOT covered: the rest of the prose, whether the declared set is the")
+        print("  right set, and the domain-verification token, which the portal")
         print("  reissues per submission and no check here can know.")
         return 0
     TOOLS_MD.write_text(body, encoding="utf-8")

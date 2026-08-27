@@ -105,7 +105,12 @@ def build(card: dict, origin: str) -> tuple[dict, str]:
         f"| Action schema (import THIS) | `{action}` | the cut-down surface a Custom GPT can hold |",
         f"| Full OpenAPI | `{iface(card,'openapi-3.1')}` | every route; too large for a GPT Action |",
         f"| MCP endpoint | `{mcp}` | Streamable HTTP, for clients that speak MCP |",
-        f"| Auth | none | {emem.get('authentication','')[:96]} |",
+        # Not truncated. At [:96] this cut the card's authentication statement to
+        # "...the absence of securitySchemes and se", which stops exactly where it
+        # starts to mean something -- and it is the sentence describing the auth
+        # posture to a reviewer. A claim is either stated or omitted; a claim cut
+        # mid-word is the one option that misleads.
+        f"| Auth | none | {emem.get('authentication','')} |",
         f"| Privacy policy | `{emem.get('privacy_policy_url','')}` | |",
         f"| Terms | `{emem.get('terms_of_service_url','')}` | |",
         f"| Support | `{emem.get('support_url','')}` | |",

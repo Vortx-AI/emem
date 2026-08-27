@@ -20,7 +20,7 @@
 | Action schema (import THIS) | `https://emem.dev/openapi.action.json` | the cut-down surface a Custom GPT can hold |
 | Full OpenAPI | `https://emem.dev/openapi.json` | every route; too large for a GPT Action |
 | MCP endpoint | `https://emem.dev/mcp` | Streamable HTTP, for clients that speak MCP |
-| Auth | none | none. Every read is open: no key, no account, no callback. The absence of securitySchemes and se |
+| Auth | none | none. Every read is open: no key, no account, no callback. The absence of securitySchemes and securityRequirements above is the A2A way of saying this, and this field is here so a human does not have to infer it from a gap. |
 | Privacy policy | `https://emem.dev/privacy` | |
 | Terms | `https://emem.dev/terms` | |
 | Support | `https://emem.dev/support` | |
@@ -97,17 +97,17 @@ async fn serve_openai_apps_challenge() -> Response {
 
 | Field | Limit | Value |
 |---|---|---|
-| **Plugin name** |, | `emem` |
-| **Short description** | ~100 chars | `Signed, cite-able, verifiable memory of every place on Earth. No API key.` |
+| **Plugin name** | — | `emem` |
+| **Short description** | ~100 chars | `Shared, verifiable memory for AI agents. Cite a fact, verify it offline, no API key.` |
 | **Long description** | ~500 chars | See block below |
 | **Category** | pick from list | `Research & Analysis` or `Data` |
 | **Logo** | Square PNG/SVG | Already at `https://emem.dev/logo.png`, confirm it's square and ≥512px |
-| **Website** |, | `https://emem.dev` |
-| **Support contact** |, | `avijeet@vortx.ai` |
-| **Privacy policy** |, | `https://emem.dev/privacy` |
-| **Terms of service** |, | `https://emem.dev/terms` |
-| **MCP server URL** |, | `https://emem.dev/mcp` |
-| **Auth type** |, | None (anonymous reads) |
+| **Website** | — | `https://emem.dev` |
+| **Support contact** | — | `avijeet@vortx.ai` |
+| **Privacy policy** | — | `https://emem.dev/privacy` |
+| **Terms of service** | — | `https://emem.dev/terms` |
+| **MCP server URL** | — | `https://emem.dev/mcp` |
+| **Auth type** | — | None (anonymous reads) |
 
 **Long description:**
 ```

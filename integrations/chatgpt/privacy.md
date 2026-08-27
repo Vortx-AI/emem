@@ -2,7 +2,7 @@
 
 ## emem ChatGPT App
 
-**Effective date:** 2026-08-26
+**Effective date:** 2026-08-27
 
 This summarises how the emem app behaves inside ChatGPT. The full policy for
 the hosted responder, which is the authority where the two differ, is at
@@ -10,7 +10,11 @@ the hosted responder, which is the authority where the two differ, is at
 
 ### What emem does
 
-emem is a read-only query surface over a shared, verifiable memory. It answers
+emem is a query surface over a shared, verifiable memory, and it holds no user
+data of any kind. Five of its nine tools here can sign NEW facts into emem's
+publicly readable store when a requested band is cold, so `readOnlyHint` is
+false on those five; what gets written is derived from public
+Earth-observation sources and never from anything a user sent. It answers
 questions about real places from signed facts derived from open Earth
 observation data, and returns a receipt with every answer.
 

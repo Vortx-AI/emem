@@ -39,10 +39,13 @@ same bytes in another session or in another agent's session.
 
 The app exposes **9 tools**, listed with their inputs and their MCP annotations
 in [tools.md](tools.md), which is GENERATED from the catalogue the responder
-actually serves. Seven are strictly read-only; `emem_ask` and `emem_recall` can
-materialise and sign new facts on a cold cell, which is why their
-`readOnlyHint` is false, and they say so in their own justification. None of
-emem's write verbs is exposed here.
+actually serves. Four are strictly read-only. The other five --- `emem_ask`,
+`emem_recall`, `emem_band_raster`, `emem_band_cube` and
+`emem_change_attribution` --- can materialise and sign new facts on a cold
+cell, which is why their `readOnlyHint` is false, and each says so in its own
+justification. None of emem's write verbs is exposed here, and nothing a user
+sends is ever written: what materialises is derived from public
+Earth-observation sources, into a store that was already world-readable.
 
 ## Example prompts
 
