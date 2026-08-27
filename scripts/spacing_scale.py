@@ -92,6 +92,19 @@ def main() -> int:
     pct = total_off * 100 // max(1, total_on + total_off)
     print(f"\n  {total_on} values on the phi scale, {total_off} off it ({pct}% ad-hoc)")
 
+    # Reporting the denominator is not the same as guarding on it. This line
+    # printed "0 values on the phi scale, 0 off it (0% ad-hoc)" and then
+    # returned within-budget, because 0 ad-hoc values is under every budget.
+    # PROP matches a hand-written regex against CSS; a renamed property, a
+    # restructured stylesheet or a wrong root all produce that same clean zero,
+    # and it looks exactly like a page that got its spacing right.
+    if total_on + total_off == 0:
+        print("\nspacing: VACUOUS -- matched no rem-valued padding/margin/gap "
+              "declaration at all, in any file scanned.")
+        print("  These pages do use them, so this is the regex or the file list "
+              "failing, not a stylesheet with no spacing in it. Not a pass.")
+        return 1
+
     if a.budget is None:
         return 0
     if total_off > a.budget:
