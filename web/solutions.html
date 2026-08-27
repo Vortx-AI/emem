@@ -522,10 +522,10 @@ input::placeholder{color:var(--mute,#7a7363)}
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
 <ul class="ports" aria-label="Where emem is listed">
-<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
-<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
-<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
-<li><a class="port" href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
+<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
+<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
+<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
+<li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </nav></header>
 <div class="audience aud-leaders"><span class="aud-for">for leaders</span><span class="aud-what">what it is used for, and what holds up under audit</span><span class="aud-note">expect the argument and the evidence, not the wire format</span></div>
@@ -639,7 +639,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">Built with emem</span></div>
     <dl>
-      <dt>agent</dt><dd><a href="https://eudr.dev">eudr.dev</a></dd>
+      <dt>agent</dt><dd><a href="https://eudr.dev" target="_blank" rel="noopener noreferrer">eudr.dev</a></dd>
       <dt>regulation</dt><dd>EU 2023/1115</dd>
       <dt>output</dt><dd>signed Annex II DDS</dd>
       <dt>algorithm</dt><dd>eudr_compliance@1</dd>
@@ -651,7 +651,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">05</span>EUDR compliance</h2>
-    <p class="lede"><a href="https://eudr.dev">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
+    <p class="lede"><a href="https://eudr.dev" target="_blank" rel="noopener noreferrer">eudr.dev</a> is an independent EU Deforestation Regulation compliance agent. Every paragraph it quotes resolves to an ed25519-signed <span class="band">fact_cid</span> served from this responder.</p>
 
     <p>The agent ingests a shipment plot, dispatches <span class="band">/v1/eudr_dds</span> against the cell64-tiled forest baseline, and returns a Due Diligence Statement shaped to Annex II of Regulation (EU) 2023/1115. The per-cell algorithm <span class="band">eudr_compliance@1</span> implements Article 2(4) as written: &gt;0.5&nbsp;ha, &gt;5&nbsp;m height, &gt;10&nbsp;% canopy cover, excluding land predominantly under agricultural or urban use. The forest baseline is JRC GFC2020 V3 (the Commission&rsquo;s expected non-binding baseline, a live single-COG materialiser at JEODPP), corroborated against the <span class="band">forest_change.treecover2000</span> band from Global Forest Change. Article 2(28) dispatch picks POINT (&le;4&nbsp;ha non-cattle) versus POLYGON (&gt;4&nbsp;ha or any cattle plot under HS&nbsp;0102/0201/0202).</p>
 
@@ -660,7 +660,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <p><strong>Honest scope.</strong> <span class="band">/v1/eudr_dds</span> covers the geolocation and deforestation parts of Annex II only. The Article 9(1)(b) legality check (land tenure, FPIC, country-of-origin law) is structurally outside Earth-observation scope; pair a partner legality module before TRACES NT submission. The agent is operated independently and is <em>not affiliated with, endorsed by, or sponsored by</em> any EU institution.</p>
 
     <p style="margin-top:1.5rem">
-      <a class="btn" href="https://eudr.dev">Open eudr.dev &rarr;</a>
+      <a class="btn" href="https://eudr.dev" target="_blank" rel="noopener noreferrer">Open eudr.dev &rarr;</a>
       <code class="btn ghost" style="cursor:default" title="POST-only endpoint: call it with a JSON body, not a browser GET"><span class="tok-cmd">POST</span> /v1/eudr_dds</code>
       <a class="btn ghost" href="/v1/schemas/eudr_dds.json">Annex II JSON Schema</a>
     </p>
@@ -922,10 +922,10 @@ input::placeholder{color:var(--mute,#7a7363)}
           <li><a href="/docs/api/">API reference (ReDoc)</a></li>
           <li><a href="/docs/errors.html">errors</a></li>
           <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener noreferrer" target="_blank">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener noreferrer" target="_blank">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener noreferrer" target="_blank">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener noreferrer" target="_blank">issues / roadmap</a></li>
           <li><a href="/health">health</a></li>
         </ul>
       </div>
@@ -936,21 +936,21 @@ input::placeholder{color:var(--mute,#7a7363)}
       <div class="foot-col">
         <h4>Listed on</h4>
         <ul>
-          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
-          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace">Dify</a></li>
-          <li><a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry">MCP registry</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0">GitHub</a></li>
-          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" rel="noopener" title="MCP server directory">Glama</a></li>
-          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" rel="noopener" title="MCP server directory">MCP Toplist</a></li>
-          <li><a href="https://doi.org/10.5281/zenodo.20706893" rel="noopener" title="the whitepaper, with a DOI">Zenodo</a></li>
+          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
+          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace">Dify</a></li>
+          <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry">MCP registry</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0">GitHub</a></li>
+          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="MCP server directory">Glama</a></li>
+          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" target="_blank" rel="noopener noreferrer" title="MCP server directory">MCP Toplist</a></li>
+          <li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer" title="the whitepaper, with a DOI">Zenodo</a></li>
         </ul>
       </div>
       <!--ports:end-->
     </div>
     <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>Built by <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">github</a> ·
         <a href="/privacy">privacy · terms</a>
       </span>
     </div>

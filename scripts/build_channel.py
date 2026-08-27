@@ -2594,6 +2594,40 @@ generated from the ledger by <code>scripts/build_channel.py</code>, last changed
     return head
 
 
+def offsite_new_tab(html: str) -> str:
+    """Every link that leaves emem opens in a new tab.
+
+    This page is REGENERATED on every deploy, so a fix applied to the .html
+    would be reverted by the next build and look like it had not taken. It
+    belongs here. scripts/offsite_new_tab.py checks the hand-authored pages and
+    FAILS on a generated page that still carries a bare off-site anchor, so if
+    this is ever removed the gate says so rather than the site quietly
+    reverting.
+
+    noreferrer rides with noopener: target="_blank" without it hands the
+    destination our URL for free, and noopener alone does not stop that.
+    """
+    import re as _re
+
+    def fix(m):
+        attrs = m.group(1)
+        href = _re.search(r'href="([^"]+)"', attrs)
+        if not href or not href.group(1).startswith("http") or "emem.dev" in href.group(1):
+            return m.group(0)
+        if "target=" in attrs:
+            return m.group(0)
+        if 'rel="' in attrs:
+            attrs = _re.sub(
+                r'rel="([^"]*)"',
+                lambda r: 'rel="%s"' % " ".join(
+                    dict.fromkeys(r.group(1).split() + ["noopener", "noreferrer"])),
+                attrs)
+            return "<a" + attrs.rstrip() + ' target="_blank">'
+        return "<a" + attrs.rstrip() + ' target="_blank" rel="noopener noreferrer">'
+
+    return _re.sub(r"<a\b([^>]*?)>", fix, html)
+
+
 def main() -> int:
     dry = "--dry-run" in sys.argv
     # Say what share of the responder this build is going to take, and where the
@@ -2804,6 +2838,7 @@ def main() -> int:
     write_atomic(REPO / "docs" / "collaboration-log.md", md)
 
     prev = channel.read_text() if channel.exists() else ""
+    page = offsite_new_tab(page)
     if prev and stamp_free(prev) == stamp_free(page):
         print("  web/channel.html unchanged (only the build stamp moved), kept "
               "the published file so the tree stays clean and a real change "

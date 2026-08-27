@@ -451,10 +451,10 @@ input::placeholder{color:var(--mute,#7a7363)}
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
 <ul class="ports" aria-label="Where emem is listed">
-<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
-<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
-<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
-<li><a class="port" href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
+<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
+<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
+<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
+<li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </nav></header>
 <div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">the address, the fact, the receipt, in order</span><span class="aud-note">no prior knowledge assumed</span></div>
@@ -925,8 +925,8 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
     <p>So the encoder runs at the source: on an orbital payload, a drone, a vehicle camera, a fixed CCTV. A scene becomes a compact <span class="band">latent vector</span> before it ever touches a ground station, orders of magnitude smaller than the raw imagery. <strong>emem is the open decoder for that latent.</strong> It resolves each one onto the cell64 lattice (section&nbsp;01) and turns it into a signed fact (section&nbsp;02). Today those latents come from four open Earth-observation foundation encoders (Tessera, Clay&nbsp;v1.5, Prithvi-EO-2.0, and Galileo), read side by side and scored for agreement (section&nbsp;04 onward).</p>
 
-    <p>The encoder-physically-in-orbit thesis (downlink only the embedding, decode it on the ground) is <a href="https://vortx.ai" rel="noopener">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
-    <p><a class="btn ghost" href="https://vortx.ai" rel="noopener">The orbital encoder &rarr; vortx.ai</a></p>
+    <p>The encoder-physically-in-orbit thesis (downlink only the embedding, decode it on the ground) is <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">Vortx</a>'s. emem is the part you can read, cite, and self-host: the open decoder and the signed memory. If the encoder kernels are deterministic, a latent emulated on the ground today is the same vector the payload would emit in orbit, so the decoder you run now is the one that flies.</p>
+    <p><a class="btn ghost" href="https://vortx.ai" rel="noopener noreferrer" target="_blank">The orbital encoder &rarr; vortx.ai</a></p>
   </div>
 </section>
 
@@ -944,8 +944,8 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
     <h2><span class="num">&#9670;</span>The representation is the interface</h2>
     <figure class="cev-art"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="The encoder runs at the source and emits an embedding; emem stores and signs that embedding on the ground." loading="lazy"></figure>
     <p>emem signs the representation agents actually read: the encoder runs where the data is born, and emem stores, indexes, and signs the embedding it emits, not the pixels. An embedding is a representation, not a memory. It becomes part of the memory only once it is signed, content-addressed, and recallable as a record with provenance attached. The protocol does not depend on any one model&rsquo;s architecture; for the industry direction, Google&nbsp;DeepMind&rsquo;s Gemma&nbsp;4&nbsp;12B announcement (3&nbsp;June&nbsp;2026, linked below) describes a model that reads embeddings directly, and that claim stays theirs.</p>
-    <p>Freezing the encoder buys one more thing: when the readout at a place changes between two visits, the model term of that change is pinned. An embedding record names its encoder checkpoint, so upgrading the model can never masquerade as change on the ground; it shows up as a new, separately signed record instead. Splitting the rest of a change, the world against the instrument against the pixels against the noise, starts with the change-attribution ledger, which reports the per-term evidence today; the numeric split stays on the <a href="https://github.com/Vortx-AI/emem/blob/main/docs/roadmap.md">roadmap</a>.</p>
-    <p style="font-size:var(--t-sm);color:var(--mute)">Reference: <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener">Introducing Gemma&nbsp;4&nbsp;12B</a>, Google&nbsp;DeepMind, 2026.</p>
+    <p>Freezing the encoder buys one more thing: when the readout at a place changes between two visits, the model term of that change is pinned. An embedding record names its encoder checkpoint, so upgrading the model can never masquerade as change on the ground; it shows up as a new, separately signed record instead. Splitting the rest of a change, the world against the instrument against the pixels against the noise, starts with the change-attribution ledger, which reports the per-term evidence today; the numeric split stays on the <a href="https://github.com/Vortx-AI/emem/blob/main/docs/roadmap.md" target="_blank" rel="noopener noreferrer">roadmap</a>.</p>
+    <p style="font-size:var(--t-sm);color:var(--mute)">Reference: <a href="https://blog.google/innovation-and-ai/technology/developers-tools/introducing-gemma-4-12b/" rel="noopener noreferrer" target="_blank">Introducing Gemma&nbsp;4&nbsp;12B</a>, Google&nbsp;DeepMind, 2026.</p>
   </div>
 </section>
 
@@ -1007,10 +1007,10 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
           <li><a href="/docs/api/">API reference (ReDoc)</a></li>
           <li><a href="/docs/errors.html">errors</a></li>
           <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener noreferrer" target="_blank">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener noreferrer" target="_blank">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener noreferrer" target="_blank">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener noreferrer" target="_blank">issues / roadmap</a></li>
           <li><a href="/health">health</a></li>
         </ul>
       </div>
@@ -1021,21 +1021,21 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
       <div class="foot-col">
         <h4>Listed on</h4>
         <ul>
-          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
-          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace">Dify</a></li>
-          <li><a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry">MCP registry</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0">GitHub</a></li>
-          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" rel="noopener" title="MCP server directory">Glama</a></li>
-          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" rel="noopener" title="MCP server directory">MCP Toplist</a></li>
-          <li><a href="https://doi.org/10.5281/zenodo.20706893" rel="noopener" title="the whitepaper, with a DOI">Zenodo</a></li>
+          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
+          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace">Dify</a></li>
+          <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry">MCP registry</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0">GitHub</a></li>
+          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="MCP server directory">Glama</a></li>
+          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" target="_blank" rel="noopener noreferrer" title="MCP server directory">MCP Toplist</a></li>
+          <li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer" title="the whitepaper, with a DOI">Zenodo</a></li>
         </ul>
       </div>
       <!--ports:end-->
     </div>
     <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>Built by <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">github</a> ·
         <a href="/privacy">privacy · terms</a>
       </span>
     </div>

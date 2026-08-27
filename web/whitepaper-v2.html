@@ -268,10 +268,10 @@ input::placeholder{color:var(--mute,#7a7363)}
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
 <ul class="ports" aria-label="Where emem is listed">
-<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
-<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
-<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
-<li><a class="port" href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
+<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
+<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
+<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
+<li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </nav></header>
 <div class="audience aud-leaders"><span class="aud-for">for leaders</span><span class="aud-what">the long argument, with the proofs</span><span class="aud-note">expect the argument and the evidence, not the wire format</span></div>
@@ -323,7 +323,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 
       <p><strong>Whitepaper v2 / 2026-07-16</strong></p>
       <p><em>Superseded as the canonical paper by <a href="whitepaper.md">whitepaper.md</a> (2026-07-16), which carries this document forward with v1's protocol depth, formal notation, figures, an evaluation, and a threat model. This file remains the served v2 record.</em></p>
-      <p><em>Supersedes <a href="/whitepaper/v1">whitepaper v1</a> (version 0.1.0, 2026-06-14), which remains archived and unedited. v1 is the version cited by <a href="https://doi.org/10.5281/zenodo.20706893">DOI 10.5281/zenodo.20706893</a>; that record resolves to Zenodo's own frozen copy and is unaffected by this document. <a href="#16-changes-from-v1">Section 16</a> lists, claim by claim, what v1 asserted that this responder does not do.</em></p>
+      <p><em>Supersedes <a href="/whitepaper/v1">whitepaper v1</a> (version 0.1.0, 2026-06-14), which remains archived and unedited. v1 is the version cited by <a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer">DOI 10.5281/zenodo.20706893</a>; that record resolves to Zenodo's own frozen copy and is unaffected by this document. <a href="#16-changes-from-v1">Section 16</a> lists, claim by claim, what v1 asserted that this responder does not do.</em></p>
     <section id="abstract">
       <h2>Abstract</h2>
       <p>emem is an external identity layer for AI agents: a shared, verifiable memory whose purpose is to stop referential drift. A model that carries its own prose description of a thing carries a description that decays, and two models carrying two descriptions of one thing cannot tell whether they are discussing the same thing. emem moves identity out of the model. Every place resolves to one canonical address (<code>cell64</code>, §4). Every observation there becomes one immutable record whose identifier is the blake3 hash of its own canonical CBOR bytes (<code>fact_cid</code>, §5). A caller hands another party a token; the token dereferences to those exact bytes, and an ed25519 receipt over a domain-separated preimage lets the receiver check them without trusting the sender, the network, or this responder (§6).</p>
@@ -988,10 +988,10 @@ input::placeholder{color:var(--mute,#7a7363)}
           <li><a href="/docs/api/">API reference (ReDoc)</a></li>
           <li><a href="/docs/errors.html">errors</a></li>
           <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener noreferrer" target="_blank">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener noreferrer" target="_blank">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener noreferrer" target="_blank">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener noreferrer" target="_blank">issues / roadmap</a></li>
           <li><a href="/health">health</a></li>
         </ul>
       </div>
@@ -1002,21 +1002,21 @@ input::placeholder{color:var(--mute,#7a7363)}
       <div class="foot-col">
         <h4>Listed on</h4>
         <ul>
-          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
-          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace">Dify</a></li>
-          <li><a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry">MCP registry</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0">GitHub</a></li>
-          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" rel="noopener" title="MCP server directory">Glama</a></li>
-          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" rel="noopener" title="MCP server directory">MCP Toplist</a></li>
-          <li><a href="https://doi.org/10.5281/zenodo.20706893" rel="noopener" title="the whitepaper, with a DOI">Zenodo</a></li>
+          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
+          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace">Dify</a></li>
+          <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry">MCP registry</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0">GitHub</a></li>
+          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="MCP server directory">Glama</a></li>
+          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" target="_blank" rel="noopener noreferrer" title="MCP server directory">MCP Toplist</a></li>
+          <li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer" title="the whitepaper, with a DOI">Zenodo</a></li>
         </ul>
       </div>
       <!--ports:end-->
     </div>
     <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>Built by <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> &middot;
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">github</a> &middot;
         <a href="/privacy">privacy &middot; terms</a>
       </span>
     </div>

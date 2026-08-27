@@ -353,6 +353,40 @@ def _assert_well_formed(doc: str) -> None:
         raise SystemExit(f"render: internal links with no target: {dangling}")
 
 
+def offsite_new_tab(html: str) -> str:
+    """Every link that leaves emem opens in a new tab.
+
+    This page is REGENERATED on every deploy, so a fix applied to the .html
+    would be reverted by the next build and look like it had not taken. It
+    belongs here. scripts/offsite_new_tab.py checks the hand-authored pages and
+    FAILS on a generated page that still carries a bare off-site anchor, so if
+    this is ever removed the gate says so rather than the site quietly
+    reverting.
+
+    noreferrer rides with noopener: target="_blank" without it hands the
+    destination our URL for free, and noopener alone does not stop that.
+    """
+    import re as _re
+
+    def fix(m):
+        attrs = m.group(1)
+        href = _re.search(r'href="([^"]+)"', attrs)
+        if not href or not href.group(1).startswith("http") or "emem.dev" in href.group(1):
+            return m.group(0)
+        if "target=" in attrs:
+            return m.group(0)
+        if 'rel="' in attrs:
+            attrs = _re.sub(
+                r'rel="([^"]*)"',
+                lambda r: 'rel="%s"' % " ".join(
+                    dict.fromkeys(r.group(1).split() + ["noopener", "noreferrer"])),
+                attrs)
+            return "<a" + attrs.rstrip() + ' target="_blank">'
+        return "<a" + attrs.rstrip() + ' target="_blank" rel="noopener noreferrer">'
+
+    return _re.sub(r"<a\b([^>]*?)>", fix, html)
+
+
 def main() -> int:
     rendered = build()
     _assert_well_formed(rendered)
@@ -370,7 +404,7 @@ def main() -> int:
             return 1
         print(f"{OUT.relative_to(ROOT)} is up to date with {SRC.relative_to(ROOT)}")
         return 0
-    OUT.write_text(rendered)
+    OUT.write_text(offsite_new_tab(rendered))
     print(f"wrote {OUT.relative_to(ROOT)} ({len(rendered.splitlines())} lines) from {SRC.relative_to(ROOT)}")
     return 0
 

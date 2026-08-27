@@ -89,6 +89,18 @@ def main() -> int:
         return 2
 
     problems = []
+
+    # How many pages actually LOADED and were probed. The vacuity check below
+
+    # read this variable and nothing ever assigned it, so the guard could only
+
+    # ever raise NameError -- and only on the path where every page failed to
+
+    # load, which is exactly when it was needed. A guard that crashes is
+
+    # indistinguishable in a log from a guard nobody ran.
+
+    checked = 0
     with sync_playwright() as p:
         b = p.chromium.launch()
         for path in PAGES:
@@ -115,6 +127,7 @@ def main() -> int:
                     bad.append(f"{kind}: {item}")
             if r["overflow"] > 2:
                 bad.append(f"overflow: {r['overflow']}px wider than the viewport")
+            checked += 1
             mark = "ok  " if not bad else "FAIL"
             print(f"  {mark} {path}")
             for x in bad:
@@ -124,13 +137,14 @@ def main() -> int:
         b.close()
 
     if problems:
-        print(f"\npage_health: {len(problems)} thing(s) a reader would see broken.")
+        print(f"\npage_health: {len(problems)} thing(s) a reader would see broken, "
+              f"across {checked} page(s) that loaded.")
         return 1
     if checked == 0:
         print("\nVACUOUS: no page was successfully loaded, so nothing was")
         print("checked. Reaching nothing is not agreement.")
         return 1
-    print("\nEvery page renders what it lays out.")
+    print(f"\nEvery one of the {checked} page(s) that loaded renders what it lays out.")
     return 0
 
 

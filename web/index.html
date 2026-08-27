@@ -575,6 +575,11 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 /* The one line that never changes, sitting on the plug. A model is called by a
    different name at every reach of this page; the address it calls is not. */
 .call{ margin:.15rem 0 0; }
+/* The callsign is the one place on the page that leaves it, so it keeps the
+   callsign's own colour rather than taking the default link colour. */
+.call-link{ text-decoration:none; color:inherit; }
+.call-link:hover code{ text-decoration:underline; }
+.call-link:focus-visible{ outline:2px solid currentColor; outline-offset:3px; }
 .call code{
   font-family:var(--mono,ui-monospace,monospace);
   font-size:var(--mono-size); letter-spacing:.02em;
@@ -846,10 +851,10 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
 <ul class="ports" aria-label="Where emem is listed">
-<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
-<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
-<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
-<li><a class="port" href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
+<li><a class="port" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory"><span class="port-pin" aria-hidden="true"></span>ChatGPT</a></li>
+<li><a class="port" href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace"><span class="port-pin" aria-hidden="true"></span>Dify</a></li>
+<li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
+<li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </nav></header>
 <div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory two agents can agree on</span><span class="aud-note">no prior knowledge assumed</span></div>
@@ -877,12 +882,12 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
      thing that does not move, and only what it is doing changes underneath it. -->
 <div class="names">
   <p class="side side-l" id="who">ChatGPT<span>non-deterministic &middot; <i id="whobest">reasons well</i></span></p>
-  <p class="side side-r"><a class="side-link" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">@emem</a><span>deterministic &middot; <i id="callsub">repeats exactly</i></span></p>
+  <p class="side side-r"><a class="side-link" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory" target="_blank">@emem</a><span>deterministic &middot; <i id="callsub">repeats exactly</i></span></p>
 </div>
 
 <header class="reach reach-open" data-step="0" data-who="ChatGPT" data-best="reasons well" data-sub="repeats exactly">
   <h1 class="line">Ask a model the same thing twice,<br>and you get two answers.</h1>
-  <p class="call"><code>call @emem</code></p>
+  <p class="call"><a class="call-link" href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer"><code>call @emem</code></a></p>
   <p class="sub">Ask emem the same thing twice and the same bytes come back, signed, with a receipt you can check yourself. That is the whole idea. Everything below is you checking it.</p>
   <p class="scroll-cue"><span>keep going</span></p>
 </header>
@@ -1336,10 +1341,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
        fetched live, it links to the offline verifier, and if the call does not
        come back it says so rather than showing a decorative prefix. */
     var pill = el('a', { class:'b-tok', href:'/verify' });
-    /* Sized for a REAL token, not for the placeholder. A descriptor token is
-       about 70 characters; the box was 232px and cut it at 33, which reads as
-       an arbitrary truncation rather than as an address. */
-    pill.appendChild(el('rect', { x:BW/2 - 232, y:arch(BW/2) - 33, width:464, height:30, rx:15,
+    /* Sized for a REAL token, measured rather than estimated. The live token is
+       84 characters (emem:fact: + cell64 + ':' + a 52-char cid). At the 12px
+       monospace this pill uses that is ~7.3px per character, so the text needs
+       ~615px and the box needs ~660 with padding. It was 464 and the script
+       cut the string at 72, so BOTH ends cropped: too narrow for what it drew,
+       and drawing less than it was given. Widened once for a 70-char estimate;
+       this time the number came from the responder. */
+    pill.appendChild(el('rect', { x:BW/2 - 340, y:arch(BW/2) - 33, width:680, height:30, rx:15,
       fill:'var(--paper)', stroke:'currentColor', 'stroke-width':1, opacity:0.96 }));
     var t = el('text', { x:BW/2, y:arch(BW/2) - 13, 'text-anchor':'middle', fill:'currentColor' });
     t.textContent = 'fetching a real one\u2026';
@@ -1353,7 +1362,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         var tok = f && (f.memory_token || (f.fact_cid && 'emem:fact:' + f.fact_cid));
         if(!tok) throw 0;
         pill.setAttribute('href', '/verify?q=' + encodeURIComponent(tok));
-        t.textContent = tok.length > 72 ? tok.slice(0, 71) + '\u2026' : tok;
+        t.textContent = tok.length > 88 ? tok.slice(0, 87) + '\u2026' : tok;
         var tip = el('title', {});
         tip.textContent = tok + '  (opens the offline verifier)';
         pill.appendChild(tip);
@@ -1382,9 +1391,9 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
     p.className = 'reach-names';
     p.innerHTML =
       '<span class="rn-l"><b></b><span>non-deterministic &middot; </span></span>' +
-      '<span class="rn-r"><b><a class="side-link" rel="noopener" ' +
+      '<span class="rn-r"><b><a class="side-link" rel="noopener noreferrer" ' +
         'href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" ' +
-        'title="emem in the ChatGPT plugin directory">@emem</a></b>' +
+        'title="emem in the ChatGPT plugin directory" target="_blank">@emem</a></b>' +
         '<span>deterministic &middot; </span></span>';
     p.querySelector('.rn-l b').textContent = r.getAttribute('data-who') || '';
     p.querySelector('.rn-l span').textContent = 'non-deterministic \u00b7 ' + (r.getAttribute('data-best') || '');
@@ -1577,10 +1586,10 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
           <li><a href="/docs/api/">API reference (ReDoc)</a></li>
           <li><a href="/docs/errors.html">errors</a></li>
           <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener">issues / roadmap</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener noreferrer" target="_blank">Python client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener noreferrer" target="_blank">TypeScript client</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener noreferrer" target="_blank">examples</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener noreferrer" target="_blank">issues / roadmap</a></li>
           <li><a href="/health">health</a></li>
         </ul>
       </div>
@@ -1591,21 +1600,21 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
       <div class="foot-col">
         <h4>Listed on</h4>
         <ul>
-          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" rel="noopener" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
-          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" rel="noopener" title="emem in the Dify marketplace">Dify</a></li>
-          <li><a href="https://github.com/mcp/Vortx-AI/emem" rel="noopener" title="emem in the GitHub MCP registry">MCP registry</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem" rel="noopener" title="the source, Apache-2.0">GitHub</a></li>
-          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" rel="noopener" title="MCP server directory">Glama</a></li>
-          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" rel="noopener" title="MCP server directory">MCP Toplist</a></li>
-          <li><a href="https://doi.org/10.5281/zenodo.20706893" rel="noopener" title="the whitepaper, with a DOI">Zenodo</a></li>
+          <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
+          <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace">Dify</a></li>
+          <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry">MCP registry</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0">GitHub</a></li>
+          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="MCP server directory">Glama</a></li>
+          <li><a href="https://mcptoplist.com/server/io.github.Vortx-AI%2Femem" target="_blank" rel="noopener noreferrer" title="MCP server directory">MCP Toplist</a></li>
+          <li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer" title="the whitepaper, with a DOI">Zenodo</a></li>
         </ul>
       </div>
       <!--ports:end-->
     </div>
     <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
+      <span>Built by <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
       <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a> ·
+        <a href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">github</a> ·
         <a href="/privacy">privacy · terms</a>
       </span>
     </div>

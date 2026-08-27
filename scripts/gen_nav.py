@@ -183,7 +183,7 @@ def render(current: str) -> str:
     # should be told how many before it reads them.
     out.append('<ul class="ports" aria-label="Where emem is listed">')
     for label, href, note in PORTS:
-        out.append(f'<li><a class="port" href="{href}" rel="noopener" title="{note}">'
+        out.append(f'<li><a class="port" href="{href}" target="_blank" rel="noopener noreferrer" title="{note}">'
                    f'<span class="port-pin" aria-hidden="true"></span>{label}</a></li>')
     out.append('</ul>')
     out.append('</nav></header>')
@@ -237,6 +237,11 @@ def served_as(name: str) -> str:
 # The README badge wall carries the rest (CI, licence, Glama, MCP Toplist, VS
 # Code install, Zenodo DOI). Four here is the whole point: a fifth would make
 # this a second navigation.
+# Every one of these leaves emem, so every one opens in a new tab. A reader who
+# clicks a directory listing from the middle of a page has not asked to abandon
+# the page, and 320 of 321 off-site links across 26 pages were taking them away
+# from it. `noreferrer` rides along with `noopener` because a new-tab link
+# without it hands the destination our URL for free.
 PORTS = [
     ("ChatGPT", "https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77",
      "emem in the ChatGPT plugin directory"),
