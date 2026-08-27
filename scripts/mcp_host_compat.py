@@ -491,7 +491,11 @@ def run(origin: str, endpoint: str) -> dict:
         bad_status = e.code
     except Exception:  # noqa: BLE001
         bad_status = 0
-    echo_ok = all(sent == got for sent, got in echoed)
+    # all([]) is True. If no version was successfully echoed -- every request
+    # failed, or the loop above never ran -- this reported "echo ok" having
+    # compared nothing, in the row that certifies spec conformance. Require
+    # that something was actually echoed before believing they all matched.
+    echo_ok = bool(echoed) and all(sent == got for sent, got in echoed)
     row("spec conformance",
         "MCP-Protocol-Version is echoed back, and an unsupported one refused",
         f"echoed {echoed}; unsupported version -> http {bad_status}; "

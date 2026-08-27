@@ -92,8 +92,15 @@ def main() -> int:
                         reads.setdefault(url, set()).add((n,))
 
     if not reads:
-        print("live_fields: no live reads found in web/*.html")
-        return 0
+        # This exits FAILURE now. Every page in web/ carries live reads; zero of
+        # them means the scanner stopped matching, not that the site stopped
+        # fetching. Returning 0 here made a broken extractor indistinguishable
+        # from a clean sweep, which is the shape this file exists to catch
+        # elsewhere.
+        print("live_fields: VACUOUS -- no live reads found in web/*.html at all.")
+        print("Every page here carries some. A zero is a fact about this scanner,")
+        print("not about the site, and it is not a pass.")
+        return 1
 
     problems = []
     for url in sorted(reads):
