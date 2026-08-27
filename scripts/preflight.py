@@ -29,12 +29,41 @@ CI = REPO / ".github/workflows/ci.yml"
 
 
 def ci_steps() -> tuple[list[str], list[str]]:
-    """(python gates CI runs, everything else it runs)."""
-    text = CI.read_text(encoding="utf-8")
-    runs = [r.strip() for r in re.findall(r"^\s*run:\s*(.+)$", text, re.M)]
-    py, other = [], []
-    for r in runs:
-        (py if r.startswith("python3 scripts/") else other).append(r)
+    """(python gates CI runs, everything else it runs).
+
+    Reads BOTH `run: cmd` and `run: |` blocks. The first version read only
+    single-line steps and silently missed ten gates -- discovery_test, parity,
+    mcp_host_compat, sync_counts, route_truth, state_claims, live_fields,
+    output_schema_conformance, spec_verifier_check, gen_decision_layer -- every
+    one of them in a `run: |` block. A preflight that misses a third of CI while
+    printing a confident count is worse than no preflight, and it was written to
+    end exactly that failure. Found by parsing the same file twice, two ways,
+    and comparing the counts.
+    """
+    lines = CI.read_text(encoding="utf-8").splitlines()
+    py, other, i = [], [], 0
+    while i < len(lines):
+        m = re.match(r"^(\s*)run:\s*(.*)$", lines[i])
+        if not m:
+            i += 1
+            continue
+        indent, rest = m.group(1), m.group(2).strip()
+        if rest in ("|", ">", "|-", ">-"):
+            j = i + 1
+            while j < len(lines) and (
+                not lines[j].strip()
+                or len(lines[j]) - len(lines[j].lstrip()) > len(indent)
+            ):
+                cmd = lines[j].strip()
+                if cmd.startswith("python3 scripts/"):
+                    py.append(cmd)
+                elif cmd:
+                    other.append(cmd)
+                j += 1
+            i = j
+            continue
+        (py if rest.startswith("python3 scripts/") else other).append(rest)
+        i += 1
     # de-duplicate, keep CI's order
     seen, uniq = set(), []
     for r in py:
