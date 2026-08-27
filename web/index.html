@@ -63,7 +63,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--display);
 code, kbd, pre, samp, .mono, .tok, .cid, .key, input, textarea, button, time{font-family:var(--mono)}
 ::selection{background:var(--accent);color:var(--paper)}
 a{color:var(--accent)}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.45rem}
+.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem}
 .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
 
 /* page shell */
@@ -619,7 +619,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
    set as plainly as the rest so the page ends rather than sells. Each is a
    full 44px tall, which is the tap bound, not a rounded-up guess at it. */
 .mouth{ min-height:66vh; }
-.ways{ display:flex; flex-wrap:wrap; justify-content:center; gap:.6rem 1.7rem; margin:0; }
+.ways{ display:flex; flex-wrap:wrap; justify-content:center; gap:.618rem 1.7rem; margin:0; }
 .ways a{
   display:inline-flex; flex-direction:column; justify-content:center; gap:.15rem;
   min-height:2.75rem; padding:.4rem .2rem; text-align:center;
@@ -684,7 +684,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
    visit is for. */
 .connect{
   display:flex; flex-wrap:wrap; align-items:stretch; justify-content:center;
-  gap:.45rem; margin:.2rem 0 .4rem; max-width:44rem;
+  gap:.382rem; margin:.2rem 0 .4rem; max-width:44rem;
 }
 /* The label and the note are their own row, so the config and the button sit
    together as one control instead of a pill floating beside a block of code. */
@@ -694,7 +694,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   font-family:var(--mono,ui-monospace,monospace); font-size:var(--mono-size);
   color:var(--ink); background:var(--paper-2);
   border:1px solid var(--rule); border-radius:6px;
-  padding:.5rem .7rem; overflow-wrap:anywhere;
+  padding:.618rem .618rem; overflow-wrap:anywhere;
 }
 .connect code{ border-radius:6px 0 0 6px; border-right:0; }
 .copyb{
@@ -703,7 +703,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   color:var(--ink-2); background:var(--paper-2);
   border:1px solid var(--rule); border-left:1px solid var(--rule-strong);
   border-radius:0 6px 6px 0;
-  min-width:5rem; min-height:2.75rem; padding:.3rem .95rem; cursor:pointer;
+  min-width:5rem; min-height:2.75rem; padding:.382rem 1rem; cursor:pointer;
 }
 .copyb:hover{ border-color:var(--ink-2); color:var(--ink); }
 .copyb:focus-visible{ outline:2px solid var(--ink); outline-offset:2px; }
@@ -766,7 +766,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 @media (max-width:860px){
   .names{
     display:flex; justify-content:space-between; align-items:baseline;
-    gap:.6rem; padding:.4rem clamp(.7rem,3.4vw,2.6rem) .45rem;
+    gap:.618rem; padding:.382rem clamp(.618rem,3.4vw,2.618rem) .382rem;
     background:var(--paper); border-bottom:1px solid var(--rule);
   }
   .names .side{ position:static; max-width:none; left:auto; right:auto; }
@@ -780,14 +780,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   .names{ display:none; }
   .reach-names{
     display:flex; justify-content:space-between; align-items:baseline;
-    gap:.8rem; width:100%; margin:0 0 .3rem;
+    gap:.618rem; width:100%; margin:0 0 .382rem;
     /* A ground, not a halo. This caption is IN THE FLOW below 860px, so it
        travels with the content and comes to rest wherever the scroll stops,
        including in the middle of the towers: measured at 12.5% artwork ink
        inside its box at 768x2052. A halo paints around glyph edges and left
        that at 12.3%. It already spans the column and already carries a rule,
        so a paper ground is the honest shape and costs no new furniture. */
-    padding:.35rem clamp(.7rem,3.4vw,2.6rem) .45rem;
+    padding:.382rem clamp(.618rem,3.4vw,2.618rem) .382rem;
     margin-left:calc(-1 * clamp(.7rem,3.4vw,2.6rem));
     margin-right:calc(-1 * clamp(.7rem,3.4vw,2.6rem));
     width:auto; align-self:stretch;
