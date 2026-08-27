@@ -12,7 +12,7 @@
       "readOnlyHint": false,
       "readOnlyHint_justification": "Grounds the question against real places and, on a cold cell, auto-materializes and signs new facts (Sentinel-2/-1, Cop-DEM, JRC GSW, Overture, weather) into emem's publicly readable store before answering. Nothing is overwritten or removed, so destructiveHint stays false, but the call can add state that other readers will see and therefore is not read-only.",
       "openWorldHint": true,
-      "openWorldHint_justification": "This tool resolves real-world place mentions and may fetch upstream Earth-observation data to answer the user's place-based question. It does not create public content or affect external systems. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token). This one is among the other six, which can add state by materialising and signing new facts on a cold cell; the six are emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution and emem_find_similar. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
+      "openWorldHint_justification": "This tool resolves real-world place mentions and may fetch upstream Earth-observation data to answer the user's place-based question. It does not create public content or affect external systems. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
       "destructiveHint": false,
       "destructiveHint_justification": "This tool is read-only. It does not delete or modify any data."
     },
@@ -20,7 +20,7 @@
       "readOnlyHint": true,
       "readOnlyHint_justification": "Resolves a place name to coordinates and available bands. No writes.",
       "openWorldHint": true,
-      "openWorldHint_justification": "This tool resolves free-text place names, addresses, or coordinates against real-world geocoding and emem inventory data. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. It writes nothing: readOnlyHint is true and destructiveHint is false, and those are the fields that carry 'can this change state someone else can see'. Three of the nine tools in this submission are strictly read-only, including this one; the other six (emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution, emem_find_similar) can materialise and sign new facts on a cold cell and each says so in its own readOnlyHint_justification. None of emem's write verbs is exposed here.",
+      "openWorldHint_justification": "This tool resolves free-text place names, addresses, or coordinates against real-world geocoding and emem inventory data. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. It writes nothing: readOnlyHint is true and destructiveHint is false, and those are the fields that carry 'can this change state someone else can see'. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state, and each says so in its own readOnlyHint_justification. The two tools that CAN write, emem_entity and emem_entity_link, are gated behind an ed25519 attester block and refuse with a 403 to any caller without one.",
       "destructiveHint": false,
       "destructiveHint_justification": "Read-only geocoding operation."
     },
@@ -28,7 +28,7 @@
       "readOnlyHint": false,
       "readOnlyHint_justification": "Recall auto-materializes on a miss: if the requested band is not yet held for that cell, the responder fetches it upstream, signs the resulting fact and appends it to the shared store. Append-only, never an overwrite, so destructiveHint stays false.",
       "openWorldHint": true,
-      "openWorldHint_justification": "This tool can auto-materialize facts from registered Earth-observation data sources when a requested band is missing. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token). This one is among the other six, which can add state by materialising and signing new facts on a cold cell; the six are emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution and emem_find_similar. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
+      "openWorldHint_justification": "This tool can auto-materialize facts from registered Earth-observation data sources when a requested band is missing. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
       "destructiveHint": false,
       "destructiveHint_justification": "Read-only data retrieval."
     },
@@ -52,33 +52,89 @@
       "readOnlyHint": false,
       "readOnlyHint_justification": "Corrected 2026-08-27 on a reviewer's reading, and they were right. The search itself writes nothing, but the handler is find_similar_with_auto_materialize: when the query cell has no vector fact, it triggers the materializer for that band and the result is signed and persisted into emem's publicly readable store. That is state a later caller can observe, so readOnlyHint is false. The previous value said \"No writes\" and the openWorldHint justification beside it already admitted the materialisation, which is two statements about one behaviour with only one of them checked.",
       "openWorldHint": true,
-      "openWorldHint_justification": "May materialize an embedding for the seed cell from Earth-observation data before the search. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. What this call CAN add is stated in readOnlyHint_justification beside it: the materialised embedding is signed and persisted, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token); this one is among the other six, and none of the nine exposes any of emem's write verbs.",
+      "openWorldHint_justification": "May materialize an embedding for the seed cell from Earth-observation data before the search. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. What this call CAN add is stated in readOnlyHint_justification beside it: the materialised embedding is signed and persisted, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Nine of the sixteen tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token); this one is among the other six, and none of the nine exposes any of emem's write verbs.",
       "destructiveHint": false,
       "destructiveHint_justification": "Read-only similarity search."
     },
-    "emem_band_raster": {
-      "readOnlyHint": false,
-      "readOnlyHint_justification": "Rendering a band over a region materializes and signs any cells not already held, so the call can append new facts to the shared store. Append-only.",
-      "openWorldHint": true,
-      "openWorldHint_justification": "Reads a Sentinel-2 scene window from open Earth-observation sources to compute the field. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token). This one is among the other six, which can add state by materialising and signing new facts on a cold cell; the six are emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution and emem_find_similar. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
+    "emem_echo_verify": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Compares a value you are about to emit against the signed fact your citation points at and reports the drift. Reads one stored fact; writes nothing. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Checks a value against a fact this responder already holds. Contacts nothing external.",
       "destructiveHint": false,
-      "destructiveHint_justification": "Read-only field derivation; the artifact is content-addressed and immutable."
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
     },
-    "emem_band_cube": {
-      "readOnlyHint": false,
-      "readOnlyHint_justification": "Building a field-over-time cube materializes and signs the cells and timeslots not already held. Append-only.",
-      "openWorldHint": true,
-      "openWorldHint_justification": "Reads one Sentinel-2 scene per requested date from open Earth-observation sources. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token). This one is among the other six, which can add state by materialising and signing new facts on a cold cell; the six are emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution and emem_find_similar. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
+    "emem_entity_resolve": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Ranks existing canonical objects against a phrasing so two agents converge on one identity. Reads the entity registry; mints nothing. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Searches identities this responder already holds. No upstream call.",
       "destructiveHint": false,
-      "destructiveHint_justification": "Read-only field-over-time derivation; content-addressed and immutable."
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
     },
-    "emem_change_attribution": {
-      "readOnlyHint": false,
-      "readOnlyHint_justification": "Attribution recalls both endpoints of the comparison, which auto-materializes and signs anything missing before the terms can be computed. Append-only.",
-      "openWorldHint": true,
-      "openWorldHint_justification": "May read the cited bands (materializing on a miss) to assemble the evidence ledger. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. This flag is not about writing. What this call CAN add is stated in readOnlyHint_justification beside it: on a cold cell it materialises and signs new facts into emem's publicly readable store, which is why readOnlyHint is false here. Nothing is overwritten or removed, so destructiveHint is false. Three of the nine tools in this submission are strictly read-only (emem_locate, emem_verify_receipt, emem_memory_token). This one is among the other six, which can add state by materialising and signing new facts on a cold cell; the six are emem_ask, emem_recall, emem_band_raster, emem_band_cube, emem_change_attribution and emem_find_similar. None of the nine exposes any of emem's write verbs, and nothing a user sends is written: what materialises is derived from public Earth-observation sources.",
+    "emem_memory_contradictions": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Reports where independently signed facts disagree for the same place, band and time. A read over the corpus; it records no verdict. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Scans facts this responder already holds. Contacts nothing external.",
       "destructiveHint": false,
-      "destructiveHint_justification": "Read-only evidence assembly; the numeric split is null by design, nothing is fabricated."
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_memory_token_resolve": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Parses an emem:fact: handle and returns the signed body it cites. Dereference only; writes nothing. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Resolves against local storage. A handle that does not resolve here is reported as such rather than fetched from elsewhere.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_tools": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Returns the catalogue of emem's own tool surface. Writes nothing. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Describes this responder to itself. No external call.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_guard_verdict": {
+      "readOnlyHint": true,
+      "readOnlyHint_justification": "Resolves the emem: citations in a transcript against stored facts and answers allow or deny. Records no verdict and changes nothing. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state by materialising and signing new facts, or by minting an identity; each says so in its own readOnlyHint_justification. Nothing is ever overwritten or removed, so destructiveHint is false everywhere.",
+      "openWorldHint": false,
+      "openWorldHint_justification": "Corrected 2026-08-27 on a reviewer's reading. guard_resolve_token calls storage.get_facts_many and nothing else: no fetch, no materialise, no HTTP. It evaluates against what this responder already holds, which is also why a citation it does not hold is never a denial.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_entity": {
+      "readOnlyHint": false,
+      "readOnlyHint_justification": "MINTS a shared identity for a real-world object and signs a receipt, so this writes to the SHARED address space that every other agent resolves names against. It is gated: without a valid ed25519 attester block it refuses with 403 and names the missing field. A ChatGPT user has no such key, so in this app it declines rather than writes. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. Nothing is overwritten or removed, so destructiveHint is false.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "Resolving the object may reach the geocoding ladder, whose last layer is public OSM services.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_entity_link": {
+      "readOnlyHint": false,
+      "readOnlyHint_justification": "Records a SIGNED equivalence between a phrasing or external id and an existing object, changing what every other agent resolves that phrasing to. Same shared address space and the same enlistment gate as emem_entity: unsigned callers get a 403 naming the missing attester. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. Nothing is overwritten or removed, so destructiveHint is false.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "May consult external id namespaces (GERS, OSM, Wikidata) while binding.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_intent": {
+      "readOnlyHint": false,
+      "readOnlyHint_justification": "Dispatches to whichever primitive answers the stated intent, and some of those materialise and sign new facts on a cold cell. It is false here because the union of what it can reach is not read-only, not because the dispatcher itself writes. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. Nothing is overwritten or removed, so destructiveHint is false.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "Whatever primitive it selects may reach upstream Earth-observation archives.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
+    },
+    "emem_memory_bundle": {
+      "readOnlyHint": false,
+      "readOnlyHint_justification": "Runs each triple through the auto-materialize recall path, so a cold cell is materialised and signed, and the composed bundle is itself persisted so it can be resolved later by token. Nine of the sixteen tools in this submission are strictly read-only. This one is among the other seven that can add state. Nothing is overwritten or removed, so destructiveHint is false.",
+      "openWorldHint": true,
+      "openWorldHint_justification": "Materialising a cold triple reads upstream Earth-observation sources.",
+      "destructiveHint": false,
+      "destructiveHint_justification": "Nothing is overwritten or removed; every write is additive and content-addressed."
     }
   },
   "test_cases": [

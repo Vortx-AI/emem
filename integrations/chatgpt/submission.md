@@ -24,16 +24,21 @@ app is not a map or a geocoder.
 
 ## Safety and scope
 
-- **No user data is written, and no write verb is exposed.** Three of the nine
-  tools are strictly read-only: `emem_locate`, `emem_verify_receipt` and
-  `emem_memory_token`. The other six --- `emem_ask`,
-  `emem_recall`, `emem_band_raster`, `emem_band_cube` and
-  `emem_change_attribution` and `emem_find_similar` --- can materialise and sign new facts into emem's
-  publicly readable store when a requested band or timeslot is cold, which is
-  why their `readOnlyHint` is false and why each carries a justification saying
-  so. What they write is derived from public Earth-observation sources, never
-  from anything the user sent. Nothing is ever overwritten or removed, so
-  `destructiveHint` is false everywhere.
+- **No user data is written.** Nine of the sixteen tools are strictly read-only.
+  Five more (`emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`,
+  `emem_memory_bundle`) materialise and sign new facts into emem's publicly
+  readable store when a requested band is cold, which is why their
+  `readOnlyHint` is false. What they write is derived from public
+  Earth-observation sources, never from anything the user sent. Nothing is ever
+  overwritten or removed, so `destructiveHint` is false everywhere.
+- **Two tools can write, and both are gated.** `emem_entity` mints a shared
+  identity and `emem_entity_link` binds a phrasing to one. Those change what
+  every other agent resolves a name to, so they require an ed25519 attester
+  block signed by a locally generated keypair; unsigned callers get a 403 that
+  names the missing field. A ChatGPT user has no such key, so in this app both
+  decline rather than write. This is the honest version of a claim an earlier
+  draft made as "none of emem's write verbs is exposed", which stopped being
+  true when the submission grew to the full core surface.
 - **It does not modify user data** and takes no external write action on the
   user's behalf.
 - **It sends no user identity.** ChatGPT sends the place or question; no

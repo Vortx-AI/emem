@@ -37,15 +37,19 @@ same bytes in another session or in another agent's session.
 
 ## Tools
 
-The app exposes **9 tools**, listed with their inputs and their MCP annotations
-in [tools.md](tools.md), which is GENERATED from the catalogue the responder
-actually serves. Three are strictly read-only. The other six --- `emem_ask`,
-`emem_recall`, `emem_band_raster`, `emem_band_cube` and
-`emem_change_attribution` and `emem_find_similar` --- can materialise and sign new facts on a cold
-cell, which is why their `readOnlyHint` is false, and each says so in its own
-justification. None of emem's write verbs is exposed here, and nothing a user
-sends is ever written: what materialises is derived from public
-Earth-observation sources, into a store that was already world-readable.
+The app exposes the **16 tools** that `https://emem.dev/mcp` advertises, listed
+with their inputs and their MCP annotations in [tools.md](tools.md), which is
+GENERATED from the catalogue the responder actually serves. Nine are strictly
+read-only. The other seven can add state: `emem_ask`, `emem_recall`,
+`emem_find_similar`, `emem_intent` and `emem_memory_bundle` materialise and sign
+new facts on a cold cell, and `emem_entity` and `emem_entity_link` mint or bind
+an identity in the shared address space.
+
+Those last two are the only writes here, and they are **gated**: without a valid
+ed25519 attester block they refuse with a 403 naming the missing field. A
+ChatGPT user holds no such key, so in this app they decline rather than write.
+Nothing a user sends is ever stored; what materialises is derived from public
+Earth-observation sources.
 
 ## Example prompts
 

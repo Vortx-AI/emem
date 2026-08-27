@@ -56,8 +56,13 @@ the API surface this app uses, which serves no HTML at all.
 
 ### Agent-written memory (not used by this app)
 
-emem also has a writable memory surface. **This app does not expose it**, and
-none of emem's write verbs is available to ChatGPT here. For completeness:
+emem also has a writable memory surface. **This app exposes two entries to it and
+both are gated.** `emem_entity` mints a shared object identity and
+`emem_entity_link` binds a phrasing to one; both change what other agents resolve
+a name to, so both require an ed25519 attester block signed by a keypair the
+caller generates locally. A ChatGPT user holds no such key, so both refuse with a
+403 that names the missing field. No user content reaches the store by any route.
+For completeness:
 anything an agent explicitly writes to the shared store elsewhere is
 world-readable and permanent unless sealed. See
 https://emem.dev/privacy for the full statement.
