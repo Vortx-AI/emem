@@ -11,7 +11,7 @@ the hosted responder, which is the authority where the two differ, is at
 ### What emem does
 
 emem is a query surface over a shared, verifiable memory, and it holds no user
-data of any kind. Five of its nine tools here can sign NEW facts into emem's
+data of any kind. Five of its sixteen tools here can sign NEW facts into emem's
 publicly readable store when a requested band is cold, so `readOnlyHint` is
 false on those five; what gets written is derived from public
 Earth-observation sources and never from anything a user sent. It answers

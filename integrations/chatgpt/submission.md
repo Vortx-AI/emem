@@ -87,7 +87,7 @@ Each of these was checked to resolve at the time this file was generated.
   `MCP-Protocol-Version` header is read as 2025-03-26, which is a fallback and
   not the preferred version.
 - Authentication: none for reads.
-- **108 MCP tools available; 9 exposed in this app.** `/mcp` advertises the 16
+- **108 MCP tools available; the 16 of the core loop exposed in this app.** `/mcp` advertises the 16
   tools of the core loop to keep a client's context small, `/mcp/full`
   advertises all 108, and every tool is callable by name from either.
 - Content addressing: blake3 over canonical CBOR, base32-encoded. These are not

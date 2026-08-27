@@ -80,7 +80,8 @@ None. Reads are anonymous: no key, no account, no callback. The absence of
 `securitySchemes` in the OpenAPI document is the machine-readable form of that
 statement.
 
-Writes are a separate surface and are NOT exposed in this app. They require an
+Two write tools ARE exposed and both are gated: `emem_entity` and
+`emem_entity_link` change the shared address space, so they require an
 ed25519 attester block signed by a keypair the caller generates locally, and
 they are gated by an enlistment ladder described at
 https://emem.dev/v1/enlist.
