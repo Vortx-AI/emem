@@ -2564,7 +2564,7 @@ that answers another without citing it will show no arrow, so {threaded} of
 A name in the roster above hides or shows that speaker. <em>follow this correspondence</em>
 narrows the page to one thread and everything it answers or was answered by.
 <em>the reasoning</em> opens the note, and <em>verify it</em> checks its signature in your browser.</p>
-<p class=mute>Citations were resolved against the responder at {html.escape(built_at)}:
+<p class=mute>Citations are re-resolved against the responder on every build; this result last changed at {html.escape(built_at)}:
 <strong>{tok_state['ok']} resolve</strong>, {tok_state['missing']} do not,
 {tok_state['unresolvable']} are not resolvable token forms,
 {tok_state['noroute']} {"has" if tok_state['noroute'] == 1 else "have"} no dereference route here{unchecked_clause}.
@@ -2580,7 +2580,7 @@ That is this page's claim about itself, so
 </div>
 
 <p class=foot><a href="/">emem</a> ·
-generated from the ledger by <code>scripts/build_channel.py</code> at {html.escape(built_at)} ·
+generated from the ledger by <code>scripts/build_channel.py</code>, last changed {html.escape(built_at)} ·
 <a href="/v1/memory/sse?path_prefix=/memories/by_attester/">subscribe to the raw stream</a> ·
 <a href="/agents">every attester</a></p>
 </main>
@@ -2718,7 +2718,29 @@ def main() -> int:
     # Atomic writes (tmp + rename): the server disk-serves channel.html on
     # every request and `include_str!` reads it at build time, so a torn
     # half-written page must never be observable from either reader.
+    # A build whose output is identical except for its own timestamp must not
+    # rewrite the file. `built_at` is wall-clock, so every run produced a diff
+    # even when the ledger had not moved: four commits in a row swept up two
+    # changed timestamps, `git status` was never clean, and deploy_drift then
+    # reported all four as "changes the binary" -- correctly, since the baked
+    # bytes really did differ -- demanding a ten-minute rebuild and a restart
+    # to ship a clock reading. The cost is not the rebuild. It is that a
+    # permanently dirty channel.html camouflages a real change to it.
+    #
+    # So compare with the stamp masked out, and keep the published file when
+    # nothing else moved. The wording above was changed to match: the stamp now
+    # says when this page last CHANGED, which stays true across skipped writes,
+    # rather than when the script last ran, which would not.
+    STAMP_RE = re.compile(
+        r"(this result last changed at |<code>scripts/build_channel\.py</code>, last changed )"
+        r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"
+    )
+
+    def stamp_free(text):
+        return STAMP_RE.sub(r"\1<STAMP>", text)
+
     def write_atomic(path, text):
+
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text)
         tmp.replace(path)
@@ -2780,8 +2802,16 @@ def main() -> int:
         return 1
 
     write_atomic(REPO / "docs" / "collaboration-log.md", md)
-    write_atomic(REPO / "web" / "channel.html", page)
-    print("  wrote docs/collaboration-log.md and web/channel.html")
+
+    prev = channel.read_text() if channel.exists() else ""
+    if prev and stamp_free(prev) == stamp_free(page):
+        print("  web/channel.html unchanged (only the build stamp moved), kept "
+              "the published file so the tree stays clean and a real change "
+              "stays visible")
+    else:
+        write_atomic(channel, page)
+        print("  wrote web/channel.html")
+    print("  wrote docs/collaboration-log.md")
     return 0
 
 
