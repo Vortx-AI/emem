@@ -36872,16 +36872,30 @@ fn open_namespace_requires_attester(verb: &str) -> bool {
 /// machine. This costs nothing on the success path.
 fn mcp_err(e: ApiError) -> (i64, String) {
     let code = -(e.1.code as i64);
+    // The TYPED name rides the message too, for the same reason `details` does.
+    //
+    // `-(code as i64)` keeps the enum's discriminant and throws away its name,
+    // so the wrapper rendered `tool error (-19)` where REST answered
+    // `"code":"source_fetch_failed"` for the identical failure. A parity gate
+    // scored that as the two doors disagreeing, and it was right in the way
+    // that matters: an agent on MCP cannot branch on -19, because nothing
+    // published says what -19 is. The message is the only channel a
+    // CallToolResult has, which is the argument the comment above already
+    // makes about details.
+    let named = serde_json::to_value(e.1.code)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
+        .unwrap_or_else(|| code.to_string());
     match e.1.details {
         Some(d) => (
             code,
             format!(
-                "{}\n\ndetails:\n{}",
+                "{named}: {}\n\ndetails:\n{}",
                 e.1.message,
                 serde_json::to_string_pretty(&d).unwrap_or_else(|_| d.to_string())
             ),
         ),
-        None => (code, e.1.message),
+        None => (code, format!("{named}: {}", e.1.message)),
     }
 }
 
@@ -78498,6 +78512,36 @@ mod tests {
         assert!(
             v.get("code").is_some(),
             "the typed 504 carries no `code`: {v}"
+        );
+    }
+
+    /// An MCP tool error names the same code REST names.
+    ///
+    /// `mcp_err` reduced the typed code to `-(discriminant)`, so the identical
+    /// upstream failure read `"code":"source_fetch_failed"` over REST and
+    /// `tool error (-19)` over MCP. The parity gate called that a divergence
+    /// and it was: an agent on MCP cannot branch on -19, because nothing
+    /// published says what -19 means. Asserts the NAME reaches the message,
+    /// which is the only channel a CallToolResult has.
+    #[test]
+    fn an_mcp_tool_error_names_the_code_rest_would_have_named() {
+        let (code, msg) = mcp_err(ApiError(
+            StatusCode::BAD_GATEWAY,
+            ErrorBody {
+                code: ErrorCode::SourceFetchFailed,
+                message: "boring-endpoint fan-out exceeded 25s".into(),
+                details: None,
+            },
+        ));
+        assert!(code < 0, "MCP codes stay negative: {code}");
+        assert!(
+            msg.starts_with("source_fetch_failed: "),
+            "the typed name is missing from an MCP error, so MCP and REST \
+             disagree about one cause again: {msg}"
+        );
+        assert!(
+            msg.contains("exceeded 25s"),
+            "the message itself was lost: {msg}"
         );
     }
 
