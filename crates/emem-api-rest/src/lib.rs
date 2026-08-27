@@ -289,6 +289,14 @@ const ART_PANELS: &[(&str, &str)] = &[
         include_str!("../../../web/art/token-crosses-dark.svg"),
     ),
     (
+        "six-panels-light.svg",
+        include_str!("../../../web/art/six-panels-light.svg"),
+    ),
+    (
+        "six-panels-dark.svg",
+        include_str!("../../../web/art/six-panels-dark.svg"),
+    ),
+    (
         "two-banks-light.svg",
         include_str!("../../../web/art/two-banks-light.svg"),
     ),

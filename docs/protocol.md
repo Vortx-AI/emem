@@ -1587,3 +1587,41 @@ verifiers.
    evaluate as `false` or substitute a default.
 
 End of spec.
+
+## The tokenverse
+
+A token is the whole point of the citation: short enough to sit in a sentence,
+exact enough to name one thing, and resolvable by anyone.
+
+| Token | Names | Strength |
+|---|---|---|
+| `emem:fact:<cell>:<cid>` | one signed observation | **Full.** The cid is a 52-character digest of the whole body. Change any byte and the token no longer resolves. |
+| `emem:bundle:<cid>` | a set of facts cited together | Anchor. Binds the set, not each body. |
+| `emem:entity:<cid>` | an object two agents co-refer to | Anchor, truncated. A shared name, not shared bytes. |
+| `emem:raster:<cid>` | a field over an area, at native resolution | Full, over the artifact. |
+| `emem:cube:<cid>` | a field over an area over time | Full, over the artifact. |
+| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference. |
+
+They are not equally strong and the table says so, because a citation that
+looks the same and binds less is the kind of thing that gets found out later.
+`emem:fact:` is the one that binds a whole body; treat the anchors as shared
+references, not as shared bytes.
+
+Resolve any of them with `emem_memory_token_resolve`, or over REST at
+`POST /v1/memory_token/resolve`. Check the receipt with `emem_verify_receipt`,
+or in your own process with any ed25519 and blake3 implementation. The full
+grammar, with preimages and canonical bytes, is in [the spec](https://emem.dev/spec).
+
+### What a fact asserts, and what it does not
+
+A signature proves who attested a record and that the bytes never changed. It does not make the value true, and *how much* the record claims differs by provenance class. For anyone turning a fact into a decision that gets audited, the difference is legal rather than cosmetic:
+
+| Provenance class | What the responder is actually telling you |
+|---|---|
+| `direct_sensor` | measured, or read straight from the cited raw source |
+| `deterministic_index` | **recomputed by this responder** from the cited parents. Exact for ops with nothing to accumulate; `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise) with the measured gap returned, because nobody signed the sum |
+| `attested_execution` | produced inside a **verified OS execution trace** on an enrolled device, the output digest bound in the trace. Not recomputable by a third party, so `deterministic: true` excludes it |
+| `model_output` | **attributed, not checked.** The responder signs that *this attester claims V via recipe R*. It never evaluated V |
+| `human_curated` | a person asserted it |
+
+Citing a `model_output` derivation as though it were evidence is exactly the error this table exists to prevent. Pass `deterministic: true` on a read to keep only what a third party can recompute from raw source. And where there is no observation, emem distinguishes two answers that a 404 would collapse into one. Where the responder looked and there is nothing, it returns a **signed absence** carrying a typed reason: evidence of no-data, citeable like any other fact. Where it could not look (an upstream failed, coverage does not reach) it returns a typed, UNSIGNED note with `absence: false`, because signing "I could not look" as though it were "I looked and found nothing" is the dishonesty the signed absence exists to prevent. An unknown never poses as a confirmed absence.

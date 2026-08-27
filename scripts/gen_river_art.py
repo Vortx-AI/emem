@@ -299,7 +299,98 @@ def story_token_crosses(t) -> str:
     return "\n".join(p) + "\n"
 
 
-STORIES = {"one-address": story_one_address, "token-crosses": story_token_crosses}
+# The six-panel explainer, in the two-banks language.
+#
+# It replaces a Madhubani strip that carried the same six panels. That drawing
+# was beautiful and it was also the last place on the front page still speaking
+# a different visual language from everything around it -- and its companion
+# had shipped with the caption printed over itself, two lines of type occupying
+# one line of space, which is what happens when text is placed by hand at a
+# fixed y and the string later grows.
+#
+# So the type here is laid out from a measured line height rather than from
+# chosen coordinates: every body line is `y0 + i * LEAD`, and a panel that
+# gains a line pushes its own baseline instead of landing on the previous one.
+PANELS = [
+    ("1", "Two agents describe one field",
+     ["One reports 0.62. One reports \u201clooks healthy\u201d.",
+      "Neither can check the other, and neither",
+      "names the same ground the same way twice."],
+     "no shared referent"),
+    ("2", "One address, one signed fact",
+     ["The place resolves to a cell64 every agent",
+      "derives identically. The reading becomes a",
+      "fact: blake3 over canonical CBOR, ed25519."],
+     "signed"),
+    ("3", "The fact collapses to one line",
+     ["emem:fact:<cell64>:<fact_cid>",
+      "The cid is the full 32-byte digest, 52",
+      "characters, never truncated."],
+     "one line, not a payload"),
+    ("4", "Anyone resolves it, anyone checks it",
+     ["Hand the token to another model or vendor",
+      "and it returns the byte-identical body, or",
+      "it does not resolve. No key, no callback."],
+     "same bytes, no shared trust"),
+    ("5", "emem-guard checks before you assert",
+     ["PROV_SIG: the signature fails.",
+      "PROV_BYTES: it resolves to other bytes.",
+      "PROV_DRIFT: it moved past the threshold."],
+     "checked, not assumed"),
+    ("6", "What it does not do",
+     ["One responder signs it, not a consensus.",
+      "A real citation can sit on a wrong claim.",
+      "Only emem:fact: binds a whole body."],
+     "stated, not hidden"),
+]
+
+PW, PH, LEAD = 500, 132, 19
+
+
+def story_six_panels(t) -> str:
+    w, h = 1100, 3 * PH + 96
+    out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
+           f'width="{w}" height="{h}" role="img" aria-label="Six panels: two agents '
+           f'describe one field and cannot check each other; one address and one signed '
+           f'fact; the fact collapses to one line; anyone resolves and checks it; '
+           f'emem-guard checks before an agent asserts; and what emem does not do.">'
+           f'<rect width="{w}" height="{h}" fill="{t["paper"]}"/>']
+    out.append(f'<text x="40" y="46" font-family="Georgia,serif" font-size="26" '
+               f'fill="{t["ink"]}">emem</text>')
+    out.append(f'<text x="118" y="46" font-family="ui-monospace,monospace" font-size="13" '
+               f'fill="{t["mute"]}">shared, verifiable memory for AI agents and machines</text>')
+    out.append(f'<line x1="40" y1="62" x2="{w-40}" y2="62" stroke="{t["rule"]}" stroke-width="1"/>')
+
+    for i, (num, title, body, foot) in enumerate(PANELS):
+        col, row = i % 2, i // 2
+        x = 40 + col * (PW + 20)
+        y = 84 + row * PH
+        accent = t["slate"] if col == 0 else t["ochre"]
+        out.append(f'<line x1="{x}" y1="{y}" x2="{x}" y2="{y + PH - 26}" '
+                   f'stroke="{accent}" stroke-width="2" opacity="0.55"/>')
+        out.append(f'<text x="{x + 14}" y="{y + 14}" font-family="ui-monospace,monospace" '
+                   f'font-size="12" fill="{accent}">{num}</text>')
+        out.append(f'<text x="{x + 34}" y="{y + 15}" font-family="Georgia,serif" '
+                   f'font-size="16" fill="{t["ink"]}">{title}</text>')
+        for j, line in enumerate(body):
+            out.append(f'<text x="{x + 34}" y="{y + 40 + j * LEAD}" '
+                       f'font-family="ui-monospace,monospace" font-size="12.5" '
+                       f'fill="{t["mute"]}">{line}</text>')
+        fy = y + 40 + len(body) * LEAD + 6
+        out.append(f'<text x="{x + 34}" y="{fy}" font-family="Georgia,serif" '
+                   f'font-size="12" font-style="italic" fill="{accent}">{foot}</text>')
+
+    out.append(f'<line x1="40" y1="{h-40}" x2="{w-40}" y2="{h-40}" '
+               f'stroke="{t["rule"]}" stroke-width="1"/>')
+    out.append(f'<text x="40" y="{h-20}" font-family="ui-monospace,monospace" '
+               f'font-size="12" fill="{t["mute"]}">emem.dev  ·  MCP + REST  ·  no key to read</text>')
+    out.append("</svg>")
+    return "\n".join(out) + "\n"
+
+
+STORIES = {"one-address": story_one_address,
+           "token-crosses": story_token_crosses,
+           "six-panels": story_six_panels}
 
 
 def main() -> int:
