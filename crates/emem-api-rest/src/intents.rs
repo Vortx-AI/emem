@@ -280,7 +280,14 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_compare",
         rest: "POST /v1/compare",
-        first_call: "POST /v1/compare {\"a\":\"Bengaluru\",\"b\":\"Chennai\"}",
+        // `family` is not decoration here, it is what makes this answer. Compare
+        // loads the facts at both cells, so its cost grows with how much a cell
+        // holds: two lightly-used cells answer in 35 ms, and Bengaluru against
+        // Chennai -- the two most-exercised cells on this responder -- exceeded
+        // the 40s budget unfiltered and answers in 74 ms with a family. A first
+        // call has to stay fast as the corpus grows, not only on the day it was
+        // written.
+        first_call: "POST /v1/compare {\"a\":\"Bengaluru\",\"b\":\"Chennai\",\"family\":\"indices.\"}",
         verify: "Every value in a comparison carries its own fact_cid. Resolve one and confirm it matches the number you were shown, rather than trusting the aggregate.",
     },
     Intent {
