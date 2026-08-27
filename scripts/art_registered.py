@@ -37,11 +37,23 @@ def main() -> int:
     src = open(LIB, encoding="utf-8").read()
     registered = set(re.findall(r'include_str!\("\.\./\.\./\.\./web/art/([^"]+)"\)', src))
 
+    # web/*.html is not the only thing that places a drawing. README.md carries
+    # the two-banks pair in a <picture>, and scanning only the site made this
+    # script report both as "drawn and not yet placed" -- a line someone could
+    # act on by deleting them, which breaks the README. The count said "linked
+    # by a page" and meant "linked by web/*.html", so the narrower scope was
+    # invisible in the wording rather than stated by it.
+    sources = sorted(glob.glob(os.path.join(REPO, "web/*.html")))
+    sources += [os.path.join(REPO, "README.md")]
+    sources += sorted(glob.glob(os.path.join(REPO, "docs/**/*.md"), recursive=True))
+
     linked: dict[str, set[str]] = {}
-    for page in sorted(glob.glob(os.path.join(REPO, "web/*.html"))):
+    for page in sources:
+        if not os.path.exists(page):
+            continue
         text = open(page, encoding="utf-8").read()
         for name in set(re.findall(r'/art/([A-Za-z0-9._-]+\.svg)', text)):
-            linked.setdefault(name, set()).add(os.path.basename(page))
+            linked.setdefault(name, set()).add(os.path.relpath(page, REPO))
 
     problems = []
     for name, pages in sorted(linked.items()):
@@ -53,20 +65,35 @@ def main() -> int:
                 f"emem-api-rest, so the responder answers 404 for it"
             )
 
-    print(f"  {len(on_disk)} on disk, {len(registered)} registered, {len(linked)} linked by a page")
+    print(f"  {len(on_disk)} on disk, {len(registered)} registered, "
+          f"{len(linked)} placed across {len(sources)} page(s), README and docs")
     unused = sorted(on_disk - set(linked))
     if unused:
         # Not a failure. Art can be drawn before it is placed, and saying so is
         # more useful than pretending the set has to match exactly.
-        print(f"  {len(unused)} drawn and not yet placed: {', '.join(unused[:6])}"
+        print(f"  {len(unused)} drawn and placed nowhere this script looked "
+              f"(web/*.html, README.md, docs/**/*.md): {', '.join(unused[:6])}"
               + (" …" if len(unused) > 6 else ""))
+
+    # Same shape as spacing_scale: the count is printed and never acted on. If
+    # `linked` is empty the loop above runs zero times, `problems` stays empty,
+    # and the closing sentence -- which is otherwise correctly scoped, it claims
+    # only what it checked -- becomes true of nothing. Both inputs to `linked`
+    # are hand-written regexes over markup, so a changed src attribute or a
+    # moved art path produces that zero, and the run reads as clean.
+    if not linked:
+        print("\nart_registered: VACUOUS -- no page links any /art/*.svg.")
+        print("  These pages do link art, so this is the link regex or the page")
+        print("  glob failing, not a site with no drawings on it. Not a pass.")
+        return 1
 
     if problems:
         print("\nart_registered: a page links to art nobody serves.")
         for p in problems:
             print(f"  x {p}")
         return 1
-    print("Every drawing a page links to is on disk and registered.")
+    print("Every drawing linked by a page, the README or the docs is on disk "
+          "and registered.")
     return 0
 
 
