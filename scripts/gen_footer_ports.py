@@ -119,6 +119,11 @@ def main() -> int:
     total = len([p for p in (REPO / "web").glob("*.html")
                  if FOOTER.search(p.read_text(encoding="utf-8"))])
     if a.check:
+        if total == 0:
+            print("VACUOUS: no page in web/ carries a footer at all, so 'every footer")
+            print("carries the column' is a pass over nothing. That is a fact about the")
+            print("scan or about a very broken tree, not a clean result.")
+            return 1
         if changed:
             print(f"'Listed on' is missing or stale in {len(changed)} of {total} footers:")
             for c in changed:

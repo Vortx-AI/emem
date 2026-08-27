@@ -94,6 +94,7 @@ def main() -> int:
         return 2
 
     total_fail = 0
+    measured = 0
     with sync_playwright() as pw:
         br = pw.chromium.launch()
         for theme in ("light", "dark"):
@@ -123,6 +124,7 @@ def main() -> int:
                     ctlMax, ctlOk = res["ctlMax"], res["ctlOklch"]
                     for r in res["rows"]:
                         seen += 1
+                        measured += 1
                         worst = min(worst, r["cr"] - r["bound"])
                         if r["cr"] < r["bound"]:
                             fails.append(r)
@@ -142,6 +144,11 @@ def main() -> int:
                 pg.close()
         br.close()
 
+    if measured == 0:
+        print("\nVACUOUS: no text run matched the selector at any width or theme.")
+        print("A zero here is a fact about the selector, not about the page, and")
+        print("it prints identically to a page with nothing wrong.")
+        return 1
     print(f"\nTOTAL below bound (including instrument failures): {total_fail}")
     # WHAT THIS DID NOT LOOK AT, printed rather than left in the docstring. A
     # count of runs that pass reads as "the page passes"; it means "the elements

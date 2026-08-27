@@ -126,6 +126,10 @@ def main() -> int:
     if problems:
         print(f"\npage_health: {len(problems)} thing(s) a reader would see broken.")
         return 1
+    if checked == 0:
+        print("\nVACUOUS: no page was successfully loaded, so nothing was")
+        print("checked. Reaching nothing is not agreement.")
+        return 1
     print("\nEvery page renders what it lays out.")
     return 0
 
