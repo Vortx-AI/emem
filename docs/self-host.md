@@ -132,7 +132,7 @@ sudo setcap 'cap_net_bind_service=+ep' /path/to/emem-server
 Your node publishes an identity: the agent card, the plugin manifest, the
 discovery card, the operator attestation and `security.txt` all carry a contact
 and an operator block. **Until you set these, every one of those fields is
-absent** — the binary ships no default, on purpose. A node that has not said who
+absent** - the binary ships no default, on purpose. A node that has not said who
 runs it should say nothing rather than borrow the name of whoever built it.
 
 | Variable | Appears in |
@@ -156,7 +156,7 @@ comment that this is not the operator of the node you are reading. Set
 ### The documents at `/privacy` and `/terms` are not yours
 
 They are served from `PRIVACY.md` and `TERMS.md` compiled into the binary, and
-they describe **the emem.dev deployment** — its retention window, its lawful
+they describe **the emem.dev deployment** - its retention window, its lawful
 basis, its jurisdiction. Your node's behaviour is your own, and so is the law
 that applies to it. Replace both files and rebuild before you offer your node to
 anyone else; the environment variables above cannot do this for you, because a

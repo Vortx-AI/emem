@@ -63,8 +63,8 @@ request time from the environment variable `EMEM_APPS_CHALLENGE`. Unset, the
 route answers 404, which is the correct answer from a node that is not
 mid-submission.
 
-It is not a secret — the verifier fetches it anonymously, and that is the whole
-mechanism — but it is per-operator and per-submission, so a value compiled into
+It is not a secret - the verifier fetches it anonymously, and that is the whole
+mechanism - but it is per-operator and per-submission, so a value compiled into
 the binary is stale by definition and makes every self-hosted node serve this
 operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 
@@ -72,7 +72,7 @@ operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 1. Open the submission portal and start the app/plugin submission for
    `https://emem.dev/mcp`.
 2. The portal issues a fresh challenge token. Copy it.
-3. Put it in the environment of the running server — **not in the repository**.
+3. Put it in the environment of the running server - **not in the repository**.
    On the hosted node that means the systemd unit:
 
    ```
@@ -81,8 +81,8 @@ operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 
    The unit lives outside the repo, so the value never enters version control.
    A repository secret is the wrong home for it: repository secrets reach CI,
-   and CI does not deploy this server — `scripts/redeploy.sh` runs on the host.
-4. `systemctl --user restart emem-server` — no rebuild is needed, because the
+   and CI does not deploy this server - `scripts/redeploy.sh` runs on the host.
+4. `systemctl --user restart emem-server` - no rebuild is needed, because the
    value is no longer compiled in. This is the point of the change.
 5. Verify: `curl -s https://emem.dev/.well-known/openai-apps-challenge` returns
    the new token as plain text and nothing else.
@@ -108,21 +108,21 @@ operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 
 | Field | Limit | Value |
 |---|---|---|
-| **Plugin name** | — | `emem` |
+| **Plugin name** | - | `emem` |
 | **Short description** | ~100 chars | `Shared, verifiable memory for AI agents. Cite a fact, verify it offline, no API key.` |
 | **Long description** | ~500 chars | See block below |
 | **Category** | pick from list | `Research & Analysis` or `Data` |
 | **Logo** | Square PNG/SVG | Already at `https://emem.dev/logo.png`, confirm it's square and ≥512px |
-| **Website** | — | `https://emem.dev` |
-| **Support contact** | — | `avijeet@vortx.ai` |
-| **Privacy policy** | — | `https://emem.dev/privacy` |
-| **Terms of service** | — | `https://emem.dev/terms` |
-| **MCP server URL** | — | `https://emem.dev/mcp` |
-| **Auth type** | — | None (anonymous reads) |
+| **Website** | - | `https://emem.dev` |
+| **Support contact** | - | `avijeet@vortx.ai` |
+| **Privacy policy** | - | `https://emem.dev/privacy` |
+| **Terms of service** | - | `https://emem.dev/terms` |
+| **MCP server URL** | - | `https://emem.dev/mcp` |
+| **Auth type** | - | None (anonymous reads) |
 
 **Long description:**
 ```
-emem is shared, verifiable memory for AI agents — a cite-able, content-addressed, 
+emem is shared, verifiable memory for AI agents - a cite-able, content-addressed, 
 Ed25519-signed record of what every place on Earth looks like right now and how it 
 has changed. No API keys. No signup. No rate limits for reads.
 
@@ -196,7 +196,7 @@ To test in ChatGPT:
 5. Check any returned emem:fact: token at https://emem.dev/verify
 
 All responses include Ed25519-signed receipts verifiable without calling emem again.
-Write operations are not testable without an ed25519 attester key — 
+Write operations are not testable without an ed25519 attester key - 
 all reviewer-relevant flows are read-only and require no credentials.
 ```
 
