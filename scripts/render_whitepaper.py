@@ -388,7 +388,15 @@ def offsite_new_tab(html: str) -> str:
 
 
 def main() -> int:
-    rendered = build()
+    # The new-tab transform belongs HERE, not at the write.
+    #
+    # It was applied only on the way out, so --check compared the file against
+    # `rendered` while the file on disk held offsite_new_tab(rendered). The two
+    # could never match: the gate reported the page stale immediately after its
+    # own generator had written it, and it was right -- the file was not what
+    # the checker renders. One string, both paths, or the comparator is
+    # checking something that is never written.
+    rendered = offsite_new_tab(build())
     _assert_well_formed(rendered)
     if "--check" in sys.argv:
         if not OUT.exists():
@@ -404,7 +412,7 @@ def main() -> int:
             return 1
         print(f"{OUT.relative_to(ROOT)} is up to date with {SRC.relative_to(ROOT)}")
         return 0
-    OUT.write_text(offsite_new_tab(rendered))
+    OUT.write_text(rendered)
     print(f"wrote {OUT.relative_to(ROOT)} ({len(rendered.splitlines())} lines) from {SRC.relative_to(ROOT)}")
     return 0
 
