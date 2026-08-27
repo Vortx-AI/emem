@@ -1158,7 +1158,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Mount Everest"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        // openWorldHint is FALSE here on the app-directory's definition, which is
+        // narrower than the MCP spec's. The spec asks whether a tool may interact
+        // with an open world of external entities, and locate's geocoder ladder
+        // ends at Photon and Nominatim, so on that reading it is true -- which is
+        // what this said, and what I argued for when a reviewer asked us to change
+        // it. The directory asks something else: whether the call can WRITE TO or
+        // CHANGE publicly visible internet state. Locate reads. It publishes
+        // nothing, posts nothing, and leaves no trace anyone else can observe.
+        // Their published rule says false, the reviewer said false, and they were
+        // right. Recorded here because the two definitions genuinely differ and
+        // the next person to read this line will wonder which one it follows.
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
     tier: "core",
     },
     ToolDescriptor {

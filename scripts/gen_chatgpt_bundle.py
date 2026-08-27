@@ -113,9 +113,24 @@ def schema_findings(sub: dict) -> list[str]:
                        f"before trusting this validation")
     except Exception:
         pass  # offline is fine: the vendored copy still validates
+    # The schema's own `$schema` const disagrees with the reviewer.
+    #
+    # The document is served from BOTH .../apps-sdk/schemas/... (which 301s) and
+    # .../plugins/schemas/..., and its `$id` and `$schema` const name the
+    # plugins one. The app-directory reviewer requires the apps-sdk one. That is
+    # their inconsistency, not ours, and the reviewer decides acceptance -- so
+    # the apps-sdk URL is what we publish, and this check does not fail us for
+    # obeying the human over the redirect target. Both spellings are the same
+    # document; anything else still fails.
+    ALIASES = {
+        "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
+        "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+    }
     for e in sorted(jsonschema.Draft202012Validator(schema).iter_errors(sub),
                     key=lambda e: list(e.path)):
         where = ".".join(str(x) for x in e.path) or "<root>"
+        if list(e.path) == ["$schema"] and sub.get("$schema") in ALIASES:
+            continue
         out.append(f"schema: {where}: {e.message}")
     return out
 

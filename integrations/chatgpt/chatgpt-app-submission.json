@@ -1,5 +1,5 @@
 {
-  "$schema": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+  "$schema": "https://developers.openai.com/apps-sdk/schemas/chatgpt-app-submission.v1.json",
   "schema_version": 1,
   "app_info": {
     "display_name": "emem",
@@ -23,12 +23,12 @@
     "emem_locate": {
       "annotations": {
         "readOnlyHint": true,
-        "openWorldHint": true,
+        "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "Resolves a place name to coordinates and available bands. No writes.",
-        "open_world_justification": "This tool resolves free-text place names, addresses, or coordinates against real-world geocoding and emem inventory data. This flag answers MCP's question, which is whether the call may reach an unbounded set of external entities (here: upstream Earth-observation archives), not whether it writes anything. It writes nothing: readOnlyHint is true and destructiveHint is false, and those are the fields that carry 'can this change state someone else can see'. Nine of the sixteen tools in this submission are strictly read-only, including this one. The other seven can add state, and each says so in its own readOnlyHint_justification. The two tools that CAN write, emem_entity and emem_entity_link, are gated behind an ed25519 attester block and refuse with a 403 to any caller without one.",
+        "open_world_justification": "Corrected 2026-08-27 on a reviewer's reading, and they were right. This tool RESOLVES a place name to a canonical cell64 and reports what is held there. Resolution consults a local gazetteer first and can fall through to public OSM geocoders, but it only reads them: nothing is posted, published, sent or created, and no state outside this responder changes. Under the review guideline -- openWorldHint is true when a call can WRITE TO or CHANGE publicly visible internet state -- that is false. We had it true on the MCP specification's broader reading, where the flag asks whether a tool may interact with an open world of external entities at all. Both readings are defensible; the directory's is the one that governs here.",
         "destructive_justification": "Read-only geocoding operation."
       }
     },
