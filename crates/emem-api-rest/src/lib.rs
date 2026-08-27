@@ -35692,9 +35692,33 @@ async fn post_memory_bundle(
             let mut buf = Vec::with_capacity(1024);
             if ciborium::ser::into_writer(&resp, &mut buf).is_ok() {
                 let _ = tree.insert(bundle_cid.as_bytes(), buf);
-                if let Err(e) = flush_off_runtime(&tree).await {
-                    tracing::error!(target: "emem::durability", error = %e, "flush failed");
-                }
+                // The RESPONSE no longer waits for the flush.
+                //
+                // This awaited a full sled flush on a 57 GB store, inside the
+                // request path, behind the PROCESS-WIDE mutex in
+                // `flush_off_runtime`. /v1/memory_bundle therefore exceeded its
+                // 40s transport budget on EVERY call and returned a bare 504,
+                // while /v1/recall on the same cell and band answered in 38 ms:
+                // recall reads and never flushes. The published quickstart
+                // example had been handing that 504 to anyone who ran it.
+                //
+                // The insert is what makes the bundle resolvable and it stays
+                // synchronous: sled serves the value from memory immediately, so
+                // `GET /v1/memory_bundle/<token>` works the instant this returns.
+                // The flush is durability ACROSS A RESTART, and this block
+                // already calls itself best-effort two comments above. It now
+                // runs detached.
+                //
+                // The error is still logged rather than discarded, because a
+                // dropped flush error is exactly how a note published on
+                // 2026-08-23 was reported durable and was gone after the next
+                // restart.
+                tokio::spawn(async move {
+                    if let Err(e) = flush_off_runtime(&tree).await {
+                        tracing::error!(target: "emem::durability", error = %e,
+                                        "bundle flush failed");
+                    }
+                });
             }
         }
     }
