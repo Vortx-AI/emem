@@ -1,49 +1,49 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 492" width="1100" height="492" role="img" aria-label="Six panels: two agents describe one field and cannot check each other; one address and one signed fact; the fact collapses to one line; anyone resolves and checks it; emem-guard checks before an agent asserts; and what emem does not do."><rect width="1100" height="492" fill="#14130f"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1100 532" width="1100" height="532" role="img" aria-label="Six panels: two agents describe one field and cannot check each other; one address and one signed fact; the fact collapses to one line; anyone resolves and checks it; emem-guard checks before an agent asserts; and what emem does not do."><rect width="1100" height="532" fill="#14130f"/>
 <text x="40" y="46" font-family="Georgia,serif" font-size="26" fill="#f0ece2">emem</text>
-<text x="118" y="46" font-family="ui-monospace,monospace" font-size="13" fill="#9a9285">shared, verifiable memory for AI agents and machines</text>
+<text x="150" y="46" font-family="ui-monospace,monospace" font-size="13" fill="#9a9285">shared, verifiable memory for AI agents and machines</text>
 <line x1="40" y1="62" x2="1060" y2="62" stroke="#33302a" stroke-width="1"/>
-<line x1="40" y1="84" x2="40" y2="190" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
+<line x1="40" y1="84" x2="40" y2="196" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
 <text x="54" y="98" font-family="ui-monospace,monospace" font-size="12" fill="#93a9c6">1</text>
 <text x="74" y="99" font-family="Georgia,serif" font-size="16" fill="#f0ece2">Two agents describe one field</text>
 <text x="74" y="124" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">One reports 0.62. One reports “looks healthy”.</text>
 <text x="74" y="143" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">Neither can check the other, and neither</text>
 <text x="74" y="162" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">names the same ground the same way twice.</text>
 <text x="74" y="187" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#93a9c6">no shared referent</text>
-<line x1="560" y1="84" x2="560" y2="190" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
+<line x1="560" y1="84" x2="560" y2="196" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
 <text x="574" y="98" font-family="ui-monospace,monospace" font-size="12" fill="#dcb161">2</text>
 <text x="594" y="99" font-family="Georgia,serif" font-size="16" fill="#f0ece2">One address, one signed fact</text>
 <text x="594" y="124" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">The place resolves to a cell64 every agent</text>
 <text x="594" y="143" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">derives identically. The reading becomes a</text>
 <text x="594" y="162" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">fact: blake3 over canonical CBOR, ed25519.</text>
 <text x="594" y="187" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#dcb161">signed</text>
-<line x1="40" y1="216" x2="40" y2="322" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
-<text x="54" y="230" font-family="ui-monospace,monospace" font-size="12" fill="#93a9c6">3</text>
-<text x="74" y="231" font-family="Georgia,serif" font-size="16" fill="#f0ece2">The fact collapses to one line</text>
-<text x="74" y="256" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">emem:fact:<cell64>:<fact_cid></text>
-<text x="74" y="275" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">The cid is the full 32-byte digest, 52</text>
-<text x="74" y="294" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">characters, never truncated.</text>
-<text x="74" y="319" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#93a9c6">one line, not a payload</text>
-<line x1="560" y1="216" x2="560" y2="322" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
-<text x="574" y="230" font-family="ui-monospace,monospace" font-size="12" fill="#dcb161">4</text>
-<text x="594" y="231" font-family="Georgia,serif" font-size="16" fill="#f0ece2">Anyone resolves it, anyone checks it</text>
-<text x="594" y="256" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">Hand the token to another model or vendor</text>
-<text x="594" y="275" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">and it returns the byte-identical body, or</text>
-<text x="594" y="294" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">it does not resolve. No key, no callback.</text>
-<text x="594" y="319" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#dcb161">same bytes, no shared trust</text>
-<line x1="40" y1="348" x2="40" y2="454" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
-<text x="54" y="362" font-family="ui-monospace,monospace" font-size="12" fill="#93a9c6">5</text>
-<text x="74" y="363" font-family="Georgia,serif" font-size="16" fill="#f0ece2">emem-guard checks before you assert</text>
-<text x="74" y="388" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_SIG: the signature fails.</text>
-<text x="74" y="407" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_BYTES: it resolves to other bytes.</text>
-<text x="74" y="426" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_DRIFT: it moved past the threshold.</text>
-<text x="74" y="451" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#93a9c6">checked, not assumed</text>
-<line x1="560" y1="348" x2="560" y2="454" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
-<text x="574" y="362" font-family="ui-monospace,monospace" font-size="12" fill="#dcb161">6</text>
-<text x="594" y="363" font-family="Georgia,serif" font-size="16" fill="#f0ece2">What it does not do</text>
-<text x="594" y="388" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">One responder signs it, not a consensus.</text>
-<text x="594" y="407" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">A real citation can sit on a wrong claim.</text>
-<text x="594" y="426" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">Only emem:fact: binds a whole body.</text>
-<text x="594" y="451" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#dcb161">stated, not hidden</text>
-<line x1="40" y1="452" x2="1060" y2="452" stroke="#33302a" stroke-width="1"/>
-<text x="40" y="472" font-family="ui-monospace,monospace" font-size="12" fill="#9a9285">emem.dev  ·  MCP + REST  ·  no key to read</text>
+<line x1="40" y1="222" x2="40" y2="334" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
+<text x="54" y="236" font-family="ui-monospace,monospace" font-size="12" fill="#93a9c6">3</text>
+<text x="74" y="237" font-family="Georgia,serif" font-size="16" fill="#f0ece2">The fact collapses to one line</text>
+<text x="74" y="262" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</text>
+<text x="74" y="281" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">The cid is the full 32-byte digest, 52</text>
+<text x="74" y="300" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">characters, never truncated.</text>
+<text x="74" y="325" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#93a9c6">one line, not a payload</text>
+<line x1="560" y1="222" x2="560" y2="334" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
+<text x="574" y="236" font-family="ui-monospace,monospace" font-size="12" fill="#dcb161">4</text>
+<text x="594" y="237" font-family="Georgia,serif" font-size="16" fill="#f0ece2">Anyone resolves it, anyone checks it</text>
+<text x="594" y="262" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">Hand the token to another model or vendor</text>
+<text x="594" y="281" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">and it returns the byte-identical body, or</text>
+<text x="594" y="300" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">it does not resolve. No key, no callback.</text>
+<text x="594" y="325" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#dcb161">same bytes, no shared trust</text>
+<line x1="40" y1="360" x2="40" y2="472" stroke="#93a9c6" stroke-width="2" opacity="0.55"/>
+<text x="54" y="374" font-family="ui-monospace,monospace" font-size="12" fill="#93a9c6">5</text>
+<text x="74" y="375" font-family="Georgia,serif" font-size="16" fill="#f0ece2">emem-guard checks before you assert</text>
+<text x="74" y="400" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_SIG: the signature fails.</text>
+<text x="74" y="419" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_BYTES: it resolves to other bytes.</text>
+<text x="74" y="438" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">PROV_DRIFT: it moved past the threshold.</text>
+<text x="74" y="463" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#93a9c6">checked, not assumed</text>
+<line x1="560" y1="360" x2="560" y2="472" stroke="#dcb161" stroke-width="2" opacity="0.55"/>
+<text x="574" y="374" font-family="ui-monospace,monospace" font-size="12" fill="#dcb161">6</text>
+<text x="594" y="375" font-family="Georgia,serif" font-size="16" fill="#f0ece2">What it does not do</text>
+<text x="594" y="400" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">One responder signs it, not a consensus.</text>
+<text x="594" y="419" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">A real citation can sit on a wrong claim.</text>
+<text x="594" y="438" font-family="ui-monospace,monospace" font-size="12.5" fill="#9a9285">Only emem:fact: binds a whole body.</text>
+<text x="594" y="463" font-family="Georgia,serif" font-size="12" font-style="italic" fill="#dcb161">stated, not hidden</text>
+<line x1="40" y1="492" x2="1060" y2="492" stroke="#33302a" stroke-width="1"/>
+<text x="40" y="512" font-family="ui-monospace,monospace" font-size="12" fill="#9a9285">emem.dev  ·  MCP + REST  ·  no key to read</text>
 </svg>

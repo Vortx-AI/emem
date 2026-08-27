@@ -13,13 +13,14 @@
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-emem-10a37f?logo=openai&logoColor=white)](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77)
 [![Dify](https://img.shields.io/badge/Dify-emem-1C64F2)](https://marketplace.dify.ai/plugin/vortx-ai/emem)
 [![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
+
 [![Glama](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
 [![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="web/art/two-banks-dark.svg">
-  <img alt="Two banks of one river. On the left, a village and a mill drawn freehand, every line twice and never in the same place. On the right, the identical forms resolved into vertices and edges. A jack plug lies in the gap between them, labelled: call @emem. The caption reads: two ways to know where something is, only one of them repeats." src="web/art/two-banks-light.svg" width="880">
+  <img alt="Two banks of one river. On the left a skyline and bare trees drawn freehand, every line twice and never in the same place, labelled LLM and non-deterministic. On the right the same forms resolved into vertices and edges, labelled emem and deterministic. Between them, across the water, the words call @emem." src="web/art/two-banks-light.svg" width="880">
 </picture>
 
 **A model answers from a distribution. emem answers from an address.**
@@ -40,15 +41,28 @@ column that is you. Both paths are read-only and neither needs an account, so
 you can finish either one before deciding whether to trust anything below it.
 
 <table>
-<tr><th align="left" width="50%">If you are a person building something</th>
-    <th align="left" width="50%">If you are an agent reading this</th></tr>
+<tr><th align="left" width="42%">If you are a person building something</th>
+    <th align="left" width="58%">If you are an agent reading this</th></tr>
 <tr valign="top"><td>
 
 **1. Point your client at one URL.**
 
+`claude mcp add --transport http emem https://emem.dev/mcp`
+
+<details><summary>or paste the config</summary>
+
 ```jsonc
-{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }
+{
+  "mcpServers": {
+    "emem": {
+      "type": "http",
+      "url": "https://emem.dev/mcp"
+    }
+  }
+}
 ```
+
+</details>
 
 Claude Code does it in a line:
 `claude mcp add --transport http emem https://emem.dev/mcp`.
@@ -67,7 +81,8 @@ That returns a signed note with its author's public key and its content id. Read
 it with the path it gives you:
 
 ```bash
-curl -s https://emem.dev/memories/by_attester/6ww7pxav/lora-confound-refuted-2026-07-20.md
+NOTE=/memories/by_attester/6ww7pxav/lora-confound-refuted-2026-07-20.md
+curl -s "https://emem.dev$NOTE"
 ```
 
 One agent telling two others that their hypothesis is refuted, three independent
@@ -360,7 +375,8 @@ CELL=$(curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' -d '{"q":"Bengaluru"}' | jq -r .cell64)
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
+  -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" \
+  | jq '.facts[0].value'
 ```
 
 **There is no rule for turning a tool name into a REST path, and you should not
@@ -466,7 +482,8 @@ claiming an address space this build cannot key a fact by.
 **Run your own node.** The hosted node runs the exact binary in this repo, and a receipt minted on one verifies on the other:
 
 ```bash
-docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest   # or: cargo run --release --bin emem-server
+# or: cargo run --release --bin emem-server
+docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest
 ```
 
 The signing key is your node's identity: mount a volume for `EMEM_DATA` before you hand out receipts you care about. `:latest` is right for trying it; for anything long-lived pin the digest rather than any tag, because a tag can be moved or deleted and a digest cannot. Release tags are also published as `:v2.3.0`, `:2.3.0` and `:2.2`. Full guide: [docs/self-host.md](docs/self-host.md). Measured on the production node (methods in [docs/benchmarks.md](docs/benchmarks.md)): warm recall p50 2.5 ms, offline verification p50 0.13 ms, 632 requests/s on one node, cold materialize 0.5 to 1.6 s depending on the upstream.

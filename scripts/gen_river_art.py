@@ -228,8 +228,17 @@ def _svg_open(t, label):
             f'<rect width="{SW}" height="{SH}" fill="{t["paper"]}"/>')
 
 
-def _channel(t):
-    return (f'<line x1="{SW/2}" y1="28" x2="{SW/2}" y2="{SH-28}" stroke="{t["rule"]}" '
+def _channel(t, y2=None):
+    """The dividing line between the two banks.
+
+    `y2` exists because in token-crosses the line ran the full height and
+    passed straight through the caption. That drawing is ABOUT crossing: the
+    line is deliberately interrupted by the token pill, which reads as an idea.
+    Running on through the words underneath made it collide in the one place it
+    meant nothing, which reads as a mistake instead.
+    """
+    end = SH - 28 if y2 is None else y2
+    return (f'<line x1="{SW/2}" y1="28" x2="{SW/2}" y2="{end}" stroke="{t["rule"]}" '
             f'stroke-width="1" opacity="0.85"/>')
 
 
@@ -274,7 +283,7 @@ def story_token_crosses(t) -> str:
     p = [_svg_open(t, "Two agents facing a single signed record between them. A short token "
                       "passes from one to the other along a dotted line; no line runs directly "
                       "between the two agents."),
-         _channel(t)]
+         _channel(t, y2=272)]
 
     def figure(x, colour, name):
         return "".join([
@@ -311,6 +320,18 @@ def story_token_crosses(t) -> str:
 # So the type here is laid out from a measured line height rather than from
 # chosen coordinates: every body line is `y0 + i * LEAD`, and a panel that
 # gains a line pushes its own baseline instead of landing on the previous one.
+def esc(t: str) -> str:
+    """XML-escape text content.
+
+    Panel 3 said `emem:fact:<cell64>:<fact_cid>` and rendered as `emem:fact:`,
+    because an SVG is XML and the angle brackets were parsed as tags. The panel
+    whose whole subject is "the fact collapses to ONE LINE" showed no line, and
+    the generator, the file and every byte-level check were all happy: it is
+    well-formed XML that means something other than what was written.
+    """
+    return (t.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+
+
 PANELS = [
     ("1", "Two agents describe one field",
      ["One reports 0.62. One reports \u201clooks healthy\u201d.",
@@ -344,11 +365,11 @@ PANELS = [
      "stated, not hidden"),
 ]
 
-PW, PH, LEAD = 500, 132, 19
+PW, PH, LEAD = 500, 138, 19
 
 
 def story_six_panels(t) -> str:
-    w, h = 1100, 3 * PH + 96
+    w, h = 1100, 3 * PH + 118
     out = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {w} {h}" '
            f'width="{w}" height="{h}" role="img" aria-label="Six panels: two agents '
            f'describe one field and cannot check each other; one address and one signed '
@@ -357,7 +378,7 @@ def story_six_panels(t) -> str:
            f'<rect width="{w}" height="{h}" fill="{t["paper"]}"/>']
     out.append(f'<text x="40" y="46" font-family="Georgia,serif" font-size="26" '
                f'fill="{t["ink"]}">emem</text>')
-    out.append(f'<text x="118" y="46" font-family="ui-monospace,monospace" font-size="13" '
+    out.append(f'<text x="150" y="46" font-family="ui-monospace,monospace" font-size="13" '
                f'fill="{t["mute"]}">shared, verifiable memory for AI agents and machines</text>')
     out.append(f'<line x1="40" y1="62" x2="{w-40}" y2="62" stroke="{t["rule"]}" stroke-width="1"/>')
 
@@ -371,14 +392,14 @@ def story_six_panels(t) -> str:
         out.append(f'<text x="{x + 14}" y="{y + 14}" font-family="ui-monospace,monospace" '
                    f'font-size="12" fill="{accent}">{num}</text>')
         out.append(f'<text x="{x + 34}" y="{y + 15}" font-family="Georgia,serif" '
-                   f'font-size="16" fill="{t["ink"]}">{title}</text>')
+                   f'font-size="16" fill="{t["ink"]}">{esc(title)}</text>')
         for j, line in enumerate(body):
             out.append(f'<text x="{x + 34}" y="{y + 40 + j * LEAD}" '
                        f'font-family="ui-monospace,monospace" font-size="12.5" '
-                       f'fill="{t["mute"]}">{line}</text>')
+                       f'fill="{t["mute"]}">{esc(line)}</text>')
         fy = y + 40 + len(body) * LEAD + 6
         out.append(f'<text x="{x + 34}" y="{fy}" font-family="Georgia,serif" '
-                   f'font-size="12" font-style="italic" fill="{accent}">{foot}</text>')
+                   f'font-size="12" font-style="italic" fill="{accent}">{esc(foot)}</text>')
 
     out.append(f'<line x1="40" y1="{h-40}" x2="{w-40}" y2="{h-40}" '
                f'stroke="{t["rule"]}" stroke-width="1"/>')
