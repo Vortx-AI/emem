@@ -230,6 +230,29 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
 
     bad.extend(schema_findings(sub))
 
+    # Portal rules the schema does not state.
+    #
+    # The schema says test_cases has minItems 5 and NO maximum, and the portal
+    # rejected seven with "must include exactly 5 entries". Same shape as the
+    # $schema URL: the document and the reviewer disagree, and the reviewer
+    # decides acceptance. So these are checked here, marked as what they are --
+    # observed portal behaviour, not schema text -- because nothing else will
+    # catch them and the next person will otherwise re-derive them from a
+    # rejection.
+    cases = sub.get("test_cases")
+    if isinstance(cases, list) and len(cases) != 5:
+        bad.append(f"portal rule (not in the schema): test_cases must be exactly 5, "
+                   f"found {len(cases)}")
+
+    # Every tools_triggered must name a tool this submission declares, or the
+    # reviewer is told to expect a call we never advertised.
+    declared = set(sub.get("tools") or {})
+    for i, c in enumerate(cases or []):
+        named = [t.strip() for t in str(c.get("tools_triggered") or "").split(",") if t.strip()]
+        for t in named:
+            if t not in declared:
+                bad.append(f"test_cases[{i}] expects {t}, which this submission does not declare")
+
     contact = (card.get("emem") or {}).get("contact")
     for f in sorted(BUNDLE.glob("*.md")):
         text = f.read_text(encoding="utf-8")

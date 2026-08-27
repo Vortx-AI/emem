@@ -203,46 +203,34 @@
   },
   "test_cases": [
     {
-      "description": "Returns elevation value with a signed fact CID",
+      "description": "Resolves the airport to one canonical cell64 and returns the elevation there as a signed fact with its content id and an ed25519 receipt.",
       "user_prompt": "What is the elevation at Helsinki-Vantaa Airport?",
       "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Returns elevation value with a signed fact CID"
+      "expected_output": "Resolves the airport to one canonical cell64 and returns the elevation there as a signed fact with its content id and an ed25519 receipt."
     },
     {
-      "description": "Returns elevation and surface water data with signed receipts",
-      "user_prompt": "Does downtown Miami have flood risk signals?",
+      "description": "Returns the bands held at that cell with their values, each as a signed fact, and names the bands it does not hold rather than implying none exist.",
+      "user_prompt": "What signed facts are available for Lake Erie, Ohio?",
       "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Returns elevation and surface water data with signed receipts"
+      "expected_output": "Returns the bands held at that cell with their values, each as a signed fact, and names the bands it does not hold rather than implying none exist."
     },
     {
-      "description": "Returns available bands and signed facts for the location",
-      "user_prompt": "What signed geospatial facts are available for Lake Erie, Ohio?",
-      "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Returns available bands and signed facts for the location"
-    },
-    {
-      "description": "Returns low elevation data and surface water recurrence with CIDs",
-      "user_prompt": "Is New Orleans at risk of flooding based on elevation?",
-      "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Returns low elevation data and surface water recurrence with CIDs"
-    },
-    {
-      "description": "Returns elevation, surface water, and vegetation data with verifiable receipts",
-      "user_prompt": "What evidence supports a flood risk assessment for Miami Beach?",
-      "tools_triggered": "emem_ask",
-      "expected_output": "Returns elevation, surface water, and vegetation data with verifiable receipts"
-    },
-    {
-      "description": "Returns an emem:fact: token that resolves to the byte-identical signed fact and verifies offline",
+      "description": "Returns an emem:fact: token of the form emem:fact:<cell64>:<fact_cid>, about 84 characters, which resolves to the byte-identical signed reading in any later session.",
       "user_prompt": "Give me a citation token for the NDVI at this farm that I can re-verify later.",
       "tools_triggered": "emem_recall, emem_memory_token",
-      "expected_output": "Returns an emem:fact: token that resolves to the byte-identical signed fact and verifies offline"
+      "expected_output": "Returns an emem:fact: token of the form emem:fact:<cell64>:<fact_cid>, about 84 characters, which resolves to the byte-identical signed reading in any later session."
     },
     {
-      "description": "Returns an emem:raster: field token plus a content-addressed grid artifact the caller can re-hash",
-      "user_prompt": "I need the 10 m red-band raster over this bounding box, not per-cell numbers.",
-      "tools_triggered": "emem_recall",
-      "expected_output": "Returns an emem:raster: field token plus a content-addressed grid artifact the caller can re-hash"
+      "description": "Dereferences the token to the signed body it cites and checks the ed25519 receipt against the responder's published key, so the answer does not depend on trusting whoever sent it.",
+      "user_prompt": "Someone handed me an emem:fact: token. Is it genuine, and what does it say?",
+      "tools_triggered": "emem_memory_token_resolve, emem_verify_receipt",
+      "expected_output": "Dereferences the token to the signed body it cites and checks the ed25519 receipt against the responder's published key, so the answer does not depend on trusting whoever sent it."
+    },
+    {
+      "description": "Reports where independently signed facts differ for the same place, band and time, with a severity score, or states plainly that no disagreement is held.",
+      "user_prompt": "Do any sources disagree about the vegetation index at this place?",
+      "tools_triggered": "emem_memory_contradictions",
+      "expected_output": "Reports where independently signed facts differ for the same place, band and time, with a severity score, or states plainly that no disagreement is held."
     }
   ],
   "negative_test_cases": [
