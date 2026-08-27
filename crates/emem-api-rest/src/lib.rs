@@ -7655,11 +7655,18 @@ async fn serve_agents_txt() -> Response {
     // unmodified emem really is reportable there -- and the comment above it
     // says plainly that it is not this node's operator, so a reader is not
     // misled into thinking this deployment has someone watching it.
+    // No leading whitespace. In the format! below, a trailing `\` strips the
+    // indentation of the following source line, so the surrounding lines LOOK
+    // indented and render flush. A string substituted in carries whatever it
+    // holds, and the first version of this carried nine spaces -- turning
+    // "Contact: ..." into "         Contact: ..." in a file parsers read
+    // line-oriented. Caught by diffing the served bytes against a snapshot
+    // taken before the deploy, which is the only reason it was caught at all.
     let contact_line = match operator_contact() {
-        Some(c) => format!("         Contact: {c}\n"),
-        None => "         # This node's operator has not declared a contact (EMEM_CONTACT).\n\
-         # The address below reaches the emem PROJECT, not whoever runs this node.\n\
-         Contact: https://github.com/Vortx-AI/emem/security/policy\n"
+        Some(c) => format!("Contact: {c}\n"),
+        None => "# This node's operator has not declared a contact (EMEM_CONTACT).\n\
+                 # The address below reaches the emem PROJECT, not whoever runs this node.\n\
+                 Contact: https://github.com/Vortx-AI/emem/security/policy\n"
             .to_string(),
     };
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
