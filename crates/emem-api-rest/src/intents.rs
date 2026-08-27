@@ -202,7 +202,13 @@ pub const INTENTS: &[Intent] = &[
         instead: "",
         tool: "emem_memory_contradictions",
         rest: "POST /v1/memory_contradictions",
-        first_call: "POST /v1/memory_contradictions {\"place\":\"Bengaluru\"}",
+        // A first call has to be one a cold agent can finish. Unbounded, this
+        // fans out over every band at the place and exceeds the 40s transport
+        // budget; with a band it answers in ~0.5s. The discovery gate caught
+        // it the same way it caught POST /v1/entity answering 403: we were
+        // advertising, as a newcomer's FIRST move, the most expensive form of
+        // the call.
+        first_call: "POST /v1/memory_contradictions {\"place\":\"Bengaluru\",\"band\":\"indices.ndvi\"}",
         verify: "Each side of a reported disagreement is a resolvable fact_cid. Resolve both and compare them yourself rather than taking the severity score on faith.",
     },
     Intent {
