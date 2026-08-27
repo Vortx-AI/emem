@@ -29,13 +29,19 @@ MEASURE = """() => {
   if (!bar) return { nobar: true };
   const b = bar.getBoundingClientRect();
   const out = [];
+  let onscreen = 0;
   document.querySelectorAll('main .line').forEach(e => {
     const r = e.getBoundingClientRect();
     if (r.bottom <= 0 || r.top >= innerHeight) return;
+    onscreen++;
     const hidden = Math.max(0, Math.min(b.bottom, r.bottom) - Math.max(b.top, r.top));
     if (hidden > 2) out.push([Math.round(hidden), (e.textContent||'').trim().slice(0,34)]);
   });
-  return { barH: Math.round(b.height), clipped: out };
+  // `onscreen` is what makes a zero readable. Without it, "0 clipped" from a
+  // page full of headlines and "0 clipped" from a selector that matched nothing
+  // print identically, and the broken one looks like the clean one.
+  return { barH: Math.round(b.height), clipped: out, onscreen: onscreen,
+           total: document.querySelectorAll('main .line').length };
 }"""
 
 
@@ -52,7 +58,7 @@ def main() -> int:
         return 2
 
     url = a.origin.rstrip("/") + a.page
-    total, seen = 0, 0
+    total, seen, vacuous = 0, 0, 0
     with sync_playwright() as pw:
         br = pw.chromium.launch()
         for motion in ("no-preference", "reduce"):
@@ -61,7 +67,7 @@ def main() -> int:
                                  reduced_motion=motion)
                 pg.goto(url, wait_until="domcontentloaded")
                 pg.wait_for_timeout(1100)
-                worst, hits, barh = 0, 0, 0
+                worst, hits, barh, examined = 0, 0, 0, 0
                 # A WHEEL GESTURE, not window.scrollTo. Scripted jumps do not
                 # engage scroll snapping at all, so a measurement built on them
                 # reports every snap-fixed position as still broken: this file
@@ -77,18 +83,31 @@ def main() -> int:
                         print("  no sticky bar on this page; nothing to measure")
                         pg.close(); br.close(); return 1
                     barh = r["barH"]
+                    examined += r.get("onscreen", 0)
                     seen += 1
                     if r["clipped"]:
                         hits += 1
                         worst = max(worst, max(c[0] for c in r["clipped"]))
                         total += 1
-                print(f"  reduced-motion={motion:13} {w:5}px  bar {barh}px  "
-                      f"worst clip {worst:3}px  {hits} of {len(OFFSETS)} offsets")
+                if examined == 0:
+                    print(f"  reduced-motion={motion:13} {w:5}px  VACUOUS: no 'main .line'")
+                    print("       was on screen at any rest, so this measured nothing. A")
+                    print("       zero here would be a fact about the selector, not the page.")
+                    vacuous += 1
+                else:
+                    print(f"  reduced-motion={motion:13} {w:5}px  bar {barh}px  "
+                          f"worst clip {worst:3}px  {hits} of {len(OFFSETS)} offsets "
+                          f"({examined} headline-sightings examined)")
                 pg.close()
         br.close()
     # Reaching nothing is not agreement.
     if seen == 0:
         print("no scroll positions were measured. Undetermined, not clean.")
+        return 1
+    if vacuous:
+        print(f"\n{vacuous} configuration(s) measured no headline at all. That is")
+        print("undetermined, not clean: a selector that matches nothing reports the")
+        print("same zero as a page with nothing wrong.")
         return 1
     print(f"\n{total} clipped positions out of {seen} measured")
     print(f"  scope: wheel gestures at widths {a.widths}, both motion preferences,")
