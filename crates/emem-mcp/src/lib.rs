@@ -1841,7 +1841,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     // advertise itself as a mutation, so a cautious host would gate it like
     // one. It also set the floor of the whole server's score, because the
     // Glama rubric weights the MINIMUM tool score at 40%.
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -2330,7 +2330,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         // I defended the closed-world flag on the grounds that the check runs
         // against THIS responder's corpus. That confused where the lookup
         // happens with what the verdict claims about everything outside it.
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         // Core, and the last step of the loop. A physical-world guardrail that
         // an agent has to go looking for is one that does not run.
         tier: "core",

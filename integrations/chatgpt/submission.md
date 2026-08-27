@@ -24,11 +24,11 @@ app is not a map or a geocoder.
 
 ## Safety and scope
 
-- **No user data is written, and no write verb is exposed.** Four of the nine
-  tools are strictly read-only: `emem_locate`, `emem_verify_receipt`,
-  `emem_memory_token` and `emem_find_similar`. The other five --- `emem_ask`,
+- **No user data is written, and no write verb is exposed.** Three of the nine
+  tools are strictly read-only: `emem_locate`, `emem_verify_receipt` and
+  `emem_memory_token`. The other six --- `emem_ask`,
   `emem_recall`, `emem_band_raster`, `emem_band_cube` and
-  `emem_change_attribution` --- can materialise and sign new facts into emem's
+  `emem_change_attribution` and `emem_find_similar` --- can materialise and sign new facts into emem's
   publicly readable store when a requested band or timeslot is cold, which is
   why their `readOnlyHint` is false and why each carries a justification saying
   so. What they write is derived from public Earth-observation sources, never
