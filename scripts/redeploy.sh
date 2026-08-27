@@ -83,6 +83,19 @@ case "$caps" in
   *) echo "FAIL: cap not set on $BIN (got: $caps)" >&2; exit 2 ;;
 esac
 
+# Reload before restarting, ALWAYS.
+#
+# On 2026-08-27 four Environment= lines were added to the unit and never loaded,
+# because a restart re-runs the unit systemd already has in memory. The deploy
+# reported success, the service came up healthy, every check passed, and the
+# agent card served an operator block with no operator in it. Nothing in the
+# pipeline could see it: the binary was right and the file on disk was right.
+#
+# daemon-reload is idempotent and costs milliseconds, so it is not conditional
+# on having noticed that the unit changed -- noticing is the part that failed.
+echo "==> systemctl --user daemon-reload"
+systemctl --user daemon-reload
+
 echo "==> systemctl --user restart $UNIT"
 systemctl --user restart "$UNIT"
 
