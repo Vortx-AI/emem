@@ -127,6 +127,41 @@ non-root user under systemd, set the file capability after every build:
 sudo setcap 'cap_net_bind_service=+ep' /path/to/emem-server
 ```
 
+## Who runs this node
+
+Your node publishes an identity: the agent card, the plugin manifest, the
+discovery card, the operator attestation and `security.txt` all carry a contact
+and an operator block. **Until you set these, every one of those fields is
+absent** — the binary ships no default, on purpose. A node that has not said who
+runs it should say nothing rather than borrow the name of whoever built it.
+
+| Variable | Appears in |
+|---|---|
+| `EMEM_CONTACT` | `contact` / `contact_email` everywhere, and the outbound User-Agent |
+| `EMEM_OPERATOR_NAME` | the `operator` block, and the `author` field |
+| `EMEM_OPERATOR_VENDOR` | the `vendor` slug in the plugin and MCP manifests (falls back to the name) |
+| `EMEM_OPERATOR_COUNTRY` | the `operator` block |
+| `EMEM_OPERATOR_URL` | the `operator` block |
+
+`security.txt` is the one that cannot be empty: RFC 9116 requires a `Contact`,
+so with none declared it names the **project's** security policy and says in a
+comment that this is not the operator of the node you are reading. Set
+`EMEM_CONTACT` and a report about your deployment reaches you instead.
+
+> These were literals in the binary until 2026-08-27, which meant a self-hosted
+> node published the project author's company and e-mail as its own security
+> contact. If you are running a build older than that, check what your
+> `/.well-known/security.txt` actually says.
+
+### The documents at `/privacy` and `/terms` are not yours
+
+They are served from `PRIVACY.md` and `TERMS.md` compiled into the binary, and
+they describe **the emem.dev deployment** — its retention window, its lawful
+basis, its jurisdiction. Your node's behaviour is your own, and so is the law
+that applies to it. Replace both files and rebuild before you offer your node to
+anyone else; the environment variables above cannot do this for you, because a
+privacy policy is a statement about your operation and not a field.
+
 ## TLS
 
 emem-server speaks TLS via embedded `axum-server` + `rustls-acme`. No
