@@ -1010,7 +1010,7 @@ pub fn router(state: AppState) -> Router {
         .route("/.well-known/mcp.json", get(well_known_mcp))
         .route(
             "/.well-known/openai-apps-challenge",
-            get(serve_openai_apps_challenge),
+            get(serve_apps_challenge),
         )
         // SEP-1649 server-card endpoint (MCP 2025-11-25 spec drafts;
         // adopted by Claude Desktop / Cursor / VS Code ahead of merge).
@@ -4914,11 +4914,47 @@ async fn serve_privacy_md() -> Response {
 async fn serve_terms_md() -> Response {
     text_response("text/markdown; charset=utf-8", TERMS_MD)
 }
-async fn serve_openai_apps_challenge() -> Response {
-    text_response(
-        "text/plain; charset=utf-8",
-        "1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM",
-    )
+/// Domain-verification challenge for an app-directory submission.
+///
+/// The value is per-operator AND per-submission: the directory reissues it on
+/// every attempt, so a compiled-in one is stale by definition, and a stale
+/// challenge fails verification while looking exactly like a domain the
+/// operator does not control.
+///
+/// It is not a credential. The verifier fetches it anonymously over plain
+/// HTTP, which is the whole mechanism, and holding it grants nothing. But it
+/// is THIS OPERATOR'S, and it used to be a literal in this function, so every
+/// self-hosted node served this operator's challenge from its own domain --
+/// asserting, on somebody else's behalf, a submission they never made.
+///
+/// Same reasoning as EMEM_TLS_CONTACT, which this codebase already refuses to
+/// supply a default for: a compiled-in fallback makes somebody else the
+/// registrant. Unset here means 404, which is the honest answer from a node
+/// that is not mid-submission, and it keeps a rotating value out of a public
+/// source tree.
+async fn serve_apps_challenge() -> Response {
+    let token = std::env::var("EMEM_APPS_CHALLENGE")
+        .ok()
+        .map(|v| v.trim().to_owned())
+        .filter(|v| !v.is_empty());
+
+    match token {
+        Some(v) => Response::builder()
+            .status(StatusCode::OK)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(axum::body::Body::from(v))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+        None => Response::builder()
+            .status(StatusCode::NOT_FOUND)
+            .header(CONTENT_TYPE, "text/plain; charset=utf-8")
+            .body(axum::body::Body::from(
+                "No domain-verification challenge is configured on this node.\n\
+                 Set EMEM_APPS_CHALLENGE to the token the directory issued for \
+                 this submission. It is per-operator and per-submission, so it \
+                 is deliberately not compiled in.\n",
+            ))
+            .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response()),
+    }
 }
 async fn serve_support_md() -> Response {
     text_response("text/markdown; charset=utf-8", SUPPORT_MD)

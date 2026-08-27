@@ -58,30 +58,41 @@ curl -s https://emem.dev/.well-known/openai-apps-challenge
 
 The portal generates a **new unique token** for every submission. The current token in the code is from a previous attempt and **will not pass verification**.
 
-**The token lives here:**  
-`crates/emem-api-rest/src/lib.rs` → function `serve_openai_apps_challenge()` (~line 3534)
+**The token is NOT in the code, and must never be put there.** It is read at
+request time from the environment variable `EMEM_APPS_CHALLENGE`. Unset, the
+route answers 404, which is the correct answer from a node that is not
+mid-submission.
 
-```rust
-// CURRENT (stale — must be replaced before submission):
-async fn serve_openai_apps_challenge() -> Response {
-    text_response(
-        "text/plain; charset=utf-8",
-        "1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM",   // ← replace this
-    )
-}
-```
+It is not a secret — the verifier fetches it anonymously, and that is the whole
+mechanism — but it is per-operator and per-submission, so a value compiled into
+the binary is stale by definition and makes every self-hosted node serve this
+operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 
 **Workflow:**
-1. Open the submission portal: `https://platform.openai.com/plugins`
-2. Click **Create plugin** → **With MCP** → enter `https://emem.dev/mcp`
-3. Portal displays a new challenge token (looks like a base64 string)
-4. Copy that token
-5. In `crates/emem-api-rest/src/lib.rs`, replace the string `"1CzTwZZjREejEIIMo87BI4HTnV0g0SNaozHCwVfPPwM"` with the new token
-6. Build and deploy to production
-7. Verify it's live: `curl -s https://emem.dev/.well-known/openai-apps-challenge` → should return the new token as plain text, nothing else
-8. Return to the portal and click **Verify domain**
+1. Open the submission portal and start the app/plugin submission for
+   `https://emem.dev/mcp`.
+2. The portal issues a fresh challenge token. Copy it.
+3. Put it in the environment of the running server — **not in the repository**.
+   On the hosted node that means the systemd unit:
 
-> **Important:** The token must be returned as `text/plain` with no surrounding JSON, HTML, or whitespace. The current implementation already does this correctly, only the token string needs to change.
+   ```
+   Environment=EMEM_APPS_CHALLENGE=<token from the portal>
+   ```
+
+   The unit lives outside the repo, so the value never enters version control.
+   A repository secret is the wrong home for it: repository secrets reach CI,
+   and CI does not deploy this server — `scripts/redeploy.sh` runs on the host.
+4. `systemctl --user restart emem-server` — no rebuild is needed, because the
+   value is no longer compiled in. This is the point of the change.
+5. Verify: `curl -s https://emem.dev/.well-known/openai-apps-challenge` returns
+   the new token as plain text and nothing else.
+6. Return to the portal and verify the domain.
+7. After the submission is decided, remove the line and restart. A challenge
+   left serving after it is needed is a stale assertion nobody is checking.
+
+> **Important:** the token is returned as `text/plain` with no surrounding JSON,
+> HTML or whitespace, and the value is `trim()`ed, so a trailing newline in the
+> unit file cannot break verification.
 
 ---
 
