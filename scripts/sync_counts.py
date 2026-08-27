@@ -1400,6 +1400,89 @@ def scan_prose() -> list[str]:
 # somebody improved a tool description gets switched off. It fails only when
 # a published figure is off by more than half, which is what "stale" looks
 # like here.
+# Registry SIZES stated in prose, compared against the live registry.
+#
+# NOT CANON entries, and the reason is worth writing down. A CANON value is
+# matched as a bare number wherever it appears next to a counted noun, which
+# works because 108, 163 and 168 are distinctive. `10` is not. Adding
+# "manifests": 10 to CANON made "10-band S2 256x256" in agents.md read as a
+# manifests claim, and the gate began reporting documents that were correct --
+# within one run of my adding it. A count small enough to collide has to be
+# anchored to its SENTENCE rather than to its value.
+#
+# Both of these had drifted: ten manifests published as "nine", seventeen
+# substrate profiles as "Fifteen". Neither was visible to anything here,
+# because they are spelled out as WORDS and every pattern in this file reads
+# digits. A spelled-out count is not a weakly-guarded claim, it is an unseen
+# one, and the coverage ratchet could not count it either.
+_NUM_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
+
+def _as_int(tok: str):
+    """A count written as a digit or as a word. Returns None for neither."""
+    tok = tok.strip().lower()
+    if tok.isdigit():
+        return int(tok)
+    return _NUM_WORDS.get(tok)
+
+
+# (file, regex capturing the count, live path, how to size the response)
+REGISTRY_SIZE_CLAIMS = [
+    ("README.md", r"one of (\w+) content-addressed manifests",
+     "/v1/manifests", "cid_keys"),
+    ("README.md", r"(\w+) contributor profiles are published",
+     "/v1/substrates", "substrates"),
+]
+
+
+def verify_registry_size_claims(responder: str) -> list[str]:
+    """Compare each stated registry size against the responder.
+
+    Reports how many claims it examined. Zero means the phrasing moved and this
+    check is reading nothing, which is precisely the state these two claims
+    were in for however long they were wrong.
+    """
+    hits: list[str] = []
+    examined = 0
+    for rel, pat, path, shape in REGISTRY_SIZE_CLAIMS:
+        f = REPO / rel
+        if not f.exists():
+            hits.append(f"{rel}: named in REGISTRY_SIZE_CLAIMS but missing")
+            continue
+        m = re.search(pat, f.read_text(encoding="utf-8"))
+        if not m:
+            hits.append(f"{rel}: nothing matches {pat!r}; the sentence was "
+                        f"reworded and this claim is now unread")
+            continue
+        claimed = _as_int(m.group(1))
+        if claimed is None:
+            hits.append(f"{rel}: {m.group(1)!r} is neither a digit nor a number word")
+            continue
+        examined += 1
+        try:
+            with urllib.request.urlopen(responder + path, timeout=40) as r:
+                doc = json.load(r)
+        except Exception as e:
+            hits.append(f"{path}: unreachable ({str(e)[:40]}); undetermined, not passing")
+            continue
+        if shape == "cid_keys":
+            live = len([k for k in doc if k.endswith("_cid")])
+        else:
+            reg = doc.get("registry", doc)
+            live = len(reg.get(shape, []))
+        if claimed != live:
+            hits.append(f"{rel}: claims {claimed} for {path}, responder serves {live}")
+    if examined == 0:
+        hits.append("REGISTRY_SIZE_CLAIMS examined nothing. Both claims exist in "
+                    "README.md, so zero means the patterns stopped matching.")
+    return hits
+
+
 MCP_BYTES_TOLERANCE = 0.5
 MCP_BYTES_CLAIMS = [
     # (file, regex capturing the KB figure, which surface it describes)
@@ -1574,6 +1657,8 @@ def main() -> int:
         problems += verify_mcp_byte_claims(
             os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
         problems += verify_id_widths(
+            os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
+        problems += verify_registry_size_claims(
             os.environ.get("EMEM_RESPONDER", "https://emem.dev").rstrip("/"))
         if problems:
             print("DRIFT DETECTED:")
