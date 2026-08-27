@@ -137,7 +137,7 @@ is already there decides how much soil has to move and in which direction.
 ```bash
 curl -s -X POST https://emem.dev/v1/terrain \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb4e3.zaeed.fEya"}'
+  -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
 Back comes `centre_elevation_m`, a `slope` block, `ruggedness`, and
@@ -154,7 +154,7 @@ Wind decides whether a pass happens at all. Drift is the whole argument.
 ```bash
 curl -s -X POST https://emem.dev/v1/weather \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb4e3.zaeed.fEya","bands":["weather.wind_speed_10m"]}'
+  -d '{"cell":"defi.zb4e3.vopU.fEyO","bands":["weather.wind_speed_10m"]}'
 ```
 
 Every reading carries an `age_s`. A wind speed is only a decision input while
@@ -167,7 +167,7 @@ Soil is the other half of the same decision, and it answers on the same cell:
 ```bash
 curl -s -X POST https://emem.dev/v1/soil \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb4e3.zaeed.fEya"}'
+  -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
 ## A harvester
