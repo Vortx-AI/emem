@@ -3289,6 +3289,25 @@ fn operator_json() -> JsonValue {
     JsonValue::Object(m)
 }
 
+/// The A2A `AgentProvider` block: exactly `organization` and `url`, per spec.
+///
+/// Separate from [`operator_json`] on purpose. That one emits name / country /
+/// url / contact, which is our own shape; a parser reading this object as an
+/// AgentProvider has nowhere to put `country` and expects `organization` rather
+/// than `name`. Reusing the general accessor here would have swapped a
+/// hardcoded literal for a spec violation, which is a worse trade than the one
+/// it was fixing.
+fn operator_provider_json() -> JsonValue {
+    let mut m = serde_json::Map::new();
+    if let Some(v) = op_env("EMEM_OPERATOR_NAME") {
+        m.insert("organization".to_owned(), JsonValue::String(v));
+    }
+    if let Some(v) = op_env("EMEM_OPERATOR_URL") {
+        m.insert("url".to_owned(), JsonValue::String(v));
+    }
+    JsonValue::Object(m)
+}
+
 /// `Value::Null` for an undeclared field, so the site can stay inside a `json!`
 /// block; [`drop_undeclared`] then removes the key entirely.
 fn op_value(v: Option<String>) -> JsonValue {
@@ -6659,10 +6678,11 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // the data-protection block) is real and worth publishing, but a parser
         // reading this object as an AgentProvider has no field to put it in.
         // It moved to `emem` at the top level, which is ours to shape.
-        "provider": {
-            "organization": "Vortx AI Private Limited",
-            "url":          "https://vortx.ai",
-        },
+        // Also this operator's, and it survived the sweep that moved the rest to
+        // the environment because the gate looked for `contact`, `vendor` and
+        // `author` and nobody had told it about `organization`. A scanner sees
+        // the field names it was given, which is the failure it exists to catch.
+        "provider": operator_provider_json(),
         "emem": {
             // Said here rather than in a spec field, deliberately.
             //

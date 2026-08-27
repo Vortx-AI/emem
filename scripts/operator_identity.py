@@ -28,7 +28,14 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 SHIPPED = sorted(REPO.glob("crates/*/src/**/*.rs"))
 
 # Fields whose value IS an identity claim about whoever runs the node.
-IDENTITY_FIELDS = ("contact", "contact_email", "vendor", "author", "operator_erasure")
+# `organization` was missing and a literal survived in the A2A provider block
+# for a full day after the sweep. The generic e-mail check could not see it
+# either, because a company name is not an e-mail. Widened, and the lesson
+# is the one this file already states: a scanner recognises the forms it was
+# told about, so the list is a claim about coverage and not a guarantee.
+IDENTITY_FIELDS = ("contact", "contact_email", "vendor", "author",
+                   "operator_erasure", "organization", "company",
+                   "publisher", "maintainer", "legal_name")
 
 # A value that is not a literal: a call, a match, a variable.
 LITERAL = re.compile(r'"(%s)":\s*"([^"]{2,})"' % "|".join(IDENTITY_FIELDS))
