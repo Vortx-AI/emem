@@ -433,12 +433,12 @@ def sweep_scroll_positions(pg):
 
     absorb()
     if not off:
-        return list(found.values()), 0, 1, False
+        return list(found.values()), 0, 1, False, len(seen)
 
     scrollers = pg.evaluate(SCROLLERS)
     if not scrollers:
         # Targets are out of view and nothing scrolls: not coverable here.
-        return list(found.values()), len(never - seen), 1, False
+        return list(found.values()), len(never - seen), 1, False, len(seen)
 
     positions = 1
     capped = False
@@ -472,7 +472,11 @@ def sweep_scroll_positions(pg):
         if capped:
             break
     absorb()
-    return list(found.values()), len(never - seen), positions, capped
+    # `seen` is the denominator. Without it "0 real" from a page full of
+    # buttons and "0 real" from a selector that matched nothing print the same
+    # line, and the broken one looks like the clean one. The controls prove the
+    # DETECTOR works on fixtures; they cannot prove it matched anything here.
+    return list(found.values()), len(never - seen), positions, capped, len(seen)
 
 
 def run_control(ctx):
@@ -504,7 +508,7 @@ def run_control(ctx):
     # the thing under test is whether the sweep can reach sideways at all.
     pg.set_content(CONTROL_SCROLL_X)
     pg.wait_for_timeout(100)
-    f, off, _rounds, _capped = sweep_scroll_positions(pg)
+    f, off, _rounds, _capped, _seen = sweep_scroll_positions(pg)
     good = len(f) == 2 and off == 0
     print(f"control only-reachable-by-scrolling-sideways: {len(f)} real, "
           f"{off} unreached ({'as expected' if good else 'WRONG: want 2 real, 0 unreached'})")
@@ -523,6 +527,7 @@ def main():
     css = open(a.css).read() if a.css else None
     total = 0
     errors = 0
+    vacuous = 0
     offscreen_total = 0
     with sync_playwright() as pw:
         br = pw.chromium.launch()
@@ -560,7 +565,7 @@ def main():
                 if css:
                     pg.add_style_tag(content=css)
                     pg.wait_for_timeout(250)
-                f, off, rounds, capped = sweep_scroll_positions(pg)
+                f, off, rounds, capped, examined = sweep_scroll_positions(pg)
             except Exception as e:
                 print(f"{path}  !! {type(e).__name__}: {str(e).splitlines()[0][:90]}")
                 errors += 1
@@ -572,7 +577,13 @@ def main():
                 note += f"   !! {off} targets NEVER brought into view"
             if capped:
                 note += "   !! position cap hit; coverage incomplete"
-            print(f"{path}  {len(f)} real{note}")
+            if examined == 0:
+                print(f"{path}  VACUOUS: the target selector matched nothing on this")
+                print("      page, so 0 findings is a fact about the selector rather than")
+                print("      about the page. Not counted as clean.")
+                vacuous += 1
+            else:
+                print(f"{path}  {len(f)} real, {examined} target(s) examined{note}")
             for b in f:
                 print(f"    {b['w']:.1f} x {b['h']:.1f}  {b['path']}\n        {b['txt']!r}")
             pg.close()
@@ -583,6 +594,7 @@ def main():
     print(
         f"TOTAL {total} real"
         + (f"  ({errors} pages NOT MEASURED)" if errors else "")
+        + (f"  ({vacuous} page(s) VACUOUS: selector matched nothing)" if vacuous else "")
         + (
             f"  -- {offscreen_total} targets were never brought into view at "
             "any scroll position and are NOT covered by this number"
@@ -590,7 +602,10 @@ def main():
             else ""
         )
     )
-    return total + errors
+    # A vacuous page counts as a failure, not as a clean one. A zero you cannot
+    # distinguish from "did not look" is not a weaker result, it is no result,
+    # and reporting no result as success is the one case prose cannot carry.
+    return total + errors + vacuous
 
 if __name__ == "__main__":
     sys.exit(0 if main() == 0 else 1)
