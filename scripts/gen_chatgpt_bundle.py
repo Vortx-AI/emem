@@ -76,16 +76,48 @@ def catalogue(origin: str) -> dict:
 CLAIMS_CHECKED = 0
 
 
-# Field limits the directory enforces, as they are learned.
+# Validate against the PUBLISHED schema, not against rules typed here.
 #
-# subtitle was 39 characters against a 30 limit and a REVIEWER told us, which
-# means the schema was doing work we were not. Only limits actually confirmed go
-# in here; guessing one and enforcing it would be inventing a constraint. What
-# is not listed is not checked, and the clean line says so rather than implying
-# the whole schema is validated.
-FIELD_LIMITS = {
-    "subtitle": 30,   # stated by the app-directory reviewer, 2026-08-27
-}
+# Two review comments arrived on the same day for the same reason: the subtitle
+# was 39 characters against a 30 limit, and every tool carried its annotations
+# FLAT when the schema requires an `annotations` object. Both are stated plainly
+# in the schema this file has always named in its own `$schema` field, and
+# nothing ever read it. A hand-kept list of limits would have caught the first
+# and never the second, because the second is a shape and not a number.
+#
+# The copy is vendored so CI does not depend on that host being up, and the
+# fetch below compares the two so a drifted vendor announces itself instead of
+# quietly validating against last month's rules.
+SCHEMA_PATH = BUNDLE / "submission.schema.json"
+SCHEMA_URL = ("https://developers.openai.com/plugins/schemas/"
+              "chatgpt-app-submission.v1.json")
+
+
+def schema_findings(sub: dict) -> list[str]:
+    """Every way the submission violates the published schema."""
+    try:
+        import jsonschema
+    except ImportError:
+        return ["jsonschema is not installed, so the submission was NOT validated "
+                "against its schema this run (pip install jsonschema)"]
+    if not SCHEMA_PATH.exists():
+        return [f"{SCHEMA_PATH.name} is missing; the submission was not validated"]
+    schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+    out = []
+    try:
+        import urllib.request
+        with urllib.request.urlopen(SCHEMA_URL, timeout=20) as r:
+            live = json.load(r)
+        if live != schema:
+            out.append(f"{SCHEMA_PATH.name} differs from {SCHEMA_URL}; re-vendor it "
+                       f"before trusting this validation")
+    except Exception:
+        pass  # offline is fine: the vendored copy still validates
+    for e in sorted(jsonschema.Draft202012Validator(schema).iter_errors(sub),
+                    key=lambda e: list(e.path)):
+        where = ".".join(str(x) for x in e.path) or "<root>"
+        out.append(f"schema: {where}: {e.message}")
+    return out
 
 
 def check(sub: dict, live: dict, card: dict) -> list[str]:
@@ -97,19 +129,31 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
             bad.append(f"{name}: declared in the submission, not served by the responder")
             continue
         ann = t.get("annotations") or {}
+        # The published schema nests these: {"annotations": {...},
+        # "justifications": {read_only_justification, ...}}. The bundle carried
+        # them FLAT, which is why a reviewer had to tell us "emem_ask must
+        # include an annotations object" -- the file had the values and not the
+        # shape, and nothing here compared it to the schema that says so.
+        d_ann = decl.get("annotations") or {}
+        d_just = decl.get("justifications") or {}
+        just_key = {
+            "readOnlyHint": "read_only_justification",
+            "destructiveHint": "destructive_justification",
+            "openWorldHint": "open_world_justification",
+        }
         for flag in ("readOnlyHint", "destructiveHint", "openWorldHint"):
-            if flag in decl and flag in ann and decl[flag] != ann[flag]:
-                bad.append(f"{name}: declares {flag}={decl[flag]}, server says {ann[flag]}")
+            if flag in d_ann and flag in ann and d_ann[flag] != ann[flag]:
+                bad.append(f"{name}: declares {flag}={d_ann[flag]}, server says {ann[flag]}")
         # a justification that contradicts the flag beside it
         for flag in ("readOnlyHint", "destructiveHint", "openWorldHint"):
-            for j in (decl.get(f"{flag}_justification"), ):
+            for j in (d_just.get(just_key[flag]), ):
                 if not j:
                     continue
                 for other in ("readOnlyHint", "destructiveHint"):
                     m = re.search(rf"{other} is (true|false)", j)
-                    if m and decl.get(other) is not (m.group(1) == "true"):
-                        bad.append(f"{name}: {flag}_justification says "
-                                   f"'{other} is {m.group(1)}' but {other} is {decl.get(other)}")
+                    if m and d_ann.get(other) is not (m.group(1) == "true"):
+                        bad.append(f"{name}: {just_key[flag]} says "
+                                   f"'{other} is {m.group(1)}' but {other} is {d_ann.get(other)}")
     # Every COUNT the bundle states about read-only tools, checked against the
     # live annotations.
     #
@@ -169,11 +213,7 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
                    "files do state one; the wording moved and this check is now "
                    "reading nothing")
 
-    info = sub.get("app_info") or {}
-    for field, cap in FIELD_LIMITS.items():
-        v = info.get(field)
-        if isinstance(v, str) and len(v) > cap:
-            bad.append(f"app_info.{field} is {len(v)} characters, limit {cap}: {v!r}")
+    bad.extend(schema_findings(sub))
 
     contact = (card.get("emem") or {}).get("contact")
     for f in sorted(BUNDLE.glob("*.md")):
@@ -296,8 +336,8 @@ def main() -> int:
               f"{len(list(BUNDLE.glob('*.md')))} .md file(s).")
         print(f"  Cross-checked {CLAIMS_CHECKED} read-only COUNT claim(s) across every file "
               f"in the bundle against the live annotations.")
-        print(f"  Checked {len(FIELD_LIMITS)} field length limit(s) "
-              f"({', '.join(FIELD_LIMITS)}); every OTHER field in this schema is unchecked.")
+        print(f"  Validated against {SCHEMA_PATH.name}, the published submission schema: "
+              f"shape, required fields and every length limit it states.")
         print("  NOT covered: the rest of the prose, whether the declared set is the")
         print("  right set, and the domain-verification token, which the portal")
         print("  reissues per submission and no check here can know.")

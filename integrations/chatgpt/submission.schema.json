@@ -1,0 +1,190 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json",
+  "title": "ChatGPT App Submission Import",
+  "description": "A Codex-generated file for filling parts of a ChatGPT App submission form.",
+  "type": "object",
+  "required": ["$schema", "schema_version", "tools"],
+  "properties": {
+    "$schema": {
+      "const": "https://developers.openai.com/plugins/schemas/chatgpt-app-submission.v1.json"
+    },
+    "schema_version": {
+      "const": 1
+    },
+    "app_info": {
+      "$ref": "#/$defs/appInfo"
+    },
+    "tools": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/tool"
+      }
+    },
+    "test_cases": {
+      "type": "array",
+      "minItems": 5,
+      "items": {
+        "$ref": "#/$defs/positiveTestCase"
+      }
+    },
+    "negative_test_cases": {
+      "type": "array",
+      "minItems": 3,
+      "items": {
+        "$ref": "#/$defs/negativeTestCase"
+      }
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "pattern": "\\S"
+    },
+    "shortNonEmptyString": {
+      "type": "string",
+      "pattern": "\\S",
+      "maxLength": 30
+    },
+    "longNonEmptyString": {
+      "type": "string",
+      "pattern": "\\S",
+      "maxLength": 4000
+    },
+    "nullableString": {
+      "type": ["string", "null"]
+    },
+    "nullableStringArray": {
+      "type": ["array", "null"],
+      "items": {
+        "type": "string"
+      }
+    },
+    "appInfo": {
+      "type": "object",
+      "properties": {
+        "display_name": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "subtitle": {
+          "$ref": "#/$defs/shortNonEmptyString"
+        },
+        "description": {
+          "$ref": "#/$defs/longNonEmptyString"
+        },
+        "category": {
+          "enum": [
+            "BUSINESS",
+            "COLLABORATION",
+            "DESIGN",
+            "DEVELOPER_TOOLS",
+            "EDUCATION",
+            "ENTERTAINMENT",
+            "FINANCE",
+            "FOOD",
+            "LIFESTYLE",
+            "NEWS",
+            "PRODUCTIVITY",
+            "SHOPPING",
+            "TRAVEL"
+          ]
+        }
+      },
+      "additionalProperties": true
+    },
+    "tool": {
+      "type": "object",
+      "required": ["annotations", "justifications"],
+      "properties": {
+        "annotations": {
+          "type": "object",
+          "required": ["readOnlyHint", "openWorldHint", "destructiveHint"],
+          "properties": {
+            "readOnlyHint": {
+              "type": "boolean"
+            },
+            "openWorldHint": {
+              "type": "boolean"
+            },
+            "destructiveHint": {
+              "type": "boolean"
+            }
+          },
+          "additionalProperties": true
+        },
+        "justifications": {
+          "type": "object",
+          "required": [
+            "read_only_justification",
+            "open_world_justification",
+            "destructive_justification"
+          ],
+          "properties": {
+            "read_only_justification": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "open_world_justification": {
+              "$ref": "#/$defs/nonEmptyString"
+            },
+            "destructive_justification": {
+              "$ref": "#/$defs/nonEmptyString"
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "positiveTestCase": {
+      "type": "object",
+      "required": ["description", "user_prompt", "tools_triggered"],
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/longNonEmptyString"
+        },
+        "user_prompt": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "file_attachment_urls": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "tools_triggered": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "expected_output": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "expected_output_url": {
+          "$ref": "#/$defs/nullableString"
+        }
+      },
+      "additionalProperties": true
+    },
+    "negativeTestCase": {
+      "type": "object",
+      "required": ["description", "user_prompt"],
+      "properties": {
+        "description": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "user_prompt": {
+          "$ref": "#/$defs/nonEmptyString"
+        },
+        "file_attachment_urls": {
+          "$ref": "#/$defs/nullableStringArray"
+        },
+        "tools_triggered": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "expected_output": {
+          "$ref": "#/$defs/nullableString"
+        },
+        "expected_output_url": {
+          "$ref": "#/$defs/nullableString"
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}
