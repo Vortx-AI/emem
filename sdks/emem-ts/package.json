@@ -1,7 +1,7 @@
 {
   "name": "@vortxai/emem",
   "version": "2.3.0",
-  "description": "TypeScript client for emem.dev, the agent-native Earth memory protocol",
+  "description": "TypeScript client for emem: shared, verifiable memory for AI agents. One address per fact, one signature you can check. No key to read.",
   "license": "Apache-2.0",
   "author": "Vortx AI Private Limited <avijeet@vortx.ai>",
   "homepage": "https://emem.dev",
@@ -34,12 +34,18 @@
     "access": "public"
   },
   "keywords": [
+    "agent-memory",
+    "ai-agents",
+    "shared-memory",
+    "mcp",
+    "model-context-protocol",
+    "verifiable",
+    "content-addressed",
+    "ed25519",
+    "provenance",
     "earth-observation",
     "geospatial",
-    "satellite",
-    "mcp",
-    "ed25519",
-    "content-addressed"
+    "satellite"
   ],
   "scripts": {
     "build": "tsc",

@@ -2,9 +2,9 @@
 
 # emem
 
-**emem is the shared memory layer for multi-agent systems.**
+**emem is shared memory for AI agents, and every fact in it can be checked.**
 
-*Two agents that share no model, no vendor, and no trust can cite the same signed fact and each verify it alone. Satellites fill the memory today; any machine that watches the world joins by proving how it ran.*
+*Two agents that share no model and no vendor can cite the same fact and each check it alone. Satellites fill the memory today; anything that can show how it was measured can join.*
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
@@ -13,9 +13,6 @@
 [![ChatGPT](https://img.shields.io/badge/ChatGPT-emem-10a37f?logo=openai&logoColor=white)](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77)
 [![Dify](https://img.shields.io/badge/Dify-emem-1C64F2)](https://marketplace.dify.ai/plugin/vortx-ai/emem)
 [![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
-
-[![Glama](https://glama.ai/mcp/servers/Vortx-AI/emem/badges/score.svg)](https://glama.ai/mcp/servers/Vortx-AI/emem)
-[![MCP Toplist](https://mcptoplist.com/badge/io.github.Vortx-AI%2Femem.svg)](https://mcptoplist.com/server/io.github.Vortx-AI%2Femem)
 [![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 
 <picture>
@@ -311,7 +308,23 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 
 The address of a place plus the fingerprint of one signed observation there. An agent keeps this line and drops the payload. Any agent, any model, any month later resolves it back to the exact same bytes and re-checks the signature without trusting whoever sent it. In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, cite the tokens in its output. Verification is the receiver's single call.
 
-**A token is not a compression trick, and the measurement says so.** Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number** (counted with `cl100k_base`; the ratio moves with the tokenizer, which is why naming it is part of the measurement). An earlier figure of 5.8x understated it: a base32 cid fragments under BPE, and characters are the wrong unit for a context window. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters at any count up to 256 (19 to 23 LLM tokens, since the cid falls differently under BPE each time). A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
+**A token costs more context than the number it stands for. Lead with that.**
+A token is 84 characters, or 51 LLM tokens. The value it points at is about
+11 characters, or 5.4. So a token costs **9.5x more** than pasting the number
+(measured over 131 facts at 12 places, counted with `cl100k_base`; a different
+tokenizer gives a different ratio, which is why the tokenizer is part of the
+measurement).
+
+It is worth paying in three cases:
+
+- the value has to survive a summariser
+- someone else has to check it without trusting you
+- you are citing several facts, and one `emem:bundle:` handle covers them all
+  in 38 characters at any count up to 256
+
+A bundle beats separate tokens from the first fact, and beats pasting plain
+values from the fifth. If you need one number and it already fits in the
+window, paste the number.
 
 ## The tokenverse, and how security works
 

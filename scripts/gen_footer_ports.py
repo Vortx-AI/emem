@@ -32,8 +32,10 @@ END = "<!--ports:end-->"
 # distribution. These are footer-only on purpose: four in the bar is the limit
 # before it becomes a second navigation.
 EXTRA = [
-    ("Glama", "https://glama.ai/mcp/servers/Vortx-AI/emem", "MCP server directory"),
-    ("MCP Toplist", "https://mcptoplist.com/server/io.github.Vortx-AI%2Femem", "MCP server directory"),
+    # Glama and MCP Toplist were removed on 2026-08-27. Both are third-party
+    # directory listings that still exist; they are simply not something a
+    # reader of ours needs a permanent link to on every page. What is left is
+    # the one artefact that is about the work rather than about distribution.
     ("Zenodo", "https://doi.org/10.5281/zenodo.20706893", "the whitepaper, with a DOI"),
 ]
 
