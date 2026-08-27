@@ -262,7 +262,7 @@ emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45
 
 The address of a place plus the fingerprint of one signed observation there. An agent keeps this line and drops the payload. Any agent, any model, any month later resolves it back to the exact same bytes and re-checks the signature without trusting whoever sent it. In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, cite the tokens in its output. Verification is the receiver's single call.
 
-**A token is not a compression trick, and the measurement says so.** Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number**. An earlier figure of 5.8x understated it: a base32 cid fragments under BPE, and characters are the wrong unit for a context window. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters at any count up to 256 (19 to 23 LLM tokens, since the cid falls differently under BPE each time). A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
+**A token is not a compression trick, and the measurement says so.** Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, against 10.9 characters and 5.4 LLM tokens for the value it stands for, so a single token costs **9.5x more context than pasting the bare number** (counted with `cl100k_base`; the ratio moves with the tokenizer, which is why naming it is part of the measurement). An earlier figure of 5.8x understated it: a base32 cid fragments under BPE, and characters are the wrong unit for a context window. The token earns its size in exactly three places: when a value must survive a summariser, when a third party must check it without trusting you, and when you bundle many facts behind one `emem:bundle:` handle that stays 38 characters at any count up to 256 (19 to 23 LLM tokens, since the cid falls differently under BPE each time). A bundle beats individual tokens at N=1 and beats pasting the plain values from N>=5. If your answer needs one number that already fits in the window, paste the number.
 
 ## The tokenverse
 
@@ -401,6 +401,16 @@ curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\"]}" | jq '.facts[0].value'
 ```
+
+**There is no rule for turning a tool name into a REST path, and you should not
+guess one.** `emem_memory_search` answers at `POST /v1/memory/search` while
+`emem_verify_receipt` answers at `POST /v1/verify_receipt` - one underscore
+becomes a slash and the other does not. A reader who infers the pattern from two
+examples will be right about half the time and get a 404 the rest. The authority
+is [`/openapi.json`](https://emem.dev/openapi.json); over MCP, call the tool by
+name and the question does not arise. (A wired route called with the wrong verb
+says so rather than 404ing: `GET /v1/memory/search` returns a 405 that names
+POST.)
 
 **Python** `pip install ememdev`, then `from ememdev import Client`. **TypeScript** `npm i @vortxai/emem`, then `import { Client } from "@vortxai/emem"`. Both were verified as the published artifact, installed into an empty environment and called against production, not tested as a source tree. The npm name is scoped and the PyPI name is not, because npm refuses `ememdev` as too similar to an existing package and a scoped name is exempt; `emem` on PyPI is an unrelated project by another company.
 
