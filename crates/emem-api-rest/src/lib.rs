@@ -1615,11 +1615,18 @@ pub fn router(state: AppState) -> Router {
         .layer(tower_http::trace::TraceLayer::new_for_http())
         // OUTSIDE the timeout layer, so it sees the bodyless 504 that layer
         // produces and gives it the typed envelope every other refusal has.
-        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::timeout::TimeoutLayer::with_status_code(
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(timeout_seconds()),
         ))
+        // AFTER the timeout layer, not before. In axum the LAST `.layer()` is
+        // the OUTERMOST, so calling this first put it INSIDE the timeout: the
+        // layer produced the 504 and this never saw it. Its own doc comment
+        // says it "runs OUTSIDE the timeout layer", which was the intent and
+        // not the wiring, so a fix that was written, documented and shipped had
+        // never once run. /v1/memory_bundle returned `content-length: 0` on a
+        // route this was supposed to be covering.
+        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1674,6 +1681,8 @@ fn splats_router(state: AppState) -> Router {
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(timeout_s),
         ))
+        // Same reason as the main router: outermost, or it cannot see the 504.
+        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1748,6 +1757,8 @@ fn perception_router(state: AppState) -> Router {
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(timeout_s),
         ))
+        // Same reason as the main router: outermost, or it cannot see the 504.
+        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -1786,6 +1797,8 @@ fn eudr_router(state: AppState) -> Router {
             StatusCode::GATEWAY_TIMEOUT,
             std::time::Duration::from_secs(eudr_route_timeout_secs()),
         ))
+        // Same reason as the main router: outermost, or it cannot see the 504.
+        .layer(axum::middleware::from_fn(timeout_to_typed_504))
         .layer(tower_http::limit::RequestBodyLimitLayer::new(
             body_limit_bytes(),
         ))
@@ -78422,6 +78435,70 @@ mod tests {
             .and_then(|v| v.as_str())
             .expect("file_cid")
             .to_string()
+    }
+
+    /// A transport timeout must carry a typed body, and the ONLY thing that
+    /// makes that true is layer order.
+    ///
+    /// `timeout_to_typed_504` was written, documented and shipped, and never
+    /// ran: it was applied BEFORE the timeout layer, and in axum the last
+    /// `.layer()` is the outermost, so the timeout produced the 504 from
+    /// outside it. Nothing failed. The endpoint answered `content-length: 0`
+    /// and the MCP/REST parity check reported the two transports disagreeing
+    /// about one cause, which read as a protocol divergence rather than as a
+    /// wiring mistake.
+    ///
+    /// So this asserts the OBSERVABLE consequence rather than the presence of
+    /// the layer: a route that exceeds its budget answers with JSON. Re-order
+    /// the two layers and this fails.
+    #[tokio::test]
+    async fn a_timed_out_route_answers_with_a_typed_body_not_an_empty_504() {
+        use axum::{routing::get, Router};
+        use tower::ServiceExt;
+
+        let app = Router::new()
+            .route(
+                "/slow",
+                get(|| async {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    "unreachable"
+                }),
+            )
+            .layer(tower_http::timeout::TimeoutLayer::with_status_code(
+                StatusCode::GATEWAY_TIMEOUT,
+                std::time::Duration::from_millis(50),
+            ))
+            .layer(axum::middleware::from_fn(timeout_to_typed_504));
+
+        let resp = app
+            .oneshot(
+                axum::extract::Request::builder()
+                    .uri("/slow")
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(resp.status(), StatusCode::GATEWAY_TIMEOUT);
+        let ct = resp
+            .headers()
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("");
+        assert!(
+            ct.contains("json"),
+            "a timed-out route answered {ct:?} with no typed body; the timeout \
+             layer is outside timeout_to_typed_504 again"
+        );
+        let bytes = axum::body::to_bytes(resp.into_body(), 64 * 1024)
+            .await
+            .unwrap();
+        let v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        assert!(
+            v.get("code").is_some(),
+            "the typed 504 carries no `code`: {v}"
+        );
     }
 
     fn sign_supersede(
