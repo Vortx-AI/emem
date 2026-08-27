@@ -207,6 +207,12 @@ def main() -> int:
             return 1
         print(f"bundle agrees with {a.origin}: {len(sub['tools'])} tools declared, all served, "
               f"annotations match, no contradictory justifications, contact matches the card")
+        print(f"  scope: the {len(sub['tools'])} tools this submission DECLARES, checked against")
+        print(f"  the live catalogue, plus tools.md and the e-mail addresses in "
+              f"{len(list(BUNDLE.glob('*.md')))} .md file(s).")
+        print("  NOT covered: whether the prose is accurate, whether the declared set")
+        print("  is the right set, and the domain-verification token, which the portal")
+        print("  reissues per submission and no check here can know.")
         return 0
     TOOLS_MD.write_text(body, encoding="utf-8")
     print(f"wrote {TOOLS_MD.relative_to(REPO)} from {len(live)} live tools "

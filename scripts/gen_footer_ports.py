@@ -125,8 +125,13 @@ def main() -> int:
                 print("  ", c)
             print("Run: python3 scripts/gen_footer_ports.py")
             return 1
+        nofoot = len([p for p in (REPO / "web").glob("*.html")
+                      if not FOOTER.search(p.read_text(encoding="utf-8"))])
         print(f"every one of {total} footers carries the same 'Listed on' column "
               f"({len(PORTS) + len(EXTRA)} destinations)")
+        print(f"  scope: web/*.html only. {nofoot} page(s) carry no footer at all and")
+        print("  are not examined; a page that loses its footer would leave this")
+        print("  line unchanged and drop out of the denominator.")
         return 0
     print(f"{len(changed)} of {total} footers updated "
           f"({len(PORTS) + len(EXTRA)} destinations); "

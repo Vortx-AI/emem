@@ -91,6 +91,11 @@ def main() -> int:
         print("no scroll positions were measured. Undetermined, not clean.")
         return 1
     print(f"\n{total} clipped positions out of {seen} measured")
+    print(f"  scope: wheel gestures at widths {a.widths}, both motion preferences,")
+    print(f"         {len(OFFSETS)} rests each, selector 'main .line'.")
+    print("  NOT covered: any headline this selector does not name, and any rest")
+    print("  a wheel gesture does not produce. A programmatic scrollTo does not")
+    print("  engage scroll snapping, so it is deliberately not used here.")
     return 1 if total else 0
 
 

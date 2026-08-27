@@ -196,6 +196,14 @@ def main() -> int:
 
     if live_commit == head:
         print("\n  In sync: the code answering is the code here.")
+        # The caveat belongs on THIS path most of all. A reader takes "in sync"
+        # as "everything a visitor receives is this tree", and it is narrower:
+        # it compares one published commit to HEAD. A peer found the same shape
+        # in their own gate today, with the scope line inside `if stale:` so the
+        # clean run printed fifteen lines of "current" and no caveat.
+        print("    scope: the commit this responder publishes, against HEAD. It does")
+        print("    NOT check the bytes of any page (served_matches_tree.py does that),")
+        print("    nor anything the binary reads from disk at request time.")
     else:
         behind = git("rev-list", "--count", f"{live_commit}..{head}")
         ahead = git("rev-list", "--count", f"{head}..{live_commit}")
