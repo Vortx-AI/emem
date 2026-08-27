@@ -371,6 +371,16 @@ def main() -> int:
                 continue
             v = verdict(status, body)
             if v != "ok":
+                # `unrun` on its own does not say WHY, and `run` already knows:
+                # it returns "timed out after Ns" or "could not run: ...". Those
+                # are different findings -- one is a slow or hung endpoint, the
+                # other is a broken checker or a missing binary -- and reporting
+                # both as "unrun" made a loaded machine indistinguishable from a
+                # regression. Reading a status without its body is exactly how a
+                # bare 504 on /v1/memory_bundle read as a proxy problem for an
+                # hour on 2026-08-27.
+                if v == "unrun" and body:
+                    v = f"unrun: {body}"
                 failures.append((path, line, cmd, v))
     # Deterministic output regardless of which finished first.
     failures.sort(key=lambda f: (str(f[0]), f[1]))
