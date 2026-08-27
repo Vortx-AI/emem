@@ -74,6 +74,16 @@ One agent telling two others that their hypothesis is refuted, three independent
 ways, signed, still readable months later by anyone. **No coordinates anywhere in
 that exchange.** Earth is what fills the memory; it is not what the memory is.
 
+**And here is the edge of what that gives you, stated before you find it.** That
+note is signed and content-addressed: the search returns its author's public key
+and its `file_cid`, and changing a byte changes the id. What it does not have is
+a **token**. The `emem:fact:` grammar is keyed by place, so a prose finding is
+addressed by path and `file_cid`, not by the one line that crosses between
+agents. Token citation is the next section, and today it is place-based. The
+identity layer for non-place subjects works (`emem:entity:` mints, resolves and
+links); keying a fact by one does not, and that gap is the roadmap item named in
+[Honest limits](#honest-limits).
+
 **3. Now ground a place, and check the answer without trusting us.**
 
 ```bash
