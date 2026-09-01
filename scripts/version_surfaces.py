@@ -72,6 +72,20 @@ def workspace_facts() -> tuple[str, int]:
 def surfaces(version: str, crates: int):
     major_minor = ".".join(version.split(".")[:2])
     return [
+        # The SDK manifests were NOT here, and this file's closing line says
+        # "Every surface that states a version states this one". Four manifests
+        # state one, and llama-index-tools-emem sat at 2.1.0 -- two minors
+        # behind -- through every green run. The sentence was broader than the
+        # list, which is the whole failure this file exists to prevent
+        # elsewhere.
+        ("sdks/emem-py/pyproject.toml", r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', version,
+         "the published Python client"),
+        ("sdks/emem-langmem/pyproject.toml", r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', version,
+         "the LangChain store"),
+        ("sdks/llama-index-tools-emem/pyproject.toml", r'^version\s*=\s*"([0-9]+\.[0-9]+\.[0-9]+)"', version,
+         "the llama-index tool spec, unpublished but versioned"),
+        ("sdks/emem-ts/package.json", r'"version":\s*"([0-9]+\.[0-9]+\.[0-9]+)"', version,
+         "the published TypeScript client"),
         ("CITATION.cff", r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$", version,
          "the version citations are minted against"),
         ("AGENTS.md", r"version ([0-9]+\.[0-9]+\.[0-9]+), MSRV", version,

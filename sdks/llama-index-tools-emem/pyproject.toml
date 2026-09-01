@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "llama-index-tools-emem"
-version = "2.1.0"
+version = "2.3.0"
 description = "llama-index tools emem integration"
 authors = [{ name = "Vortx AI Private Limited", email = "avijeet@vortx.ai" }]
 requires-python = ">=3.10,<4.0"
