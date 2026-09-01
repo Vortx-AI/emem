@@ -73,6 +73,48 @@ def catalogue(origin: str) -> dict:
 # How many read-only COUNT claims the last check() call actually examined.
 # main() prints it: "0 problems" over 0 claims examined is not the same result
 # as "0 problems" over nine, and the two must not print the same line.
+# The annotations as the SOURCE declares them, independent of what is deployed.
+#
+# This gate compares the submission to the LIVE responder, which answers the
+# right question ("does what we published match what we serve?") and the wrong
+# one in CI. An annotation change is correct in the commit and absent from prod
+# until someone deploys, so CI reads red on a commit that is right. It happened
+# three times -- find_similar, guard_verdict, locate -- and the last was a race
+# of two minutes between a deploy finishing and CI starting.
+#
+# Two questions, two answers. Disagreeing with the SOURCE is a defect in the
+# commit and fails. Agreeing with the source while disagreeing with the
+# responder is a deploy that has not happened, reported as UNDETERMINED (exit 2)
+# and naming the fix, because passing it silently would hide a bundle that
+# really is stale.
+ANNOT = re.compile(
+    r"read_only_hint:\s*(true|false),\s*destructive_hint:\s*(true|false),"
+    r"\s*idempotent_hint:\s*(true|false),\s*open_world_hint:\s*(true|false)")
+
+SOURCE_ANN: dict = {}
+DEPLOY_LAG: list = []
+
+
+def source_annotations() -> dict:
+    """Tool -> annotations, parsed from the MCP catalogue in this tree."""
+    f = REPO / "crates/emem-mcp/src/lib.rs"
+    if not f.exists():
+        return {}
+    src = f.read_text(encoding="utf-8", errors="ignore")
+    names = [(m.start(), m.group(1))
+             for m in re.finditer(r'name:\s*"(emem_[a-z0-9_]+)"', src)]
+    anns = [(m.start(), m) for m in ANNOT.finditer(src)]
+    out = {}
+    for pos, name in names:
+        nxt = next((m for pp, m in anns if pp > pos), None)
+        if nxt:
+            out[name] = {
+                "readOnlyHint": nxt.group(1) == "true",
+                "destructiveHint": nxt.group(2) == "true",
+                "openWorldHint": nxt.group(4) == "true",
+            }
+    return out
+
 CLAIMS_CHECKED = 0
 
 
@@ -136,8 +178,14 @@ def schema_findings(sub: dict) -> list[str]:
 
 
 def check(sub: dict, live: dict, card: dict) -> list[str]:
-    global CLAIMS_CHECKED
+    global CLAIMS_CHECKED, SOURCE_ANN
+    SOURCE_ANN = source_annotations()
+    DEPLOY_LAG.clear()
     bad = []
+    if not SOURCE_ANN:
+        bad.append("parsed no tool annotation out of crates/emem-mcp; this tree "
+                   "declares many, so the parser broke and the source half of "
+                   "this check read nothing")
     for name, decl in sub["tools"].items():
         t = live.get(name)
         if not t:
@@ -156,9 +204,14 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
             "destructiveHint": "destructive_justification",
             "openWorldHint": "open_world_justification",
         }
+        src_ann = SOURCE_ANN.get(name, {})
         for flag in ("readOnlyHint", "destructiveHint", "openWorldHint"):
-            if flag in d_ann and flag in ann and d_ann[flag] != ann[flag]:
-                bad.append(f"{name}: declares {flag}={d_ann[flag]}, server says {ann[flag]}")
+            if flag in d_ann and flag in src_ann and d_ann[flag] != src_ann[flag]:
+                bad.append(f"{name}: declares {flag}={d_ann[flag]}, this tree's "
+                           f"catalogue says {src_ann[flag]}")
+            elif flag in d_ann and flag in ann and d_ann[flag] != ann[flag]:
+                DEPLOY_LAG.append(f"{name}: {flag}={d_ann[flag]} in this tree, "
+                                  f"the responder still serves {ann[flag]}")
         # a justification that contradicts the flag beside it
         for flag in ("readOnlyHint", "destructiveHint", "openWorldHint"):
             for j in (d_just.get(just_key[flag]), ):
@@ -361,6 +414,19 @@ def main() -> int:
         for p in problems:
             print("  ", p)
         return 1
+
+    if DEPLOY_LAG:
+        # The submission matches this tree and the responder is behind it. That
+        # is a deploy that has not happened, not a wrong commit, and calling it
+        # a failure taught CI to redden on correct changes three times.
+        print(f"UNDETERMINED: the submission matches this tree's catalogue, and "
+              f"{a.origin} has not been redeployed with it yet.")
+        for m in DEPLOY_LAG:
+            print(f"  - {m}")
+        print("  Nothing here is wrong. Run scripts/redeploy.sh, then re-run this "
+              "check; it stays undetermined rather than passing, because a bundle "
+              "that really is stale looks the same from here.")
+        return 2
 
     body = render(sub, live, a.origin)
     if a.check:
