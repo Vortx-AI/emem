@@ -68,7 +68,14 @@ def main() -> int:
         return 2
 
     problems = []
-    for name, declared in tools.items():
+    for name, entry in tools.items():
+        # The submission moved to the schema's nested shape on 2026-08-27:
+        # {"annotations": {...}, "justifications": {...}}. This file kept reading
+        # the flat keys and so read None for all 48 flags and reported all 48 as
+        # mismatches -- a wall of findings that all said "the submission says
+        # None", which is the shape of a READER that broke rather than a file
+        # that did. Two scripts read this document and I updated one.
+        declared = entry.get("annotations", entry)
         actual = server_annotations(src, name)
         if actual is None:
             problems.append(f"{name} is submitted but the server has no such tool")
