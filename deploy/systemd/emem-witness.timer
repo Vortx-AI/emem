@@ -1,15 +1,16 @@
-# Hourly is a floor, not a design constant: the log grows ~2k entries/hour,
-# and a co-signature is evidence about the head at one size, so the gap
-# between ticks is exactly how far a rewrite could go before a witness
-# holds a head it must contradict. Tighten when the second node is up.
+# The log grows ~2k entries/hour and a co-signature is evidence about the
+# head at one size, so the tick interval is exactly how far the freshest
+# witnessed head can lag (head_is_witnessed is false within seconds of any
+# signature; freshest_witness_entries_behind is the metric). One tick is
+# ~12 small reads and one POST, so 15 minutes costs nothing.
 
 [Unit]
 Description=emem — hourly witness of peers' transparency-log heads
 
 [Timer]
 OnBootSec=5min
-OnUnitActiveSec=1h
-RandomizedDelaySec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=1min
 Persistent=true
 
 [Install]
