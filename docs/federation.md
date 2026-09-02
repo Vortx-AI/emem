@@ -297,6 +297,117 @@ the verify primitive this establishes.
 - **GDPR / redaction** across replicas (see §7 non-goal); likely a
   signed-tombstone + refusal-to-serve convention rather than true deletion.
 
+## 8. The four-node network, and anyone after that
+
+The nodes, decided 2026-09-02:
+
+| Node | Hardware | Role |
+|---|---|---|
+| `emem.dev` | A100, moving to AWS | full node: materialisers, GPU paths, the write plane it has today |
+| `eudr.dev` | small CPU | read replica, verifier, witness |
+| `vrtx.ai` | good CPU | read replica, witness, writes under its own attester namespace |
+| `geo.qa` | good CPU | read replica, witness, writes under its own attester namespace |
+| anyone else | theirs | read federation and witnessing, writes under their own namespace |
+
+### 8a. Phase 0 is not new code. It is turning on what is already built.
+
+`/v1/log/witness` accepts an ed25519 co-signature over `(tree_size, root)` and
+verifies both the signature and that the root matches the tree at that size.
+`/v1/log/consistency` proves one head is an append-only prefix of another.
+`/v1/log/witnesses` lists what has been co-signed. All of it ships today.
+
+**And it is idle.** On 2026-09-02 the log stood at 1,539,209 entries with
+`head_is_witnessed: false`, three distinct witnesses, and the freshest
+co-signature 58,145 entries behind. Nothing in `scripts/` drives it; the
+signatures that exist were made by hand and stopped. The mechanism that makes a
+multi-node network safe **without consensus** is built, deployed, documented,
+and not running.
+
+So the first phase is a scheduled job on each node: fetch every peer's
+`/v1/log/sth`, verify it, co-sign it, POST it back, and check
+`/v1/log/consistency` against the head that node last saw. Four nodes, four
+cron entries, no server change.
+
+What that buys, precisely: **a node cannot show two different histories to two
+different peers without one of them holding a signed head that fails a
+consistency proof.** That is Certificate Transparency's gossip property, and it
+is the whole reason this network does not need a chain.
+
+### 8b. What we take from web3, and what we refuse
+
+Taken, because they were the real advances and emem already has them:
+content addressing, so an id is a fingerprint and any node may serve it;
+key-based identity with no accounts; Merkle inclusion proofs; and gossiped
+transparency logs, which are Certificate Transparency's idea rather than a
+blockchain's.
+
+Refused, each for a stated reason:
+
+- **No token, and no incentive layer.** A token turns "who may write" into a
+  market and creates the sybil pressure it then has to defend against. Nothing
+  here is scarce: the expensive resource is upstream fetches, and those are
+  already bounded per node.
+- **No global consensus, no chain, no validator set.** This is a
+  content-addressed CRDT: facts merge by id and **conflict is recorded, not
+  voted on**. Consensus would be strictly worse than what exists, because it
+  forces one answer where two attesters legitimately disagree, and that
+  disagreement is the signal `memory_contradictions` exists to surface. There
+  is nothing to capture because there is no leader.
+- **No on-chain anchoring as a dependency.** A node may anchor a tree head
+  anywhere it likes; nothing may require it, or the network inherits that
+  chain's liveness and cost.
+- **No "decentralised therefore trustless".** Every node is trusted for
+  nothing and verified for two things: the bytes hash to the id, and the
+  signature checks against a published key. That is the entire trust model and
+  it does not improve with more nodes.
+
+### 8c. The three attacks, and which one is actually open
+
+**Serving wrong bytes: closed.** A peer returning bytes whose blake3 does not
+equal the requested id is detected by the reader, always, without trusting
+anyone. A hostile node can withhold, not forge.
+
+**Split view: closed by 8a, open until then.** A node showing different
+histories to different peers is exactly what witnessing detects, and today
+nothing is witnessing.
+
+**Sybil writes: open, and not closable by identity.** Anyone can mint unlimited
+ed25519 keys, so counting signatures is worthless and always will be. The
+answer is not to gate identity -- that would cost the property this substrate
+exists for -- but that **weight is the reader's judgement, not the network's**:
+`trust: caller_decides`. Sybils multiply signatures, not credibility. What the
+network owes a reader is the evidence to judge with: who signed, what they
+proved (the T0-T4 ladder), whether that proof is re-checkable by a third party
+(DNS/`.well-known`, per §5a), and where signers disagree. A reader who weighs
+an unaffiliated key the same as a DNS-verified one has made a choice; a network
+that made it for them would be the thing we are avoiding.
+
+The honest bound: this makes poisoning **attributable and visible**, not
+impossible. A reader that ignores provenance is still poisonable, and no
+protocol fixes that.
+
+### 8d. Order of work
+
+1. **Witness mesh across the four.** No server change. Closes split view.
+2. **Peer resolve** (§4a, `EMEM_PEERS`). Not implemented today -- grep finds no
+   `EMEM_PEERS` in any crate. Read-only, verify-before-cache.
+3. **Node identity in DNS.** Extend §5a from agents to nodes:
+   `_emem-node.eudr.dev TXT "v=emem1; k=<pubkey>"`, so a peer's key is
+   re-checkable by a third party rather than asserted by a config file.
+4. **Cross-node disagreement** (§4c): a peer's facts land as a distinct
+   attester, so existing contradiction scoring works unchanged.
+5. **Routing** (§4d) last, and only if read federation proves insufficient.
+
+Write sharding (§4b) stays where §4b leaves it: its premise was found false and
+it needs re-deriving before anyone builds it.
+
+### 8e. What each new node must publish before it counts as joined
+
+`/v1/log/sth`, a stable `responder_pubkey_b32`, the four registry CIDs, and a
+DNS record binding its key to its name. A node that serves reads without these
+is usable and unaccountable, which is fine for a mirror and not fine for a
+writer.
+
 ---
 
 *Companion to the "Where this is going" section of the README and the
