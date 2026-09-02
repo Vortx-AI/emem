@@ -1,0 +1,16 @@
+# Hourly is a floor, not a design constant: the log grows ~2k entries/hour,
+# and a co-signature is evidence about the head at one size, so the gap
+# between ticks is exactly how far a rewrite could go before a witness
+# holds a head it must contradict. Tighten when the second node is up.
+
+[Unit]
+Description=emem — hourly witness of peers' transparency-log heads
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=1h
+RandomizedDelaySec=5min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

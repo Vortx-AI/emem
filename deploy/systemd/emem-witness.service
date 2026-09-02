@@ -1,0 +1,30 @@
+# Co-sign every peer's transparency-log head and prove it grew since the
+# head this node last co-signed (docs/federation.md §8a). This is what makes
+# a multi-node emem safe without consensus: a node cannot show two histories
+# to two peers without one of them holding a signed head that fails a
+# consistency proof. The routes shipped long before this unit did; on
+# 2026-09-02 the log had 1.54M entries, head_is_witnessed was false and the
+# freshest co-signature was 58,145 entries behind, because nothing ran.
+#
+# Deliberately NOT ordered after emem-server.service: a witness that only
+# runs while its own node is healthy is not an external witness.
+#
+# Install on every node, pointed at the OTHER nodes:
+#   cp deploy/systemd/emem-witness.{service,timer} ~/.config/systemd/user/
+#   systemctl --user daemon-reload          # a restart alone serves the old unit
+#   systemctl --user enable --now emem-witness.timer
+# Run once by hand:  systemctl --user start emem-witness.service
+# Pins live in ~/.config/emem/witness_state.json; a failed proof keeps them.
+
+[Unit]
+Description=emem — co-sign peers' log heads and prove they grew (federation phase 0)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/emem
+# Comma-separated node origins. Add eudr.dev, vrtx.ai, geo.qa as each comes up.
+Environment=EMEM_PEERS=https://emem.dev
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/witness_peers.py
+# Four peers at ~25 s worst case each; a wedged peer must not hold the tick.
+TimeoutStartSec=5m

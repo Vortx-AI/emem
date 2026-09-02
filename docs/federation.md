@@ -316,17 +316,32 @@ verifies both the signature and that the root matches the tree at that size.
 `/v1/log/consistency` proves one head is an append-only prefix of another.
 `/v1/log/witnesses` lists what has been co-signed. All of it ships today.
 
-**And it is idle.** On 2026-09-02 the log stood at 1,539,209 entries with
+**And it was idle.** On 2026-09-02 the log stood at 1,539,209 entries with
 `head_is_witnessed: false`, three distinct witnesses, and the freshest
-co-signature 58,145 entries behind. Nothing in `scripts/` drives it; the
-signatures that exist were made by hand and stopped. The mechanism that makes a
-multi-node network safe **without consensus** is built, deployed, documented,
-and not running.
+co-signature 58,145 entries behind. The signatures that existed were made by
+hand and stopped. The mechanism that makes a multi-node network safe **without
+consensus** was built, deployed, documented, and not running.
 
-So the first phase is a scheduled job on each node: fetch every peer's
-`/v1/log/sth`, verify it, co-sign it, POST it back, and check
-`/v1/log/consistency` against the head that node last saw. Four nodes, four
-cron entries, no server change.
+It runs now. `scripts/witness_peers.py` fetches every peer's `/v1/log/sth`,
+verifies the responder's signature over the PreimageV1 bytes, proves growth
+from the head this node last co-signed with `/v1/log/consistency` (an exact
+port of `emem_attest::translog::verify_consistency`, checked against four
+served proofs and a tampered one before its first signature left the box),
+and co-signs. `deploy/systemd/emem-witness.timer` runs it hourly. Later that
+day `head_is_witnessed` was `true` at 1,541,075, zero entries behind. Each new
+node installs the same unit pointed at the other three; the pin it keeps in
+`~/.config/emem/witness_state.json` is the evidence a peer's consistency proof
+must satisfy.
+
+Two things the controls caught before they shipped, kept here because every
+node operator will write this job once. A verifier written from memory of RFC
+6962 had the spine-advance parity inverted: it rejected every real proof while
+still rejecting tampered ones, which looks like rigour and is not. And
+"same tree_size" is not "unchanged": a log that rewrites an entry in place
+keeps its count and changes its root, and the first draft co-signed that
+without comparing roots. The job now refuses a same-size, different-root head
+as a rewrite, and a dry run never advances the pin, because the pin records
+what was co-signed, not what was looked at.
 
 What that buys, precisely: **a node cannot show two different histories to two
 different peers without one of them holding a signed head that fails a
