@@ -92,6 +92,122 @@ def node_hash(left: bytes, right: bytes) -> bytes:
     return blake3.blake3(b"\x01" + left + right).digest()
 
 
+def verify_sth(sth: dict):
+    """Verify a served STH against the key it names. Returns (size, root, responder_pk)
+    or raises ValueError. The key is checked by the caller against the head's key."""
+    size, root = int(sth["tree_size"]), b32d(sth["root_b32"])
+    rpk, sig = b32d(sth["responder_pubkey_b32"]), b32d(sth["signature_b32"])
+    msg = preimage("emem.translog.sth.v1", [(1, size.to_bytes(8, "big")), (2, root),
+                                            (3, sth["signed_at"].encode()), (4, rpk)])
+    try:
+        nacl.signing.VerifyKey(rpk).verify(msg, sig)
+    except Exception as e:
+        raise ValueError("STH signature does not verify") from e
+    return size, root, rpk
+
+
+def leaf_hash(entry: bytes) -> bytes:
+    """`blake3(0x00 || entry)`; `entry` is the 32-byte per-record hash the log persists."""
+    return blake3.blake3(b"\x00" + entry).digest()
+
+
+def verify_inclusion(leaf: bytes, m: int, tree_size: int, path: list, root: bytes) -> bool:
+    """A line-for-line port of emem_attest::translog::verify_inclusion (RFC 6962 §2.1.1)."""
+    if m >= tree_size:
+        return False
+    fn_, sn = m, tree_size - 1
+    acc = leaf
+    it = iter(path)
+    while sn > 0:
+        sibling = next(it, None)
+        if sibling is None:
+            return False  # path too short
+        if (fn_ & 1) or fn_ == sn:
+            acc = node_hash(sibling, acc)
+            while fn_ & 1 == 0 and fn_ != 0:
+                fn_ >>= 1
+                sn >>= 1
+        else:
+            acc = node_hash(acc, sibling)
+        fn_ >>= 1
+        sn >>= 1
+    return next(it, None) is None and acc == root
+
+
+def audit_indices(root: bytes, my_pk: bytes, size: int, k: int) -> list:
+    """k leaf indices derived from the co-signed root and this witness's key.
+
+    A peer cannot know which leaves a witness will ask for before the root
+    exists, and two witnesses never ask for the same ones. Filecoin samples
+    sectors from chain randomness for the same reason; the root is ours.
+    """
+    seed = blake3.blake3(b"emem.witness.audit.v1" + root + my_pk).digest(length=8 * k)
+    return sorted({int.from_bytes(seed[8 * i:8 * i + 8], "big") % size for i in range(k)})
+
+
+def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes, k: int):
+    """Fetch k sampled leaves and their inclusion proofs. Returns (checked, problems).
+
+    `/v1/log/inclusion` proves against the CURRENT head and returns the STH it
+    proved against; it does not take a tree size (the first draft passed one,
+    the route ignored it, and every proof failed against the older root).
+    So each leaf is bound to the co-signed head in two steps: the proof
+    reaches the served STH's root, and that STH is an append-only extension
+    of the head this witness co-signed. A leaf below the co-signed size that
+    is in the extension was in the co-signed tree.
+    """
+    problems = []
+    idx = audit_indices(root, my_pk, size, k)
+    extends = {}  # served tree_size -> consistency with (size, root) proven?
+    for i in idx:
+        try:
+            e = get(f"{origin}/v1/log/entries?start={i}&limit=1")["entries"][0]
+            inc = get(f"{origin}/v1/log/inclusion?leaf_index={i}")
+        except Exception as ex:
+            problems.append(f"leaf {i}: unreachable ({str(ex)[:40]})")
+            continue
+        if int(e.get("leaf_index", -1)) != i:
+            problems.append(f"leaf {i}: entries route answered with leaf {e.get('leaf_index')}")
+            continue
+        try:
+            t, root_t, rpk_t = verify_sth(inc["sth"])
+        except (ValueError, KeyError) as ex:
+            problems.append(f"leaf {i}: inclusion route's STH: {ex}")
+            continue
+        if rpk_t != rpk:
+            problems.append(f"leaf {i}: inclusion route's STH is signed by a different key")
+            continue
+        if t < size:
+            problems.append(f"leaf {i}: inclusion route's head {t} is behind the co-signed {size}")
+            continue
+        entry = blake3.blake3(b32d(e["attestation_cbor_b32"])).digest()
+        if entry != b32d(e["entry_hash_b32"]):
+            problems.append(f"leaf {i}: served bytes do not hash to the served entry hash")
+            continue
+        leaf = leaf_hash(entry)
+        if leaf != b32d(inc["leaf_hash_b32"]):
+            problems.append(f"leaf {i}: inclusion route's leaf hash is not this entry's")
+            continue
+        if not verify_inclusion(leaf, i, t, [b32d(x) for x in inc["audit_path_b32"]], root_t):
+            problems.append(f"leaf {i}: inclusion proof does not reach the served root at {t}")
+            continue
+        if t not in extends:
+            if t == size:
+                extends[t] = root_t == root
+            else:
+                try:
+                    c = get(f"{origin}/v1/log/consistency?first={size}&second={t}")
+                    extends[t] = (c.get("first_root_b32", "").lower() == b32e(root).lower()
+                                  and b32d(c["second_root_b32"]) == root_t
+                                  and verify_consistency(size, t, root, root_t,
+                                                         [b32d(x) for x in c["consistency_proof_b32"]]))
+                except Exception as ex:
+                    extends[t] = False
+        if not extends[t]:
+            problems.append(f"leaf {i}: served head {t} is not an extension of the co-signed head {size}")
+    return len(idx), problems
+
+
 def verify_consistency(first: int, second: int, first_root: bytes,
                        second_root: bytes, proof: list) -> bool:
     """A line-for-line port of emem_attest::translog::verify_consistency.
@@ -163,15 +279,10 @@ def main() -> int:
             print(f"  {origin}: unreachable ({str(e)[:50]}); undetermined, not witnessed")
             failures.append(origin)
             continue
-        size, root = int(sth["tree_size"]), b32d(sth["root_b32"])
-        rpk, sig = b32d(sth["responder_pubkey_b32"]), b32d(sth["signature_b32"])
-
         # Rule 1: verify before anything.
-        msg = preimage("emem.translog.sth.v1", [(1, size.to_bytes(8, "big")), (2, root),
-                                                (3, sth["signed_at"].encode()), (4, rpk)])
         try:
-            nacl.signing.VerifyKey(rpk).verify(msg, sig)
-        except Exception:
+            size, root, rpk = verify_sth(sth)
+        except (ValueError, KeyError):
             print(f"  {origin}: STH signature does NOT verify against its own key. "
                   f"Refusing to co-sign. This is a finding.")
             failures.append(origin)
@@ -227,6 +338,19 @@ def main() -> int:
                 continue
             print(f"  {origin}: co-signed tree_size {size}; {growth}")
             witnessed += 1
+        # Spot-check custody. A co-signature says the head is consistent with
+        # what this witness saw before; it says nothing about whether the
+        # peer still holds the bytes under it. Kept separate on purpose.
+        k = int(os.environ.get("EMEM_WITNESS_SAMPLES", "4"))
+        if k > 0:
+            checked, problems = audit_custody(origin, size, root, rpk, my_pk, k)
+            if problems:
+                print(f"  {origin}: CUSTODY FAILURE on {len(problems)} of {checked} sampled leaves:")
+                for pr in problems:
+                    print(f"    {pr}")
+                failures.append(origin)
+            else:
+                print(f"    audited {checked} sampled leaves under root {b32e(root)[:8]}: all verify")
             # The pin records what we CO-SIGNED, not what we looked at. A dry
             # run that advanced it would erase the chain of evidence a real
             # run needs to prove growth from.

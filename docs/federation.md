@@ -333,6 +333,16 @@ node installs the same unit pointed at the other three; the pin it keeps in
 `~/.config/emem/witness_state.json` is the evidence a peer's consistency proof
 must satisfy.
 
+Since the same day the job also spot-checks custody, which a co-signature
+says nothing about: four leaves per tick, sampled from the co-signed root and
+the witness key so no peer knows them in advance, bytes re-hashed, inclusion
+proved against the STH the route returns, and that STH proved an append-only
+extension of the co-signed head. `/v1/log/inclusion` proves against the
+current head and silently ignores a `tree_size` argument; the first draft
+passed one, every proof failed against the older root, and the binding now
+goes through a consistency proof instead. A route that refused an unknown
+argument would have said so in one line.
+
 Two things the controls caught before they shipped, kept here because every
 node operator will write this job once. A verifier written from memory of RFC
 6962 had the spine-advance parity inverted: it rejected every real proof while
@@ -624,6 +634,8 @@ latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
   all `active`. A client that lists the server sees fourteen entries. Mark the
   old ones deprecated from the publisher.
 - **The quota promise** in the `compute_quota_exceeded` error text (9b).
+- **`/v1/log/inclusion`** ignores a `tree_size` argument instead of refusing
+  it, and proves against the current head. Refuse unknown arguments.
 - **The Claude connector directory** needs a re-submission; the compliance
   surface is built (`docs/registries/anthropic-claude-connectors-submission.md`).
 
@@ -632,8 +644,8 @@ latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
 Ranked by what each buys the four-node network per unit of change. Nothing
 below touches the fact plane, the token scheme, or the preimages.
 
-1. **Audit sampling in the witness job.** Python, small. "Co-signed" becomes
-   "co-signed and spot-checked".
+1. **Audit sampling in the witness job.** Done 2026-09-02, `audit_custody` in
+   `scripts/witness_peers.py`. "Co-signed" is now "co-signed and spot-checked".
 2. **Enforce the ladder on `SharedEntitySpace`.** A flag flip on a measured
    gate. Before any 402.
 3. **`peers`, `witnesses` and `_emem-node` for the four nodes, plus

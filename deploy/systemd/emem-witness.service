@@ -15,6 +15,8 @@
 #   systemctl --user enable --now emem-witness.timer
 # Run once by hand:  systemctl --user start emem-witness.service
 # Pins live in ~/.config/emem/witness_state.json; a failed proof keeps them.
+# Each tick also spot-checks EMEM_WITNESS_SAMPLES leaves (bytes re-hashed,
+# inclusion proved, head bound to the co-signed one); a failure exits 1.
 
 [Unit]
 Description=emem — co-sign peers' log heads and prove they grew (federation phase 0)
@@ -25,6 +27,7 @@ Type=oneshot
 WorkingDirectory=/home/ubuntu/emem
 # Comma-separated node origins. Add eudr.dev, vrtx.ai, geo.qa as each comes up.
 Environment=EMEM_PEERS=https://emem.dev
+Environment=EMEM_WITNESS_SAMPLES=4
 ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/witness_peers.py
 # Four peers at ~25 s worst case each; a wedged peer must not hold the tick.
 TimeoutStartSec=5m
