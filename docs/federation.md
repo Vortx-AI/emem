@@ -284,7 +284,7 @@ the verify primitive this establishes.
 - **No cross-node compute trust.** A node never runs another node's
   algorithm and trusts the result; it re-derives or re-verifies.
 
-## 8. Open questions
+### 7a. Open questions
 
 - **Prefix-ownership rebalancing** when a node joins/leaves mid-write:
   hand-off protocol + the window where two nodes think they own a range.
@@ -428,3 +428,242 @@ writer.
 *Companion to the "Where this is going" section of the README and the
 `connect-and-evolve` doc. The federation diagram is at
 `docs/diagrams/federation.png`.*
+
+## 9. What the DePIN and open-protocol peers built that we did not
+
+Read §8b first: no token, no chain, no consensus. This section is about what
+the physical-infrastructure networks and the federated protocols learned that
+needs none of those, and where emem is behind them. Every "emem today" claim
+below was checked against the code on 2026-09-02, with paths. Every peer claim
+links to the document it came from, in the references at the end.
+
+### 9a. DePIN with the token removed
+
+A DePIN network meets three problems a hosted service never does. The token is
+how most of them pay for the answers. The answers are separable from the
+token.
+
+**Proof that physical work happened.** Helium's Proof of Coverage: a
+challenger picks a target from verifiable entropy (block hash plus an
+ephemeral key), the target broadcasts, nearby hotspots witness the packet and
+report time of arrival, signal strength and quality, and the challenger
+submits those receipts. Verification is deterministic replay. Gaming was
+handled first by physics (RF has range) and later by a witness-similarity
+denylist. emem's equivalent is the fact plane: a band-typed measurement,
+signed by the responder that made it, with the upstream named. What emem lacks
+is the **witness receipt**: nobody but the responder signs that a fact was
+served. A dispute needs two signatures on the same bytes, and today there is
+one.
+
+**Proof that custody continues.** Filecoin's WindowPoSt: every sealed sector
+is challenged inside a 24-hour proving period cut into 48 deadlines, and a
+missed proof is a fault that forfeits collateral. Take the collateral away and
+the mechanism is still there: random challenges, sampled from a commitment,
+answered from the bytes. emem's log is exactly such a commitment, 1.54M leaves
+under a signed root, and **we sample nothing from it**. The witness job
+co-signs a head. It never asks the peer for a leaf.
+
+**Roles with different exposure.** The Graph separates Indexers (stake and
+serve), Fishermen (dispute with a Proof of Indexing), and Arbitrators
+(decide), with slashing at 2.5% of self-stake. Without stake the roles are
+still real. emem has a responder (writes facts), attesters (write notes),
+witnesses (co-sign heads), and a reputation score with a leaderboard at
+`/v1/contributors` that no code path reads. It has no **auditor** (checks
+served bytes against the log) and no working **disputer**: a signed
+`disagrees_with` edge exists, and `memory_view` never surfaces an inbound one.
+
+The three jobs a token does, and what does them here:
+
+| Token job | Web3 mechanism | emem today | Gap |
+|---|---|---|---|
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes/min per attester; DNS TXT and org vouching | the ladder gate runs in **shadow mode by default** (`enlistment_enforcing()`); nothing scales cost with reach |
+| Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, the Nostr relay and ATProto PDS model | none needed at four nodes |
+| Settlement | on-chain transfer | none | a payment rail without a token exists (9b) |
+
+### 9b. Tokenisation: what it settles, and the rail that replaced it
+
+The thing a token settled in 2021 is settled in 2026 by a header. x402 is an
+HTTP 402 flow: the server answers `402` with a `PAYMENT-REQUIRED` header
+carrying the requirements, the client retries with `PAYMENT-SIGNATURE`, a
+facilitator verifies and settles (stablecoins on several chains, extensible to
+card rails), and the server answers with `PAYMENT-RESPONSE`. It is stewarded
+by a Linux Foundation body, has no native token, and is in production. The
+official MCP registry already lists x402-metered MCP servers next to ours.
+Google's Agent Payments Protocol (v0.2, April 2026) supplies the human-mandate
+side and carries x402 as an A2A extension.
+
+emem already answers `402`: `ComputeQuotaExceeded` maps to `PAYMENT_REQUIRED`
+in `lib.rs`. It is a quota error wearing a payment status. The header is what
+tells the two apart, and ours has none, so no agent can mistake the one for the
+other today. That stays true until someone decides otherwise.
+
+The decision this document records: **reads are free at every tier, on every
+node, and a self-hosted node never sees a price.** The two surfaces where sybil
+pressure is real are `SharedEntitySpace` (T3) and `FactPlane` (T4). The public
+node may, behind a flag that ships off, answer those in the x402 shape with a
+facilitator URL read from the environment. The smaller move comes first: turn
+the enlistment gate's enforcement on for `SharedEntitySpace`. The ladder is
+built, it is measured, and it is a cost before money is.
+
+Two surfaces promise what no code does, and both are the kind of drift this
+project has learned to treat as lying. `Cost.credits` in `receipt.rs` is a
+`u64` that is always 0. The error text in the `compute_quota_exceeded` error text tells a throttled
+caller that high-score attesters get larger quotas, and nothing reads
+`AttesterStats::score()` to widen anything. Given "tiers are records of what
+was checked, never scores", the sentence goes, not the code.
+
+### 9c. The missing layers, each with the standard it should speak
+
+1. **Checkpoint interop.** The C2SP checkpoint is three lines (origin, tree
+   size in decimal, base64 root) plus signature lines of the form
+   `— <name> base64(4-byte key id || signature)`, key id being the first four
+   bytes of SHA-256 over `name || 0x0A || 0x01 || pubkey`. A C2SP witness takes
+   `POST /add-checkpoint` with an `old <size>` line, the consistency proof,
+   a blank line and the checkpoint, and answers 200 with cosignature lines,
+   409 with the size it holds, 422 when the proof fails. Our witness surface
+   is a JSON body over a private preimage. The wrinkle: our tree hashes with
+   blake3, and a C2SP witness checks consistency per RFC 6962 §2.1.2, which is
+   SHA-256, so an off-the-shelf witness could co-sign our signature and could
+   not check our proof. The fix is a second, SHA-256 tree over the same entry
+   bytes, one extra 32-byte hash per append. The payoff is every existing
+   witness in the Sigstore and Go ecosystems running against emem with no
+   code, and our job witnessing any of their logs.
+
+2. **SCITT receipts.** RFC 9943 (June 2026) is the model emem grew into
+   without the envelope: a Transparency Service, Signed Statements
+   (`COSE_Sign1`), Receipts (COSE, carrying a proof over a verifiable data
+   structure), a Registration Policy, an append-only log. A Relying Party
+   "MAY decide to verify only a single Receipt that is acceptable to them".
+   Adapter: `Accept: application/cose` on `/v1/log/inclusion` answers with a
+   COSE receipt per draft-ietf-cose-merkle-tree-proofs. Same tree caveat: the
+   registered algorithm is RFC 9162 over SHA-256, so this waits on item 1.
+   Payoff: a supply-chain verifier that has never heard of emem checks an emem
+   fact with the tooling it already runs.
+
+3. **Node identity.** A node today is a responder key. `_emem-node` is one
+   line of prose at §8d. The agent ladder already follows NIP-05's rule, which
+   is "identify, not verify": a DNS name maps to a key, redirects are refused,
+   private targets are refused. Do the same for nodes, and publish
+   `/.well-known/did.json` (`did:web:emem.dev`) listing the responder key and
+   the witness key. ATProto's DID documents separate a signing key from
+   rotation keys; emem's revocation is a doc comment in `key.rs`. One JSON
+   document, no new cryptography, and every DID and Verifiable Credential
+   verifier can resolve our keys.
+
+4. **Portability.** ATProto's promise is that an account migrates to a new
+   PDS "without the server's involvement", because a repository is
+   self-certifying: a signed commit names an MST root, the tree names records
+   by CID, and the whole thing exports as one CAR file. emem has
+   `memory_bundle` (the caller picks the triples), `/v1/log/entries`, per-fact
+   `GET`, and the air-gapped container. It has no "everything I wrote, with
+   its inclusion proofs and the head, as one file", and no import at all.
+   This is the feature that makes "voluntary, full privacy" a fact instead of
+   a sentence: an agent can leave a node with its memory and its proofs.
+   Build `GET /v1/agents/:pubkey/export` (CBOR: the STH, this attester's
+   entries, one inclusion proof each) and `emem import`, which re-verifies
+   every proof before it writes a byte.
+
+5. **Content addressing interop.** blake3 is multihash `0x1e` in the
+   multiformats table (draft). A CIDv1 for an emem fact is
+   `0x01 0x55 0x1e 0x20` followed by the 32-byte digest, base32 lower with
+   the `b` prefix, no rehashing. Expose it as `cid_v1` next to `fact_cid`.
+   IPFS, Filecoin and ATProto tooling then addresses our facts natively. The
+   `IpldConnector` stub stays unbound until an operator registers a
+   blockstore, as it says.
+
+6. **Replication with proof of custody.** `SegmentBackup` in `merkle_log.rs`
+   is a trait with zero implementors. The first one pulls a peer's
+   `/v1/log/entries` into a local segment. Then the witness job gains an
+   audit step: each tick, derive k indices from the co-signed root, fetch those
+   entries and their inclusion proofs from the peer, and check the leaf hash
+   and the proof against the root it just co-signed. That is WindowPoSt with
+   no ZK and no collateral. A peer that dropped bytes fails inside one tick,
+   and the failure is a signed head plus a failed fetch, which is evidence.
+
+7. **Peer discovery without a DHT.** Nostr puts `relays` in the NIP-05
+   record; ATProto puts the PDS endpoint in the DID document. Put `peers` and
+   `witnesses` (origins and node keys) into `/.well-known/emem.json`. Four
+   entries in a signed file. The DHT is refused until there are more nodes
+   than a file can hold.
+
+8. **C2PA on rendered pixels.** `cell_scene_rgb` and `scene_png` produce
+   images. A C2PA 2.2 manifest (a `c2pa.hash.data` hard binding, a
+   `c2pa.actions` `created` entry with `digitalSourceType`, `COSE_Sign1` over
+   an X.509 key on the C2PA trust list) lets that image carry provenance into
+   browsers and newsrooms that will never speak emem, with the `fact_cid` as
+   an assertion. C2PA has no hardware capture attestation; our OS-trace
+   substrate is the device half it lacks. Later.
+
+### 9d. Acceptors: where emem is accepted, where it is missing, where it drifted
+
+**Accepted.** The official MCP registry (`io.github.Vortx-AI/emem`, 2.3.0
+latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
+`emem`, `emem-airgap` and `emem-encode`. PyPI `ememdev` 2.3.0. npm
+`@vortxai/emem`. The Dify marketplace.
+
+**Missing.**
+
+- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.3.0 and its tests run
+  in CI. It is not on PyPI and not in `run-llama/llama_index`, which is where
+  LlamaHub lists from. Publish it, then open the upstream PR.
+- **n8n.** Not started, per `docs/registries/integration-targets.md`. n8n has
+  a community-node registry; Zapier needs their platform. n8n first.
+- **The C2SP and SCITT ecosystems.** Acceptors only once we speak the format
+  (9c.1, 9c.2). Every witness already running is a free auditor after that.
+- **A one-command node.** No compose file exists; there are twenty systemd
+  units. "Anyone can host" is priced by this. Write it for the small CPU
+  replica first, because that is what eudr.dev is.
+
+**Drifted.**
+
+- **Dify** is live at 2.2.0 while every other surface is 2.3.0. The plugin
+  source is not in this repository, so `version_surfaces.py` cannot see it and
+  it will drift on every release until it is vendored under `integrations/`
+  and added to the bump surfaces.
+- **The MCP registry** carries thirteen older versions, 0.0.2 through 2.1.0,
+  all `active`. A client that lists the server sees fourteen entries. Mark the
+  old ones deprecated from the publisher.
+- **The quota promise** in the `compute_quota_exceeded` error text (9b).
+- **The Claude connector directory** needs a re-submission; the compliance
+  surface is built (`docs/registries/anthropic-claude-connectors-submission.md`).
+
+### 9e. Order of work, with the core kept first
+
+Ranked by what each buys the four-node network per unit of change. Nothing
+below touches the fact plane, the token scheme, or the preimages.
+
+1. **Audit sampling in the witness job.** Python, small. "Co-signed" becomes
+   "co-signed and spot-checked".
+2. **Enforce the ladder on `SharedEntitySpace`.** A flag flip on a measured
+   gate. Before any 402.
+3. **`peers`, `witnesses` and `_emem-node` for the four nodes, plus
+   `did:web`.** Rust, small, one deploy.
+4. **Remove the quota promise; drop or wire `Cost.credits`.** Same deploy.
+5. **`cid_v1`.** Same deploy.
+6. **A compose file for a CPU replica and the first `SegmentBackup`
+   implementor.** Medium. This is what brings eudr.dev up.
+7. **Namespace export and import.** Medium to large. The portability keystone.
+8. **C2SP checkpoint and `add-checkpoint`, with the SHA-256 shadow tree.**
+   Medium. Then the SCITT receipt on top of it.
+9. **Publish the LlamaIndex tool and open the upstream PR; vendor Dify;
+   deprecate the old registry versions.** Owner work, hours.
+10. **x402 on T3 and T4 writes, flag off.** A decision before a line of code.
+11. **C2PA on rendered scenes.** Later.
+
+Still refused: a token, a chain, consensus, a DHT at this size, and the word
+"trustless".
+
+References, all read on 2026-09-02:
+x402 <https://www.x402.org/> and <https://github.com/coinbase/x402>;
+AP2 <https://ap2-protocol.org/>;
+RFC 9943 <https://datatracker.ietf.org/doc/rfc9943/>;
+COSE receipts <https://datatracker.ietf.org/doc/draft-ietf-cose-merkle-tree-proofs/>;
+C2SP <https://c2sp.org/tlog-checkpoint>, <https://c2sp.org/tlog-witness>, <https://c2sp.org/signed-note>;
+AT Protocol <https://atproto.com/guides/overview>, <https://atproto.com/specs/repository>;
+NIP-05 <https://github.com/nostr-protocol/nips/blob/master/05.md>;
+C2PA 2.2 <https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html>;
+Helium PoC <https://github.com/novalabsxyz/devdocs/blob/master/blockchain/proof-of-coverage.md>;
+Filecoin PoSt <https://spec.filecoin.io/algorithms/pos/post/>;
+The Graph glossary <https://thegraph.com/docs/en/resources/glossary/>;
+multicodec table <https://github.com/multiformats/multicodec/blob/master/table.csv>;
+MCP registry <https://registry.modelcontextprotocol.io/v0/servers?search=emem>.
