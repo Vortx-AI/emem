@@ -1016,6 +1016,11 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/a2a/tasks/:id", get(get_a2a_task))
         .route("/v1/a2a/tasks/:id/cancel", post(post_a2a_task_cancel))
         .route("/.well-known/mcp.json", get(well_known_mcp))
+        // Node identity as a did:web document, and the organisation vouching
+        // document the enlistment ladder fetches from OTHER domains. A node
+        // that asks peers to publish one publishes its own. federation.md §9c.
+        .route("/.well-known/did.json", get(well_known_did))
+        .route("/.well-known/emem-agents.json", get(well_known_emem_agents))
         .route(
             "/.well-known/openai-apps-challenge",
             get(serve_apps_challenge),
@@ -7897,6 +7902,345 @@ mod operator_attestation_tag {
     pub const REGISTRY_CID: u8 = 8;
 }
 
+/// Base58 with the Bitcoin alphabet, the encoding Multikey and did:key use.
+/// Twenty lines beat a dependency for one 34-byte value.
+fn base58btc(bytes: &[u8]) -> String {
+    const ALPHABET: &[u8; 58] = b"123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+    let zeros = bytes.iter().take_while(|b| **b == 0).count();
+    let mut digits: Vec<u8> = Vec::with_capacity(bytes.len() * 138 / 100 + 1);
+    for &b in bytes {
+        let mut carry = b as u32;
+        for d in digits.iter_mut() {
+            carry += (*d as u32) << 8;
+            *d = (carry % 58) as u8;
+            carry /= 58;
+        }
+        while carry > 0 {
+            digits.push((carry % 58) as u8);
+            carry /= 58;
+        }
+    }
+    let mut out = String::with_capacity(zeros + digits.len());
+    out.extend(std::iter::repeat_n('1', zeros));
+    out.extend(digits.iter().rev().map(|d| ALPHABET[*d as usize] as char));
+    out
+}
+
+/// Multikey form of an Ed25519 public key: the `ed25519-pub` multicodec
+/// (varint `0xed 0x01`), the 32 key bytes, base58btc, `z` multibase prefix.
+/// The same key every STH and receipt is already signed with, in the form
+/// every DID and Verifiable Credential verifier reads.
+fn ed25519_multikey(pk: &[u8; 32]) -> String {
+    let mut raw = Vec::with_capacity(34);
+    raw.extend_from_slice(&[0xed, 0x01]);
+    raw.extend_from_slice(pk);
+    format!("z{}", base58btc(&raw))
+}
+
+/// CIDv1 of a 32-byte blake3 digest over raw bytes: `0x01` (version), `0x55`
+/// (raw), `0x1e` (blake3 in the multihash table), `0x20` (32 bytes), digest;
+/// multibase base32 lower with the `b` prefix. No rehashing: the digest emem
+/// signs, in the form IPFS, Filecoin and ATProto tooling addresses.
+fn cid_v1_raw_blake3(digest: &[u8; 32]) -> String {
+    let mut raw = Vec::with_capacity(36);
+    raw.extend_from_slice(&[0x01, 0x55, 0x1e, 0x20]);
+    raw.extend_from_slice(digest);
+    format!(
+        "b{}",
+        data_encoding::BASE32_NOPAD
+            .encode(&raw)
+            .to_ascii_lowercase()
+    )
+}
+
+/// `cid_v1` for a base32 fact cid, or None when it is not a full 32-byte
+/// digest: entity and bundle anchors are truncated and get no CIDv1, which
+/// is the point of the token-family distinction, not a gap in it.
+fn cid_v1_from_b32(cid_b32: &str) -> Option<String> {
+    let raw = data_encoding::BASE32_NOPAD
+        .decode(cid_b32.to_ascii_uppercase().as_bytes())
+        .ok()?;
+    let digest: [u8; 32] = raw.try_into().ok()?;
+    Some(cid_v1_raw_blake3(&digest))
+}
+
+/// The host a `did:web` names: the public origin without its scheme. A port
+/// is percent-encoded per the did:web method; the common case has none.
+fn did_web_host_of(origin: &str) -> String {
+    origin
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/')
+        .replace(':', "%3A")
+}
+
+/// The witness key this operator declares for the node, if any. It is the
+/// key `scripts/witness_peers.py` co-signs peers' heads with; publishing it
+/// here is what makes a co-signature attributable to a domain.
+fn declared_witness_pubkey_b32() -> Option<String> {
+    std::env::var("EMEM_WITNESS_PUBKEY_B32")
+        .ok()
+        .map(|v| v.trim().to_ascii_lowercase())
+        .filter(|v| {
+            v.len() == 52
+                && v.bytes()
+                    .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
+        })
+}
+
+/// Peers this node witnesses, from `EMEM_PEERS`: comma-separated origins.
+/// Voluntary and operator-declared; a peer is a node whose log this one
+/// co-signs, nothing more.
+fn declared_peers() -> Vec<String> {
+    std::env::var("EMEM_PEERS")
+        .ok()
+        .map(|v| {
+            v.split(',')
+                .map(|p| p.trim().trim_end_matches('/').to_string())
+                .filter(|p| !p.is_empty())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The did:web document for a node: the responder key that signs every STH
+/// and receipt, and the witness key when one is declared. `assertionMethod`
+/// is the responder (it asserts facts); `capabilityInvocation` is the
+/// witness (it invokes co-signing on peers). No new cryptography.
+fn did_document(host: &str, responder_pk: &[u8; 32], witness_pk: Option<&[u8; 32]>) -> JsonValue {
+    let did = format!("did:web:{host}");
+    let mut methods = vec![json!({
+        "id": format!("{did}#responder"),
+        "type": "Multikey",
+        "controller": did,
+        "publicKeyMultibase": ed25519_multikey(responder_pk),
+    })];
+    let mut invocation: Vec<String> = Vec::new();
+    if let Some(w) = witness_pk {
+        methods.push(json!({
+            "id": format!("{did}#witness"),
+            "type": "Multikey",
+            "controller": did,
+            "publicKeyMultibase": ed25519_multikey(w),
+        }));
+        invocation.push(format!("{did}#witness"));
+    }
+    json!({
+        "@context": ["https://www.w3.org/ns/did/v1", "https://w3id.org/security/multikey/v1"],
+        "id": did,
+        "verificationMethod": methods,
+        "assertionMethod": [format!("{did}#responder")],
+        "authentication": [format!("{did}#responder")],
+        "capabilityInvocation": invocation,
+        "service": [
+            {"id": format!("{did}#emem"), "type": "EmemResponder", "serviceEndpoint": format!("https://{host}/.well-known/emem.json")},
+            {"id": format!("{did}#log"), "type": "EmemTransparencyLog", "serviceEndpoint": format!("https://{host}/v1/log/sth")},
+            {"id": format!("{did}#mcp"), "type": "ModelContextProtocol", "serviceEndpoint": format!("https://{host}/mcp")},
+            {"id": format!("{did}#a2a"), "type": "AgentCard", "serviceEndpoint": format!("https://{host}/.well-known/agent-card.json")}
+        ]
+    })
+}
+
+fn decode_pubkey_b32(b32: &str) -> Option<[u8; 32]> {
+    let raw = data_encoding::BASE32_NOPAD
+        .decode(b32.to_ascii_uppercase().as_bytes())
+        .ok()?;
+    raw.try_into().ok()
+}
+
+/// `GET /.well-known/did.json`: `did:web:<public host>`. 404 with a reason
+/// when the node has no public origin, because a DID that names the wrong
+/// host is worse than none.
+async fn well_known_did(State(s): State<AppState>) -> Response {
+    let Some(origin) = public_origin() else {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "no did:web without a public host",
+                "fix": "set EMEM_PUBLIC_URL (or EMEM_TLS_DOMAINS) on the node"
+            })),
+        )
+            .into_response();
+    };
+    let host = did_web_host_of(&origin);
+    let responder_b32 = data_encoding::BASE32_NOPAD
+        .encode(&s.identity.pubkey.0)
+        .to_ascii_lowercase();
+    let Some(responder_pk) = decode_pubkey_b32(&responder_b32) else {
+        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+    };
+    let witness_pk = declared_witness_pubkey_b32().and_then(|b| decode_pubkey_b32(&b));
+    let doc = did_document(&host, &responder_pk, witness_pk.as_ref());
+    let mut resp = Json(doc).into_response();
+    let h = resp.headers_mut();
+    h.insert(
+        axum::http::header::CONTENT_TYPE,
+        HeaderValue::from_static("application/did+json"),
+    );
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=300"),
+    );
+    h.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    resp
+}
+
+/// `GET /.well-known/emem-agents.json`: the keys this operator vouches for,
+/// from `config/emem-agents.json` (override with `EMEM_AGENTS_WELL_KNOWN`).
+/// The enlistment ladder fetches this document from OTHER domains to move a
+/// key to T4; this responder publishes its own. Public keys only, no
+/// secrets; a missing file serves an empty list. Served without redirects
+/// and with `Access-Control-Allow-Origin: *`, the two rules NIP-05 learned.
+async fn well_known_emem_agents() -> Response {
+    static DOC: std::sync::OnceLock<JsonValue> = std::sync::OnceLock::new();
+    let doc = DOC.get_or_init(|| {
+        let path = std::env::var("EMEM_AGENTS_WELL_KNOWN")
+            .unwrap_or_else(|_| "config/emem-agents.json".to_string());
+        std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_json::from_str::<JsonValue>(&t).ok())
+            .filter(|v| v.get("agents").map(|a| a.is_array()).unwrap_or(false))
+            .unwrap_or_else(|| json!({"agents": []}))
+    });
+    let mut resp = Json(doc.clone()).into_response();
+    let h = resp.headers_mut();
+    h.insert(
+        axum::http::header::CACHE_CONTROL,
+        HeaderValue::from_static("public, max-age=300"),
+    );
+    h.insert(
+        axum::http::header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    resp
+}
+
+/// The `federation` block of `/.well-known/emem.json`: what this node is,
+/// who it witnesses, and how witnessed its own head is. Never fails the
+/// document it sits in; an unreadable witness store reads as `null`.
+async fn federation_json(s: &AppState, responder_b32: &str) -> JsonValue {
+    let did = public_origin().map(|o| format!("did:web:{}", did_web_host_of(&o)));
+    let witnesses = match witness_rows(s, None).await {
+        Ok((current, rows)) => {
+            let distinct: std::collections::BTreeSet<&str> = rows
+                .iter()
+                .filter_map(|w| w["witness_pubkey_b32"].as_str())
+                .collect();
+            let freshest = rows
+                .iter()
+                .filter_map(|w| w["entries_behind_current"].as_u64())
+                .min();
+            json!({
+                "current_tree_size": current,
+                "cosignatures": rows.len(),
+                "distinct_witnesses": distinct.len(),
+                "freshest_witness_entries_behind": freshest,
+                "head_is_witnessed": freshest == Some(0),
+                "url": "/v1/log/witnesses",
+            })
+        }
+        Err(_) => JsonValue::Null,
+    };
+    json!({
+        "node": {
+            "did": did,
+            "did_document_url": "/.well-known/did.json",
+            "responder_pubkey_b32": responder_b32,
+            "witness_pubkey_b32": declared_witness_pubkey_b32(),
+            "dns": {
+                "label": "_emem-node",
+                "txt": format!("v=emem1; k={responder_b32}"),
+                "checked_by": "peers, never this node about itself",
+            },
+        },
+        "peers": declared_peers(),
+        "peers_note": "operator-declared origins this node witnesses (EMEM_PEERS). Joining is voluntary; a peer is a node whose log this one co-signs, nothing more.",
+        "witnesses": witnesses,
+        "witness_protocol": {
+            "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
+            "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}",
+            "job": "scripts/witness_peers.py, deploy/systemd/emem-witness.timer",
+        },
+        "vouching_url": "/.well-known/emem-agents.json",
+        "design": "/docs/federation.html",
+    })
+}
+
+#[cfg(test)]
+mod federation_identity_tests {
+    use super::*;
+
+    #[test]
+    fn base58btc_matches_the_reference_vectors() {
+        assert_eq!(base58btc(b"Hello World!"), "2NEpo7TZRRrLZSi2U");
+        assert_eq!(base58btc(&[0, 0, 1]), "112");
+        assert_eq!(base58btc(&[]), "");
+    }
+
+    #[test]
+    fn multikey_of_the_rfc8032_test_key() {
+        // RFC 8032 §7.1 test 1 public key; expected value computed with an
+        // independent big-integer base58 outside this crate.
+        let pk: [u8; 32] = data_encoding::HEXLOWER
+            .decode(b"d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(
+            ed25519_multikey(&pk),
+            "z6MktwupdmLXVVqTzCw4i46r4uGyosGXRnR3XjN4Zq7oMMsw"
+        );
+    }
+
+    #[test]
+    fn cid_v1_is_the_multiformats_encoding_of_the_same_digest() {
+        let digest: [u8; 32] = core::array::from_fn(|i| i as u8);
+        // Computed outside this crate: base32 lower of 01 55 1e 20 || 0..31.
+        assert_eq!(
+            cid_v1_raw_blake3(&digest),
+            "bafkr4iaaaebagbafaydqqcikbmga2dqpcaireeyuculbogazdinryhi6d4"
+        );
+        let b32 = data_encoding::BASE32_NOPAD
+            .encode(&digest)
+            .to_ascii_lowercase();
+        assert_eq!(
+            cid_v1_from_b32(&b32).as_deref(),
+            Some("bafkr4iaaaebagbafaydqqcikbmga2dqpcaireeyuculbogazdinryhi6d4")
+        );
+        // A truncated (entity/bundle) anchor gets no CIDv1.
+        assert_eq!(cid_v1_from_b32(&b32[..26]), None);
+    }
+
+    #[test]
+    fn did_document_names_the_host_and_both_keys() {
+        let r = [7u8; 32];
+        let w = [9u8; 32];
+        let d = did_document("emem.dev", &r, Some(&w));
+        assert_eq!(d["id"], "did:web:emem.dev");
+        assert_eq!(d["verificationMethod"].as_array().unwrap().len(), 2);
+        assert_eq!(
+            d["verificationMethod"][0]["id"],
+            "did:web:emem.dev#responder"
+        );
+        assert_eq!(
+            d["verificationMethod"][1]["publicKeyMultibase"],
+            ed25519_multikey(&w)
+        );
+        assert_eq!(d["capabilityInvocation"][0], "did:web:emem.dev#witness");
+        let d1 = did_document("node.example%3A8443", &r, None);
+        assert_eq!(d1["verificationMethod"].as_array().unwrap().len(), 1);
+        assert!(d1["capabilityInvocation"].as_array().unwrap().is_empty());
+        assert_eq!(did_web_host_of("https://emem.dev/"), "emem.dev");
+        assert_eq!(
+            did_web_host_of("https://node.example:8443"),
+            "node.example%3A8443"
+        );
+    }
+}
+
 async fn well_known(State(s): State<AppState>) -> Response {
     // Operator attestation: a signed liveness claim binding the running
     // binary's provenance (git commit, build timestamp, BLAKE3 hash of
@@ -8017,6 +8361,7 @@ async fn well_known(State(s): State<AppState>) -> Response {
             "device_platforms_cid": emem_core::manifest_cid(&*emem_core::device_platforms::DEFAULT).ok(),
             "trace_encodings_cid": emem_core::manifest_cid(&*emem_core::trace_encodings::DEFAULT).ok(),
         },
+        "federation": federation_json(&s, &pubkey_b32).await,
         "responder": {
             "pubkey_b32": pubkey_b32,
             "key_epoch": s.identity.epoch.0,
@@ -10950,7 +11295,7 @@ fn errors_payload() -> JsonValue {
         ("compute_timeout",              "derivation function exceeded EMEM_TIMEOUT_SECS",
          "Submit smaller inputs, or run the computation client-side and attest the derivative directly."),
         ("compute_quota_exceeded",       "function call hit per-attester quota",
-         "Throttle, or request quota increase via /v1/contributors leaderboard (high-score attesters get larger quotas)."),
+         "Throttle and retry inside the window published at /v1/limits; the quota is per key and per day."),
         ("rate_limited",                 "per-IP rate limit hit",
          "Backoff per the `Retry-After` header, which this responder sets to 1. The bucket refills continuously (600 req/min sustained, 120 burst), so a short sleep is the right response, not a minute. Operators tune via EMEM_RATE_LIMIT_RPS / EMEM_RATE_LIMIT_BURST."),
         ("cache_error",                  "responder's hot cache (sled) had an internal error",
@@ -13418,6 +13763,7 @@ fn boring_view(
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
                 "fact_cid":              fact_cid,
+                "cid_v1":                fact_cid.and_then(cid_v1_from_b32),
                 // The citation, assembled. Callers used to build
                 // `emem:fact:{cell64}:{fact_cid}` themselves from the two
                 // fields above; a hand-built token with one wrong character
@@ -13464,6 +13810,7 @@ fn boring_view(
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
                 "cell64":                cell64,
                 "fact_cid":              fact_cid,
+                "cid_v1":                fact_cid.and_then(cid_v1_from_b32),
                 // An Absence is citable too, and this is the case where it
                 // matters most: "we looked and there is nothing there" is a
                 // signed answer, while a materializer that timed out or was
@@ -14710,6 +15057,7 @@ async fn boring_recall_aggregated(
                 "value": val_json,
                 "kind":  kind_str,
                 "fact_cid": e.fact_cid,
+                "cid_v1": e.fact_cid.as_deref().and_then(cid_v1_from_b32),
                 // The citation, pre-assembled, exactly as `/v1/recall` emits
                 // it. Every boring endpoint (soil, water, forest, weather,
                 // air, lst, ndvi) returned a `fact_cid` and no token until
@@ -20426,6 +20774,33 @@ async fn get_log_inclusion(
     let snap = translog_snapshot(&s).await?;
     let leaves = &snap.leaves[..];
     let n = leaves.len();
+    // Refuse what this route does not read. The first witness job passed a
+    // `tree_size` this route silently ignored, and every proof it got back
+    // was against a head it had not pinned. An argument that is not read
+    // must be an error, never a no-op.
+    const KNOWN: [&str; 3] = ["leaf_index", "entry_hash", "tree_size"];
+    if let Some(bad) = q.keys().find(|k| !KNOWN.contains(&k.as_str())) {
+        return Err(translog_bad_arg(format!(
+            "unknown argument `{bad}`; this route reads leaf_index, entry_hash, tree_size"
+        )));
+    }
+    // Prove against a historical head when asked. RFC 6962's get-proof-by-hash
+    // takes the tree size, and a witness checking a leaf against the head it
+    // pinned needs the path in THAT tree, not in whatever grew since.
+    let size: usize = match q.get("tree_size") {
+        Some(v) => {
+            let k: usize = v
+                .parse()
+                .map_err(|_| translog_bad_arg("tree_size must be a non-negative integer"))?;
+            if k == 0 || k > n {
+                return Err(translog_bad_arg(format!(
+                    "tree_size must be in 1..={n}, the current head"
+                )));
+            }
+            k
+        }
+        None => n,
+    };
     let m: usize = if let Some(li) = q.get("leaf_index") {
         li.parse()
             .map_err(|_| translog_bad_arg("leaf_index must be a non-negative integer"))?
@@ -20438,16 +20813,19 @@ async fn get_log_inclusion(
         }
         let mut want = [0u8; 32];
         want.copy_from_slice(&raw);
-        leaves.iter().position(|l| *l == want).ok_or_else(|| {
-            ApiError(
-                StatusCode::NOT_FOUND,
-                ErrorBody {
-                    code: ErrorCode::CidNotFound,
-                    message: format!("no log entry with entry_hash={eh}"),
-                    details: None,
-                },
-            )
-        })?
+        leaves[..size]
+            .iter()
+            .position(|l| *l == want)
+            .ok_or_else(|| {
+                ApiError(
+                    StatusCode::NOT_FOUND,
+                    ErrorBody {
+                        code: ErrorCode::CidNotFound,
+                        message: format!("no log entry with entry_hash={eh}"),
+                        details: None,
+                    },
+                )
+            })?
     } else {
         return Err(translog_bad_arg(
             "pass leaf_index=<i> or entry_hash=<base32 of the record's blake3>",
@@ -20458,24 +20836,41 @@ async fn get_log_inclusion(
     // the floor under both proof routes; every root it computes is already a
     // node in the tree. Falls back to the fold if the tree is unavailable, so
     // a missing cache degrades to slow rather than to wrong.
-    let path = match translog_with_tree(|t| t.inclusion_path(m, n)).await {
+    let path = match translog_with_tree(|t| t.inclusion_path(m, size)).await {
         Some(p) => p,
-        None => emem_attest::translog::inclusion_path(m, leaves).ok_or_else(|| {
-            translog_bad_arg(format!("leaf_index {m} out of range for tree_size {n}"))
+        None => emem_attest::translog::inclusion_path(m, &leaves[..size]).ok_or_else(|| {
+            translog_bad_arg(format!("leaf_index {m} out of range for tree_size {size}"))
         })?,
     };
     let leaf = emem_attest::translog::leaf_hash(&leaves[m]);
     // The current head, which the snapshot already holds: sign_sth would
     // re-fold all n leaves to arrive at the same 32 bytes.
     let sth = sign_sth_over(&s, n as u64, snap.root);
+    // The root the path reaches. At the head it is the signed STH root; at a
+    // historical size it is unsigned, and the caller binds it to a signed
+    // head the way a witness does: a consistency proof from that size.
+    let root = if size == n {
+        snap.root
+    } else {
+        match translog_prefix_root(size).await {
+            Some(r) => r,
+            None => emem_attest::translog::merkle_tree_hash(&leaves[..size]),
+        }
+    };
     Ok(Json(json!({
         "leaf_index": m,
-        "tree_size": n,
+        "tree_size": size,
+        "root_b32": b32_lower(&root),
+        "root_is": if size == n {
+            "sth.root, the signed current head"
+        } else {
+            "the unsigned root at tree_size; bind it to a signed head with /v1/log/consistency?first=<tree_size>&second=<sth.tree_size>"
+        },
         "entry_hash_b32": b32_lower(&leaves[m]),
         "leaf_hash_b32": b32_lower(&leaf),
         "audit_path_b32": path.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
         "sth": sth,
-        "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, sth.root)"
+        "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, root)"
     })))
 }
 
@@ -20727,15 +21122,15 @@ async fn post_log_witness(
 /// `GET /v1/log/witnesses`, list recorded witness co-signatures. Optional
 /// `?tree_size=<n>` filters to one size. Each entry is independently
 /// verifiable offline (ed25519 over the witness preimage).
-async fn get_log_witnesses(
-    State(s): State<AppState>,
-    Query(q): Query<std::collections::HashMap<String, String>>,
-) -> Result<Json<JsonValue>, ApiError> {
-    // Only the SIZE is wanted here, and this used to buy it by reading every
-    // leaf off disk: measured at 3.06 s against 0.03 s for /v1/log/entries.
-    // The cached head answers the same question for free once warm.
-    let current = translog_head_cached(&s).await?.0 as usize;
-    let db = memory_db(&s)?;
+/// Every co-signature in the witness store as a row, with how far behind the
+/// current head each one is. Shared by `/v1/log/witnesses` and the federation
+/// block of `/.well-known/emem.json`, so the two can never disagree.
+async fn witness_rows(
+    s: &AppState,
+    size_filter: Option<u64>,
+) -> Result<(usize, Vec<JsonValue>), ApiError> {
+    let current = translog_head_cached(s).await?.0 as usize;
+    let db = memory_db(s)?;
     let tree = db.open_tree(TREE_LOG_WITNESSES).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -20746,13 +21141,6 @@ async fn get_log_witnesses(
             },
         )
     })?;
-    let size_filter: Option<u64> = match q.get("tree_size") {
-        Some(v) => Some(
-            v.parse()
-                .map_err(|_| translog_bad_arg("tree_size must be a non-negative integer"))?,
-        ),
-        None => None,
-    };
     let mut out: Vec<JsonValue> = Vec::new();
     for kv in tree.iter() {
         let (k, v) = match kv {
@@ -20789,12 +21177,6 @@ async fn get_log_witnesses(
             "cosigned_at": body.get("cosigned_at"),
             "entries_behind_current": entries_behind,
             "covers_current_head": entries_behind == 0,
-            "attests": format!(
-                "the first {ts} entries only; {entries_behind} entries have been appended since, \
-                 which this signature says nothing about. Call \
-                 /v1/log/consistency?first={ts}&second={current} to check the rest is an \
-                 append-only extension of what this witness saw."
-            ),
         }));
     }
     // Deterministic order: by tree_size then witness pubkey.
@@ -20808,13 +21190,46 @@ async fn get_log_witnesses(
                 .cmp(b["witness_pubkey_b32"].as_str().unwrap_or(""))
         })
     });
+    Ok((current, out))
+}
+
+async fn get_log_witnesses(
+    State(s): State<AppState>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<JsonValue>, ApiError> {
+    // Only the SIZE is wanted here, and this used to buy it by reading every
+    // leaf off disk: measured at 3.06 s against 0.03 s for /v1/log/entries.
+    // The cached head answers the same question for free once warm.
+    let size_filter: Option<u64> = match q.get("tree_size") {
+        Some(v) => Some(
+            v.parse()
+                .map_err(|_| translog_bad_arg("tree_size must be a non-negative integer"))?,
+        ),
+        None => None,
+    };
+    // Newest first, capped. A witness job that runs every fifteen minutes
+    // adds ~100 rows a day per witness; unbounded, this list crossed the
+    // MCP tool-result cap within a day of the first one running, and the
+    // truncation nulled the string fields the tool's own schema requires.
+    let limit: usize = match q.get("limit") {
+        Some(v) => v
+            .parse::<usize>()
+            .map_err(|_| translog_bad_arg("limit must be a positive integer"))?
+            .clamp(1, 200),
+        None => 20,
+    };
+    let (current, all) = witness_rows(&s, size_filter).await?;
+    let total = all.len();
+    let out: Vec<JsonValue> = all.into_iter().rev().take(limit).collect();
     let freshest_gap = out
         .iter()
         .filter_map(|w| w["entries_behind_current"].as_u64())
         .min();
     Ok(Json(json!({
         "current_tree_size": current,
-        "count": out.len(),
+        "count": total,
+        "returned": out.len(),
+        "limit": limit,
         // The headline a reader needs before reading `count`. `count: 1`
         // alongside a live tree implies current independent oversight; if
         // the only co-signature is hundreds of thousands of entries back,
@@ -28947,7 +29362,9 @@ fn openapi_spec() -> JsonValue {
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
             "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
             "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
-            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under the current signed tree head. Pass leaf_index=<i> or entry_hash=<base32 of the record blake3>. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}}],"responses":{"200":json_ok}}},
+            "/.well-known/did.json": {"get":{"summary":"node identity: the did:web document naming this node's responder key (the key under every STH and receipt) and, when the operator declares one, its witness key, both as Multikey. 404 with the fix when the node has no public host.","operationId":"emem_well_known_did","tags":["identity"],"responses":{"200":json_ok,"404":json_not_found}}},
+            "/.well-known/emem-agents.json": {"get":{"summary":"organisation vouching: the keys this operator vouches for, from config/emem-agents.json. The enlistment ladder on OTHER nodes fetches this document to move a key to T4_affiliated; a node that asks peers to publish one publishes its own. Public keys only, no redirects, CORS open.","operationId":"emem_well_known_agents","tags":["identity"],"responses":{"200":json_ok}}},
+            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i> or entry_hash=<base32 of the record blake3>; add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/log/consistency":   {"get":{"summary":"transparency log: RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current tree size). Verify offline with translog::verify_consistency against the first_root you pinned; a mismatch means the log rewrote history.","operationId":"emem_log_consistency","parameters":[{"name":"first","in":"query","required":true,"schema":{"type":"integer","minimum":1}},{"name":"second","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
             "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head, independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness.","operationId":"emem_log_witnesses","responses":{"200":json_ok}}},
             "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
@@ -57843,7 +58260,22 @@ fn enrich_facts_with_cid(v: &mut JsonValue) {
                     map.insert("value_verbatim".into(), JsonValue::String(vv));
                 }
             }
-            if map.contains_key("fact_cid") {
+            // A fact that arrived with its cid (the typed recall response)
+            // still gets the CIDv1 form; only the token is skipped, since
+            // the struct already set it.
+            if let Some(existing) = map
+                .get("fact_cid")
+                .and_then(|c| c.as_str())
+                .map(str::to_string)
+            {
+                if !map.contains_key("cid_v1") {
+                    map.insert(
+                        "cid_v1".into(),
+                        cid_v1_from_b32(&existing)
+                            .map(JsonValue::String)
+                            .unwrap_or(JsonValue::Null),
+                    );
+                }
                 continue;
             }
             let Some(cid) = cids.get(i).cloned() else {
@@ -57855,6 +58287,12 @@ fn enrich_facts_with_cid(v: &mut JsonValue) {
                 .map(|s| s.to_string())
                 .or_else(|| cell_for_token.clone());
             map.insert("fact_cid".into(), JsonValue::String(cid.clone()));
+            map.insert(
+                "cid_v1".into(),
+                cid_v1_from_b32(&cid)
+                    .map(JsonValue::String)
+                    .unwrap_or(JsonValue::Null),
+            );
             if let Some(cell) = cell {
                 map.insert(
                     "memory_token".into(),

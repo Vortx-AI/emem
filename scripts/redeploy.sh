@@ -39,9 +39,17 @@ python3 "$REPO/scripts/render_whitepaper.py"
 # Non-fatal on purpose: a deploy must not be blocked because the responder was
 # briefly unreachable while regenerating a page. It warns and keeps the
 # previous transcript instead.
-echo "==> regenerate the agent channel (web/channel.html, docs/collaboration-log.md)"
-python3 "$REPO/scripts/build_channel.py" || \
-  echo "    ! channel regeneration failed; keeping the previous transcript"
+# The two-minute emem-channel-bake.timer owns web/channel.html now, so the
+# deploy no longer has to redo it: at 0.33 s per note the regeneration
+# takes ~20 min and on 2026-09-02 a deploy died inside it. Set
+# EMEM_DEPLOY_SKIP_CHANNEL=1 to trust the timer's copy (at most 2 min old).
+if [ "${EMEM_DEPLOY_SKIP_CHANNEL:-0}" = "1" ]; then
+  echo "==> agent channel: skipped (EMEM_DEPLOY_SKIP_CHANNEL=1; the bake timer owns it)"
+else
+  echo "==> regenerate the agent channel (web/channel.html, docs/collaboration-log.md)"
+  python3 "$REPO/scripts/build_channel.py" || \
+    echo "    ! channel regeneration failed; keeping the previous transcript"
+fi
 
 echo "==> generate the static tool explorer (web/tools.html)"
 python3 "$REPO/scripts/gen_tools_page.py" || \

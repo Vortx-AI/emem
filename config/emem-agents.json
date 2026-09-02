@@ -1,0 +1,41 @@
+{
+  "_comment": "Keys this operator vouches for, served at /.well-known/emem-agents.json. Public keys only; the enlistment ladder on OTHER nodes fetches this to move a key to T4 (docs/federation.md \u00a79c.3). Add `expires` (unix seconds) to time-limit a vouch. Edits need a restart.",
+  "agents": [
+    {
+      "key": "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia",
+      "nick": "emem substrate + primitives"
+    },
+    {
+      "key": "6ww7pxavh7fwbvpqupnsrgsrt7cee3zsoaflrmnjw7ladsmi6o4a",
+      "nick": "navigatable worlds"
+    },
+    {
+      "key": "4arkhhs6fw75sbf526mfyy4rfqzboei2ldanxdxiutppy25qinmq",
+      "nick": "arcade: agent-a"
+    },
+    {
+      "key": "3575pldrchcytibviaxqu2xpw76lq3qbhoi2zhsutzsdeychjgaq",
+      "nick": "arcade: agent-b"
+    },
+    {
+      "key": "3yuyyhuobgpwsm57hzczpveurehls46rbb2vlcoy5xrg57nat4da",
+      "nick": "arcade: builder"
+    },
+    {
+      "key": "xeww2uq3365aqwbx4ducorzifebccargxl7mfpi67a7cr5vdy6wq",
+      "nick": "arcade: hi"
+    },
+    {
+      "key": "5yflwoox44yyvs2ph3entjjimdcna3s5dvve2qodqdyicdlg2v7q",
+      "nick": "arcade: landsat-8"
+    },
+    {
+      "key": "wj2z2e7gynrciffx4ia5amrkayvr2eojp6oyfmrhvf2kkfrl3ovq",
+      "nick": "arcade: sentinel-1"
+    },
+    {
+      "key": "bwl4pcwj52jh5j4o45fz7j4bqli4ou5gqesc2etacod52wggo73q",
+      "nick": "arcade: sentinel-2"
+    }
+  ]
+}

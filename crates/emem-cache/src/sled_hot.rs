@@ -176,10 +176,80 @@ pub struct SledHotCache {
     facts: sled::Tree,
 }
 
+/// `EMEM_SLED_CACHE_BYTES`: the sled pagecache budget for the hot store.
+/// Default 8 GiB; clamped to [256 MiB, 64 GiB]. Bytes, or a number with a
+/// `g`/`m` suffix.
+fn sled_cache_bytes() -> u64 {
+    const MIN: u64 = 256 << 20;
+    const MAX: u64 = 64 << 30;
+    const DEFAULT: u64 = 8 << 30;
+    std::env::var("EMEM_SLED_CACHE_BYTES")
+        .ok()
+        .and_then(|v| parse_bytes(v.trim()))
+        .unwrap_or(DEFAULT)
+        .clamp(MIN, MAX)
+}
+
+/// `EMEM_SLED_FLUSH_MS`: how often sled's flusher makes the log stable.
+/// Default 200 ms (sled's own is 500); clamped to [50, 5000].
+fn sled_flush_every_ms() -> u64 {
+    std::env::var("EMEM_SLED_FLUSH_MS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(200)
+        .clamp(50, 5000)
+}
+
+fn parse_bytes(v: &str) -> Option<u64> {
+    let lower = v.to_ascii_lowercase();
+    let (num, mult) = if let Some(n) = lower.strip_suffix('g') {
+        (n, 1u64 << 30)
+    } else if let Some(n) = lower.strip_suffix('m') {
+        (n, 1u64 << 20)
+    } else {
+        (lower.as_str(), 1u64)
+    };
+    num.trim().parse::<u64>().ok()?.checked_mul(mult)
+}
+
+#[cfg(test)]
+mod sled_config_tests {
+    use super::*;
+
+    #[test]
+    fn byte_sizes_parse_with_and_without_suffixes() {
+        assert_eq!(parse_bytes("8g"), Some(8 << 30));
+        assert_eq!(parse_bytes("512M"), Some(512 << 20));
+        assert_eq!(parse_bytes("1048576"), Some(1 << 20));
+        assert_eq!(parse_bytes("lots"), None);
+    }
+
+    #[test]
+    fn defaults_and_clamps_hold_without_env() {
+        // The env is process-global; these assert only the unset path and
+        // the clamp arithmetic, never a value set by another test.
+        assert!(sled_cache_bytes() >= 256 << 20 && sled_cache_bytes() <= 64 << 30);
+        assert!((50..=5000).contains(&sled_flush_every_ms()));
+    }
+}
+
 impl SledHotCache {
     /// Open or create a sled DB at the given path.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, CacheError> {
-        let db = sled::open(path)?;
+        // Not `sled::open` with its defaults. A 1 GiB pagecache in front of
+        // a store that reached 58 GB meant most reads pulled pages from the
+        // log, and in sled 0.34 a pull of a page written inside the current
+        // flush window waits for that buffer's fsync (`PageCache::get` ->
+        // `make_stable`). The wedge snapshots of 2026-09-02 (var/wedge)
+        // show 147 threads, twelve of them tokio core workers, parked in
+        // exactly that wait while the disk sat idle: eleven watchdog
+        // restarts in one day. A larger cache cuts the pulls; a shorter
+        // flush interval shortens the wait. Both are operator knobs.
+        let db = sled::Config::new()
+            .path(path)
+            .cache_capacity(sled_cache_bytes())
+            .flush_every_ms(Some(sled_flush_every_ms()))
+            .open()?;
         let idx = db.open_tree(TREE_INDEX)?;
         let facts = db.open_tree(TREE_FACTS)?;
         Ok(Self { db, idx, facts })

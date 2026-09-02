@@ -151,7 +151,7 @@ is.
 | 1 | LangChain docs row for `emem-langmem` | A | package published; PR unfiled |
 | 2 | `llama-index-tools-emem` | B | not started |
 | 3 | n8n node `n8n-nodes-emem` | C | not started; needs MIT + Action publish |
-| 4 | Dify plugin | C | not started; PRIVACY.md covers most of it |
+| 4 | Dify plugin | C | live on the marketplace at 2.2.0 while every other surface is 2.3.0; the source lives outside this repo, so the version gate cannot see it. Vendor it under `integrations/dify/` and add it to the bump surfaces |
 
 Everything above ships from this repository. None of it needs a third party to
 say yes first, which is the opposite of the listing campaign, where every item

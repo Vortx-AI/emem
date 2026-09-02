@@ -68,6 +68,13 @@ warm. First build ~5 min; incremental ~30 s.
 | `EMEM_TLS_CONTACT`      | unset              | required when TLS is on |
 | `EMEM_TLS_STAGING`      | `0`                | use Let's Encrypt staging |
 | `EMEM_AUTO_MATERIALIZE` | `1`                | empty recall fetches upstream + signs |
+| `EMEM_PUBLIC_URL`       | unset              | public origin; names the `did:web` at `/.well-known/did.json` and the `Canonical:` field |
+| `EMEM_PEERS`            | unset              | comma-separated origins this node witnesses (federation §8, `scripts/witness_peers.py`) |
+| `EMEM_WITNESS_PUBKEY_B32` | unset            | the key your witness job co-signs with; published in `did.json` so a co-signature is attributable |
+| `EMEM_AGENTS_WELL_KNOWN` | `config/emem-agents.json` | keys this operator vouches for, served at `/.well-known/emem-agents.json` |
+| `EMEM_ENLISTMENT_ENFORCE` | `0`              | `1` refuses shared-entity-space writes below T3; `0` accepts and reports the tier (shadow) |
+| `EMEM_SLED_CACHE_BYTES` | `8g`               | sled pagecache for the hot store (`cache.sled`); `256m`..`64g`. sled's own default is 1 GiB, which wedged a 58 GB store |
+| `EMEM_SLED_FLUSH_MS`    | `200`              | how often sled makes its log stable; 50..5000. Reads of pages written inside this window wait for it |
 | `EMEM_TOPIC_BACKEND`    | `ort`              | or `model2vec` (pure-Rust fallback) |
 | `EMEM_GALILEO_VARIANT`  | `base`             | Galileo encoder variant |
 | `EMEM_HUNT_CONCURRENCY` | `32`               | parallel cell sweeps for `/v1/hunt` |

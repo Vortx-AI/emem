@@ -92,6 +92,42 @@ def node_hash(left: bytes, right: bytes) -> bytes:
     return blake3.blake3(b"\x01" + left + right).digest()
 
 
+_B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def multikey(pk: bytes) -> str:
+    """Multikey form of an ed25519 key: z + base58btc(0xed 0x01 || key)."""
+    raw = b"\xed\x01" + pk
+    n = int.from_bytes(raw, "big")
+    out = ""
+    while n:
+        n, r = divmod(n, 58)
+        out = _B58[r] + out
+    return "z" + "1" * (len(raw) - len(raw.lstrip(b"\0"))) + out
+
+
+def identify_signer(origin: str, rpk: bytes) -> str:
+    """Does the domain say the key that signed its head is its responder key?
+
+    Reads `<origin>/.well-known/did.json` and looks for the key among the
+    document's verificationMethod entries. Three outcomes, each its own
+    word, because "unchecked" and "wrong" must never share a line: a node
+    without a DID document is identified by nothing (older build, or a
+    self-hosted node that chose not to); a document that lists a different
+    key is a finding. This identifies the signer; it does not verify the
+    operator, exactly NIP-05's distinction.
+    """
+    try:
+        doc = get(f"{origin}/.well-known/did.json")
+    except Exception as ex:
+        return "unchecked" if "404" in str(ex) else f"unchecked ({str(ex)[:30]})"
+    want = multikey(rpk)
+    keys = [m.get("publicKeyMultibase") for m in doc.get("verificationMethod", []) if isinstance(m, dict)]
+    if want in keys:
+        return f"identified as {doc.get('id')}"
+    return f"MISMATCH: {doc.get('id')} publishes {len(keys)} key(s) and the signer is not one of them"
+
+
 def verify_sth(sth: dict):
     """Verify a served STH against the key it names. Returns (size, root, responder_pk)
     or raises ValueError. The key is checked by the caller against the head's key."""
@@ -288,6 +324,17 @@ def main() -> int:
             failures.append(origin)
             continue
 
+        # Rule 1b: is this the key the domain says it is? A mismatch is a
+        # finding and not co-signed; a missing document is reported as
+        # unchecked and does not block, because the proof of growth below
+        # is what a witness is for.
+        who = identify_signer(origin, rpk)
+        if who.startswith("MISMATCH"):
+            print(f"  {origin}: STH verifies, but the signer is not the node's declared key. {who}. "
+                  f"Refusing to co-sign. This is a finding.")
+            failures.append(origin)
+            continue
+
         # Rule 2 and 3: prove growth from what we last saw.
         prev = state.get(origin)
         if prev and prev["tree_size"] < size:
@@ -327,7 +374,7 @@ def main() -> int:
                                                     (3, my_pk)])
         wsig = bytes(sk.sign(wmsg).signature)
         if a.dry_run:
-            print(f"  {origin}: verified, {growth}; dry run, not submitted")
+            print(f"  {origin}: verified, {growth}; signer {who}; dry run, not submitted")
         else:
             code, resp = post(f"{origin}/v1/log/witness", {
                 "tree_size": size, "root_b32": sth["root_b32"],
@@ -336,7 +383,7 @@ def main() -> int:
                 print(f"  {origin}: witness POST -> {code}: {json.dumps(resp)[:120]}")
                 failures.append(origin)
                 continue
-            print(f"  {origin}: co-signed tree_size {size}; {growth}")
+            print(f"  {origin}: co-signed tree_size {size}; {growth}; signer {who}")
             witnessed += 1
         # Spot-check custody. A co-signature says the head is consistent with
         # what this witness saw before; it says nothing about whether the

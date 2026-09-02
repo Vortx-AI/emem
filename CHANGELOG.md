@@ -7,6 +7,21 @@ to verify.
 
 ## [Unreleased]
 
+### Added
+- `GET /.well-known/did.json`: the node's `did:web` document, responder key and declared witness key (`EMEM_WITNESS_PUBKEY_B32`) as Multikey. No new cryptography; the keys every DID verifier can now resolve.
+- `GET /.well-known/emem-agents.json`: the organisation vouching document, served from `config/emem-agents.json`. The enlistment ladder fetched this from other domains and this responder never published its own.
+- `federation` block in `/.well-known/emem.json`: node DID, declared peers (`EMEM_PEERS`), the `_emem-node` TXT a peer should find, and how witnessed the head is, computed from the same rows as `/v1/log/witnesses`.
+- `cid_v1` beside `fact_cid` on recall facts: the same blake3 digest as a CIDv1 (raw, multihash `0x1e`), so IPFS, Filecoin and ATProto tooling address a fact without rehashing. Truncated entity and bundle anchors get none.
+- `tree_size` on `/v1/log/inclusion`: prove against a historical head; `root_b32` and `root_is` say what the path reaches.
+- `scripts/witness_peers.py` + `deploy/systemd/emem-witness.timer`: the witness job. Verifies each peer's STH, proves growth from the pinned head, co-signs, spot-checks four sampled leaves for custody, and identifies the signer through the peer's `did.json`.
+
+### Changed
+- `/v1/log/witnesses` returns the newest `limit` rows (default 20, max 200) with `count` (all rows) and `returned`, and rows no longer repeat a 250-character sentence each; unbounded, the list crossed the MCP tool-result cap within a day of a witness running every fifteen minutes, and the truncation nulled fields the tool's own schema requires.
+- `/v1/log/inclusion` refuses unknown query arguments with 400. It used to ignore them, and a witness that passed `tree_size` got proofs against a head it had not pinned.
+- The compute-quota error no longer promises larger quotas to high-score attesters; no code granted them.
+- The hot store opens sled with an 8 GiB pagecache and a 200 ms flush interval (`EMEM_SLED_CACHE_BYTES`, `EMEM_SLED_FLUSH_MS`) instead of sled's defaults. With a 1 GiB cache in front of 58 GB, reads pulled pages from the log and waited on the fsync of the current buffer; the wedge snapshots of 2026-09-02 show 147 threads in that wait and the watchdog restarting the server eleven times in a day.
+
+
 ## [2.3.0] - 2026-08-26
 
 The release that stopped a place question being answered from orbit while a

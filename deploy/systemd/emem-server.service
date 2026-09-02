@@ -29,6 +29,19 @@ Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
 # (os error 13)` and the unit crash-loops; if you see that in
 # `journalctl --user -u emem-server -n 5`, run scripts/redeploy.sh.
 Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
+
+# Operator identity (served in /.well-known/emem.json, agents.txt, security.txt).
+# Set these to YOUR organisation on another node; quote values with spaces.
+Environment="EMEM_OPERATOR_NAME=Vortx AI Private Limited"
+Environment=EMEM_OPERATOR_VENDOR=Vortx-AI
+Environment=EMEM_OPERATOR_COUNTRY=India
+Environment=EMEM_OPERATOR_URL=https://vortx.ai
+# The enlistment ladder refuses shared-entity-space writes below T3 when this is 1.
+# Vouch for your own agents in config/emem-agents.json first, or you lock them out.
+Environment=EMEM_ENLISTMENT_ENFORCE=1
+# The key your witness job (deploy/systemd/emem-witness.service) co-signs with;
+# published in /.well-known/did.json so a co-signature is attributable to this domain.
+Environment=EMEM_WITNESS_PUBKEY_B32=k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia
 Environment=EMEM_TLS_BIND=0.0.0.0:443
 # These two are THIS OPERATOR'S, and the code no longer supplies either.
 # EMEM_TLS_CONTACT has no default: it is the ACME account of record for every

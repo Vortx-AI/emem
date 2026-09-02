@@ -486,7 +486,7 @@ The three jobs a token does, and what does them here:
 
 | Token job | Web3 mechanism | emem today | Gap |
 |---|---|---|---|
-| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes/min per attester; DNS TXT and org vouching | the ladder gate runs in **shadow mode by default** (`enlistment_enforcing()`); nothing scales cost with reach |
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes/min per attester; DNS TXT and org vouching | the code default is shadow; emem.dev enforces (`EMEM_ENLISTMENT_ENFORCE=1` in its unit), and on 2026-09-02 every key on the roster read T1, its own agents included, so the shared entity space was closed to everyone |
 | Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, the Nostr relay and ATProto PDS model | none needed at four nodes |
 | Settlement | on-chain transfer | none | a payment rail without a token exists (9b) |
 
@@ -511,9 +511,11 @@ The decision this document records: **reads are free at every tier, on every
 node, and a self-hosted node never sees a price.** The two surfaces where sybil
 pressure is real are `SharedEntitySpace` (T3) and `FactPlane` (T4). The public
 node may, behind a flag that ships off, answer those in the x402 shape with a
-facilitator URL read from the environment. The smaller move comes first: turn
-the enlistment gate's enforcement on for `SharedEntitySpace`. The ladder is
-built, it is measured, and it is a cost before money is.
+facilitator URL read from the environment. The smaller move came first, and had already been made: emem.dev
+enforces the ladder. What that revealed on 2026-09-02 is that enforcement
+without vouching closes the shared space to the operator's own agents, all
+of which read T1. The vouching document (9c.3) is what makes enforcement a
+policy instead of a lock-out.
 
 Two surfaces promise what no code does, and both are the kind of drift this
 project has learned to treat as lying. `Cost.credits` in `receipt.rs` is a
@@ -558,7 +560,7 @@ was checked, never scores", the sentence goes, not the code.
    the witness key. ATProto's DID documents separate a signing key from
    rotation keys; emem's revocation is a doc comment in `key.rs`. One JSON
    document, no new cryptography, and every DID and Verifiable Credential
-   verifier can resolve our keys.
+   verifier can resolve our keys. Shipped 2026-09-02; the witness job now reads a peer's `did.json` and refuses to co-sign a head whose signer the domain does not list, reported as a finding, while a peer without the document is reported as unchecked and still witnessed.
 
 4. **Portability.** ATProto's promise is that an account migrates to a new
    PDS "without the server's involvement", because a repository is
@@ -646,12 +648,19 @@ below touches the fact plane, the token scheme, or the preimages.
 
 1. **Audit sampling in the witness job.** Done 2026-09-02, `audit_custody` in
    `scripts/witness_peers.py`. "Co-signed" is now "co-signed and spot-checked".
-2. **Enforce the ladder on `SharedEntitySpace`.** A flag flip on a measured
-   gate. Before any 402.
+2. **Enforce the ladder on `SharedEntitySpace`.** Already on at emem.dev
+   (`EMEM_ENLISTMENT_ENFORCE=1`), which is why 3 below is a correctness fix:
+   until the node vouched for its own agents, none of them could write there.
 3. **`peers`, `witnesses` and `_emem-node` for the four nodes, plus
-   `did:web`.** Rust, small, one deploy.
-4. **Remove the quota promise; drop or wire `Cost.credits`.** Same deploy.
-5. **`cid_v1`.** Same deploy.
+   `did:web`.** Done 2026-09-02: `/.well-known/did.json`, the `federation`
+   block in `/.well-known/emem.json`, and `/.well-known/emem-agents.json`
+   (this node vouching for its own agents, which the ladder had only ever
+   fetched from other domains). The `_emem-node` TXT is the owner's DNS
+   entry; the well-known file says what a peer should find there.
+4. **Remove the quota promise; drop or wire `Cost.credits`.** The promise is
+   gone. `Cost.credits` stays as a zero until a receipt-schema change is
+   worth its own deploy.
+5. **`cid_v1`.** Done, beside `fact_cid` on recall facts.
 6. **A compose file for a CPU replica and the first `SegmentBackup`
    implementor.** Medium. This is what brings eudr.dev up.
 7. **Namespace export and import.** Medium to large. The portability keystone.
