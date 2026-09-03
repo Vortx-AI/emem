@@ -155,6 +155,9 @@ def rebuild_relevant(commit_range: str) -> tuple[list[str], list[str]]:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default="https://emem.dev")
+    ap.add_argument("--expect", default=None,
+                    help="the commit the build started from; compared instead of HEAD, "
+                         "which can move during a long build")
     ap.add_argument("--require-head", action="store_true",
                     help="fail unless the responder is serving exactly HEAD")
     args = ap.parse_args()
@@ -174,7 +177,7 @@ def main() -> int:
     built_at = att.get("build_timestamp") or "?"
     live_blake3 = att.get("binary_blake3") or ""
 
-    head = git("rev-parse", "HEAD")
+    head = a.expect or git("rev-parse", "HEAD")
     print(f"  responder {args.origin}")
     print(f"    serving commit  {live_commit[:12] or '(none published)'}   built {built_at}")
     print(f"    this tree HEAD  {head[:12]}")

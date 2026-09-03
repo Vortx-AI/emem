@@ -57185,13 +57185,30 @@ fn clip_title(t: &str, max: usize) -> String {
     format!("{}\u{2026}", kept.trim_end())
 }
 
+/// Same scan as the roster, same fix: the by_attester walk runs on the blocking pool, never on a runtime worker (see get_agents).
 async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    let body = tokio::task::spawn_blocking(move || get_channel_geo_sync(s))
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("get_channel_geo task did not finish: {e}"),
+                    details: None,
+                },
+            )
+        })??;
+    Ok(Json(body))
+}
+
+fn get_channel_geo_sync(s: AppState) -> Result<JsonValue, ApiError> {
     static CACHE: std::sync::Mutex<Option<(std::time::Instant, JsonValue)>> =
         std::sync::Mutex::new(None);
     if let Ok(g) = CACHE.lock() {
         if let Some((at, v)) = g.as_ref() {
             if at.elapsed() < std::time::Duration::from_secs(45) {
-                return Ok(Json(v.clone()));
+                return Ok(v.clone());
             }
         }
     }
@@ -57305,7 +57322,7 @@ async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, A
     if let Ok(mut g) = CACHE.lock() {
         *g = Some((std::time::Instant::now(), out.clone()));
     }
-    Ok(Json(out))
+    Ok(out)
 }
 
 async fn get_inbox(
@@ -57321,10 +57338,27 @@ async fn get_inbox(
     post_inbox(State(s), EmemJson(req)).await
 }
 
+/// Two full by_attester scans per call; on the blocking pool for the same reason as get_agents.
 async fn post_inbox(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<InboxReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    let body = tokio::task::spawn_blocking(move || post_inbox_sync(s, req))
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("post_inbox task did not finish: {e}"),
+                    details: None,
+                },
+            )
+        })??;
+    Ok(Json(body))
+}
+
+fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
     let want = req.to.trim().to_lowercase();
     if want.len() < 8 {
         return Err(ApiError(
@@ -57437,13 +57471,13 @@ async fn post_inbox(
     let total_matched = items.len();
     let messages: Vec<JsonValue> = items.into_iter().take(limit).map(|(_, v)| v).collect();
 
-    Ok(Json(json!({
+    Ok(json!({
         "to": want8,
         "count": messages.len(),
         "total_matched": total_matched,
         "messages": messages,
         "note": "Messages addressed to you, parsed from each note's heading (`X -> you`, `cc you`, or a channel broadcast). Read each by its `path` with memory_view, and verify authorship offline before acting on it. This is a poll; `/v1/memory/sse?path_prefix=/memories/by_attester/` streams the same writes live.",
-    })))
+    }))
 }
 
 async fn post_ask(

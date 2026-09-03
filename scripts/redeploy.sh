@@ -14,6 +14,10 @@
 # Run from anywhere; uses absolute paths.
 
 set -euo pipefail
+# The commit this deploy builds. Recorded now, because HEAD can move during a
+# five-minute build (a workflow-only commit did on 2026-09-03) and comparing the
+# served commit against a moved HEAD reported a rollback that never happened.
+BUILT_COMMIT="$(git -C "$(dirname "$0")/.." rev-parse HEAD 2>/dev/null || git rev-parse HEAD)"
 
 REPO=/home/ubuntu/emem
 BIN="$REPO/target/release/emem-server"
@@ -138,7 +142,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
       # only check here that can tell "the deploy worked" from "something is
       # serving".
       echo "==> verifying the responder is serving THIS commit"
-      if python3 "$REPO/scripts/deploy_drift.py" --require-head; then
+      if python3 "$REPO/scripts/deploy_drift.py" --require-head --expect "$BUILT_COMMIT"; then
         # And that the BYTES a visitor receives are the bytes in this tree.
         # deploy_drift compares a self-reported commit, which is a claim about
         # provenance. The state that slipped past it today was simpler than any
