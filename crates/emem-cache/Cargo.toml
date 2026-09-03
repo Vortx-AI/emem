@@ -17,6 +17,9 @@ tracing = { workspace = true }
 tokio = { workspace = true }
 blake3 = { workspace = true }
 data-encoding = { workspace = true }
+redb = "4.2.0"
+fs2 = "0.4"
+tempfile = "3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt"] }

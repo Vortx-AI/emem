@@ -81,8 +81,12 @@ pub enum CacheError {
     /// Disk I/O.
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
+    /// The redb fact store.
+    #[error("backend: {0}")]
+    Backend(String),
 }
 
+pub mod redb_facts;
 pub mod sled_hot;
 pub use sled_hot::SledHotCache;
 pub use sled_hot::{fact_canonical_cbor, fact_cid_of};

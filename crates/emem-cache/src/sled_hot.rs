@@ -14,8 +14,11 @@ use blake3::Hasher;
 use data_encoding::BASE32_NOPAD;
 use std::sync::OnceLock;
 
+use crate::redb_facts::{FactRow, IndexRows, RedbFacts};
 use crate::{Cache, CacheError, CanonicalKey, Tier};
 use emem_fact::{Fact, FactCid};
+use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 
 const TREE_INDEX: &str = "emem.canonical_index";
 const TREE_FACTS: &str = "emem.facts";
@@ -80,76 +83,111 @@ where
 /// Prefix-scan the canonical index for one cell, decoding keys inline.
 /// Shared by the synchronous [`SledHotCache::scan_cell`] and its
 /// off-thread async sibling so both stay byte-identical.
-fn scan_cell_tree(
-    idx: &sled::Tree,
-    cell: &str,
-    tslot: Option<u64>,
-) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-    let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
+/// `EMEM_HOT_BACKEND`: `redb` (default) keeps the fact index and bodies in a
+/// redb file beside the sled directory; `sled` is the old layout, and the
+/// rollback. The sled `Db` stays open either way: the memory trees and the
+/// side indexes live there.
+fn redb_enabled() -> bool {
+    std::env::var("EMEM_HOT_BACKEND")
+        .map(|v| v.trim() != "sled")
+        .unwrap_or(true)
+}
+
+fn redb_path_for(sled_path: &std::path::Path) -> std::path::PathBuf {
+    sled_path
+        .parent()
+        .map(|d| d.join("facts.redb"))
+        .unwrap_or_else(|| std::path::PathBuf::from("facts.redb"))
+}
+
+/// Where fact rows come from: redb when present, the sled index for rows the
+/// backfill has not copied yet, never sled once the backfill is done.
+#[derive(Clone)]
+struct Source {
+    idx: sled::Tree,
+    redb: Option<Arc<RedbFacts>>,
+}
+
+impl Source {
+    fn consult_sled(&self) -> bool {
+        self.redb
+            .as_ref()
+            .map(|r| !r.backfill_done())
+            .unwrap_or(true)
+    }
+
+    /// Index rows under `prefix`, key order, at most `limit`; the second
+    /// value is how many rows were seen, for the limit-hit warning.
+    fn rows_with_prefix(
+        &self,
+        prefix: &[u8],
+        limit: usize,
+    ) -> Result<(IndexRows, usize), CacheError> {
+        let mut merged: BTreeMap<Vec<u8>, Vec<u8>> = BTreeMap::new();
+        let mut seen = 0usize;
+        if self.consult_sled() {
+            for kv in self.idx.scan_prefix(prefix) {
+                seen += 1;
+                if merged.len() >= limit {
+                    break;
+                }
+                let (k, v) = kv?;
+                merged.insert(k.to_vec(), v.to_vec());
+            }
+        }
+        if let Some(r) = &self.redb {
+            let (rows, rseen) = r.scan_prefix(prefix, limit)?;
+            seen = seen.max(rseen);
+            for (k, v) in rows {
+                merged.insert(k, v); // redb is authoritative for a key in both
+            }
+        }
+        let out: IndexRows = merged.into_iter().take(limit).collect();
+        Ok((out, seen))
+    }
+}
+
+fn scan_limit() -> usize {
+    std::env::var("EMEM_SCAN_CELL_LIMIT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000);
+        .unwrap_or(10_000)
+}
+
+fn cell_prefix(cell: &str) -> Vec<u8> {
     let mut prefix = Vec::with_capacity(cell.len() + 1);
     prefix.extend_from_slice(cell.as_bytes());
     prefix.push(SEP);
-    let mut out = Vec::new();
-    let mut seen = 0usize;
-    for kv in idx.scan_prefix(&prefix) {
-        seen += 1;
-        if out.len() >= limit {
-            tracing::warn!(
-                target: "emem::storage",
-                scan_cell = %cell,
-                scan_limit = limit,
-                scan_seen = seen,
-                "scan_cell_limit_hit",
-            );
-            break;
-        }
-        let (k, v) = kv?;
-        let key = decode_key(&k).map_err(CacheError::Cbor)?;
-        if let Some(t) = tslot {
-            if key.tslot != t {
-                continue;
-            }
-        }
-        let cid_s = std::str::from_utf8(&v)
-            .map_err(|e| CacheError::Cbor(e.to_string()))?
-            .to_string();
-        out.push((key, FactCid::new(cid_s)));
-    }
-    Ok(out)
+    prefix
 }
 
-/// Shared body of [`SledHotCache::scan_cell_with_tslot_bound`].
+fn scan_cell_tree(
+    src: &Source,
+    cell: &str,
+    tslot: Option<u64>,
+) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
+    scan_cell_bound_tree(src, cell, tslot, None)
+}
+
 fn scan_cell_bound_tree(
-    idx: &sled::Tree,
+    src: &Source,
     cell: &str,
     tslot_eq: Option<u64>,
     tslot_le: Option<u64>,
 ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-    let limit: usize = std::env::var("EMEM_SCAN_CELL_LIMIT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(10_000);
-    let mut prefix = Vec::with_capacity(cell.len() + 1);
-    prefix.extend_from_slice(cell.as_bytes());
-    prefix.push(SEP);
-    let mut out = Vec::new();
-    let mut seen = 0usize;
-    for kv in idx.scan_prefix(&prefix) {
-        seen += 1;
-        if out.len() >= limit {
-            tracing::warn!(
-                target: "emem::storage",
-                scan_cell = %cell,
-                scan_limit = limit,
-                scan_seen = seen,
-                "scan_cell_limit_hit",
-            );
-            break;
-        }
-        let (k, v) = kv?;
+    let limit = scan_limit();
+    let (rows, seen) = src.rows_with_prefix(&cell_prefix(cell), limit)?;
+    if rows.len() >= limit && seen > limit {
+        tracing::warn!(
+            target: "emem::storage",
+            scan_cell = %cell,
+            scan_limit = limit,
+            scan_seen = seen,
+            "scan_cell_limit_hit",
+        );
+    }
+    let mut out = Vec::with_capacity(rows.len());
+    for (k, v) in rows {
         let key = decode_key(&k).map_err(CacheError::Cbor)?;
         if let Some(t) = tslot_eq {
             if key.tslot != t {
@@ -169,11 +207,220 @@ fn scan_cell_bound_tree(
     Ok(out)
 }
 
-/// Hot tier on top of sled.
+/// The whole index in key order: redb by pages (a fresh read transaction
+/// per page, so no guard outlives a page), then, while the backfill is
+/// still running, the sled rows redb does not have yet.
+fn index_iter(
+    src: Source,
+) -> Box<dyn Iterator<Item = Result<(CanonicalKey, FactCid), CacheError>> + Send> {
+    fn row(k: &[u8], v: &[u8]) -> Result<(CanonicalKey, FactCid), CacheError> {
+        let key = decode_key(k).map_err(CacheError::Cbor)?;
+        let cid_s = std::str::from_utf8(v)
+            .map_err(|e| CacheError::Cbor(e.to_string()))?
+            .to_string();
+        Ok((key, FactCid::new(cid_s)))
+    }
+    match src.redb.clone() {
+        None => Box::new(src.idx.iter().map(|kv| {
+            let (k, v) = kv?;
+            row(&k, &v)
+        })),
+        Some(r) => {
+            let pages = RedbIndexIter {
+                r: r.clone(),
+                after: None,
+                buf: VecDeque::new(),
+                exhausted: false,
+            };
+            if src.consult_sled() {
+                let r2 = r.clone();
+                let tail = src.idx.iter().filter_map(move |kv| match kv {
+                    Err(e) => Some(Err(CacheError::from(e))),
+                    Ok((k, v)) => match r2.contains_index(&k) {
+                        Ok(true) => None,
+                        Ok(false) => Some(row(&k, &v)),
+                        Err(e) => Some(Err(e)),
+                    },
+                });
+                Box::new(pages.chain(tail))
+            } else {
+                Box::new(pages)
+            }
+        }
+    }
+}
+
+struct RedbIndexIter {
+    r: Arc<RedbFacts>,
+    after: Option<Vec<u8>>,
+    buf: VecDeque<(Vec<u8>, Vec<u8>)>,
+    exhausted: bool,
+}
+
+impl Iterator for RedbIndexIter {
+    type Item = Result<(CanonicalKey, FactCid), CacheError>;
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.buf.is_empty() && !self.exhausted {
+            match self.r.index_page(self.after.as_deref(), 2048) {
+                Ok(page) => {
+                    if page.is_empty() {
+                        self.exhausted = true;
+                    } else {
+                        self.after = page.last().map(|(k, _)| k.clone());
+                        self.buf.extend(page);
+                    }
+                }
+                Err(e) => {
+                    self.exhausted = true;
+                    return Some(Err(e));
+                }
+            }
+        }
+        let (k, v) = self.buf.pop_front()?;
+        Some(decode_key(&k).map_err(CacheError::Cbor).and_then(|key| {
+            let cid_s = std::str::from_utf8(&v)
+                .map_err(|e| CacheError::Cbor(e.to_string()))?
+                .to_string();
+            Ok((key, FactCid::new(cid_s)))
+        }))
+    }
+}
+
+/// Copy the sled fact index and bodies into redb in the background: small
+/// batches, a pause between them, a free-disk guard, a resumable cursor, a
+/// durable commit every twenty batches. Rows already in redb (new writes)
+/// are skipped. When the sled index is exhausted the store is marked done
+/// and sled is never consulted for facts again.
+/// One backfill batch: up to `batch` sled index rows strictly after
+/// `cursor`, copied into redb unless already there. Returns (copied,
+/// skipped, last key seen); `None` for the last key means the sled index is
+/// exhausted. Non-durable commits; the caller syncs periodically.
+fn backfill_step(
+    r: &RedbFacts,
+    idx: &sled::Tree,
+    facts: &sled::Tree,
+    cursor: Option<&[u8]>,
+    batch: usize,
+) -> Result<(u64, u64, Option<Vec<u8>>), CacheError> {
+    let mut items = Vec::with_capacity(batch);
+    let (mut n, mut skip, mut last) = (0usize, 0u64, None);
+    let iter: Box<dyn Iterator<Item = sled::Result<(sled::IVec, sled::IVec)>>> = match cursor {
+        Some(c) => Box::new(idx.range(c.to_vec()..)),
+        None => Box::new(idx.iter()),
+    };
+    for kv in iter {
+        let (k, v) = kv?;
+        if let Some(c) = cursor {
+            if k.as_ref() == c {
+                continue;
+            }
+        }
+        n += 1;
+        last = Some(k.to_vec());
+        if r.contains_index(&k)? {
+            skip += 1;
+        } else if let Some(body) = facts.get(&v)? {
+            items.push((v.to_vec(), body.to_vec(), Some(k.to_vec())));
+        } else {
+            skip += 1;
+        }
+        if n >= batch {
+            break;
+        }
+    }
+    let n_copied = items.len() as u64;
+    if !items.is_empty() {
+        r.put_batch(&items, false)?;
+    }
+    if let Some(l) = &last {
+        r.set_backfill_cursor(l, false)?;
+    }
+    Ok((n_copied, skip, last))
+}
+
+fn spawn_backfill(r: Arc<RedbFacts>, idx: sled::Tree, facts: sled::Tree) {
+    let Ok(h) = tokio::runtime::Handle::try_current() else {
+        tracing::info!("hot backfill not started: no async runtime (CLI use)");
+        return;
+    };
+    h.spawn(async move {
+        let batch: usize = std::env::var("EMEM_HOT_BACKFILL_BATCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000)
+            .clamp(50, 20_000);
+        let pause = std::time::Duration::from_millis(
+            std::env::var("EMEM_HOT_BACKFILL_PAUSE_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(250)
+                .clamp(0, 60_000),
+        );
+        let min_free: u64 = std::env::var("EMEM_HOT_BACKFILL_MIN_FREE_BYTES")
+            .ok()
+            .and_then(|v| parse_bytes(v.trim()))
+            .unwrap_or(4 << 30);
+        let dir = r
+            .path()
+            .parent()
+            .map(|d| d.to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+        let mut cursor = r.backfill_cursor().ok().flatten();
+        let (mut batches, mut copied, mut skipped) = (0u64, 0u64, 0u64);
+        let t0 = std::time::Instant::now();
+        tracing::info!(resume_from = cursor.is_some(), "hot backfill started: sled facts -> redb");
+        loop {
+            if let Ok(free) = fs2::available_space(&dir) {
+                if free < min_free {
+                    tracing::warn!(free_bytes = free, min_free_bytes = min_free, "hot backfill paused: low disk");
+                    tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                    continue;
+                }
+            }
+            let (r2, idx2, facts2, cur) = (r.clone(), idx.clone(), facts.clone(), cursor.clone());
+            let step = off_thread(move || backfill_step(&r2, &idx2, &facts2, cur.as_deref(), batch)).await;
+            match step {
+                Ok((n_copied, n_skip, last)) => {
+                    copied += n_copied;
+                    skipped += n_skip;
+                    batches += 1;
+                    r.backfilled.store(copied, std::sync::atomic::Ordering::Relaxed);
+                    if last.is_none() {
+                        if let Err(e) = r.mark_backfill_done() {
+                            tracing::warn!(error = %e, "hot backfill: could not mark done; retrying");
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            continue;
+                        }
+                        tracing::info!(copied, skipped, batches, secs = t0.elapsed().as_secs(), redb_bytes = r.size_on_disk(),
+                            "hot backfill complete: sled is no longer consulted for facts");
+                        return;
+                    }
+                    cursor = last;
+                    if batches % 20 == 0 {
+                        if let Err(e) = r.sync() {
+                            tracing::warn!(error = %e, "hot backfill: durable commit failed");
+                        }
+                    }
+                    if batches % 200 == 0 {
+                        tracing::info!(copied, skipped, batches, secs = t0.elapsed().as_secs(), redb_bytes = r.size_on_disk(), "hot backfill progress");
+                    }
+                    tokio::time::sleep(pause).await;
+                }
+                Err(e) => {
+                    tracing::warn!(error = %e, "hot backfill step failed; retrying in 5 s");
+                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                }
+            }
+        }
+    });
+}
+
 pub struct SledHotCache {
     db: sled::Db,
     idx: sled::Tree,
     facts: sled::Tree,
+    redb: Option<Arc<RedbFacts>>,
+    _tmp: Option<tempfile::TempDir>,
 }
 
 /// `EMEM_SLED_CACHE_BYTES`: the sled pagecache budget for the hot store.
@@ -200,7 +447,7 @@ fn sled_flush_every_ms() -> u64 {
         .clamp(50, 5000)
 }
 
-fn parse_bytes(v: &str) -> Option<u64> {
+pub(crate) fn parse_bytes(v: &str) -> Option<u64> {
     let lower = v.to_ascii_lowercase();
     let (num, mult) = if let Some(n) = lower.strip_suffix('g') {
         (n, 1u64 << 30)
@@ -234,7 +481,6 @@ mod sled_config_tests {
 }
 
 impl SledHotCache {
-    /// Open or create a sled DB at the given path.
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, CacheError> {
         // Not `sled::open` with its defaults. A 1 GiB pagecache in front of
         // a store that reached 58 GB meant most reads pulled pages from the
@@ -245,6 +491,7 @@ impl SledHotCache {
         // exactly that wait while the disk sat idle: eleven watchdog
         // restarts in one day. A larger cache cuts the pulls; a shorter
         // flush interval shortens the wait. Both are operator knobs.
+        let path = path.as_ref();
         let db = sled::Config::new()
             .path(path)
             .cache_capacity(sled_cache_bytes())
@@ -252,7 +499,25 @@ impl SledHotCache {
             .open()?;
         let idx = db.open_tree(TREE_INDEX)?;
         let facts = db.open_tree(TREE_FACTS)?;
-        Ok(Self { db, idx, facts })
+        let redb = if redb_enabled() {
+            let rp = redb_path_for(path);
+            let r = Arc::new(RedbFacts::open(&rp)?);
+            tracing::info!(path = %rp.display(), backfill_done = r.backfill_done(), "hot facts on redb");
+            if !r.backfill_done() {
+                spawn_backfill(r.clone(), idx.clone(), facts.clone());
+            }
+            Some(r)
+        } else {
+            tracing::warn!("EMEM_HOT_BACKEND=sled: facts on sled 0.34, the layout that wedged");
+            None
+        };
+        Ok(Self {
+            db,
+            idx,
+            facts,
+            redb,
+            _tmp: None,
+        })
     }
 
     /// Open an in-memory (temporary) cache. Useful for tests and the
@@ -261,7 +526,28 @@ impl SledHotCache {
         let db = sled::Config::new().temporary(true).open()?;
         let idx = db.open_tree(TREE_INDEX)?;
         let facts = db.open_tree(TREE_FACTS)?;
-        Ok(Self { db, idx, facts })
+        let (redb, tmp) = if redb_enabled() {
+            let tmp = tempfile::tempdir()?;
+            let r = RedbFacts::open(tmp.path().join("facts.redb"))?;
+            r.mark_backfill_done()?; // nothing to copy from an empty sled
+            (Some(Arc::new(r)), Some(tmp))
+        } else {
+            (None, None)
+        };
+        Ok(Self {
+            db,
+            idx,
+            facts,
+            redb,
+            _tmp: tmp,
+        })
+    }
+
+    fn source(&self) -> Source {
+        Source {
+            idx: self.idx.clone(),
+            redb: self.redb.clone(),
+        }
     }
 
     /// Iterate every (canonical_key, fact_cid) in the index. Used by
@@ -269,96 +555,59 @@ impl SledHotCache {
     pub fn iter_index(
         &self,
     ) -> impl Iterator<Item = Result<(CanonicalKey, FactCid), CacheError>> + '_ {
-        self.idx.iter().map(|kv| {
-            let (k, v) = kv?;
-            let key = decode_key(&k).map_err(CacheError::Cbor)?;
-            let cid_s = std::str::from_utf8(&v)
-                .map_err(|e| CacheError::Cbor(e.to_string()))?
-                .to_string();
-            Ok((key, FactCid::new(cid_s)))
-        })
+        index_iter(self.source())
     }
 
     /// Prefix-scan the index by cell64 (and optional tslot equality filter).
     /// Caps iteration at `EMEM_SCAN_CELL_LIMIT` rows (default 10_000) so a
-    /// pathologically dense cell can't tie up a request thread. The cap is
-    /// well above any expected legitimate density (a single cell holds one
-    /// fact per (band, tslot)); hitting it indicates either an attack or a
-    /// schema mistake, both of which we want logged.
+    /// pathologically dense cell can't tie up a request thread.
     pub fn scan_cell(
         &self,
         cell: &str,
         tslot: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        scan_cell_tree(&self.idx, cell, tslot)
+        scan_cell_tree(&self.source(), cell, tslot)
     }
 
-    /// [`SledHotCache::scan_cell`] run on the blocking pool, bounded by the
-    /// global sled concurrency limit. This is the form the async recall
-    /// path must use: the scan is a blocking sled operation and belongs off
-    /// the reactor. Byte-identical result to the synchronous method.
     pub async fn scan_cell_off(
         &self,
         cell: &str,
         tslot: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        let idx = self.idx.clone();
+        let src = self.source();
         let cell = cell.to_string();
-        off_thread(move || scan_cell_tree(&idx, &cell, tslot)).await
+        off_thread(move || scan_cell_tree(&src, &cell, tslot)).await
     }
 
-    /// Bi-temporal sibling of [`SledHotCache::scan_cell`]. Pre-filters
-    /// on `tslot` directly from the canonical key (decoded inline as
-    /// the iterator walks — no CBOR body load required), then on
-    /// `valid_time` (also a key-level predicate). This keeps the cold
-    /// path index-bound when the caller only constrains valid-time —
-    /// fact bodies are loaded only for entries that survived the
-    /// valid-time filter, and only when the caller additionally pinned
-    /// transaction-time. Returns the (key, fact_cid) pairs that survive
-    /// both predicates; transaction-time filtering is left to the
-    /// caller because resolving `signed_at` requires the body and the
-    /// storage layer is the canonical loader.
     pub fn scan_cell_with_tslot_bound(
         &self,
         cell: &str,
         tslot_eq: Option<u64>,
         tslot_le: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        scan_cell_bound_tree(&self.idx, cell, tslot_eq, tslot_le)
+        scan_cell_bound_tree(&self.source(), cell, tslot_eq, tslot_le)
     }
 
-    /// [`SledHotCache::scan_cell_with_tslot_bound`] on the blocking pool,
-    /// bounded by the global sled concurrency limit — the form the async
-    /// as-of recall path must use.
     pub async fn scan_cell_with_tslot_bound_off(
         &self,
         cell: &str,
         tslot_eq: Option<u64>,
         tslot_le: Option<u64>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        let idx = self.idx.clone();
+        let src = self.source();
         let cell = cell.to_string();
-        off_thread(move || scan_cell_bound_tree(&idx, &cell, tslot_eq, tslot_le)).await
+        off_thread(move || scan_cell_bound_tree(&src, &cell, tslot_eq, tslot_le)).await
     }
 
-    /// Collect up to `limit` index entries on the blocking pool, bounded by
-    /// the global sled concurrency limit. A full-corpus `iter_index` is a
-    /// heavy blocking scan (find_similar, lance hydration); this keeps it
-    /// off the async reactor. Same decoding as [`SledHotCache::iter_index`].
     pub async fn collect_index_off(
         &self,
         limit: Option<usize>,
     ) -> Result<Vec<(CanonicalKey, FactCid)>, CacheError> {
-        let idx = self.idx.clone();
+        let src = self.source();
         off_thread(move || {
             let mut out = Vec::new();
-            for kv in idx.iter() {
-                let (k, v) = kv?;
-                let key = decode_key(&k).map_err(CacheError::Cbor)?;
-                let cid_s = std::str::from_utf8(&v)
-                    .map_err(|e| CacheError::Cbor(e.to_string()))?
-                    .to_string();
-                out.push((key, FactCid::new(cid_s)));
+            for item in index_iter(src) {
+                out.push(item?);
                 if let Some(n) = limit {
                     if out.len() >= n {
                         break;
@@ -370,29 +619,34 @@ impl SledHotCache {
         .await
     }
 
-    /// Approximate item count across the index tree.
     pub fn len(&self) -> usize {
-        self.idx.len()
+        match &self.redb {
+            Some(r) if r.backfill_done() => r.index_len().unwrap_or(0) as usize,
+            Some(r) => self.idx.len().max(r.index_len().unwrap_or(0) as usize),
+            None => self.idx.len(),
+        }
     }
-    /// Whether the index has zero entries.
+
     pub fn is_empty(&self) -> bool {
-        self.idx.is_empty()
+        self.len() == 0
     }
-    /// Total bytes across both trees on disk (sled estimate).
-    /// Borrow the underlying sled DB so callers (e.g., the attester
-    /// reputation tracker) can open additional named trees alongside the
-    /// canonical index + facts trees without re-opening the file.
+
+    /// The sled `Db`: the memory trees, the attester registry, the trace
+    /// gate and the side indexes still live there.
     pub fn db(&self) -> &sled::Db {
         &self.db
     }
 
+    /// The redb fact store, when the backend is redb.
+    pub fn redb(&self) -> Option<&Arc<RedbFacts>> {
+        self.redb.as_ref()
+    }
+
     pub fn size_on_disk(&self) -> Result<u64, CacheError> {
-        Ok(self.db.size_on_disk()?)
+        Ok(self.db.size_on_disk()? + self.redb.as_ref().map(|r| r.size_on_disk()).unwrap_or(0))
     }
 }
 
-/// Compute the deterministic FactCid for a fact: base32-nopad-lowercase of
-/// blake3(canonical_cbor(fact)). Always 52 chars (256 bits).
 pub fn fact_cid_of(fact: &Fact) -> Result<FactCid, CacheError> {
     let cbor = fact_to_cbor(fact)?;
     let mut h = Hasher::new();
@@ -481,19 +735,22 @@ fn fact_canonical_key(fact: &Fact) -> Option<CanonicalKey> {
 
 #[async_trait]
 impl Cache for SledHotCache {
-    // Every method below runs its sled work through `off_thread`: the sled
-    // reads/writes are blocking and must not execute on the async workers
-    // (see `sled_blocking_sem`). The sled `Tree` handles clone cheaply
-    // (Arc-backed) and the inputs are copied into the closure so it owns
-    // everything and stays `'static`.
     async fn lookup_many(&self, keys: &[CanonicalKey]) -> Result<Vec<Option<FactCid>>, CacheError> {
-        let idx = self.idx.clone();
+        let src = self.source();
         let keys = keys.to_vec();
         off_thread(move || {
             let mut out = Vec::with_capacity(keys.len());
             for k in &keys {
                 let kb = encode_key(k);
-                match idx.get(&kb)? {
+                let hit: Option<Vec<u8>> = match &src.redb {
+                    Some(r) => match r.lookup(&kb)? {
+                        Some(v) => Some(v),
+                        None if src.consult_sled() => src.idx.get(&kb)?.map(|v| v.to_vec()),
+                        None => None,
+                    },
+                    None => src.idx.get(&kb)?.map(|v| v.to_vec()),
+                };
+                match hit {
                     Some(v) => {
                         let s = std::str::from_utf8(&v)
                             .map_err(|e| CacheError::Cbor(e.to_string()))?
@@ -510,11 +767,22 @@ impl Cache for SledHotCache {
 
     async fn get_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, CacheError> {
         let facts = self.facts.clone();
+        let src = self.source();
         let cids = cids.to_vec();
         off_thread(move || {
             let mut out = Vec::with_capacity(cids.len());
             for cid in &cids {
-                match facts.get(cid.as_str().as_bytes())? {
+                let body: Option<Vec<u8>> = match &src.redb {
+                    Some(r) => match r.get_fact(cid.as_str().as_bytes())? {
+                        Some(b) => Some(b),
+                        None if src.consult_sled() => {
+                            facts.get(cid.as_str().as_bytes())?.map(|b| b.to_vec())
+                        }
+                        None => None,
+                    },
+                    None => facts.get(cid.as_str().as_bytes())?.map(|b| b.to_vec()),
+                };
+                match body {
                     Some(b) => out.push(Some(cbor_to_fact(&b)?)),
                     None => out.push(None),
                 }
@@ -527,12 +795,11 @@ impl Cache for SledHotCache {
     async fn put_many(&self, facts: &[Fact]) -> Result<Vec<FactCid>, CacheError> {
         let facts_tree = self.facts.clone();
         let idx = self.idx.clone();
+        let redb = self.redb.clone();
         let facts_in = facts.to_vec();
-        // The inserts are blocking sled writes → off the reactor. sled
-        // buffers them in its log; the durability fsync is the async
-        // `flush_async` below, which already yields.
         let out = off_thread(move || {
             let mut out = Vec::with_capacity(facts_in.len());
+            let mut items: Vec<FactRow> = Vec::with_capacity(facts_in.len());
             for f in &facts_in {
                 let cbor = fact_to_cbor(f)?;
                 let mut h = Hasher::new();
@@ -540,36 +807,48 @@ impl Cache for SledHotCache {
                 let hash = h.finalize();
                 let cid_s = BASE32_NOPAD.encode(hash.as_bytes()).to_lowercase();
                 let cid = FactCid::new(cid_s);
-                facts_tree.insert(cid.as_str().as_bytes(), cbor)?;
-                if let Some(k) = fact_canonical_key(f) {
-                    idx.insert(encode_key(&k), cid.as_str().as_bytes())?;
+                let key = fact_canonical_key(f).map(|k| encode_key(&k));
+                match &redb {
+                    // New facts go to redb only: durable when the commit
+                    // returns, and no explicit sled flush from this path.
+                    Some(_) => items.push((cid.as_str().as_bytes().to_vec(), cbor, key)),
+                    None => {
+                        facts_tree.insert(cid.as_str().as_bytes(), cbor)?;
+                        if let Some(k) = key {
+                            idx.insert(k, cid.as_str().as_bytes())?;
+                        }
+                    }
                 }
                 out.push(cid);
+            }
+            if let Some(r) = &redb {
+                r.put_batch(&items, true)?;
             }
             Ok(out)
         })
         .await?;
-        // sled flushes at the Db level: one fsync of the shared log
-        // persists writes to every tree. The insert loop above has already
-        // committed to `facts` and `idx`, so a single flush here makes all
-        // of them durable — flushing both trees separately just paid for
-        // the fsync twice on every write batch.
-        self.facts
-            .flush_async()
-            .await
-            .map_err(|e| CacheError::Cbor(e.to_string()))?;
+        if self.redb.is_none() {
+            self.facts
+                .flush_async()
+                .await
+                .map_err(|e| CacheError::Cbor(e.to_string()))?;
+        }
         Ok(out)
     }
 
     async fn tier_of(&self, cid: &FactCid) -> Result<Option<Tier>, CacheError> {
         let facts = self.facts.clone();
+        let src = self.source();
         let cid = cid.clone();
         off_thread(move || {
-            Ok(if facts.contains_key(cid.as_str().as_bytes())? {
-                Some(Tier::Hot)
-            } else {
-                None
-            })
+            let present = match &src.redb {
+                Some(r) => {
+                    r.contains_fact(cid.as_str().as_bytes())?
+                        || (src.consult_sled() && facts.contains_key(cid.as_str().as_bytes())?)
+                }
+                None => facts.contains_key(cid.as_str().as_bytes())?,
+            };
+            Ok(if present { Some(Tier::Hot) } else { None })
         })
         .await
     }
@@ -734,5 +1013,131 @@ mod cid_preimage_tests {
         );
         let other_bytes = fact_canonical_cbor(&other).expect("bytes");
         assert_ne!(other_bytes, bytes, "and different content, different bytes");
+    }
+}
+
+#[cfg(test)]
+mod redb_cutover_tests {
+    use super::*;
+
+    fn sample(cell: &str, band: &str, tslot: u64) -> Fact {
+        tests::sample_fact(cell, band, tslot)
+    }
+
+    /// Rows written straight into the old sled trees (the state on disk the
+    /// day of the cutover) are found through redb's read-through until the
+    /// backfill has copied them, and from redb alone afterwards.
+    #[tokio::test]
+    async fn sled_rows_are_read_through_then_copied_then_owned_by_redb() {
+        let c = SledHotCache::open_temporary().unwrap();
+        let Some(r) = c.redb.clone() else {
+            return; // EMEM_HOT_BACKEND=sled in this environment
+        };
+        // open_temporary marks the backfill done (nothing to copy); undo
+        // that to model a real cutover with an existing sled store.
+        r.backfill_done
+            .store(false, std::sync::atomic::Ordering::Release);
+        // Write two facts the OLD way, into sled only.
+        let f1 = sample("ento.bria.calo.tris", "indices.ndvi", 7);
+        let f2 = sample("ento.bria.calo.tris", "indices.ndvi", 9);
+        let mut cids = Vec::new();
+        for f in [&f1, &f2] {
+            let cbor = fact_to_cbor(f).unwrap();
+            let cid = fact_cid_of(f).unwrap();
+            c.facts.insert(cid.as_str().as_bytes(), cbor).unwrap();
+            c.idx
+                .insert(
+                    encode_key(&fact_canonical_key(f).unwrap()),
+                    cid.as_str().as_bytes(),
+                )
+                .unwrap();
+            cids.push(cid);
+        }
+        // Read-through: redb has nothing yet, sled answers.
+        assert_eq!(r.index_len().unwrap(), 0);
+        let keys: Vec<CanonicalKey> = [&f1, &f2]
+            .iter()
+            .map(|f| fact_canonical_key(f).unwrap())
+            .collect();
+        let hits = c.lookup_many(&keys).await.unwrap();
+        assert_eq!(hits, vec![Some(cids[0].clone()), Some(cids[1].clone())]);
+        assert!(c.get_many(&cids).await.unwrap().iter().all(|f| f.is_some()));
+        assert_eq!(c.scan_cell("ento.bria.calo.tris", None).unwrap().len(), 2);
+        assert_eq!(c.iter_index().count(), 2, "union of redb (empty) and sled");
+        // A new write goes to redb only.
+        let f3 = sample("ento.bria.calo.tris", "indices.ndvi", 11);
+        let new = c.put_many(std::slice::from_ref(&f3)).await.unwrap();
+        assert!(r.contains_fact(new[0].as_str().as_bytes()).unwrap());
+        assert!(
+            !c.facts.contains_key(new[0].as_str().as_bytes()).unwrap(),
+            "sled must not receive new facts"
+        );
+        assert_eq!(
+            c.scan_cell("ento.bria.calo.tris", None).unwrap().len(),
+            3,
+            "union scan sees both stores"
+        );
+        assert_eq!(c.iter_index().count(), 3);
+        // Backfill in batches of one until exhausted.
+        let mut cursor: Option<Vec<u8>> = None;
+        let mut copied = 0;
+        loop {
+            let (n, _skip, last) =
+                backfill_step(&r, &c.idx, &c.facts, cursor.as_deref(), 1).unwrap();
+            copied += n;
+            match last {
+                Some(l) => cursor = Some(l),
+                None => break,
+            }
+        }
+        assert_eq!(
+            copied, 2,
+            "the two sled-only rows were copied, the redb-only row was not re-copied"
+        );
+        r.mark_backfill_done().unwrap();
+        // Sled is no longer consulted: remove everything from it and the
+        // answers must not change.
+        c.idx.clear().unwrap();
+        c.facts.clear().unwrap();
+        let hits = c.lookup_many(&keys).await.unwrap();
+        assert_eq!(hits, vec![Some(cids[0].clone()), Some(cids[1].clone())]);
+        assert_eq!(c.scan_cell("ento.bria.calo.tris", None).unwrap().len(), 3);
+        assert_eq!(c.iter_index().count(), 3);
+        assert_eq!(c.len(), 3);
+        assert!(c.get_many(&cids).await.unwrap().iter().all(|f| f.is_some()));
+    }
+
+    /// The cursor resumes: a second pass over an already-copied store copies
+    /// nothing and still reaches the end.
+    #[tokio::test]
+    async fn backfill_resumes_from_its_cursor_and_copies_nothing_twice() {
+        let c = SledHotCache::open_temporary().unwrap();
+        let Some(r) = c.redb.clone() else { return };
+        for t in [1u64, 2, 3] {
+            let f = sample("ento.bria.calo.tris", "indices.ndvi", t);
+            let cbor = fact_to_cbor(&f).unwrap();
+            let cid = fact_cid_of(&f).unwrap();
+            c.facts.insert(cid.as_str().as_bytes(), cbor).unwrap();
+            c.idx
+                .insert(
+                    encode_key(&fact_canonical_key(&f).unwrap()),
+                    cid.as_str().as_bytes(),
+                )
+                .unwrap();
+        }
+        let (n1, _, last1) = backfill_step(&r, &c.idx, &c.facts, None, 2).unwrap();
+        assert_eq!(n1, 2);
+        let resumed = r.backfill_cursor().unwrap();
+        assert_eq!(resumed, last1, "the cursor is persisted after each batch");
+        let (n2, _, last2) = backfill_step(&r, &c.idx, &c.facts, resumed.as_deref(), 2).unwrap();
+        assert_eq!(n2, 1);
+        let (n3, _, last3) = backfill_step(&r, &c.idx, &c.facts, last2.as_deref(), 2).unwrap();
+        assert_eq!((n3, last3), (0, None), "exhausted");
+        let (n4, skip4, _) = backfill_step(&r, &c.idx, &c.facts, None, 10).unwrap();
+        assert_eq!(
+            (n4, skip4),
+            (0, 3),
+            "a fresh pass skips every row redb already has"
+        );
     }
 }
