@@ -78,7 +78,12 @@ snapshot_wedge() {
     # incidents stayed "cause unknown" while the data to explain them was
     # being thrown away. sudo is passwordless for this user, so attach
     # through it and keep the unprivileged path as a fallback.
-    if command -v gdb >/dev/null 2>&1; then
+    # gdb attach stops the process for the seconds the dump takes; on a
+    # healthy server that is itself a /live miss (seen 2026-09-03 03:20 UTC
+    # when a dry-run test attached to prod). A dry run never attaches.
+    if [ "${EMEM_WATCHDOG_DRY_RUN:-0}" = 1 ]; then
+      echo "-- gdb thread backtraces skipped: dry run --"
+    elif command -v gdb >/dev/null 2>&1; then
       echo "-- gdb thread backtraces --"
       if sudo -n true 2>/dev/null; then
         sudo -n timeout 90 gdb -p "$pid" -batch -ex "set pagination off" \
