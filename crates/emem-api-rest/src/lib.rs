@@ -56758,7 +56758,30 @@ async fn post_enlist(
     })))
 }
 
+/// The roster scans every memory path under `/memories/by_attester/`, a
+/// sled scan that ran on the runtime thread until 2026-09-03. The first
+/// 80-frame wedge snapshot (07:48 UTC) showed a core worker blocked inside
+/// sled under this handler while `/live` went unanswered: one blocked worker
+/// strands whatever connection task shares its slot, and the watchdog reads
+/// that as a runtime stall. The scan now runs on the blocking pool and the
+/// worker only awaits it, like every other storage read here.
 async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    let body = tokio::task::spawn_blocking(move || get_agents_sync(s))
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("roster task did not finish: {e}"),
+                    details: None,
+                },
+            )
+        })??;
+    Ok(Json(body))
+}
+
+fn get_agents_sync(s: AppState) -> Result<JsonValue, ApiError> {
     let db = memory_db(&s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -56924,7 +56947,7 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
             .unwrap_or("")
             .cmp(a["last_seen"].as_str().unwrap_or(""))
     });
-    Ok(Json(json!({
+    Ok(json!({
         "count": agents.len(),
         "agents": agents,
         "note": "Discovered from the store, not configured, and discovered is not \
@@ -56939,7 +56962,7 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
                  boolean has lost the distinction on purpose. `correspondence` counts notes \
                  addressed to someone, so an agent journalling its own run does not read as \
                  a participant.",
-    })))
+    }))
 }
 
 /// One front-door pointer for the a2a collaboration, read from
