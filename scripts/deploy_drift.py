@@ -177,7 +177,7 @@ def main() -> int:
     built_at = att.get("build_timestamp") or "?"
     live_blake3 = att.get("binary_blake3") or ""
 
-    head = a.expect or git("rev-parse", "HEAD")
+    head = args.expect or git("rev-parse", "HEAD")
     print(f"  responder {args.origin}")
     print(f"    serving commit  {live_commit[:12] or '(none published)'}   built {built_at}")
     print(f"    this tree HEAD  {head[:12]}")
