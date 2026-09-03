@@ -87,11 +87,11 @@ snapshot_wedge() {
       echo "-- gdb thread backtraces --"
       if sudo -n true 2>/dev/null; then
         sudo -n timeout 90 gdb -p "$pid" -batch -ex "set pagination off" \
-          -ex "thread apply all bt 30" 2>&1
+          -ex "thread apply all bt 80" 2>&1
       else
         echo "(no passwordless sudo; ptrace_scope=$(cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null) will likely block this)"
         timeout 90 gdb -p "$pid" -batch -ex "set pagination off" \
-          -ex "thread apply all bt 30" 2>&1
+          -ex "thread apply all bt 80" 2>&1
       fi
     fi
   } >"$out" 2>&1

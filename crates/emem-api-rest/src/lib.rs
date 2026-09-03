@@ -38156,30 +38156,42 @@ async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
             // This flush covers every ask made before it starts.
             let target = f.requested.load(Ordering::SeqCst);
             let t = tree.clone();
-            // A flush that FAILED must not read as durable: sled's io::Result
-            // and the JoinError are both surfaced, never discarded (a note
-            // verified at write time and gone after a restart on 2026-08-23
-            // is the shape a discarded flush error leaves).
-            let outcome = match tokio::task::spawn_blocking(move || t.flush()).await {
-                Ok(Ok(_bytes)) => {
-                    f.done.send_modify(|d| *d = (*d).max(target));
-                    Ok(())
-                }
-                Ok(Err(e)) => {
-                    let m = format!("fsync failed: {e}");
-                    f.failed.send_modify(|x| *x = (target, m.clone()));
-                    Err(m)
-                }
+            // EVERY state transition happens inside the blocking closure, so
+            // it happens even when the awaiting future is dropped: the 120 s
+            // timeout layer and a client that gives up both cancel handler
+            // futures, and a flusher cancelled after `.await` left `running`
+            // true forever on 2026-09-03 07:13 UTC, wedging every later
+            // writer within minutes of deploy. spawn_blocking work is never
+            // cancelled, so the closure is the one place a reset is certain.
+            let handle = tokio::task::spawn_blocking(move || {
+                let outcome = match t.flush() {
+                    Ok(_bytes) => {
+                        f.done.send_modify(|d| *d = (*d).max(target));
+                        Ok(())
+                    }
+                    Err(e) => {
+                        let m = format!("fsync failed: {e}");
+                        f.failed.send_modify(|x| *x = (target, m.clone()));
+                        Err(m)
+                    }
+                };
+                f.runs.fetch_add(1, Ordering::Relaxed);
+                f.running.store(false, Ordering::SeqCst);
+                f.cycle.send_modify(|c| *c += 1);
+                outcome
+            });
+            return match handle.await {
+                Ok(outcome) => outcome,
                 Err(join) => {
+                    // The closure panicked before its reset: release the
+                    // slot here or nobody flushes again.
                     let m = format!("flush task did not finish: {join}");
                     f.failed.send_modify(|x| *x = (target, m.clone()));
+                    f.running.store(false, Ordering::SeqCst);
+                    f.cycle.send_modify(|c| *c += 1);
                     Err(m)
                 }
             };
-            f.runs.fetch_add(1, Ordering::Relaxed);
-            f.running.store(false, Ordering::SeqCst);
-            f.cycle.send_modify(|c| *c += 1);
-            return outcome;
         }
         // Another caller is flushing. Wait for that cycle to end, then look
         // again: it may have covered this ask, or this caller runs the next.
@@ -38220,6 +38232,27 @@ mod flush_coalescing_tests {
         // checkable on a temporary db, so assert the weaker durable fact
         // the coalescer promises: the last ask is covered.
         assert!(*FLUSHER.done.borrow() >= FLUSHER.requested.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_flusher_dropped_mid_flight_does_not_wedge_the_next_writer() {
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let tree = db.open_tree("t").unwrap();
+        tree.insert(b"a", b"1").unwrap();
+        // Start a flush and abort the awaiting task at once, the way the
+        // timeout layer or a departed client cancels a handler future.
+        let t = tree.clone();
+        let h = tokio::spawn(async move { flush_off_runtime(&t).await });
+        h.abort();
+        let _ = h.await;
+        tree.insert(b"b", b"2").unwrap();
+        // The next writer must complete; before the fix it waited forever.
+        let r = tokio::time::timeout(std::time::Duration::from_secs(10), flush_off_runtime(&tree))
+            .await;
+        assert!(
+            matches!(r, Ok(Ok(()))),
+            "next flush wedged after a cancelled one: {r:?}"
+        );
     }
 
     #[tokio::test]

@@ -695,17 +695,24 @@ jobs:
         run: |
           set -euo pipefail
           ./target/release/emem-guard --data ./var/ci-guard --bind 127.0.0.1:8099 \
-            --module secret-patterns &
+            --module secret-patterns > ./var/ci-guard-node.log 2>&1 &
           node=$!
           # Kill it however this step ends, so a failure cannot leave a
           # process holding the port for whatever runs next.
           trap 'kill "$node" 2>/dev/null || true' EXIT
+          # Sixty seconds, not thirty: on 2026-09-03 a cold runner failed this
+          # step in 48 s with the node still starting, on a commit that touched
+          # nothing the guard depends on. A flake that cannot explain itself
+          # costs a push; the log below is the explanation.
           up=""
-          for _ in $(seq 1 30); do
+          for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8099/health >/dev/null; then up=1; break; fi
             sleep 1
           done
-          if [ -z "$up" ]; then echo "the node never came up"; exit 1; fi
+          if [ -z "$up" ]; then
+            echo "the node never came up within 60 s; its log:"; cat ./var/ci-guard-node.log || true
+            exit 1
+          fi
           ./target/release/emem-guard --conformance http://127.0.0.1:8099
           # The log it just wrote has to audit clean, or the evidence half of
           # the product is broken in exactly the way nobody would notice.
