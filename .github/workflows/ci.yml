@@ -694,6 +694,9 @@ jobs:
       - name: start a node, conform, and audit its log
         run: |
           set -euo pipefail
+          # A fresh checkout has no ./var (it is gitignored), and a redirect
+          # into a missing directory fails before the node ever starts.
+          mkdir -p ./var
           ./target/release/emem-guard --data ./var/ci-guard --bind 127.0.0.1:8099 \
             --module secret-patterns > ./var/ci-guard-node.log 2>&1 &
           node=$!
