@@ -38107,35 +38107,129 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
 /// shared by every tree, so a flush already running makes this write durable
 /// too; ten of them queued on the blocking pool would still be ten whole
 /// database fsyncs where one suffices.
+/// One flush serves every caller queued behind it. A caller asks for "a
+/// flush that starts after my write"; whoever finds no flush running runs
+/// one, and it covers every ask made before it started. Everyone else
+/// waits for that cycle to end and re-checks. Ten writers no longer mean
+/// ten whole-database fsyncs in a line: the live snapshot of 2026-09-03
+/// 03:00 UTC showed 33 blocking threads queued on the old mutex behind one
+/// `make_stable` that was not returning, with six memory writes timing out
+/// at the 32 s MCP budget while it stood.
+struct FlushCoalescer {
+    requested: std::sync::atomic::AtomicU64,
+    running: std::sync::atomic::AtomicBool,
+    /// Highest ask a completed flush covers.
+    done: tokio::sync::watch::Sender<u64>,
+    /// Highest ask a FAILED flush covered, with the error. A caller under it
+    /// gets the error unless a later flush covered it first.
+    failed: tokio::sync::watch::Sender<(u64, String)>,
+    /// Bumped when any flush cycle ends, success or not; waiters wake on it.
+    cycle: tokio::sync::watch::Sender<u64>,
+    /// Flushes actually run. Tests and metrics only.
+    runs: std::sync::atomic::AtomicU64,
+}
+
+static FLUSHER: std::sync::LazyLock<FlushCoalescer> = std::sync::LazyLock::new(|| FlushCoalescer {
+    requested: std::sync::atomic::AtomicU64::new(0),
+    running: std::sync::atomic::AtomicBool::new(false),
+    done: tokio::sync::watch::channel(0u64).0,
+    failed: tokio::sync::watch::channel((0u64, String::new())).0,
+    cycle: tokio::sync::watch::channel(0u64).0,
+    runs: std::sync::atomic::AtomicU64::new(0),
+});
+
 async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
-    static FLUSHING: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let t = tree.clone();
-    // `let _ = ...` here discarded TWO results at once: the JoinError, and
-    // sled's own io::Result from `flush()`. A flush that FAILED was
-    // indistinguishable from one that succeeded, and every caller went on to
-    // report the write as durable.
-    //
-    // That is the best explanation available for a note an auditor published
-    // on 2026-08-23, which verified at write time and was gone after the next
-    // restart. Both its blob and its path index are absent, and NOTHING in
-    // this responder removes a blob, so it was not a delete. A write that was
-    // never persisted, reported as persisted, and lost with the page cache is
-    // the shape that fits. Not proven, and it is the only remaining
-    // explanation that fits every observation.
-    match tokio::task::spawn_blocking(move || {
-        let _held = match FLUSHING.lock() {
-            Ok(g) => g,
-            // A poisoned lock means a previous flush panicked. Refusing to
-            // flush after that trades a crash for silent data loss.
-            Err(e) => e.into_inner(),
-        };
-        t.flush()
-    })
-    .await
-    {
-        Ok(Ok(_bytes)) => Ok(()),
-        Ok(Err(e)) => Err(format!("fsync failed: {e}")),
-        Err(join) => Err(format!("flush task did not finish: {join}")),
+    use std::sync::atomic::Ordering;
+    let f = &*FLUSHER;
+    let my_gen = f.requested.fetch_add(1, Ordering::SeqCst) + 1;
+    loop {
+        if *f.done.borrow() >= my_gen {
+            return Ok(());
+        }
+        {
+            let (failed_gen, err) = f.failed.borrow().clone();
+            if failed_gen >= my_gen {
+                return Err(err);
+            }
+        }
+        if !f.running.swap(true, Ordering::SeqCst) {
+            // This flush covers every ask made before it starts.
+            let target = f.requested.load(Ordering::SeqCst);
+            let t = tree.clone();
+            // A flush that FAILED must not read as durable: sled's io::Result
+            // and the JoinError are both surfaced, never discarded (a note
+            // verified at write time and gone after a restart on 2026-08-23
+            // is the shape a discarded flush error leaves).
+            let outcome = match tokio::task::spawn_blocking(move || t.flush()).await {
+                Ok(Ok(_bytes)) => {
+                    f.done.send_modify(|d| *d = (*d).max(target));
+                    Ok(())
+                }
+                Ok(Err(e)) => {
+                    let m = format!("fsync failed: {e}");
+                    f.failed.send_modify(|x| *x = (target, m.clone()));
+                    Err(m)
+                }
+                Err(join) => {
+                    let m = format!("flush task did not finish: {join}");
+                    f.failed.send_modify(|x| *x = (target, m.clone()));
+                    Err(m)
+                }
+            };
+            f.runs.fetch_add(1, Ordering::Relaxed);
+            f.running.store(false, Ordering::SeqCst);
+            f.cycle.send_modify(|c| *c += 1);
+            return outcome;
+        }
+        // Another caller is flushing. Wait for that cycle to end, then look
+        // again: it may have covered this ask, or this caller runs the next.
+        let seen = *f.cycle.borrow();
+        let mut rx = f.cycle.subscribe();
+        let _ = rx.wait_for(|c| *c > seen).await;
+    }
+}
+
+#[cfg(test)]
+mod flush_coalescing_tests {
+    use super::*;
+    use std::sync::atomic::Ordering;
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn forty_concurrent_writers_share_far_fewer_than_forty_flushes() {
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let tree = db.open_tree("t").unwrap();
+        let runs_before = FLUSHER.runs.load(Ordering::Relaxed);
+        let mut handles = Vec::new();
+        for i in 0..40u32 {
+            let t = tree.clone();
+            handles.push(tokio::spawn(async move {
+                t.insert(i.to_be_bytes(), b"v").unwrap();
+                flush_off_runtime(&t).await
+            }));
+        }
+        for h in handles {
+            h.await.unwrap().expect("every caller's flush succeeds");
+        }
+        let runs = FLUSHER.runs.load(Ordering::Relaxed) - runs_before;
+        assert!(runs >= 1, "at least one flush ran");
+        assert!(
+            runs < 40,
+            "flushes were coalesced, got {runs} for 40 callers"
+        );
+        // Every write is on disk: each key readable after reopen is not
+        // checkable on a temporary db, so assert the weaker durable fact
+        // the coalescer promises: the last ask is covered.
+        assert!(*FLUSHER.done.borrow() >= FLUSHER.requested.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn a_lone_caller_still_flushes_exactly_once() {
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let tree = db.open_tree("t").unwrap();
+        tree.insert(b"k", b"v").unwrap();
+        let before = FLUSHER.runs.load(Ordering::Relaxed);
+        flush_off_runtime(&tree).await.unwrap();
+        assert_eq!(FLUSHER.runs.load(Ordering::Relaxed) - before, 1);
     }
 }
 
