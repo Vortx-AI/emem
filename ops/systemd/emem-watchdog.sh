@@ -117,7 +117,7 @@ if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
   STORAGE_STATE="${XDG_RUNTIME_DIR:-/tmp}/emem_watchdog_storage_fails"
   STORAGE_THRESHOLD="${EMEM_WATCHDOG_STORAGE_THRESHOLD:-3}"
   STORAGE_GRACE_S="${EMEM_WATCHDOG_STORAGE_GRACE_S:-300}"
-  STORAGE_PROBE="${EMEM_WATCHDOG_STORAGE_PROBE:-/usr/bin/python3 /home/ubuntu/emem/scripts/storage_liveness.py --origin http://127.0.0.1:5051}"
+  STORAGE_PROBE="${EMEM_WATCHDOG_STORAGE_PROBE:-/usr/bin/python3 /home/ubuntu/emem/scripts/storage_liveness.py --origin http://127.0.0.1:5051 --write}"
   sfails=$(cat "$STORAGE_STATE" 2>/dev/null || echo 0)
   case "$sfails" in ''|*[!0-9]*) sfails=0 ;; esac
   started=$(systemctl --user show -p ActiveEnterTimestampMonotonic --value emem-server.service 2>/dev/null)

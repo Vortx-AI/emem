@@ -19,6 +19,7 @@ start, and is reported differently, because telling an operator "storage is
 wedged" during a deploy would be a false alarm they learn to ignore.
 """
 import argparse
+import pathlib
 import json
 import sys
 import time
@@ -46,6 +47,34 @@ def timed(url: str, body=None, timeout=45):
         return time.monotonic() - t0, None, str(e)[:60]
 
 
+def signed_write(origin: str):
+    """One real, idempotent write through the flush path: co-sign the current
+    log head with this box's agent identity, exactly as the witness job does.
+    Returns (seconds, status or None, error)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "wp", str(pathlib.Path(__file__).with_name("witness_peers.py")))
+    wp = importlib.util.module_from_spec(spec)
+    t0 = time.monotonic()
+    try:
+        spec.loader.exec_module(wp)
+        ident = json.loads(wp.IDENTITY.read_text())
+        sk = wp.nacl.signing.SigningKey(bytes.fromhex(ident["seed_hex"]))
+        my_pk = bytes(sk.verify_key)
+        sth = wp.get(f"{origin}/v1/log/sth")["sth"]
+        size, root, _rpk = wp.verify_sth(sth)
+        msg = wp.preimage("emem.translog.witness.v1",
+                          [(1, size.to_bytes(8, "big")), (2, root), (3, my_pk)])
+        sig = bytes(sk.sign(msg).signature)
+        t0 = time.monotonic()
+        code, _resp = wp.post(f"{origin}/v1/log/witness", {
+            "tree_size": size, "root_b32": sth["root_b32"],
+            "witness_pubkey_b32": wp.b32e(my_pk), "signature_b32": wp.b32e(sig)})
+        return time.monotonic() - t0, code, None
+    except Exception as e:  # noqa: BLE001
+        return time.monotonic() - t0, None, str(e)[:60]
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--origin", default="https://emem.dev")
@@ -53,6 +82,15 @@ def main() -> int:
                     help="seconds /live may take before the node counts as down")
     ap.add_argument("--storage-budget", type=float, default=10.0,
                     help="seconds a warm point read may take before storage counts as wedged")
+    ap.add_argument("--write", action="store_true",
+                    help="also make one signed write (a witness co-signature of the "
+                         "current log head) and judge the write path separately; a "
+                         "wedge that stops writes while reads answer is invisible "
+                         "to the read probe (seen 2026-09-03 11:26 UTC: ten minutes "
+                         "of every write at the 32 s budget with /live and reads fine)")
+    ap.add_argument("--write-budget", type=float, default=15.0,
+                    help="seconds the signed write may take before the write path "
+                         "counts as wedged")
     a = ap.parse_args()
 
     live_s, live_code, live_err = timed(f"{a.origin}/live", timeout=15)
@@ -66,6 +104,25 @@ def main() -> int:
     live_ok = live_code == 200 and live_s <= a.live_budget
     read_ok = read_code == 200 and read_s <= a.storage_budget
 
+    if a.write and live_ok and read_ok:
+        w_s, w_code, w_err = signed_write(a.origin)
+        print(f"  witness POST {str(w_code or w_err):<24} {w_s:6.2f}s "
+              f"(budget {a.write_budget}s)")
+        if w_code == 200 and w_s <= a.write_budget:
+            print("\n  The node is up, storage answers, and a signed write is durable. "
+                  "Three checked; none inferred from another.")
+            return 0
+        if w_code is not None and w_code != 200 and w_s <= a.write_budget:
+            print(f"\n  UNDETERMINED: the write probe was refused ({w_code}); a probe "
+                  "or identity problem, not a wedge. Fix the probe before trusting it.")
+            return 2
+        print("\n  WRITES ARE WEDGED. /live answers, a warm read answers, and a "
+              "signed write does not complete.")
+        print("  The shape of 2026-09-03 11:26 UTC: one flush never returned from "
+              "sled's make_stable, every writer waited on it, reads kept answering, "
+              "and the read-only probe stayed green for ten minutes.")
+        print("  A restart clears it: systemctl --user restart emem-server.")
+        return 1
     if live_ok and read_ok:
         print("\n  The node is up and storage answers. Both checked; neither inferred "
               "from the other.")

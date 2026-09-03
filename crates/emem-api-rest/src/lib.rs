@@ -38195,10 +38195,35 @@ async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
         }
         // Another caller is flushing. Wait for that cycle to end, then look
         // again: it may have covered this ask, or this caller runs the next.
+        // Bounded: on 2026-09-03 11:26 UTC one flush never returned from
+        // sled's make_stable and every writer waited on it for the whole 32 s
+        // MCP budget, then died without a word about durability. A bounded
+        // wait turns that into an honest error naming the state.
         let seen = *f.cycle.borrow();
         let mut rx = f.cycle.subscribe();
-        let _ = rx.wait_for(|c| *c > seen).await;
+        let wait = std::time::Duration::from_secs(flush_wait_secs());
+        if tokio::time::timeout(wait, rx.wait_for(|c| *c > seen))
+            .await
+            .is_err()
+        {
+            return Err(format!(
+                "the store's flush has not completed in {}s; this write is applied in \
+                 memory and NOT yet durable. Reads still answer; the responder's \
+                 watchdog restarts the store when this persists.",
+                wait.as_secs()
+            ));
+        }
     }
+}
+
+/// `EMEM_FLUSH_WAIT_SECS`: how long a writer waits for a flush cycle before
+/// reporting its write as not yet durable. Default 20; clamped to [2, 120].
+fn flush_wait_secs() -> u64 {
+    std::env::var("EMEM_FLUSH_WAIT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .unwrap_or(20)
+        .clamp(2, 120)
 }
 
 #[cfg(test)]
