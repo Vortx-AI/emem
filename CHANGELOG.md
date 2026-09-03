@@ -16,6 +16,7 @@ to verify.
 - `scripts/witness_peers.py` + `deploy/systemd/emem-witness.timer`: the witness job. Verifies each peer's STH, proves growth from the pinned head, co-signs, spot-checks four sampled leaves for custody, and identifies the signer through the peer's `did.json`.
 
 ### Changed
+- The watchdog gains a second signal: `scripts/storage_liveness.py` every minute, three consecutive wedged verdicts plus a five-minute cold-start grace before a snapshot and restart (`EMEM_WATCHDOG_DRY_RUN=1` to log only). The store can wedge while `/live` still answers; on 2026-09-02 that state lasted an hour, every storage-touching request hung, and the watchdog reported healthy throughout.
 - `/v1/log/witnesses` returns the newest `limit` rows (default 20, max 200) with `count` (all rows) and `returned`, and rows no longer repeat a 250-character sentence each; unbounded, the list crossed the MCP tool-result cap within a day of a witness running every fifteen minutes, and the truncation nulled fields the tool's own schema requires.
 - `/v1/log/inclusion` refuses unknown query arguments with 400. It used to ignore them, and a witness that passed `tree_size` got proofs against a head it had not pinned.
 - The compute-quota error no longer promises larger quotas to high-score attesters; no code granted them.
