@@ -38211,6 +38211,7 @@ mod flush_coalescing_tests {
         let db = sled::Config::new().temporary(true).open().unwrap();
         let tree = db.open_tree("t").unwrap();
         let runs_before = FLUSHER.runs.load(Ordering::Relaxed);
+        let asked_before = FLUSHER.requested.load(Ordering::SeqCst);
         let mut handles = Vec::new();
         for i in 0..40u32 {
             let t = tree.clone();
@@ -38228,10 +38229,12 @@ mod flush_coalescing_tests {
             runs < 40,
             "flushes were coalesced, got {runs} for 40 callers"
         );
-        // Every write is on disk: each key readable after reopen is not
-        // checkable on a temporary db, so assert the weaker durable fact
-        // the coalescer promises: the last ask is covered.
-        assert!(*FLUSHER.done.borrow() >= FLUSHER.requested.load(Ordering::SeqCst));
+        // The coalescer's promise, stated against THIS test's asks only: the
+        // static is shared with the rest of the suite, whose in-flight asks
+        // would make `done >= requested` flaky. Forty asks were made after
+        // `asked_before`, so the largest of them is at least that plus forty,
+        // and every one of them returned, so `done` covers it.
+        assert!(*FLUSHER.done.borrow() >= asked_before + 40);
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -38256,13 +38259,25 @@ mod flush_coalescing_tests {
     }
 
     #[tokio::test]
-    async fn a_lone_caller_still_flushes_exactly_once() {
+    async fn a_lone_caller_is_covered_by_a_completed_flush() {
+        // The coalescer is one static for the whole process, and the rest of
+        // this crate's tests flush through it concurrently, so "exactly one
+        // run" is not a property a lone caller can observe (CI saw 2). What
+        // it can observe is the contract: its ask is covered when it returns.
         let db = sled::Config::new().temporary(true).open().unwrap();
         let tree = db.open_tree("t").unwrap();
         tree.insert(b"k", b"v").unwrap();
         let before = FLUSHER.runs.load(Ordering::Relaxed);
+        let my_gen_at_most = FLUSHER.requested.load(Ordering::SeqCst) + 1;
         flush_off_runtime(&tree).await.unwrap();
-        assert_eq!(FLUSHER.runs.load(Ordering::Relaxed) - before, 1);
+        assert!(
+            FLUSHER.runs.load(Ordering::Relaxed) > before,
+            "no flush ran"
+        );
+        assert!(
+            *FLUSHER.done.borrow() >= my_gen_at_most,
+            "the caller returned before a flush covering its ask completed"
+        );
     }
 }
 
