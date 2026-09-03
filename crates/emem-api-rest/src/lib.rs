@@ -38140,6 +38140,16 @@ static FLUSHER: std::sync::LazyLock<FlushCoalescer> = std::sync::LazyLock::new(|
 
 async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
     use std::sync::atomic::Ordering;
+    // `EMEM_EXPLICIT_FLUSH=0` hands durability to sled's own flusher thread
+    // (every EMEM_SLED_FLUSH_MS, 200 by default) and makes this a no-op. An
+    // experiment, env-gated and reversible: on 2026-09-03 the store wedged
+    // four times in five hours with one explicit flush stuck inside
+    // make_stable each time. If the explicit flush is the deadlock's other
+    // half, removing it trades a 200 ms durability window for a store that
+    // stays up; a wedge loses that window anyway when the watchdog kills it.
+    if !explicit_flush_enabled() {
+        return Ok(());
+    }
     let f = &*FLUSHER;
     let my_gen = f.requested.fetch_add(1, Ordering::SeqCst) + 1;
     loop {
@@ -38214,6 +38224,24 @@ async fn flush_off_runtime(tree: &sled::Tree) -> Result<(), String> {
             ));
         }
     }
+}
+
+/// `EMEM_EXPLICIT_FLUSH`: `0` disables the per-write fsync in request paths
+/// and relies on sled's periodic flusher. Default on. Read once.
+fn explicit_flush_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        let on = std::env::var("EMEM_EXPLICIT_FLUSH")
+            .map(|v| v.trim() != "0")
+            .unwrap_or(true);
+        if !on {
+            tracing::warn!(
+                "EMEM_EXPLICIT_FLUSH=0: per-write fsync disabled; durability rides on \
+                 sled's flusher every EMEM_SLED_FLUSH_MS"
+            );
+        }
+        on
+    })
 }
 
 /// `EMEM_FLUSH_WAIT_SECS`: how long a writer waits for a flush cycle before
