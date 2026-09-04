@@ -46,6 +46,12 @@ import nacl.signing
 IDENTITY = pathlib.Path.home() / ".config/emem/agent_identity.json"
 STATE = pathlib.Path.home() / ".config/emem/witness_state.json"
 
+# Per-peer bearer keys, for peers that sit behind an authenticating gateway.
+# A mode-600 file rather than the unit, because Environment= lines in a systemd
+# unit are readable by any local user via `systemctl show`, and a witness key
+# that leaks lets someone impersonate this node's reads against the peer.
+PEER_KEYS = pathlib.Path.home() / ".config/emem/peer_keys.json"
+
 
 def b32d(s: str) -> bytes:
     s = s.upper()
@@ -70,14 +76,44 @@ def preimage(domain: str, segs) -> bytes:
     return h.digest()
 
 
+def _peer_keys() -> dict:
+    try:
+        return json.loads(PEER_KEYS.read_text())
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"warn: {PEER_KEYS} unreadable ({e}); continuing unauthenticated",
+              file=sys.stderr)
+        return {}
+
+
+_KEYS = _peer_keys()
+
+
+def auth_for(url: str) -> dict:
+    """Bearer header for `url`, if a configured peer origin prefixes it.
+
+    Longest match wins, so a key scoped to https://host/emem beats one scoped
+    to https://host. An unconfigured peer is called unauthenticated, which is
+    correct for a public responder like emem.dev.
+    """
+    best = ""
+    for origin in _KEYS:
+        if url.startswith(origin) and len(origin) > len(best):
+            best = origin
+    return {"authorization": f"Bearer {_KEYS[best]}"} if best else {}
+
+
 def get(url: str, timeout=30):
-    with urllib.request.urlopen(url, timeout=timeout) as r:
+    req = urllib.request.Request(url, headers=auth_for(url))
+    with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.load(r)
 
 
 def post(url: str, body: dict, timeout=30):
     req = urllib.request.Request(url, method="POST", data=json.dumps(body).encode(),
-                                 headers={"content-type": "application/json"})
+                                 headers={"content-type": "application/json",
+                                          **auth_for(url)})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
             return r.status, json.load(r)
@@ -398,11 +434,16 @@ def main() -> int:
                 failures.append(origin)
             else:
                 print(f"    audited {checked} sampled leaves under root {b32e(root)[:8]}: all verify")
-            # The pin records what we CO-SIGNED, not what we looked at. A dry
-            # run that advanced it would erase the chain of evidence a real
-            # run needs to prove growth from.
-            state[origin] = {"tree_size": size, "root_b32": sth["root_b32"],
-                             "signed_at": sth["signed_at"], "witnessed_at": int(time.time())}
+
+        # The pin records what we CO-SIGNED, not what we looked at, so it
+        # advances whether or not custody was sampled. This used to sit inside
+        # the `k > 0` branch, which meant EMEM_WITNESS_SAMPLES=0 -- what this
+        # node's own unit sets -- co-signed on every run and pinned nothing:
+        # every run was "first contact" and growth could never be proved, which
+        # is the one thing a witness exists to do. A dry run still advances
+        # nothing, because only a real run writes STATE.
+        state[origin] = {"tree_size": size, "root_b32": sth["root_b32"],
+                         "signed_at": sth["signed_at"], "witnessed_at": int(time.time())}
 
     if not a.dry_run:
         STATE.parent.mkdir(parents=True, exist_ok=True)
