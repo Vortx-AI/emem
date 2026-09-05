@@ -6808,6 +6808,15 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "pubkey_b32":    data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
             "signature_alg": "ed25519",
             "hash_alg":      "blake3",
+            // Discovery ran one way only. `/.well-known/did.json` lists this
+            // card as its `#a2a` service, and the card named a raw key and no
+            // DID, so a client holding the card could not get back to the node
+            // identity, its transparency log, or the federation block that
+            // says who witnesses it. These three close the loop, and cost a
+            // reader nothing who does not follow them.
+            "did":           format!("did:web:{}", did_web_host_of(&origin)),
+            "did_document":  format!("{origin}/.well-known/did.json"),
+            "federation":    format!("{origin}/.well-known/emem.json"),
         },
     });
     // Signed last, over everything above it. sign_agent_card documents exactly
@@ -8097,13 +8106,79 @@ async fn well_known_did(State(s): State<AppState>) -> Response {
 async fn well_known_emem_agents() -> Response {
     static DOC: std::sync::OnceLock<JsonValue> = std::sync::OnceLock::new();
     let doc = DOC.get_or_init(|| {
-        let path = std::env::var("EMEM_AGENTS_WELL_KNOWN")
-            .unwrap_or_else(|_| "config/emem-agents.json".to_string());
-        std::fs::read_to_string(&path)
-            .ok()
+        // The default is RELATIVE, and this server is normally a container
+        // whose WORKDIR is `/` and whose image does not COPY `config/`. That
+        // combination served `{"agents": []}` for three days: the ladder on
+        // every peer read it as "vouches for nobody", which is a valid answer
+        // and was not the true one. A file we could not find and a list we
+        // meant to be empty must not produce the same bytes, so say which
+        // happened, in the document and in the log.
+        // Candidates in order. `config/` is RELATIVE and only resolves when the
+        // server is run from a checkout, which is the dev case; a container
+        // starts at WORKDIR `/` and the image does not ship the directory. The
+        // data volume is the one path a packaged node always has, always
+        // writable by its operator, and never shared with another operator's
+        // roster, so it is where a per-node vouching list belongs. Deliberately
+        // NOT baked into the image: this document says "the operator of THIS
+        // domain vouches for these keys", and shipping one roster to every
+        // self-hoster would have them attesting to keys they never chose.
+        let explicit = std::env::var("EMEM_AGENTS_WELL_KNOWN").ok();
+        let data_dir = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
+        let candidates: Vec<String> = match &explicit {
+            Some(p) => vec![p.clone()],
+            None => vec![
+                "config/emem-agents.json".to_string(),
+                format!("{}/emem-agents.json", data_dir.trim_end_matches('/')),
+            ],
+        };
+        let mut path = candidates[0].clone();
+        let mut read: Option<String> = None;
+        let mut source = "missing";
+        for cand in &candidates {
+            match std::fs::read_to_string(cand) {
+                Ok(t) => {
+                    path = cand.clone();
+                    read = Some(t);
+                    source = "config";
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => {
+                    path = cand.clone();
+                    source = "unreadable";
+                    break;
+                }
+            }
+        }
+        let (text, mut source) = (read, source);
+        let parsed = text
             .and_then(|t| serde_json::from_str::<JsonValue>(&t).ok())
-            .filter(|v| v.get("agents").map(|a| a.is_array()).unwrap_or(false))
-            .unwrap_or_else(|| json!({"agents": []}))
+            .filter(|v| v.get("agents").map(|a| a.is_array()).unwrap_or(false));
+        if source == "config" && parsed.is_none() {
+            source = "unparseable";
+        }
+        let agents = parsed
+            .and_then(|v| v.get("agents").cloned())
+            .unwrap_or_else(|| json!([]));
+        let count = agents.as_array().map(|a| a.len()).unwrap_or(0);
+        if source != "config" {
+            tracing::warn!(
+                path = %path,
+                source,
+                "emem-agents.json not loaded: /.well-known/emem-agents.json will \
+                 vouch for nobody, and peers will read that as a deliberate \
+                 empty list. Set EMEM_AGENTS_WELL_KNOWN to an absolute path."
+            );
+        }
+        json!({
+            "agents": agents,
+            // Additive, and the two fields an operator needs to tell a real
+            // empty list from a deployment fault without shelling into the box.
+            // `source` is "config" only when the file was found and parsed.
+            "count": count,
+            "source": source,
+            "source_path": path,
+        })
     });
     let mut resp = Json(doc.clone()).into_response();
     let h = resp.headers_mut();
@@ -8133,12 +8208,36 @@ async fn federation_json(s: &AppState, responder_b32: &str) -> JsonValue {
                 .iter()
                 .filter_map(|w| w["entries_behind_current"].as_u64())
                 .min();
+            // Independence matters more here than on the route: this block is
+            // what a PEER reads to decide whether joining us is worth
+            // anything, and our own canary co-signs the head every two
+            // minutes. See get_log_witnesses for the full reasoning.
+            let mine = declared_witness_pubkey_b32();
+            let independent: Vec<&JsonValue> = match mine.as_deref() {
+                Some(k) => rows
+                    .iter()
+                    .filter(|w| w["witness_pubkey_b32"].as_str() != Some(k))
+                    .collect(),
+                None => rows.iter().collect(),
+            };
+            let independent_freshest = independent
+                .iter()
+                .filter_map(|w| w["entries_behind_current"].as_u64())
+                .min();
+            let independent_distinct: std::collections::BTreeSet<&str> = independent
+                .iter()
+                .filter_map(|w| w["witness_pubkey_b32"].as_str())
+                .collect();
             json!({
                 "current_tree_size": current,
                 "cosignatures": rows.len(),
                 "distinct_witnesses": distinct.len(),
                 "freshest_witness_entries_behind": freshest,
                 "head_is_witnessed": freshest == Some(0),
+                "independent_witnesses": independent_distinct.len(),
+                "freshest_independent_witness_entries_behind": independent_freshest,
+                "head_is_independently_witnessed": independent_freshest == Some(0),
+                "independence_note": "head_is_witnessed counts this node's own co-signatures, made every two minutes by its write-liveness canary. The independent_* fields exclude witness_pubkey_b32 above and are the ones that bear on split view.",
                 "url": "/v1/log/witnesses",
             })
         }
@@ -21220,6 +21319,45 @@ async fn get_log_witnesses(
     };
     let (current, all) = witness_rows(&s, size_filter).await?;
     let total = all.len();
+    // Independence, computed over EVERY row rather than the page returned.
+    //
+    // `head_is_witnessed` below counts any co-signature, and this node makes
+    // its own: `storage_liveness.py` co-signs the current head every two
+    // minutes as a write-liveness canary, which is a good probe that happens
+    // to share a key and an endpoint with federation witnessing. The flag
+    // therefore answers "did anything sign this head" and is nearly always
+    // true, whoever else is or is not looking. Split-view detection is the one
+    // property a self-signature cannot supply, because a node cannot catch
+    // itself serving two histories.
+    //
+    // So report the same numbers again with our own key removed. Over every
+    // row, not the returned page: on 2026-09-05 the declared key held 82 of
+    // the newest 100 co-signatures, so a page-local filter would have looked
+    // at almost nothing but us.
+    // Scoped so every borrow of `all` ends before `all` is consumed below.
+    let self_key = declared_witness_pubkey_b32();
+    let (independent_gap, independent_count, independent_rows) = {
+        let rows: Vec<&JsonValue> = match self_key.as_deref() {
+            Some(mine) => all
+                .iter()
+                .filter(|w| w["witness_pubkey_b32"].as_str() != Some(mine))
+                .collect(),
+            // No declared key means we cannot tell our own signatures from
+            // anyone else's. Every row counts as independent and
+            // `self_witness_pubkey_b32` is null, so a reader can see why
+            // rather than trusting a number we were not able to compute.
+            None => all.iter().collect(),
+        };
+        let gap = rows
+            .iter()
+            .filter_map(|w| w["entries_behind_current"].as_u64())
+            .min();
+        let keys: std::collections::BTreeSet<&str> = rows
+            .iter()
+            .filter_map(|w| w["witness_pubkey_b32"].as_str())
+            .collect();
+        (gap, keys.len(), rows.len())
+    };
     let out: Vec<JsonValue> = all.into_iter().rev().take(limit).collect();
     let freshest_gap = out
         .iter()
@@ -21236,8 +21374,22 @@ async fn get_log_witnesses(
         // that impression is wrong and the surface should say so itself.
         "head_is_witnessed": freshest_gap == Some(0),
         "freshest_witness_entries_behind": freshest_gap,
+        // The same two numbers with this node's own co-signatures removed,
+        // which is what a reader asking about oversight actually wants. See
+        // the comment where these are computed: our write-liveness canary
+        // co-signs the head every two minutes, so the two fields above are
+        // nearly always the optimistic answer.
+        "head_is_independently_witnessed": independent_gap == Some(0),
+        "freshest_independent_witness_entries_behind": independent_gap,
+        "independent_witness_count": independent_count,
+        "independent_cosignature_count": independent_rows,
+        // Published so the filter is reproducible rather than asserted: a
+        // reader can drop this key from `witnesses` and get our numbers. Null
+        // when the operator declared no witness key, in which case the four
+        // fields above counted every row and are not really independent.
+        "self_witness_pubkey_b32": self_key,
         "witnesses": out,
-        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
+        "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed, and it is the one that speaks to split view. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
         "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
     })))
@@ -25949,10 +26101,19 @@ async fn mcp_with_version(
     let initialize_version: Option<&'static str> = serde_json::from_slice::<JsonValue>(&body)
         .ok()
         .filter(|v| v.get("method").and_then(|m| m.as_str()) == Some("initialize"))
-        .and_then(|v| {
+        .map(|v| {
+            // Mirror the BODY's rule exactly, which is
+            // `if SUPPORTED.contains(requested) { requested } else { LATEST }`.
+            // `and_then` here stopped at the first branch, so an initialize
+            // asking for a version NEWER than ours fell through to the
+            // header-absent default: the result said 2025-11-25 and the header
+            // of the same response said 2025-03-26. An absent
+            // `params.protocolVersion` lands on LATEST for the same reason it
+            // does in the body, where the missing value reads as "".
             v.pointer("/params/protocolVersion")
                 .and_then(|p| p.as_str())
                 .and_then(|asked| MCP_SUPPORTED_VERSIONS.iter().copied().find(|s| *s == asked))
+                .unwrap_or(MCP_LATEST_VERSION)
         });
     let stamped = initialize_version.unwrap_or(negotiated);
     let mut resp = mcp_jsonrpc_inner(s, headers, body, tier).await;
