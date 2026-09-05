@@ -93,7 +93,8 @@ Environment=EMEM_GA_MEASUREMENT_ID=G-RBLXX5LR9L
 # fetch is blocked by Zenodo's no-Range serving. Bump this when the v1.3
 # release is wired (Zenodo record 19485190).
 Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif
-Environment=EMEM_EUDR_BATCH_PATH=1   # /v1/eudr_dds polygon-batched COG reads (1 sample_window per band, not per-cell). Set explicitly even though code default is now true (commit 401c14d) — belt-and-suspenders so a future code-default flip cannot silently regress to the 180s per-cell path.
+# /v1/eudr_dds polygon-batched COG reads (1 sample_window per band, not per-cell). Set explicitly even though code default is now true (commit 401c14d) — belt-and-suspenders so a future code-default flip cannot silently regress to the 180s per-cell path.
+Environment=EMEM_EUDR_BATCH_PATH=1
 # /v1/ask latency floor (2026-06-14). The dispatch-level hard cap on each
 # cold-band materialiser (try_materialize_bands) defaulted to 30s — exactly
 # equal to the /v1/ask budget (EMEM_ASK_TIMEOUT_SECS=30). Zero slack: ONE

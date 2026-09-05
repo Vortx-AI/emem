@@ -1,0 +1,20 @@
+[Unit]
+# live_perception vanished for the length of a migration and nothing reported
+# it, because fetch_live_perception returns None for both "service unreachable"
+# and "no cameras at this place". This asserts against a cell whose answer is
+# known in advance, so those two cases stop looking alike.
+Description=emem — assert live_perception still works, and alarm if it does not
+Documentation=https://github.com/Vortx-AI/migratetoaws/blob/main/docs/perception-restore.md
+After=network-online.target emem-server.service
+OnFailure=emem-perception-alarm.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+Environment=EMEM_PROBE_ORIGIN=http://127.0.0.1:5051
+Environment=EMEM_PROBE_CELL=defi.zb64a.cAzU.zfa27
+Environment="EMEM_PROBE_QUESTION=what is happening at Trafalgar Square"
+Environment=EMEM_PROBE_MIN_CAMERAS=1
+Environment=EMEM_PROBE_MAX_CLIP_AGE_S=3600
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/perception_liveness.py

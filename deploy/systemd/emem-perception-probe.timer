@@ -1,0 +1,14 @@
+[Unit]
+Description=Run the emem live_perception probe every 15 minutes
+
+[Timer]
+# Every 15 min against an upstream clip cadence of ~1230s: often enough to
+# notice a break within one clip generation, rare enough that the probe is not
+# itself meaningful load on /v1/ask.
+OnBootSec=5min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target
