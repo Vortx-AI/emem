@@ -39,12 +39,17 @@ set -u
 LIVE="${EMEM_WATCHDOG_URL:-http://127.0.0.1:5051/live}"
 HEALTH="${EMEM_WATCHDOG_HEALTH_URL:-http://127.0.0.1:5051/health}"
 THRESHOLD="${EMEM_WATCHDOG_THRESHOLD:-2}"
+# Scope of the unit being watched. The OCI host runs emem-server as a user
+# unit; the AWS node runs it as a system unit wrapping a container, where
+# `systemctl --user` silently finds nothing and the watchdog would look
+# healthy while never restarting anything.
+SYSTEMCTL="${EMEM_SYSTEMCTL:-systemctl --user}"
 TIMEOUT="${EMEM_WATCHDOG_TIMEOUT:-8}"
 HEALTH_TIMEOUT="${EMEM_WATCHDOG_HEALTH_TIMEOUT:-20}"
 STATE="${XDG_RUNTIME_DIR:-/tmp}/emem_watchdog_fails"
 
 snapshot_wedge() {
-  pid=$(systemctl --user show -p MainPID --value emem-server.service 2>/dev/null)
+  pid=$($SYSTEMCTL show -p MainPID --value emem-server.service 2>/dev/null)
   [ -n "$pid" ] && [ "$pid" != 0 ] && [ -d "/proc/$pid" ] || return 0
   dir="${EMEM_WEDGE_DIR:-/home/ubuntu/emem/var/wedge}"
   mkdir -p "$dir"
@@ -120,7 +125,7 @@ if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
   STORAGE_PROBE="${EMEM_WATCHDOG_STORAGE_PROBE:-/usr/bin/python3 /home/ubuntu/emem/scripts/storage_liveness.py --origin http://127.0.0.1:5051 --write}"
   sfails=$(cat "$STORAGE_STATE" 2>/dev/null || echo 0)
   case "$sfails" in ''|*[!0-9]*) sfails=0 ;; esac
-  started=$(systemctl --user show -p ActiveEnterTimestampMonotonic --value emem-server.service 2>/dev/null)
+  started=$($SYSTEMCTL show -p ActiveEnterTimestampMonotonic --value emem-server.service 2>/dev/null)
   now_mono=$(awk '{printf "%d", $1*1000000}' /proc/uptime)
   if [ -n "$started" ] && [ "$started" != 0 ] && [ $((now_mono - started)) -lt $((STORAGE_GRACE_S * 1000000)) ]; then
     echo 0 >"$STORAGE_STATE"
@@ -133,7 +138,7 @@ if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
         echo "emem-watchdog: storage wedged for ${sfails} consecutive checks; restarting emem-server.service"
         echo 0 >"$STORAGE_STATE"
         snapshot_wedge
-        if [ "${EMEM_WATCHDOG_DRY_RUN:-0}" = 1 ]; then echo "emem-watchdog: DRY RUN, not restarting"; else systemctl --user restart emem-server.service; fi
+        if [ "${EMEM_WATCHDOG_DRY_RUN:-0}" = 1 ]; then echo "emem-watchdog: DRY RUN, not restarting"; else $SYSTEMCTL restart emem-server.service; fi
         exit 0
       fi
     else
@@ -162,6 +167,6 @@ echo "emem-watchdog: /live did not respond within ${TIMEOUT}s (${fails}/${THRESH
 if [ "$fails" -ge "$THRESHOLD" ]; then
   echo "emem-watchdog: runtime appears stalled; restarting emem-server.service"
   snapshot_wedge
-  systemctl --user restart emem-server.service
+  $SYSTEMCTL restart emem-server.service
   echo 0 >"$STATE"
 fi
