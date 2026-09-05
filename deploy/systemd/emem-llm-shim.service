@@ -1,0 +1,34 @@
+[Unit]
+# Serves the OpenAI /v1/chat/completions contract that gemma_bridge.py and
+# agent_ack.py already default to (127.0.0.1:5014), backed by Bedrock. That port
+# used to be a GPU llm-serve; there is no GPU on this box. Keeping the contract
+# and changing what answers on the port means llama.cpp's llama-server -- which
+# speaks the same API -- can replace this process with no caller change.
+Description=emem LLM shim — OpenAI /v1/chat/completions on :5014, served by Bedrock
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/emem
+# Credential only, mode 600. Service configuration is Environment= below, so the
+# secret file can be rotated or shredded without touching what the service does.
+# EnvironmentFile rather than Environment= deliberately: Environment= values are
+# readable by any user via `systemctl show`.
+EnvironmentFile=/home/ubuntu/.config/emem/aws.env
+Environment=LLM_SHIM_BIND=127.0.0.1:5014
+Environment=LLM_SHIM_MODEL=amazon.nova-micro-v1:0
+Environment=LLM_SHIM_MAX_TOKENS=800
+Environment=PYTHONUNBUFFERED=1
+# The venv, not /usr/bin/python3: system boto3 is 1.34.46, which predates both
+# the Converse API and bearer-token auth, and fails with a bare AttributeError.
+ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/emem/python/llm_shim/openai_bedrock_shim.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

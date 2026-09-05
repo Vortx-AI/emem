@@ -262,6 +262,14 @@ def _cache_key(facts: str, model: str) -> str:
     return h.hexdigest()
 
 
+def _cache_count() -> int:
+    """Cheap enough to call from /health; None rather than a lie if unreadable."""
+    try:
+        return sum(1 for f in CACHE_DIR.rglob("*") if f.is_file() and not f.name.endswith(".tmp"))
+    except Exception:
+        return -1
+
+
 def _cache_get(key: str):
     if not CACHE_ENABLED:
         return None
@@ -294,7 +302,17 @@ def explain(ask: dict) -> dict:
     key = _cache_key(facts, model)
     hit = _cache_get(key)
     if hit is not None:
+        # A hit costs nothing and takes no time, so it must not report the
+        # billed tokens and latency of the call that filled it. Summing
+        # `tokens_in` across responses is the obvious way to reconcile a
+        # Bedrock bill, and replaying the original numbers would inflate that
+        # total by exactly the hit rate. The original figures are kept under
+        # `origin_*` so the saving stays measurable.
         hit["cached"] = True
+        for k in ("tokens_in", "tokens_out", "latency_ms"):
+            if k in hit:
+                hit["origin_" + k] = hit[k]
+                hit[k] = 0
         return hit
     if backend == "bedrock":
         out = _explain_bedrock(facts, ask)
@@ -381,10 +399,23 @@ class H(BaseHTTPRequestHandler):
             # qwen — but only after an hour of believing it was their fault. A
             # health endpoint that names a model the request path does not use
             # is a false statement about the system, however green it looks.
-            if USE_GEMMA:
+            backend = os.environ.get("EMEM_EXPLAIN_BACKEND", "gemma")
+            if backend == "bedrock":
+                live = {"backend": "bedrock", "model": BEDROCK_MODEL,
+                        "base": f"bedrock-runtime.{BEDROCK_REGION}.amazonaws.com"}
+            elif backend == "none":
+                live = {"backend": "none", "model": "none (deterministic projection)",
+                        "base": "emem /v1/ask"}
+            elif USE_GEMMA:
                 live = {"backend": "gemma", "model": GEMMA_MODEL, "base": GEMMA_BASE}
             else:
                 live = {"backend": "cosmos", "model": COSMOS_MODEL, "base": COSMOS_BASE}
+            # Named here too, because "which model answers" and "whether it is
+            # asked at all" are different questions and an operator debugging a
+            # stale explanation needs the second one.
+            live["cache"] = {"enabled": CACHE_ENABLED, "dir": str(CACHE_DIR),
+                             "entries": _cache_count()}
+            live["degrades_to"] = "emem deterministic answer (never 5xx)"
             self._send(200, {"ok": True, **live, "signed_output": False,
                              "note": "model/backend/base describe the path a request takes right now"})
         else:

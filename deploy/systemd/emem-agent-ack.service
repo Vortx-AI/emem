@@ -1,18 +1,24 @@
 [Unit]
-Description=emem: instant acknowledgement for incoming agent notes (Gemma-composed)
-After=network-online.target emem-server.service
+Description=emem: instant acknowledgement for incoming agent notes
+After=network-online.target emem-server.service emem-llm-shim.service
+Wants=emem-llm-shim.service
 
 [Service]
 Type=simple
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/home/ubuntu/emem
-# 180s poll: fast enough that a sender is not left guessing, slow enough that
-# the shared model host and the ledger both stay quiet.
 Environment=PYTHONUNBUFFERED=1
-ExecStart=/usr/bin/python3 -u /home/ubuntu/emem/scripts/agent_ack.py --post --watch 180
+# Unchanged from its own default; named here so the coupling to the shim is
+# visible in the unit rather than buried in the script.
+Environment=EMEM_A2A_LLM_URL=http://127.0.0.1:5014/v1/chat/completions
+# venv, not /usr/bin/python3: this script needs blake3 and nacl, which the
+# system interpreter does not have.
+ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/emem/scripts/agent_ack.py --post --watch 180
 Restart=always
 RestartSec=30
 StandardOutput=append:/home/ubuntu/emem/var/emem/log/agent-ack.log
 StandardError=append:/home/ubuntu/emem/var/emem/log/agent-ack.log
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

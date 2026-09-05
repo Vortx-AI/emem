@@ -1,8 +1,26 @@
 [Unit]
-Description=emem health watchdog — restart the responder if its tokio runtime silently stalls
+Description=emem health watchdog — restart the responder if its runtime silently stalls
 After=emem-server.service
 
 [Service]
 Type=oneshot
-# Polls loopback /health; restarts emem-server.service after N consecutive misses.
+User=ubuntu
+Group=ubuntu
+# This node opens a 70 GB sled store in ~575 s, measured. The upstream defaults
+# -- THRESHOLD=2 at a 60 s tick, and a 300 s storage grace -- both expire long
+# before that, so an unmodified watchdog here would kill emem-server mid-start
+# and do it again every cycle: a permanent restart loop, not a self-heal.
+# 15 misses is 15 minutes, comfortably past the measured open.
+Environment=EMEM_WATCHDOG_THRESHOLD=15
+Environment=EMEM_WATCHDOG_STORAGE_GRACE_S=900
+Environment=EMEM_WATCHDOG_URL=http://127.0.0.1:5051/live
+Environment=EMEM_WATCHDOG_HEALTH_URL=http://127.0.0.1:5051/health
+# emem-server is a SYSTEM unit here (a container), not a user unit.
+Environment="EMEM_SYSTEMCTL=sudo systemctl"
+Environment=EMEM_WEDGE_DIR=/home/ubuntu/emem/var/wedge
+# The probe signs a write, so it needs blake3; the system python3 here does
+# not have it and the probe then reports "WRITES ARE WEDGED" for a missing
+# module. Left unfixed that is a false positive that restarts a healthy
+# node every three ticks -- a permanent 9.6-minute-outage loop.
+Environment="EMEM_WATCHDOG_STORAGE_PROBE=/home/ubuntu/.emem-witness/venv/bin/python /home/ubuntu/emem/scripts/storage_liveness.py --origin http://127.0.0.1:5051 --write"
 ExecStart=/home/ubuntu/emem/ops/systemd/emem-watchdog.sh
