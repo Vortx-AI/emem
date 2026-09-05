@@ -78,6 +78,65 @@ COSMOS_BASE = os.environ.get("EMEM_EXPLAIN_COSMOS_BASE", "http://127.0.0.1:5017"
 COSMOS_MODEL = os.environ.get("EMEM_EXPLAIN_COSMOS_MODEL", "nvidia/Cosmos3-Edge")
 COSMOS_FAMILY = os.environ.get("EMEM_EXPLAIN_COSMOS_FAMILY", "cosmos3_edge")
 
+# ── Bedrock ────────────────────────────────────────────────────────────────
+# Reached through the Converse API rather than InvokeModel, because Converse
+# takes the same request shape for every model on Bedrock. Moving between Nova
+# Micro and Haiku is then a model-id change and nothing else, which matters
+# because agent-reply is citation-scored and may want a stronger model than the
+# three rephrasing services do.
+#
+# Nova Micro is the default deliberately. The system prompt above forbids the
+# model from inventing, estimating or computing anything -- it rewords text that
+# is already correct, at temperature 0, under a 160-token ceiling. That is a
+# narrow job, and a small model does narrow jobs reliably.
+BEDROCK_MODEL = os.environ.get("EMEM_EXPLAIN_BEDROCK_MODEL", "amazon.nova-micro-v1:0")
+BEDROCK_REGION = os.environ.get("EMEM_EXPLAIN_BEDROCK_REGION",
+                                os.environ.get("AWS_REGION", "us-east-1"))
+_bedrock = None
+
+
+def _bedrock_client():
+    """Lazy, so importing this module needs neither boto3 nor credentials."""
+    global _bedrock
+    if _bedrock is None:
+        import boto3
+        _bedrock = boto3.client("bedrock-runtime", region_name=BEDROCK_REGION)
+    return _bedrock
+
+
+def _explain_bedrock(facts: str, ask: dict) -> dict:
+    """Reword signed facts via Bedrock. Same contract as the other backends."""
+    t0 = time.time()
+    try:
+        resp = _bedrock_client().converse(
+            modelId=BEDROCK_MODEL,
+            system=[{"text": SYSTEM}],
+            messages=[{"role": "user", "content": [{"text": "Signed facts:\n" + facts}]}],
+            inferenceConfig={"maxTokens": MAX_TOKENS, "temperature": 0.0},
+        )
+    except Exception as e:  # noqa: BLE001 - surface the reason, do not cache it
+        return {"error": f"bedrock unavailable: {type(e).__name__}: {e}", "signed": False}
+    text = "".join(
+        b.get("text", "") for b in resp.get("output", {}).get("message", {}).get("content", [])
+    ).strip()
+    usage = resp.get("usage", {}) or {}
+    return {
+        "explanation": text,
+        "signed": False,
+        "disclaimer": "Reworded by a hosted language model from emem's already-signed "
+        "facts. This prose is NOT signed and is not a fact — verify the emem receipt "
+        "(fact_cids / signature) for the ground truth it rewords.",
+        "model": BEDROCK_MODEL,
+        "via": f"bedrock converse ({BEDROCK_REGION})",
+        "source_routed_to": ask.get("routed_to"),
+        "source_signed_fact_count": len(ask.get("fact_cids") or []),
+        "latency_ms": round((time.time() - t0) * 1000),
+        # Reported so a bill can be attributed to a workload rather than guessed at.
+        "tokens_in": usage.get("inputTokens"),
+        "tokens_out": usage.get("outputTokens"),
+        "cached": False,
+    }
+
 SYSTEM = (
     "You explain emem's SIGNED Earth-observation facts to a non-expert. "
     "Rules: (1) be concise, 2-4 sentences; (2) interpret ONLY the numbers given "
@@ -85,6 +144,39 @@ SYSTEM = (
     "not measured rather than guessing; (4) do not claim this explanation is "
     "signed — the signed artifact is emem's receipt, this is plain commentary."
 )
+
+
+def _explain_deterministic(ask: dict, reason: str) -> dict:
+    """The zero-cost tier: hand back emem's own deterministic answer.
+
+    /v1/ask already produces a correct, signed, LLM-free answer -- rewording it
+    is a convenience, not a source of truth. So when a backend is unreachable,
+    out of credit, or its credential has expired, the right move is to serve the
+    deterministic projection rather than a 5xx: the caller still gets the real
+    answer, just in emem's own phrasing instead of a friendlier one.
+
+    This is also the cheapest possible backend, and it is worth being explicit
+    that it is always available. Any argument about model cost is bounded below
+    by this: the floor is not "the cheapest model", it is "no model".
+    """
+    answer = (ask.get("answer") or "").strip()
+    if not answer:
+        return {"error": f"no backend and no deterministic answer to fall back to ({reason})",
+                "signed": False}
+    return {
+        "explanation": answer,
+        "signed": False,
+        "degraded": True,
+        "degraded_reason": reason,
+        "disclaimer": "emem's own deterministic answer, served verbatim because the "
+        "rewording backend was unavailable. It is a projection of the signed facts "
+        "-- verify the receipt (fact_cids / signature) for ground truth.",
+        "model": "none (deterministic projection)",
+        "via": "emem /v1/ask",
+        "source_routed_to": ask.get("routed_to"),
+        "source_signed_fact_count": len(ask.get("fact_cids") or []),
+        "cached": False,
+    }
 
 
 def _digest_ask(ask: dict) -> str:
@@ -196,19 +288,30 @@ def _cache_put(key: str, value: dict) -> None:
 
 def explain(ask: dict) -> dict:
     facts = _digest_ask(ask)
-    model = GEMMA_MODEL if USE_GEMMA else COSMOS_MODEL
+    backend = os.environ.get("EMEM_EXPLAIN_BACKEND", "gemma")
+    model = (BEDROCK_MODEL if backend == "bedrock"
+             else GEMMA_MODEL if USE_GEMMA else COSMOS_MODEL)
     key = _cache_key(facts, model)
     hit = _cache_get(key)
     if hit is not None:
         hit["cached"] = True
         return hit
+    if backend == "bedrock":
+        out = _explain_bedrock(facts, ask)
+        if out.get("error"):
+            # Never 5xx over a rewording. Degrade to the signed answer instead.
+            return _explain_deterministic(ask, out["error"])
+        _cache_put(key, out)
+        return out
+    if backend == "none":
+        return _explain_deterministic(ask, "backend disabled (EMEM_EXPLAIN_BACKEND=none)")
     if USE_GEMMA:
         out = _explain_gemma(facts, ask)
-        if not out.get("error"):
-            out["cached"] = False
-            _cache_put(key, out)
+        if out.get("error"):
+            return _explain_deterministic(ask, out["error"])
+        out["cached"] = False
+        _cache_put(key, out)
         return out
-        return _explain_gemma(facts, ask)
     # No API key and no base swap: Cosmos is a local service on its own port.
     #
     # thinking:false deliberately. Explaining an already-signed fact in two
