@@ -2822,7 +2822,25 @@ def main() -> int:
     # none". Two is the slack for a genuine `memory_delete` between builds;
     # anything past that, proportionally, is a read that failed.
     allowed_drop = max(2, int(prev_notes * 0.005))
-    if prev_notes and len(notes) < prev_notes - allowed_drop:
+    # An escape hatch, because the guard above has no way back on its own.
+    # It exists to catch a failed read, and it does. But a drop can also be
+    # legitimate -- a reclassification, a namespace that became a game journal,
+    # a host move -- and when that happens the guard refuses forever and the
+    # transcript freezes at whatever it last managed, which is the same failure
+    # it was written to prevent, arrived at from the other side.
+    #
+    # So: an operator can accept a drop, but only by stating the exact count
+    # they expect. A bare --force would be used carelessly; a number that has to
+    # match means somebody looked at the figure first, and a stale invocation
+    # fails closed rather than waving through a genuinely bad read later.
+    accept = None
+    for i, a in enumerate(sys.argv):
+        if a == "--accept-count" and i + 1 < len(sys.argv):
+            accept = int(sys.argv[i + 1])
+    if accept is not None and accept == len(notes):
+        print(f"  accepting {len(notes)} notes against {prev_notes} published, "
+              f"as explicitly stated on the command line")
+    elif prev_notes and len(notes) < prev_notes - allowed_drop:
         print(
             f"  REFUSING to write: this build read {len(notes)} notes against "
             f"{prev_notes} already published, {prev_notes - len(notes)} fewer "
