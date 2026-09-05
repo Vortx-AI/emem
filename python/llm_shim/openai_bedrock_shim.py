@@ -36,9 +36,12 @@ Env: LLM_SHIM_BIND (127.0.0.1:5014), LLM_SHIM_MODEL (amazon.nova-micro-v1:0),
 """
 import json
 import os
+import pathlib
 import sys
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib import request as _req
 
 BIND = os.environ.get("LLM_SHIM_BIND", "127.0.0.1:5014")
 MODEL = os.environ.get("LLM_SHIM_MODEL", "amazon.nova-micro-v1:0")
@@ -46,6 +49,80 @@ REGION = os.environ.get("LLM_SHIM_REGION", os.environ.get("AWS_REGION", "us-east
 MAX_TOKENS = int(os.environ.get("LLM_SHIM_MAX_TOKENS", "800"))
 
 _client = None
+
+# ── Daily spend cap ────────────────────────────────────────────────────────
+# A hard ceiling enforced here rather than by AWS Budgets, because Budgets
+# ALERT and do not stop: they email you after the money is gone. This refuses
+# before the call is made.
+#
+# Hitting the cap must not break anything. It falls back to the local model on
+# LLM_SHIM_FALLBACK_URL -- slower, free, and already running for the explain
+# sidecar -- so the ceiling costs latency, never availability.
+#
+# The counter is persisted because a process restart is not a new day, and an
+# in-memory tally would silently reset the budget on every deploy. The day
+# boundary is UTC so it does not move twice a year.
+DAILY_USD_CAP = float(os.environ.get("LLM_SHIM_DAILY_USD", "10"))
+SPEND_FILE = pathlib.Path(os.environ.get(
+    "LLM_SHIM_SPEND_FILE", "/home/ubuntu/emem/var/emem/llm_shim_spend.json"))
+# Nova Micro, USD per million tokens. Overridable because a price is a fact
+# about a vendor's pricing page, not about this code.
+USD_PER_MTOK_IN = float(os.environ.get("LLM_SHIM_USD_IN", "0.035"))
+USD_PER_MTOK_OUT = float(os.environ.get("LLM_SHIM_USD_OUT", "0.14"))
+FALLBACK_URL = os.environ.get("LLM_SHIM_FALLBACK_URL", "")
+
+_spend_lock = threading.Lock()
+
+
+def _today() -> str:
+    return time.strftime("%Y-%m-%d", time.gmtime())
+
+
+def _spend_read() -> dict:
+    try:
+        d = json.loads(SPEND_FILE.read_text())
+        if d.get("day") == _today():
+            return d
+    except Exception:  # noqa: BLE001 - an unreadable ledger must not bill twice
+        pass
+    return {"day": _today(), "usd": 0.0, "calls": 0, "in": 0, "out": 0}
+
+
+def _spend_add(tok_in: int, tok_out: int) -> dict:
+    usd = (tok_in * USD_PER_MTOK_IN + tok_out * USD_PER_MTOK_OUT) / 1_000_000
+    with _spend_lock:
+        d = _spend_read()
+        d["usd"] += usd; d["calls"] += 1; d["in"] += tok_in; d["out"] += tok_out
+        try:
+            SPEND_FILE.parent.mkdir(parents=True, exist_ok=True)
+            tmp = SPEND_FILE.with_suffix(".tmp")
+            tmp.write_text(json.dumps(d))
+            tmp.replace(SPEND_FILE)
+        except Exception:  # noqa: BLE001 - a ledger that cannot write must not 500
+            pass
+        return d
+
+
+def _over_cap() -> bool:
+    return _spend_read()["usd"] >= DAILY_USD_CAP
+
+
+def _fallback(req: dict):
+    """Serve from the local model when the cap is spent. Returns (status, body)."""
+    if not FALLBACK_URL:
+        return 503, {"error": {"message": f"daily cap ${DAILY_USD_CAP:.2f} reached "
+                     f"and no LLM_SHIM_FALLBACK_URL is set", "type": "budget_exhausted"}}
+    try:
+        r = _req.Request(FALLBACK_URL, data=json.dumps(req).encode(), method="POST",
+                         headers={"Content-Type": "application/json"})
+        with _req.urlopen(r, timeout=600) as resp:
+            body = json.loads(resp.read())
+        body["x_budget"] = (f"daily cap ${DAILY_USD_CAP:.2f} reached; served by the "
+                            f"local model instead. Slower, not broken.")
+        return 200, body
+    except Exception as e:  # noqa: BLE001
+        return 502, {"error": {"message": f"cap reached and fallback failed: {e}",
+                               "type": "budget_exhausted"}}
 
 
 def _bedrock():
@@ -100,8 +177,15 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path.rstrip("/") in ("/health", "/v1/health"):
-            return self._send(200, {"status": "ok", "backend": "bedrock",
-                                    "model": MODEL, "region": REGION, "streaming": False})
+            sp = _spend_read()
+            return self._send(200, {
+                "status": "ok", "backend": "bedrock", "model": MODEL,
+                "region": REGION, "streaming": False,
+                "budget": {"day": sp["day"], "cap_usd": DAILY_USD_CAP,
+                           "spent_usd": round(sp["usd"], 6),
+                           "remaining_usd": round(max(0.0, DAILY_USD_CAP - sp["usd"]), 6),
+                           "calls": sp["calls"], "over_cap": _over_cap(),
+                           "fallback": FALLBACK_URL or None}})
         if self.path.rstrip("/") == "/v1/models":
             return self._send(200, {"object": "list", "data": [
                 {"id": MODEL, "object": "model", "owned_by": "bedrock"}]})
@@ -121,6 +205,11 @@ class Handler(BaseHTTPRequestHandler):
         # caller's model name is advisory -- this process serves LLM_SHIM_MODEL,
         # and says so in the response, rather than silently honouring a name
         # that means nothing to Bedrock.
+        # Checked BEFORE the call: over the cap this never reaches Bedrock.
+        if _over_cap():
+            code, body = _fallback(req)
+            return self._send(code, body)
+
         system, messages = _to_converse(req.get("messages"))
         cfg = {"maxTokens": int(req.get("max_tokens") or MAX_TOKENS),
                "temperature": float(req.get("temperature", 0.0))}
@@ -131,12 +220,25 @@ class Handler(BaseHTTPRequestHandler):
                 kw["system"] = system
             r = _bedrock().converse(**kw)
         except Exception as e:
-            return self._send(502, {"error": {"message": f"bedrock: {type(e).__name__}: {e}",
-                                              "type": "upstream_error"}})
+            # Fall back on ANY Bedrock failure, not just the budget cap. The
+            # failure this is really for is credential expiry: the last token
+            # was a 12-hour one, and the shape of that outage is every caller
+            # getting a 502 at once for a reason none of them can fix. A slower
+            # local answer is strictly better than that.
+            code, body = _fallback(req)
+            if code == 200:
+                body["x_budget"] = (f"bedrock unavailable ({type(e).__name__}); "
+                                    f"served by the local model instead")
+                return self._send(200, body)
+            return self._send(502, {"error": {"message": f"bedrock: {type(e).__name__}: {e}; "
+                                              f"fallback also failed", "type": "upstream_error"}})
         text = "".join(b.get("text", "") for b in
                        r.get("output", {}).get("message", {}).get("content", [])).strip()
         u = r.get("usage", {}) or {}
+        sp = _spend_add(int(u.get("inputTokens") or 0), int(u.get("outputTokens") or 0))
         self._send(200, {
+            "x_budget_spent_usd": round(sp["usd"], 6),
+            "x_budget_cap_usd": DAILY_USD_CAP,
             "id": f"chatcmpl-{int(t0 * 1000)}",
             "object": "chat.completion",
             "created": int(t0),
