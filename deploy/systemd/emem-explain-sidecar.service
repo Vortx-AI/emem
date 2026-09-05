@@ -13,10 +13,11 @@ Type=simple
 User=ubuntu
 Group=ubuntu
 WorkingDirectory=/home/ubuntu/emem
-EnvironmentFile=/home/ubuntu/.config/emem/aws.env
+# EnvironmentFile=/home/ubuntu/.config/emem/aws.env  # unused: backend is local now
 Environment=EMEM_EXPLAIN_BIND=127.0.0.1:5071
-Environment=EMEM_EXPLAIN_BACKEND=bedrock
-Environment=EMEM_EXPLAIN_BEDROCK_MODEL=amazon.nova-micro-v1:0
+Environment=EMEM_EXPLAIN_BACKEND=gemma
+Environment=EMEM_EXPLAIN_GEMMA_BASE=http://127.0.0.1:5014
+Environment=EMEM_EXPLAIN_GEMMA_MODEL=qwen2.5-1.5b-instruct-q4_k_m
 Environment=EMEM_EXPLAIN_MAX_TOKENS=160
 # Host path for the container's /data, so the cache survives restarts and is
 # visible from inside emem-server as /data/explain_cache.

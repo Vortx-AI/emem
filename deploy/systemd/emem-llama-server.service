@@ -1,0 +1,38 @@
+[Unit]
+# Serves the same OpenAI /v1/chat/completions contract on :5014 that the Bedrock
+# shim served, from a local model. This is the swap the seam at :5014 was built
+# for: gemma_bridge.py, agent_ack.py and the explain sidecar all point at that
+# port and none of them change.
+#
+# Local rather than hosted, for reasons that are not about the token price.
+# Bedrock costs $0.018 per 1,000 explain calls, which is nothing -- but it costs
+# a CREDENTIAL, and that is the part with recurring weight: a 12-hour token to
+# rotate, an instance role or long-lived key to provision, an IAM policy and a
+# budget alarm to keep. For a service that rewords already-signed facts a
+# handful of times a day, none of that is worth carrying. Measured here:
+# 112 t/s prompt, 48 t/s generation on 4 threads, ~3.3 s per call against
+# Bedrock's 0.73 s. At this volume that difference is invisible and the
+# operational simplicity is not.
+Description=emem local LLM — OpenAI /v1/chat/completions on :5014 (llama.cpp, CPU)
+After=network-online.target
+Conflicts=emem-llm-shim.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/llama.cpp
+# 4 of 8 threads. emem-server shares this box and its p99 matters more than a
+# rewording latency; at 8 threads prompt throughput gained ~40% but with +-36
+# variance, which is contention rather than headroom.
+ExecStart=/home/ubuntu/llama.cpp/build/bin/llama-server \
+  --model /home/ubuntu/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
+  --host 127.0.0.1 --port 5014 \
+  --threads 4 --threads-batch 8 --batch-size 2048 --ubatch-size 1024 --ctx-size 32768 --parallel 2 \
+  --no-webui
+Restart=always
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

@@ -3,8 +3,8 @@
 # route it serves, not the model behind it -- that is now whatever answers on
 # :5014, which is Bedrock Nova Micro.
 Description=Gaussian-splat chat bridge (loopback :8080; proxied by emem.dev/splats/api/gemma)
-After=network-online.target emem-llm-shim.service
-Wants=emem-llm-shim.service
+After=network-online.target emem-llama-server.service
+Wants=emem-llama-server.service
 
 [Service]
 Type=simple
@@ -16,8 +16,10 @@ Environment=PORT=8080
 Environment=WORLD_ROOT=/home/ubuntu/navigatable_worlds
 Environment=GEMMA_URL=http://127.0.0.1:5014/v1/chat/completions
 Environment=GEMMA_FMT=openai
-Environment=GEMMA_MODEL=amazon.nova-micro-v1:0
+Environment=GEMMA_MODEL=qwen2.5-1.5b-instruct-q4_k_m
+Environment=GEMMA_VISION=0
 Environment=GEMMA_MAX_TOKENS=800
+Environment=GEMMA_MAX_CELLS=40
 Environment=PYTHONUNBUFFERED=1
 ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/navigatable_worlds/gemma_bridge.py
 Restart=on-failure

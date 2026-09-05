@@ -1,7 +1,7 @@
 [Unit]
 Description=emem: instant acknowledgement for incoming agent notes
-After=network-online.target emem-server.service emem-llm-shim.service
-Wants=emem-llm-shim.service
+After=network-online.target emem-server.service emem-llama-server.service
+Wants=emem-llama-server.service
 
 [Service]
 Type=simple

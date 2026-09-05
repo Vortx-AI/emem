@@ -1,0 +1,34 @@
+[Unit]
+# emem's live_perception comes from geo.qa's camera registry (GET /at), which
+# used to be a loopback call because emem and that service shared the OCI box.
+# The migration split them. This forward tunnel restores the loopback address
+# on this host, so EMEM_PERCEPTION_URL keeps its default of
+# http://127.0.0.1:5017 and emem-server needs no restart to regain cameras --
+# which matters, because a restart of that process costs ~9 minutes of
+# storage_open on this volume.
+#
+# A tunnel rather than exposing :5017 publicly: the perception API is
+# proprietary geo.qa and its camera registry is not a public surface. The key
+# this uses is restricted on the far side to port-forwarding to 127.0.0.1:5017
+# and nothing else -- it cannot open a shell.
+Description=Forward tunnel: geo.qa perception :5017 -> this host's loopback (emem live_perception)
+Documentation=https://github.com/Vortx-AI/migratetoaws
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+ExecStart=/usr/bin/ssh -N -T \
+  -i /home/ubuntu/.ssh/perception-tunnel \
+  -o BatchMode=yes -o StrictHostKeyChecking=accept-new \
+  -o ExitOnForwardFailure=yes \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -L 127.0.0.1:5017:127.0.0.1:5017 \
+  ubuntu@23.20.34.105
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
