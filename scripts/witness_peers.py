@@ -164,6 +164,62 @@ def identify_signer(origin: str, rpk: bytes) -> str:
     return f"MISMATCH: {doc.get('id')} publishes {len(keys)} key(s) and the signer is not one of them"
 
 
+def verify_node_dns(origin: str, rpk: bytes) -> str:
+    """Does the DOMAIN's DNS say the key that signed this head is its node key?
+
+    `identify_signer` above asks the peer's own web server. This asks a
+    different authority: `_emem-node.<host> TXT "v=emem1; k=<52-char key>"`,
+    which only whoever controls the zone can publish. Both must be subverted to
+    move a key, and one of them is not on the peer's box. docs/federation.md
+    §8d.3 has wanted this since the record was created; the record went up and
+    nothing read it, which made it decoration.
+
+    Resolved over DoH rather than the system resolver, deliberately: it is the
+    same path `enlistment.rs` uses for `_emem-agent`, so a node operator debugs
+    one resolver and not two, and it works on a box with no DNS tooling.
+
+    Three outcomes, matching the policy next door. A mismatch is a finding and
+    blocks the co-signature. A missing record is `unchecked` and does not
+    block, because most nodes will not have published one yet and a witness
+    that refuses unknown peers witnesses nothing.
+    """
+    host = origin.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    name = f"_emem-node.{host}"
+    try:
+        req = urllib.request.Request(
+            f"https://cloudflare-dns.com/dns-query?name={name}&type=TXT",
+            headers={"accept": "application/dns-json"})
+        with urllib.request.urlopen(req, timeout=15) as r:
+            doc = json.load(r)
+    except Exception as ex:
+        return f"DNS unchecked ({str(ex)[:30]})"
+
+    # Cloudflare returns TXT data quoted, and a long record arrives as several
+    # quoted chunks that must be concatenated before parsing, not after.
+    records = []
+    for ans in doc.get("Answer") or []:
+        if ans.get("type") != 16:
+            continue
+        raw = ans.get("data") or ""
+        records.append("".join(part for part in raw.split('"') if part.strip()))
+    if not records:
+        return "DNS unchecked (no _emem-node TXT)"
+
+    want = b32e(rpk)
+    for rec in records:
+        fields = dict()
+        for part in rec.split(";"):
+            k, _, v = part.strip().partition("=")
+            if k:
+                fields[k.strip().lower()] = v.strip()
+        if fields.get("v") != "emem1":
+            continue
+        if fields.get("k", "").lower() == want:
+            return f"DNS confirms via {name}"
+    return (f"DNS MISMATCH: {name} publishes {len(records)} record(s) and none "
+            f"names the signing key")
+
+
 def verify_sth(sth: dict):
     """Verify a served STH against the key it names. Returns (size, root, responder_pk)
     or raises ValueError. The key is checked by the caller against the head's key."""
@@ -371,6 +427,18 @@ def main() -> int:
             failures.append(origin)
             continue
 
+        # Rule 1c: and does the ZONE agree? did.json comes from the peer's own
+        # web server, so on its own it says the box is consistent with itself.
+        # The TXT record is published by whoever controls the domain, which is
+        # a second party to subvert. Same policy as 1b: mismatch blocks,
+        # missing does not.
+        dns = verify_node_dns(origin, rpk)
+        if "MISMATCH" in dns:
+            print(f"  {origin}: STH verifies and did.json agrees, but DNS does not. {dns}. "
+                  f"Refusing to co-sign. This is a finding.")
+            failures.append(origin)
+            continue
+
         # Rule 2 and 3: prove growth from what we last saw.
         prev = state.get(origin)
         if prev and prev["tree_size"] < size:
@@ -410,7 +478,7 @@ def main() -> int:
                                                     (3, my_pk)])
         wsig = bytes(sk.sign(wmsg).signature)
         if a.dry_run:
-            print(f"  {origin}: verified, {growth}; signer {who}; dry run, not submitted")
+            print(f"  {origin}: verified, {growth}; signer {who}; {dns}; dry run, not submitted")
         else:
             code, resp = post(f"{origin}/v1/log/witness", {
                 "tree_size": size, "root_b32": sth["root_b32"],
@@ -419,7 +487,7 @@ def main() -> int:
                 print(f"  {origin}: witness POST -> {code}: {json.dumps(resp)[:120]}")
                 failures.append(origin)
                 continue
-            print(f"  {origin}: co-signed tree_size {size}; {growth}; signer {who}")
+            print(f"  {origin}: co-signed tree_size {size}; {growth}; signer {who}; {dns}")
             witnessed += 1
         # Spot-check custody. A co-signature says the head is consistent with
         # what this witness saw before; it says nothing about whether the
