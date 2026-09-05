@@ -11,7 +11,7 @@ picture.
 
 emem is at version 2.3.0, a minor that makes the agent surface usable without a human in the loop and breaks nothing: an intent registry, a capability manifest directories can poll, A2A `message/stream`, a supersede verb, local receipt verification in the SDK, and a mailbox reachable over MCP. The receipt preimage last moved in 2.0.0: the 1.x line promised the wire format, the receipt preimage and the cell64 address space would not break under a 1.x, and 2.0.0 changed the preimage, so it was a major for exactly that reason. Receipts signed under 1.x verify unchanged under the 1.x rule, and a verifier selects the rule from the receipt's own `preimage_version`. The cell64 address space is untouched and stays settled. What it does not do yet, so you can plan around it:
 
-- **Single host.** No federation, no global routing, no SOC 2 yet. One responder, one signing key. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
+- **One writing host, two witnessing ones.** No read federation, no global routing, no SOC 2 yet. One responder holds the corpus and signs it. Since 2026-09-02 a second node, `geo.qa`, co-signs this log and has its own co-signed in turn, which is federation phase 0: it makes a split view detectable and moves nothing else. Reads still resolve on one host. Durability today is the hosted node plus any node you run; content addressing means any node that holds the bytes can re-serve and re-verify them, so run your own if the facts matter to you.
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
 - **Two layers, two scopes, one write path.** The geospatial fact corpus grounds facts about physical places, not arbitrary text, and is not a general-purpose citation store for any document. The agent-memory layer under `/memories/*` is different on purpose: free-form, signed, BGE-searchable notes an agent wants another party or a later run to resolve and verify. What neither layer is, on the hosted node, is private; the next bullet says exactly how.
 - **Place ids are compact, not yet token-optimal.** A `cell64` measures 12 to 13 BPE tokens today. The id format is built for a tokenizer-optimized alphabet that would cut that further; the shipped alphabet does not achieve it yet.
@@ -25,11 +25,11 @@ emem is at version 2.3.0, a minor that makes the agent surface usable without a 
 
 ## Where it is going
 
-emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship yet in the 1.x line.** What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
+emem is a protocol, not a single service. The end state is a federation of independent responders that resolve the same ids byte-for-byte, cross-cite each other, and record where they disagree. One account of the world is a claim; several independent ones that verify against each other are a record. **The multi-host federation routing does not ship yet in the 1.x line**, and neither does read federation: `EMEM_PEERS` names the peers this node witnesses and no read path resolves against them. What did ship is the witness mesh underneath, running both directions since 2026-09-02. What ships today is the machinery it stands on: content addressing, signed receipts, an append-only attestation log with per-fact merkle proofs, a multi-writer attest endpoint, typed temporal links, cross-source disagreement scoring, and an offline refinement loop.
 
 The staged work from here, building on those pieces:
 
-1. **Receipts that name their log leaf.** The public transparency log itself shipped 2026-07-10 (signed tree heads, consistency and inclusion proofs, entry enumeration, and witness co-signing, all under `/v1/log/*`). What remains is chaining each receipt to its leaf, so tying one fact to the log is a single check instead of the receipt's batch proof plus enumeration, and gossiping heads between responders so a split view cannot survive.
+1. **Receipts that name their log leaf.** The public transparency log itself shipped 2026-07-10 (signed tree heads, consistency and inclusion proofs, entry enumeration, and witness co-signing, all under `/v1/log/*`). What remains is chaining each receipt to its leaf, so tying one fact to the log is a single check instead of the receipt's batch proof plus enumeration, and gossiping heads between responders so a split view cannot survive. The gossip half is now running: `emem-witness.timer` co-signs a peer's head every 15 minutes and spot-checks four leaves under it, and an independent witness co-signs this one. See [`federation.md`](federation.md) §8a.
 2. **Signed absence proofs.** Turn "no fact here" from a signed statement into a checkable non-membership proof.
 3. **A public attester spec.** So partners and customers run their own signing nodes against the write path that already exists.
 4. **Quorum reads across responders.** Content addressing makes agreement trivial to check: same canonical bytes, same id, k signatures. The design is written up in [`federation.md`](federation.md).
@@ -1051,11 +1051,14 @@ a team ends up rebuilding something it has.
 2. **Governed witnesses and client gossip, against a split view.** Already
    stated in the whitepaper's honest limits; repeated here because it bounds
    what an A2A peer can conclude. The log proves this responder's tree grew
-   consistently. It cannot yet prove that
-   every reader saw the *same* tree, because the head, the inclusion proofs
-   and the witness list all come from the same responder, witness keys are not
-   an independently governed allowlist, and there is no client-to-client
-   gossip of roots. The honest description of what ships today is
+   consistently. Since 2026-09-02 one independent witness co-signs it, which is
+   the difference between nobody checking and one party checking, and it is
+   not yet the property in full: the head, the inclusion proofs and the witness
+   list still all come from this responder, witness keys are not an
+   independently governed allowlist, and there is no client-to-client gossip of
+   roots. Read `head_is_witnessed` with care. This node's own write canary
+   co-signs the head every two minutes, so that flag is nearly always true and
+   says nothing about whether anyone ELSE is watching. The honest description of what ships today is
    **append-only transparency against accidental or operator rewriting**, not
    globally consistent public history. Those are different guarantees and the
    docs should not let a reader merge them.

@@ -327,7 +327,7 @@ verifies the responder's signature over the PreimageV1 bytes, proves growth
 from the head this node last co-signed with `/v1/log/consistency` (an exact
 port of `emem_attest::translog::verify_consistency`, checked against four
 served proofs and a tampered one before its first signature left the box),
-and co-signs. `deploy/systemd/emem-witness.timer` runs it hourly. Later that
+and co-signs. `deploy/systemd/emem-witness.timer` runs it every 15 minutes. Later that
 day `head_is_witnessed` was `true` at 1,541,075, zero entries behind. Each new
 node installs the same unit pointed at the other three; the pin it keeps in
 `~/.config/emem/witness_state.json` is the evidence a peer's consistency proof
@@ -357,6 +357,27 @@ What that buys, precisely: **a node cannot show two different histories to two
 different peers without one of them holding a signed head that fails a
 consistency proof.** That is Certificate Transparency's gossip property, and it
 is the whole reason this network does not need a chain.
+
+**Measured both directions, 2026-09-05.** Outbound, this node co-signs
+`https://geo.qa/emem`: tree_size 72, unchanged root, signer resolved to
+`did:web:geo.qa:emem`, four sampled leaves re-hashed and proved. Inbound, and
+this is the half that actually buys the property above, an independent witness
+co-signs this log: `ttecxvf3drdt...`, 88 entries behind a 5,000 limit, with 43
+of the last 200 co-signatures made by a key that is not ours. This tree stood
+at 1,618,506. Two of the four nodes are up, so phase 0 is real and it is a
+pair, not a mesh.
+
+**`head_is_witnessed` does not measure federation, and it is the first number
+anyone will reach for.** `storage_liveness.py`, the watchdog's write canary,
+co-signs the current head every two minutes to time a write and catch a store
+that answers reads while refusing them. That is a good probe, and it shares a
+key and an endpoint with witnessing, so the flag ends up answering "did
+anything sign this head" and is almost always true. A node cannot catch itself
+serving two histories, so the number worth alarming on is the lag of witnesses
+that are NOT this node: `scripts/external_witness_lag.py`, run every 30 minutes
+by `emem-witness-lag.timer`, exits 2 on a stale peer and 3 when no peer is
+witnessing at all. Those are different repairs, which is why they are different
+exit codes.
 
 ### 8b. What we take from web3, and what we refuse
 
@@ -414,11 +435,28 @@ protocol fixes that.
 ### 8d. Order of work
 
 1. **Witness mesh across the four.** No server change. Closes split view.
-2. **Peer resolve** (§4a, `EMEM_PEERS`). Not implemented today -- grep finds no
-   `EMEM_PEERS` in any crate. Read-only, verify-before-cache.
-3. **Node identity in DNS.** Extend §5a from agents to nodes:
-   `_emem-node.eudr.dev TXT "v=emem1; k=<pubkey>"`, so a peer's key is
-   re-checkable by a third party rather than asserted by a config file.
+   Running since 2026-09-02 and verified both ways on 2026-09-05, for the two
+   nodes that exist: `emem.dev` and `geo.qa` witness each other. `eudr.dev` and
+   `vrtx.ai` are not up, so this is a witnessed pair and calling it a mesh
+   would be flattering it.
+2. **Peer resolve** (§4a, `EMEM_PEERS`). Still not implemented, and the old
+   note here is now wrong in a way worth keeping straight: `EMEM_PEERS` IS read
+   by a crate, at `emem-api-rest/src/lib.rs`, but only to DECLARE peers in the
+   `federation` block of `/.well-known/emem.json`. No read path resolves against
+   a peer, and there is no `peer_resolve` in any crate. A declared peer and a
+   queried peer are different things and the well-known file only proves the
+   first. Read-only, verify-before-cache, when it is built.
+3. **Node identity in DNS.** Published, and not yet checked by anything.
+   `_emem-node.emem.dev` and `_emem-node.geo.qa` both carry
+   `v=emem1; k=<pubkey>`, and on 2026-09-05 both matched the key their node
+   actually signs with. But `identify_signer` in `scripts/witness_peers.py`
+   reads `/.well-known/did.json` and says so in its own docstring: it
+   identifies the signer, it does not verify the key. So a peer's identity
+   today rests on TLS plus a document that peer serves about itself, which is
+   exactly the "asserted by a config file" property this step existed to
+   remove. The record is the easy half and it is done; the check is the half
+   that buys anything, and it is not. Until the witness job resolves the TXT
+   and refuses a co-signature on a mismatch, DNS here is decoration.
 4. **Cross-node disagreement** (§4c): a peer's facts land as a distinct
    attester, so existing contradiction scoring works unchanged.
 5. **Routing** (§4d) last, and only if read federation proves insufficient.
@@ -636,8 +674,45 @@ latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
   all `active`. A client that lists the server sees fourteen entries. Mark the
   old ones deprecated from the publisher.
 - **The quota promise** in the `compute_quota_exceeded` error text (9b).
-- **`/v1/log/inclusion`** ignores a `tree_size` argument instead of refusing
-  it, and proves against the current head. Refuse unknown arguments.
+- **`/.well-known/emem-agents.json` serves an empty list, and the ladder
+  believes it.** `config/emem-agents.json` names nine first-party keys. The
+  handler reads that path RELATIVE to the working directory, the server runs in
+  a container whose `WORKDIR` is `/`, the `Dockerfile` never `COPY`s `config/`,
+  no bind mount supplies it and `EMEM_AGENTS_WELL_KNOWN` is unset. So the file
+  is absent, and the handler's `.ok()` turns absent into `{"agents": []}`. Asked
+  on 2026-09-05 to re-check its own substrate key against its own domain, this
+  node answered `ok: false`, "has 0 agent entr(ies), none naming this key
+  unexpired". With `EMEM_ENLISTMENT_ENFORCE=1` also on, the node is enforcing a
+  ladder while publishing the empty document that ladder reads, so its own
+  agents cannot reach T4 through it. The vouching described in §9e.3 is
+  configured and not served.
+- **A missing vouching file is indistinguishable from vouching for nobody.**
+  The comment above the handler says "a missing file serves an empty list" and
+  means it as a convenience. It is the same shape as the two faults
+  `perception_liveness.py` and `external_witness_lag.py` were written for: an
+  answer that stays well-formed, correctly served and quietly wrong. A node
+  that vouches for no one and a node that cannot find its config should not
+  return the same bytes. Serve the count, and let the operator's own probe
+  assert it.
+- **`/v1/agents` carries no tier.** Sixty-nine keys, every one of them
+  `identity: discovered`, `key_status: proven_by_signature`,
+  `trust: caller_decides`, and no `tier` field at all. §8c argues that the
+  answer to sybil writes is to hand the reader the evidence to judge with, and
+  names the T0-T4 ladder as part of it. The registry a reader would actually
+  consult does not carry it. `GET /v1/enlist` explains the ladder and
+  `POST /v1/enlist` computes it per key on demand; nothing joins the two, so
+  weighing a list of keys means N round trips.
+- **The A2A card does not point back at the node identity.** `did.json` lists
+  the agent card as its `#a2a` service, and the card names the responder key
+  but never the DID, the log, or the federation block. Discovery works in one
+  direction only: from the DID you find the card, from the card you cannot find
+  the DID.
+- **MCP protocol version, header against body.** A client offering an
+  unsupported version gets `2025-11-25` negotiated in the result and
+  `mcp-protocol-version: 2025-03-26` in the header of the same response. On a
+  supported version the two agree, so this is only the fallback path, and it
+  tells a strict client the session is one version while the server runs
+  another.
 - **The Claude connector directory** needs a re-submission; the compliance
   surface is built (`docs/registries/anthropic-claude-connectors-submission.md`).
 
@@ -652,11 +727,18 @@ below touches the fact plane, the token scheme, or the preimages.
    (`EMEM_ENLISTMENT_ENFORCE=1`), which is why 3 below is a correctness fix:
    until the node vouched for its own agents, none of them could write there.
 3. **`peers`, `witnesses` and `_emem-node` for the four nodes, plus
-   `did:web`.** Done 2026-09-02: `/.well-known/did.json`, the `federation`
+   `did:web`.** Code done 2026-09-02: `/.well-known/did.json`, the `federation`
    block in `/.well-known/emem.json`, and `/.well-known/emem-agents.json`
    (this node vouching for its own agents, which the ladder had only ever
    fetched from other domains). The `_emem-node` TXT is the owner's DNS
-   entry; the well-known file says what a peer should find there.
+   entry; the well-known file says what a peer should find there. **Two of the
+   three are only half-landed, checked 2026-09-05.** The DNS entry exists for
+   both live nodes and matches the key each one signs with, and nothing reads
+   it (§8d.3). The vouching document is configured with nine keys and served
+   empty, because the config never reaches the container (§9d). Neither is a
+   design problem and both are currently untrue in production, which is the
+   worse kind of gap: the docs describe what was built, and the node serves
+   something else.
 4. **Remove the quota promise; drop or wire `Cost.credits`.** The promise is
    gone. `Cost.credits` stays as a zero until a receipt-schema change is
    worth its own deploy.
@@ -670,6 +752,28 @@ below touches the fact plane, the token scheme, or the preimages.
    deprecate the old registry versions.** Owner work, hours.
 10. **x402 on T3 and T4 writes, flag off.** A decision before a line of code.
 11. **C2PA on rendered scenes.** Later.
+
+**Added 2026-09-05, from a survey of the live surface.** These sit above 6 in
+the order, because each is a fix to something already claimed rather than
+something new, and the first two are cheap.
+
+- **Mount the vouching config, and stop serving an empty list quietly.** Bind
+  `config/` into the container and set `EMEM_AGENTS_WELL_KNOWN`, or `COPY` it in
+  the `Dockerfile`. Then make the handler distinguish "no file" from "no
+  agents": serve the count either way, and log the resolved path once at start.
+  Until this lands, the enlistment ladder is enforced against a document this
+  node fails to publish.
+- **Verify `_emem-node` in the witness job.** Resolve the TXT for each peer
+  origin, compare it to the `responder_pubkey_b32` in the STH that was just
+  signature-checked, and refuse to co-sign on a mismatch. Both records already
+  match, so this ships as a check that passes and would have caught a swap.
+  This is the whole point of step 3 in §8d and it is the part not built.
+- **Put the tier on `/v1/agents`.** The ladder is computed and explained and
+  absent from the list, so a reader weighing keys pays one request per key.
+- **Link the DID from the A2A card**, and the log with it. One `did` field and
+  a service pointer makes discovery symmetric.
+- **Fix the MCP version header on the unsupported-version path** so header and
+  body agree.
 
 Still refused: a token, a chain, consensus, a DHT at this size, and the word
 "trustless".
