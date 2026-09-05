@@ -34,6 +34,7 @@ callers already tolerates because they read ``choices[0].message.content``.
 Env: LLM_SHIM_BIND (127.0.0.1:5014), LLM_SHIM_MODEL (amazon.nova-micro-v1:0),
      LLM_SHIM_REGION / AWS_REGION (us-east-1), LLM_SHIM_MAX_TOKENS (800).
 """
+import hashlib
 import json
 import os
 import pathlib
@@ -72,6 +73,58 @@ USD_PER_MTOK_OUT = float(os.environ.get("LLM_SHIM_USD_OUT", "0.14"))
 FALLBACK_URL = os.environ.get("LLM_SHIM_FALLBACK_URL", "")
 
 _spend_lock = threading.Lock()
+
+# ── Content-addressed response cache ───────────────────────────────────────
+# The same request twice is the same answer and the second one is pure cost, in
+# both money and latency. Keyed on everything that changes the output: model,
+# the messages verbatim, the token ceiling and the temperature.
+#
+# ONLY at temperature 0 by default. Above zero the caller has explicitly asked
+# for sampling, and serving them a replay is answering a different question than
+# the one they asked. LLM_SHIM_CACHE_MAX_TEMP raises that line for a caller who
+# would rather have consistency and speed -- the splat chat sends 0.2 and its
+# scene digest barely moves, so it is a reasonable thing to opt into, but it is
+# a semantic choice and belongs to the operator rather than to this file.
+CACHE_DIR = pathlib.Path(os.environ.get(
+    "LLM_SHIM_CACHE_DIR", "/home/ubuntu/emem/var/emem/llm_shim_cache"))
+CACHE_ENABLED = os.environ.get("LLM_SHIM_CACHE", "1") != "0"
+CACHE_MAX_TEMP = float(os.environ.get("LLM_SHIM_CACHE_MAX_TEMP", "0"))
+
+
+def _cache_key(req: dict) -> str:
+    h = hashlib.blake2b(digest_size=16)
+    for part in (MODEL,
+                 json.dumps(req.get("messages"), sort_keys=True, ensure_ascii=False),
+                 str(req.get("max_tokens") or MAX_TOKENS),
+                 str(float(req.get("temperature", 0.0)))):
+        h.update(part.encode()); h.update(b"\x00")
+    return h.hexdigest()
+
+
+def _cache_get(key: str):
+    if not CACHE_ENABLED:
+        return None
+    try:
+        return json.loads((CACHE_DIR / key[:2] / key).read_text())
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _cache_put(key: str, value: dict) -> None:
+    if not CACHE_ENABLED:
+        return
+    try:
+        d = CACHE_DIR / key[:2]
+        d.mkdir(parents=True, exist_ok=True)
+        tmp = d / (key + ".tmp")           # tmp+rename: no half-written entry
+        tmp.write_text(json.dumps(value, ensure_ascii=False))
+        tmp.replace(d / key)
+    except Exception:  # noqa: BLE001 - a cache that cannot write must not 500
+        pass
+
+
+def _cacheable(req: dict) -> bool:
+    return CACHE_ENABLED and float(req.get("temperature", 0.0)) <= CACHE_MAX_TEMP
 
 
 def _today() -> str:
@@ -205,6 +258,21 @@ class Handler(BaseHTTPRequestHandler):
         # caller's model name is advisory -- this process serves LLM_SHIM_MODEL,
         # and says so in the response, rather than silently honouring a name
         # that means nothing to Bedrock.
+        # Cache first: a hit costs no money, no latency and no budget.
+        ckey = _cache_key(req) if _cacheable(req) else None
+        if ckey:
+            hit = _cache_get(ckey)
+            if hit is not None:
+                # Billed tokens are ZERO on a hit. Replaying the original
+                # figures would inflate any reconciliation by exactly the hit
+                # rate -- the same fault the explain sidecar shipped and fixed.
+                hit = dict(hit)
+                hit["usage"] = {"prompt_tokens": 0, "completion_tokens": 0,
+                                "total_tokens": 0}
+                hit["x_cache"] = "hit"
+                hit["x_cache_origin_usage"] = hit.pop("_origin_usage", None)
+                return self._send(200, hit)
+
         # Checked BEFORE the call: over the cap this never reaches Bedrock.
         if _over_cap():
             code, body = _fallback(req)
@@ -236,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
                        r.get("output", {}).get("message", {}).get("content", [])).strip()
         u = r.get("usage", {}) or {}
         sp = _spend_add(int(u.get("inputTokens") or 0), int(u.get("outputTokens") or 0))
-        self._send(200, {
+        body = {
             "x_budget_spent_usd": round(sp["usd"], 6),
             "x_budget_cap_usd": DAILY_USD_CAP,
             "id": f"chatcmpl-{int(t0 * 1000)}",
@@ -249,7 +317,15 @@ class Handler(BaseHTTPRequestHandler):
                       "completion_tokens": u.get("outputTokens", 0),
                       "total_tokens": u.get("totalTokens", 0)},
             "x_latency_ms": round((time.time() - t0) * 1000),
-        })
+            "x_cache": "miss" if ckey else "bypass (temperature above cache limit)",
+        }
+        if ckey:
+            # Store what it cost to fill this entry, so a hit can report zero
+            # billed tokens without losing the figure that shows the saving.
+            stored = dict(body)
+            stored["_origin_usage"] = stored["usage"]
+            _cache_put(ckey, stored)
+        self._send(200, body)
 
 
 if __name__ == "__main__":
