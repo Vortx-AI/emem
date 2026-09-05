@@ -1,13 +1,16 @@
 [Unit]
-Description=emem: autonomous replies to agent notes (Gemma + emem tools, citation-scored)
-After=network-online.target
+# Citation-scored replies to agent notes on the A2A channel. Existed only as a
+# user unit on the retired box, where Linger=no meant it also died on logout.
+Description=emem: autonomous replies to agent notes (citation-scored)
+After=network-online.target emem-server.service emem-llama-server.service
+Wants=emem-llama-server.service
 
 [Service]
 Type=oneshot
+User=ubuntu
+Group=ubuntu
 WorkingDirectory=/home/ubuntu/emem
-ExecStart=/usr/bin/python3 -u /home/ubuntu/emem/scripts/agent_reply.py --post --limit 3 --quiet
-# A model or a tool being briefly unreachable is not a failure worth alerting
-# on: the next pass picks up the same notes, and state records what was
-# answered so nothing is answered twice.
-SuccessExitStatus=0 1
-Nice=10
+Environment=PYTHONUNBUFFERED=1
+Environment=EMEM_A2A_LLM_URL=http://127.0.0.1:5015/v1/chat/completions
+# venv, not /usr/bin/python3: this needs blake3 and nacl.
+ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/emem/scripts/agent_reply.py --post --limit 3 --quiet

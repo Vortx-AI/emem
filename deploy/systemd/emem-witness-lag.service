@@ -1,0 +1,21 @@
+[Unit]
+# head_is_witnessed on this node is almost always true, and almost always
+# self-satisfied: storage_liveness.py co-signs the head every two minutes as a
+# write-liveness canary. That is a good probe, but it makes the flag answer
+# "did anything sign this head" when the question is "did anyone ELSE".
+# This measures the lag of witnesses that are not us.
+Description=emem — alarm when no INDEPENDENT witness has seen this log recently
+After=network-online.target emem-server.service
+OnFailure=emem-witness-lag-alarm.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+Environment=PYTHONUNBUFFERED=1
+# k572x7go is THIS host's agent identity: the canary's key and the key our own
+# witness job signs with. Excluding it is the entire point.
+ExecStart=/usr/bin/python3 /home/ubuntu/emem/scripts/external_witness_lag.py \
+  --origin http://127.0.0.1:5051 \
+  --self-key k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia \
+  --max-behind 5000

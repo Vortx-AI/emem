@@ -1,0 +1,39 @@
+[Unit]
+# Bedrock Nova Micro behind the OpenAI contract, on :5015. NOT :5014 -- that is
+# llama.cpp, which serves the explain sidecar and stays local by decision: it
+# answers in 1.75 s, costs nothing, and needs no credential.
+#
+# This exists for the two workloads CPU could not serve: agent-reply, which
+# publishes nothing because a 1.5B cannot hold citation-scored reasoning, and
+# the splat chat, whose 7.6k-token prompt takes ~1m48s locally.
+#
+# It is also its own fallback: over the $10/day cap, or on any Bedrock failure,
+# it forwards to :5014 rather than erroring. Credential expiry becomes latency.
+Description=emem LLM shim — Nova Micro on :5015, $10/day hard cap, local fallback
+After=network-online.target emem-llama-server.service
+Wants=emem-llama-server.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/emem
+# Absent until a credential is provided; the shim falls back to :5014 meanwhile,
+# so this unit is useful before the key exists and flips over when it lands.
+EnvironmentFile=-/home/ubuntu/.config/emem/aws.env
+Environment=LLM_SHIM_BIND=127.0.0.1:5015
+Environment=LLM_SHIM_MODEL=amazon.nova-micro-v1:0
+Environment=LLM_SHIM_MAX_TOKENS=800
+Environment=LLM_SHIM_DAILY_USD=10
+Environment=LLM_SHIM_FALLBACK_URL=http://127.0.0.1:5014/v1/chat/completions
+Environment=LLM_SHIM_SPEND_FILE=/home/ubuntu/emem/var/emem/llm_shim_spend.json
+Environment=LLM_SHIM_CACHE_DIR=/home/ubuntu/emem/var/emem/llm_shim_cache
+Environment=LLM_SHIM_CACHE_MAX_TEMP=0.2
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/emem/python/llm_shim/openai_bedrock_shim.py
+Restart=on-failure
+RestartSec=10
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

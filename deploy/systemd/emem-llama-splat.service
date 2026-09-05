@@ -13,9 +13,8 @@
 # 112 t/s prompt, 48 t/s generation on 4 threads, ~3.3 s per call against
 # Bedrock's 0.73 s. At this volume that difference is invisible and the
 # operational simplicity is not.
-Description=emem local LLM — OpenAI /v1/chat/completions on :5014 (llama.cpp, CPU)
+Description=emem local LLM (splat chat) — dedicated slot on :5016 so its 5.2k prefix stays warm
 After=network-online.target
-Conflicts=emem-llm-shim.service
 
 [Service]
 Type=simple
@@ -27,8 +26,8 @@ WorkingDirectory=/home/ubuntu/llama.cpp
 # variance, which is contention rather than headroom.
 ExecStart=/home/ubuntu/llama.cpp/build/bin/llama-server \
   --model /home/ubuntu/models/qwen2.5-1.5b-instruct-q4_k_m.gguf \
-  --host 127.0.0.1 --port 5014 \
-  --threads 3 --threads-batch 6 --batch-size 2048 --ubatch-size 1024 --ctx-size 8192 --parallel 1 \
+  --host 127.0.0.1 --port 5016 \
+  --threads 3 --threads-batch 6 --batch-size 2048 --ubatch-size 1024 --ctx-size 16384 --parallel 1 \
   --no-webui
 Restart=always
 RestartSec=10

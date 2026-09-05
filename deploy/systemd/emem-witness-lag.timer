@@ -1,0 +1,8 @@
+[Unit]
+Description=Check independent-witness lag every 30 minutes
+[Timer]
+OnBootSec=10min
+OnUnitActiveSec=30min
+Persistent=true
+[Install]
+WantedBy=timers.target

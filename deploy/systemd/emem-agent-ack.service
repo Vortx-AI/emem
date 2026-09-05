@@ -11,7 +11,7 @@ WorkingDirectory=/home/ubuntu/emem
 Environment=PYTHONUNBUFFERED=1
 # Unchanged from its own default; named here so the coupling to the shim is
 # visible in the unit rather than buried in the script.
-Environment=EMEM_A2A_LLM_URL=http://127.0.0.1:5014/v1/chat/completions
+Environment=EMEM_A2A_LLM_URL=http://127.0.0.1:5015/v1/chat/completions
 # venv, not /usr/bin/python3: this script needs blake3 and nacl, which the
 # system interpreter does not have.
 ExecStart=/home/ubuntu/.emem-witness/venv/bin/python -u /home/ubuntu/emem/scripts/agent_ack.py --post --watch 180

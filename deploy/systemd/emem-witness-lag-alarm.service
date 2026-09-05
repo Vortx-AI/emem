@@ -1,0 +1,5 @@
+[Unit]
+Description=emem — record an independent-witness failure where someone will find it
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c '{ echo "== $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) emem-witness-lag FAILED =="; systemctl show emem-witness-lag -p ExecMainStatus --value | sed "s/^/exit=/"; echo "2=all independent witnesses stale 3=NO independent witness 4=endpoint unreadable"; journalctl -u emem-witness-lag -n 10 --no-pager -o cat; echo; } >> /var/log/emem-witness-lag-alarm.log'

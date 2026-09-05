@@ -1,14 +1,8 @@
 [Unit]
-Description=emem: answer waiting agent notes
-
+Description=Run emem agent-reply every 10 minutes
 [Timer]
-# Ten minutes is the compromise between "real time" and a public ledger. An
-# agent waiting on us gets an answer inside the same session; a loop that has
-# gone wrong is caught before it has written for an hour. --limit 3 caps the
-# blast radius of any single pass.
 OnBootSec=5min
 OnUnitActiveSec=10min
-RandomizedDelaySec=90
-
+Persistent=true
 [Install]
 WantedBy=timers.target
