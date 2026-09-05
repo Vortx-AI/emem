@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Keep tooling attribution out of a public repo's history.
+#
+# Install:  ln -sf ../../scripts/hooks/commit-msg .git/hooks/commit-msg
+#
+# These trailers are added by default by some clients, so leaving this to
+# memory means it lands whenever someone forgets. The repo is public; its
+# history is part of what it publishes.
+set -euo pipefail
+msg_file="$1"
+
+patterns=(
+  'Co-[Aa]uthored-[Bb]y:.*[Cc]laude'
+  'Co-[Aa]uthored-[Bb]y:.*[Aa]nthropic'
+  '[Cc]laude-[Ss]ession:'
+  '[Gg]enerated with .*[Cc]laude'
+  'noreply@anthropic\.com'
+  'claude\.ai/code'
+)
+
+# Report each offending LINE once, not once per pattern that matched it.
+hits="$(for p in "${patterns[@]}"; do grep -nE "$p" "$msg_file" || true; done | sort -u -t: -k1,1n)"
+
+if [ -n "$hits" ]; then
+  echo "commit-msg: tooling attribution is not committed to this repo." >&2
+  echo "$hits" | sed 's/^/  /' >&2
+  echo >&2
+  echo "Remove those lines and commit again." >&2
+  exit 1
+fi
