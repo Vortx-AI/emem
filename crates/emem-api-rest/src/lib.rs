@@ -66500,9 +66500,23 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
         return None;
     }
     let cameras = at.get("cameras").and_then(|v| v.as_array());
-    let with_clips = cameras
-        .map(|a| a.iter().filter(|c| c.get("clip").is_some()).count())
-        .unwrap_or(0);
+    // `clips_retained` when the upstream sends it, because `cameras` is
+    // TRUNCATED to the upstream's `limit` (5 by default) while `camera_count`
+    // is not. Counting the truncated array and printing it beside the
+    // untruncated total produced "267 ground cameras, 5 with retained clips"
+    // for a cell where all 267 had one -- two different denominators in one
+    // sentence, and the smaller one reads as a coverage problem that is not
+    // there. The upstream already publishes the honest figure for exactly this
+    // reason; the fallback only runs against a peer too old to send it.
+    let with_clips = at
+        .get("clips_retained")
+        .and_then(|v| v.as_u64())
+        .map(|n| n as usize)
+        .unwrap_or_else(|| {
+            cameras
+                .map(|a| a.iter().filter(|c| c.get("clip").is_some()).count())
+                .unwrap_or(0)
+        });
 
     // How old the freshest retained clip is. A count is only as current as the
     // frame it was counted from, and a consumer should not have to parse
