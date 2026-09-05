@@ -678,6 +678,13 @@ latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
 
 **Drifted.**
 
+Four of the entries below (the vouching document, the missing-file ambiguity,
+the A2A card's missing DID, and the MCP version header) were fixed in source on
+2026-09-05 and are described here as they still behave in production. This box
+has no cargo; they go live when CI builds the next image. Everything else in
+this list is unfixed.
+
+
 - **Dify** is live at 2.2.0 while every other surface is 2.3.0. The plugin
   source is not in this repository, so `version_surfaces.py` cannot see it and
   it will drift on every release until it is vendored under `integrations/`
@@ -768,17 +775,35 @@ below touches the fact plane, the token scheme, or the preimages.
 the order, because each is a fix to something already claimed rather than
 something new, and the first two are cheap.
 
-- **Mount the vouching config, and stop serving an empty list quietly. Before
-  2026-10-02.** Bind `config/` into the container and set
-  `EMEM_AGENTS_WELL_KNOWN`, or `COPY` it in the `Dockerfile`. Then make the
-  handler distinguish "no file" from "no agents": serve the count either way,
-  and log the resolved path once at start. The deadline is not rhetorical, it
-  is when the cached T4 evidence for eight first-party keys expires and the
-  ladder starts being enforced against a document this node fails to publish.
-- **Link the DID from the A2A card**, and the log with it. One `did` field and
-  a service pointer makes discovery symmetric.
-- **Fix the MCP version header on the unsupported-version path** so header and
-  body agree.
+All five are now fixed in source and ride the next CI image build; this box has
+no cargo, so nothing below is live until that image is pulled. `cargo check`,
+`cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` are clean
+for both crates.
+
+- **The vouching path.** Falls back to `$EMEM_DATA/emem-agents.json` after the
+  relative `config/` path, which is the one location a packaged node always
+  has and whose contents belong to that operator. Deliberately not baked into
+  the image: the document asserts that the operator of a domain vouches for
+  these keys, so shipping one roster to every self-hoster would have them
+  attesting to keys they never chose. The roster is already staged at
+  `var/emem/emem-agents.json`, so the node picks it up on the next restart
+  with no unit change. `count`, `source` and `source_path` are served beside
+  `agents`, and a load failure warns once at startup, so "no file" and "no
+  agents" stop returning the same bytes.
+- **Witness independence.** `head_is_witnessed` stays as it was, since peers
+  read it, and is now accompanied by `head_is_independently_witnessed`,
+  `freshest_independent_witness_entries_behind`, `independent_witness_count`,
+  `independent_cosignature_count` and `self_witness_pubkey_b32`, on the route
+  and in the federation block. Computed over every stored row, not the
+  returned page: the declared key held 82 of the newest 100.
+- **`live_perception.cameras_with_retained_clips`** read upstream's
+  `clips_retained` instead of counting inside the returned camera page, which
+  is `cameras_returned` of `camera_count`, 5 of 267 at Trafalgar Square.
+- **The MCP version header** mirrors the body's negotiation rule on the
+  unsupported-version path.
+- **The A2A card** carries `did`, `did_document` and `federation` under
+  `responder`.
+
 
 Still refused: a token, a chain, consensus, a DHT at this size, and the word
 "trustless".
