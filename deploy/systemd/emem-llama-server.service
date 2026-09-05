@@ -15,7 +15,6 @@
 # operational simplicity is not.
 Description=emem local LLM — OpenAI /v1/chat/completions on :5014 (llama.cpp, CPU)
 After=network-online.target
-Conflicts=emem-llm-shim.service
 
 [Service]
 Type=simple
