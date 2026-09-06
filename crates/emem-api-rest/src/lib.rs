@@ -6339,7 +6339,10 @@ async fn a2a_async_tasks_spec() -> Json<JsonValue> {
         "extension": a2a_async_tasks_extension(&origin),
         "name":      "emem async tasks",
         "status":    "stable",
-        "a2a_protocol_version": "1.2.0",
+        // A2A never released a 1.2.0. The card was corrected to the constant
+        // and these two emitters were missed, so an agent read 1.0 from the
+        // card and 1.2.0 from the reply to its own message.
+        "a2a_protocol_version": A2A_PROTOCOL_VERSION,
         "why": "message/send completes in the call. Work that outlives one request \
                 needs an id you can come back to. This extension is that surface over \
                 plain REST, for clients that would rather poll than hold a connection \
@@ -25349,7 +25352,7 @@ fn a2a_message_result(s: &AppState, skill: &str, result: JsonValue) -> JsonValue
         "parts":     parts,
         "metadata": {
             "skill":           skill,
-            "protocolVersion": "1.2.0",
+            "protocolVersion": A2A_PROTOCOL_VERSION,
             "emem_responder":  format!("{}/mcp", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
         },
     })
@@ -57704,8 +57707,15 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
         "to": want8,
         "count": messages.len(),
         "total_matched": total_matched,
+        // Say so when the page is short of the match count, and say how to fix
+        // it. `limit` existed and no response mentioned it: a caller saw
+        // count 50 against total_matched 184 and had nothing telling it the
+        // other 134 were one parameter away. A truncation a caller cannot see
+        // past reads as an empty mailbox.
+        "truncated": total_matched > messages.len(),
+        "limit": limit,
         "messages": messages,
-        "note": "Messages addressed to you, parsed from each note's heading (`X -> you`, `cc you`, or a channel broadcast). Read each by its `path` with memory_view, and verify authorship offline before acting on it. This is a poll; `/v1/memory/sse?path_prefix=/memories/by_attester/` streams the same writes live.",
+        "note": "Messages addressed to you, parsed from each note's heading (`X -> you`, `cc you`, or a channel broadcast). Read each by its `path` with memory_view, and verify authorship offline before acting on it. When `truncated` is true this page is short of `total_matched`: re-request with `?limit=<total_matched>`, which is not capped. This is a poll; `/v1/memory/sse?path_prefix=/memories/by_attester/` streams the same writes live.",
     }))
 }
 
