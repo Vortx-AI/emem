@@ -345,19 +345,24 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
       -H 'content-type: application/json' --data-binary @-
 #    -> {"valid": true, ...}   (the byte rules are at /v1/verifier_spec)
 
+# (These tokens are live facts and a responder need not hold one for ever.
+#  scripts/example_check.py catches it when one stops resolving; refresh with
+#  curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+#    -d '{"cell":"defi.zb572.xoso.zb1ec","bands":["indices.ndvi"]}'
+#  and take any memory_token plus its value_verbatim.)
 # 3. Dereference a citation someone handed you. This one is a GC-1
 #    derivation: the responder RE-RAN the arithmetic, so it resolves as
 #    deterministic_index rather than a claim you have to take on faith.
 curl -s -X POST https://emem.dev/v1/memory_token/resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq"}'
+  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q"}'
 #    -> the byte-identical signed fact, its provenance block, a receipt,
-#       and value_verbatim: "-0.055822789005725904"  <- quote this, do not retype it
+#       and value_verbatim: "-0.052199413489736016"  <- quote this, do not retype it
 
 # 4. Close the last mile: confirm the value YOU are about to publish is the
 #    value you were given. Rounding is caught, not forgiven.
 curl -s -X POST https://emem.dev/v1/echo_verify -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq",
-       "claimed_value":"-0.0558"}'
+  -d '{"token":"emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q",
+       "claimed_value":"-0.0522"}'
 #    -> {"matches": false, "drift": "rounded", ...}
 #       pass the full value and it answers {"matches": true, "drift": null}</pre>
   <p style="font-size:var(--t-xs);opacity:.8;line-height:1.6;margin:.9rem 0 0">
@@ -432,7 +437,7 @@ const EXAMPLES = [
   { key: 'token-resolve', method: 'POST', path: '/v1/memory_token/resolve',
     label: 'memory_token · resolve',
     note: 'Turn a citation back into the byte-identical signed fact. This token is a GC-1 derivation the responder recomputed: its resolved record carries deterministic_index and a recomputation receipt, so a stranger recomputes the value from the cited parents. Verify the receipt offline at /verify.',
-    body: { token: 'emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq' } },
+    body: { token: 'emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q' } },
   { key: 'derive', method: 'POST', path: '/v1/derive',
     label: 'derive · recompute',
     note: 'Register a derivation over signed facts. Sent with no attester, so it returns 401 with `details.how_to_sign`: the exact 32-byte digest to sign, the encoding, and a worked example, no docs trip. Because a `code_cid` is pinned on a pure op (delta), a signed submission makes the responder RE-RUN it over the cited parents and record deterministic_index when it reproduces the value (exact for delta; reductions match within a stated ULP window that the receipt reports). This is the whole write + GC-1 path in one call.',
@@ -440,7 +445,7 @@ const EXAMPLES = [
             inputs: ['emem:fact:defi.zb572.xoso.zb1ec:nh25ek6yx3sktt2iirfpvik53vivulghaomodra3ovmi7ti7dgmq',
                      'emem:fact:defi.zb572.xoso.zb1ec:jwkqm6ehelmzrwupfwyq2oqotiarexr5bdrt4xbl3znuynhurqxq'],
             cell: 'defi.zb572.xoso.zb1ec', band: 'indices.ndvi', tslot_window: [20614, 20651],
-            op: 'delta', value: -0.055822789005725904, confidence: 0.95,
+            op: 'delta', value: -0.052199413489736016, confidence: 0.95,
             provenance_class: 'model_output', code_cid: 'blake3:same_doy_ndvi_delta@1:ast' } },
 ];
 
