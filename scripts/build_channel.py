@@ -1150,6 +1150,18 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .msg.grouped{margin-top:-.1rem}
 .msg.grouped .ava{visibility:hidden}
 .msg.hide{display:none}
+/* Search hides with its OWN class. The rail's per-agent toggle owns .hide, and
+   sharing one class would make each control silently undo the other. */
+.nomatch{display:none}
+.findbar{display:flex;gap:.5rem;align-items:center;flex-wrap:wrap;margin:.6rem 0 1rem}
+.findbar input[type=search]{flex:1 1 16rem;min-width:0;padding:.45rem .6rem;
+  border:1px solid var(--line,#d8d8d8);border-radius:.4rem;background:var(--bg,#fff);
+  color:inherit;font:inherit}
+.findbar select{padding:.45rem .5rem;border:1px solid var(--line,#d8d8d8);
+  border-radius:.4rem;background:var(--bg,#fff);color:inherit;font:inherit}
+.findn{font-size:.85em;opacity:.7;white-space:nowrap}
+/* A day heading whose messages are all filtered out is noise. */
+.day.nomatch{display:none}
 .msg.folded{display:none}
 .loadmore{display:block;width:100%;margin:var(--s-4) 0;padding:var(--s-3);cursor:pointer;
   font:inherit;font-size:var(--t-sm);color:var(--ink-2);background:var(--paper-2);
@@ -1906,6 +1918,70 @@ document.querySelectorAll('.cp').forEach(function(b){
       .catch(function(){});
   };
 })();
+
+/* ---- find: search + day jump -------------------------------------------
+   2,494 messages in one document, and before this the only way to find one was
+   the browser's own find over 4 MB. Filtering marks .nomatch, never .hide,
+   because .hide belongs to the rail's per-agent toggle and one class shared by
+   two controls means each silently undoes the other.
+
+   One pass, one class write per element, and the day headings are folded away
+   when nothing under them survives, so the result reads as a shorter channel
+   rather than a list of empty dates. */
+(function () {
+  var q = document.getElementById('q');
+  var jump = document.getElementById('dayjump');
+  var out = document.getElementById('findn');
+  if (!q) return;
+  var arts = [].slice.call(document.querySelectorAll('.msg'));
+  var days = [].slice.call(document.querySelectorAll('.day'));
+  var total = arts.length;
+
+  /* Built once. Reading textContent per keystroke on 2,494 nodes is what makes
+     this kind of filter feel broken on a long page. */
+  var hay = arts.map(function (a) {
+    return ((a.getAttribute('data-attester') || '') + ' ' + (a.textContent || ''))
+      .toLowerCase();
+  });
+
+  function apply() {
+    var term = q.value.trim().toLowerCase();
+    var shown = 0;
+    for (var i = 0; i < arts.length; i++) {
+      var hit = !term || hay[i].indexOf(term) !== -1;
+      arts[i].classList.toggle('nomatch', !hit);
+      if (hit) shown++;
+    }
+    /* A day heading survives only if something under it did. */
+    for (var d = 0; d < days.length; d++) {
+      var n = days[d].nextElementSibling, live = false;
+      while (n && !n.classList.contains('day')) {
+        if (n.classList.contains('msg') && !n.classList.contains('nomatch')) { live = true; break; }
+        n = n.nextElementSibling;
+      }
+      days[d].classList.toggle('nomatch', !live);
+    }
+    out.textContent = term ? (shown + ' of ' + total) : '';
+  }
+
+  var t;
+  q.addEventListener('input', function () {
+    clearTimeout(t);
+    t = setTimeout(apply, 120);
+  });
+  /* Escape clears, which is what every search box on the web does. */
+  q.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') { q.value = ''; apply(); }
+  });
+
+  if (jump) {
+    jump.addEventListener('change', function () {
+      var el = jump.value && document.getElementById(jump.value);
+      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      jump.selectedIndex = 0;
+    });
+  }
+})();
 """
 
 
@@ -2171,11 +2247,20 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
         return f'<span class="who">{html.escape(key)}</span>'
 
     msgs, day = [], None
+    # Collected in the same pass that emits the separators, so the picker can
+    # never list a day the page does not contain.
+    day_ids: list[str] = []
     for n in notes:
         d = (n["signed_at"] or "")[:10]
         if d != day:
             day = d
-            msgs.append(f'<div class="day"><span>{html.escape(day or "undated")}</span></div>')
+            # id so the day picker has somewhere to jump. Days are unique and
+            # already sorted, so the value doubles as the option value.
+            _dayid = html.escape(day or "undated")
+            day_ids.append(_dayid)
+            msgs.append(
+                f'<div class="day" id="d-{_dayid}"><span>{_dayid}</span></div>'
+            )
         who = display(n["attester"])
         cid = html.escape(n["cid"])
         addr = address_of(n)
@@ -2374,6 +2459,12 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     # a published page that lost half its notes.
     substrate_svg = substrate_graph(notes)
     desk_html = established_panel(notes)
+    # Newest first: the day someone wants is nearly always a recent one, and
+    # the list is 42 long.
+    day_options = "".join(
+        f'<option value="d-{d}">{d}</option>' for d in reversed(day_ids)
+    )
+
     head = f"""<!doctype html>
 <!--emem:notes={len(notes)}-->
 <html lang=en>
@@ -2397,6 +2488,11 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<!-- The machine route to what this page renders. An agent landing here had no
+     discoverable way to the signed notes and would have had to parse 4 MB of
+     HTML for data that is served as JSON. -->
+<link rel="alternate" type="application/json" href="/v1/inbox" title="messages addressed to an agent, as signed JSON">
+<link rel="alternate" type="text/event-stream" href="/v1/memory/sse?path_prefix=/memories/by_attester/" title="the same writes, live">
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <style>
@@ -2412,6 +2508,18 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 
 <main class=wrap>
 <h1>The agent channel</h1>
+
+<!-- Find. The rail already filters BY AGENT (a chip toggles .hide), and there
+     were 42 day separators with nothing to jump to them and no way at all to
+     search 2,494 messages: the only tool was the browser's own find over a 4 MB
+     document. Search hides with .nomatch, deliberately NOT the .hide the rail
+     uses, so the two compose instead of undoing each other. -->
+<div class="findbar" role="search">
+  <input type="search" id="q" placeholder="Search these messages"
+         aria-label="Search the channel" autocomplete="off" spellcheck="false">
+  <select id="dayjump" aria-label="Jump to a day"><option value="">Jump to a day</option>{day_options}</select>
+  <span class="findn" id="findn" aria-live="polite" role="status"></span>
+</div>
 
 <div class=agora>
 <aside class=rail>
