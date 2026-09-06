@@ -2833,7 +2833,14 @@ def main() -> int:
     try:
         import esprima  # optional; skip the gate rather than fail the build
     except ImportError:
-        print("  (esprima not installed: JS syntax gate skipped)")
+        # Loud, because a gate that quietly does not run reads exactly like a
+        # gate that ran and passed. This page ships ~33 KB of inline JS and a
+        # syntax error in it is invisible until a browser loads it: there is no
+        # server-side error and the HTML is still well formed.
+        print("  WARNING: esprima not installed, so the JS syntax gate DID NOT "
+              "RUN and this page's inline scripts are unchecked.\n"
+              "           pip install esprima   (the system python3 here has no "
+              "pip; /home/ubuntu/.emem-witness/venv/bin/python does)")
     else:
         for i, block in enumerate(
             b for b in re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", page, re.S)
