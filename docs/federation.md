@@ -478,10 +478,46 @@ it needs re-deriving before anyone builds it.
 
 ### 8e. What each new node must publish before it counts as joined
 
-`/v1/log/sth`, a stable `responder_pubkey_b32`, the four registry CIDs, and a
-DNS record binding its key to its name. A node that serves reads without these
-is usable and unaccountable, which is fine for a mirror and not fine for a
-writer.
+Two roles, because the first version of this section had one and our only peer
+failed it. geo.qa is a PRIVATE deployment: `/emem/health`,
+`/emem/.well-known/emem.json` and `/emem/openapi.json` all answer 401, so the
+four registry CIDs it holds are not readable by anyone. Under the old wording
+that made it unjoined, which is absurd, because it is a perfectly good witness
+and has been co-signing this log for days. A node that holds no public data is
+arguably a BETTER witness, not a worse one. So the bar depends on what the node
+asks to be trusted for.
+
+**A WITNESS** attests that it saw a head. It must publish, without credentials:
+
+- `/v1/log/sth`, so its own head is checkable
+- a stable `responder_pubkey_b32` (in the STH, and in `/live`)
+- `_emem-node.<domain> TXT "v=emem1; k=<52-char key>"`, so a third party can
+  bind the key to the name without asking either of us
+- `/.well-known/did.json`, so the signer resolves to a DID
+
+That is the whole list. It is deliberately short: witnessing is the one job that
+gets stronger the less the witness holds, and a bar that demands a corpus keeps
+out exactly the parties whose independence is worth most. geo.qa meets this and
+is joined as a witness.
+
+**A RESOLVER** additionally asks readers to fetch facts from it, so it must
+publish everything a reader needs to check what it serves:
+
+- the four registry CIDs (`algorithms_cid`, `bands_cid`, `schema_cid`,
+  `sources_cid`) readable without a credential, because a fact means nothing
+  without the registries it was signed against
+- `/openapi.json`, so its surface is enumerable rather than guessed
+- `/.well-known/emem.json` with a `federation` block naming who it witnesses
+
+No node is a resolver today, including this one's peers, because read
+federation (§4a) is not built. The role exists so the bar is written before it
+is needed rather than after someone asks.
+
+**How to check a node against this**, from anywhere, with no credential:
+`scripts/verify_node.py https://<origin>` prints each requirement and what the
+node answered, and exits non-zero on a witness that does not meet the witness
+bar. Run it before adding an origin to `EMEM_PEERS`, and expect a resolver to
+fail the resolver half until §4a exists.
 
 ---
 
@@ -658,14 +694,14 @@ was checked, never scores", the sentence goes, not the code.
 
 ### 9d. Acceptors: where emem is accepted, where it is missing, where it drifted
 
-**Accepted.** The official MCP registry (`io.github.Vortx-AI/emem`, 2.3.0
+**Accepted.** The official MCP registry (`io.github.Vortx-AI/emem`, 2.4.0
 latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
-`emem`, `emem-airgap` and `emem-encode`. PyPI `ememdev` 2.3.0. npm
+`emem`, `emem-airgap` and `emem-encode`. PyPI `ememdev` 2.4.0. npm
 `@vortxai/emem`. The Dify marketplace.
 
 **Missing.**
 
-- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.3.0 and its tests run
+- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.4.0 and its tests run
   in CI. It is not on PyPI and not in `run-llama/llama_index`, which is where
   LlamaHub lists from. Publish it, then open the upstream PR.
 - **n8n.** Not started, per `docs/registries/integration-targets.md`. n8n has
@@ -685,7 +721,7 @@ has no cargo; they go live when CI builds the next image. Everything else in
 this list is unfixed.
 
 
-- **Dify** is live at 2.2.0 while every other surface is 2.3.0. The plugin
+- **Dify** is live at 2.2.0 while every other surface is 2.4.0. The plugin
   source is not in this repository, so `version_surfaces.py` cannot see it and
   it will drift on every release until it is vendored under `integrations/`
   and added to the bump surfaces.

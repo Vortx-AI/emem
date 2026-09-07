@@ -1,0 +1,80 @@
+# A node, in one command.
+#
+#   docker compose up -d
+#   python3 scripts/verify_node.py http://localhost:5051
+#
+# That is the whole thing. It stands up a responder that meets the WITNESS bar
+# in docs/federation.md §8e, which is the role a new participant almost always
+# wants first: it lets you co-sign other nodes' heads and have yours co-signed,
+# which is what makes a split view detectable. You do not need a corpus, a GPU,
+# or an account to be useful in that role.
+#
+# §9d called the absence of this file out by name: "No compose file exists;
+# there are twenty systemd units. 'Anyone can host' is priced by this." The
+# twenty units run emem.dev, which is a full public resolver with witnessing,
+# perception, agents and bake timers. None of that is needed to join.
+#
+# TO ACTUALLY JOIN, three steps beyond `up -d`:
+#
+#   1. Serve this on a public name over TLS. Terminate wherever you like; the
+#      container speaks plain HTTP on 5051 on purpose so it composes with
+#      whatever you already run. EMEM_PUBLIC_URL must be the name a reader
+#      types, because did.json and the federation block are built from it.
+#
+#   2. Publish the DNS record that binds your key to your name:
+#        curl -s https://<your-domain>/live | grep -o '"responder_pubkey_b32":"[a-z0-9]*"'
+#        _emem-node.<your-domain>  TXT  "v=emem1; k=<that 52-char key>"
+#      A peer checks this before co-signing you, and refuses on a mismatch, so
+#      moving your key now takes both your web server and your DNS zone.
+#
+#   3. Run the witness job against the peers you care about, and ask them to
+#      point one back at you. deploy/systemd/emem-witness.{service,timer}.
+#      Witnessing is voluntary and mutual; nobody grants it.
+#
+# Then `scripts/verify_node.py https://<your-domain>` should print five oks.
+#
+# WHAT THIS DOES NOT GIVE YOU. Read federation (§4a) is not built, so joining
+# buys mutual witnessing and nothing else today: you and your peers can each
+# detect if the other rewrites history. That is a real property and it is a
+# narrow one. Nobody resolves facts across nodes yet, and this file will not
+# pretend otherwise.
+
+services:
+  emem:
+    image: ghcr.io/vortx-ai/emem:latest
+    container_name: emem
+    restart: unless-stopped
+    ports:
+      # Plain HTTP. Put your own TLS in front; see EMEM_TLS_* in
+      # docs/self-host.md if you would rather the binary terminate it.
+      - "127.0.0.1:5051:5051"
+    volumes:
+      # The signing identity lives here. Back it up: losing it means a new key,
+      # and a new key means every peer's pin chain restarts at "first contact"
+      # and your DNS record has to be reissued.
+      - emem-data:/data
+    environment:
+      EMEM_DATA: /data
+      EMEM_BIND: 0.0.0.0:5051
+      # The name a READER types, not the container's address. did.json, the
+      # federation block and every self-referential URL are built from this, so
+      # a wrong value here produces documents that point at localhost and a
+      # node no third party can check.
+      EMEM_PUBLIC_URL: ${EMEM_PUBLIC_URL:-http://localhost:5051}
+      # Who to reach about this node. Published; use a role address.
+      EMEM_CONTACT: ${EMEM_CONTACT:-}
+      # Peers whose heads you co-sign, comma separated. Declared in
+      # /.well-known/emem.json so the topology is legible to a third party
+      # instead of living in someone's systemd config.
+      EMEM_PEERS: ${EMEM_PEERS:-https://emem.dev}
+    healthcheck:
+      # /live is the cheap probe: no storage scan, safe during a cold open.
+      # A first start opens the store before it answers, so give it room.
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:5051/live >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 15m
+
+volumes:
+  emem-data:

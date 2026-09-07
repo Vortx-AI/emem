@@ -15,7 +15,7 @@
 
 | Fact | Value | Note |
 |---|---|---|
-| Agent card | `https://emem.dev/.well-known/agent-card.json` | name `emem`, version `2.3.0`, A2A protocol `1.0` |
+| Agent card | `https://emem.dev/.well-known/agent-card.json` | name `emem`, version `2.4.0`, A2A protocol `1.0` |
 | A2A endpoint | `https://emem.dev/a2a/tasks` | JSON-RPC `message/send` and `message/stream` |
 | Action schema (import THIS) | `https://emem.dev/openapi.action.json` | the cut-down surface a Custom GPT can hold |
 | Full OpenAPI | `https://emem.dev/openapi.json` | every route; too large for a GPT Action |

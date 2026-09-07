@@ -104,7 +104,7 @@ def surfaces(version: str, crates: int):
 SELF_TEST = [
     # (text, regex, should_find) -- the patterns, checked against the shapes
     # they are meant to match and one they must not.
-    ("version: 2.3.0\n", r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$", "2.3.0"),
+    ("version: 2.4.0\n", r"^version:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$", "2.4.0"),
     ("| 2.3.x | Yes. Current. Fixes land here. |",
      r"\|\s*([0-9]+\.[0-9]+)\.x\s*\|\s*Yes\. Current", "2.3"),
     ("Rust 1.91, edition 2021, 19 crates, one binary",

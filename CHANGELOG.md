@@ -7,7 +7,24 @@ to verify.
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-09-07
+
+The release that made federation something a stranger can join, and stopped
+four surfaces describing themselves incorrectly. Nothing here changes the wire
+format, the receipt preimage or the address space.
+
+Two threads run through it. The first is that a name which does not match the
+thing is a fault with a delay fuse: a health endpoint reporting `bedrock` while
+every call went local, `/splats` answering 200 while serving an empty directory,
+a disclaimer crediting a model that does not exist, and an agent card claiming
+an A2A version that was never released. Each looked correct from one angle and
+was false from the one that mattered. The second is that a check which cannot
+run is not a check that passed, which is why two gates in here grew a third
+outcome.
+
 ### Added
+- `scripts/verify_node.py`: checks an origin against the join bar in federation.md §8e, anonymously, from anywhere. Two roles, because they need different things published: a WITNESS proves it exists, has a stable key and a DNS record binding one to the other; a RESOLVER additionally publishes the registries a reader needs to check the facts it serves. Exit 1 names what is missing.
+- `docker-compose.yml`: a node in one command. §9d called out that "anyone can host" was priced by twenty systemd units; none of them are needed to join as a witness. Carries the three steps beyond `up -d` that actually constitute joining, and says plainly that read federation does not exist yet, so joining buys mutual witnessing and nothing else.
 - `GET /.well-known/did.json`: the node's `did:web` document, responder key and declared witness key (`EMEM_WITNESS_PUBKEY_B32`) as Multikey. No new cryptography; the keys every DID verifier can now resolve.
 - `GET /.well-known/emem-agents.json`: the organisation vouching document, served from `config/emem-agents.json`. The enlistment ladder fetched this from other domains and this responder never published its own.
 - `federation` block in `/.well-known/emem.json`: node DID, declared peers (`EMEM_PEERS`), the `_emem-node` TXT a peer should find, and how witnessed the head is, computed from the same rows as `/v1/log/witnesses`.

@@ -13,8 +13,8 @@ also [Privacy](/privacy) and [Terms](/terms).
 
 | Version | Supported |
 |---|---|
-| 2.3.x | Yes. Current. Fixes land here. |
-| <= 2.2.x | No. Superseded; upgrade rather than report against these. |
+| 2.4.x | Yes. Current. Fixes land here. |
+| <= 2.3.x | No. Superseded; upgrade rather than report against these. |
 
 There is one canonical responder and it runs the tip of `main`, so the
 hosted instance at `https://emem.dev` is always the supported version.
