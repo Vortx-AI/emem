@@ -54,13 +54,15 @@ MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
 # This surface answered as qwen2.5-7b through geo.qa's shared stack.
 # Switching it there means a base swap on a card another live product is
 # using, and this file's own docstring warns what that latency costs.
-# :5014 already serves gemma-4-12B-it independently and needs no swap.
+# The base is the llm-shim on :5015, which holds the Bedrock credential, the
+# daily spend ledger and the response cache. Do NOT point this straight at
+# bedrock-runtime: this process meters nothing and would spend unbounded.
 #
 # It also speaks a slightly different dialect: base_model rather than
 # model. One field, and the reason an earlier "replace the qwen api with
 # gemma" change reached the splats bridge and never reached this.
 GEMMA_BASE = os.environ.get("EMEM_EXPLAIN_GEMMA_BASE", "http://127.0.0.1:5014").rstrip("/")
-GEMMA_MODEL = os.environ.get("EMEM_EXPLAIN_GEMMA_MODEL", "google/gemma-4-12B-it")
+GEMMA_MODEL = os.environ.get("EMEM_EXPLAIN_GEMMA_MODEL", "google.gemma-3-12b-it")
 USE_GEMMA = os.environ.get("EMEM_EXPLAIN_BACKEND", "gemma") == "gemma"
 # Cosmos, on its own port, rather than qwen2.5-7b on the neighbour's stack.
 #
@@ -195,7 +197,7 @@ def _digest_ask(ask: dict) -> str:
 
 
 def _explain_gemma(facts: str, ask: dict) -> dict:
-    """Ask gemma-4-12B to reword facts it was handed, and nothing else."""
+    """Ask the configured model to reword facts it was handed, nothing else."""
     payload = json.dumps({
         "base_model": GEMMA_MODEL,
         "family": "gemma",
@@ -214,9 +216,14 @@ def _explain_gemma(facts: str, ask: dict) -> dict:
     return {
         "explanation": text,
         "signed": False,
-        "disclaimer": "Written by gemma-4-12B from emem's already-signed facts. This "
-        "prose is NOT signed and is not a fact: verify the receipt (fact_cids, "
-        "signature) for the ground truth it rewords.",
+        # Name the model that ACTUALLY answered. This was the literal string
+        # "gemma-4-12B", which is not a model that exists, and it stayed wrong
+        # through two backend changes: the reader was told the author of the
+        # prose, and told it incorrectly, by a service whose whole argument is
+        # that you should check who said a thing.
+        "disclaimer": f"Written by {GEMMA_MODEL} from emem's already-signed "
+        "facts. This prose is NOT signed and is not a fact: verify the receipt "
+        "(fact_cids, signature) for the ground truth it rewords.",
         "model": GEMMA_MODEL,
         "via": "gemma /v1/chat/completions",
         "source_routed_to": ask.get("routed_to"),
