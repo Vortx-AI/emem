@@ -17,6 +17,9 @@ broken. Every check below states the host expectation it stands for.
     python3 scripts/mcp_host_compat.py --check      # exit 1 on any FAIL
 
 Exit codes: 0 all pass, 1 a check failed, 2 the harness could not run.
+An UNDETERMINED row (a third-party service we could not reach) prints as
+loudly as a failure and deliberately does not set the exit code: we learned
+nothing about our own surface, so there is nothing to fail on.
 """
 
 from __future__ import annotations
@@ -136,12 +139,22 @@ def _options(url: str) -> tuple:
 ROWS = []
 
 
-def row(host: str, expectation: str, observed: str, ok: bool, number: str):
+def row(host: str, expectation: str, observed: str, ok: bool, number: str,
+        undetermined: bool = False):
+    """Three outcomes, not two.
+
+    Every row here asserts something about OUR surface, and a FAIL means we
+    published something untrue. But two of them reach a THIRD PARTY, and when
+    that party is down we have learned nothing about ourselves. Calling that a
+    FAIL makes our build hostage to someone else's uptime; calling it a PASS
+    claims a check we never ran. So it gets its own word, is printed as loudly
+    as a failure, and does not set the exit code.
+    """
     ROWS.append({
         "host": host,
         "expectation": expectation,
         "observed": observed,
-        "status": "PASS" if ok else "FAIL",
+        "status": "UNDET" if undetermined else ("PASS" if ok else "FAIL"),
         "number": number,
     })
     return ok
@@ -662,10 +675,16 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
     row("A2A clients", "the agent card is served and parses", note, ok, f"http {st}")
 
     # 4. the MCP registry entry: does the published remote point here?
-    st, body = _get(
-        "https://registry.modelcontextprotocol.io/v0/servers"
-        "?search=io.github.Vortx-AI/emem"
-    )
+    _reg = ("https://registry.modelcontextprotocol.io/v0/servers"
+            "?search=io.github.Vortx-AI/emem")
+    # Measured 2026-09-07 from one box in one hour: 200 in 0.24 s, 200 in 23.4 s,
+    # a 500, and a timeout. The endpoint is flaky rather than down, so retry the
+    # transport-level and server-side failures before concluding anything.
+    st, body = _get(_reg, timeout=45.0)
+    for _ in range(2):
+        if st == 0 or st >= 500:
+            time.sleep(2)
+            st, body = _get(_reg, timeout=45.0)
     if st == 200:
         try:
             servers = json.loads(body).get("servers", [])
@@ -688,6 +707,15 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
         else:
             row("MCP registry", "an entry is published and marked latest",
                 "no isLatest entry found", False, "none")
+    elif st == 0 or st >= 500:
+        # Not reachable at all. Measured 2026-09-07: the registry answers its
+        # root in 0.16 s and this search in 23.4 s, so a slow day plus a CI
+        # network is enough to time it out. That tells us nothing about whether
+        # OUR entry is right, which is the only thing this row is about.
+        row("MCP registry", "registry reachable",
+            f"http {st or 'no response'} after 3 tries; our entry was NOT "
+            f"checked this run",
+            False, "unreachable", undetermined=True)
     else:
         row("MCP registry", "registry reachable", f"http {st}", False, f"http {st}")
 
@@ -813,10 +841,12 @@ def main() -> int:
         return 2
 
     failed = [r for r in ROWS if r["status"] == "FAIL"]
+    undet = [r for r in ROWS if r["status"] == "UNDET"]
 
     if args.json:
         print(json.dumps({"facts": facts, "rows": ROWS,
-                          "failed": len(failed)}, indent=2))
+                          "failed": len(failed),
+                          "undetermined": len(undet)}, indent=2))
     else:
         w = [
             max(len(r["host"]) for r in ROWS),
@@ -835,7 +865,12 @@ def main() -> int:
             print(f"{r['host']:<{w[0]}}  {r['expectation']:<{w[1]}}  "
                   f"{r['observed']:<{w[2]}}  {r['status']:<4}  {r['number']:<{w[3]}}")
         print()
-        print(f"{len(ROWS) - len(failed)} pass, {len(failed)} fail")
+        passed = len(ROWS) - len(failed) - len(undet)
+        line = f"{passed} pass, {len(failed)} fail"
+        if undet:
+            line += (f", {len(undet)} UNDETERMINED (a third party we could not "
+                     f"reach; not asserted, not counted against us)")
+        print(line)
 
     if args.check and failed:
         return 1
