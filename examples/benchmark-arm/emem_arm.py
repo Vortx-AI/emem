@@ -216,14 +216,14 @@ if __name__ == "__main__":
     # i.e. reproduces the exact failure measured at 21.7%.
     TOKEN = (
         "emem:fact:defi.zb572.xoso.zb1ec:"
-        "2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq"
+        "4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q"
     )
     calls = {"n": 0}
 
     def rounding_model(prompt: str) -> str:
         calls["n"] += 1
         # First pass rounds (the real failure); the retry copies correctly.
-        return "The NDVI delta is -0.0558." if calls["n"] == 1 else "-0.055822789005725904"
+        return "The NDVI delta is -0.0522." if calls["n"] == 1 else "-0.052199413489736016"
 
     arm = EmemArm(answer_fn=rounding_model)
     out = arm.answer(TOKEN, "What is the NDVI delta here?")

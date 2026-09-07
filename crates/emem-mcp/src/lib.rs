@@ -1531,7 +1531,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call immediately before publishing, logging, or handing on any value you took from an emem fact, and treat a false `matches` as a gate rather than a warning. Pair it with `value_verbatim` from resolve: quote that exact decimal string rather than reformatting the number, then echo-verify what you actually emitted. For a due-diligence or compliance record this is what lets you assert `every cited value was echo-verified` with a signed check per citation instead of a promise. Accepts a bare cid too, so a damaged citation still grades rather than failing closed.",
         input_schema: SCHEMA_ECHO_VERIFY,
         output_schema: Some(OUT_ECHO_VERIFY),
-        example_args: r#"{"token":"emem:fact:defi.zb572.xoso.zb1ec:2p6sz3pv45ndkyqstir4nd6bjnzx63rrcb4pnhgahsnb2oczh5aq","claimed_value":"-0.0558"}"#,
+        example_args: r#"{"token":"emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q","claimed_value":"-0.0522"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
