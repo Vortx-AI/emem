@@ -124,6 +124,22 @@ def compute_offline() -> dict:
     }
 
 
+# Filled by verify_canon(), read by main(). Not drift: see the branch that
+# appends to it.
+PENDING_DEPLOY: list[str] = []
+
+
+def _semver_lt(a: str, b: str) -> bool:
+    """Is a strictly older than b? Non-numeric or ragged values compare False,
+    so anything this cannot parse falls through to being treated as drift."""
+    try:
+        pa = [int(x) for x in a.split(".")]
+        pb = [int(x) for x in b.split(".")]
+    except (ValueError, AttributeError):
+        return False
+    return len(pa) == len(pb) == 3 and pa < pb
+
+
 def fetch_live(responder: str) -> dict | None:
     """Pull the runtime-authoritative counts from a reachable responder.
 
@@ -1067,10 +1083,31 @@ def verify_canon() -> list[str]:
 
     responder = os.environ.get("EMEM_RESPONDER", "https://emem.dev")
     live = fetch_live(responder)
+    PENDING_DEPLOY.clear()
     if live:
         for k, v in live.items():
-            if v is not None and k in CANON and CANON[k] != v:
-                drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
+            if v is None or k not in CANON or CANON[k] == v:
+                continue
+            if k == "version" and _semver_lt(str(v), str(CANON[k])):
+                # The repo is AHEAD of production, which is where a release
+                # commit necessarily sits: CI cannot be green on the commit
+                # that bumps the version until the image that same CI run
+                # builds has been pulled and restarted. That ordering made
+                # every release red once, and a gate that is always red on
+                # release day is a gate people learn to ignore.
+                #
+                # This is not drift, because the docs are baked INTO the
+                # binary: a responder serving 2.3.0 serves 2.3.0's docs too,
+                # so no reader sees a contradiction. Only the repo is ahead.
+                #
+                # Live AHEAD of CANON stays drift, because that means the
+                # repository is stale about something already published, and
+                # every non-version key stays drift unconditionally.
+                PENDING_DEPLOY.append(
+                    f"CANON[{k}]={CANON[k]} and live /v1/agent_card says {v}: "
+                    f"the repo is ahead of production, pending deploy")
+                continue
+            drift.append(f"CANON[{k}]={CANON[k]} but live /v1/agent_card says {v}")
     elif os.environ.get("EMEM_COUNTS_OFFLINE") == "1":
         # Deliberate waiver: an air-gapped node has no responder to ask, and
         # saying so out loud is different from not noticing.
@@ -1636,6 +1673,14 @@ def main() -> int:
     print()
 
     drift = verify_canon()
+    if PENDING_DEPLOY:
+        # Printed whether or not anything else drifted: an operator reading a
+        # green run still needs to know production is a version behind.
+        print("PENDING DEPLOY (not drift):")
+        for d in PENDING_DEPLOY:
+            print(f"  · {d}")
+        print("  -> pull the new image and restart; this clears itself.\n")
+
     if drift:
         print("CANON DRIFT — registries/responder no longer match CANON:")
         for d in drift:
