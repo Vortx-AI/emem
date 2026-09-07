@@ -131,6 +131,15 @@ def _today() -> str:
     return time.strftime("%Y-%m-%d", time.gmtime())
 
 
+# Set False the first time the ledger cannot be written. A budget that cannot
+# count must not keep spending, so this flips _over_cap() closed rather than
+# leaving the cap silently un-enforced.
+_ledger_ok = True
+# One line per day when the cap trips, not one per request.
+_capped_logged = False
+_capped_day = None
+
+
 def _spend_read() -> dict:
     try:
         d = json.loads(SPEND_FILE.read_text())
@@ -138,6 +147,9 @@ def _spend_read() -> dict:
             return d
     except Exception:  # noqa: BLE001 - an unreadable ledger must not bill twice
         pass
+    global _capped_logged, _capped_day
+    if _capped_day != _today():
+        _capped_day, _capped_logged = _today(), False
     return {"day": _today(), "usd": 0.0, "calls": 0, "in": 0, "out": 0}
 
 
@@ -151,12 +163,26 @@ def _spend_add(tok_in: int, tok_out: int) -> dict:
             tmp = SPEND_FILE.with_suffix(".tmp")
             tmp.write_text(json.dumps(d))
             tmp.replace(SPEND_FILE)
-        except Exception:  # noqa: BLE001 - a ledger that cannot write must not 500
-            pass
+        except Exception as e:  # noqa: BLE001 - must not 500, must not bill blind
+            # Previously this passed silently. The next _over_cap() then re-read
+            # the STALE file, so spend stopped accumulating and the cap could
+            # never trip: an unwritable ledger meant unlimited billing, which is
+            # the one direction a budget must never fail in.
+            global _ledger_ok
+            if _ledger_ok:
+                print(f"llm-shim: CANNOT WRITE THE SPEND LEDGER at {SPEND_FILE}: "
+                      f"{type(e).__name__}: {e}. Treating the daily cap as spent "
+                      f"and serving from the local model until this is fixed.",
+                      file=sys.stderr, flush=True)
+            _ledger_ok = False
         return d
 
 
 def _over_cap() -> bool:
+    # Unwritable ledger counts as spent: see _spend_add. Degrading to the local
+    # model is free and correct; billing without a counter is neither.
+    if not _ledger_ok:
+        return True
     return _spend_read()["usd"] >= DAILY_USD_CAP
 
 
@@ -238,6 +264,11 @@ class Handler(BaseHTTPRequestHandler):
                            "spent_usd": round(sp["usd"], 6),
                            "remaining_usd": round(max(0.0, DAILY_USD_CAP - sp["usd"]), 6),
                            "calls": sp["calls"], "over_cap": _over_cap(),
+                           # A spent cap and a broken counter both serve the
+                           # local model, and an operator needs to tell them
+                           # apart: the first is normal, the second is a fault.
+                           "ledger_ok": _ledger_ok,
+                           "ledger_file": str(SPEND_FILE),
                            "fallback": FALLBACK_URL or None}})
         if self.path.rstrip("/") == "/v1/models":
             return self._send(200, {"object": "list", "data": [
@@ -275,6 +306,15 @@ class Handler(BaseHTTPRequestHandler):
 
         # Checked BEFORE the call: over the cap this never reaches Bedrock.
         if _over_cap():
+            global _capped_logged
+            if not _capped_logged:
+                sp = _spend_read()
+                print(f"llm-shim: daily cap ${DAILY_USD_CAP:.2f} reached "
+                      f"(spent ${sp['usd']:.4f} over {sp['calls']} calls, "
+                      f"ledger_ok={_ledger_ok}); serving from the local model "
+                      f"until {sp['day']} rolls over.",
+                      file=sys.stderr, flush=True)
+                _capped_logged = True
             code, body = _fallback(req)
             return self._send(code, body)
 
