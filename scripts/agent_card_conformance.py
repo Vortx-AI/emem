@@ -58,16 +58,27 @@ def as_json(body) -> dict:
     return d if isinstance(d, dict) else {}
 
 
+# Every HTTP status this run saw from the endpoint. A run where every probe
+# came back 0 did not reach the endpoint at all, and a checker that reports
+# "the card describes a transport the endpoint does not speak" on that run is
+# describing an outage as a defect. CI went red on a8061cdc for exactly this:
+# it overlapped a deploy that took emem.dev off the air for twenty-one minutes.
+SEEN_STATUS: list[int] = []
+
+
 def post(url, body, timeout=60):
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(),
         headers={"content-type": "application/json"}, method="POST")
     try:
         with patient(req, timeout=timeout) as r:
+            SEEN_STATUS.append(r.status)
             return r.status, r.read().decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
+        SEEN_STATUS.append(e.code)
         return e.code, e.read().decode("utf-8", "replace")
     except Exception as e:
+        SEEN_STATUS.append(0)
         return 0, str(e)
 
 
@@ -215,6 +226,16 @@ def main() -> int:
     # `tags` and `examples`. A card is a promise about reachability, so this
     # asks each skill to be reachable one way or the other and refuses to count
     # a wrong-shaped refusal as an answer.
+    # A responder that did not answer is UNDETERMINED, not failed.
+    #
+    # These two checks read the endpoint, and with the endpoint down every one
+    # of them reports the thing it looks for as absent. CI went red on
+    # a8061cdc for exactly that: the run overlapped the deploy that took
+    # emem.dev off the air for twenty-one minutes, and this said the card
+    # describes an endpoint that does not behave as declared. It says nothing
+    # of the kind; it did not reach the endpoint. Same convention the rest of
+    # the repo uses: 2 is the responder, and CI waives it.
+    unreachable = 0
     skills = (card.get("skills") or []) if endpoint else []
     rest_tagged = [k for k in skills if "rest" in (k.get("tags") or [])]
     print(f"\n{len(skills)} skill(s) on the card, {len(rest_tagged)} tagged `rest`")
@@ -228,6 +249,10 @@ def main() -> int:
         doc = as_json(body)
         err = doc.get("error") or {}
         text = json.dumps(doc)
+        if not doc:
+            unreachable += 1
+            print(f"  rest skill {sid:<24} no answer (http {code})")
+            continue
         points_home = "call_it_here" in text
         denies_existence = "unknown tool" in text
         print(f"  rest skill {sid:<24} "
@@ -246,13 +271,28 @@ def main() -> int:
         "params": {"message": {"role": "user", "messageId": "m1",
                                "metadata": {"skill_id": probe},
                                "parts": [{"kind": "data", "data": {}}]}}})
-    served = ((as_json(body).get("result") or {}).get("metadata") or {}).get("skill")
-    print(f"  skill named on the message   {served or code}")
-    if served != probe:
+    doc = as_json(body)
+    served = ((doc.get("result") or {}).get("metadata") or {}).get("skill")
+    if not doc:
+        unreachable += 1
+    print(f"  skill named on the message   {served or f'no answer (http {code})'}")
+    if doc and served != probe:
         problems.append(
             f"skill_id on params.message.metadata selected {served!r}, not {probe!r}; "
             f"a client that names its skill where the Message object carries metadata "
             f"is answered by a different skill without being told")
+
+    # Nothing answered, so nothing was checked. This has to be tested BEFORE
+    # `problems`, because when the endpoint is down every check produces one.
+    if SEEN_STATUS and not any(SEEN_STATUS):
+        print(f"\nUNDETERMINED: {len(SEEN_STATUS)} probe(s) and not one answer, so the card "
+              f"was not checked against a live endpoint. Nothing here says the card is "
+              f"wrong; it says nobody was home.")
+        return 2
+    if unreachable and not problems:
+        print(f"\nUNDETERMINED: {unreachable} probe(s) got no answer, so part of the card "
+              f"was not checked.")
+        return 2
 
     if problems:
         print("\nA card that describes a transport the endpoint does not speak sends "

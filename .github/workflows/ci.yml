@@ -622,12 +622,34 @@ jobs:
           fi
           exit $code
       - name: the agent card describes the endpoint that answers
-        run: python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+        run: |
+          set +e
+          python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          # 2 is the responder. This step had no waiver, so a run that
+          # overlapped a deploy reported "the card describes a transport the
+          # endpoint does not speak" -- a statement about the card, made on a
+          # run that never reached the endpoint. It happened on a8061cdc.
+          if [ "$code" = "2" ]; then
+            echo "::warning::the endpoint did not answer; the card was not checked against it"
+            exit 0
+          fi
+          exit $code
       # Everything else emem serves carries an ed25519 receipt; the card that
       # advertises all of it was the one document nobody signed. This verifies
       # it as a stranger would, over HTTP, using only the published key.
       - name: the agent card verifies against its own published key
-        run: python3 scripts/agent_card_signed.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+        run: |
+          set +e
+          python3 scripts/agent_card_signed.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the card could not be fetched; its signature was not checked"
+            exit 0
+          fi
+          exit $code
       # A ratchet, not a standard. tokens.css has carried a golden-ratio
       # spacing scale for a long time and the pages use it for 136 values
       # against 1382 hand-picked ones: every gap slightly different, which is
