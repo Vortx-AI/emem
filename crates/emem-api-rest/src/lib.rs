@@ -27919,7 +27919,128 @@ fn tools_catalog(args: &JsonValue) -> JsonValue {
     })
 }
 
+/// One slot, two spellings, and a caller that filled in both.
+///
+/// Twenty-four tools accept more than one name for a single argument, and
+/// serde refuses a body carrying two of them with ``duplicate field `cell` ``.
+/// That message names a field the caller never wrote twice, arrives as a bare
+/// -32602, and gives no way to tell which of the names sent were the pair. A
+/// model that fills in every property it can see meets it on `emem_locate`,
+/// the first tool in the loop, for sending `place` and `query`.
+///
+/// Two things happen here, both driven by the tools' own declared alias
+/// groups rather than by a table kept beside them:
+///
+/// 1. When two spellings of one slot carry the SAME value there is nothing to
+///    disambiguate, so the redundant spelling is dropped and the call runs.
+/// 2. When they carry DIFFERENT values the call is still refused, because
+///    picking one would answer a question the caller did not ask. The refusal
+///    now names both spellings and both values.
 async fn mcp_tool_call(
+    name: &str,
+    args: JsonValue,
+    s: &AppState,
+) -> Result<JsonValue, (i64, String)> {
+    let (args, conflicts) = collapse_alias_spellings(name, args);
+    match mcp_tool_call_inner(name, args, s).await {
+        Err((-32602, msg)) => Err((-32602, explain_duplicate_field(name, &msg, &conflicts))),
+        other => other,
+    }
+}
+
+/// One canonical slot and the disagreeing spellings a caller sent for it.
+type AliasConflict = (String, Vec<(String, String)>);
+
+/// Drop alias spellings that agree with the name they alias.
+///
+/// Returns the arguments to dispatch and, for each canonical slot still
+/// carrying disagreeing spellings, `(canonical, [(name, value), ...])`.
+fn collapse_alias_spellings(name: &str, mut args: JsonValue) -> (JsonValue, Vec<AliasConflict>) {
+    let groups = emem_mcp::alias_groups(name);
+    if groups.is_empty() {
+        return (args, Vec::new());
+    }
+    let Some(obj) = args.as_object_mut() else {
+        return (args, Vec::new());
+    };
+    let mut conflicts = Vec::new();
+    for (canonical, aliases) in groups {
+        // Every spelling of this slot the caller actually sent, canonical
+        // first so it is the one kept when the values agree.
+        let mut present: Vec<String> = Vec::new();
+        if obj.contains_key(&canonical) {
+            present.push(canonical.clone());
+        }
+        present.extend(aliases.into_iter().filter(|a| obj.contains_key(a)));
+        if present.len() < 2 {
+            continue;
+        }
+        let keep = present[0].clone();
+        let kept = obj.get(&keep).cloned().unwrap_or(JsonValue::Null);
+        let disagreeing: Vec<String> = present[1..]
+            .iter()
+            .filter(|k| obj.get(*k) != Some(&kept))
+            .cloned()
+            .collect();
+        if disagreeing.is_empty() {
+            for k in &present[1..] {
+                obj.remove(k);
+            }
+            continue;
+        }
+        let mut named = vec![(keep.clone(), short_json(&kept))];
+        for k in &disagreeing {
+            named.push((
+                k.clone(),
+                short_json(obj.get(k).unwrap_or(&JsonValue::Null)),
+            ));
+        }
+        conflicts.push((canonical, named));
+    }
+    (args, conflicts)
+}
+
+/// A value, short enough to put in an error message.
+fn short_json(v: &JsonValue) -> String {
+    let s = match v {
+        JsonValue::String(s) => s.clone(),
+        other => other.to_string(),
+    };
+    if s.chars().count() > 48 {
+        format!("{}…", s.chars().take(48).collect::<String>())
+    } else {
+        s
+    }
+}
+
+/// Turn serde's `duplicate field` into a sentence about what was sent.
+fn explain_duplicate_field(name: &str, msg: &str, conflicts: &[AliasConflict]) -> String {
+    let Some(rest) = msg.split("duplicate field `").nth(1) else {
+        return msg.to_string();
+    };
+    let Some(end) = rest.find('`') else {
+        return msg.to_string();
+    };
+    let canonical = &rest[..end];
+    let Some((_, named)) = conflicts.iter().find(|(c, _)| c == canonical) else {
+        // The group is declared but the collapse did not see the pair, which
+        // means the two spellings came in through some path this does not
+        // model. Say what is known rather than inventing the pair.
+        return format!(
+            "`{name}` was sent two arguments that are the same argument: `{canonical}`.              This tool declares more than one spelling for that slot; send exactly one.              (serde: {msg})"
+        );
+    };
+    let sent = named
+        .iter()
+        .map(|(k, v)| format!("`{k}` = {v}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "`{name}`: {sent}. These are one argument, `{canonical}`, under different names, and          they disagree, so this responder will not choose between them. Send one. (Sending the          same value under two spellings is fine and would have been answered.)"
+    )
+}
+
+async fn mcp_tool_call_inner(
     name: &str,
     mut args: JsonValue,
     s: &AppState,
@@ -29655,7 +29776,7 @@ fn openapi_spec() -> JsonValue {
                 {"name":"datetime","in":"query","required":false,"description":"Explicit STAC datetime window `A/B`; takes precedence over `at`.","schema":{"type":"string"}}
             ],"responses":{"200":{"description":"raw rgb8 plane (w*h*3 bytes)","content":{"application/octet-stream":{"schema":{"type":"string","format":"binary"}}}}}}},
             "/v1/cells/{cell64}/recall_geojson":{"get":{"summary":"cell polygon as GeoJSON Feature with every recalled fact embedded as a property, paste straight into Mapbox/Leaflet/Deck.gl","operationId":"emem_cell_recall_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},{"name":"bands","in":"query","required":false,"schema":{"type":"string","description":"comma-separated band list; default = every recallable band at this cell"}}],"responses":{"200":json_ok}}},
-            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent (algebra: valid; cite_now vs fetch_for_intent)","operationId":"emem_temporal_route_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"query_time":{"type":"string","description":"RFC 3339 instant the answer must be valid at"},"intent":{"type":"string","description":"cite_now | fetch_for_intent"},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/temporal_route":    {"get":{"summary":"PDE-based band routing for a query time + intent (also accepts POST)","operationId":"emem_temporal_route_get","responses":{"200":json_ok}},"post":{"summary":"PDE-based band routing for a query time + intent (algebra: valid; cite_now vs fetch_for_intent)","operationId":"emem_temporal_route_post","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 or place name"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"cell64":{"type":"string","description":"alias for `cell`"},"query_time":{"type":["integer","string"],"description":"RFC 3339 instant, or Unix seconds, the answer must be valid at"},"intent":{"type":"string","description":"routes matching band families up the ranking, e.g. flood_window, crop_season"},"bands":{"type":"array","items":{"type":"string"}},"band":{"type":"string","description":"the singular spelling of `bands`"},"limit":{"type":"integer","minimum":1}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/elevation":         {
                 "get":{"summary":"GET /v1/elevation?lat=&lon=, boring lat/lng lookup, returns Cop-DEM elevation (signed). Also accepts ?place=…","operationId":"emem_elevation_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
                 "post":{"summary":"POST /v1/elevation {place|lat,lng|cell64} → Cop-DEM elevation read-through","operationId":"emem_elevation","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/ElevationPostReq"}}}},"responses":{"200":json_ok}}
@@ -29759,7 +29880,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/{id}":       {"get":{"summary":"Dereference a canonical object by entity_cid or emem:entity: token to its signed body, receipt, and recall hint. 404 with a typed code when this responder does not hold it.","operationId":"emem_entity_get","tags":["entity","identity"],"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"},"description":"entity_cid or emem:entity:<entity_cid> (legacy meme: accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
-            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default that means two or more DISTINCT attesters; pass include_same_attester_sources to also report one attester answering from two different upstreams. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"Bytewise prefix filter on cell64 (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":false,"description":"Also report keys where ONE attester answered the same address from two different upstreams. Default false: the scan asks only whether two or more DISTINCT attesters disagree, so on a single-responder corpus a zero means that narrower question came back empty, not that nothing disagrees. When true a single-attester key qualifies only if the facts differ in derivation.fn_key or in their sources[].scheme set — the same provider re-signed is a refresh, not a disagreement. Every record carries disagreement_scope (multi_attester | same_attester_provider_substitution) and a providers[] list, index-aligned with attestations, naming the recipe and schemes behind each value."}}}}}},"responses":{"200":json_ok}},
+            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default that means two or more DISTINCT attesters; pass include_same_attester_sources to also report one attester answering from two different upstreams. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"cell":{"type":"string","description":"Alias for cell_prefix, and the name the other tools that take a cell64 use."},"cell64":{"type":"string","description":"Alias for cell_prefix."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":false,"description":"Also report keys where ONE attester answered the same address from two different upstreams. Default false: the scan asks only whether two or more DISTINCT attesters disagree, so on a single-responder corpus a zero means that narrower question came back empty, not that nothing disagrees. When true a single-attester key qualifies only if the facts differ in derivation.fn_key or in their sources[].scheme set — the same provider re-signed is a refresh, not a disagreement. Every record carries disagreement_scope (multi_attester | same_attester_provider_substitution) and a providers[] list, index-aligned with attestations, naming the recipe and schemes behind each value."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
             "/v1/edges":             {"post":{"summary":"Persist temporal knowledge-graph edges. Body is a signed Attestation envelope whose `edges[]` array carries each edge {subj, pred, obj, valid_from, valid_to?, confidence, signer, signed_at, schema_cid?, note?}. The edge leaves are folded into the merkle root so the signature commits to them. Additive: an attestation with no edges behaves exactly as /v1/attest.","operationId":"emem_edges_write","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["facts","edges","batch_root","attester","signature"],"properties":{"edges":{"type":"array","items":{"type":"object","required":["subj","pred","obj","valid_from","confidence","signer","signed_at"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string"},"obj":{"type":"string","description":"object fact CID"},"valid_from":{"type":"integer"},"valid_to":{"type":"integer"},"confidence":{"type":"number"},"note":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges in either direction, bi-temporally filtered. Forward (subj, direction=\"out\", default): edges originating at a subject fact. Reverse (obj, direction=\"in\"): edges pointing AT a fact (what disagrees-with / supersedes / relates-to it). Set exactly one of subj/obj, ambiguous or empty requests are rejected with a 400, never a silent empty. With as_of_tslot set, returns the latest edge per neighbour whose [valid_from, valid_to) interval covers as_of_tslot (supersession keeps the newest). pred=\"\" scans all predicates. Response carries `direction`, `objs` (always), and `subjs` (reverse only). Receipt cites the anchor + neighbour fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"subj":{"type":"string","description":"subject fact CID (forward / direction=out); set exactly one of subj/obj"},"obj":{"type":"string","description":"object fact CID (reverse / direction=in): what points at this fact"},"direction":{"type":"string","enum":["out","in"],"description":"out (default)=subj→objs; in=obj→subjs; inferred from which of subj/obj is set when omitted"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per neighbour whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
@@ -71600,15 +71721,64 @@ fn latency_percentile(p: f64) -> Option<f64> {
 // All four kernels live in pure Rust, deterministic, no ML model. The
 // router is mathematics, not heuristic.
 
+/// A time given either as an RFC 3339 instant or as Unix seconds.
+///
+/// `query_time` was a bare `String`, and the tool schema published it as an
+/// integer, so an agent that read the schema and sent `1789000000` was refused
+/// with `invalid type: integer, expected a string` and had no way to comply.
+/// Both spellings are in use on this surface -- `*_unix_s` fields take
+/// integers, `as_of_signed_at` takes RFC 3339 -- so the parameter accepts
+/// either rather than picking a winner and breaking the other half.
+#[derive(Deserialize, Debug, Clone)]
+#[serde(untagged)]
+enum QueryInstant {
+    Unix(i64),
+    Text(String),
+}
+
+impl QueryInstant {
+    /// `None` when the text is not a timestamp, so the caller can report the
+    /// caller's own mistake rather than silently routing as if for now.
+    fn to_unix(&self) -> Option<i64> {
+        match self {
+            QueryInstant::Unix(n) => Some(*n),
+            QueryInstant::Text(t) if t.trim().is_empty() => None,
+            QueryInstant::Text(t) => parse_iso8601_unix(t),
+        }
+    }
+
+    fn as_text(&self) -> String {
+        match self {
+            QueryInstant::Unix(n) => n.to_string(),
+            QueryInstant::Text(t) => t.clone(),
+        }
+    }
+
+    fn is_blank(&self) -> bool {
+        matches!(self, QueryInstant::Text(t) if t.trim().is_empty())
+    }
+}
+
 #[derive(Deserialize, Debug)]
 struct TemporalRouteReq {
-    /// cell64 string (alias `cell64` accepted), optional, used to
-    /// look up cell-local attestation freshness when present.
+    /// cell64 string (alias `cell64` accepted), or a place name, which is
+    /// resolved through the same geocoder every other spatial tool uses.
     #[serde(default, alias = "cell64", skip_serializing_if = "Option::is_none")]
     cell: Option<String>,
-    /// ISO-8601 UTC of the query time. If omitted, "now".
+    /// Free-text place name, the alternative to `cell` that twenty other
+    /// tools on this surface accept. /openapi.json documented `place`, `lat`
+    /// and `lng` on this endpoint while the request type read none of them,
+    /// so a caller who believed the document was answered without its
+    /// location.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    query_time: Option<String>,
+    place: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lat: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    lng: Option<f64>,
+    /// RFC 3339 instant or Unix seconds. If omitted, "now".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    query_time: Option<QueryInstant>,
     /// Optional intent string (e.g., "monitor flood risk this week").
     /// Routes the band families that match the intent up the ranking.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -71617,6 +71787,11 @@ struct TemporalRouteReq {
     /// band declared in the active manifest.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     bands: Option<Vec<String>>,
+    /// The singular spelling, which `emem_recall` already accepts and agents
+    /// therefore already send. Dropping it scored the whole manifest while
+    /// reporting success on a request that named one band.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    band: Option<String>,
     /// Limit on returned candidates. Default 8, max 64.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     limit: Option<usize>,
@@ -71914,15 +72089,17 @@ async fn temporal_route_inner(
     // (e.g. "2026-13-01" would route as if the user asked about now).
     // Surface the parse error as 400 so the agent sees its own bug
     // instead of a confidently-wrong answer.
-    let query_unix: i64 = match req.query_time.as_deref() {
-        Some(qt) if qt.trim().is_empty() => now_unix,
-        Some(qt) => parse_iso8601_unix(qt).ok_or_else(|| {
+    let query_unix: i64 = match req.query_time.as_ref() {
+        Some(qt) if qt.is_blank() => now_unix,
+        Some(qt) => qt.to_unix().ok_or_else(|| {
             ApiError(
                 StatusCode::BAD_REQUEST,
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: format!(
-                        "query_time '{qt}' is not a valid RFC 3339 / ISO 8601 timestamp"
+                        "query_time '{}' is neither an RFC 3339 / ISO 8601 timestamp \
+                         nor Unix seconds",
+                        qt.as_text()
                     ),
                     details: None,
                 },
@@ -71931,8 +72108,45 @@ async fn temporal_route_inner(
         None => now_unix,
     };
 
+    // The address, resolved the way the rest of the surface resolves one.
+    //
+    // This used to be optional in fact while the tool schema declared it
+    // required. A call with no cell -- an omission, or a spelling the request
+    // type does not read -- returned a full ranked plan with `cell: null` and
+    // every band at the "no attestation exists yet" floor score. That is a
+    // confident answer about nowhere, and it is the failure this endpoint was
+    // least able to signal, because a plan is prose-shaped and reads fine.
+    let cell_input = req
+        .cell
+        .as_deref()
+        .filter(|c| !c.trim().is_empty())
+        .or(req.place.as_deref().filter(|p| !p.trim().is_empty()));
+    let (cell, _resolved) = resolve_cell_input(cell_input, req.lat, req.lng)
+        .await
+        .map_err(|_| {
+            ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: "supply `cell` (a cell64 from emem_locate), `place`, or \
+                              `lat`+`lng`: a temporal plan is per-address, and without one \
+                              every band scores at the no-observation floor, which reads \
+                              like a plan and answers about nowhere"
+                        .into(),
+                    details: None,
+                },
+            )
+        })?;
+
+    // One shortlist, whichever spelling arrived.
+    let bands_filter: Option<Vec<String>> = match (&req.bands, &req.band) {
+        (Some(v), _) if !v.is_empty() => Some(v.clone()),
+        (_, Some(b)) if !b.trim().is_empty() => Some(vec![b.trim().to_string()]),
+        _ => None,
+    };
+
     let registry = &*emem_core::bands::DEFAULT;
-    let candidates: Vec<&emem_core::bands::Band> = match &req.bands {
+    let candidates: Vec<&emem_core::bands::Band> = match &bands_filter {
         Some(want) => {
             let want_set: std::collections::HashSet<&str> =
                 want.iter().map(|s| s.as_str()).collect();
@@ -71953,9 +72167,9 @@ async fn temporal_route_inner(
     // we use scan_cell to get every fact, group by band-prefix, and
     // pick the latest signed_at. Cheap because cells hold ≤ tens of
     // facts in practice.
-    let last_obs_by_band: std::collections::HashMap<String, i64> = match req.cell.as_deref() {
-        Some(cell) => {
-            let pairs = s.storage.scan_cell(cell, None).await.unwrap_or_default();
+    let last_obs_by_band: std::collections::HashMap<String, i64> = {
+        {
+            let pairs = s.storage.scan_cell(&cell, None).await.unwrap_or_default();
             let cids: Vec<emem_fact::FactCid> = pairs.into_iter().map(|(_k, c)| c).collect();
             let mut map = std::collections::HashMap::new();
             if !cids.is_empty() {
@@ -71978,7 +72192,6 @@ async fn temporal_route_inner(
             }
             map
         }
-        None => Default::default(),
     };
 
     let intent = req.intent.as_deref().unwrap_or("");
@@ -72039,7 +72252,7 @@ async fn temporal_route_inner(
     Ok(Json(json!({
         "schema":      "emem.temporal_route.v1",
         "query_time":  iso8601_utc(query_unix as u64),
-        "cell":        req.cell,
+        "cell":        cell,
         "intent":      req.intent,
         "cite_now":    candidates_json,
         "fetch_for_intent": fetch_json,
@@ -72068,13 +72281,20 @@ async fn get_temporal_route(
     State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // Same alias set the POST body reads, resolved by `or_else` rather than
+    // by serde, so a query string that carries both spellings of one slot is
+    // answered instead of refused.
     let req = TemporalRouteReq {
         cell: q.get("cell").or_else(|| q.get("cell64")).cloned(),
-        query_time: q.get("query_time").cloned(),
+        place: q.get("place").or_else(|| q.get("q")).cloned(),
+        lat: q.get("lat").and_then(|s| s.parse().ok()),
+        lng: q.get("lng").and_then(|s| s.parse().ok()),
+        query_time: q.get("query_time").cloned().map(QueryInstant::Text),
         intent: q.get("intent").cloned(),
         bands: q
             .get("bands")
             .map(|s| s.split(',').map(|x| x.trim().to_string()).collect()),
+        band: q.get("band").cloned(),
         limit: q.get("limit").and_then(|s| s.parse().ok()),
     };
     temporal_route_inner(State(s), req).await
@@ -75349,6 +75569,61 @@ mod tests {
                 ),
             }
         }
+    }
+
+    /// Two spellings of one slot that AGREE are collapsed, so the call runs.
+    #[test]
+    fn agreeing_alias_spellings_are_collapsed_not_refused() {
+        let (args, conflicts) = collapse_alias_spellings(
+            "emem_locate",
+            json!({"place": "Napa Valley", "query": "Napa Valley", "q": "Napa Valley"}),
+        );
+        assert!(
+            conflicts.is_empty(),
+            "nothing disagrees, so nothing to report"
+        );
+        let o = args.as_object().unwrap();
+        assert_eq!(o.len(), 1, "one slot, one key left: {args}");
+        assert_eq!(o.get("place").and_then(|v| v.as_str()), Some("Napa Valley"));
+    }
+
+    /// Two spellings that DISAGREE are still refused, and the refusal says
+    /// which names and which values, because choosing would answer a
+    /// question the caller did not ask.
+    #[test]
+    fn disagreeing_alias_spellings_are_named_in_the_error() {
+        let (args, conflicts) = collapse_alias_spellings(
+            "emem_locate",
+            json!({"place": "Napa Valley", "query": "Lake Erie"}),
+        );
+        assert_eq!(
+            args.as_object().map(|o| o.len()),
+            Some(2),
+            "a disagreement must reach serde, not be silently resolved here"
+        );
+        let msg = explain_duplicate_field("emem_locate", "duplicate field `place`", &conflicts);
+        for want in ["`place` = Napa Valley", "`query` = Lake Erie", "Send one"] {
+            assert!(msg.contains(want), "message missing {want:?}: {msg}");
+        }
+        assert!(
+            !msg.contains("duplicate field"),
+            "the serde wording is what the caller could not act on: {msg}"
+        );
+    }
+
+    /// A control: a message that is not about a duplicate field comes back
+    /// untouched, and a tool with no aliases is left alone entirely.
+    #[test]
+    fn the_duplicate_field_rewrite_only_fires_on_duplicate_fields() {
+        let untouched = "invalid type: integer `1`, expected a string";
+        assert_eq!(
+            explain_duplicate_field("emem_ndvi", untouched, &[]),
+            untouched
+        );
+        let before = json!({"leaf_index": 1, "tree_size": 100});
+        let (after, conflicts) = collapse_alias_spellings("emem_log_inclusion", before.clone());
+        assert_eq!(after, before, "no alias groups, no rewriting");
+        assert!(conflicts.is_empty());
     }
 
     /// A misspelled argument is reported, not silently dropped.

@@ -494,8 +494,29 @@ def main() -> int:
 
     body = render(sub, live, a.origin)
     if a.check:
-        if not TOOLS_MD.exists() or TOOLS_MD.read_text(encoding="utf-8") != body:
-            print("integrations/chatgpt/tools.md is stale; run scripts/gen_chatgpt_bundle.py")
+        have = TOOLS_MD.read_text(encoding="utf-8") if TOOLS_MD.exists() else ""
+        if have != body:
+            # Say WHAT differs. This printed one line -- "is stale" -- and a CI
+            # run that failed here could not be told apart from a run where the
+            # responder answered with a short catalogue, because the only
+            # evidence either way was on the runner and gone.
+            import difflib
+            diff = list(difflib.unified_diff(
+                have.splitlines(), body.splitlines(),
+                fromfile="integrations/chatgpt/tools.md (checked in)",
+                tofile=f"rendered from {a.origin} just now", lineterm="", n=1))
+            print("integrations/chatgpt/tools.md disagrees with the live catalogue "
+                  f"({len(diff)} diff line(s)); first 40:")
+            for line in diff[:40]:
+                print("  ", line)
+            # A catalogue that came back SHORT renders a shorter file, and that
+            # is a responder or network problem wearing a stale file's clothes.
+            documented = have.count("\n## `emem_")
+            if documented and len(live) < documented:
+                print(f"\n  UNDETERMINED: the responder listed {len(live)} tools and this file "
+                      f"documents {documented}. Nothing here is stale; the catalogue read short.")
+                return 2
+            print("\n  Run scripts/gen_chatgpt_bundle.py to regenerate.")
             return 1
         print(f"bundle agrees with {a.origin}: {len(sub['tools'])} tools declared, all served, "
               f"annotations match, no contradictory justifications, contact matches the card")

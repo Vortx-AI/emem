@@ -626,7 +626,7 @@ const SCHEMA_DERIVE_LIST: &str = r#"{"type":"object","required":["attester_pubke
 // one signed envelope out. The composed `bundle_token` is `emem:bundle:<bundle_cid>`
 //, a single rebindable string that cites the whole set.
 const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
-"cell":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one. Same argument the other tools call `cell`. A full cell64 narrows the scan to that one place."},"cell_prefix":{"type":"string","description":"Bytewise prefix on cell64 (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap."},
+"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap. A full cell64 is a prefix of itself, so passing one narrows the scan to exactly that place."},"cell":{"type":"string","description":"Alias for `cell_prefix`, and the name the other six tools that take a cell64 use. Send a cell64 you already hold and the scan narrows to that place instead of running over the corpus."},"cell64":{"type":"string","description":"Alias for `cell_prefix`."},
 "band":{"type":"string","description":"Band key filter (e.g. `indices.ndvi`). Omit to include all bands."},
 "window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at, all disagreeing attestations must fall in the window."},
 "limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Max contradictions to return."},
@@ -1089,11 +1089,22 @@ const SCHEMA_ELEVATION: &str = r#"{"type":"object","properties":{
 "name":{"type":"string","description":"Alias for `place`."}
 }}"#;
 
-const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 to plan a temporal recall over.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
-"query_time":{"type":"integer","description":"Optional anchor time (Unix epoch seconds). Defaults to now."},
+// `required:["cell"]` was declared and not enforced: a call with no address
+// returned a full ranked plan with `cell: null` and every band at the
+// no-observation floor. `required` is dropped rather than kept, because a
+// plan can be anchored by `cell`, by `place`, or by `lat`+`lng`, and JSON
+// Schema cannot say "one of these" at the top level without an `anyOf` the
+// tool validator rejects. Same shape as `emem_ndvi` and its fifteen
+// siblings: nothing required here, and an address demanded at run time.
+const SCHEMA_TEMPORAL_ROUTE: &str = r#"{"type":"object","properties":{
+"cell":{"type":"string","description":"cell64 to plan a temporal recall over. Anchor the plan with this, with `place`, or with `lat`+`lng`; without one the planner has no attestation history to score against and would answer about nowhere.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
+"place":{"type":"string","description":"Free-text place name, resolved through the same geocoder the rest of the surface uses. An alternative to `cell`, not a companion to it."},
+"lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude, paired with `lng`. A third way to anchor the plan."},
+"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, paired with `lat`."},
+"query_time":{"type":["integer","string"],"description":"Optional anchor time: Unix epoch seconds, or an RFC 3339 instant such as `2026-09-10T00:00:00Z`. Defaults to now. Both are accepted because this surface uses both spellings and this parameter previously published one while reading the other."},
 "intent":{"type":"string","description":"Optional intent hint, drives recipe selection (e.g. 'flood_window', 'crop_season', 'change_year')."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter to scope the planner."},
+"band":{"type":"string","description":"One band, the singular spelling `emem_recall` also accepts. Same slot as `bands`; send one or the other."},
 "limit":{"type":"integer","minimum":1,"description":"Optional cap on recipe entries returned."},
 "cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
@@ -1122,9 +1133,14 @@ const SCHEMA_GUARD_SELFHOST: &str = r#"{"type":"object","properties":{}}"#;
 
 const SCHEMA_LOG_STH: &str = r#"{"type":"object","properties":{}}"#;
 
+// `tree_size` was honoured by the route and absent from this schema, so an
+// auditor connected over MCP could only ever prove inclusion under the
+// CURRENT head. Pinning an STH and later proving a leaf was in THAT tree is
+// the whole audit loop, and it was unreachable from here for no reason.
 const SCHEMA_LOG_INCLUSION: &str = r#"{"type":"object","properties":{
 "leaf_index":{"type":"integer","minimum":0,"description":"Zero-based position of the entry in the append-only log."},
-"entry_hash":{"type":"string","description":"Alternative to leaf_index: base32-nopad of the record's 32-byte blake3."}
+"entry_hash":{"type":"string","description":"Alternative to leaf_index: base32-nopad of the record's 32-byte blake3."},
+"tree_size":{"type":"integer","minimum":1,"description":"Prove against a historical head of this size rather than the current one, so a proof can be checked against an STH pinned earlier. The returned `root_b32` is then the unsigned root at that size; bind it to a signed head with emem_log_consistency. Defaults to the current head."}
 }}"#;
 
 const SCHEMA_LOG_CONSISTENCY: &str = r#"{"type":"object","required":["first"],"properties":{
@@ -2547,6 +2563,64 @@ pub fn lookup(name: &str) -> Option<&'static ToolDescriptor> {
     TOOLS.iter().find(|t| t.name == name)
 }
 
+/// The spellings a tool accepts for one slot, read out of its own schema.
+///
+/// Twenty-four tools declare two or more names for a single argument: `cell`
+/// and `cell64`, `place` and `q` and `query` and `name`, `bands` and `band`.
+/// They are serde aliases, and serde refuses a body carrying two of them with
+/// `duplicate field \`cell\``, a message that names a field the caller never
+/// wrote twice. A schema that lists both as ordinary optional properties
+/// invites exactly that: a model filling in what it can see sends
+/// `{"place": "Napa Valley", "query": "Napa Valley"}` and is refused by the
+/// first tool in the loop.
+///
+/// The relation is already stated, once per property, in the form
+/// `Alias for \`<canonical>\``. That wording is a declared format, not prose to
+/// be guessed at: [`alias_groups_are_declared_in_one_form`] fails the build if
+/// a description opens `Alias` in any other shape or names a property the
+/// schema does not have. Reading it here keeps one statement of the fact
+/// instead of a second table that can drift from the first.
+///
+/// Returns `(canonical, aliases)` pairs. Empty for a tool with no aliases and
+/// for a name this responder does not serve.
+pub fn alias_groups(tool: &str) -> Vec<(String, Vec<String>)> {
+    let Some(d) = lookup(tool) else {
+        return Vec::new();
+    };
+    let Ok(schema) = serde_json::from_str::<serde_json::Value>(d.input_schema) else {
+        return Vec::new();
+    };
+    let Some(props) = schema.get("properties").and_then(|p| p.as_object()) else {
+        return Vec::new();
+    };
+    let mut by_canonical: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    for (name, sc) in props {
+        if let Some(canon) = alias_target(sc.get("description").and_then(|d| d.as_str())) {
+            by_canonical.entry(canon).or_default().push(name.clone());
+        }
+    }
+    by_canonical.into_iter().collect()
+}
+
+/// The canonical name a description points at, or `None` if it is not an
+/// alias description. One accepted form, so that reading it back is exact.
+fn alias_target(description: Option<&str>) -> Option<String> {
+    let d = description?.trim_start();
+    let rest = d
+        .strip_prefix("Alias for `")
+        .or_else(|| d.strip_prefix("Aliased to `"))?;
+    let end = rest.find('`')?;
+    let name = &rest[..end];
+    if name.is_empty()
+        || !name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b == b'_' || b.is_ascii_digit())
+    {
+        return None;
+    }
+    Some(name.to_string())
+}
+
 /// Tools at or below a given level (`"L0"` returns L0 only; `"L2"` returns all).
 pub fn tools_at_level(level: &str) -> Vec<&'static ToolDescriptor> {
     let max = match level {
@@ -3379,6 +3453,77 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Every alias description is written in the one form `alias_groups`
+    /// reads, and names a property that exists.
+    ///
+    /// This is what makes reading the relation out of the schema exact rather
+    /// than a guess at English. A description that opens with "Alias" in any
+    /// other shape, or points at a name the schema does not declare, fails
+    /// here rather than quietly shrinking the group and letting the caller
+    /// meet `duplicate field` with no explanation.
+    #[test]
+    fn alias_groups_are_declared_in_one_form() {
+        let mut groups = 0usize;
+        let mut aliased_props = 0usize;
+        for t in TOOLS {
+            let v: serde_json::Value = serde_json::from_str(t.input_schema).unwrap();
+            let Some(props) = v.get("properties").and_then(|p| p.as_object()) else {
+                continue;
+            };
+            for (name, sc) in props {
+                let d = sc.get("description").and_then(|x| x.as_str()).unwrap_or("");
+                let opens_alias = d.trim_start().starts_with("Alias");
+                let target = alias_target(Some(d));
+                assert_eq!(
+                    opens_alias,
+                    target.is_some(),
+                    "{}.{name}: an alias description must read ``Alias for `<name>` `` or \
+                     ``Aliased to `<name>` ``, and nothing else may open with `Alias`. Got: {d:.80}",
+                    t.name
+                );
+                if let Some(canon) = target {
+                    assert!(
+                        props.contains_key(&canon),
+                        "{}.{name}: aliases `{canon}`, which this schema does not declare",
+                        t.name
+                    );
+                    assert_ne!(canon, *name, "{}.{name}: aliases itself", t.name);
+                    aliased_props += 1;
+                }
+            }
+            groups += alias_groups(t.name).len();
+        }
+        // A control. If the reader stops matching, both counts fall to zero
+        // and every assertion above passes on an empty loop.
+        assert!(
+            groups >= 20 && aliased_props >= 40,
+            "read {groups} alias group(s) over {aliased_props} propert(ies); the surface \
+             declares far more than that, so this reader has stopped matching"
+        );
+    }
+
+    /// The pairs that a caller filling in both spellings actually sends.
+    #[test]
+    fn alias_groups_name_the_pairs_that_collide() {
+        let g = alias_groups("emem_locate");
+        assert_eq!(
+            g,
+            vec![(
+                "place".to_string(),
+                vec!["name".to_string(), "q".to_string(), "query".to_string()]
+            )],
+            "emem_locate declares four spellings of one slot"
+        );
+        assert!(
+            alias_groups("emem_log_sth").is_empty(),
+            "a tool with no aliases has no groups"
+        );
+        assert!(
+            alias_groups("emem_not_a_tool").is_empty(),
+            "an unknown name is empty, not a panic"
+        );
     }
 
     /// No tool asks for a transcript.

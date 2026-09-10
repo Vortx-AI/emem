@@ -98,11 +98,25 @@ Each of these was checked to resolve at the time this file was generated.
 
 ## Before submitting
 
-The portal issues a **new domain-verification token for every submission**. The
-one currently served at `/.well-known/openai-apps-challenge` is from an earlier
-attempt and will not pass. Replace it in
-`crates/emem-api-rest/src/lib.rs` (`serve_openai_apps_challenge`) and redeploy
-before starting the submission.
+The portal issues a **new domain-verification token for every submission**, and
+it is the one value in this process that must not enter the repository. It does
+not: `/.well-known/openai-apps-challenge` reads `EMEM_APPS_CHALLENGE` from the
+environment and answers 404 when that is unset, so a node with no token
+configured says so rather than serving a stale one.
+
+Set it on the host before starting a submission, not in source:
+
+```
+sudo systemctl edit emem-server        # Environment=EMEM_APPS_CHALLENGE=<token>
+sudo systemctl restart emem-server
+curl -s https://emem.dev/.well-known/openai-apps-challenge
+```
+
+This paragraph used to say to replace the token in
+`crates/emem-api-rest/src/lib.rs`, naming a function that does not exist. This
+repository is public. An instruction to paste a per-submission credential into
+it is worse than a stale instruction, which is why it is called out here rather
+than quietly deleted.
 
 ## Status
 
