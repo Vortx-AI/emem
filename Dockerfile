@@ -13,6 +13,13 @@
 # bookworm-slim (glibc 2.36) the link fails with "undefined reference".
 FROM rust:1-slim-trixie AS build
 ARG TARGETARCH
+# The commit this image was built from. build.rs asks `git rev-parse` first,
+# and there is no .git here: the COPY lines below take crates/, web/ and docs/,
+# never the repository. Without this the binary stamps EMEM_GIT_COMMIT=unknown
+# and x-emem-commit says "unknown" in production, which makes the running
+# service unreproducible by anyone including its operator. CI passes github.sha.
+ARG EMEM_GIT_COMMIT=unknown
+ENV EMEM_GIT_COMMIT=$EMEM_GIT_COMMIT
 WORKDIR /usr/src/emem
 
 # OpenSSL is *not* needed (we use rustls-acme), but build tools are.

@@ -39,6 +39,8 @@
 ARG ROLE=decode
 
 FROM rust:1-bookworm AS build
+ARG EMEM_GIT_COMMIT=unknown
+ENV EMEM_GIT_COMMIT=$EMEM_GIT_COMMIT
 ARG TARGETARCH=""
 # Which half to build. Two images from one crate, on purpose.
 #

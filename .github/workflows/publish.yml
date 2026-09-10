@@ -106,6 +106,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          build-args: |
+            EMEM_GIT_COMMIT=${{ github.sha }}
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
           # Push by digest, no tag. The merge job below stamps the

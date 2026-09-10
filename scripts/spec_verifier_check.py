@@ -26,7 +26,17 @@ Exit codes
 ----------
   0  the doc's own verifier verifies a live receipt
   1  it does not, or the block could not be found
-  2  could not run (responder unreachable, missing dependency)
+  2  the RESPONDER did not answer: genuinely not exercised, and not our
+     fault. CI waives this one, because a third party's downtime should not
+     fail our build.
+  3  could not run for a reason on OUR side: a missing dependency, or the
+     document itself unreadable. A broken gate, not an absent responder, and
+     it must not be waived.
+
+2 and 3 were one code, and CI waived it with the message "the responder did not
+answer". A failed `pip install blake3` therefore printed a sentence that was
+false about which thing happened, and passed. A check that cannot run is not a
+check that passed, and the reason it could not run decides who has to fix it.
 
 Usage
 -----
@@ -73,13 +83,13 @@ def main():
     except Exception as e:
         print(f"spec-verifier: missing a dependency the listing needs: {e}",
               file=sys.stderr)
-        return 2
+        return 3
 
     try:
         doc = open(DOC, encoding="utf-8").read()
     except OSError as e:
         print(f"spec-verifier: cannot read {DOC}: {e}", file=sys.stderr)
-        return 2
+        return 3
 
     code = extract_block(doc)
     if not code:

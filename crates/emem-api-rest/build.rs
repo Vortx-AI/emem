@@ -26,7 +26,20 @@ fn main() {
     println!("cargo:rerun-if-changed=../../.git/HEAD");
     println!("cargo:rerun-if-changed=../../.git/index");
 
-    let commit = Command::new("git")
+    // An explicit override wins, because the build that MATTERS -- the release
+    // container -- has no .git to ask. The Dockerfile COPYs crates/, web/ and
+    // docs/, never the repository, so `git rev-parse` finds nothing and the
+    // fallback stamps "unknown". A responder that cannot say which source
+    // produced it is unreproducible by anyone including its operator, which is
+    // an odd property for a service whose argument is that you can check its
+    // work. CI passes github.sha in as a build arg; see the Dockerfile.
+    println!("cargo:rerun-if-env-changed=EMEM_GIT_COMMIT");
+    let from_env = std::env::var("EMEM_GIT_COMMIT")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty() && s != "unknown");
+
+    let commit = from_env.unwrap_or_else(|| Command::new("git")
         .args(["-C", "../..", "rev-parse", "HEAD"])
         .output()
         .ok()
@@ -40,7 +53,7 @@ fn main() {
             }
         })
         .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "unknown".to_string());
+        .unwrap_or_else(|| "unknown".to_string()));
 
     println!("cargo:rustc-env=EMEM_GIT_COMMIT={}", commit);
 

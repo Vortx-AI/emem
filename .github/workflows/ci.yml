@@ -868,6 +868,14 @@ jobs:
             echo "::warning::the responder did not answer; the spec verifier was not exercised"
             exit 0
           fi
+          # 3 is OUR side: a missing dependency, or the document unreadable.
+          # It shared code 2 until 2026-09-10, so a failed `pip install blake3`
+          # printed "the responder did not answer" -- false about which thing
+          # happened -- and passed a gate that had not run.
+          if [ "$code" = "3" ]; then
+            echo "::error::the spec verifier could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
 
   route-truth:

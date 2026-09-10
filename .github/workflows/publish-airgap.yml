@@ -83,6 +83,7 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             ROLE=${{ matrix.role }}
+            EMEM_GIT_COMMIT=${{ github.sha }}
           # By digest, untagged. The manifest job below joins the two
           # architectures and stamps the readable tags on the result, so a
           # tag never points at one arch.
