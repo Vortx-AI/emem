@@ -3526,6 +3526,84 @@ mod tests {
         );
     }
 
+    /// The example we ship for a tool is a call that tool would accept.
+    ///
+    /// `example_args` is the first thing an agent copies, and it sat beside
+    /// the schema with nothing comparing them. An example naming an argument
+    /// the tool does not declare teaches the argument that gets dropped; one
+    /// omitting a required field teaches a call that is refused; one whose
+    /// value type contradicts the declared type teaches a call that cannot
+    /// deserialise. All three are currently clean, and this is what keeps
+    /// them that way.
+    #[test]
+    fn every_example_satisfies_its_own_schema() {
+        let mut checked = 0usize;
+        for t in TOOLS {
+            let schema: serde_json::Value = serde_json::from_str(t.input_schema).unwrap();
+            let example: serde_json::Value = serde_json::from_str(t.example_args)
+                .unwrap_or_else(|e| panic!("{}: example_args is not JSON: {e}", t.name));
+            let (Some(props), Some(args)) = (
+                schema.get("properties").and_then(|p| p.as_object()),
+                example.as_object(),
+            ) else {
+                continue;
+            };
+            checked += 1;
+
+            for name in args.keys() {
+                assert!(
+                    props.contains_key(name),
+                    "{}: the example sends `{name}`, which the schema does not declare, \
+                     so the first call an agent copies is the one that gets dropped",
+                    t.name
+                );
+            }
+            for name in schema
+                .get("required")
+                .and_then(|r| r.as_array())
+                .map(|r| r.iter().filter_map(|x| x.as_str()).collect::<Vec<_>>())
+                .unwrap_or_default()
+            {
+                assert!(
+                    args.contains_key(name),
+                    "{}: `{name}` is required and the example omits it",
+                    t.name
+                );
+            }
+            for (name, value) in args {
+                let Some(declared) = props[name].get("type") else {
+                    continue;
+                };
+                let wanted: Vec<&str> = match declared {
+                    serde_json::Value::String(s) => vec![s.as_str()],
+                    serde_json::Value::Array(a) => a.iter().filter_map(|x| x.as_str()).collect(),
+                    _ => continue,
+                };
+                let got = match value {
+                    serde_json::Value::Null => continue,
+                    serde_json::Value::Bool(_) => "boolean",
+                    serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => "integer",
+                    serde_json::Value::Number(_) => "number",
+                    serde_json::Value::String(_) => "string",
+                    serde_json::Value::Array(_) => "array",
+                    serde_json::Value::Object(_) => "object",
+                };
+                let ok = wanted.contains(&got) || (got == "integer" && wanted.contains(&"number"));
+                assert!(
+                    ok,
+                    "{}.{name}: the example is a {got} and the schema declares {wanted:?}",
+                    t.name
+                );
+            }
+        }
+        // A control: matching nothing would pass every assertion above.
+        assert!(
+            checked >= 80,
+            "compared {checked} example(s) against a schema; the surface has far more, \
+             so this test has stopped finding them"
+        );
+    }
+
     /// No tool asks for a transcript.
     ///
     /// A checker should ask for the smallest input that answers its question.

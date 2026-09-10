@@ -11360,12 +11360,18 @@ fn errors_payload() -> JsonValue {
          "GET /v1/sources for the active connector list. Self-hosters can add via the source manifest."),
         ("cid_not_found",                "fact CID exists but no matching object on disk",
          "The fact may have been pruned, or the CID is from a different responder. Verify `responder_pubkey_b32` matches between the receipt and /health."),
-        ("no_geocoder_match",            "place name did not resolve in any geocoder tier (Photon + Nominatim both said 'no such place')",
-         "Refine the query (more specific name; add country / region / admin level), pass `lat`+`lng` coordinates directly, or call POST /v1/locate first to inspect alternatives."),
-        ("place_not_found",              "all upstream geocoders responded successfully but unanimously returned zero results, the place name is genuinely not in any layer of the cascade (embedded gazetteer, cache, Photon, Nominatim). Distinct from `geocoder_transport_down`, which means the upstream HTTP/JSON layer itself failed.",
-         "Refine the query: add country/region disambiguation (e.g. 'Springfield, IL, USA'), use the official local-language spelling, or pass `lat`+`lng` directly. /v1/locate's response surfaces `via` so an agent can see which tier rejected the query."),
-        ("geocoder_transport_down",      "the upstream geocoder transport failed (HTTP 5xx, DNS, timeout, malformed JSON) before a real not-found verdict could be issued. Distinct from `place_not_found` (transports succeeded but returned zero results) and from `no_geocoder_match` (the legacy code that conflated both, kept for backwards compatibility).",
-         "Retry with backoff (Photon and Nominatim are public services and occasionally rate-limit). If persistent, pass `lat`+`lng` directly to bypass the geocoder. Operators can switch the primary geocoder via env."),
+        // These two are the geocoder's pair, and they send an agent in
+        // opposite directions: refine the query, or wait and try again.
+        //
+        // This catalogue used to name that pair `place_not_found` and
+        // `geocoder_transport_down`, and describe `no_geocoder_match` as the
+        // "legacy code that conflated both, kept for backwards
+        // compatibility". No responder has ever emitted either name; they are
+        // not in the ErrorCode enum, so nothing could. The distinction is
+        // real and shipped, under the names below. An agent branching on
+        // `place_not_found` was waiting for a code that does not exist.
+        ("no_geocoder_match",            "every geocoder tier answered and none of them knows this place (embedded gazetteer, cache, Photon, Nominatim). The transports worked; the name is genuinely not there. HTTP 404.",
+         "Refine the query: add country / region disambiguation ('Springfield, IL, USA'), use the official local-language spelling, or pass `lat`+`lng` directly. POST /v1/locate surfaces `via`, so you can see which tier answered. Retrying an unchanged query will not help."),
         ("invalid_argument",             "syntactically valid but semantically invalid request field (e.g. unparseable timestamp, out-of-range numeric, malformed enum)",
          "Re-read /openapi.json for the field's accepted shape. Common causes: ISO 8601 missing 'Z' for UTC; max_cells > 1024; band key with wrong namespace prefix."),
         ("registry_cid_unknown",         "the bound registry_cid isn't recognised",
@@ -11390,8 +11396,8 @@ fn errors_payload() -> JsonValue {
          "Re-build the proof from the canonical-sorted leaf list; verify `leaf_index` is correct."),
         ("canonical_encoding_divergence","CBOR you sent isn't deterministic per RFC 8949 §4.2.1",
          "Use a CBOR library with `canonical=true`; serde-derived structs are usually fine, freeform maps must have sorted keys."),
-        ("source_fetch_failed",          "upstream open-data provider returned non-2xx",
-         "Retry with backoff; check /v1/sources to confirm the URL template still resolves. May indicate provider-side outage."),
+        ("source_fetch_failed",          "an upstream fetch failed at the transport layer (non-2xx, DNS, timeout, malformed JSON) before any verdict could be reached. On a PLACE lookup this is the geocoder being down rather than the place being absent, which is `no_geocoder_match`: 502 against 404, retry against refine.",
+         "Retry with backoff; check /v1/sources to confirm the URL template still resolves. May indicate provider-side outage. For a place lookup, pass `lat`+`lng` directly to skip the geocoder."),
         ("source_format_mismatch",       "fetched bytes don't match the declared scheme (e.g. GeoTIFF magic missing)",
          "Re-fetch with explicit content-type. Could indicate provider migrated to a new format; consult their docs."),
         ("compute_timeout",              "derivation function exceeded EMEM_TIMEOUT_SECS",
@@ -11405,11 +11411,23 @@ fn errors_payload() -> JsonValue {
         ("internal",                     "responder-side bug",
          "Capture the response and the request that produced it; file at https://github.com/Vortx-AI/emem/issues."),
     ];
+    // The NUMBER an agent actually sees, alongside the name.
+    //
+    // MCP reports a tool failure as `tool error (-25): ...` and this catalogue
+    // listed only `invalid_argument`, so the one form of the error an agent
+    // reads off the wire could not be looked up here at all. The number is
+    // taken from the enum by round-tripping the published name through it,
+    // rather than typed out a second time, so a code cannot be documented as
+    // a number it is not sent as.
     let codes: Vec<JsonValue> = entries
         .iter()
         .map(|(c, m, r)| {
+            let mcp = serde_json::from_value::<emem_core::error::ErrorCode>(json!(c))
+                .ok()
+                .map(|e| -(e as i32));
             json!({
                 "code": c, "meaning": m, "recover": r,
+                "mcp_error_code": mcp,
             })
         })
         .collect();
@@ -11422,6 +11440,89 @@ fn errors_payload() -> JsonValue {
             "POST /v1/verify_receipt, debug a bad_signature with `preimage_blake3_hex`"
         ],
     })
+}
+
+/// Every code an agent can receive is in the catalogue that explains codes.
+///
+/// The list was typed by hand beside an enum that grew, and nothing compared
+/// the two. A code missing here is a failure an agent is handed and cannot
+/// look up, which is the one thing this endpoint exists to prevent.
+#[cfg(test)]
+mod error_catalogue_tests {
+    use super::errors_payload;
+
+    #[test]
+    fn the_catalogue_covers_every_code_and_names_its_number() {
+        let doc = errors_payload();
+        let listed: Vec<&str> = doc["codes"]
+            .as_array()
+            .expect("codes")
+            .iter()
+            .map(|c| c["code"].as_str().expect("code is a string"))
+            .collect();
+        assert!(listed.len() >= 20, "read {} entries", listed.len());
+
+        for c in &listed {
+            let parsed: Result<emem_core::error::ErrorCode, _> =
+                serde_json::from_value(serde_json::json!(c));
+            let code = parsed.unwrap_or_else(|e| {
+                panic!("catalogue lists `{c}`, which is not an ErrorCode: {e}")
+            });
+            let want = -(code as i32);
+            let got = doc["codes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|e| e["code"].as_str() == Some(*c))
+                .and_then(|e| e["mcp_error_code"].as_i64());
+            assert_eq!(
+                got,
+                Some(want as i64),
+                "`{c}` is sent as {want} and documented as {got:?}"
+            );
+            assert_ne!(want, 0, "`{c}` would arrive as `tool error (0)`");
+        }
+
+        // The other direction: a variant with no entry. Serialised rather
+        // than listed, so adding a variant to the enum lands here by itself.
+        use emem_core::error::ErrorCode::*;
+        for code in [
+            InvalidCell,
+            InvalidResolution,
+            TslotMismatch,
+            BandNotInRegistry,
+            FunctionNotInRegistry,
+            SourceSchemeUnknown,
+            CidNotFound,
+            NoGeocoderMatch,
+            RegistryCidUnknown,
+            SchemaCidUnknown,
+            PrivacyRefused,
+            LevelTooLow,
+            AttesterRevoked,
+            Unauthorized,
+            ClaimUndecidable,
+            BadSignature,
+            UnaddressableSubject,
+            BadMerkleProof,
+            CanonicalEncodingDivergence,
+            SourceFetchFailed,
+            SourceFormatMismatch,
+            ComputeTimeout,
+            ComputeQuotaExceeded,
+            RateLimited,
+            CacheError,
+            InvalidArgument,
+            Internal,
+        ] {
+            let name = serde_json::to_value(code).unwrap();
+            let name = name.as_str().unwrap();
+            assert!(
+                listed.contains(&name),
+                "`{name}` can be returned and GET /v1/errors does not explain it"
+            );
+        }
+    }
 }
 
 async fn errors() -> Json<JsonValue> {
