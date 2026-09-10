@@ -367,9 +367,21 @@ async fn round_trip(headers: &[u8], body: &[u8]) -> Result<Vec<u8>, SidecarError
     let sock = socket_path();
     let to = timeout();
     let result = tokio::time::timeout(to, async {
-        let mut stream = UnixStream::connect(&sock)
-            .await
-            .map_err(|e| SidecarError::Unavailable(format!("connect {sock:?}: {e}")))?;
+        let mut stream = UnixStream::connect(&sock).await.map_err(|e| {
+            // The operator gets the path and the errno; the caller does not.
+            //
+            // This message reaches an agent verbatim, in
+            // `materialize_notes[].reason` on any place question that routes to
+            // a sidecar band. It read `connect "/run/emem/jepa_sidecar.sock":
+            // No such file or directory (os error 2)` -- a host filesystem path
+            // and a Rust errno, in an envelope served to strangers. Neither is
+            // something a caller can act on, and the path is ours.
+            tracing::warn!(socket = ?sock, error = %e, "sidecar socket unreachable");
+            SidecarError::Unavailable(
+                "this responder does not run the GPU inference sidecar this band needs.                  It is an optional extension, not a data gap: the band is unavailable HERE                  and retrying will not change that. GET /v1/capabilities lists the                  extensions this node has, and `algorithm_availability` says which                  algorithms are runnable because of them."
+                    .into(),
+            )
+        })?;
         stream
             .write_all(headers)
             .await
@@ -545,9 +557,15 @@ mod tests {
         let err = post_json("/predict/dynamics_v2", b"{}").await.unwrap_err();
         match err {
             SidecarError::Unavailable(msg) => {
+                // What a CALLER can act on, and nothing about this host.
                 assert!(
-                    msg.contains("connect"),
-                    "Unavailable message should mention connect; got {msg}"
+                    msg.contains("optional extension") && msg.contains("/v1/capabilities"),
+                    "Unavailable must tell the caller what to do instead; got {msg}"
+                );
+                assert!(
+                    !msg.contains("/tmp/this-socket-does-not-exist.sock")
+                        && !msg.contains("os error"),
+                    "the socket path and the errno are the operator's, not the caller's: {msg}"
                 );
             }
             other => panic!("expected Unavailable, got {other:?}"),

@@ -30079,7 +30079,7 @@ fn openapi_spec() -> JsonValue {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`/`capability_unavailable`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer","capability_unavailable"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -52480,6 +52480,15 @@ fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
         || reason.contains("no materializer")
     {
         ("no_materializer", false)
+    } else if reason.contains("does not run the GPU inference sidecar") {
+        // A materializer IS registered; the optional accelerator it needs is
+        // not installed on this node. That fell through to `upstream_error`
+        // with `retryable: true`, which sent an agent back to a band that
+        // cannot answer here however many times it asks. It is structural at
+        // this responder and it has its own vocabulary already:
+        // /v1/capabilities lists the extensions, and `algorithm_availability`
+        // says which algorithms they make runnable.
+        ("capability_unavailable", false)
     } else if reason.contains("hard cap")
         || reason.contains("dispatch-level timeout")
         || reason.contains("timed out")
@@ -66921,6 +66930,49 @@ fn postcard_response(bytes: Vec<u8>, ctype: String, cell: &str, cached: bool) ->
 /// second port; when it is down, slow, or covers nowhere near this cell, the
 /// Earth-observation answer is still a good answer. Nothing in here can turn a
 /// 200 into an error or an empty result into a claim.
+/// What the evidence behind a camera count reaches, and what it does not.
+///
+/// Three sessions found the same fault on 2026-09-10 from three directions: a
+/// verification claim rendered beside something it does not cover. geo.qa's
+/// page said "counts here come from retained clips, and each says which" over
+/// a trend that has no per-reading byte reference; their backend published an
+/// s3 key without the hash in the block asserting checkability; and this
+/// responder's own `provenance_note` said the counts were recomputable while
+/// `tamper_evidence` beside it said "none".
+///
+/// The shape is always the same: the proof and the claim are written in
+/// different places, and the claim ends up next to whatever is nearest. Prose
+/// cannot fix it, because a consumer composing from this block never reads the
+/// prose. So the scope is a field.
+fn evidence_coverage(counted_from: Option<&JsonValue>) -> JsonValue {
+    let checkable = counted_from
+        .and_then(|c| c.get("tamper_evidence"))
+        .and_then(|v| v.as_str())
+        .map(|t| t != "none")
+        .unwrap_or(false);
+    json!({
+        "counts": if checkable {
+            "the frame they were taken from is retained and hashed (`counted_from`), so the \
+             number is re-derivable from the same bytes under `detector_fn_id`"
+        } else {
+            "nothing: the frame was not retained, so the number cannot be re-derived by \
+             anyone, including this responder"
+        },
+        "does_not_cover": [
+            "temporal_context: a percentile over this camera's own past readings. No \
+             per-reading byte reference exists, so nothing here makes the comparison \
+             checkable.",
+            "area_note / cameras_near: how many cameras are nearby and what one of them can \
+             speak for. Counted, not attested.",
+            "this answer's top-level `receipt`, which is an emem.recall over the satellite \
+             band facts and cites no camera at all.",
+        ],
+        "signature_over_counts": false,
+        "why_no_signature": "the upstream publishes none. Checkability here rests on retained \
+                             bytes and a named detector, not on a signature.",
+    })
+}
+
 async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> {
     if cell.is_empty() {
         return None;
@@ -67037,8 +67089,9 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
         "answers_now":      wants_scene,
         "why": "Ground cameras see what a satellite cannot: people, vehicles and \
                 activity at this minute, rather than surface reflectance on a \
-                multi-day revisit. Retained clips are committed by sha256 in a \
-                signed receipt, so a stranger can verify the frame a count came from.",
+                multi-day revisit. The clip a count is taken from is retained and \
+                hashed, so a stranger can fetch the same bytes and re-derive the \
+                number under the named detector.",
         "postcard_url": format!("{origin}/v1/perception/postcard?cell={cell}"),
         "next": json!([{
             "what":   "counts of what is in view right now, per class",
@@ -67072,7 +67125,27 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
             Some(dc) => tokio::time::timeout(
                 std::time::Duration::from_secs(detect_s),
                 dc.post(format!("{base}/at"))
-                    .json(&json!({ "cell": cell }))
+                    // COUNT FROM THE RETAINED CLIP, not from a live frame.
+                    //
+                    // Without this flag the upstream counts a frame it does not
+                    // keep: `counted_from.tamper_evidence` comes back "none",
+                    // and the honest sentence we then have to write is that the
+                    // number cannot be re-verified. With it, the count is taken
+                    // from bytes committed by sha256 in a signed receipt and
+                    // `tamper_evidence` is "recomputable_from_source", so a
+                    // stranger can fetch the clip and re-derive the number under
+                    // the named detector.
+                    //
+                    // emem's premise is that asking costs and checking is free.
+                    // Answering its own flagship question with a number nobody
+                    // can check, when the checkable one was one boolean away on
+                    // the same endpoint, was that premise failing on the path
+                    // most callers take. Found by the geo.qa agent, 2026-09-10.
+                    //
+                    // A peer too old to know the flag ignores it and answers as
+                    // before; nothing downstream assumes the stronger evidence,
+                    // it reads `tamper_evidence` and says what actually arrived.
+                    .json(&json!({ "cell": cell, "detect_from_clip": true }))
                     .send(),
             )
             .await
@@ -67138,6 +67211,17 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                             "clip_sha256",
                             "frame",
                             "observed_at",
+                            // Published flat, at the top level of the upstream's
+                            // answer, and dropped here. Without them the block
+                            // says "a ground camera covering this cell" and
+                            // cannot say whether that count is high or low for
+                            // this hour, or that it is one camera of 267 within
+                            // five kilometres. The upstream's own `area_note`
+                            // is blunter than anything written here: "that is an
+                            // answer about this junction, not about the area".
+                            "temporal_context",
+                            "area_note",
+                            "area_endpoint",
                             // What the COUNTS were taken from, and how old THAT
                             // is. A clip age and a live-frame age are different
                             // observations, and the prose below attributes to
@@ -67160,6 +67244,62 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                             }
                         }
                         m.insert("observed_by".into(), json!("ground_camera"));
+
+                        // A LOOPBACK ADDRESS IS NOT A PUBLIC FIELD.
+                        //
+                        // `counted_from.detector.backend_url` is the upstream's
+                        // own inference host, http://127.0.0.1:5019, and this
+                        // block is served to strangers. Copying the upstream's
+                        // object wholesale republished it. The rest of the
+                        // detector block -- fn_id, model, revision, weights,
+                        // min_confidence -- is exactly what a re-derivation
+                        // needs and stays.
+                        if let Some(d) = m
+                            .get_mut("counted_from")
+                            .and_then(|c| c.get_mut("detector"))
+                            .and_then(|d| d.as_object_mut())
+                        {
+                            d.remove("backend_url");
+                        }
+
+                        // SAY WHAT THE EVIDENCE REACHES, in a field, not only
+                        // in prose.
+                        //
+                        // Three of us found the same fault on the same day from
+                        // three directions: a verification claim rendered beside
+                        // something it does not cover. The proof and the claim
+                        // get written in different places and the claim ends up
+                        // next to whatever is nearest. A sentence is not enough,
+                        // because a consumer composing from this block never
+                        // reads the sentence.
+                        m.insert(
+                            "what_the_evidence_covers".into(),
+                            evidence_coverage(m.get("counted_from")),
+                        );
+
+                        // The note must not out-promise the evidence.
+                        //
+                        // It asserted "the counts are recomputable from it"
+                        // unconditionally, while `counted_from.tamper_evidence`
+                        // beside it said "none". Both were in the same block, in
+                        // the same answer, and they disagreed: a reader who
+                        // believed the sentence was told the number could be
+                        // re-derived, and a reader who branched on the field was
+                        // told it could not. The field is the one that knows.
+                        let recomputable = m
+                            .get("counted_from")
+                            .and_then(|c| c.get("tamper_evidence"))
+                            .and_then(|v| v.as_str())
+                            .map(|t| t != "none")
+                            .unwrap_or(false);
+                        m.insert(
+                            "provenance_note".into(),
+                            json!(if recomputable {
+                                "the clip was observed; the counts are recomputable from it                                  under the detector named in `detector_fn_id`, and the bytes                                  they were taken from are committed by sha256. Counts under                                  two different fn_ids are not comparable."
+                            } else {
+                                "the counts were taken from a frame this responder does not                                  retain, so nobody can re-derive them: read them as a reading,                                  not as evidence. `counted_from.tamper_evidence` is the field                                  that says which of the two you have."
+                            }),
+                        );
                     }
                 }
             }
@@ -67406,20 +67546,78 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                 } else {
                     format!("in a live frame taken {age}")
                 };
+                // WHAT THE EVIDENCE COVERS, and what it does not.
+                //
+                // This said "committed by sha256 in a signed receipt". Two
+                // things were wrong with that in one clause. The perception
+                // answer carries no receipt and no fact_cid -- the upstream
+                // publishes no signature over a count -- and the `receipt` at
+                // the top of THIS envelope is an emem.recall over the satellite
+                // band facts, 106 of them on the answer that prompted this,
+                // none of them about the camera. A reader sees a signed receipt
+                // in the envelope and the words "signed receipt" in the
+                // sentence and joins them.
+                //
+                // What is true is narrower and still the point: the bytes are
+                // kept and hashed, so the number can be re-derived from them.
                 let vouch = if from_clip {
-                    "These are counted objects from a frame committed by sha256 in a signed \
-                     receipt, not a satellite estimate."
+                    "These are counted objects from a clip whose bytes are retained and \
+                     hashed, so the count can be re-derived from the same frame under the \
+                     detector in `detector_fn_id`. That is what makes it checkable; no \
+                     signature is published over the count itself, and this answer's \
+                     `receipt` covers the satellite bands below, not the camera."
                 } else {
                     "These are counted objects from a live frame this responder does not \
                      retain, so they cannot be re-verified later; they are a reading, not \
                      evidence."
                 };
-                format!(
+                // What the count MEANS, from the two fields the upstream puts
+                // at the top of its own answer and this sentence used to drop.
+                //
+                // "4 person, 6 truck, 7 car, 8 bus" is a number with no scale
+                // and no extent. The reader cannot tell whether that is a busy
+                // hour or a quiet one, and reads "a ground camera covering this
+                // cell" as coverage of the place rather than of one junction.
+                // The upstream already computes both, and its own wording for
+                // the second is blunter than anything worth writing here.
+                let mut lead = format!(
                     "From a ground camera covering this cell, {}: {}. {}",
                     seen,
                     parts.join(", "),
                     vouch
-                )
+                );
+                if let Some(tc) = block.get("temporal_context") {
+                    if let (Some(pct), Some(n)) = (
+                        tc.get("percentile").and_then(|v| v.as_f64()),
+                        tc.get("n").and_then(|v| v.as_u64()),
+                    ) {
+                        let means = tc
+                            .get("means")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("compared with this camera's own past");
+                        // n is small here and often single digits, so the count
+                        // of comparisons travels with the percentile rather than
+                        // being left for the reader to go and find.
+                        // The percentile is a deterministic index over this
+                        // camera's own past readings. The clip hash covers the
+                        // frame the CURRENT count came from and nothing about
+                        // the series, so putting the two in adjacent sentences
+                        // with one evidence clause between them extends a
+                        // guarantee over something it does not reach. Same
+                        // fault the geo.qa agent found on their own trend
+                        // figure the same day, from the other direction.
+                        lead.push_str(&format!(
+                            " That is the {:.0}th percentile {means}, over {n} prior \
+                             reading(s) -- a comparison against this camera's own history, \
+                             which the clip hash does not cover.",
+                            pct * 100.0
+                        ));
+                    }
+                }
+                if let Some(area) = block.get("area_note").and_then(|v| v.as_str()) {
+                    lead.push_str(&format!(" Extent: {area}."));
+                }
+                lead
             }
             // No counts, and WHY there are none decides the sentence. A camera
             // that was showing an operator's placeholder card is not a quiet
@@ -67723,7 +67921,18 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         } else {
             String::new()
         };
-        parts.push(format!("At {place}: {}{more}.", band_phrases.join(", ")));
+        // "At Trafalgar Square: buildings 0, places 0, road length 7.49 m" is
+        // true of the cell and false of the square, and the sentence gave the
+        // reader no way to tell which they had been handed. Every reading here
+        // is for the ONE cell the name resolved to, which for an open plaza is
+        // a patch of paving. No size is stated: the active grid resolution is
+        // published at /v1/grid_info and repeated in this envelope's
+        // `grid_resolution` caveat, and a metre figure written into prose here
+        // would be a second copy free to drift from the first.
+        parts.push(format!(
+            "At {place}, in the one cell that name resolves to: {}{more}.",
+            band_phrases.join(", ")
+        ));
     }
     if !outcome_phrases.is_empty() {
         parts.push(format!("Scored: {}.", outcome_phrases.join("; ")));
@@ -75788,6 +75997,51 @@ mod tests {
         let (after, conflicts) = collapse_alias_spellings("emem_log_inclusion", before.clone());
         assert_eq!(after, before, "no alias groups, no rewriting");
         assert!(conflicts.is_empty());
+    }
+
+    /// The evidence statement names what it does NOT reach, in both states.
+    ///
+    /// A claim that only ever says what is covered is the fault this exists to
+    /// stop: the reader supplies the rest, and what they supply is whatever is
+    /// nearest in the object. The percentile and the envelope receipt are both
+    /// nearest, and neither is covered.
+    #[test]
+    fn the_evidence_statement_says_what_it_does_not_cover() {
+        let kept = evidence_coverage(Some(&json!({
+            "tamper_evidence": "recomputable_from_source"
+        })));
+        assert!(
+            kept["counts"].as_str().unwrap().contains("re-derivable"),
+            "a retained frame makes the count re-derivable: {}",
+            kept["counts"]
+        );
+        let gone = evidence_coverage(Some(&json!({"tamper_evidence": "none"})));
+        assert!(
+            gone["counts"].as_str().unwrap().starts_with("nothing"),
+            "a discarded frame covers nothing: {}",
+            gone["counts"]
+        );
+        // Absent is not the same as present-and-none, and it must not read as
+        // the stronger of the two.
+        let unknown = evidence_coverage(None);
+        assert_eq!(unknown["counts"], gone["counts"]);
+
+        for c in [&kept, &gone, &unknown] {
+            assert_eq!(c["signature_over_counts"], json!(false));
+            let not_covered = c["does_not_cover"].as_array().expect("does_not_cover");
+            assert!(not_covered.len() >= 3);
+            let joined = not_covered
+                .iter()
+                .filter_map(|x| x.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            for owed in ["temporal_context", "area_note", "receipt"] {
+                assert!(
+                    joined.contains(owed),
+                    "`{owed}` is rendered beside this claim and is not covered by it: {joined}"
+                );
+            }
+        }
     }
 
     /// A misspelled argument is reported, not silently dropped.
