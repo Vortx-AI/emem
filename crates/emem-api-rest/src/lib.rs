@@ -67472,10 +67472,29 @@ fn postcard_response(bytes: Vec<u8>, ctype: String, cell: &str, cached: bool) ->
 /// matters is the day every interval goes wide at once -- a detector identity
 /// change restarting every camera's history -- and that is the worst possible
 /// day to find out it was never exercised.
-fn percentile_places_the_reading(bounds: Option<(f64, f64)>, n: u64) -> bool {
+fn percentile_places_the_reading(bounds: Option<(f64, f64)>) -> bool {
+    // NO INTERVAL MEANS WE CANNOT SAY, NOT THAT WE MAY GUESS.
+    //
+    // This fell back to `n >= 5`. Five was mine, it was never measured, and it
+    // sat in a decision path deciding whether to assert a percentile to a
+    // reader. A threshold nobody measured is a claim nobody checked, which is
+    // the rule this file has applied to other people's numbers all day.
+    //
+    // Found by comparing against geo.qa's independent implementation of the
+    // same predicate: theirs takes the interval and nothing else. Across nine
+    // cases the two agree on every one where an interval exists and disagree
+    // on every one where none does — so the whole divergence was my invented
+    // fallback, and their version had no such hole because they did not fill
+    // one.
+    //
+    // Withholding is the conservative direction and the one this surface
+    // already takes everywhere else: an omission must not read as the
+    // stronger answer. If the upstream publishes no interval we do not know
+    // the percentile separates anything, and `n` alone cannot tell us —
+    // forty readings of a street that never varies still place nothing.
     match bounds {
         Some((lo, hi)) => hi - lo < 0.5,
-        None => n >= 5,
+        None => false,
     }
 }
 
@@ -67853,7 +67872,7 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                                 .get("percentile_ci")
                                 .and_then(|v| v.as_array())
                                 .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
-                            let places = percentile_places_the_reading(bounds, n);
+                            let places = percentile_places_the_reading(bounds);
                             m.insert(
                                 "temporal_context_verdict".into(),
                                 json!({
@@ -68226,7 +68245,7 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                         let ci = tc.get("percentile_ci").and_then(|v| v.as_array());
                         let bounds =
                             ci.and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
-                        if percentile_places_the_reading(bounds, n) {
+                        if percentile_places_the_reading(bounds) {
                             let span = match bounds {
                                 Some((lo, hi)) => {
                                     format!(" (interval {:.0}-{:.0})", lo * 100.0, hi * 100.0)
@@ -76650,9 +76669,9 @@ mod tests {
             ("Regent St / Conduit St", (0.012, 0.298), 15, true),
             ("ASPEN WAY", (0.175, 0.613), 15, true),
         ];
-        for (where_, ci, n, places) in measured {
+        for (where_, ci, _n, places) in measured {
             assert_eq!(
-                percentile_places_the_reading(Some(*ci), *n),
+                percentile_places_the_reading(Some(*ci)),
                 *places,
                 "{where_}: interval {:?} is {:.3} wide",
                 ci,
@@ -76661,15 +76680,16 @@ mod tests {
         }
 
         // An interval that spans everything places nothing, however large n is.
-        assert!(!percentile_places_the_reading(Some((0.0, 1.0)), 10_000));
-        assert!(!percentile_places_the_reading(Some((0.0, 0.97)), 10_000));
+        assert!(!percentile_places_the_reading(Some((0.0, 1.0))));
+        assert!(!percentile_places_the_reading(Some((0.0, 0.97))));
         // The boundary is exclusive: exactly half the range still places nothing.
-        assert!(!percentile_places_the_reading(Some((0.25, 0.75)), 100));
-        assert!(percentile_places_the_reading(Some((0.26, 0.75)), 100));
-        // No interval published: fall back to n, and a short history is short
-        // whether or not anyone measured how short.
-        assert!(!percentile_places_the_reading(None, 4));
-        assert!(percentile_places_the_reading(None, 5));
+        assert!(!percentile_places_the_reading(Some((0.25, 0.75))));
+        assert!(percentile_places_the_reading(Some((0.26, 0.75))));
+        // No interval published: we cannot tell, so we do not assert. `n` is
+        // not a substitute — forty readings of a street that never varies
+        // place nothing, and the invented five that used to live here was the
+        // only place this disagreed with geo.qa's independent implementation.
+        assert!(!percentile_places_the_reading(None));
     }
 
     /// The evidence statement names what it does NOT reach, in both states.
@@ -76917,19 +76937,20 @@ mod tests {
             ("Tooley St", (0.0, 0.204), 15, true),
             ("ASPEN WAY", (0.175, 0.613), 15, true),
         ];
-        for (where_, ci, n, places) in cases {
-            let verdict = percentile_places_the_reading(Some(*ci), *n);
+        // `n` is kept in the row because it says what the reading WAS, not
+        // because the predicate reads it: the interval is the whole input now.
+        for (where_, ci, _n, places) in cases {
+            let verdict = percentile_places_the_reading(Some(*ci));
             assert_eq!(verdict, *places, "{where_}: interval {ci:?}");
         }
 
         // The boundary, from both sides. A second copy of the threshold would
         // survive the cases above and diverge here.
-        assert!(!percentile_places_the_reading(Some((0.25, 0.75)), 100));
-        assert!(percentile_places_the_reading(Some((0.2501, 0.75)), 100));
+        assert!(!percentile_places_the_reading(Some((0.25, 0.75))));
+        assert!(percentile_places_the_reading(Some((0.2501, 0.75))));
 
-        // And an absent interval must not read as the stronger answer.
-        assert!(!percentile_places_the_reading(None, 4));
-        assert!(percentile_places_the_reading(None, 5));
+        // And an absent interval must not read as the stronger answer, at any n.
+        assert!(!percentile_places_the_reading(None));
     }
 
     /// The evidence an answer cites survives the budget, and reference
