@@ -549,6 +549,12 @@ jobs:
       # outage cannot waive it.
       - name: every test case carries its own referent
         run: |
+          # The bundle is validated against the published submission schema,
+          # and the checker refuses to pass when it cannot do that. Without
+          # this install it could not, and said so as a finding, so the run
+          # printed a sentence about the bundle on a run where the bundle was
+          # never read. It exits 3 now; this is what makes 3 not happen.
+          python3 -m pip install --quiet jsonschema
           set +e
           python3 scripts/gen_chatgpt_bundle.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
           code=$?
@@ -559,6 +565,12 @@ jobs:
           if [ "$code" = "2" ]; then
             echo "::warning::the bundle was not checked against a live catalogue"
             exit 0
+          fi
+          # 3 is our side: a missing validator, an unreadable schema. It must
+          # fail, and it must not be described as the bundle disagreeing.
+          if [ "$code" = "3" ]; then
+            echo "::error::the submission checker could not run; this is not a verdict on the bundle"
+            exit 1
           fi
           exit $code
       # The card declared preferredTransport HTTP+JSON while /a2a/tasks requires

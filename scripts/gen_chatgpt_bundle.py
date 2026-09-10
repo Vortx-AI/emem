@@ -135,15 +135,32 @@ SCHEMA_URL = ("https://developers.openai.com/plugins/schemas/"
               "chatgpt-app-submission.v1.json")
 
 
+class CannotValidate(Exception):
+    """The validator could not run. Not the same as the bundle being wrong.
+
+    A missing `jsonschema` was reported as a finding, so the run printed "the
+    submission bundle disagrees with https://emem.dev" and exited 1 -- a
+    sentence about the bundle, on a run where the bundle was never read. The
+    repo's convention has a code for this: 2 is the responder, 3 is us, and a
+    dependency we forgot to install is us.
+    """
+
+
 def schema_findings(sub: dict) -> list[str]:
     """Every way the submission violates the published schema."""
     try:
         import jsonschema
-    except ImportError:
-        return ["jsonschema is not installed, so the submission was NOT validated "
-                "against its schema this run (pip install jsonschema)"]
+    except ImportError as e:
+        raise CannotValidate(
+            "jsonschema is not installed, so the submission was NOT validated against "
+            "its schema. Install it (pip install jsonschema) and re-run; this is not a "
+            "verdict on the bundle, which was not checked."
+        ) from e
     if not SCHEMA_PATH.exists():
-        return [f"{SCHEMA_PATH.name} is missing; the submission was not validated"]
+        raise CannotValidate(
+            f"{SCHEMA_PATH.name} is missing, so the submission was NOT validated "
+            f"against its schema."
+        )
     schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     out = []
     try:
@@ -472,7 +489,11 @@ def main() -> int:
         print("so an unreachable server means nothing here was checked.")
         return 2
 
-    problems = check(sub, live, card)
+    try:
+        problems = check(sub, live, card)
+    except CannotValidate as e:
+        print(f"the submission was not checked: {e}")
+        return 3
     if problems:
         print(f"the submission bundle disagrees with {a.origin}:")
         for p in problems:
