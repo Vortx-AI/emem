@@ -540,6 +540,27 @@ jobs:
       # annotation entirely.
       - name: the submission says what the server says
         run: python3 scripts/submission_matches_server.py
+      # A test case is run by a stranger in a fresh chat. Three of the five in
+      # the 2026-08-27 submission pointed at "this farm", "this place" and "an
+      # emem:fact: token" with none of the three supplied, so opened cold they
+      # named nothing, no tool was called, and each failed against its own
+      # expected_output with the tools working correctly. Nothing read the
+      # prompts. This does, and it runs before the responder is fetched so an
+      # outage cannot waive it.
+      - name: every test case carries its own referent
+        run: |
+          set +e
+          python3 scripts/gen_chatgpt_bundle.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          # 2 is the responder: unreachable, or serving a catalogue this tree
+          # is ahead of. Neither says the bundle is wrong. The prompt checks
+          # above run BEFORE the fetch, so they are not what a 2 waives.
+          if [ "$code" = "2" ]; then
+            echo "::warning::the bundle was not checked against a live catalogue"
+            exit 0
+          fi
+          exit $code
       # The card declared preferredTransport HTTP+JSON while /a2a/tasks requires
       # the JSON-RPC envelope, so every client that believed the card got a 400
       # and the A2A registry's task_conformance probe failed on METHOD. A schema

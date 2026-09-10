@@ -203,34 +203,34 @@
   },
   "test_cases": [
     {
-      "description": "Resolves the airport to one canonical cell64 and returns the elevation there as a signed fact with its content id and an ed25519 receipt.",
+      "description": "Resolves the airport to one canonical cell64 and answers with the elevation held there, 48 m from copdem30m.elevation_mean, carrying its fact content id and the responder's ed25519 signature.",
       "user_prompt": "What is the elevation at Helsinki-Vantaa Airport?",
       "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Resolves the airport to one canonical cell64 and returns the elevation there as a signed fact with its content id and an ed25519 receipt."
+      "expected_output": "Resolves the airport to one canonical cell64 and answers with the elevation held there, 48 m from copdem30m.elevation_mean, carrying its fact content id and the responder's ed25519 signature."
     },
     {
-      "description": "Returns the bands held at that cell with their values, each as a signed fact, and names the bands it does not hold rather than implying none exist.",
-      "user_prompt": "What signed facts are available for Lake Erie, Ohio?",
+      "description": "Resolves the lake to one cell64 and lists the bands attested there with their values, each a signed fact. The cell holds more facts than fit one tool result, so the reply says so and names the remaining bands rather than presenting five as the whole set.",
+      "user_prompt": "What signed facts does emem hold for Lake Erie, Ohio?",
       "tools_triggered": "emem_locate, emem_recall",
-      "expected_output": "Returns the bands held at that cell with their values, each as a signed fact, and names the bands it does not hold rather than implying none exist."
+      "expected_output": "Resolves the lake to one cell64 and lists the bands attested there with their values, each a signed fact. The cell holds more facts than fit one tool result, so the reply says so and names the remaining bands rather than presenting five as the whole set."
     },
     {
-      "description": "Returns an emem:fact: token of the form emem:fact:<cell64>:<fact_cid>, about 84 characters, which resolves to the byte-identical signed reading in any later session.",
-      "user_prompt": "Give me a citation token for the NDVI at this farm that I can re-verify later.",
-      "tools_triggered": "emem_recall, emem_memory_token",
-      "expected_output": "Returns an emem:fact: token of the form emem:fact:<cell64>:<fact_cid>, about 84 characters, which resolves to the byte-identical signed reading in any later session."
+      "description": "Resolves the valley to one cell64, reads the NDVI fact held there, and returns a citation of the form emem:fact:<cell64>:<fact_cid>, 83 characters, which resolves to the byte-identical signed reading in any later session.",
+      "user_prompt": "Give me a citation token for the NDVI at Napa Valley, California that I can re-verify later.",
+      "tools_triggered": "emem_locate, emem_recall, emem_memory_token",
+      "expected_output": "Resolves the valley to one cell64, reads the NDVI fact held there, and returns a citation of the form emem:fact:<cell64>:<fact_cid>, 83 characters, which resolves to the byte-identical signed reading in any later session."
     },
     {
-      "description": "Dereferences the token to the signed body it cites and checks the ed25519 receipt against the responder's published key, so the answer does not depend on trusting whoever sent it.",
-      "user_prompt": "Someone handed me an emem:fact: token. Is it genuine, and what does it say?",
+      "description": "Dereferences the citation to the signed reading it names, 48 m of Copernicus DEM elevation, then checks the receipt that came back with it against the responder's published ed25519 key and reports valid. Two steps, because a token is not a receipt: resolving shows the bytes, verifying shows who signed them.",
+      "user_prompt": "Is this emem citation genuine, and what does it say? emem:fact:defi.zb6ae.lEdu.rErU:nqbl6yveuvwivda34q5bvupepzvlscumia62l7c7yivqpxhogcda",
       "tools_triggered": "emem_memory_token_resolve, emem_verify_receipt",
-      "expected_output": "Dereferences the token to the signed body it cites and checks the ed25519 receipt against the responder's published key, so the answer does not depend on trusting whoever sent it."
+      "expected_output": "Dereferences the citation to the signed reading it names, 48 m of Copernicus DEM elevation, then checks the receipt that came back with it against the responder's published ed25519 key and reports valid. Two steps, because a token is not a receipt: resolving shows the bytes, verifying shows who signed them."
     },
     {
-      "description": "Reports where independently signed facts differ for the same place, band and time, with a severity score, or states plainly that no disagreement is held.",
-      "user_prompt": "Do any sources disagree about the vegetation index at this place?",
-      "tools_triggered": "emem_memory_contradictions",
-      "expected_output": "Reports where independently signed facts differ for the same place, band and time, with a severity score, or states plainly that no disagreement is held."
+      "description": "Resolves the valley to one cell64 and compares the independently signed NDVI facts held at that one cell, not the whole corpus. It reports that none of them disagree, and says how many it compared, rather than reading silence as agreement it did not check.",
+      "user_prompt": "Do any signed sources disagree about the vegetation index at Napa Valley, California?",
+      "tools_triggered": "emem_locate, emem_memory_contradictions",
+      "expected_output": "Resolves the valley to one cell64 and compares the independently signed NDVI facts held at that one cell, not the whole corpus. It reports that none of them disagree, and says how many it compared, rather than reading silence as agreement it did not check."
     }
   ],
   "negative_test_cases": [

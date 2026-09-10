@@ -177,6 +177,61 @@ def schema_findings(sub: dict) -> list[str]:
     return out
 
 
+def local_findings(sub: dict) -> list[str]:
+    """Checks that need only the repo.
+
+    Kept out of check() on purpose. check() runs after the responder is
+    fetched and the whole run returns 2, waived by CI, when the responder
+    is unreachable. A test case whose prompt names nothing is wrong
+    whether or not a server answered, and a check that can be skipped by
+    someone else's outage is not guarding anything.
+    """
+    bad: list[str] = []
+    cases = sub.get("test_cases") or []
+    # A test case is run by a stranger in a fresh chat, so its prompt has to
+    # carry its own referent.
+    #
+    # Three of the five submitted on 2026-08-27 did not. "Give me a citation
+    # token for the NDVI at this farm", "Do any sources disagree about the
+    # vegetation index at this place", and "Someone handed me an emem:fact:
+    # token. Is it genuine?" all read fine in a conversation that had already
+    # named a farm, a place, or a token. Opened cold they name nothing, so the
+    # assistant asks which one, no tool is called, and the case fails against
+    # its own expected_output without anything being wrong with the tools.
+    #
+    # The rule: a prompt that points at something must also contain the thing.
+    # A place word is satisfied by a proper noun; a token word by a literal
+    # emem: token. Deliberately narrow, because a checker that guesses at
+    # English will reject good prompts.
+    DEIXIS = re.compile(r"\b(this|that|the) (place|farm|field|site|cell|"
+                        r"location|area|region)\b", re.I)
+    # A prompt that talks about a citation at all must CARRY one. "Someone
+    # handed me an emem:fact: token" names the grammar and supplies no value,
+    # which reads as a token to a person and is nothing to paste into a tool.
+    MENTIONS_TOKEN = re.compile(r"\b(token|citation|handle)\b", re.I)
+    WHOLE_TOKEN = re.compile(r"emem:(fact|entity|bundle|cell):\S{8,}")
+    PROPER = re.compile(r"\b[A-Z][a-z]{2,}(?:[- ][A-Z][a-z]+)*\b")
+    STOP = {"Give", "What", "Which", "Where", "How", "Does", "Do", "Is", "Are",
+            "Someone", "Show", "Tell", "Find", "Can", "Could", "Please"}
+    for i, c in enumerate(cases or []):
+        prompt = str(c.get("user_prompt") or "")
+        wants = [t.strip() for t in str(c.get("tools_triggered") or "").split(",")]
+        if MENTIONS_TOKEN.search(prompt) and not WHOLE_TOKEN.search(prompt) \
+                and any("resolve" in t or "verify" in t for t in wants):
+            bad.append(f"test_cases[{i}] asks about a citation and does not "
+                       f"contain one; a reviewer opening this cold has nothing "
+                       f"to hand {wants[0] or 'the tool'}")
+        m = DEIXIS.search(prompt)
+        if not m:
+            continue
+        named = [w for w in PROPER.findall(prompt) if w.split()[0] not in STOP]
+        if not named:
+            bad.append(f"test_cases[{i}] says {m.group(0)!r} but names no place; "
+                       f"a reviewer opening this cold has nothing to resolve")
+
+    return bad
+
+
 def check(sub: dict, live: dict, card: dict) -> list[str]:
     global CLAIMS_CHECKED, SOURCE_ANN
     SOURCE_ANN = source_annotations()
@@ -398,6 +453,15 @@ def main() -> int:
     a = ap.parse_args()
 
     sub = json.loads(SUBMISSION.read_text(encoding="utf-8"))
+
+    # Before the network, so an unreachable responder cannot waive it.
+    local = local_findings(sub)
+    if local:
+        print("the submission bundle is wrong on its own terms:")
+        for p in local:
+            print("  ", p)
+        return 1
+
     try:
         live = catalogue(a.origin)
         card = json.loads(urllib.request.urlopen(
