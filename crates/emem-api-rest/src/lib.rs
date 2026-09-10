@@ -22607,6 +22607,81 @@ fn mcp_slim_inner_to_budget_keeping(
                     continue;
                 }
             }
+            // DEGRADE THE EVIDENCE BLOCK, DO NOT DROP IT.
+            //
+            // Protecting `live_perception` was not enough and the measurement
+            // says why: it was offered last, exactly as intended, and still
+            // lost, because `receipt` and `fact_cids` are on the never-drop
+            // list and take 13.5 KB of a 24 KB budget before anything else is
+            // considered. A 10 KB block cannot fit in what remains.
+            //
+            // But almost none of that 10 KB is what the answer cites.
+            // Measured on a live envelope: temporal_context 4869 bytes and
+            // counted_from 2683 of 10617, while the fields the sentence
+            // actually names -- the counts, the detector that produced them,
+            // whether the frame they came from is retained, and what the
+            // evidence covers -- come to under 4 KB together.
+            //
+            // So keep those and drop the rest, which is the same "degrade, do
+            // not drop" rule this function already applies to long arrays,
+            // extended to the one object where dropping it makes the prose
+            // beside it false. An agent still gets a number it can re-derive
+            // and the identifier to re-derive it with.
+            if k == "live_perception" {
+                if let Some(o) = v.as_object() {
+                    const CITED: &[&str] = &[
+                        "schema",
+                        "counts",
+                        "counts_unavailable",
+                        "unobservable",
+                        "detector_fn_id",
+                        "clip_sha256",
+                        "observed_by",
+                        "answers_now",
+                        "cameras_near",
+                        "cameras_with_retained_clips",
+                        "newest_clip_age_s",
+                        "provenance_class",
+                        "provenance_note",
+                        "what_the_evidence_covers",
+                        "temporal_context_verdict",
+                        "area_note",
+                        "postcard_url",
+                        "next",
+                    ];
+                    let mut slim = serde_json::Map::new();
+                    for key in CITED {
+                        if let Some(val) = o.get(*key) {
+                            slim.insert((*key).to_string(), val.clone());
+                        }
+                    }
+                    // tamper_evidence is the field the sentence turns on, so it
+                    // travels even when the rest of counted_from does not.
+                    if let Some(te) = o.get("counted_from").and_then(|c| c.get("tamper_evidence")) {
+                        slim.insert(
+                            "counted_from".into(),
+                            json!({
+                                "tamper_evidence": te,
+                                "_slimmed": "the full counted_from, with the detector block, \
+                                             the frame quality and the count-sensitivity \
+                                             sweep, is on the REST answer",
+                            }),
+                        );
+                    }
+                    if !slim.is_empty() {
+                        let stub = json!({
+                            "_slimmed": true,
+                            "_kind": "object",
+                            "_kept": slim.len(),
+                            "_len": o.len(),
+                            "_why": "kept the fields the answer cites, dropped the rest;                                      temporal_context and the full counted_from are on the                                      REST answer",
+                        });
+                        record_drop(&mut dropped, &k, stub);
+                        map.insert(k.clone(), JsonValue::Object(slim));
+                        continue;
+                    }
+                }
+            }
             // The DESCRIPTION of what was dropped goes in the truncation
             // note. The field itself becomes null.
             //
@@ -76380,7 +76455,9 @@ mod tests {
     /// The property that matters is not "cid returns an author" but "the two
     /// modes cannot drift", so this asserts the field SETS match rather than
     /// listing the fields it expects. A field added to one branch and not the
-    /// other fails here without anyone remembering to extend the list.
+    /// other fails here without anyone remembering to extend the list —
+    /// geo.qa's reason for preferring it, which is better than mine: a list
+    /// someone maintains diverges the first time someone is in a hurry.
     #[test]
     fn the_two_ways_to_name_a_note_answer_the_same_way() {
         // The shapes each branch builds, with the parts that legitimately
@@ -76532,11 +76609,17 @@ mod tests {
             "algorithms_for_question": big(220),
             "facts_summary": big(88),
             "fact_cids": big(64),
+            // Shaped like the real block: the bulk is temporal_context and the
+            // full counted_from, and the fields the sentence names are small.
             "live_perception": {
                 "counts": {"person": 21, "car": 10},
                 "detector_fn_id": "cpu_detect_coco@ae1a09e1",
-                "counted_from": {"tamper_evidence": "recomputable_from_source"},
-                "padding": "x".repeat(9000),
+                "counted_from": {
+                    "tamper_evidence": "recomputable_from_source",
+                    "count_sensitivity": "x".repeat(2600),
+                },
+                "temporal_context": {"percentile": 0.43, "blurb": "x".repeat(4800)},
+                "camera": {"clip": "x".repeat(800)},
             },
         });
         let (slim, note) = mcp_slim_inner_to_budget(inner, 24_000);
@@ -76550,6 +76633,16 @@ mod tests {
             lp["detector_fn_id"].as_str(),
             Some("cpu_detect_coco@ae1a09e1"),
             "an agent told the count is re-derivable needs the thing to re-derive it with"
+        );
+        assert_eq!(
+            lp["counted_from"]["tamper_evidence"].as_str(),
+            Some("recomputable_from_source"),
+            "the field the sentence turns on has to survive with the sentence"
+        );
+        assert!(
+            lp["counts"]["person"].as_u64().is_some(),
+            "the numbers the answer states must still be there: {}",
+            lp["counts"]
         );
         assert!(
             slim["algorithms_for_question"].is_null()
