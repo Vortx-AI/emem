@@ -39406,11 +39406,36 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                     continue;
                 }
             }
+            // FOUR ROUTES TO ONE OBJECT SAID THREE DIFFERENT THINGS ABOUT
+            // WHO WROTE IT.
+            //
+            // Measured 2026-09-10: emem_memory_search returns
+            // `attester_pubkey_b32`, /v1/inbox returns `from`, and both this
+            // listing and the by-cid read returned nothing at all. So whether
+            // authorship is knowable depended on which door a reader came
+            // through, and the two doors that said "no" are the two an agent
+            // holding a citation reaches for.
+            //
+            // The geo.qa frontend agent demonstrated the cost from the other
+            // side: handed three file_cids and needing the author, they listed
+            // this directory and matched on the path prefix, because the
+            // listing carried no author and the cid route was not in the
+            // schema. The workaround was reading authorship out of a string.
+            //
+            // A KEY, not an author, and the field name says which: one key can
+            // be held by more than one writer, which is exactly what happened
+            // to the notes that prompted this. Eight characters because that
+            // is what the namespace carries; emem_memory_search returns the
+            // full 52-character key for the same note.
             let entry = json!({
                 "path": key.clone(),
                 "file_cid": cid,
                 "kind": "file",
                 "memory_kind": entry_kind.as_str(),
+                "attester_pubkey8": key
+                    .strip_prefix("/memories/by_attester/")
+                    .and_then(|rest| rest.split('/').next())
+                    .filter(|p| !p.is_empty()),
             });
             typed.push((entry_kind, key, entry));
         }
