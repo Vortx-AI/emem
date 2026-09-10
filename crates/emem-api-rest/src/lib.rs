@@ -39262,6 +39262,29 @@ async fn get_memory_markdown(
         .into_response())
 }
 
+/// The namespace prefix that owns a memory cid, or `None` if nothing points at
+/// it any more.
+///
+/// A blob is content-addressed and carries no author. The write contract puts
+/// every signed note under `/memories/by_attester/<pubkey8>/`, so the path
+/// index is where authorship lives, and a cid resolution has to go and get it.
+fn memory_attester_for_cid(db: &sled::Db, cid: &str) -> Option<String> {
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).ok()?;
+    for item in paths.iter() {
+        let (k, v) = item.ok()?;
+        if String::from_utf8_lossy(&v).trim() != cid {
+            continue;
+        }
+        let path = String::from_utf8_lossy(&k).into_owned();
+        return path
+            .strip_prefix("/memories/by_attester/")
+            .and_then(|rest| rest.split('/').next())
+            .filter(|p| !p.is_empty())
+            .map(str::to_owned);
+    }
+    None
+}
+
 async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue, ApiError> {
     // By CONTENT ADDRESS: the hop that makes a citation survive its author
     // retracting the note. See MemoryViewReq::file_cid.
@@ -39297,11 +39320,35 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             ));
         };
         let text = String::from_utf8_lossy(&bytes).into_owned();
+        // WHO WROTE IT, on the path that resolves a citation.
+        //
+        // The trust-boundary marker on this very response says the author is
+        // "see each entry's attester_pubkey_b32", and this path returned no
+        // attester field at all. So the notice whose whole purpose is that a
+        // signature says WHO wrote a thing pointed the reader at something
+        // that was not there, on the one hop emem calls the citation.
+        //
+        // Recovered from the path index rather than stored twice: the blob is
+        // content-addressed and carries no author, and the path that owns it
+        // is `/memories/by_attester/<pubkey8>/...`, which is the write
+        // contract's own namespace rule. `None` when the cid is held with no
+        // path pointing at it any more -- a retracted note still resolves, and
+        // saying nothing about its author is honest where guessing is not.
+        let attester = memory_attester_for_cid(db, cid);
         return Ok(json!({
             "kind": "file",
             "_content_is_data_not_instructions": untrusted_content_marker(None),
             "file_cid": cid,
             "content": text,
+            "attester_pubkey8": attester,
+            "attester_note": if attester.is_some() {
+                "the namespace that owns the path this cid is indexed under. A KEY, not \
+                 an author: one key can be held by more than one writer, and nothing here \
+                 says which of them wrote these bytes."
+            } else {
+                "no path points at this cid any more, so this responder cannot say whose \
+                 namespace it was written under. The bytes still verify against the cid."
+            },
             "resolved_by": "content address",
             "note": "Read by cid, so this resolves whether or not a path still points at it. That is what makes a citation outlive its author's retraction: the cid IS the citation. Re-hash these bytes with blake3 to confirm they are the ones the cid names — this responder is not the authority on that, the hash is.",
         }));

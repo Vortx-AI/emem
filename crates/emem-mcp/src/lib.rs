@@ -691,8 +691,17 @@ const SCHEMA_ENTITY_LINK: &str = r#"{"type":"object","properties":{
 // Paths are confined to `/memories/<...>`, the wrapper rejects any
 // `..` or absolute path that escapes that root, mirroring the
 // reference impl's safety contract.
-const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","required":["path"],"properties":{
-"path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`."},
+// `required:["path"]` was false and it hid the more durable half of this tool.
+// The request type's own comment reads "A memory path. Optional when
+// `file_cid` is given", and reading by content address is what makes a
+// citation outlive its author retracting the note -- emem's words for it are
+// "the cid IS the citation". A caller handed a file_cid could not learn from
+// the published schema that this tool would resolve it. Same shape as
+// `tree_size` on log_inclusion: a capability that works and is not advertised,
+// here on the path closest to what emem claims to be for.
+const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","properties":{
+"path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`. Give this or `file_cid`."},
+"file_cid":{"type":"string","description":"Read a note by its CONTENT ADDRESS instead of its path, and the alternative to `path` rather than a companion to it. This resolves whether or not a path still points at the bytes, so a citation survives its author renaming, superseding or deleting the note. Re-hash what comes back with blake3 to confirm the bytes are the ones the cid names: this responder is not the authority on that, the hash is."},
 "view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."},
 "kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."},
 "offset":{"type":"integer","minimum":0,"description":"Directory listings only: skip this many entries. A truncated listing reports where to resume as _emem_truncation.omitted_fields[].stub._next_offset; pass that value here for the next page. The response echoes `offset` and `total`."},
@@ -3601,6 +3610,54 @@ mod tests {
             checked >= 80,
             "compared {checked} example(s) against a schema; the surface has far more, \
              so this test has stopped finding them"
+        );
+    }
+
+    /// A tool that accepts either of two inputs must not mark one required.
+    ///
+    /// `emem_memory_view` declared `required: ["path"]` while its request type
+    /// read `file_cid` and its own comment said the path was optional when the
+    /// cid was given. So the published schema hid the durable half of the
+    /// tool: resolving a note by content address is what makes a citation
+    /// survive its author renaming, superseding or deleting it, and a caller
+    /// holding a file_cid could not learn from the surface that this would
+    /// resolve it.
+    ///
+    /// The convention on this surface, forced by the tool validator rejecting
+    /// a top-level anyOf, is to declare nothing required and refuse at run
+    /// time naming both spellings. What must never happen is declaring one of
+    /// the alternatives required, which is a statement that the other does not
+    /// exist.
+    #[test]
+    fn a_one_of_tool_does_not_declare_one_alternative_required() {
+        let v: serde_json::Value = serde_json::from_str(SCHEMA_MEMORY_VIEW).unwrap();
+        let props = v["properties"].as_object().expect("properties");
+        for name in ["path", "file_cid"] {
+            assert!(
+                props.contains_key(name),
+                "memory_view must declare `{name}`"
+            );
+        }
+        let required: Vec<&str> = v
+            .get("required")
+            .and_then(|r| r.as_array())
+            .map(|a| a.iter().filter_map(|x| x.as_str()).collect())
+            .unwrap_or_default();
+        assert!(
+            !required.contains(&"path") && !required.contains(&"file_cid"),
+            "either input answers, so neither is required: {required:?}"
+        );
+        // The cid description has to say what it is FOR, or a caller reads it
+        // as a second way to spell the same thing and never reaches for it.
+        // Case-insensitive: the description shouts CONTENT ADDRESS on purpose
+        // and a test that pins the casing is pinning the wrong thing.
+        let d = props["file_cid"]["description"]
+            .as_str()
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        assert!(
+            d.contains("content address") && d.contains("citation"),
+            "file_cid must say why it exists, not just what it is: {d:.100}"
         );
     }
 
