@@ -11,6 +11,11 @@ two of the instances were addresses:
   * `counted_from.detector.backend_url` carried `http://127.0.0.1:5019`,
     republished from an upstream whose object we copied wholesale.
 
+It also reads served text for indentation folded into a sentence, which is the
+wire-side half of scripts/no_padded_prose.py. That one reads the source and is
+stronger, because it covers every path whether or not a caller can reach it.
+This one covers what the source cannot see: a string assembled at runtime.
+
 Neither was written on purpose. Both arrived by copying something inward-facing
 into something outward-facing, which is how this always happens, so the check
 is on the OUTPUT rather than on anyone's care.
@@ -51,6 +56,16 @@ UA = "emem-no-host-details/1 (+https://emem.dev)"
 # Private and loopback addresses, and paths that only mean something on the
 # machine that wrote them.
 PATTERNS = [
+    # Indentation folded into a sentence. scripts/no_padded_prose.py catches
+    # this in the source and is the stronger check, because it covers every
+    # path whether or not anyone can reach it. It cannot see a string ASSEMBLED
+    # at runtime -- a format! that pads, a join over indented parts -- and this
+    # can, because it reads what was served rather than what was written. The
+    # geo.qa agent made the argument for the pair: they widened their own
+    # confirmation from one field to the whole response body because "the other
+    # twenty are on paths I cannot reach from a single ask", and a body-wide
+    # regex costs nothing and covers the ones neither of us thought to call.
+    ("indentation in a sentence", r"\S {8,}\S"),
     ("loopback", r"\b(?:127\.\d{1,3}\.\d{1,3}\.\d{1,3}|localhost|0\.0\.0\.0|\[::1\])\b"),
     ("rfc1918", r"\b(?:10\.\d{1,3}|192\.168|172\.(?:1[6-9]|2\d|3[01]))\.\d{1,3}\.\d{1,3}\b"),
     ("container-host", r"host\.docker\.internal"),
@@ -110,15 +125,84 @@ def surfaces(origin: str, oa: dict) -> list[str]:
     return [origin + p for p in dict.fromkeys(out)]
 
 
+# Aligned columns are deliberate, here as in the source scanner: a route table
+# in a help payload, a label-and-value report. Same three exemptions, so the two
+# checks agree about what is damage rather than one reporting what the other
+# allows.
+VERB = re.compile(r"^\s*(GET|POST|PUT|DELETE|PATCH|HEAD)\b")
+COLUMN = re.compile(r" {8,}[,|{]")
+
+
 def findings(url: str, body: str) -> list[tuple[str, str]]:
+    """Scan the STRING VALUES of a JSON body, not the JSON text.
+
+    Reading the raw text would report the pretty-printer's own indentation as
+    padding on every response that is formatted, and report nothing at all on
+    the ones that are not. The values are what a caller reads.
+    """
     hits = []
-    for name, rx in COMPILED:
-        for m in rx.finditer(body):
-            text = m.group(0)
-            if any(ok in text for ok in NOT_A_LEAK):
-                continue
-            hits.append((name, text))
+
+    def look(text: str):
+        for name, rx in COMPILED:
+            for m in rx.finditer(text):
+                found = m.group(0)
+                if any(ok in found for ok in NOT_A_LEAK):
+                    continue
+                if name == "indentation in a sentence" and (
+                    "\n" in text or VERB.match(text) or COLUMN.search(text)
+                ):
+                    continue
+                hits.append((name, found if name != "indentation in a sentence"
+                             else text[:110]))
+
+    try:
+        doc = json.loads(body)
+    except json.JSONDecodeError:
+        look(body)          # llms.txt and friends are not JSON
+        return hits
+
+    def walk(node):
+        if isinstance(node, dict):
+            for v in node.values():
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+        elif isinstance(node, str):
+            look(node)
+
+    walk(doc)
     return hits
+
+
+# The cases the indentation pattern has to separate. A checker that reports
+# nothing looks identical to a clean surface, and the only difference is
+# whether anything could have made it speak.
+SELF_TEST = [
+    # (label, one JSON string value, should it fire)
+    ("the note emem served on 2026-09-10",
+     "sidecar unavailable: this responder does not run the GPU inference sidecar "
+     "this band needs.                  It is an optional extension.", True),
+    ("a pad assembled at runtime, which the source scanner cannot see",
+     "the value is 42           and the unit is metres", True),
+    ("an aligned route table", "GET  /v1/bands          , band catalogue", False),
+    ("a label and value report line", "fired rate            {0.4231}", False),
+    ("a block laid out on purpose", "type    | needs\nwhere_is        | description", False),
+    ("ordinary prose", "Ground cameras see what a satellite cannot: people.", False),
+]
+
+
+def self_test() -> list[str]:
+    """Run before the network, so a broken pattern cannot pass as a clean sweep."""
+    import json as _json
+    wrong = []
+    for label, value, should_fire in SELF_TEST:
+        hits = [h for h in findings("self-test", _json.dumps({"v": value}))
+                if h[0] == "indentation in a sentence"]
+        if bool(hits) != should_fire:
+            wrong.append(f"{label}: expected {'a hit' if should_fire else 'silence'}, "
+                         f"got {'a hit' if hits else 'silence'}")
+    return wrong
 
 
 def main() -> int:
@@ -126,6 +210,14 @@ def main() -> int:
     ap.add_argument("--origin", default="https://emem.dev")
     a = ap.parse_args()
     origin = a.origin.rstrip("/")
+
+    wrong = self_test()
+    if wrong:
+        print("the indentation pattern no longer separates damage from alignment:")
+        for w in wrong:
+            print("  ", w)
+        print("A sweep with this pattern would be silence, not a clean result.")
+        return 3
 
     st, body = get(origin + "/openapi.json")
     if st != 200 or not body:
