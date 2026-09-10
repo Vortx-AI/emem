@@ -25005,9 +25005,22 @@ async fn a2a_task_json(
                 Some((mime, bytes_b64, uri))
             });
 
+            // A2A puts `metadata` on the params AND on the Message, and a
+            // client naming its skill on the message is reading the spec, not
+            // misusing it. Only params.metadata was read, so a skill named on
+            // the message was dropped and the text fell through to emem_ask:
+            // the caller asked for one skill, got a different one, and nothing
+            // in the answer said so. Both places are read; params wins when
+            // both are set, because that is the one this endpoint documented.
             let skill_id = params
                 .get("metadata")
                 .and_then(|m| m.get("skill_id"))
+                .or_else(|| {
+                    params
+                        .get("message")
+                        .and_then(|m| m.get("metadata"))
+                        .and_then(|m| m.get("skill_id"))
+                })
                 .and_then(|x| x.as_str())
                 .map(|x| x.to_string());
             let mode = params
@@ -25266,15 +25279,42 @@ async fn a2a_task_json(
                         "result": a2a_message_result_ctx(&s, &skill, result, resolved_cell.as_deref()),
                     })))
                 }
-                Ok(Err((code, msg))) => rpc_err(
-                    rpc_id,
-                    -32602,
-                    format!("skill `{skill}` refused the call"),
-                    json!({"schema": "emem.error.v1",
-                           "mcp_error_code": code,
-                           "message": a2a_scrub_error(&skill, &msg),
-                           "skills": format!("/v1/a2a/skills?q={skill}")}),
-                ),
+                Ok(Err((code, msg))) => {
+                    // Three skills on the card are tagged `rest` and carry
+                    // their own URL, because they are not dispatchable through
+                    // tools/call. Sent here they came back "unknown tool
+                    // 'perception_gonogo'; call tools/list for the catalog",
+                    // which says a skill the card advertises does not exist.
+                    // It does exist; it answers somewhere else, and the card
+                    // already says where. Repeat that rather than let the
+                    // caller conclude the card lied.
+                    if let Some(where_to_go) = rest_only_skill_hint(&skill) {
+                        return rpc_err(
+                            rpc_id,
+                            -32601,
+                            format!(
+                                "skill `{skill}` is served over HTTP, not through this \
+                                 endpoint. It is on the agent card and it is real; \
+                                 tools/call is not how it is reached."
+                            ),
+                            json!({"schema": "emem.error.v1",
+                                   "call_it_here": where_to_go,
+                                   "why": "the card tags it `rest` and carries its URL in \
+                                           `examples`; this endpoint dispatches the tools/call \
+                                           surface only",
+                                   "skills": format!("/v1/a2a/skills?q={skill}")}),
+                        );
+                    }
+                    rpc_err(
+                        rpc_id,
+                        -32602,
+                        format!("skill `{skill}` refused the call"),
+                        json!({"schema": "emem.error.v1",
+                               "mcp_error_code": code,
+                               "message": a2a_scrub_error(&skill, &msg),
+                               "skills": format!("/v1/a2a/skills?q={skill}")}),
+                    )
+                }
             }
         }
 
@@ -31042,6 +31082,29 @@ fn perception_skills() -> Vec<JsonValue> {
             "examples": [format!("GET {origin}/v1/perception/gonogo?cell=<cell64>")],
         }),
     ]
+}
+
+/// Where a `rest`-tagged card skill actually answers, or `None` if the name is
+/// not one. Read out of the same declarations the card is built from, so the
+/// hint cannot drift from what was advertised.
+fn rest_only_skill_hint(skill: &str) -> Option<String> {
+    perception_skills().into_iter().find_map(|sk| {
+        if sk.get("id").and_then(|i| i.as_str()) != Some(skill) {
+            return None;
+        }
+        let tagged_rest = sk
+            .get("tags")
+            .and_then(|t| t.as_array())
+            .is_some_and(|t| t.iter().any(|x| x.as_str() == Some("rest")));
+        if !tagged_rest {
+            return None;
+        }
+        sk.get("examples")
+            .and_then(|e| e.as_array())
+            .and_then(|e| e.first())
+            .and_then(|e| e.as_str())
+            .map(String::from)
+    })
 }
 
 /// Front the local perception service so a peer that DISCOVERS it can reach it.

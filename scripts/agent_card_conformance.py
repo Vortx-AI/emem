@@ -47,6 +47,17 @@ REST_PROBE = {"message": {"role": "user", "messageId": "conformance",
                           "parts": [{"kind": "text", "text": "ping"}]}}
 
 
+def as_json(body) -> dict:
+    """`post` returns the body as text; a non-JSON body is a result too."""
+    if isinstance(body, dict):
+        return body
+    try:
+        d = json.loads(body)
+    except Exception:  # noqa: BLE001
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
 def post(url, body, timeout=60):
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(),
@@ -193,6 +204,55 @@ def main() -> int:
                     f"a Part shaped {json.dumps(part)} is not parsed at all "
                     f"({err.get('code')}: {msg[:60]}); the card claims "
                     f"protocolVersion {card.get('protocolVersion')}")
+
+    # Every skill the card advertises is reachable somewhere.
+    #
+    # The card lists 111 skills. Three of them are perception routes that are
+    # deliberately NOT dispatchable through tools/call, and sending one here
+    # answered "unknown tool 'perception_gonogo'; call tools/list for the
+    # catalog" -- which tells a client that a skill the card advertises does
+    # not exist. It does; it answers over HTTP, and the card says so in its own
+    # `tags` and `examples`. A card is a promise about reachability, so this
+    # asks each skill to be reachable one way or the other and refuses to count
+    # a wrong-shaped refusal as an answer.
+    skills = (card.get("skills") or []) if endpoint else []
+    rest_tagged = [k for k in skills if "rest" in (k.get("tags") or [])]
+    print(f"\n{len(skills)} skill(s) on the card, {len(rest_tagged)} tagged `rest`")
+    for sk in rest_tagged:
+        sid = sk.get("id")
+        code, body = post(endpoint, {
+            "jsonrpc": "2.0", "id": "skill-probe", "method": "message/send",
+            "params": {"metadata": {"skill_id": sid},
+                       "message": {"role": "user", "messageId": "m1",
+                                   "parts": [{"kind": "data", "data": {}}]}}})
+        doc = as_json(body)
+        err = doc.get("error") or {}
+        text = json.dumps(doc)
+        points_home = "call_it_here" in text
+        denies_existence = "unknown tool" in text
+        print(f"  rest skill {sid:<24} "
+              f"{'points at its URL' if points_home else 'REFUSED'}")
+        if denies_existence or not points_home:
+            problems.append(
+                f"the card advertises `{sid}` and /a2a/tasks answers "
+                f"{err.get('message', code)!r}; a skill the card carries must be "
+                f"reachable, or the refusal must say where it is reachable instead")
+
+    # A skill named on the MESSAGE, which is where the A2A Message object's own
+    # metadata lives, must select that skill rather than fall through.
+    probe = "emem_log_sth"
+    code, body = (0, "") if not endpoint else post(endpoint, {
+        "jsonrpc": "2.0", "id": "msg-meta", "method": "message/send",
+        "params": {"message": {"role": "user", "messageId": "m1",
+                               "metadata": {"skill_id": probe},
+                               "parts": [{"kind": "data", "data": {}}]}}})
+    served = ((as_json(body).get("result") or {}).get("metadata") or {}).get("skill")
+    print(f"  skill named on the message   {served or code}")
+    if served != probe:
+        problems.append(
+            f"skill_id on params.message.metadata selected {served!r}, not {probe!r}; "
+            f"a client that names its skill where the Message object carries metadata "
+            f"is answered by a different skill without being told")
 
     if problems:
         print("\nA card that describes a transport the endpoint does not speak sends "
