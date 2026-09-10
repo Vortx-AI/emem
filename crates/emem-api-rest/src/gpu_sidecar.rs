@@ -377,8 +377,12 @@ async fn round_trip(headers: &[u8], body: &[u8]) -> Result<Vec<u8>, SidecarError
             // and a Rust errno, in an envelope served to strangers. Neither is
             // something a caller can act on, and the path is ours.
             tracing::warn!(socket = ?sock, error = %e, "sidecar socket unreachable");
+            // ONE LINE ON PURPOSE, however long it reads here. Written with `\`
+            // continuations it was served as "...this band needs.<18 spaces>It is
+            // an optional extension..." -- cargo fmt collapses the literal and
+            // the indentation goes with it, into a message an agent reads.
             SidecarError::Unavailable(
-                "this responder does not run the GPU inference sidecar this band needs.                  It is an optional extension, not a data gap: the band is unavailable HERE                  and retrying will not change that. GET /v1/capabilities lists the                  extensions this node has, and `algorithm_availability` says which                  algorithms are runnable because of them."
+                "this responder does not run the GPU inference sidecar this band needs. It is an optional extension, not a data gap: the band is unavailable HERE and retrying will not change that. GET /v1/capabilities lists the extensions this node has, and `algorithm_availability` says which algorithms are runnable because of them."
                     .into(),
             )
         })?;

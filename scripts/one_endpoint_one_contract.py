@@ -108,6 +108,20 @@ def main() -> int:
             if isinstance(op, dict) and op.get("operationId"):
                 ops[op["operationId"]] = op
 
+    # Asymmetries on purpose, with a reason each, in the same file as the
+    # ratchet. Removing a parameter from a TOOL while the HTTP route keeps
+    # accepting it is a legitimate thing to do -- a tool should ask for the
+    # smallest input that answers the question, and an HTTP client that already
+    # has a bigger body should not be made to reshape it -- but it looks
+    # identical from here to a capability nobody can reach.
+    intentional: dict[str, list[str]] = {}
+    if BASELINE.exists():
+        try:
+            intentional = json.loads(BASELINE.read_text(encoding="utf-8")).get(
+                "asymmetric_on_purpose") or {}
+        except Exception:  # noqa: BLE001
+            pass
+
     unreachable: list[str] = []
     undocumented: list[tuple[str, list[str]]] = []
     unmatched = 0
@@ -119,6 +133,8 @@ def main() -> int:
         mcp = set((t.get("inputSchema") or {}).get("properties") or {})
         rest = rest_params(oa, op)
         for gone in sorted(rest - mcp):
+            if gone in intentional.get(name, []):
+                continue
             unreachable.append(f"{name}: /openapi.json documents `{gone}`, the tool schema does not")
         extra = sorted(mcp - rest)
         if extra:
@@ -131,10 +147,18 @@ def main() -> int:
     total_extra = sum(len(e) for _, e in undocumented)
     if a.write_baseline:
         BASELINE.parent.mkdir(parents=True, exist_ok=True)
+        prior = {}
+        if BASELINE.exists():
+            try:
+                prior = json.loads(BASELINE.read_text(encoding="utf-8"))
+            except Exception:  # noqa: BLE001
+                prior = {}
         BASELINE.write_text(json.dumps({
             "_what": "Parameters the MCP tool schema declares and /openapi.json does not. "
                      "A ceiling, not a target: it may fall, it may not rise.",
             "_how": "python3 scripts/one_endpoint_one_contract.py --write-baseline",
+            "asymmetric_on_purpose": prior.get("asymmetric_on_purpose") or {},
+            "asymmetric_on_purpose_reasons": prior.get("asymmetric_on_purpose_reasons") or {},
             "parameters_documented_only_for_agents": total_extra,
             "tools": {n: e for n, e in undocumented},
         }, indent=2) + "\n", encoding="utf-8")

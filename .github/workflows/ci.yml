@@ -578,6 +578,49 @@ jobs:
       # and the A2A registry's task_conformance probe failed on METHOD. A schema
       # check could not see it: the value was a legal transport name, just not
       # ours. This sends the shape the card promises and checks it is accepted.
+      # /openapi.json is what a developer reads and the MCP inputSchema is what
+      # an agent reads. They are written separately and nothing compared them,
+      # so they drifted both ways: /v1/log/inclusion took tree_size -- prove a
+      # leaf was in a head you pinned earlier, the whole audit loop -- and the
+      # tool schema omitted it, so an agent could only prove inclusion under
+      # the current head. A parameter in OpenAPI and not in MCP is a capability
+      # out of reach and fails; the reverse is documentation debt and ratchets.
+      - name: one endpoint, one contract
+        run: |
+          set +e
+          python3 scripts/one_endpoint_one_contract.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::both documents come from the responder; neither was read"
+            exit 0
+          fi
+          exit $code
+      # cargo fmt collapses a backslash-continued string literal onto one line
+      # and the source indentation goes into the string. emem.dev served
+      # "...this band needs.<18 spaces>It is an optional extension..." to any
+      # caller whose place question routed to a sidecar band. Twenty-one
+      # literals had it, including the reasoning tier's system prompt and four
+      # trust-boundary declarations. Source-only, so it needs no responder.
+      - name: no sentence carries its own indentation
+        run: python3 scripts/no_padded_prose.py
+      # Two host details reached callers on 2026-09-10 by the same route:
+      # something inward-facing copied into something outward-facing. A socket
+      # path and a Rust errno in materialize_notes[].reason, and an upstream's
+      # loopback backend_url republished from an object we pass through. The
+      # check is on the OUTPUT rather than on anyone's care, and the surfaces
+      # come from our own openapi document so a route added tomorrow is covered.
+      - name: nothing public means something only here
+        run: |
+          set +e
+          python3 scripts/no_host_details_in_public.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; no public surface was read"
+            exit 0
+          fi
+          exit $code
       - name: the agent card describes the endpoint that answers
         run: python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       # Everything else emem serves carries an ed25519 receipt; the card that

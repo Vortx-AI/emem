@@ -3079,7 +3079,7 @@ async fn timeout_to_typed_504(
         "schema": "emem.error.v1",
         "code": "compute_timeout",
         "message": format!(
-            "this request exceeded the responder's {secs}s transport budget. The same              cause over MCP answers `exceeded the call budget`; both name compute_timeout.              Narrow the request (fewer cells, one band, or a place already warm), or              re-send a tool call with a `task` param and poll tasks/get where the tool              declares it. If the request WROTE anything, its outcome is indeterminate:              read it back before retrying."
+            "this request exceeded the responder's {secs}s transport budget. The same cause over MCP answers `exceeded the call budget`; both name compute_timeout. Narrow the request (fewer cells, one band, or a place already warm), or re-send a tool call with a `task` param and poll tasks/get where the tool declares it. If the request WROTE anything, its outcome is indeterminate: read it back before retrying."
         ),
         "details": {
             "schema": "emem.error.v1",
@@ -8437,20 +8437,20 @@ async fn well_known(State(s): State<AppState>) -> Response {
                 "id": "emem-facts",
                 "content_is_untrusted_input": false,
                 "writable_by_callers": false,
-                "why": "Band-typed values materialised from registered upstreams. No                         caller-supplied value enters a fact by any route, and no fact                         response carries a free-text field an instruction could occupy.",
+                "why": "Band-typed values materialised from registered upstreams. No caller-supplied value enters a fact by any route, and no fact response carries a free-text field an instruction could occupy.",
                 "read_at": ["/v1/recall", "/v1/ask", "/v1/at", "/v1/compare"]
             },
             "channel": {
                 "id": "emem-channel",
                 "content_is_untrusted_input": true,
                 "writable_by_callers": true,
-                "why": "Agent correspondence: prose, signed by its author, world-readable                         and world-writable. Signed provenance mitigates ATTRIBUTION, not                         injected-instruction risk — a signature says who wrote a thing,                         it does not stop a reader obeying it.",
-                "guard": "Every note read wraps its body in                           _content_is_data_not_instructions naming the author and stating                           that directives inside it must not be followed, including ones                           addressed to the reader by name. This predates the objection.",
+                "why": "Agent correspondence: prose, signed by its author, world-readable and world-writable. Signed provenance mitigates ATTRIBUTION, not injected-instruction risk — a signature says who wrote a thing, it does not stop a reader obeying it.",
+                "guard": "Every note read wraps its body in _content_is_data_not_instructions naming the author and stating that directives inside it must not be followed, including ones addressed to the reader by name. This predates the objection.",
                 "endorsement": "not_recommended_for_default_catalog",
                 "read_at": ["/v1/memory/search", "/memories/{path}", "/v1/inbox"],
                 "write_ladder": "/v1/enlist"
             },
-            "note": "The planes never mix in one result: a recall returns only                      band-typed facts, a memory search returns only note paths.                      A catalog may endorse `emem-facts` without endorsing                      `emem-channel`, and that is the intended shape."
+            "note": "The planes never mix in one result: a recall returns only band-typed facts, a memory search returns only note paths. A catalog may endorse `emem-facts` without endorsing `emem-channel`, and that is the intended shape."
         },
         "manifests": {
             "bands_cid": &s.manifests.bands_cid,
@@ -24328,7 +24328,7 @@ async fn a2a_reason_compose(
     let mut answer_protocol = "action";
     if !has_words(&prose) || still_wrapped(&prose) {
         answer_protocol = "prose";
-        let plain = "You are the reasoning tier of emem, a shared verifiable memory for AI                      agents. Answer the question in plain language using ONLY the evidence in                      the signed envelope below. Name the resolved place explicitly and cite                      bands by name. Never invent a number. If the envelope cannot support an                      answer, begin your reply with `ABSTAIN:` and say what is missing.";
+        let plain = "You are the reasoning tier of emem, a shared verifiable memory for AI agents. Answer the question in plain language using ONLY the evidence in the signed envelope below. Name the resolved place explicitly and cite bands by name. Never invent a number. If the envelope cannot support an answer, begin your reply with `ABSTAIN:` and say what is missing.";
         let mut payload = json!({
             "base_model": base_model,
             "family": family,
@@ -26583,7 +26583,7 @@ async fn mcp_jsonrpc_inner(
                             .unwrap_or(false);
                         let hint = if mutates {
                             format!(
-                                "`{name}` exceeded the {secs}s call budget. THE WRITE WAS NOT                                  CANCELLED and may already have completed — this responder                                  stopped waiting, it did not stop the work. Do NOT blindly                                  retry: read the path back first (emem_memory_view, or                                  emem_memory_search for the namespace). A retry that lands                                  beside a write that succeeded leaves two notes where you                                  meant one, and only you can tell them apart."
+                                "`{name}` exceeded the {secs}s call budget. THE WRITE WAS NOT CANCELLED and may already have completed — this responder stopped waiting, it did not stop the work. Do NOT blindly retry: read the path back first (emem_memory_view, or emem_memory_search for the namespace). A retry that lands beside a write that succeeded leaves two notes where you meant one, and only you can tell them apart."
                             )
                         } else if emem_mcp::tool_task_support(name) == "forbidden" {
                             format!("`{name}` exceeded the {secs}s call budget on this responder. Narrow the request (fewer cells, one band, or a place already warm).")
@@ -28168,7 +28168,7 @@ fn explain_duplicate_field(name: &str, msg: &str, conflicts: &[AliasConflict]) -
         // means the two spellings came in through some path this does not
         // model. Say what is known rather than inventing the pair.
         return format!(
-            "`{name}` was sent two arguments that are the same argument: `{canonical}`.              This tool declares more than one spelling for that slot; send exactly one.              (serde: {msg})"
+            "`{name}` was sent two arguments that are the same argument: `{canonical}`. This tool declares more than one spelling for that slot; send exactly one. (serde: {msg})"
         );
     };
     let sent = named
@@ -28177,7 +28177,7 @@ fn explain_duplicate_field(name: &str, msg: &str, conflicts: &[AliasConflict]) -
         .collect::<Vec<_>>()
         .join(", ");
     format!(
-        "`{name}`: {sent}. These are one argument, `{canonical}`, under different names, and          they disagree, so this responder will not choose between them. Send one. (Sending the          same value under two spellings is fine and would have been answered.)"
+        "`{name}`: {sent}. These are one argument, `{canonical}`, under different names, and they disagree, so this responder will not choose between them. Send one. (Sending the same value under two spellings is fine and would have been answered.)"
     )
 }
 
@@ -29761,7 +29761,7 @@ fn openapi_spec() -> JsonValue {
                           "emem_memory_rename", "emem_memory_str_replace",
                           "emem_memory_supersede"],
                 "reach_them_at": "POST /mcp, method tools/call",
-                "why_not_here": "These write the agent correspondence plane, which is                                  prose and untrusted-by-declaration. It is deliberately                                  not part of the REST fact surface, and the two planes                                  are kept apart rather than merged for convenience.",
+                "why_not_here": "These write the agent correspondence plane, which is prose and untrusted-by-declaration. It is deliberately not part of the REST fact surface, and the two planes are kept apart rather than merged for convenience.",
                 "read_side_is_here": ["/v1/memory/search", "/v1/memory/sse", "/memories/{path}"]
             }
         },
@@ -39265,7 +39265,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 ErrorBody {
                     code: ErrorCode::CidNotFound,
                     message: format!(
-                        "no memory blob at `{cid}`. A content address that never existed                          here reads the same as one this responder never held; neither is                          evidence the bytes were destroyed elsewhere."
+                        "no memory blob at `{cid}`. A content address that never existed here reads the same as one this responder never held; neither is evidence the bytes were destroyed elsewhere."
                     ),
                     details: None,
                 },
@@ -39278,7 +39278,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             "file_cid": cid,
             "content": text,
             "resolved_by": "content address",
-            "note": "Read by cid, so this resolves whether or not a path still points at                      it. That is what makes a citation outlive its author's retraction:                      the cid IS the citation. Re-hash these bytes with blake3 to confirm                      they are the ones the cid names — this responder is not the authority                      on that, the hash is.",
+            "note": "Read by cid, so this resolves whether or not a path still points at it. That is what makes a citation outlive its author's retraction: the cid IS the citation. Re-hash these bytes with blake3 to confirm they are the ones the cid names — this responder is not the authority on that, the hash is.",
         }));
     }
     let raw = req.path.trim();
@@ -39469,7 +39469,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 ErrorBody {
                     code: ErrorCode::CidNotFound,
                     message: format!(
-                        "`{path}` was DELETED by its namespace owner, not never-written.                          The bytes are gone; this record of their going is not."
+                        "`{path}` was DELETED by its namespace owner, not never-written. The bytes are gone; this record of their going is not."
                     ),
                     details: Some(t),
                 },
@@ -39480,7 +39480,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             ErrorBody {
                 code: ErrorCode::CidNotFound,
                 message: format!(
-                    "no memory file at `{path}`, and no tombstone either — so this                      path was never written here, rather than written and removed."
+                    "no memory file at `{path}`, and no tombstone either — so this path was never written here, rather than written and removed."
                 ),
                 details: None,
             },
@@ -40117,7 +40117,7 @@ async fn memory_supersede_inner(
             StatusCode::BAD_REQUEST,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
-                message: "supersede requires `superseded_by`: the file_cid of the                           note that replaces this one. A supersession with no                           destination tells a reader the claim is stale and                           leaves them nowhere to go."
+                message: "supersede requires `superseded_by`: the file_cid of the note that replaces this one. A supersession with no destination tells a reader the claim is stale and leaves them nowhere to go."
                     .into(),
                 details: None,
             },
@@ -56923,9 +56923,9 @@ fn enlistment_gate(
                 // that. Telling those callers the tier they lack is true and
                 // useless; telling them the field they are missing is the fix.
                 let how = if att.is_none() {
-                    " This request carried NO attester block, so it is anonymous.                       Add `attester: {pubkey_b32, sig_b32}` signing the same preimage                       the memory verbs use: send it once unsigned and the refusal hands                       you the exact digest to sign. No registration and no API key."
+                    " This request carried NO attester block, so it is anonymous. Add `attester: {pubkey_b32, sig_b32}` signing the same preimage the memory verbs use: send it once unsigned and the refusal hands you the exact digest to sign. No registration and no API key."
                 } else {
-                    " Your signature verified; the tier is what is short. GET /v1/enlist                       lists each check and what it proves."
+                    " Your signature verified; the tier is what is short. GET /v1/enlist lists each check and what it proves."
                 };
                 return Err(ApiError(
                     StatusCode::FORBIDDEN,
@@ -57244,7 +57244,7 @@ async fn post_enlist(
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "attester_pubkey_b32 must be the full 52-character key, not a prefix                      (got {} chars). The prefix identifies a namespace; the full key is                      what a domain vouches for.",
+                    "attester_pubkey_b32 must be the full 52-character key, not a prefix (got {} chars). The prefix identifies a namespace; the full key is what a domain vouches for.",
                     key.len()
                 ),
                 details: None,
@@ -57260,7 +57260,7 @@ async fn post_enlist(
                 ErrorBody {
                     code: ErrorCode::InvalidArgument,
                     message: format!(
-                        "method {other:?} is not checkable here. Use \"dns\" or \"well_known\";                          cross_sig is a signed ledger act, not a fetch. GET /v1/enlist lists them."
+                        "method {other:?} is not checkable here. Use \"dns\" or \"well_known\"; cross_sig is a signed ledger act, not a fetch. GET /v1/enlist lists them."
                     ),
                     details: None,
                 },
@@ -66930,6 +66930,30 @@ fn postcard_response(bytes: Vec<u8>, ctype: String, cell: &str, cached: bool) ->
 /// second port; when it is down, slow, or covers nowhere near this cell, the
 /// Earth-observation answer is still a good answer. Nothing in here can turn a
 /// 200 into an error or an empty result into a claim.
+/// Does this percentile actually place the reading, or only look like it does?
+///
+/// The baseline holds only readings under the same `detector_fn_id`, so it is
+/// often a handful. At n=7 the upstream's own `percentile_ci` was
+/// [0.158, 0.750] -- a 59-point interval, which does not separate a busy hour
+/// from a quiet one. "The 43rd percentile" says it does.
+///
+/// The test is the interval rather than a chosen `n`, because the interval is
+/// what decides whether the number distinguishes anything, and the upstream
+/// computes it rather than this guessing at it. `n` is the fallback only when
+/// no interval is published.
+///
+/// THIS BRANCH IS DORMANT WHENEVER BASELINES ARE GOOD, which is why it is a
+/// function with a test rather than an `if` inside a formatter. The day it
+/// matters is the day every interval goes wide at once -- a detector identity
+/// change restarting every camera's history -- and that is the worst possible
+/// day to find out it was never exercised.
+fn percentile_places_the_reading(bounds: Option<(f64, f64)>, n: u64) -> bool {
+    match bounds {
+        Some((lo, hi)) => hi - lo < 0.5,
+        None => n >= 5,
+    }
+}
+
 /// What the evidence behind a camera count reaches, and what it does not.
 ///
 /// Three sessions found the same fault on 2026-09-10 from three directions: a
@@ -67295,9 +67319,9 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                         m.insert(
                             "provenance_note".into(),
                             json!(if recomputable {
-                                "the clip was observed; the counts are recomputable from it                                  under the detector named in `detector_fn_id`, and the bytes                                  they were taken from are committed by sha256. Counts under                                  two different fn_ids are not comparable."
+                                "the clip was observed; the counts are recomputable from it under the detector named in `detector_fn_id`, and the bytes they were taken from are committed by sha256. Counts under two different fn_ids are not comparable."
                             } else {
-                                "the counts were taken from a frame this responder does not                                  retain, so nobody can re-derive them: read them as a reading,                                  not as evidence. `counted_from.tamper_evidence` is the field                                  that says which of the two you have."
+                                "the counts were taken from a frame this responder does not retain, so nobody can re-derive them: read them as a reading, not as evidence. `counted_from.tamper_evidence` is the field that says which of the two you have."
                             }),
                         );
                     }
@@ -67595,23 +67619,57 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                             .get("means")
                             .and_then(|v| v.as_str())
                             .unwrap_or("compared with this camera's own past");
-                        // n is small here and often single digits, so the count
-                        // of comparisons travels with the percentile rather than
-                        // being left for the reader to go and find.
                         // The percentile is a deterministic index over this
                         // camera's own past readings. The clip hash covers the
                         // frame the CURRENT count came from and nothing about
-                        // the series, so putting the two in adjacent sentences
-                        // with one evidence clause between them extends a
-                        // guarantee over something it does not reach. Same
-                        // fault the geo.qa agent found on their own trend
-                        // figure the same day, from the other direction.
-                        lead.push_str(&format!(
-                            " That is the {:.0}th percentile {means}, over {n} prior \
-                             reading(s) -- a comparison against this camera's own history, \
-                             which the clip hash does not cover.",
-                            pct * 100.0
-                        ));
+                        // the series, so an evidence clause immediately before
+                        // it extends a guarantee over something it does not
+                        // reach: the same fault the geo.qa agent found on their
+                        // own trend figure, from the other direction, the same
+                        // day.
+                        //
+                        // A PERCENTILE OVER TOO SHORT A HISTORY IS NOT A
+                        // PERCENTILE, and the upstream already publishes the
+                        // evidence for that. `n` was 7 on the answer this was
+                        // written against and `percentile_ci` was
+                        // [0.158, 0.750]: a 59-point interval, which does not
+                        // separate a busy hour from a quiet one. Printing "the
+                        // 43rd percentile" says it does. The test is the
+                        // interval rather than a chosen `n`, because the
+                        // interval is what decides whether the number
+                        // distinguishes anything, and it is computed upstream
+                        // rather than guessed here.
+                        //
+                        // This gets sharper shortly, not softer. The baseline
+                        // holds only readings under the same detector_fn_id,
+                        // and geo.qa are taking a backend address out of that
+                        // identity hash, which changes every fn_id once and
+                        // restarts every camera's history. A sentence printing
+                        // a confident percentile over n=1 would become wrong on
+                        // the day that ships, with nobody having edited it.
+                        let ci = tc.get("percentile_ci").and_then(|v| v.as_array());
+                        let bounds =
+                            ci.and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
+                        if percentile_places_the_reading(bounds, n) {
+                            let span = match bounds {
+                                Some((lo, hi)) => {
+                                    format!(" (interval {:.0}-{:.0})", lo * 100.0, hi * 100.0)
+                                }
+                                None => String::new(),
+                            };
+                            lead.push_str(&format!(
+                                " That is the {:.0}th percentile{span} {means}, over {n} prior \
+                                 reading(s) -- a comparison against this camera's own history, \
+                                 which the clip hash does not cover.",
+                                pct * 100.0
+                            ));
+                        } else {
+                            lead.push_str(&format!(
+                                " Whether that is busy or quiet for this camera is not yet \
+                                 answerable: {n} prior reading(s) under this detector, too few \
+                                 to place it."
+                            ));
+                        }
                     }
                 }
                 if let Some(area) = block.get("area_note").and_then(|v| v.as_str()) {
@@ -75997,6 +76055,45 @@ mod tests {
         let (after, conflicts) = collapse_alias_spellings("emem_log_inclusion", before.clone());
         assert_eq!(after, before, "no alias groups, no rewriting");
         assert!(conflicts.is_empty());
+    }
+
+    /// A percentile is printed only when its interval places the reading.
+    ///
+    /// The four rows are live readings the geo.qa agent measured on 2026-09-10
+    /// across their camera album, with the verdict their page rendered beside
+    /// each. The two that read as findings are earned; Trafalgar's is not, and
+    /// was being rendered as one on both surfaces. Re-derive with
+    /// `POST /v1/perception/at {"cell": ..., "detect_from_clip": true}` and
+    /// read `temporal_context.percentile_ci`; the numbers move, the rule does
+    /// not.
+    #[test]
+    fn a_percentile_is_only_printed_when_its_interval_places_it() {
+        let measured: &[(&str, (f64, f64), u64, bool)] = &[
+            ("Trafalgar Square", (0.137, 0.646), 10, false),
+            ("Tooley St / Boss St", (0.0, 0.204), 15, true),
+            ("Regent St / Conduit St", (0.012, 0.298), 15, true),
+            ("ASPEN WAY", (0.175, 0.613), 15, true),
+        ];
+        for (where_, ci, n, places) in measured {
+            assert_eq!(
+                percentile_places_the_reading(Some(*ci), *n),
+                *places,
+                "{where_}: interval {:?} is {:.3} wide",
+                ci,
+                ci.1 - ci.0
+            );
+        }
+
+        // An interval that spans everything places nothing, however large n is.
+        assert!(!percentile_places_the_reading(Some((0.0, 1.0)), 10_000));
+        assert!(!percentile_places_the_reading(Some((0.0, 0.97)), 10_000));
+        // The boundary is exclusive: exactly half the range still places nothing.
+        assert!(!percentile_places_the_reading(Some((0.25, 0.75)), 100));
+        assert!(percentile_places_the_reading(Some((0.26, 0.75)), 100));
+        // No interval published: fall back to n, and a short history is short
+        // whether or not anyone measured how short.
+        assert!(!percentile_places_the_reading(None, 4));
+        assert!(percentile_places_the_reading(None, 5));
     }
 
     /// The evidence statement names what it does NOT reach, in both states.

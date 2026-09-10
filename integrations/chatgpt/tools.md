@@ -198,11 +198,12 @@ Surface where the corpus DISAGREES with itself (algebra: competing evidence). Wh
 ```json
 {
   "band": "<band>",                     // optional
+  "cell": "<cell>",                     // optional
+  "cell64": "<cell64>",                 // optional
   "cell_prefix": "<cell_prefix>",       // optional
   "include_same_attester_sources": false, // optional
   "limit": 0,                           // optional
-  "min_severity": 0,                    // optional
-  "window_unix_s": []                   // optional
+  "min_severity": 0                     // optional
 }
 ```
 
@@ -259,7 +260,6 @@ Run emem-guard's policy pipeline over text you are about to send, against this r
 {
   "agent": "<agent>",  // optional
   "claim_gating": false, // optional
-  "messages": [],      // optional
   "shape": "<shape>",  // optional
   "texts": []          // optional
 }

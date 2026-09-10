@@ -1,0 +1,21 @@
+{
+  "_what": "Host details that appear in a public answer ON PURPOSE. Anything not listed here fails scripts/no_host_details_in_public.py.",
+  "_why_a_file": "An exception someone can read and argue with. The alternative is a pattern quietly narrowed until the check goes green, which leaves no trace of the decision and no way to revisit it.",
+  "allow": {
+    "/v1/sources": [
+      "/run/emem/jepa_sidecar.sock"
+    ],
+    "/v1/guard/selfhost": [
+      "/run/your-engine.sock",
+      "localhost"
+    ]
+  },
+  "reasons": {
+    "/v1/sources": "The sources manifest says where a fact came from, and for the three model.* schemes the answer is a local GPU sidecar over a unix socket. `uds:` says so in the scheme, the path is the default that EMEM_SIDECAR_SOCK overrides, and a self-hoster reading this manifest to reproduce our provenance needs it. Kept as provenance, not as an address anyone is invited to call. Reconsider if the socket path ever becomes per-deployment secret rather than a documented default.",
+    "/v1/guard/selfhost": "This route IS the self-hosting instructions. `/run/your-engine.sock` and `localhost` are the reader's own machine, in a placeholder they are meant to substitute; they describe nothing about this host. Removing them would leave the instructions unable to say where the reader's engine listens."
+  },
+  "not_exceptions": {
+    "/v1/temporal_route": "math_note.reference carried `/home/ubuntu/agri/training/tdm.py` on the deployed build. That is a leak, not an exception. It is already corrected in the tree and goes away with the next deploy; if this check still reports it after one, the deploy did not happen."
+  },
+  "_how_matched": "Each entry is compared against the TEXT THE SCAN EXTRACTED, not against the surrounding value. `uds:/run/emem/jepa_sidecar.sock/predict/clay_embed` is matched by `/run/emem/jepa_sidecar.sock`, because the pattern that finds it starts at the slash."
+}

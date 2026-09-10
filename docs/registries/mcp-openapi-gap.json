@@ -1,0 +1,250 @@
+{
+  "_what": "Parameters the MCP tool schema declares and /openapi.json does not. A ceiling, not a target: it may fall, it may not rise.",
+  "_how": "python3 scripts/one_endpoint_one_contract.py --write-baseline",
+  "asymmetric_on_purpose": {
+    "emem_guard_verdict": [
+      "messages"
+    ]
+  },
+  "asymmetric_on_purpose_reasons": {
+    "emem_guard_verdict": "POST /v1/guard/verdict accepts a chat-completions `messages` array, because a client that already holds an OpenAI-shaped body should not have to reshape it to ask a question. The MCP TOOL does not advertise it: a checker should ask for the smallest input that answers the question, and listing `messages` beside `texts` made handing it the whole conversation look like the documented way in. The wire is unchanged; only the advertisement is. Removing it from /openapi.json too would hide an input the route really accepts."
+  },
+  "parameters_documented_only_for_agents": 141,
+  "tools": {
+    "emem_air": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_algorithms": [
+      "page",
+      "page_size",
+      "summary"
+    ],
+    "emem_ask": [
+      "include",
+      "query",
+      "question"
+    ],
+    "emem_at": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_backfill": [
+      "budget_ms",
+      "cells"
+    ],
+    "emem_cell_geojson": [
+      "cell"
+    ],
+    "emem_cell_scene_rgb": [
+      "cell"
+    ],
+    "emem_cells_in_bbox": [
+      "polygon_bbox"
+    ],
+    "emem_compare_bands": [
+      "cell64"
+    ],
+    "emem_compare_same_doy": [
+      "cell64"
+    ],
+    "emem_diff": [
+      "cell64"
+    ],
+    "emem_echo_verify": [
+      "strict"
+    ],
+    "emem_eudr_dds": [
+      "activity_type",
+      "geolocation_confidential",
+      "internal_reference_number",
+      "scope"
+    ],
+    "emem_explain_algorithm": [
+      "key"
+    ],
+    "emem_fetch": [
+      "cid"
+    ],
+    "emem_field_boundaries": [
+      "name",
+      "q",
+      "query"
+    ],
+    "emem_find_similar": [
+      "as_of_signed_at",
+      "as_of_tslot",
+      "cell",
+      "cell64",
+      "filter",
+      "scope"
+    ],
+    "emem_forest": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_heat_solve": [
+      "place"
+    ],
+    "emem_hunt": [
+      "event_type"
+    ],
+    "emem_intent": [
+      "lat",
+      "lng"
+    ],
+    "emem_jepa_predict": [
+      "place"
+    ],
+    "emem_jepa_predict_v2": [
+      "place"
+    ],
+    "emem_log_witnesses": [
+      "tree_size"
+    ],
+    "emem_lst": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_materializers": [
+      "page",
+      "page_size",
+      "summary"
+    ],
+    "emem_memory_bundle": [
+      "scope"
+    ],
+    "emem_memory_bundle_resolve": [
+      "token"
+    ],
+    "emem_ndvi": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_neighborhood_consistency": [
+      "lat",
+      "lng",
+      "place",
+      "q"
+    ],
+    "emem_query_region": [
+      "as_of_signed_at",
+      "as_of_tslot",
+      "scope"
+    ],
+    "emem_raster_resolve": [
+      "spot_check"
+    ],
+    "emem_recall": [
+      "band",
+      "cell64",
+      "include",
+      "lat",
+      "lng",
+      "place"
+    ],
+    "emem_recall_many": [
+      "band",
+      "budget_ms",
+      "cell64s",
+      "tslot"
+    ],
+    "emem_recall_polygon": [
+      "bbox",
+      "cells_per_sqkm",
+      "compact_offset",
+      "drill_on_water",
+      "name",
+      "projection",
+      "q",
+      "query",
+      "scope",
+      "verbose"
+    ],
+    "emem_soil": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_state": [
+      "as_of_signed_at",
+      "as_of_tslot",
+      "families",
+      "include_reserved",
+      "materialize",
+      "scope"
+    ],
+    "emem_state_multi": [
+      "as_of_signed_at",
+      "as_of_tslot",
+      "include",
+      "scope",
+      "vectors"
+    ],
+    "emem_substrates": [
+      "id"
+    ],
+    "emem_terrain": [
+      "lat",
+      "lng",
+      "place",
+      "q"
+    ],
+    "emem_tools": [
+      "bundle",
+      "category",
+      "name",
+      "q",
+      "shape",
+      "tier"
+    ],
+    "emem_trajectory": [
+      "as_of_signed_at",
+      "as_of_tslot",
+      "cell64",
+      "scope"
+    ],
+    "emem_verify": [
+      "cell64"
+    ],
+    "emem_verify_receipt": [
+      "current_responder_epoch",
+      "facts"
+    ],
+    "emem_water": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ],
+    "emem_wave_solve": [
+      "cell",
+      "place"
+    ],
+    "emem_weather": [
+      "cell",
+      "cell64",
+      "include",
+      "radius_m",
+      "threshold"
+    ]
+  }
+}
