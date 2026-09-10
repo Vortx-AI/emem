@@ -26,7 +26,8 @@
 
 # Protocol
 
-- [Whitepaper](./whitepaper-v2.md)
+- [Whitepaper](./whitepaper-v3.md)
+  - [Whitepaper v2 (superseded)](./whitepaper-v2.md)
   - [Whitepaper v1 (archived)](./whitepaper-v1.md)
 - [Protocol](./protocol.md)
 - [Registries](./registries.md)
