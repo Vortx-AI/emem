@@ -12,6 +12,7 @@ pub mod edge;
 pub mod fact;
 pub mod receipt;
 pub mod scope;
+pub mod state;
 
 pub use attest::Attestation;
 pub use cid::{EdgeCid, FactCid, ReasonCid, RegistryCid, SchemaCid};

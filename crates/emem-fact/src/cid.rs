@@ -32,3 +32,7 @@ cid_newtype!(
 cid_newtype!(BatchCid, "CID of a Merkle batch of facts.");
 cid_newtype!(CoverageCid, "CID of a coverage manifest snapshot.");
 cid_newtype!(EdgeCid, "CID of an EdgeFact.");
+cid_newtype!(
+    StateCid,
+    "CID of a StateRecord: one addressed step in how an answer was reached. Full 32 bytes over the state's canonical CBOR, because a consumer SKIPS bytes on the strength of it."
+);

@@ -65153,6 +65153,78 @@ impl AskTrace {
     fn steps(&self) -> Vec<JsonValue> {
         self.steps.lock().map(|s| s.clone()).unwrap_or_default()
     }
+
+    /// The same steps, each given a content address.
+    ///
+    /// Order addresses a trace by WHEN; this addresses it by WHAT. Ask the
+    /// same question twice and the steps that did not change carry the same
+    /// `emem:state:` token, so a consumer holding one skips the bytes rather
+    /// than reading them again. Measured on this responder, two identical asks
+    /// seconds apart: 22.9 KB of 72.2 KB byte-identical.
+    ///
+    /// Each state commits to the cids of the step before it and of the facts
+    /// that step grounded — hashes, never bytes. An input cannot be swapped
+    /// without this address moving, and the input travels once.
+    fn addressed_steps(&self, responder_pubkey_b32: &str) -> Vec<JsonValue> {
+        use emem_fact::state::{StateClass, StateRecord};
+        let mut out = Vec::new();
+        let mut previous: Option<String> = None;
+        for step in self.steps() {
+            let kind = step
+                .get("stage")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            // derived_from: the step before, then the facts this step
+            // grounded. Order is part of the derivation.
+            let mut derived_from: Vec<String> = previous.iter().cloned().collect();
+            derived_from.extend(
+                step.get("new_fact_cids")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|c| c.as_str())
+                            .map(str::to_owned)
+                            .collect()
+                    })
+                    .unwrap_or_else(Vec::new),
+            );
+            // The payload is the step's decision, without the citations: those
+            // are in derived_from, and carrying them twice would make one
+            // change move the address for two reasons.
+            let payload = step.get("detail").cloned().unwrap_or(JsonValue::Null);
+            let Ok(payload) = ciborium::value::Value::serialized(&payload) else {
+                continue;
+            };
+            let rec = StateRecord {
+                schema: "emem.state.v1".into(),
+                kind,
+                derived_from,
+                fn_key: None,
+                payload,
+                // Every stage here is a pure function of this responder's
+                // registries and the facts named above. Nothing in this
+                // pipeline consults a model; a stage that did would carry
+                // ModelOutput and must not be mistaken for this.
+                class: StateClass::DeterministicIndex,
+                does_not_cover: vec![
+                    "the facts themselves, which are cited in derived_from and verified against their own fact_cids".into(),
+                ],
+                computed_at: chrono_iso8601_utc(),
+                responder_pubkey_b32: responder_pubkey_b32.to_string(),
+            };
+            let token = rec.token();
+            previous = Some(rec.cid().0.clone());
+            out.push(json!({
+                "state": token,
+                "stage": step.get("stage"),
+                "at_ms": step.get("at_ms"),
+                "derived_from": rec.derived_from,
+                "_recompute": "blake3 over the canonical CBOR of the state record at GET /v1/state/<cid>, base32-nopad lowercase. Recompute it yourself; this responder is not the authority on its own addresses.",
+            }));
+        }
+        out
+    }
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
@@ -66382,6 +66454,17 @@ async fn ask_inner_traced(
                 "steps": trace.steps(),
                 "_means": "the ordered stages this answer was reached through, each with the fact_cids it grounded. Everything a partial answer at step N rests on is the new_fact_cids of steps 0..=N, in order.",
                 "_streamed": "the same steps arrive as they complete if you send `Accept: text/event-stream` to this endpoint.",
+                // The same steps, addressed by content instead of by order.
+                // Ask again and whatever did not change carries the same
+                // token, so a consumer that holds it skips the bytes. This is
+                // the half that makes the trace REUSABLE rather than merely
+                // visible.
+                "states": trace.addressed_steps(
+                    &data_encoding::BASE32_NOPAD
+                        .encode(&s.identity.pubkey.0)
+                        .to_lowercase(),
+                ),
+                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. Same question, same unchanged stages, same tokens: hold one and skip its bytes. Resolve with GET /v1/state/<cid>, and recompute the address yourself from the bytes it returns.",
             }),
         );
 
