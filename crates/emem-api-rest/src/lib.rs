@@ -64696,6 +64696,75 @@ fn is_meta_self_question(q: &str) -> bool {
 
 /// The structured self-description returned for a meta question. Mirrors the
 /// MCP `initialize.instructions` thesis so every entry point tells one story.
+/// The `facts_summary` block of an ask envelope.
+///
+/// A free function so `the_summary_keeps_the_distinction_the_facts_carry`
+/// can call the thing that ships rather than a copy of it.
+fn ask_facts_summary(facts_json: &JsonValue) -> JsonValue {
+    let fact_count = facts_json
+        .get("facts")
+        .and_then(|v| v.as_array())
+        .map(|a| a.len())
+        .unwrap_or(0);
+    // PRESENT AND ABSENT ARE BOTH FACTS AND THEY ARE NOT THE SAME FACT.
+    //
+    // This mapped `band` over every fact with no filter on `kind`, so a
+    // signed absence -- emem's "we looked and there is nothing here",
+    // which is an answer rather than a gap -- appeared in a list called
+    // `bands_present` exactly like a reading. Measured at a mid-Pacific
+    // cell: bands_present contained `hansen.loss_year`, whose fact is an
+    // absence, so a consumer reading the summary concluded there was
+    // forest-loss data in the middle of the ocean. The name asserts the
+    // stronger of the two readings, which is the worst way to be wrong.
+    //
+    // The items carried the distinction the whole time, in `kind`. The
+    // aggregate dropped it. That is the geo.qa agent's note of 2026-09-10,
+    // w6cccfu3vp65rvs7yw4kgtoiri: the individual is where attention goes
+    // because that is where the meaning is, and the aggregate is where
+    // correctness is decided because nobody looks at it.
+    let empty = Vec::new();
+    let all = facts_json
+        .get("facts")
+        .and_then(|v| v.as_array())
+        .unwrap_or(&empty);
+    let is_absence = |f: &JsonValue| f.get("kind").and_then(|k| k.as_str()) == Some("absence");
+    let bands_present: Vec<&str> = all
+        .iter()
+        .filter(|f| !is_absence(f))
+        .filter_map(|f| f.get("band").and_then(|b| b.as_str()))
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .collect();
+    // Named, with the reason each carries, because "not present" and
+    // "signed as not here, for this reason" are different answers and only
+    // one of them is evidence.
+    let bands_absent: Vec<JsonValue> = all
+        .iter()
+        .filter(|f| is_absence(f))
+        .filter_map(|f| {
+            let band = f.get("band").and_then(|b| b.as_str())?;
+            Some(json!({
+                "band": band,
+                "absence_reason": f.get("absence_reason"),
+                "fact_cid": f.get("fact_cid"),
+            }))
+        })
+        .collect();
+    json!({
+        "fact_count": fact_count,
+        "bands_present": bands_present,
+        "bands_absent": bands_absent,
+        "counts": {
+            "primary":  all.iter().filter(|f| !is_absence(f)).count(),
+            "absence":  all.iter().filter(|f| is_absence(f)).count(),
+            "_means": "both are signed facts with a fact_cid. `primary` is a reading; \
+                       `absence` is this responder attesting it looked and there is \
+                       nothing here. fact_count is the two together.",
+        },
+        "receipt": facts_json.get("receipt"),
+    })
+}
+
 fn emem_self_describe() -> JsonValue {
     json!({
         "schema": "emem.self_describe.v1",
@@ -65784,29 +65853,7 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
 
     // facts_summary: always present, the signed receipt (fact_cids,
     // signature, served_at) plus a count and the bands present.
-    let facts_summary = {
-        let fact_count = facts_json
-            .get("facts")
-            .and_then(|v| v.as_array())
-            .map(|a| a.len())
-            .unwrap_or(0);
-        let bands_present: Vec<&str> = facts_json
-            .get("facts")
-            .and_then(|v| v.as_array())
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|f| f.get("band").and_then(|b| b.as_str()))
-                    .collect::<std::collections::BTreeSet<_>>()
-                    .into_iter()
-                    .collect()
-            })
-            .unwrap_or_default();
-        json!({
-            "fact_count": fact_count,
-            "bands_present": bands_present,
-            "receipt": facts_json.get("receipt"),
-        })
-    };
+    let facts_summary = ask_facts_summary(&facts_json);
 
     // algorithm_outcomes_summary: key + value per outcome, no provenance.
     let algorithm_outcomes_summary: Vec<JsonValue> = algorithm_outcomes
@@ -76215,6 +76262,59 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// `bands_present` means present, and an absence is named as one.
+    ///
+    /// Measured at a mid-Pacific cell on 2026-09-10: the summary listed
+    /// `hansen.loss_year` under bands_present, where the underlying fact is a
+    /// signed absence. A consumer reading the aggregate concluded there was
+    /// forest-loss data in the middle of the ocean. The items carried `kind`
+    /// the whole time; the aggregate mapped over `band` and dropped it.
+    #[test]
+    fn the_summary_keeps_the_distinction_the_facts_carry() {
+        let facts = json!({"facts": [
+            {"kind": "primary", "band": "indices.ndvi", "value": 0.38,
+             "fact_cid": "aaa"},
+            {"kind": "absence", "band": "hansen.loss_year", "value": null,
+             "absence_reason": "outside_coverage", "fact_cid": "bbb"},
+            {"kind": "primary", "band": "weather.temperature_2m", "value": 16.2,
+             "fact_cid": "ccc"},
+        ]});
+        let s = ask_facts_summary(&facts);
+
+        let present: Vec<&str> = s["bands_present"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        assert_eq!(present, ["indices.ndvi", "weather.temperature_2m"]);
+        assert!(
+            !present.contains(&"hansen.loss_year"),
+            "a signed absence is not a band present: {present:?}"
+        );
+
+        let absent = s["bands_absent"].as_array().unwrap();
+        assert_eq!(absent.len(), 1);
+        assert_eq!(absent[0]["band"].as_str(), Some("hansen.loss_year"));
+        assert_eq!(
+            absent[0]["absence_reason"].as_str(),
+            Some("outside_coverage")
+        );
+
+        // The two counts add up to the one that was there before, so nothing
+        // that read fact_count is now reading a different number.
+        assert_eq!(s["counts"]["primary"].as_u64(), Some(2));
+        assert_eq!(s["counts"]["absence"].as_u64(), Some(1));
+        assert_eq!(s["fact_count"].as_u64(), Some(3));
+
+        // An envelope with no absences must say so with an empty list, not by
+        // omitting the key: absent-and-none and never-looked are different.
+        let none = ask_facts_summary(&json!({"facts": [
+            {"kind": "primary", "band": "indices.ndvi", "fact_cid": "aaa"}
+        ]}));
+        assert_eq!(none["bands_absent"].as_array().map(|a| a.len()), Some(0));
     }
 
     /// The block hedges wherever the prose hedges, from one call.
