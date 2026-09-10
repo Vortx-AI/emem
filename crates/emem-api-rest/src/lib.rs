@@ -65166,7 +65166,7 @@ impl AskTrace {
     /// that step grounded — hashes, never bytes. An input cannot be swapped
     /// without this address moving, and the input travels once.
     fn addressed_steps(&self, responder_pubkey_b32: &str) -> Vec<JsonValue> {
-        use emem_fact::state::{StateClass, StateRecord};
+        use emem_fact::state::{Input, StateClass, StateRecord};
         let mut out = Vec::new();
         let mut previous: Option<String> = None;
         for step in self.steps() {
@@ -65177,17 +65177,26 @@ impl AskTrace {
                 .to_string();
             // derived_from: the step before, then the facts this step
             // grounded. Order is part of the derivation.
-            let mut derived_from: Vec<String> = previous.iter().cloned().collect();
+            // Typed: "cited a fact" and "stood on our own earlier step" are
+            // different claims, and a flat cid list cannot tell a reader which
+            // one a step made. A derivation performed elsewhere never appears
+            // here at all — it is a note, cited in prose, never a step.
+            let mut derived_from: Vec<Input> = previous
+                .iter()
+                .map(|cid| Input::OwnState { cid: cid.clone() })
+                .collect();
             derived_from.extend(
                 step.get("new_fact_cids")
                     .and_then(|v| v.as_array())
                     .map(|a| {
                         a.iter()
                             .filter_map(|c| c.as_str())
-                            .map(str::to_owned)
-                            .collect()
+                            .map(|cid| Input::Fact {
+                                cid: cid.to_owned(),
+                            })
+                            .collect::<Vec<_>>()
                     })
-                    .unwrap_or_else(Vec::new),
+                    .unwrap_or_default(),
             );
             // The payload is the step's decision, without the citations: those
             // are in derived_from, and carrying them twice would make one
@@ -76874,6 +76883,72 @@ mod tests {
         // And it must say which handle was turned, or a caller cannot tell a
         // resolved citation from a path read.
         assert!(by_cid.contains("resolved_by"));
+    }
+
+    /// emem provides reasoning. No route takes any.
+    ///
+    /// This responder mints states from derivations IT performed over facts IT
+    /// signed. If a foreign state could reach `derived_from`, our receipt
+    /// would stand over reasoning we never did and a reader could not tell
+    /// which steps were ours — everything the state type exists to guarantee,
+    /// gone in one hop.
+    ///
+    /// The same line already runs through emem: a FACT is a measurement this
+    /// responder made, a NOTE is prose a stranger wrote and is never obeyed,
+    /// and a STATE is a derivation this responder computed. Another model's
+    /// reasoning is a note. It may be stored, cited and read; it is never a
+    /// step in ours.
+    ///
+    /// A boundary that is only written down is one the next convenient
+    /// refactor removes, so this reads the source. Decoding a StateRecord to
+    /// VERIFY it is fine and is what a consumer does; what must not appear is
+    /// a request type with a StateRecord in it, which is the shape an
+    /// ingestion path has.
+    #[test]
+    fn no_route_ingests_a_state_as_reasoning() {
+        let src = include_str!("lib.rs");
+
+        // Request types on this surface are the structs that derive
+        // Deserialize and end in `Req`. A StateRecord inside one is a route
+        // accepting somebody else's derivation.
+        let mut offending = Vec::new();
+        for block in src.split("#[derive(") {
+            let Some(head) = block.split('{').next() else {
+                continue;
+            };
+            if !head.contains("Deserialize") {
+                continue;
+            }
+            let Some(name) = head
+                .split("struct ")
+                .nth(1)
+                .and_then(|t| t.split_whitespace().next())
+            else {
+                continue;
+            };
+            if !name.ends_with("Req") {
+                continue;
+            }
+            let body = block.split('{').nth(1).unwrap_or("");
+            let body = body.split("\n}").next().unwrap_or(body);
+            if body.contains("StateRecord") || body.contains("state_record") {
+                offending.push(name.to_string());
+            }
+        }
+        assert!(
+            offending.is_empty(),
+            "these request types would let a caller hand us their reasoning as ours: {offending:?}. \
+             A foreign derivation is a note, not a step."
+        );
+
+        // A control, because a scanner that matches nothing looks exactly like
+        // a clean surface: the pattern must find the request types it is
+        // scanning at all.
+        let req_types = src.matches("Req {").count();
+        assert!(
+            req_types > 20,
+            "found {req_types} request types; this check has stopped reading the file"
+        );
     }
 
     /// The trace records whether or not anyone is streaming, and a stage

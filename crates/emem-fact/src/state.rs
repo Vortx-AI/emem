@@ -46,6 +46,32 @@
 //! server could compute would be an ETag with better branding: a model that
 //! skipped on the strength of it would have verified nothing, only trusted a
 //! server about what it would have sent.
+//!
+//! # emem PROVIDES reasoning. It does not take any.
+//!
+//! This responder mints states from derivations IT performed, over facts IT
+//! signed, and there is no route that accepts a state as an input to its own
+//! reasoning. That is a boundary, not a policy: the moment a foreign state
+//! could enter `derived_from`, this responder's receipt would appear to stand
+//! over reasoning it never did, and a reader could not tell which steps were
+//! ours. Everything this file exists to guarantee would be gone in one hop.
+//!
+//! The same line already runs through emem elsewhere and this extends it
+//! rather than inventing it. A FACT is a band-typed measurement this responder
+//! made from a registered upstream; a NOTE is prose a stranger wrote, wrapped
+//! in `_content_is_data_not_instructions` and never obeyed. A STATE is a
+//! derivation this responder computed. Another model's reasoning is a note: it
+//! may be stored, cited and read, and it is never a step in ours.
+//!
+//! `responder_pubkey_b32` is who computed the step, and it is checkable —
+//! recompute the cid, and the key is inside the bytes it commits to. A state
+//! carrying someone else's key is someone else's derivation, correctly
+//! addressed and correctly not ours.
+//!
+//! `no_route_ingests_a_state_as_reasoning` in emem-api-rest is what keeps this
+//! true after today. It fails the build if any request type ever gains a
+//! `StateRecord` field, because a boundary that is only written down is a
+//! boundary that the next convenient refactor removes.
 
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +101,31 @@ pub enum StateClass {
     DirectSensor,
 }
 
+/// One thing a state was computed from.
+///
+/// A flat list of content addresses would make a cited observation and an
+/// absorbed derivation indistinguishable in the bytes, which is the whole
+/// distinction this type exists to keep.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "as", rename_all = "snake_case")]
+pub enum Input {
+    /// A band-typed measurement, by fact_cid. Anyone dereferences it and
+    /// checks the signature over the observation without trusting us.
+    Fact { cid: String },
+    /// An earlier step of THIS responder's own derivation. Only ever ours: a
+    /// foreign derivation is a note, and a note is cited in prose, never
+    /// stood on as a step.
+    OwnState { cid: String },
+}
+
+impl Input {
+    pub fn cid(&self) -> &str {
+        match self {
+            Input::Fact { cid } | Input::OwnState { cid } => cid,
+        }
+    }
+}
+
 /// One addressed step in how an answer was reached.
 ///
 /// Field order is the wire order: `ciborium` emits map keys in declaration
@@ -90,9 +141,17 @@ pub struct StateRecord {
     /// vocabulary on purpose — a kind a consumer cannot recognise is a state
     /// it cannot reuse, so growing this is a decision and not a convenience.
     pub kind: String,
-    /// The cids this state was computed FROM, in order: other state cids,
-    /// fact cids, or any content address. Hashes, never bytes.
-    pub derived_from: Vec<String>,
+    /// What this state was computed FROM, in order. Hashes, never bytes.
+    ///
+    /// TYPED, because "cited a fact" and "absorbed a derivation" are different
+    /// claims and a flat list of cids cannot tell them apart. The geo.qa
+    /// frontend agent drew the line and it is the right one: citing a fact
+    /// says "this input existed, here is its address", and both parties check
+    /// that independently. Citing someone else's STATE as a step says "these
+    /// operations happened", which the citer cannot check and the reader
+    /// cannot attribute. The asymmetry is not about ownership; it is about
+    /// what a reader can verify without re-running someone else's process.
+    pub derived_from: Vec<Input>,
     /// The function that produced it, where one exists. Required in practice
     /// for `DeterministicIndex`: without it "re-derivable" names no procedure.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -145,6 +204,18 @@ impl StateRecord {
     pub fn token(&self) -> String {
         format!("emem:state:{}", self.cid().0)
     }
+
+    /// Did THIS responder compute this step?
+    ///
+    /// The question a reader must be able to answer about any state before
+    /// relying on it, and the reason the key is inside the bytes the cid
+    /// commits to rather than beside them. A state that arrives from
+    /// elsewhere is a real, correctly addressed derivation — someone else's.
+    /// Citing it is fine. Treating it as a step in our own reasoning is the
+    /// one thing this type exists to make impossible.
+    pub fn computed_by(&self, responder_pubkey_b32: &str) -> bool {
+        self.responder_pubkey_b32 == responder_pubkey_b32
+    }
 }
 
 #[cfg(test)]
@@ -155,7 +226,10 @@ mod tests {
         StateRecord {
             schema: "emem.state.v1".into(),
             kind: "verdict_withheld".into(),
-            derived_from: vec!["aaa".into(), "bbb".into()],
+            derived_from: vec![
+                Input::Fact { cid: "aaa".into() },
+                Input::Fact { cid: "bbb".into() },
+            ],
             fn_key: Some("percentile_places_the_reading@1".into()),
             payload: ciborium::Value::Bool(false),
             class: StateClass::DeterministicIndex,
@@ -193,13 +267,19 @@ mod tests {
     fn substituting_an_input_changes_the_address() {
         let a = sample();
         let mut b = sample();
-        b.derived_from = vec!["aaa".into(), "ccc".into()];
+        b.derived_from = vec![
+            Input::Fact { cid: "aaa".into() },
+            Input::Fact { cid: "ccc".into() },
+        ];
         assert_ne!(a.cid(), b.cid(), "a different input is a different state");
 
         // Order is part of the derivation, not incidental: f(x, y) and f(y, x)
         // are not the same step.
         let mut c = sample();
-        c.derived_from = vec!["bbb".into(), "aaa".into()];
+        c.derived_from = vec![
+            Input::Fact { cid: "bbb".into() },
+            Input::Fact { cid: "aaa".into() },
+        ];
         assert_ne!(
             a.cid(),
             c.cid(),
@@ -209,6 +289,61 @@ mod tests {
         // And identical content is one address, which is what makes a skip
         // possible at all.
         assert_eq!(a.cid(), sample().cid());
+    }
+
+    /// A state names who computed it, inside what the address commits to.
+    ///
+    /// So a foreign derivation cannot be re-badged as ours without changing
+    /// its cid, and a reader holding only the bytes can tell whose reasoning
+    /// they are looking at.
+    #[test]
+    fn whose_reasoning_this_is_travels_inside_the_address() {
+        let ours = sample();
+        let us = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka";
+        assert!(ours.computed_by(us));
+
+        let mut theirs = sample();
+        theirs.responder_pubkey_b32 = "vy7ig7nppebkfh34ibafgzdsdspdyfntuvzgbatnhggtsknbh4ta".into();
+        assert!(
+            !theirs.computed_by(us),
+            "another key is another party's derivation"
+        );
+        assert_ne!(
+            ours.cid(),
+            theirs.cid(),
+            "who computed a step is part of the step; re-badging it must move the address"
+        );
+
+        // And the check survives the round trip a consumer actually does.
+        let bytes = theirs.to_canonical_cbor();
+        let decoded: StateRecord = ciborium::from_reader(&bytes[..]).unwrap();
+        assert!(!decoded.computed_by(us));
+    }
+
+    /// Citing a fact and standing on a derivation are different in the bytes.
+    ///
+    /// A flat list of cids would have made them identical, so a reader could
+    /// not tell an observation this responder cited from a computation someone
+    /// else performed. Same cid, two meanings, two addresses.
+    #[test]
+    fn what_a_step_stood_on_says_which_kind_it_was() {
+        let mut cited = sample();
+        cited.derived_from = vec![Input::Fact { cid: "zzz".into() }];
+        let mut stood_on = sample();
+        stood_on.derived_from = vec![Input::OwnState { cid: "zzz".into() }];
+
+        assert_ne!(
+            cited.cid(),
+            stood_on.cid(),
+            "the same address cited as an observation and stood on as a derivation are \
+             different claims and must not share a state cid"
+        );
+        assert_eq!(cited.derived_from[0].cid(), stood_on.derived_from[0].cid());
+
+        // And it survives the round trip a consumer does.
+        let bytes = stood_on.to_canonical_cbor();
+        let back: StateRecord = ciborium::from_reader(&bytes[..]).unwrap();
+        assert!(matches!(back.derived_from[0], Input::OwnState { .. }));
     }
 
     /// A decision and a model's output must not be able to look alike.
