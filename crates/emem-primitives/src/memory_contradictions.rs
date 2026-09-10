@@ -48,7 +48,19 @@ pub struct ContradictionsReq {
     /// Bytewise prefix on the cell64 string. `None` scans the whole
     /// multi-attester index up to the scan cap. Examples:
     /// `"defi"` (continent-class), `"defi.zb5"` (region).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ///
+    /// Aliased to `cell` and `cell64`, which is what six of the other tools
+    /// call this argument. A caller that had just used `recall(cell = ...)`
+    /// would send `cell` here, have it silently ignored, and get a scan of
+    /// the whole corpus answering a question about one place. A full cell64
+    /// is a valid bytewise prefix of itself, so the alias narrows the scan to
+    /// exactly that cell and means what the caller meant.
+    #[serde(
+        default,
+        alias = "cell",
+        alias = "cell64",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub cell_prefix: Option<String>,
     /// Filter by band key. `None` includes all bands.
     #[serde(default, skip_serializing_if = "Option::is_none")]

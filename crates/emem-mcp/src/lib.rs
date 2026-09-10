@@ -626,7 +626,7 @@ const SCHEMA_DERIVE_LIST: &str = r#"{"type":"object","required":["attester_pubke
 // one signed envelope out. The composed `bundle_token` is `emem:bundle:<bundle_cid>`
 //, a single rebindable string that cites the whole set.
 const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
-"cell_prefix":{"type":"string","description":"Bytewise prefix on cell64 (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap."},
+"cell":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one. Same argument the other tools call `cell`. A full cell64 narrows the scan to that one place."},"cell_prefix":{"type":"string","description":"Bytewise prefix on cell64 (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap."},
 "band":{"type":"string","description":"Band key filter (e.g. `indices.ndvi`). Omit to include all bands."},
 "window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at, all disagreeing attestations must fall in the window."},
 "limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Max contradictions to return."},
@@ -1112,9 +1112,8 @@ const SCHEMA_TRACE_VERIFY: &str = r#"{"type":"object","required":["trace","profi
 }}"#;
 
 const SCHEMA_GUARD_VERDICT: &str = r#"{"type":"object","properties":{
-"shape":{"type":"string","enum":["native","mcp","openai","cloudevent","policy"],"default":"native","description":"Which envelope YOUR payload is in, so you never have to reshape it to ask the question: send the body your own framework produced and name its shape. native reads `texts`/`messages`; `mcp` reads a JSON-RPC tools/call or tool result; `openai` reads a moderations (`input`) or chat-completions body; `cloudevent` reads a CloudEvents 1.0 structured event; `policy` reads {input}. It matters: a CloudEvent whose citation sits at data.text is invisible to the native reader, and a check that read nothing answers `allow`, so confirm `citations_found` matches what you sent. Unrecognised values fall back to native rather than erroring. This selects how the body is READ only — the verdict always comes back in this tool's declared output shape, because a tool that declares an outputSchema owes conforming structuredContent. To get the ANSWER translated into the same envelope too (an OPA `result:{allow,deny}`, an MCP CallToolResult to substitute on a deny), call POST /v1/guard/verdict?shape=… directly."},
-"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check. Any number of pieces, in any order: a draft answer, a tool result, a whole turn."},
-"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text. Accepted so the same body works against a self-hosted emem-guard node and against any OpenAI-shaped client. Each item is {role, content} where content is a string or an array of blocks.","items":{"type":"object","properties":{"role":{"type":"string"},"content":{"description":"A string, or an array of {type,text} blocks."}}}},
+"shape":{"type":"string","enum":["native","mcp","openai","cloudevent","policy"],"default":"native","description":"Which envelope YOUR payload is in, so you never have to reshape it to ask the question: send the body your own framework produced and name its shape. native reads `texts`; `mcp` reads a JSON-RPC tools/call or tool result; `openai` reads a moderations (`input`) or chat-completions body; `cloudevent` reads a CloudEvents 1.0 structured event; `policy` reads {input}. It matters: a CloudEvent whose citation sits at data.text is invisible to the native reader, and a check that read nothing answers `allow`, so confirm `citations_found` matches what you sent. Unrecognised values fall back to native rather than erroring. This selects how the body is READ only — the verdict always comes back in this tool's declared output shape, because a tool that declares an outputSchema owes conforming structuredContent. To get the ANSWER translated into the same envelope too (an OPA `result:{allow,deny}`, an MCP CallToolResult to substitute on a deny), call POST /v1/guard/verdict?shape=… directly."},
+"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check, and the only input this tool needs. Send just the pieces the question is about: a draft answer, a tool result, one turn. Do not send surrounding conversation, because nothing here reads it and a checker should ask for the smallest input that answers the question."},
 "claim_gating":{"type":"boolean","description":"Also flag measurable physical-world claims that carry NO citation (deny code CLAIM_UNGROUNDED, fix cite_observation). Off by default: it reports on the absence of a citation rather than on a failed check. The verdict names the sentence, the magnitude, and the emem band that would answer it.","default":false},
 "agent":{"type":"string","description":"Optional free-text label for who is asking. Advisory only, never a trust boundary."}
 }}"#;
@@ -2331,7 +2330,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_guard_verdict",
         title: "Check whether the citations in a draft actually verify",
         description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
-        when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. Checking a payload some other framework produced (a CloudEvent, an OPA input, an OpenAI moderations body, another server's tool call)? Send it as-is and name its `shape`, because the default reader only sees `texts`/`messages` and a check that read nothing still answers allow. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
+        when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. Set claim_gating:true to also be told which measurable claims carry no citation at all and which emem band would answer them. Checking a payload some other framework produced (a CloudEvent, an OPA input, an OpenAI moderations body, another server's tool call)? Send it as-is and name its `shape`, because the default reader only sees `texts` and a check that read nothing still answers allow. To ENFORCE this rather than consult it, run your own node: emem_guard_selfhost returns the procedure, and it works across Anthropic Inference hooks, Claude Code hooks, MCP tool calls, OpenAI-shaped clients, CloudEvents and OPA-style policy clients.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
         example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
@@ -3380,6 +3379,62 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// No tool asks for a transcript.
+    ///
+    /// A checker should ask for the smallest input that answers its question.
+    /// `emem_guard_verdict` used to accept a chat-completions `messages` array
+    /// on the native path, which meant the honest way to call it was to hand it
+    /// the whole conversation when all it reads is the text it was pointed at.
+    /// The wire still accepts an OpenAI-shaped body under `shape: "openai"`,
+    /// for callers who already have one; nothing here should ADVERTISE the
+    /// broad form as the way in.
+    #[test]
+    fn no_input_schema_asks_for_a_transcript() {
+        for t in TOOLS {
+            let v: serde_json::Value = serde_json::from_str(t.input_schema).unwrap();
+            let Some(props) = v.get("properties").and_then(|p| p.as_object()) else {
+                continue;
+            };
+            for name in ["messages", "conversation", "transcript", "history"] {
+                assert!(
+                    !props.contains_key(name),
+                    "{}: declares `{name}`; ask for the pieces the question is \
+                     about, not the surrounding conversation",
+                    t.name
+                );
+            }
+        }
+    }
+
+    /// One argument name for one idea, across the whole surface.
+    ///
+    /// Seven tools take a cell64. Six of them call it `cell`.
+    /// `emem_memory_contradictions` calls it `cell_prefix`, and an unknown
+    /// argument is dropped rather than refused, so a caller carrying a cell64
+    /// from `emem_recall` asked about one place and was answered about the
+    /// whole corpus. The prefix spelling stays (a partial cell64 is a real and
+    /// useful thing to pass); `cell` is an alias onto it, because a full
+    /// cell64 is a bytewise prefix of itself.
+    #[test]
+    fn contradictions_takes_the_cell_name_the_rest_of_the_surface_uses() {
+        let v: serde_json::Value = serde_json::from_str(SCHEMA_MEMORY_CONTRADICTIONS).unwrap();
+        let props = v["properties"].as_object().expect("properties");
+        for name in ["cell", "cell_prefix"] {
+            assert!(
+                props.contains_key(name),
+                "contradictions must accept `{name}`"
+            );
+        }
+
+        let req: emem_primitives::memory_contradictions::ContradictionsReq =
+            serde_json::from_str(r#"{"cell":"defi.zb5f9kq2"}"#).unwrap();
+        assert_eq!(
+            req.cell_prefix.as_deref(),
+            Some("defi.zb5f9kq2"),
+            "`cell` must land on the field that narrows the scan, not be dropped"
+        );
     }
 
     /// The two parameter gaps the 2026-08-10 sweep left open, pinned.
