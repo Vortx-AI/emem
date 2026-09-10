@@ -168,7 +168,10 @@ def main():
     if not rows:
         print("decision-layer: the registry came back empty, so this would "
               "generate a header claiming emem does nothing.", file=sys.stderr)
-        return 2
+        # 3, not 2: OUR side. ci.yml waives 2 as a responder outage, so a
+        # gate that read nothing was reporting itself as "not asserted
+        # because the responder was down", which was not what happened.
+        return 3
 
     block = render(reg)
     text = open(GUIDE, encoding="utf-8").read()

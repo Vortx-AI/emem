@@ -138,12 +138,18 @@ def main():
         desc = json.loads(raw)
     except Exception as e:
         print(f"route-truth: descriptor is not json: {e}", file=sys.stderr)
-        return 2
+        # 3, not 2: OUR side. ci.yml waives 2 as a responder outage, so a
+        # gate that read nothing was reporting itself as "not asserted
+        # because the responder was down", which was not what happened.
+        return 3
 
     checkpoints = desc.get("checkpoints") or []
     if not checkpoints:
         print("route-truth: descriptor advertises no checkpoints", file=sys.stderr)
-        return 2
+        # 3, not 2: OUR side. ci.yml waives 2 as a responder outage, so a
+        # gate that read nothing was reporting itself as "not asserted
+        # because the responder was down", which was not what happened.
+        return 3
 
     print(f"route truth against {origin}\n")
 
@@ -316,7 +322,10 @@ def main():
         page = open(PAGE, encoding="utf-8").read()
     except OSError as e:
         print(f"\nroute-truth: cannot read {PAGE}: {e}", file=sys.stderr)
-        return 2
+        # 3, not 2: OUR side. ci.yml waives 2 as a responder outage, so a
+        # gate that read nothing was reporting itself as "not asserted
+        # because the responder was down", which was not what happened.
+        return 3
     heads = re.findall(r'<div class="code-head">(.*?)</div>', page, re.S)
     unmarked = [
         h for h in heads

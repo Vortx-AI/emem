@@ -136,7 +136,10 @@ def main():
     if not files:
         print("state-claims: read no documents, so nothing was checked.",
               file=sys.stderr)
-        return 2
+        # 3, not 2: OUR side. ci.yml waives 2 as a responder outage, so a
+        # gate that read nothing was reporting itself as "not asserted
+        # because the responder was down", which was not what happened.
+        return 3
 
     problems = []
     print(f"state claims against {origin}\n")

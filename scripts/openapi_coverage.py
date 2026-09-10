@@ -119,7 +119,10 @@ def main():
         src = open(SRC, encoding="utf-8").read()
     except OSError as e:
         print(f"openapi-coverage: cannot read {SRC}: {e}", file=sys.stderr)
-        return 2
+        # 3, not 2: this is OUR side. ci.yml waives 2 as "the responder did not
+        # answer", so sharing the code meant a broken gate printed a sentence
+        # that was false about which thing happened, and passed.
+        return 3
 
     routed = routed_paths(src)
     documented = documented_paths(src)
@@ -127,7 +130,7 @@ def main():
         print("openapi-coverage: parsed 0 routes or 0 descriptions, which means "
               "the source moved and this gate is measuring nothing.",
               file=sys.stderr)
-        return 2
+        return 3
 
     fails = []
     undocumented = sorted(set(routed) - documented)

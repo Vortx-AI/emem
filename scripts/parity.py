@@ -707,7 +707,10 @@ def main():
     cases = [c for c in cases if not a.only or c.name == a.only]
     if not cases:
         print(f"no case named {a.only!r}", file=sys.stderr)
-        return 2
+        # 3, not 2: this is OUR side. ci.yml waives 2 as "the responder did not
+        # answer", so sharing the code meant a broken gate printed a sentence
+        # that was false about which thing happened, and passed.
+        return 3
 
     # Fail fast and loudly if the responder is not there at all, rather than
     # reporting fifteen symptoms of one cause.

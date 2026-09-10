@@ -30268,7 +30268,7 @@ async fn get_world_file(
 
 // ── /splats, hosted navigatable-worlds temporal viewer ─────────────────
 //
-// Static bundle from EMEM_SPLATS_DIR (default /home/ubuntu/splats-site): the
+// Static bundle from EMEM_SPLATS_DIR (default $EMEM_DATA/splats-site): the
 // viewer HTML + each world's runtime artifacts (.splat/.tsplat/.json/.u8/.png).
 // POST /splats/api/gemma is proxied to the local Gemma bridge on loopback so
 // the Ask-Gemma panel works without exposing that service publicly. No source
@@ -30276,7 +30276,14 @@ async fn get_world_file(
 
 fn splats_root() -> std::path::PathBuf {
     std::env::var("EMEM_SPLATS_DIR")
-        .unwrap_or_else(|_| "/home/ubuntu/splats-site".to_string())
+        // Under the data volume, not one operator's home directory. The old
+        // default named a path that exists on exactly one machine, so a
+        // self-hoster who did not set EMEM_SPLATS_DIR got 404s from a route
+        // the site advertises as hosted.
+        .unwrap_or_else(|_| {
+            let data = std::env::var("EMEM_DATA").unwrap_or_else(|_| "/var/emem".to_string());
+            format!("{}/splats-site", data.trim_end_matches('/'))
+        })
         .into()
 }
 
@@ -71577,7 +71584,7 @@ fn latency_percentile(p: f64) -> Option<f64> {
 //   2. How fresh the latest attestation is for this cell+band.
 //   3. The temporal distance between τ and that latest attestation.
 //
-// The PDE classes mirror the agri TDM (`/home/ubuntu/agri/training/tdm.py`):
+// The PDE classes mirror the agronomy Temporal Dynamics Module:
 //   - Static (DEM, soil-class, Köppen): identity, Q = 1 forever once
 //     attested.
 //   - Slow / AR-1 (annual embeddings, land cover): linear-with-clamped-
@@ -72044,7 +72051,7 @@ async fn temporal_route_inner(
                 "wave_seasonal":    "Q = max(0, 0.5 + 0.5·cos(2π·Δt/T)); ∂²u/∂t² = c²∇²u; T ≈ Sentinel-2 revisit",
                 "advection_linear": "Q = max(0, 1 - Δt/horizon); ∂u/∂t + v·∇u = 0; horizon ≈ 6 slots",
             },
-            "reference": "Inspired by /home/ubuntu/agri/training/tdm.py (Temporal Dynamics Module): physics-informed PDE operators per band class. ReJEPA / V-JEPA (arxiv.org/abs/2504.03169, arxiv.org/abs/2301.08243) provide the embedding-prediction extension once we add a learned predictor for missing (cell, time) pairs.",
+            "reference": "Physics-informed PDE operators per band class, one Temporal Dynamics Module per class. ReJEPA / V-JEPA (arxiv.org/abs/2504.03169, arxiv.org/abs/2301.08243) provide the embedding-prediction extension once we add a learned predictor for missing (cell, time) pairs.",
             "intent_affinity_disclaimer": "intent_affinity is a heuristic family-match multiplier, NOT part of the PDE math. Strip it (use score_math) for protocol-level reasoning.",
         }
     })))

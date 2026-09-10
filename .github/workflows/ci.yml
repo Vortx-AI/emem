@@ -576,6 +576,10 @@ jobs:
             echo "::warning::the responder did not answer; live reads not asserted"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
       # A count stated as prose has to match the responder it describes.
       # /whitepaper served "102 MCP tools (15 core, 87 extended)" against a
@@ -603,6 +607,10 @@ jobs:
             echo "::warning::the responder did not answer; counts not asserted this run"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
 
       # outputSchema is the only descriptor field that binds RUNTIME behaviour:
@@ -621,6 +629,10 @@ jobs:
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; schemas not asserted this run"
             exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
           fi
           exit $code
 
@@ -664,6 +676,10 @@ jobs:
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; host compatibility not asserted this run"
             exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
           fi
           exit $code
 
@@ -768,6 +784,10 @@ jobs:
             echo "::warning::the responder did not answer; parity not asserted this run"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
 
       # Everything above proves a thing we built still works. This proves an
@@ -805,6 +825,10 @@ jobs:
             echo "::warning::the responder did not answer; state claims not asserted"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
 
       # The agent guide's first screen is what an agent routes on. It is
@@ -821,6 +845,10 @@ jobs:
             echo "::warning::the responder did not answer; decision layer not asserted"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
 
       - name: an agent starting cold can find us and act
@@ -832,6 +860,10 @@ jobs:
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; discovery not asserted this run"
             exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
           fi
           exit $code
 
@@ -906,6 +938,10 @@ jobs:
             echo "::warning::the responder did not answer; route truth not asserted this run"
             exit 0
           fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
           exit $code
       # The source can describe a route the responder does not serve yet: that
       # is a build nobody deployed, and it reads to an agent exactly like a
@@ -919,6 +955,10 @@ jobs:
           if [ "$code" = "2" ]; then
             echo "::warning::the responder did not answer; deployment not asserted this run"
             exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::openapi coverage could not run for a reason on our side, not a responder outage"
+            exit 1
           fi
           exit $code
 

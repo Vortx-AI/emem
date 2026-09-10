@@ -838,7 +838,10 @@ def main() -> int:
             check_install_badges(repo_root)
     except Fail as e:
         print(f"harness could not run: {e}", file=sys.stderr)
-        return 2
+        # 3, not 2: this is OUR side. ci.yml waives 2 as "the responder did not
+        # answer", so sharing the code meant a broken gate printed a sentence
+        # that was false about which thing happened, and passed.
+        return 3
 
     failed = [r for r in ROWS if r["status"] == "FAIL"]
     undet = [r for r in ROWS if r["status"] == "UNDET"]
