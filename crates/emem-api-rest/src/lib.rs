@@ -22674,7 +22674,12 @@ fn mcp_slim_inner_to_budget_keeping(
                             "_kind": "object",
                             "_kept": slim.len(),
                             "_len": o.len(),
-                            "_why": "kept the fields the answer cites, dropped the rest;                                      temporal_context and the full counted_from are on the                                      REST answer",
+                            // One line on purpose: a `\`-continued literal is what
+                            // cargo fmt folds, indentation and all, into a string a
+                            // caller reads. no_padded_prose.py caught this one in the
+                            // commit that added it, which is the gate working on its
+                            // own author the same day.
+                            "_why": "kept the fields the answer cites and dropped the rest; temporal_context and the full counted_from are on the REST answer",
                         });
                         record_drop(&mut dropped, &k, stub);
                         map.insert(k.clone(), JsonValue::Object(slim));
