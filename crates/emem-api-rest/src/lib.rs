@@ -22475,7 +22475,32 @@ fn mcp_slim_inner_to_budget_keeping(
             // collection twice over still left the result above the budget --
             // last, not never, which is the same bargain the identity scalars
             // get.
+            // `live_perception` is the same exception for the same reason,
+            // and it was costing more than model_answer ever could.
+            //
+            // Over MCP, `emem_ask` about a place right now came back with
+            // live_perception NULL -- dropped for budget -- beside a prose
+            // answer that read "1 bus, 1 truck, 10 car, 21 person ... the count
+            // can be re-derived from the same frame under the detector in
+            // `detector_fn_id`". detector_fn_id lives in the block that was
+            // nulled. An agent was handed a number, told it was checkable, and
+            // given nothing to check it with.
+            //
+            // Worse than merely absent: null is emem's own vocabulary for THERE
+            // IS NO OBSERVATION, the three-state rule the perception path is
+            // built on, so an omission for size read as a measurement of an
+            // empty street. Both decisions were right alone -- null so a stub
+            // cannot be truthy, null so a missing observation cannot be faked
+            // -- and together they say the opposite of each other.
+            //
+            // Protected, not undroppable: sorted with the protected group, so
+            // it goes only if dropping every collection twice over still left
+            // the result over budget. The same bargain, on the same argument
+            // model_answer already makes -- this block is in the envelope only
+            // because the question asked about now, and it is the evidence the
+            // answer beside it cites by name.
             let protected = k == "model_answer"
+                || k == "live_perception"
                 || (!matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
                     && cost <= NEVER_DROP_SCALAR_BYTES);
             (k.clone(), cost, protected)
@@ -67301,6 +67326,57 @@ async fn fetch_live_perception(cell: &str, question: &str) -> Option<JsonValue> 
                             evidence_coverage(m.get("counted_from")),
                         );
 
+                        // THE VERDICT THE PROSE GETS, IN A FIELD.
+                        //
+                        // emem computes whether the percentile actually places
+                        // this reading, uses it to choose a sentence, and threw
+                        // it away. A consumer composing from this block saw
+                        // `percentile: 0.122` with no marker and would have to
+                        // re-derive our judgement from `percentile_ci` to learn
+                        // that we do not stand behind it. The upstream's own
+                        // caveat is in `means`, as English, which is a sentence
+                        // for a reader rather than a field for a parser.
+                        //
+                        // The geo.qa agent named the tendency after finding it
+                        // in their own code the same day: the sentence gets a
+                        // special case because someone imagined a reader, the
+                        // field does not because nobody imagines a parser.
+                        // Twice today the human surface was accidentally
+                        // protected while the machine surface was not.
+                        //
+                        // Derived from the SAME call, so the two cannot
+                        // disagree: a block that hedges beside prose that
+                        // asserts is the fault this is meant to remove.
+                        if let Some(tc) = m.get("temporal_context").cloned() {
+                            let n = tc.get("n").and_then(|v| v.as_u64()).unwrap_or(0);
+                            let bounds = tc
+                                .get("percentile_ci")
+                                .and_then(|v| v.as_array())
+                                .and_then(|a| Some((a.first()?.as_f64()?, a.get(1)?.as_f64()?)));
+                            let places = percentile_places_the_reading(bounds, n);
+                            m.insert(
+                                "temporal_context_verdict".into(),
+                                json!({
+                                    "places_the_reading": places,
+                                    "why": if places {
+                                        "the published interval is narrower than half the \
+                                         range, so the percentile separates this reading \
+                                         from the camera's usual"
+                                    } else {
+                                        "the published interval spans half the range or more, \
+                                         so the percentile does not separate a busy hour from \
+                                         a quiet one. Read it as not yet answerable, not as a \
+                                         low or high figure"
+                                    },
+                                    "interval_width": bounds.map(|(lo, hi)| hi - lo),
+                                    "n": n,
+                                    "computed_by": "emem, from temporal_context.percentile_ci; \
+                                                    the same call decides the sentence in \
+                                                    `answer`, so the two cannot disagree",
+                                }),
+                            );
+                        }
+
                         // The note must not out-promise the evidence.
                         //
                         // It asserted "the counts are recomputable from it"
@@ -76139,6 +76215,96 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The block hedges wherever the prose hedges, from one call.
+    ///
+    /// emem decided whether the percentile places the reading, used it to
+    /// choose a sentence, and did not put the decision anywhere a parser could
+    /// read it. A consumer composing from `temporal_context` saw
+    /// `percentile: 0.122` with no marker; the only caveat was English inside
+    /// `means`. The tendency the geo.qa agent named after finding the same
+    /// asymmetry in their own code: the sentence gets a special case because
+    /// someone imagined a reader, the field does not because nobody imagines a
+    /// parser.
+    ///
+    /// This asserts the two agree at the boundary rather than near it, which
+    /// is where a duplicated threshold would first drift.
+    #[test]
+    fn the_field_and_the_sentence_hedge_together() {
+        // Live readings, geo.qa's camera album, 2026-09-10.
+        let cases: &[(&str, (f64, f64), u64, bool)] = &[
+            ("Trafalgar, at the reset", (0.137, 0.646), 10, false),
+            ("Trafalgar, refilled", (0.051, 0.264), 37, true),
+            ("Tooley St", (0.0, 0.204), 15, true),
+            ("ASPEN WAY", (0.175, 0.613), 15, true),
+        ];
+        for (where_, ci, n, places) in cases {
+            let verdict = percentile_places_the_reading(Some(*ci), *n);
+            assert_eq!(verdict, *places, "{where_}: interval {ci:?}");
+        }
+
+        // The boundary, from both sides. A second copy of the threshold would
+        // survive the cases above and diverge here.
+        assert!(!percentile_places_the_reading(Some((0.25, 0.75)), 100));
+        assert!(percentile_places_the_reading(Some((0.2501, 0.75)), 100));
+
+        // And an absent interval must not read as the stronger answer.
+        assert!(!percentile_places_the_reading(None, 4));
+        assert!(percentile_places_the_reading(None, 5));
+    }
+
+    /// The evidence an answer cites survives the budget, and reference
+    /// material does not.
+    ///
+    /// Measured over MCP on 2026-09-10: `emem_ask` about a place right now
+    /// returned `live_perception: null` -- omitted for size -- beside prose
+    /// asserting the counts could be re-derived "under the detector in
+    /// `detector_fn_id`", a field inside the nulled block. Meanwhile
+    /// `algorithms_for_question` had been the largest section of the envelope
+    /// at 20 KB of journal citations for recipes nothing had run.
+    #[test]
+    fn the_budget_drops_reference_material_before_it_drops_evidence() {
+        // Shapes and sizes taken from the real envelope: a 20 KB catalogue, a
+        // 10 KB perception block, an 8 KB fact summary, a 1.5 KB answer.
+        let big = |n: usize| json!(vec!["x".repeat(90); n]);
+        let inner = json!({
+            "schema": "emem.ask.v1",
+            "answer": "x".repeat(1500),
+            "algorithms_for_question": big(220),
+            "facts_summary": big(88),
+            "fact_cids": big(64),
+            "live_perception": {
+                "counts": {"person": 21, "car": 10},
+                "detector_fn_id": "cpu_detect_coco@ae1a09e1",
+                "counted_from": {"tamper_evidence": "recomputable_from_source"},
+                "padding": "x".repeat(9000),
+            },
+        });
+        let (slim, note) = mcp_slim_inner_to_budget(inner, 24_000);
+
+        let lp = &slim["live_perception"];
+        assert!(
+            !lp.is_null(),
+            "the block the answer cites was nulled for budget: {note}"
+        );
+        assert_eq!(
+            lp["detector_fn_id"].as_str(),
+            Some("cpu_detect_coco@ae1a09e1"),
+            "an agent told the count is re-derivable needs the thing to re-derive it with"
+        );
+        assert!(
+            slim["algorithms_for_question"].is_null()
+                || slim["algorithms_for_question"].get("_truncated").is_some(),
+            "reference material should go first: {}",
+            slim["algorithms_for_question"]
+        );
+        // And the result still fits, or protecting it has just moved the bug.
+        let size = serde_json::to_string(&slim).unwrap().len();
+        assert!(
+            size <= 24_000,
+            "slimmed to {size} bytes, over the 24000 budget"
+        );
     }
 
     /// A misspelled argument is reported, not silently dropped.
