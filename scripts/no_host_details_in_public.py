@@ -175,33 +175,67 @@ def findings(url: str, body: str) -> list[tuple[str, str]]:
     return hits
 
 
-# The cases the indentation pattern has to separate. A checker that reports
-# nothing looks identical to a clean surface, and the only difference is
-# whether anything could have made it speak.
+# One case per pattern that MUST fire, and four that must stay silent.
+#
+# The first version of this self-tested the indentation pattern and nothing
+# else, which is the fault the geo.qa agent named in their own scan: a pattern
+# proved when it was written is proved for that day and nothing after. Six of
+# the seven here were in exactly that state, including the two that started
+# this -- the socket path in an error and the loopback backend_url -- and a
+# regex that has stopped matching produces output identical to a clean sweep.
+#
+# Each entry is a real value or a close copy of one, not a synthetic that only
+# the pattern's author would think to write.
 SELF_TEST = [
-    # (label, one JSON string value, should it fire)
+    # (label, one JSON string value, which pattern must fire, or None for silence)
     ("the note emem served on 2026-09-10",
      "sidecar unavailable: this responder does not run the GPU inference sidecar "
-     "this band needs.                  It is an optional extension.", True),
+     "this band needs.                  It is an optional extension.",
+     "indentation in a sentence"),
     ("a pad assembled at runtime, which the source scanner cannot see",
-     "the value is 42           and the unit is metres", True),
-    ("an aligned route table", "GET  /v1/bands          , band catalogue", False),
-    ("a label and value report line", "fired rate            {0.4231}", False),
-    ("a block laid out on purpose", "type    | needs\nwhere_is        | description", False),
-    ("ordinary prose", "Ground cameras see what a satellite cannot: people.", False),
+     "the value is 42           and the unit is metres",
+     "indentation in a sentence"),
+    ("the backend_url we were republishing",
+     "http://127.0.0.1:5019", "loopback"),
+    ("a private-range address",
+     "the encoder answers at 10.0.3.14:5019", "rfc1918"),
+    ("a container host name",
+     "upstream http://host.docker.internal:5019/predict", "container-host"),
+    ("the socket path that started this",
+     "connect /run/emem/jepa_sidecar.sock failed", "host path"),
+    ("a socket by name alone",
+     "bind emem-guard.sock before starting", "unix socket"),
+    ("the errno beside it",
+     "No such file or directory (os error 2)", "errno"),
+    # Silence.
+    ("an aligned route table", "GET  /v1/bands          , band catalogue", None),
+    ("a label and value report line", "fired rate            {0.4231}", None),
+    ("a block laid out on purpose",
+     "type    | needs\nwhere_is        | description", None),
+    ("ordinary prose",
+     "Ground cameras see what a satellite cannot: people and vehicles.", None),
 ]
 
 
 def self_test() -> list[str]:
-    """Run before the network, so a broken pattern cannot pass as a clean sweep."""
+    """Run before the network, so a dead pattern cannot pass as a clean sweep.
+
+    Verified by sabotage: replace the loopback pattern with one that cannot
+    match and this reports `pattern went silent on: the backend_url we were
+    republishing` and refuses, rather than printing clean over sixty-nine
+    surfaces.
+    """
     import json as _json
     wrong = []
-    for label, value, should_fire in SELF_TEST:
-        hits = [h for h in findings("self-test", _json.dumps({"v": value}))
-                if h[0] == "indentation in a sentence"]
-        if bool(hits) != should_fire:
-            wrong.append(f"{label}: expected {'a hit' if should_fire else 'silence'}, "
-                         f"got {'a hit' if hits else 'silence'}")
+    for label, value, want in SELF_TEST:
+        names = {n for n, _ in findings("self-test", _json.dumps({"v": value}))}
+        if want is None:
+            if names:
+                wrong.append(f"pattern fired on something deliberate: {label} "
+                             f"({', '.join(sorted(names))})")
+        elif want not in names:
+            wrong.append(f"pattern went silent on: {label} "
+                         f"(wanted `{want}`, got {sorted(names) or 'nothing'})")
     return wrong
 
 
@@ -213,10 +247,10 @@ def main() -> int:
 
     wrong = self_test()
     if wrong:
-        print("the indentation pattern no longer separates damage from alignment:")
+        print(f"SELF-TEST FAILED, {len(wrong)} of {len(SELF_TEST)} case(s). "
+              f"A sweep with these patterns would be silence, not a clean result:")
         for w in wrong:
             print("  ", w)
-        print("A sweep with this pattern would be silence, not a clean result.")
         return 3
 
     st, body = get(origin + "/openapi.json")
