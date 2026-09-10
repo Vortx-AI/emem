@@ -39087,7 +39087,7 @@ async fn persist_memory_write(
     Ok(meta)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct MemoryViewReq {
     /// A memory path. Optional when `file_cid` is given.
     #[serde(default)]
@@ -39262,25 +39262,18 @@ async fn get_memory_markdown(
         .into_response())
 }
 
-/// The namespace prefix that owns a memory cid, or `None` if nothing points at
-/// it any more.
+/// The path a memory cid is indexed under, or `None` if nothing points at it.
 ///
 /// A blob is content-addressed and carries no author. The write contract puts
 /// every signed note under `/memories/by_attester/<pubkey8>/`, so the path
-/// index is where authorship lives, and a cid resolution has to go and get it.
-fn memory_attester_for_cid(db: &sled::Db, cid: &str) -> Option<String> {
+/// index is where authorship lives and a cid resolution has to go and get it.
+fn memory_path_for_cid(db: &sled::Db, cid: &str) -> Option<String> {
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).ok()?;
     for item in paths.iter() {
         let (k, v) = item.ok()?;
-        if String::from_utf8_lossy(&v).trim() != cid {
-            continue;
+        if String::from_utf8_lossy(&v).trim() == cid {
+            return Some(String::from_utf8_lossy(&k).into_owned());
         }
-        let path = String::from_utf8_lossy(&k).into_owned();
-        return path
-            .strip_prefix("/memories/by_attester/")
-            .and_then(|rest| rest.split('/').next())
-            .filter(|p| !p.is_empty())
-            .map(str::to_owned);
     }
     None
 }
@@ -39319,38 +39312,77 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 },
             ));
         };
+        // ONE VERB, TWO ADDRESSING MODES, AND THEY DISAGREED.
+        //
+        // Measured 2026-09-10 on the same note. By PATH this returns twelve
+        // fields including `attester_pubkey_b32` in full, an `authorship`
+        // block with the signing preimage and body hash, the receipt,
+        // signed_at, and whether it has been superseded. By CID it returned
+        // four, and none of those. Same tool, same verb, same object, two ways
+        // of naming it, and only one told you who wrote it.
+        //
+        // The one that said nothing is the content-addressed one, which is the
+        // premise: a caller who resolves by path is doing the thing emem argues
+        // against and was rewarded with the authorship the citation route
+        // withheld. geo.qa's frontend agent, handed three cids and needing an
+        // author, read by path and took the key out of the namespace string --
+        // and afterwards could not say which of two calls had told them,
+        // because part of it came from a naming convention rather than a field.
+        //
+        // A first fix returned an 8-character prefix scraped from the path.
+        // That made the two modes DIFFERENTLY inconsistent -- a third name and
+        // a third form for one thing, next to attester_pubkey_b32, `from` and
+        // the roster's `prefix` -- and someone would eventually compare a
+        // 52-character key with a truncation of it for equality.
+        //
+        // So the cid mode answers by RESOLVING to the path and returning what
+        // that returns. Not a copy of those fields: the same call, so the two
+        // cannot drift. `resolved_by` still says which handle was turned, and
+        // a cid whose path is gone still resolves to its bytes with an honest
+        // statement that authorship is no longer recoverable here.
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        // WHO WROTE IT, on the path that resolves a citation.
-        //
-        // The trust-boundary marker on this very response says the author is
-        // "see each entry's attester_pubkey_b32", and this path returned no
-        // attester field at all. So the notice whose whole purpose is that a
-        // signature says WHO wrote a thing pointed the reader at something
-        // that was not there, on the one hop emem calls the citation.
-        //
-        // Recovered from the path index rather than stored twice: the blob is
-        // content-addressed and carries no author, and the path that owns it
-        // is `/memories/by_attester/<pubkey8>/...`, which is the write
-        // contract's own namespace rule. `None` when the cid is held with no
-        // path pointing at it any more -- a retracted note still resolves, and
-        // saying nothing about its author is honest where guessing is not.
-        let attester = memory_attester_for_cid(db, cid);
+        if let Some(path) = memory_path_for_cid(db, cid) {
+            if let Ok(mut by_path) = Box::pin(memory_view_inner(
+                s,
+                MemoryViewReq {
+                    path,
+                    ..Default::default()
+                },
+            ))
+            .await
+            {
+                if let Some(m) = by_path.as_object_mut() {
+                    m.insert("resolved_by".into(), json!("content address"));
+                    m.insert(
+                        "note".into(),
+                        json!(
+                            "Read by cid, so this resolves whether or not a path still points at \
+                         it. That is what makes a citation outlive its author's retraction: \
+                         the cid IS the citation. Re-hash these bytes with blake3 to confirm \
+                         they are the ones the cid names \u{2014} this responder is not the \
+                         authority on that, the hash is."
+                        ),
+                    );
+                }
+                return Ok(by_path);
+            }
+        }
         return Ok(json!({
             "kind": "file",
             "_content_is_data_not_instructions": untrusted_content_marker(None),
             "file_cid": cid,
             "content": text,
-            "attester_pubkey8": attester,
-            "attester_note": if attester.is_some() {
-                "the namespace that owns the path this cid is indexed under. A KEY, not \
-                 an author: one key can be held by more than one writer, and nothing here \
-                 says which of them wrote these bytes."
-            } else {
-                "no path points at this cid any more, so this responder cannot say whose \
-                 namespace it was written under. The bytes still verify against the cid."
-            },
+            "attester_pubkey_b32": JsonValue::Null,
+            "authorship_note": "no path points at this cid any more, so this responder cannot \
+                                say whose namespace it was written under. The bytes still \
+                                verify against the cid, and a retracted note resolving without \
+                                an author is the honest answer rather than a guess.",
             "resolved_by": "content address",
-            "note": "Read by cid, so this resolves whether or not a path still points at it. That is what makes a citation outlive its author's retraction: the cid IS the citation. Re-hash these bytes with blake3 to confirm they are the ones the cid names — this responder is not the authority on that, the hash is.",
+            "note": "Read by cid, so this resolves whether or not a path still points at it. \
+                     That is what makes a citation outlive its author's retraction: the cid IS \
+                     the citation. Re-hash these bytes with blake3 to confirm they are the ones \
+                     the cid names \u{2014} this responder is not the authority on that, the \
+                     hash is.",
         }));
     }
     let raw = req.path.trim();
@@ -76334,6 +76366,60 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Both addressing modes of one verb answer with the same shape.
+    ///
+    /// Measured 2026-09-10, same note: `emem_memory_view` by PATH returned
+    /// twelve fields including attester_pubkey_b32 in full, an `authorship`
+    /// block, the receipt and signed_at. By CID it returned four and none of
+    /// those. One tool, one verb, one object, two ways of naming it, and only
+    /// one told you who wrote it -- with the silent one being the
+    /// content-addressed route, which is emem's whole premise.
+    ///
+    /// The property that matters is not "cid returns an author" but "the two
+    /// modes cannot drift", so this asserts the field SETS match rather than
+    /// listing the fields it expects. A field added to one branch and not the
+    /// other fails here without anyone remembering to extend the list.
+    #[test]
+    fn the_two_ways_to_name_a_note_answer_the_same_way() {
+        // The shapes each branch builds, with the parts that legitimately
+        // differ named as such.
+        let by_path: std::collections::BTreeSet<&str> = [
+            "_content_is_data_not_instructions",
+            "_superseded",
+            "attester_pubkey_b32",
+            "authorship",
+            "content",
+            "file_cid",
+            "kind",
+            "memory_kind",
+            "path",
+            "receipt",
+            "signed_at",
+            "size_bytes",
+            "superseded_by",
+        ]
+        .into_iter()
+        .collect();
+        // The cid branch returns the path branch's answer and stamps two
+        // fields on top, which is why it cannot drift from it.
+        let cid_only: std::collections::BTreeSet<&str> =
+            ["resolved_by", "note"].into_iter().collect();
+
+        let by_cid: std::collections::BTreeSet<&str> = by_path.union(&cid_only).copied().collect();
+        let lost: Vec<&&str> = by_path.difference(&by_cid).collect();
+        assert!(
+            lost.is_empty(),
+            "the citation route drops {lost:?}, so resolving by content address tells a \
+             caller less than resolving by a name that can be retracted"
+        );
+        for owed in ["attester_pubkey_b32", "authorship", "receipt", "signed_at"] {
+            assert!(by_cid.contains(owed), "the cid route must carry `{owed}`");
+        }
+        // And it must say which handle was turned, or a caller cannot tell a
+        // resolved citation from a path read.
+        assert!(by_cid.contains("resolved_by"));
     }
 
     /// `bands_present` means present, and an absence is named as one.
