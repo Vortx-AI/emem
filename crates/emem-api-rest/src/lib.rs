@@ -29951,6 +29951,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/ask/stream":       {"post":{"summary":"The same ask as POST /v1/ask, with its ordered stages emitted as they complete (text/event-stream). A PLAIN HTTP stream, outside MCP on purpose: a tools/call result cannot stream and is capped at 24 KB. Each event is one JSON object of schema emem.ask_stage.v1 with `stage` (located | routed | recalled | scored | answer | failed), `at_ms`, `detail`, and `grounded_fact_cids` — every fact the answer rests on SO FAR, in order. That last field is the point rather than the latency: a consumer can say which facts a PARTIAL answer stands on, where a /v1/ask consumer can only cite the finished envelope. The `answer` stage carries the complete envelope, identical to what POST /v1/ask returns for the same body. A failure arrives as a `failed` stage rather than a dropped connection, because a stream that simply stops is indistinguishable from a network fault.","operationId":"emem_ask_stream","tags":["ask"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"text/event-stream of emem.ask_stage.v1 events"},"400":json_bad_request}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":json_ok}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
@@ -58231,7 +58232,37 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
 
 async fn post_ask(
     State(s): State<AppState>,
+    headers: HeaderMap,
     EmemJson(req): EmemJson<AskReq>,
+) -> Result<Response, ApiError> {
+    // ONE ROUTE, TWO REPRESENTATIONS, CHOSEN THE WAY HTTP CHOOSES.
+    //
+    // A caller who sends `Accept: text/event-stream` gets the stages as they
+    // complete; everyone else gets the envelope they always got. Not a second
+    // URL: a second URL is a second name for one thing, which is the fault
+    // this surface spent 2026-09-10 removing in four other places
+    // (cell/cell64/cell_prefix, four field names for one attester, two
+    // addressing modes of one verb).
+    //
+    // It also fixes something already measured and wrong. /v1/ask asked with
+    // `Accept: text/event-stream` answered `content-type: application/json`,
+    // so the standard mechanism for asking was already being ignored rather
+    // than unimplemented.
+    if headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("text/event-stream"))
+    {
+        return Ok(ask_streamed(s, req));
+    }
+    post_ask_json(State(s), req)
+        .await
+        .map(|j| j.into_response())
+}
+
+async fn post_ask_json(
+    State(s): State<AppState>,
+    req: AskReq,
 ) -> Result<Json<JsonValue>, ApiError> {
     // Overall request budget, bounds the four-classifier fan-out so a
     // single slow downstream (LST 8-day, MODIS, met.no) doesn't drag the
@@ -64967,7 +64998,172 @@ fn emem_self_describe() -> JsonValue {
     })
 }
 
-async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> {
+/// `POST /v1/ask/stream` — the same ask, with its stages as they complete.
+///
+/// A PLAIN HTTP STREAM, deliberately outside MCP. Our MCP result budget is
+/// 24 KB and a tools/call result cannot stream; geo.qa checked their own MCP
+/// route and found the same thing, six JSON exits and no ReadableStream, while
+/// the transport is named "streamable-http". Waiting for the transport to grow
+/// the capability its name implies would be waiting on nothing.
+///
+/// Events, in order, each `data:` a JSON object of schema emem.ask_stage.v1:
+///
+///   located   the address the question resolved to
+///   routed    which topics matched, so which bands will be read
+///   recalled  the signed facts, and from here `grounded_fact_cids` is non-empty
+///   scored    derived values computed FROM those facts, not new observations
+///   answer    the complete envelope, identical to what POST /v1/ask returns
+///
+/// Every stage carries `grounded_fact_cids`: every fact the answer rests on so
+/// far, in order. That is the point rather than the latency. A model consuming
+/// this can say which facts a PARTIAL answer stands on; one consuming
+/// /v1/ask can only cite the finished envelope. They are different
+/// capabilities and only the first is worth the word streaming.
+///
+/// The stages come from the same `ask_inner_traced` the JSON path runs, so
+/// they cannot describe a different computation from the one the final
+/// envelope reports.
+fn ask_streamed(s: AppState, req: AskReq) -> Response {
+    use axum::response::sse::{Event, KeepAlive, Sse};
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<JsonValue>();
+    let trace = AskTrace::streaming(tx.clone());
+    let state = s.clone();
+    tokio::spawn(async move {
+        let out = match ask_inner_traced(state, req, trace).await {
+            Ok(v) => json!({
+                "schema": "emem.ask_stage.v1",
+                "stage": "answer",
+                "detail": v,
+                "_means": "the complete envelope, byte-identical to what POST /v1/ask returns for this request.",
+            }),
+            // A failure is a terminal EVENT, not a dropped connection. A
+            // stream that simply stops is indistinguishable from a network
+            // fault, and a consumer cannot tell a refused question from a lost
+            // one.
+            Err(e) => json!({
+                "schema": "emem.ask_stage.v1",
+                "stage": "failed",
+                "detail": {"code": format!("{:?}", e.1.code), "message": e.1.message},
+            }),
+        };
+        let _ = tx.send(out);
+    });
+
+    use futures_util::StreamExt as _;
+    let stream = tokio_stream::wrappers::UnboundedReceiverStream::new(rx)
+        .map(|v| Ok::<Event, std::convert::Infallible>(Event::default().data(v.to_string())));
+
+    Sse::new(stream)
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// Where an ask's ordered stages go, if anyone is listening.
+///
+/// `/v1/ask` computes a trace and throws the ORDER away. It routes the
+/// question to topics, recalls or materialises facts, evaluates dozens of
+/// algorithms and cites a hundred fact_cids, then returns one finished
+/// envelope 3 to 4 seconds later. A model consuming it can cite the answer and
+/// cannot cite anything until the whole thing lands.
+///
+/// The geo.qa frontend agent put the argument better than latency does: stages
+/// with citations are not a faster version of the same capability, they are a
+/// different one. A model that receives each stage with the fact_cids it
+/// grounded on can say which facts a PARTIAL answer rests on. Only that is
+/// worth the word streaming.
+///
+/// One pipeline, two consumers. The JSON path passes `AskTrace::silent()` and
+/// every emit is a no-op, so the streamed stages cannot describe a different
+/// computation from the one the envelope reports — which is the failure mode a
+/// second streaming pipeline would have by construction.
+#[derive(Clone)]
+struct AskTrace {
+    /// Set only when the caller asked for the stages as they happen. The
+    /// RECORDING below runs either way, because the trace is part of the
+    /// answer rather than a feature of one transport.
+    tx: Option<tokio::sync::mpsc::UnboundedSender<JsonValue>>,
+    started: std::time::Instant,
+    /// fact_cids grounded since the last stage, so each stage carries what IT
+    /// added rather than repeating the whole list. "So far" is the
+    /// concatenation up to that stage, which costs a consumer one append and
+    /// costs the envelope nothing: the full ordered list is already in
+    /// `fact_cids`.
+    pending: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    total: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    /// The ordered stages, for the envelope.
+    steps: std::sync::Arc<std::sync::Mutex<Vec<JsonValue>>>,
+}
+
+impl AskTrace {
+    fn silent() -> Self {
+        Self {
+            tx: None,
+            started: std::time::Instant::now(),
+            pending: Default::default(),
+            total: Default::default(),
+            steps: Default::default(),
+        }
+    }
+
+    fn streaming(tx: tokio::sync::mpsc::UnboundedSender<JsonValue>) -> Self {
+        Self {
+            tx: Some(tx),
+            ..Self::silent()
+        }
+    }
+
+    fn ground(&self, cids: impl IntoIterator<Item = String>) {
+        if let Ok(mut g) = self.pending.lock() {
+            let before = g.len();
+            g.extend(cids);
+            self.total
+                .fetch_add(g.len() - before, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+
+    /// Record one completed stage, and emit it if anyone is streaming.
+    ///
+    /// `detail` is what the stage decided; the citations are attached here
+    /// rather than by each call site, so a stage cannot report a decision
+    /// without the evidence standing under it.
+    fn stage(&self, name: &str, detail: JsonValue) {
+        let new: Vec<String> = self
+            .pending
+            .lock()
+            .map(|mut g| std::mem::take(&mut *g))
+            .unwrap_or_default();
+        let step = json!({
+            "schema": "emem.ask_stage.v1",
+            "stage": name,
+            "at_ms": self.started.elapsed().as_millis() as u64,
+            "detail": detail,
+            "new_fact_cids": new,
+            "grounded_total": self.total.load(std::sync::atomic::Ordering::Relaxed),
+            "_means": "what this stage decided, and the fact_cids it added. Everything the answer rests on AT this stage is this stage's new_fact_cids plus every earlier stage's, in order; the same list appears whole in the envelope's `fact_cids`.",
+        });
+        if let Ok(mut steps) = self.steps.lock() {
+            steps.push(step.clone());
+        }
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(step);
+        }
+    }
+
+    fn steps(&self) -> Vec<JsonValue> {
+        self.steps.lock().map(|s| s.clone()).unwrap_or_default()
+    }
+}
+
+async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
+    ask_inner_traced(s, req, AskTrace::silent()).await
+}
+
+async fn ask_inner_traced(
+    s: AppState,
+    mut req: AskReq,
+    trace: AskTrace,
+) -> Result<JsonValue, ApiError> {
     if req.q.trim().is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -65567,7 +65763,19 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         tokio::spawn(async move { fetch_live_perception(&cell, &q).await })
     };
 
+    trace.stage(
+        "located",
+        json!({"cell": cell, "place_resolved": place_resolved, "q": req.q}),
+    );
+
     let topics = route_question_to_topics(&req.q);
+    trace.stage(
+        "routed",
+        json!({
+            "topics": topics,
+            "_means": "which topics the question matched, which decides the bands recalled below. Nothing is grounded yet.",
+        }),
+    );
     let alg_reg = &*emem_core::algorithms::DEFAULT;
 
     // Union of every band needed to answer the matched topics. For
@@ -65674,6 +65882,27 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
     };
     let (recall_resp, materialize_notes) =
         recall_with_auto_materialize_capped(&recall_req, &s, ask_cap).await?;
+    // The receipt is where this response's fact_cids already live, in the
+    // order they were cited, so the trace reads them from there rather than
+    // re-deriving a second list that could disagree with the one the envelope
+    // reports.
+    trace.ground(recall_resp.receipt.fact_cids.iter().map(|c| c.0.clone()));
+    trace.stage(
+        "recalled",
+        json!({
+            "facts": recall_resp.facts.len(),
+            "bands": recall_resp
+                .facts
+                .iter()
+                .filter_map(|f| match f {
+                    emem_fact::Fact::Primary(p) => Some(p.band.clone()),
+                    emem_fact::Fact::Absence(a) => Some(a.band.clone()),
+                    _ => None,
+                })
+                .collect::<std::collections::BTreeSet<_>>(),
+            "_means": "signed facts at this address. From here a partial answer has something to cite.",
+        }),
+    );
 
     // Algorithm hints, for each matched topic, surface every recipe key
     // the agent should apply, with input bands, formula, output range,
@@ -65786,6 +66015,17 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
         all_matched_keys.extend(to_add);
     }
     let algorithm_outcomes = dispatch_algorithms(&all_matched_keys, &recall_resp);
+    trace.stage(
+        "scored",
+        json!({
+            "evaluated": all_matched_keys.len(),
+            "produced_a_value": algorithm_outcomes
+                .iter()
+                .filter(|o| o.get("value").map(|v| !v.is_null()).unwrap_or(false))
+                .count(),
+            "_means": "derived values computed from the facts above, not new observations. Their provenance class is deterministic_index.",
+        }),
+    );
 
     // Per-band raw observations. Built unconditionally (per the
     // max-data rule, never hide signed facts behind a caveat). When
@@ -66115,6 +66355,35 @@ async fn ask_inner(s: AppState, mut req: AskReq) -> Result<JsonValue, ApiError> 
             map.insert("facts".into(), facts_json.clone());
         }
         map.insert("facts_summary".into(), facts_summary);
+
+        // THE ORDER THIS ANSWER WAS REACHED IN, IN THE ANSWER.
+        //
+        // /v1/ask routes the question to topics, recalls or materialises
+        // facts, evaluates dozens of algorithms and cites a hundred fact_cids
+        // -- and returned only the finished envelope, discarding the sequence.
+        // A consumer could cite the answer and could not see, or cite, the
+        // steps that produced it. That is this surface's own recurring fault
+        // at pipeline scale: a thing computed, used to choose an output, and
+        // dropped at the boundary.
+        //
+        // Each step carries the fact_cids IT added, so a reader can say what
+        // any prefix of the reasoning rests on. It is not a log: nothing here
+        // is written for a human to read afterwards, and every step names
+        // evidence a consumer can dereference.
+        //
+        // The same steps, from the same run, are what
+        // `Accept: text/event-stream` emits as they complete. One pipeline; a
+        // streamed consumer and an envelope consumer cannot be told different
+        // stories about how the answer was reached.
+        map.insert(
+            "reasoning".into(),
+            json!({
+                "schema": "emem.ask_reasoning.v1",
+                "steps": trace.steps(),
+                "_means": "the ordered stages this answer was reached through, each with the fact_cids it grounded. Everything a partial answer at step N rests on is the new_fact_cids of steps 0..=N, in order.",
+                "_streamed": "the same steps arrive as they complete if you send `Accept: text/event-stream` to this endpoint.",
+            }),
+        );
 
         // Top-level `receipt` + `fact_cids` (audit AI-lens P1-1). Every
         // other primitive surfaces the signed receipt at the envelope
@@ -76502,6 +76771,75 @@ mod tests {
         // And it must say which handle was turned, or a caller cannot tell a
         // resolved citation from a path read.
         assert!(by_cid.contains("resolved_by"));
+    }
+
+    /// The trace records whether or not anyone is streaming, and a stage
+    /// carries the evidence it added.
+    ///
+    /// `/v1/ask` computed an ordered trace and discarded it, so a consumer
+    /// could cite the answer and not the steps that produced it. Returning it
+    /// only to a streaming caller would have made the trace a property of one
+    /// transport rather than part of the answer, which is the same mistake in
+    /// a new place.
+    #[test]
+    fn the_reasoning_trace_is_part_of_the_answer_not_of_a_transport() {
+        // The JSON path's trace: no sender at all.
+        let t = AskTrace::silent();
+        t.stage("located", json!({"cell": "defi.zb5b5.xUqO.kUrO"}));
+        t.ground(["aaa".to_string(), "bbb".to_string()]);
+        t.stage("recalled", json!({"facts": 2}));
+        t.ground(["ccc".to_string()]);
+        t.stage("scored", json!({"evaluated": 41}));
+
+        let steps = t.steps();
+        assert_eq!(steps.len(), 3, "a silent trace still records");
+        assert_eq!(
+            steps
+                .iter()
+                .map(|s| s["stage"].as_str().unwrap())
+                .collect::<Vec<_>>(),
+            ["located", "recalled", "scored"],
+            "in the order they happened"
+        );
+
+        // A stage carries what IT added, and nothing before it.
+        assert_eq!(
+            steps[0]["new_fact_cids"].as_array().map(|a| a.len()),
+            Some(0)
+        );
+        assert_eq!(
+            steps[1]["new_fact_cids"].as_array().unwrap(),
+            &vec![json!("aaa"), json!("bbb")]
+        );
+        assert_eq!(
+            steps[2]["new_fact_cids"].as_array().unwrap(),
+            &vec![json!("ccc")]
+        );
+
+        // "So far" is the concatenation, and the running total agrees with it.
+        let mut so_far = 0usize;
+        for st in &steps {
+            so_far += st["new_fact_cids"].as_array().unwrap().len();
+            assert_eq!(
+                st["grounded_total"].as_u64(),
+                Some(so_far as u64),
+                "the total must equal what a consumer accumulates, or the two disagree \
+                 about what a partial answer rests on"
+            );
+        }
+
+        // And a streaming trace emits exactly what it records, so the two
+        // consumers cannot be told different stories.
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let st = AskTrace::streaming(tx);
+        st.ground(["zzz".to_string()]);
+        st.stage("recalled", json!({"facts": 1}));
+        let emitted = rx.try_recv().expect("a streaming trace emits");
+        assert_eq!(
+            emitted,
+            st.steps()[0],
+            "emitted and recorded are the same step"
+        );
     }
 
     /// `bands_present` means present, and an absence is named as one.
