@@ -103,12 +103,26 @@ def fetch(url, method="GET", body=None, timeout=45):
     return _believe_a_zero_only_after_retrying(attempt)
 
 
-def fetch_status(url, timeout=12):
-    """Status line only, body left unread. For endpoints that never end."""
+def fetch_status(url, method="GET", body=None, timeout=12):
+    """Status line only, body left unread. For endpoints that never end.
+
+    With the route's documented method. This probed every stream with GET,
+    and "stream" is decided by the word event-stream appearing in a route's
+    responses, so when /v1/ask's description began stating that it can
+    answer as text/event-stream, a POST-only route was probed with GET, got
+    405, and was reported as advertised-and-dead. Being able to stream does
+    not make a route a GET stream.
+    """
 
     def attempt():
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(body).encode() if body is not None else None,
+            headers={"content-type": "application/json"},
+            method=method,
+        )
         try:
-            with patient(url, timeout=timeout) as r:
+            with patient(req, timeout=timeout) as r:
                 return r.status
         except urllib.error.HTTPError as e:
             return e.code
@@ -290,7 +304,7 @@ def main():
             # Headers only: the question is whether the stream opens, and
             # urlopen returns as soon as it has a status line. Reading the
             # body is what hangs, so do not.
-            code = fetch_status(u)
+            code = fetch_status(u, verb, {} if verb == "POST" else None)
         else:
             code, _ = fetch(u, verb, {} if verb == "POST" else None, timeout=12)
         # 0 is `fetch`'s sentinel for "the connection never completed", not an
