@@ -22627,6 +22627,63 @@ fn mcp_slim_inner_to_budget_keeping(
             // extended to the one object where dropping it makes the prose
             // beside it false. An agent still gets a number it can re-derive
             // and the identifier to re-derive it with.
+            // THE TRACE, AT THE SIZE OF ITS ADDRESSES.
+            //
+            // `reasoning` measured 20,521 bytes on a live envelope against a
+            // 24,000 budget, so it was the first field dropped and no MCP
+            // caller ever received a trace. Almost none of that is the trace:
+            // the fact cids it grounded are listed three times, once in
+            // `fact_cids` (never dropped), once per step and once per state's
+            // derived_from. The order of the stages and the address of each
+            // came to 679 bytes, and that is the part a caller can hold and
+            // compare across calls.
+            if k == "reasoning" {
+                if let Some(o) = v.as_object() {
+                    // The unprotected group is offered twice; the second visit
+                    // finds the slim form and has nothing left to reclaim.
+                    if o.contains_key("_slimmed") {
+                        continue;
+                    }
+                    let pick = |list: &str, keys: &[&str]| -> Vec<JsonValue> {
+                        o.get(list)
+                            .and_then(|l| l.as_array())
+                            .map(|a| {
+                                a.iter()
+                                    .map(|el| {
+                                        let mut m = serde_json::Map::new();
+                                        for key in keys {
+                                            if let Some(val) = el.get(*key) {
+                                                m.insert((*key).to_string(), val.clone());
+                                            }
+                                        }
+                                        JsonValue::Object(m)
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default()
+                    };
+                    let steps = pick("steps", &["stage", "at_ms", "grounded_total"]);
+                    let states = pick("states", &["stage", "state", "verifiable_today"]);
+                    if !steps.is_empty() || !states.is_empty() {
+                        let slim = json!({
+                            "schema": o.get("schema"),
+                            "steps": steps,
+                            "states": states,
+                            "_slimmed": "each stage's detail and new_fact_cids, and each state's derived_from, are on the REST answer; every fact cid the stages grounded is in this envelope's `fact_cids`",
+                        });
+                        let stub = json!({
+                            "_slimmed": true,
+                            "_kind": "object",
+                            "_kept": 3,
+                            "_len": o.len(),
+                            "_why": "kept the order of the stages and the address of each; the per-stage fact cids and detail are on the REST answer",
+                        });
+                        record_drop(&mut dropped, &k, stub);
+                        map.insert(k.clone(), slim);
+                        continue;
+                    }
+                }
+            }
             if k == "live_perception" {
                 if let Some(o) = v.as_object() {
                     const CITED: &[&str] = &[
@@ -22753,6 +22810,28 @@ fn mcp_slim_inner_to_budget_keeping(
                 "cell"
             };
             body.insert(key.to_string(), a.clone());
+        }
+        // /v1/ask echoes its request: `question` is the `q` it was sent, and
+        // `place_resolved.cell64` is where that resolved. Rebuilt from the
+        // echo, the call is runnable, where before this said "the call as
+        // written will be refused" about a request it held both halves of.
+        // The resolved cell rather than the free text, so the re-fetch cannot
+        // geocode to a different place than the answer it completes. Scoped to
+        // this path because the echo-to-field mapping is per route: fourteen
+        // envelopes carry a `question`, and not all of them take a `q`.
+        if p == "/v1/ask" {
+            if let Some(q) = map.get("question").and_then(|v| v.as_str()) {
+                body.insert("q".into(), json!(q));
+            }
+            if anchor.is_none() {
+                if let Some(c) = map
+                    .get("place_resolved")
+                    .and_then(|r| r.get("cell64"))
+                    .and_then(|v| v.as_str())
+                {
+                    body.insert("cell".into(), json!(c));
+                }
+            }
         }
         // The verb has to match the router or the escape hatch is a 405. Most
         // read endpoints are POST, but a sizeable minority are GET-only, and
@@ -65262,11 +65341,108 @@ impl AskTrace {
                 // unspecified encoding turns "I cannot check this" into "I
                 // checked it and it failed", which is worse than silence.
                 "verifiable_today": false,
-                "_why_not": "the bytes this address commits to are not retrievable: no route returns the state record yet. The address is real and stable across calls; verifying it offline is not possible from this envelope, and nothing here should be read as saying it is.",
+                "_why_not": "the bytes this address commits to are not retrievable: no route returns the state record yet, so it cannot be verified from this envelope and nothing here says it can. It is stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
             }));
         }
         out
     }
+}
+
+/// How many bands the slim summary shows before it stops.
+///
+/// Named rather than written as a literal in the loop, because a cap that
+/// appears only as `>= 12` inside a break is a cap nothing can report, and
+/// the fault this constant is part of fixing was exactly that: a list
+/// silently ending at twelve with a thirty-three beside it.
+const SUMMARY_BAND_CAP: usize = 12;
+
+// band_observations_summary: counts + per-band {band, value, unit}.
+// Carries the actual readings (not just band names) so a token-conscious
+// agent, and the synthesised `answer` below, gets the values without
+// pulling the full `band_observations[]` array. Deduped by band, Primary
+// readings only (Absence/null skipped), capped to stay slim.
+fn band_observations_summary(band_observations: &[JsonValue]) -> JsonValue {
+    let count = band_observations.len();
+    // Counted over every reading, in a pass that does not stop at the cap.
+    // Taken from `seen` below, this number was the length of the capped
+    // list by construction: it read 12 beside a `bands_present` of 27,
+    // and `truncated` compared the list with itself and was never true.
+    let distinct = band_observations
+        .iter()
+        .filter(|o| o.get("value").is_some_and(|v| !v.is_null()))
+        .filter_map(|o| o.get("band_key").and_then(|b| b.as_str()))
+        .collect::<std::collections::BTreeSet<&str>>()
+        .len();
+    let mut seen: std::collections::BTreeSet<String> = Default::default();
+    let mut bands: Vec<JsonValue> = Vec::new();
+    for o in band_observations {
+        let Some(band) = o.get("band_key").and_then(|b| b.as_str()) else {
+            continue;
+        };
+        let value = o.get("value").cloned().unwrap_or(JsonValue::Null);
+        if value.is_null() || !seen.insert(band.to_string()) {
+            continue;
+        }
+        bands.push(json!({
+            "band":  band,
+            "value": value,
+            "unit":  o.get("unit").cloned().unwrap_or(JsonValue::Null),
+            // Age comes along into the summary, because the summary is what
+            // the DEFAULT envelope carries and therefore what the prose is
+            // written from. Leaving it out of the slim shape meant the
+            // freshness work reached verbose callers and no one else: the
+            // one reader most likely to take a number at face value is the
+            // one who asked for the small answer.
+            "age_s": o.get("age_s").cloned().unwrap_or(JsonValue::Null),
+        }));
+        if bands.len() >= SUMMARY_BAND_CAP {
+            break;
+        }
+    }
+    // THREE QUANTITIES, AND ONLY ONE OF THEM HAD A NAME THAT SAID WHICH.
+    //
+    // `count` was the number of OBSERVATIONS, `bands` was a
+    // question-relevant selection capped at twelve, and `bands_present`
+    // elsewhere in the envelope was the number of distinct bands. Measured
+    // live: count 33, len(bands) 12, bands_present 27, in one response,
+    // with nothing saying the list was capped. A consumer reading `bands`
+    // as the evidence set got twelve of twenty-seven while the number
+    // beside it asserted thirty-three, and a search of the payload for
+    // "truncated", "top", "selected", "partial" or "showing" returned
+    // nothing.
+    //
+    // Worse than a wrong number: a relevant band silently dropped from a
+    // relevant question. The weather question surfaced four weather bands
+    // the built-up question did not, so the selection IS question-aware
+    // and good — and `weather.relative_humidity_2m` was still present and
+    // not shown.
+    //
+    // Found by the TfL session, 2026-09-11, reading the envelope cold.
+    let shown = bands.len();
+    json!({
+        "bands": bands,
+        "observations": count,
+        "distinct_bands": distinct,
+        "bands_shown": shown,
+        "truncated": shown < distinct,
+        // Kept, because consumers read it, and now beside the two numbers
+        // that say what it is not.
+        "count": count,
+        "_means": "three different quantities. `observations` is how many readings were made (what `count` has always been). `distinct_bands` is how many distinct bands those readings cover. `bands_shown` is how many appear in `bands` below, which is a question-relevant selection capped at this envelope's summary size. When `truncated` is true, `bands` is not the evidence set: recall the cell for all of it.",
+    })
+}
+
+/// "91st", not "91th". Rendered into caller-facing prose, where a wrong
+/// suffix on 27 of the 100 percentiles reads as a template, not a measurement.
+fn english_ordinal(n: u64) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
@@ -66405,80 +66581,7 @@ async fn ask_inner_traced(
         })
         .collect();
 
-    /// How many bands the slim summary shows before it stops.
-    ///
-    /// Named rather than written as a literal in the loop, because a cap that
-    /// appears only as `>= 12` inside a break is a cap nothing can report, and
-    /// the fault this constant is part of fixing was exactly that: a list
-    /// silently ending at twelve with a thirty-three beside it.
-    const SUMMARY_BAND_CAP: usize = 12;
-
-    // band_observations_summary: counts + per-band {band, value, unit}.
-    // Carries the actual readings (not just band names) so a token-conscious
-    // agent, and the synthesised `answer` below, gets the values without
-    // pulling the full `band_observations[]` array. Deduped by band, Primary
-    // readings only (Absence/null skipped), capped to stay slim.
-    let band_observations_summary = {
-        let count = band_observations.len();
-        let mut seen: std::collections::BTreeSet<String> = Default::default();
-        let mut bands: Vec<JsonValue> = Vec::new();
-        for o in &band_observations {
-            let Some(band) = o.get("band_key").and_then(|b| b.as_str()) else {
-                continue;
-            };
-            let value = o.get("value").cloned().unwrap_or(JsonValue::Null);
-            if value.is_null() || !seen.insert(band.to_string()) {
-                continue;
-            }
-            bands.push(json!({
-                "band":  band,
-                "value": value,
-                "unit":  o.get("unit").cloned().unwrap_or(JsonValue::Null),
-                // Age comes along into the summary, because the summary is what
-                // the DEFAULT envelope carries and therefore what the prose is
-                // written from. Leaving it out of the slim shape meant the
-                // freshness work reached verbose callers and no one else: the
-                // one reader most likely to take a number at face value is the
-                // one who asked for the small answer.
-                "age_s": o.get("age_s").cloned().unwrap_or(JsonValue::Null),
-            }));
-            if bands.len() >= SUMMARY_BAND_CAP {
-                break;
-            }
-        }
-        // THREE QUANTITIES, AND ONLY ONE OF THEM HAD A NAME THAT SAID WHICH.
-        //
-        // `count` was the number of OBSERVATIONS, `bands` was a
-        // question-relevant selection capped at twelve, and `bands_present`
-        // elsewhere in the envelope was the number of distinct bands. Measured
-        // live: count 33, len(bands) 12, bands_present 27, in one response,
-        // with nothing saying the list was capped. A consumer reading `bands`
-        // as the evidence set got twelve of twenty-seven while the number
-        // beside it asserted thirty-three, and a search of the payload for
-        // "truncated", "top", "selected", "partial" or "showing" returned
-        // nothing.
-        //
-        // Worse than a wrong number: a relevant band silently dropped from a
-        // relevant question. The weather question surfaced four weather bands
-        // the built-up question did not, so the selection IS question-aware
-        // and good — and `weather.relative_humidity_2m` was still present and
-        // not shown.
-        //
-        // Found by the TfL session, 2026-09-11, reading the envelope cold.
-        let distinct = seen.len();
-        let shown = bands.len();
-        json!({
-            "bands": bands,
-            "observations": count,
-            "distinct_bands": distinct,
-            "bands_shown": shown,
-            "truncated": shown < distinct,
-            // Kept, because consumers read it, and now beside the two numbers
-            // that say what it is not.
-            "count": count,
-            "_means": "three different quantities. `observations` is how many readings were made (what `count` has always been). `distinct_bands` is how many distinct bands those readings cover. `bands_shown` is how many appear in `bands` below, which is a question-relevant selection capped at this envelope's summary size. When `truncated` is true, `bands` is not the evidence set: recall the cell for all of it.",
-        })
-    };
+    let band_observations_summary = band_observations_summary(&band_observations);
 
     // Scene URL always surfaced (lightweight string). Full scene
     // metadata block only with include=["scene"] or verbose.
@@ -66545,7 +66648,7 @@ async fn ask_inner_traced(
                         .encode(&s.identity.pubkey.0)
                         .to_lowercase(),
                 ),
-                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. Same question, same unchanged stages, same tokens: hold one and skip its bytes. Resolve with GET /v1/state/<cid>, and recompute the address yourself from the bytes it returns.",
+                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. The same inputs give the same token, so a consumer holding one can tell a stage that did not change from one that did. The record behind a token is not retrievable yet, and each state's `verifiable_today` says so.",
             }),
         );
 
@@ -68417,10 +68520,10 @@ fn apply_live_perception(body: &mut JsonValue, block: JsonValue) {
                                 None => String::new(),
                             };
                             lead.push_str(&format!(
-                                " That is the {:.0}th percentile{span} {means}, over {n} prior \
+                                " That is the {} percentile{span} {means}, over {n} prior \
                                  reading(s) -- a comparison against this camera's own history, \
                                  which the clip hash does not cover.",
-                                pct * 100.0
+                                english_ordinal((pct * 100.0).round() as u64)
                             ));
                         } else {
                             lead.push_str(&format!(
@@ -77280,6 +77383,95 @@ mod tests {
             size <= 24_000,
             "slimmed to {size} bytes, over the 24000 budget"
         );
+    }
+
+    /// `distinct_bands` is counted over every reading, not over the capped list.
+    ///
+    /// Taken from the list, it could not exceed twelve and `truncated` compared
+    /// the list with itself: live, 12 beside a `bands_present` of 27, and
+    /// `truncated: false` on every response.
+    #[test]
+    fn the_band_summary_counts_what_it_did_not_show() {
+        let obs = |band: String, v: JsonValue| json!({"band_key": band, "value": v, "unit": "u"});
+        let mut many: Vec<JsonValue> = (0..20).map(|i| obs(format!("b{i}"), json!(i))).collect();
+        // A repeat reading and an absence: neither is a distinct band with a value.
+        many.push(obs("b0".into(), json!(99)));
+        many.push(obs("absent".into(), JsonValue::Null));
+        let sum = band_observations_summary(&many);
+        assert_eq!(sum["observations"], json!(22));
+        assert_eq!(sum["distinct_bands"], json!(20));
+        assert_eq!(sum["bands_shown"], json!(SUMMARY_BAND_CAP));
+        assert_eq!(sum["truncated"], json!(true));
+
+        let few: Vec<JsonValue> = (0..5).map(|i| obs(format!("b{i}"), json!(i))).collect();
+        let sum = band_observations_summary(&few);
+        assert_eq!(sum["distinct_bands"], json!(5));
+        assert_eq!(sum["bands_shown"], json!(5));
+        assert_eq!(sum["truncated"], json!(false));
+    }
+
+    #[test]
+    fn ordinals_read_as_english() {
+        for (n, want) in [
+            (0, "0th"),
+            (1, "1st"),
+            (2, "2nd"),
+            (3, "3rd"),
+            (4, "4th"),
+            (11, "11th"),
+            (12, "12th"),
+            (13, "13th"),
+            (21, "21st"),
+            (22, "22nd"),
+            (23, "23rd"),
+            (91, "91st"),
+            (100, "100th"),
+            (101, "101st"),
+            (111, "111th"),
+        ] {
+            assert_eq!(english_ordinal(n), want);
+        }
+    }
+
+    /// Over MCP the trace arrives as its stages and their addresses rather than
+    /// not at all, and the escape hatch is a call that can actually be run.
+    #[test]
+    fn the_trace_survives_the_budget_at_the_size_of_its_addresses() {
+        let cids = |n: usize| json!(vec!["c".repeat(52); n]);
+        let stages = ["located", "routed", "recalled", "scored"];
+        let inner = json!({
+            "schema": "emem.ask.v1",
+            "question": "how busy is it right now?",
+            "place_resolved": {"cell64": "defi.zb2d8.wAlI.zca2e", "input": "Maputo"},
+            "answer": "x".repeat(1500),
+            "fact_cids": cids(33),
+            "algorithms_for_question": json!(vec!["x".repeat(90); 220]),
+            "reasoning": {
+                "schema": "emem.ask_reasoning.v1",
+                "steps": stages.iter().enumerate().map(|(i, st)| json!({
+                    "stage": st, "at_ms": i * 100, "grounded_total": 33,
+                    "new_fact_cids": cids(33), "detail": {"bands": cids(20)},
+                })).collect::<Vec<_>>(),
+                "states": stages.iter().map(|st| json!({
+                    "stage": st, "state": format!("emem:state:{st}"),
+                    "verifiable_today": false, "derived_from": cids(34),
+                })).collect::<Vec<_>>(),
+            },
+        });
+        let (slim, note) = mcp_slim_inner_to_budget(inner, 24_000);
+
+        let rz = &slim["reasoning"];
+        assert!(!rz.is_null(), "the trace was dropped whole: {note}");
+        let states = rz["states"].as_array().expect("states survive");
+        assert_eq!(states.len(), 4);
+        assert_eq!(states[2]["state"], json!("emem:state:recalled"));
+        assert_eq!(rz["steps"].as_array().map(|a| a.len()), Some(4));
+        assert!(serde_json::to_string(&slim).unwrap().len() <= 24_000);
+
+        let fetch = &note["fetch"];
+        assert_eq!(fetch["body"]["q"], json!("how busy is it right now?"));
+        assert_eq!(fetch["body"]["cell"], json!("defi.zb2d8.wAlI.zca2e"));
+        assert!(fetch.get("body_incomplete").is_none(), "{fetch}");
     }
 
     /// A misspelled argument is reported, not silently dropped.
