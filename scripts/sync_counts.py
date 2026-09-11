@@ -128,6 +128,14 @@ def compute_offline() -> dict:
 # appends to it.
 PENDING_DEPLOY: list[str] = []
 
+# Checks that could not be made because the responder did not answer. Not
+# drift and not a pass: `--check` exits 2 when these are the only problems,
+# which is the code ci.yml waives as "the responder did not answer". They used
+# to be appended to the drift list, so every deploy window failed CI with
+# "prose counts drifted, run --write" -- the wrong diagnosis and a remedy that
+# rewrites numbers from nothing -- and the step's exit-2 branch was unreachable.
+UNDETERMINED: list[str] = []
+
 
 def _semver_lt(a: str, b: str) -> bool:
     """Is a strictly older than b? Non-numeric or ragged values compare False,
@@ -200,7 +208,10 @@ def verify_security_limits(responder: str) -> list[str]:
         with patient(f"{responder}/v1/agent_card", timeout=15) as r:
             rt = json.load(r).get("runtime", {})
     except Exception as e:
-        print(f"  (security-limit cross-check skipped: {responder} unreachable: {e})")
+        # Returned [] here, which is a pass on a limit nobody read.
+        UNDETERMINED.append(
+            f"SECURITY.md limits not compared: {responder}/v1/agent_card "
+            f"unreachable ({str(e)[:40]})")
         return []
     if not rt.get("rate_limit_per_min"):
         return []  # responder predates the self-declared limits
@@ -1084,6 +1095,7 @@ def verify_canon() -> list[str]:
     responder = os.environ.get("EMEM_RESPONDER", "https://emem.dev")
     live = fetch_live(responder)
     PENDING_DEPLOY.clear()
+    UNDETERMINED.clear()
     if live:
         for k, v in live.items():
             if v is None or k not in CANON or CANON[k] == v:
@@ -1117,7 +1129,7 @@ def verify_canon() -> list[str]:
         # responder; compute_offline cannot derive them. With the responder
         # unreachable those numbers were not verified, and a gate that reports
         # green on an unverified number is worse than one that reports red.
-        drift.append(
+        UNDETERMINED.append(
             f"live responder {responder} unreachable: the REST path counts were "
             f"NOT verified. Retry, or set EMEM_COUNTS_OFFLINE=1 to state that "
             f"you are checking the repo alone."
@@ -1505,7 +1517,7 @@ def verify_registry_size_claims(responder: str) -> list[str]:
             with urllib.request.urlopen(responder + path, timeout=40) as r:
                 doc = json.load(r)
         except Exception as e:
-            hits.append(f"{path}: unreachable ({str(e)[:40]}); undetermined, not passing")
+            UNDETERMINED.append(f"{path}: unreachable ({str(e)[:40]}); undetermined, not passing")
             continue
         if shape == "cid_keys":
             live = len([k for k in doc if k.endswith("_cid")])
@@ -1709,7 +1721,18 @@ def main() -> int:
             print("DRIFT DETECTED:")
             for p in problems:
                 print(f"  ✗ {p}")
+            if UNDETERMINED:
+                print("NOT VERIFIED (responder did not answer):")
+                for u in UNDETERMINED:
+                    print(f"  ? {u}")
             return 1
+        if UNDETERMINED:
+            # Nothing drifted among what could be checked, and some of it could
+            # not be. Exit 2 says exactly that; it is not 0.
+            print("NOT VERIFIED (responder did not answer), no drift in what was checked:")
+            for u in UNDETERMINED:
+                print(f"  ? {u}")
+            return 2
         print("All surfaces match canonical counts. No drift.")
         return 0
 
