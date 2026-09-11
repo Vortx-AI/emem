@@ -182,6 +182,26 @@
    "_note": "The simplest device case: one location, one key, a stream of observations. Privacy classes apply before anything derived from imagery of people is written."
   },
   {
+   "id": "feed.retained.v1",
+   "title": "Retained third-party feeds: bytes a custodian kept but did not capture",
+   "contributor_class": "cctv",
+   "status": "candidate",
+   "admission": "custodial_retention",
+   "address_space": "geo.cell64",
+   "grain_min_m": 0.01,
+   "grain_max_m": 10.0,
+   "tempo": "ultra_fast",
+   "required_trace_layers": [],
+   "evidence_layers": [
+    "signal",
+    "inference"
+   ],
+   "drift_anchor": false,
+   "provenance_class": "deterministic_index",
+   "bands": [],
+   "_note": "For the writer who is not the observer: it fetches from a feed it does not control, retains the bytes, content-addresses them and signs the retention. A reader re-fetches from the custodian, re-hashes, checks the signature, and re-runs a named function over the cited bytes to reproduce a derived value. A reader CANNOT re-derive those bytes from anywhere else, and nothing attests that the capture happened as claimed: the custodian does not run the instrument and holds no execution trace of it. The claim is about custody, never about the sensor. provenance_class is deterministic_index because what is offered is recomputability from cited bytes; direct_sensor is refused by the registry under this rule because it would assert the instrument's own word. Distinct from urban.cctv.v1, which is the same subject matter under a rule demanding kernel traces from the capturing device, available only to whoever owns the cameras. candidate: the rule and its boundary are pinned so a custodian can build against them; no ingest path is open here yet."
+  },
+  {
    "id": "mobile.handheld.v1",
    "title": "Phones and wearables",
    "contributor_class": "mobile",

@@ -252,6 +252,45 @@ pub enum AdmissionRule {
     /// source and recompute the value. No execution trace exists or is
     /// needed; the archive itself is the evidence.
     ArchiveRecomputable,
+    /// The writer is not the observer. It retained bytes from a feed it does
+    /// not control, content-addressed them, and signed the retention.
+    ///
+    /// The rule underneath the other two is that the strength of the evidence
+    /// has to match what the observation forecloses: repeatable, so let a
+    /// third party repeat it; unrepeatable, so attest the execution. A large
+    /// class of real writers can do neither, and this is the honest name for
+    /// them rather than a gap they squeeze into one of the other two.
+    ///
+    /// WHAT A READER GETS. The bytes are content-addressed and the retention
+    /// is signed, so anyone can re-fetch them from the custodian, re-hash
+    /// them, verify the signature, and re-run a named function over the cited
+    /// bytes to reproduce a derived value. That is a real guarantee: these are
+    /// the bytes that were kept, unaltered, by this key.
+    ///
+    /// WHAT A READER DOES NOT GET, and the profile must say so rather than
+    /// leave it to be inferred from what sits nearby. Nothing attests that the
+    /// capture happened as claimed. The custodian does not run the instrument
+    /// and holds no execution trace of it, and the bytes exist nowhere else,
+    /// so a reader cannot go around the custodian to check them. The claim
+    /// available here is about CUSTODY, never about the sensor.
+    ///
+    /// Weaker than `ArchiveRecomputable`, because the archive is the writer's
+    /// own. Weaker than `OsTraceRequired`, because nothing attests the
+    /// capture. Stronger than nothing, and it is what every third-party-feed,
+    /// CCTV and edge deployment actually is — which is to say, most writers
+    /// this registry will ever see. Naming it is the alternative to somebody
+    /// writing under a profile whose evidence rule they cannot meet, which
+    /// would be a substrate asserting coverage it does not have, at the
+    /// admission boundary.
+    ///
+    /// Identified by the geo.qa backend session on 2026-09-10: ~900 London
+    /// traffic cameras on a public feed they do not control, 7.58 million
+    /// frames retained with a sha256 and an ed25519 receipt over hash, camera,
+    /// capture time, cell, bytes and storage key. They checked before claiming
+    /// it: they cannot meet `urban.cctv.v1` and never will, because the
+    /// required layers are kernel traces from devices belonging to Transport
+    /// for London.
+    CustodialRetention,
 }
 
 /// Lifecycle state of a profile.
@@ -535,6 +574,45 @@ impl Manifest for SubstrateRegistry {
                         )));
                     }
                 }
+                AdmissionRule::CustodialRetention => {
+                    // No trace layers, for the same reason as the archive
+                    // rule: the custodian does not run the instrument and
+                    // cannot produce a trace of it. Demanding one would
+                    // define a profile nobody can enter.
+                    if !p.required_trace_layers.is_empty() {
+                        return Err(ManifestError::Invalid(format!(
+                            "{}: custodial_retention cannot require trace layers; the \
+                             custodian does not run the instrument",
+                            p.id
+                        )));
+                    }
+                    // And it cannot anchor. A drift anchor is the
+                    // independently recomputable record that device claims
+                    // are scored against, and these bytes exist nowhere but
+                    // the custodian's own store — a reader cannot go around
+                    // it to check anything. An anchor nobody can reach
+                    // independently is not an anchor.
+                    if p.drift_anchor {
+                        return Err(ManifestError::Invalid(format!(
+                            "{}: a custodially retained substrate cannot be a drift anchor; \
+                             its bytes exist only at the custodian",
+                            p.id
+                        )));
+                    }
+                    // The provenance class must not claim the sensor. What
+                    // this rule admits is custody of bytes, and a band
+                    // written as `direct_sensor` under it would assert the
+                    // instrument's own word, which is exactly what nothing
+                    // here attests.
+                    if p.provenance_class == "direct_sensor" {
+                        return Err(ManifestError::Invalid(format!(
+                            "{}: custodial_retention admits custody of bytes, not the \
+                             sensor's word; `direct_sensor` claims more than this rule \
+                             can carry",
+                            p.id
+                        )));
+                    }
+                }
             }
             if p.drift_anchor && p.status == ProfileStatus::Active {
                 anchors += 1;
@@ -597,8 +675,8 @@ mod tests {
     /// them for being a second example of a category it already allowed.
     ///
     /// The invariant is per-profile, not per-id: every profile is admitted by
-    /// re-fetchability OR by execution trace, and a trace-admitted profile
-    /// names its layers and cannot anchor the record it is scored against.
+    /// re-fetchability, by execution trace, or by signed custody of retained
+    /// bytes — and each of the three is held to what it can actually carry.
     #[test]
     fn nothing_is_admitted_on_its_own_word() {
         for p in &DEFAULT.substrates {
@@ -610,8 +688,79 @@ mod tests {
                 AdmissionRule::ArchiveRecomputable => {
                     assert!(p.required_trace_layers.is_empty(), "{}", p.id);
                 }
+                AdmissionRule::CustodialRetention => {
+                    // No trace: the custodian does not run the instrument, so
+                    // demanding one would define a profile nobody can enter.
+                    assert!(p.required_trace_layers.is_empty(), "{}", p.id);
+                    // No anchor: these bytes exist only at the custodian, and
+                    // an anchor a reader cannot reach independently is not one.
+                    assert!(!p.drift_anchor, "{}", p.id);
+                    // And it must not claim the sensor. This rule admits
+                    // custody of bytes; `direct_sensor` would assert the
+                    // instrument's own word, which is the single thing
+                    // nothing here attests.
+                    assert_ne!(
+                        p.provenance_class, "direct_sensor",
+                        "{}: custodial retention cannot carry a direct_sensor claim",
+                        p.id
+                    );
+                }
             }
         }
+    }
+
+    /// The rule earns its place: it admits what the other two cannot, and
+    /// refuses what it cannot carry.
+    ///
+    /// geo.qa's case is the measured one. ~900 London traffic cameras on a
+    /// public feed they do not control, 7.58 million frames retained with a
+    /// sha256 and an ed25519 receipt. They cannot meet `urban.cctv.v1` and
+    /// never will: its layers are kernel traces from devices owned by
+    /// Transport for London. Without a third rule such a writer either stays
+    /// out or enters under a profile whose evidence rule they cannot meet —
+    /// a substrate asserting coverage it does not have, at the admission
+    /// boundary.
+    #[test]
+    fn custodial_retention_admits_the_custodian_and_refuses_the_sensor_claim() {
+        let p = DEFAULT
+            .substrates
+            .iter()
+            .find(|p| p.id == "feed.retained.v1")
+            .expect("the custodial profile exists");
+        assert_eq!(p.admission, AdmissionRule::CustodialRetention);
+        assert!(p.required_trace_layers.is_empty());
+        assert!(!p.drift_anchor);
+        // Recomputability from cited bytes is exactly what it offers, and
+        // exactly what `deterministic_index` names.
+        assert_eq!(p.provenance_class, "deterministic_index");
+
+        // The same subject matter under the device rule is a different
+        // profile, and it is still there: the new rule adds a door rather
+        // than widening an existing one.
+        let cctv = DEFAULT
+            .substrates
+            .iter()
+            .find(|p| p.id == "urban.cctv.v1")
+            .expect("the device profile is untouched");
+        assert_eq!(cctv.admission, AdmissionRule::OsTraceRequired);
+        assert!(!cctv.required_trace_layers.is_empty());
+
+        // A control. If the loader stopped validating admission rules, every
+        // assertion above would still pass on a registry that accepts
+        // anything, so check the refusals actually refuse.
+        let mut bad = p.clone();
+        bad.provenance_class = "direct_sensor".into();
+        assert!(
+            SubstrateRegistry {
+                version: DEFAULT.version.clone(),
+                manifest: DEFAULT.manifest.clone(),
+                note: DEFAULT.note.clone(),
+                substrates: vec![bad],
+            }
+            .validate()
+            .is_err(),
+            "a custodial profile claiming direct_sensor must be refused"
+        );
     }
 
     /// The address space is declared, resolvable, and honest about ingest.
