@@ -98,11 +98,39 @@ REQUEST_TIMEOUT_S = 15
 TOTAL_BUDGET_S = 240
 
 
-def get(url: str) -> tuple[int, str]:
+# Returned as the status of a fetch that ran out of wall-clock time, so the
+# summary can say "did not finish in time" rather than "no answer".
+TOO_SLOW = -1
+
+
+def get(url: str, deadline: float | None = None) -> tuple[int, str]:
+    """One fetch, bounded in WALL-CLOCK time, not only per socket read.
+
+    urlopen's timeout bounds each read. A responder that sends its body a byte
+    at a time never trips it, and that is how a sweep with a 240 s budget ran
+    seven minutes and took the CI job down at its 15 minute cap: the budget
+    was checked between completed fetches, and none completed. So the body is
+    read in chunks against an end time -- this request's own REQUEST_TIMEOUT_S,
+    or the sweep's deadline, whichever is sooner -- and a fetch past it stops.
+    The worst case is that end plus one socket read.
+    """
+    end = time.monotonic() + REQUEST_TIMEOUT_S
+    if deadline is not None:
+        end = min(end, deadline)
+    if time.monotonic() >= end:
+        return TOO_SLOW, ""
     req = urllib.request.Request(url, headers={"user-agent": UA})
     try:
         with urllib.request.urlopen(req, timeout=REQUEST_TIMEOUT_S) as r:
-            return r.status, r.read().decode("utf-8", "replace")
+            chunks: list[bytes] = []
+            while True:
+                if time.monotonic() >= end:
+                    return TOO_SLOW, ""
+                b = r.read1(65536)
+                if not b:
+                    break
+                chunks.append(b)
+            return r.status, b"".join(chunks).decode("utf-8", "replace")
     except urllib.error.HTTPError as e:
         return e.code, ""
     except Exception:  # noqa: BLE001
@@ -300,7 +328,7 @@ def main() -> int:
     deadline = time.monotonic() + TOTAL_BUDGET_S
     results: list[tuple[str, int, str]] = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
-        futures = {pool.submit(get, u): u for u in urls}
+        futures = {pool.submit(get, u, deadline): u for u in urls}
         for fut in concurrent.futures.as_completed(futures):
             url = futures[fut]
             if time.monotonic() > deadline:
@@ -314,6 +342,9 @@ def main() -> int:
             results.append((url, st, body))
 
     for url, st, body in results:
+        if st == TOO_SLOW:
+            unread.append(f"{url[len(origin):]} (did not finish in time)")
+            continue
         if st != 200 or not body:
             unread.append(f"{url[len(origin):]} (http {st or 'no answer'})")
             continue
