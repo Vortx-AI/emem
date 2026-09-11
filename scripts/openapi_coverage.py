@@ -30,8 +30,10 @@ build that never got deployed.
 
 Exit codes
 ----------
-  0  every routed path is documented or deliberately excluded
-  1  a path is neither, or an exclusion has gone stale
+  0  every routed path is documented or deliberately excluded, and every
+     documented path is routed
+  1  a path is neither, a documented path is not routed, or an exclusion
+     has gone stale
   2  could not run (source unreadable, origin unreachable)
 
 Usage
@@ -159,6 +161,19 @@ def main():
         if len(UNDOCUMENTED[p]) < 20:
             fails.append(f"{p} is excluded without a usable reason.")
 
+    # The other direction. A description of a route that is not routed is
+    # worse than a route with no description: the first sends a caller to a
+    # 404 with the full authority of the API document behind it. This gate
+    # checked only served-implies-described, so `/v1/ask/stream` stayed in the
+    # document after the route was folded into content negotiation on
+    # /v1/ask, answered 404 live, and was counted as a documented path by
+    # sync_counts. Measured before enabling: on that tree this reports exactly
+    # that path and nothing else, so the router parse has no blind spot here.
+    for p in sorted(documented - set(routed)):
+        fails.append(f"{p} is described in the API document and is not routed: "
+                     f"a caller following the document gets a 404. Remove the "
+                     f"description, or route it.")
+
     if a.origin:
         origin = a.origin.rstrip("/")
         try:
@@ -181,7 +196,8 @@ def main():
         for f in fails:
             print(f"  {f}")
         return 1
-    print("Every routed path is described or excluded with a reason.")
+    print("Every routed path is described or excluded with a reason, and "
+          "every described path is routed.")
     return 0
 
 
