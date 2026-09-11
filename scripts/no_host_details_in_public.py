@@ -43,10 +43,12 @@ Exit 0 clean, 1 a leak, 2 the responder did not answer, 3 a fault on our side.
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import pathlib
 import re
 import sys
+import time
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -89,6 +91,11 @@ NOT_A_LEAK = (
 # load test. A surface that does not answer inside this is UNREAD, and the
 # summary says so rather than counting it as clean.
 REQUEST_TIMEOUT_S = 15
+
+# The whole sweep, not one request. The CI job this runs in is capped at 15
+# minutes and a serial worst case exceeded it; this is the number that keeps
+# the check inside the job whatever a responder does.
+TOTAL_BUDGET_S = 240
 
 
 def get(url: str) -> tuple[int, str]:
@@ -272,13 +279,41 @@ def main() -> int:
             print(f"{EXCEPTIONS.name} did not parse: {e}")
             return 3
 
+    # CONCURRENTLY, AND INSIDE A WALL-CLOCK BUDGET.
+    #
+    # This read 83 surfaces one after another at up to 15 s each, so its worst
+    # case was twenty minutes and the CI job it runs in is capped at fifteen.
+    # It timed out the whole `prose convention holds` job on c6ee11e — a gate
+    # failing for a reason that has nothing to do with what it checks, which is
+    # the shape this repo spent two days removing from other people's code and
+    # I then shipped into its own CI.
+    #
+    # Concurrency keeps the coverage rather than trading it away: 83 fetches
+    # across 12 workers is seconds. The budget is a backstop for a responder
+    # that accepts connections and never answers, and whatever it cuts is
+    # reported as UNREAD rather than counted clean.
     urls = surfaces(origin, oa)
     read = 0
     unread: list[str] = []
     leaks: list[str] = []
     excused = 0
-    for url in urls:
-        st, body = get(url)
+    deadline = time.monotonic() + TOTAL_BUDGET_S
+    results: list[tuple[str, int, str]] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(get, u): u for u in urls}
+        for fut in concurrent.futures.as_completed(futures):
+            url = futures[fut]
+            if time.monotonic() > deadline:
+                unread.append(f"{url[len(origin):]} (budget)")
+                continue
+            try:
+                st, body = fut.result()
+            except Exception as e:  # noqa: BLE001
+                unread.append(f"{url[len(origin):]} ({type(e).__name__})")
+                continue
+            results.append((url, st, body))
+
+    for url, st, body in results:
         if st != 200 or not body:
             unread.append(f"{url[len(origin):]} (http {st or 'no answer'})")
             continue

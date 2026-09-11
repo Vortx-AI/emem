@@ -64958,11 +64958,25 @@ fn ask_facts_summary(facts_json: &JsonValue) -> JsonValue {
         .filter(|f| is_absence(f))
         .filter_map(|f| {
             let band = f.get("band").and_then(|b| b.as_str())?;
-            Some(json!({
-                "band": band,
-                "absence_reason": f.get("absence_reason"),
-                "fact_cid": f.get("fact_cid"),
-            }))
+            // An absence whose reason is null is a worse field than no field:
+            // it is where "we did not say" hides. Measured on the live build,
+            // the only absence anyone could produce came back with
+            // absence_reason: None. So the key appears when there IS a reason,
+            // and its absence is stated rather than rendered as a null the
+            // reader has to interpret.
+            let reason = f.get("absence_reason").filter(|v| !v.is_null()).cloned();
+            Some(match reason {
+                Some(r) => json!({
+                    "band": band,
+                    "absence_reason": r,
+                    "fact_cid": f.get("fact_cid"),
+                }),
+                None => json!({
+                    "band": band,
+                    "fact_cid": f.get("fact_cid"),
+                    "_no_reason_recorded": "this responder signed an absence here and did not record why. The absence is attested; the reason is not, and reading one as the other reads a gap as a finding.",
+                }),
+            })
         })
         .collect();
     json!({
@@ -65219,7 +65233,6 @@ impl AskTrace {
                 does_not_cover: vec![
                     "the facts themselves, which are cited in derived_from and verified against their own fact_cids".into(),
                 ],
-                computed_at: chrono_iso8601_utc(),
                 responder_pubkey_b32: responder_pubkey_b32.to_string(),
             };
             let token = rec.token();
@@ -65228,8 +65241,28 @@ impl AskTrace {
                 "state": token,
                 "stage": step.get("stage"),
                 "at_ms": step.get("at_ms"),
+                "computed_at": chrono_iso8601_utc(),
                 "derived_from": rec.derived_from,
-                "_recompute": "blake3 over the canonical CBOR of the state record at GET /v1/state/<cid>, base32-nopad lowercase. Recompute it yourself; this responder is not the authority on its own addresses.",
+                // NOT `_recompute`, deliberately, and silent about a route
+                // that does not exist.
+                //
+                // That field told a reader to blake3 the canonical CBOR of the
+                // record "at GET /v1/state/<cid>" and closed with "this
+                // responder is not the authority on its own addresses" — the
+                // strongest claim in the document, resting on a 404. An
+                // instruction to do something impossible, framed as the trust
+                // model, on every state in every response.
+                //
+                // Minting an address nobody can verify yet is an incomplete
+                // feature. Saying it is verifiable is a false statement. Only
+                // the second was urgent, so the sentence goes now and the
+                // route arrives when it is real. Order, from the geo.qa
+                // frontend agent: canonicalisation spec, then a published test
+                // vector, then the route — a fetchable record under an
+                // unspecified encoding turns "I cannot check this" into "I
+                // checked it and it failed", which is worse than silence.
+                "verifiable_today": false,
+                "_why_not": "the bytes this address commits to are not retrievable: no route returns the state record yet. The address is real and stable across calls; verifying it offline is not possible from this envelope, and nothing here should be read as saying it is.",
             }));
         }
         out
@@ -66372,7 +66405,15 @@ async fn ask_inner_traced(
         })
         .collect();
 
-    // band_observations_summary: count + per-band {band, value, unit}.
+    /// How many bands the slim summary shows before it stops.
+    ///
+    /// Named rather than written as a literal in the loop, because a cap that
+    /// appears only as `>= 12` inside a break is a cap nothing can report, and
+    /// the fault this constant is part of fixing was exactly that: a list
+    /// silently ending at twelve with a thirty-three beside it.
+    const SUMMARY_BAND_CAP: usize = 12;
+
+    // band_observations_summary: counts + per-band {band, value, unit}.
     // Carries the actual readings (not just band names) so a token-conscious
     // agent, and the synthesised `answer` below, gets the values without
     // pulling the full `band_observations[]` array. Deduped by band, Primary
@@ -66401,11 +66442,42 @@ async fn ask_inner_traced(
                 // one who asked for the small answer.
                 "age_s": o.get("age_s").cloned().unwrap_or(JsonValue::Null),
             }));
-            if bands.len() >= 12 {
+            if bands.len() >= SUMMARY_BAND_CAP {
                 break;
             }
         }
-        json!({ "count": count, "bands": bands })
+        // THREE QUANTITIES, AND ONLY ONE OF THEM HAD A NAME THAT SAID WHICH.
+        //
+        // `count` was the number of OBSERVATIONS, `bands` was a
+        // question-relevant selection capped at twelve, and `bands_present`
+        // elsewhere in the envelope was the number of distinct bands. Measured
+        // live: count 33, len(bands) 12, bands_present 27, in one response,
+        // with nothing saying the list was capped. A consumer reading `bands`
+        // as the evidence set got twelve of twenty-seven while the number
+        // beside it asserted thirty-three, and a search of the payload for
+        // "truncated", "top", "selected", "partial" or "showing" returned
+        // nothing.
+        //
+        // Worse than a wrong number: a relevant band silently dropped from a
+        // relevant question. The weather question surfaced four weather bands
+        // the built-up question did not, so the selection IS question-aware
+        // and good — and `weather.relative_humidity_2m` was still present and
+        // not shown.
+        //
+        // Found by the TfL session, 2026-09-11, reading the envelope cold.
+        let distinct = seen.len();
+        let shown = bands.len();
+        json!({
+            "bands": bands,
+            "observations": count,
+            "distinct_bands": distinct,
+            "bands_shown": shown,
+            "truncated": shown < distinct,
+            // Kept, because consumers read it, and now beside the two numbers
+            // that say what it is not.
+            "count": count,
+            "_means": "three different quantities. `observations` is how many readings were made (what `count` has always been). `distinct_bands` is how many distinct bands those readings cover. `bands_shown` is how many appear in `bands` below, which is a question-relevant selection capped at this envelope's summary size. When `truncated` is true, `bands` is not the evidence set: recall the cell for all of it.",
+        })
     };
 
     // Scene URL always surfaced (lightweight string). Full scene
@@ -68683,7 +68755,37 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
         parts.push(format!("Scored: {}.", outcome_phrases.join("; ")));
     }
     if let Some(it) = interp {
-        parts.push(format!("{it}."));
+        // AN INTERPRETATION IS ABOUT THE BAND. THE READING MAY BE OLD.
+        //
+        // The band registry says weather is "Current-state climate the agent
+        // can fold into algorithms like `heat_index@1`", which is true of the
+        // band and false of a sixty-five-day-old reading of it. Printed
+        // unqualified it produced, in one response: every value honestly
+        // stamped "measured 65 days ago", a `freshness` block naming
+        // twenty-four stale bands against its own 24-hour threshold, and then
+        // a closing line calling the set current-state climate and
+        // recommending it for a heat index. An agent that follows the
+        // recommendation computes today's heat index for London from a
+        // sixty-five-day-old temperature.
+        //
+        // The honest qualifier was one object away the whole time. The risk is
+        // the RECOMMENDATION rather than the phrase, so the sentence keeps the
+        // algorithm advice and loses the claim of currency.
+        //
+        // Found by the TfL session, 2026-09-11, reading the envelope cold.
+        let oldest_days = bands
+            .iter()
+            .filter_map(|(_, _, _, age_s)| *age_s)
+            .max()
+            .map(|s| s / 86_400)
+            .unwrap_or(0);
+        if oldest_days >= 1 {
+            parts.push(format!(
+                "{it} As last measured, not as of now: the oldest reading above is                  {oldest_days} days old, and `freshness.stale_bands` names every one."
+            ));
+        } else {
+            parts.push(format!("{it}."));
+        }
     }
     parts.join(" ")
 }

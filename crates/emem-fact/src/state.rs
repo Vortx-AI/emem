@@ -165,10 +165,20 @@ pub struct StateRecord {
     /// composing from this record never reads a sentence.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub does_not_cover: Vec<String>,
-    /// RFC 3339, when this responder computed it.
-    pub computed_at: String,
+
     /// The responder that computed it, base32. Who is accountable, which is
     /// not the same as who is right.
+    ///
+    /// WHEN it was computed is deliberately NOT here. An identity must not
+    /// depend on anything that cannot change the answer, and a wall clock is
+    /// the purest example: `computed_at: chrono_iso8601_utc()` used to sit in
+    /// this record, so every state token differed on every call and the skip
+    /// this type exists for could never happen once. The geo.qa frontend agent
+    /// measured it — same question twice, all four stages, different tokens,
+    /// with identical `new_fact_cids` and an identical cell underneath — and
+    /// it is the third system in two days to put a clock inside an address.
+    /// The time a step ran belongs beside the token in the envelope, where
+    /// `at_ms` already is, and never inside what the cid commits to.
     pub responder_pubkey_b32: String,
 }
 
@@ -234,7 +244,6 @@ mod tests {
             payload: ciborium::Value::Bool(false),
             class: StateClass::DeterministicIndex,
             does_not_cover: vec!["the counts themselves; this is about their comparison".into()],
-            computed_at: "2026-09-10T20:00:00Z".into(),
             responder_pubkey_b32: "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka".into(),
         }
     }
@@ -289,6 +298,37 @@ mod tests {
         // And identical content is one address, which is what makes a skip
         // possible at all.
         assert_eq!(a.cid(), sample().cid());
+    }
+
+    /// The same content is the same address, twice, however much time passes.
+    ///
+    /// This is the property the whole type exists for and nothing asserted it.
+    /// A wall clock inside the record meant every token differed on every
+    /// call, so a consumer could never skip anything — the feature was
+    /// inert and looked live. The test that would have caught it is the
+    /// obvious one nobody wrote: mint the same state twice and compare.
+    #[test]
+    fn identical_content_is_one_address_however_long_apart() {
+        let a = sample();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        let b = sample();
+        assert_eq!(
+            a.cid(),
+            b.cid(),
+            "two mints of identical content must share an address, or nothing is skippable"
+        );
+
+        // And the record must carry no field that moves on its own. Every
+        // field below is something a caller supplies or that the derivation
+        // determines; if a clock or a counter is ever added, the assertion
+        // above fails and this comment is why.
+        let bytes = a.to_canonical_cbor();
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        assert_eq!(
+            bytes,
+            sample().to_canonical_cbor(),
+            "the bytes are stable too"
+        );
     }
 
     /// A state names who computed it, inside what the address commits to.
