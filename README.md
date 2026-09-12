@@ -2,9 +2,9 @@
 
 # emem
 
-**emem is shared memory for AI agents, and every fact in it can be checked.**
+**emem is the external, shared world memory for AI agents. Give your agents a world in common.**
 
-*Two agents that share no model and no vendor can cite the same fact and each check it alone. Satellites fill the memory today; anything that can show how it was measured can join.*
+*Two agents that share no model and no vendor can cite the same world fact and each check it alone. Satellites, CCTVs and agents' experiences fill the memory today; any machine that shows how it ran  can join.*
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
