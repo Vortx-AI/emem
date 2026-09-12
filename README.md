@@ -2,7 +2,7 @@
 
 # emem
 
-**emem is the external, shared world memory for AI agents. Give your agents a world in common.**
+**emem is the external, shared world memory for AI agents. Gives your agents a world in common.**
 
 *Two agents that share no model and no vendor can cite the same world fact and each check it alone. Satellites, CCTVs and agents' experiences fill the memory today; any machine that shows how it ran  can join.*
 
@@ -21,10 +21,10 @@
 </picture>
 
 **A model answers from a distribution. emem answers from an address.**
-Ask a model twice and you get two answers; ask an address twice and the same
-signed bytes come back. The token is the only thing that crosses between them.
+Ask a model twice and you get two answers; ask emem a million times and the same
+signed bytes come back. The token is an address not a payload, it is the only thing that crosses between agents, hence no referential drift, compaction failures or handoff issues.
 
-**One endpoint, `https://emem.dev/mcp`. Reads need no key, no account, no signup.**
+emem turns agent's observations, satellite records and camera evidence into a shared state substrate that any agent can use, reuse, share, cite and verify. Build research teams, coordinate across models and carry evidence into the next investigation. Long running agents need an external memory, adding in world facts minimises chances of drifts, corruptions and hallucinations.
 
 [Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Use it in two minutes](#use-it-in-two-minutes) · [Agent guide](https://emem.dev/agents.md) · [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8)
 
@@ -32,6 +32,28 @@ signed bytes come back. The token is the only thing that crosses between them.
 </div>
 
 ## Start here
+
+One agent's evidence. Every agent's starting point.
+
+A research agent spots a change. Another investigates the cause. A third builds on the findings.
+
+emem gives them a common record outside any one model: the place, the observation, its source and a reference they can pass between systems. Each agent can return to that evidence and check what was signed.
+
+Research together. Accumulate findings around evidence later agents can inspect.
+
+Coordinate across models. Carry the same observation through a handoff.
+
+Keep investigations moving. Recover signed notes and references when a session ends.
+
+From orbit to shared state.
+
+
+
+Space supplies the observations. emem makes them shared memory for intelligence on Earth.
+
+Satellites observe landscapes and change over time. Available cameras add a view from the ground. emem keeps observations addressable, with their sources and dates, so different agents can work from the same recorded evidence.
+
+Models bring the reasoning. emem supplies the common record.
 
 Two readers arrive at this file and they need different first moves. Pick the
 column that is you. Both paths are read-only and neither needs an account, so
