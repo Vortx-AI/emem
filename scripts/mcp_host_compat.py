@@ -428,20 +428,25 @@ def run(origin: str, endpoint: str) -> dict:
             f"{off_page}: dispatched={dispatched}, unknown_tool={unknown}",
             dispatched and not unknown, f"{len(rawo)}B")
 
-    # H: unknown tool must be a tool-level error, not a protocol fault.
+    # H: an unknown tool is a PROTOCOL error, per the spec's own example.
+    #
+    # This check used to accept either shape -- an isError result OR a JSON-RPC
+    # error -- which meant it could not fail, and it passed for months while we
+    # served the wrong one. The spec's Error Handling section lists "Unknown
+    # tools" under Protocol Errors and prints
+    #   {"error": {"code": -32602, "message": "Unknown tool: invalid_tool_name"}}
+    # so that is what is asserted.
     st, _, _, uj = _post(url, {
         "jsonrpc": "2.0", "id": 901, "method": "tools/call",
         "params": {"name": "emem_does_not_exist", "arguments": {}},
     }, "application/json, text/event-stream")
-    handled = bool(uj) and (
-        ("result" in uj and uj["result"].get("isError")) or "error" in uj
-    )
+    err = (uj or {}).get("error") or {}
+    shape = ("JSON-RPC error " + str(err.get("code")) if err
+             else "isError result" if uj and "result" in uj else "no JSON")
     row("Anthropic, OpenAI",
-        "an unknown tool name is reported, not a transport failure",
-        f"http {st}, "
-        + ("isError result" if uj and "result" in uj else
-           "JSON-RPC error" if uj and "error" in uj else "no JSON"),
-        handled, f"http {st}")
+        "an unknown tool is a JSON-RPC protocol error (-32602), not a result",
+        f"http {st}, {shape}",
+        err.get("code") == -32602, f"http {st}")
 
     # H: tool descriptors have the fields a directory renders.
     missing = [

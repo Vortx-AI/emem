@@ -27372,10 +27372,27 @@ async fn mcp_jsonrpc_inner(
                         ))
                     }
                     Ok(Err((code, msg))) => {
-                        // Unknown-method (-32601) is a protocol error, propagate
-                        // as JSON-RPC error. Everything else is a tool runtime
-                        // error and should land in CallToolResult with isError.
-                        if code == -32601 {
+                        // The spec draws this line for us, and we had it in the
+                        // wrong place. MCP tools have TWO error mechanisms:
+                        // protocol errors, "standard JSON-RPC errors for issues
+                        // like: Unknown tools, Invalid arguments, Server
+                        // errors", and tool execution errors, "reported in tool
+                        // results with isError: true: API failures, Invalid
+                        // input data, Business logic errors". It prints the
+                        // unknown-tool case as a JSON-RPC error with -32602.
+                        //
+                        // We answered an unknown tool with `isError: true`, and
+                        // a comment two thousand lines down asserted the spec
+                        // required exactly that. It does not.
+                        //
+                        // The rule is the reserved range itself: -32768..=-32000
+                        // is JSON-RPC's own, and every code we raise inside it
+                        // is a protocol failure (a name that is not a tool,
+                        // arguments that will not deserialize, our own response
+                        // failing to serialize). Domain codes come through
+                        // `mcp_err` as small negatives and stay where an agent
+                        // can read and retry them.
+                        if (-32768..=-32000).contains(&code) {
                             Err((code, msg))
                         } else {
                             Ok(json!({
@@ -30198,15 +30215,14 @@ async fn mcp_tool_call_inner(
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             physics::jepa_predict_v2(req, s).await.map_err(mcp_err)
         }
-        // MCP spec: unknown TOOL names are tool-runtime failures, not
-        // protocol errors, surface them through the CallToolResult
-        // envelope (`isError: true`) so the host treats it as an
-        // agent-retryable failure rather than a transport error. The
-        // wrapper at `tools/call` keeps the JSON-RPC -32601 reserved
-        // for unknown JSON-RPC METHODS only.
+        // An unknown tool name is a PROTOCOL error. The spec lists it first
+        // under "Protocol Errors" and prints it as `-32602`, and the wrapper
+        // at `tools/call` now propagates the reserved range as JSON-RPC errors
+        // instead of folding them into a result. The recovery hint rides the
+        // message, which is the only channel an error object has.
         other => Err((
             -32602,
-            format!("unknown tool '{other}'; call tools/list for the catalog"),
+            format!("Unknown tool: {other}; call tools/list for the catalog"),
         )),
     }
 }

@@ -133,6 +133,43 @@ if ann:
 else:
     warn("content annotations", "absent (pending deploy)")
 
+print("== MCP: error handling (spec: Protocol Errors vs Tool Execution Errors)")
+# The spec lists "Unknown tools", "Invalid arguments" and "Server errors" as
+# PROTOCOL errors, with a worked example returning -32602, and reserves
+# `isError: true` for execution failures (API failures, business logic).
+_, unknown = rpc("tools/call", {"name": "emem_does_not_exist", "arguments": {}})
+err = (unknown.get("error") or {})
+check("an unknown tool is a JSON-RPC error, not an isError result",
+      err.get("code") == -32602,
+      f"code={err.get('code')} " + (str(err.get("message"))[:70] if err
+                                    else "returned a result: " + str(unknown.get("result"))[:60]))
+
+_, badm = rpc("no/such/method", {})
+check("an unknown METHOD answers -32601",
+      (badm.get("error") or {}).get("code") == -32601,
+      str((badm.get("error") or {}).get("code")))
+
+# JSON-RPC batching was removed in MCP 2025-06-18; an array must be refused.
+r = u.Request(BASE + "/mcp",
+              data=json.dumps([{"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                                "params": {}}]).encode(),
+              headers={"content-type": "application/json",
+                       "accept": "application/json, text/event-stream",
+                       "MCP-Protocol-Version": "2025-11-25"})
+try:
+    batch = json.loads(u.urlopen(r, timeout=60).read().decode())
+except Exception as e:  # noqa: BLE001
+    batch = {"error": {"code": "http " + str(getattr(e, "code", e))}}
+check("a JSON-RPC batch is refused (removed in 2025-06-18)",
+      "error" in batch, str(batch)[:90])
+
+# A tool that IS served still answers normally: without this control, a server
+# that failed every call would pass the two checks above.
+_, good = rpc("tools/call", {"name": "emem_tools", "arguments": {}})
+check("the control: a real tool still answers",
+      "result" in good and not (good.get("result") or {}).get("isError"),
+      "result" if "result" in good else str(good.get("error"))[:70])
+
 print("== A2A")
 card = json.loads(u.urlopen(BASE + "/.well-known/agent-card.json", timeout=60).read())
 required = ["protocolVersion", "name", "description", "url", "version",

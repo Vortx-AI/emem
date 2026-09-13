@@ -254,7 +254,9 @@ def main() -> int:
             print(f"  rest skill {sid:<24} no answer (http {code})")
             continue
         points_home = "call_it_here" in text
-        denies_existence = "unknown tool" in text
+        # Matched case-insensitively: the refusal is spelled "Unknown tool:"
+        # in a JSON-RPC error and "unknown tool" in older result text.
+        denies_existence = "unknown tool" in text.lower()
         print(f"  rest skill {sid:<24} "
               f"{'points at its URL' if points_home else 'REFUSED'}")
         if denies_existence or not points_home:
