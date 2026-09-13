@@ -527,6 +527,39 @@ const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","c
 "grammar":{"type":"string","description":"The token grammar, so the form can be parsed rather than pattern-matched."},
 "docs":{"type":"string"}}}"#;
 
+/// What `emem_ask` promises as `structuredContent`: the typed core of an
+/// answer, the same shape whether or not the prose had to be slimmed.
+///
+/// Declared because a tool that returns structured content owes a schema —
+/// clients validate against it and a model reasons about follow-up calls from
+/// it. The core deliberately omits `fact_cids`: `spatial_trace.points[].f`
+/// indexes the list carried in the same result's text block, and copying a
+/// hundred 52-character cids into the sibling would cost more than everything
+/// else in it.
+const OUT_ASK: &str = r#"{"type":"object","required":["schema","spatial_trace"],"properties":{
+"schema":{"type":"string","const":"emem.ask_structured.v1"},
+"question":{"type":"string","description":"The question as asked."},
+"answer":{"type":"string","description":"The prose answer. The same text is in the content block, which also carries the full envelope."},
+"cell":{"type":"string","description":"The cell64 the question resolved to: emem's address for the place."},
+"spatial_trace":{"type":"object","description":"A spatial memory trace: what this responder has measured at this place, as primitives a model can reason over rather than a picture a person looks at.","required":["schema","layers","counts"],"properties":{
+"schema":{"type":"string","const":"emem.spatial_trace.v1"},
+"cell":{"type":"string"},
+"at":{"type":"array","description":"[lat, lng] of the cell, so a point has a position without a second call.","items":{"type":"number"}},
+"stage":{"type":"string","description":"Which stage of the answer grounded these readings."},
+"layers":{"type":"array","description":"Points grouped by what kind of evidence they are: surface (what the ground is), built (what stands on it), now (what is happening there), embedding (vectors for similarity). A layer absent from this list means the question never reached that kind of evidence; a band looked for and not found is in `absent` instead.","items":{"type":"object","required":["layer","points"],"properties":{
+"layer":{"type":"string","enum":["surface","built","now","embedding","other","ground"]},
+"points":{"type":"array","description":"One per signed reading.","items":{"type":"object","required":["band","value"],"properties":{
+"band":{"type":"string"},
+"value":{"description":"The measured value, in the band's own units."},
+"unit":{"type":"string"},
+"age_s":{"type":"integer","description":"How old the reading was when this answer was written."},
+"class":{"type":"string","description":"Provenance class: direct_sensor, deterministic_index, estimator, model_output, attested_execution, human_curated, unclassified. What KIND of claim this is."},
+"f":{"type":"integer","description":"Index into the fact_cids array in this result's text block. Dereference it to get the signed bytes."}}}}}}},
+"absent":{"type":"array","description":"Bands this responder looked for and did not find. Absence is evidence: without it a consumer infers coverage nobody measured.","items":{"type":"object","properties":{"band":{"type":"string"}}}},
+"counts":{"type":"object","description":"Totals taken BEFORE any cap, so truncation can be seen rather than guessed.","properties":{"present":{"type":"integer"},"absent":{"type":"integer"},"points_shown":{"type":"integer"},"absent_shown":{"type":"integer"}}},
+"truncated":{"type":"boolean"}}},
+"_means":{"type":"string"}}}"#;
+
 const SCHEMA_SUBSTRATES: &str = r#"{"type":"object","properties":{"id":{"type":"string","description":"A substrate profile id (e.g. \"observatory.telescope.v1\"). Omit for the summary list of every profile; pass one to get that profile whole, including its required trace layers, grain, bands and declared lineage. The whole registry does not fit the MCP wire budget, which is why the default is a summary rather than everything."}},"additionalProperties":false}"#;
 
 const SCHEMA_NONE: &str = r#"{"type":"object","properties":{}}"#;
@@ -1207,7 +1240,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         description: "Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope.",
         when_to_use: "Use when the question concerns a specific real-world place and a packaged, citation-bearing answer is preferable to manual primitive composition. Forward the user's question verbatim as `q` plus the location as `place` (free text), `cell` (cell64), or `lat`+`lng`. The server resolves the location, classifies the question to a topic, recalls every relevant band (auto-materializing Sentinel-2 / Sentinel-1 / Cop-DEM / JRC GSW / Overture / weather on miss), surfaces the algorithm recipes that compose those bands into named scores, and returns a single envelope with `topic_routing`, `facts`, `algorithms_for_question`, an optional Sentinel-2 RGB scene URL, and a `caveats` block (grid resolution, revisit cadence). All facts are signed by the responder; the signed `receipt` (and its content-addressed `fact_cids`) is surfaced at the envelope ROOT, `response.receipt` / `response.fact_cids`, exactly like every other primitive, and is also mirrored under `facts_summary.receipt` for back-compat. Set `include_image: true` to bundle the latest cloud-free Sentinel-2 thumbnail. Out-of-scope questions return `topic_routing.matched_topic: null` plus the full inventory so the caller can route elsewhere.",
         input_schema: SCHEMA_ASK,
-        output_schema: None,
+        output_schema: Some(OUT_ASK),
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,

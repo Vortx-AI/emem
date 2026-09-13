@@ -22499,7 +22499,14 @@ fn mcp_slim_inner_to_budget_keeping(
             // model_answer already makes -- this block is in the envelope only
             // because the question asked about now, and it is the evidence the
             // answer beside it cites by name.
+            // `spatial_trace` is the evidence in its smallest form: the
+            // readings, their ages, their provenance classes and an index into
+            // the cids already listed in this envelope. It is what a model
+            // draws from and cites, and it is a fraction of the blocks it
+            // replaces, so dropping it first to save bytes would trade the
+            // point of the payload for a rounding error.
             let protected = k == "model_answer"
+                || k == "spatial_trace"
                 || k == "live_perception"
                 || (!matches!(v, JsonValue::Array(_) | JsonValue::Object(_))
                     && cost <= NEVER_DROP_SCALAR_BYTES);
@@ -23093,6 +23100,64 @@ fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonVal
     inner
 }
 
+/// The typed core a field-reading client gets, whatever the prose costs.
+///
+/// MCP clients, and both major directories' guidelines, want structured output
+/// rather than JSON inside a text block. Ours never sent any on the tool that
+/// matters: `structuredContent` was a MIRROR of the whole result, the mirror
+/// roughly doubles the payload, and an over-budget result therefore dropped it
+/// — and `emem_ask` is always over budget. Measured: 22,684 bytes of text, no
+/// structured sibling at all.
+///
+/// The mirror was the wrong unit. The machine-readable core of an answer is
+/// the evidence and the address it was found at, not a second copy of the
+/// prose. This projection is small, the same shape on every call, and it omits
+/// `fact_cids` deliberately: the splat's `f` indices point into the list the
+/// same result already carries in its text block, and copying 118 cids of 52
+/// characters into the sibling would cost more than everything else here.
+///
+/// Returns `None` for a result with no splat, rather than inventing a core for
+/// a shape this does not understand.
+/// One tool-result text block, with the annotations the spec provides for
+/// saying who content is for.
+///
+/// Our text block is a JSON document: it is addressed to the model, not to a
+/// person reading a chat transcript, and a client that wants to collapse it
+/// for the human should be told so rather than left to guess from the shape.
+/// `priority` says it is the load-bearing copy: everything the structured
+/// sibling carries is in here too.
+fn mcp_text_block(text: String) -> JsonValue {
+    json!({
+        "type": "text",
+        "text": text,
+        "annotations": { "audience": ["assistant"], "priority": 0.9 },
+    })
+}
+
+fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
+    let splat = inner.get("spatial_trace").filter(|v| !v.is_null())?.clone();
+    let mut core = serde_json::Map::new();
+    core.insert("schema".into(), json!("emem.ask_structured.v1"));
+    for k in ["question", "answer"] {
+        if let Some(v) = inner.get(k).filter(|v| !v.is_null()) {
+            core.insert(k.to_string(), v.clone());
+        }
+    }
+    if let Some(cell) = inner
+        .get("place_resolved")
+        .and_then(|p| p.get("cell64"))
+        .filter(|v| !v.is_null())
+    {
+        core.insert("cell".into(), cell.clone());
+    }
+    core.insert("spatial_trace".into(), splat);
+    core.insert(
+        "_means".into(),
+        json!("the typed core of this answer: the question, the prose answer, the cell it resolved to, and the evidence as primitives. `spatial_trace.points[].f` indexes the `fact_cids` array in this result's text block."),
+    );
+    Some(JsonValue::Object(core))
+}
+
 fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let raw_content = inner
         .get("_mcp_content")
@@ -23150,13 +23215,28 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         }
         // A single copy already blows the budget, slim the inner so the
         // agent gets valid, useful JSON plus an honest truncation marker.
-        // Drop the structuredContent mirror entirely (it would re-breach).
-        let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget);
+        // The mirror cannot ride along at this size, but the typed core can:
+        // it is reserved for FIRST, and the prose is slimmed against what is
+        // left, so one budget still covers the whole result.
+        let core = mcp_structured_core(&inner);
+        let reserve = core
+            .as_ref()
+            .and_then(|c| serde_json::to_string(c).ok())
+            .map(|t| t.len() + 32)
+            .unwrap_or(0);
+        let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget.saturating_sub(reserve));
         let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
-        return json!({
-            "content": [{"type": "text", "text": slim_text}],
-            "isError": false,
-        });
+        return match core {
+            Some(core) => json!({
+                "content": [{"type": "text", "text": slim_text}],
+                "structuredContent": core,
+                "isError": false,
+            }),
+            None => json!({
+                "content": [{"type": "text", "text": slim_text}],
+                "isError": false,
+            }),
+        };
     }
 
     // One copy fits. Does the standard two-copy envelope also fit? The
@@ -23168,23 +23248,51 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // an answer and carries no mirror; that is the spec's shape, not a gap
         // in this budget logic.) Slim once, send both, and say what was dropped.
         if emem_mcp::declares_output_schema(tool) {
+            // A declared schema is a promise about the SHAPE of
+            // `structuredContent`, and this branch used to answer it with the
+            // whole slimmed result. That was harmless while every schema
+            // described the whole result and became a spec violation the
+            // moment one described a core: the server MUST return structured
+            // results conforming to the schema it published.
+            //
+            // So a tool with a core sends the core, and one without keeps the
+            // mirror it has always sent.
+            if let Some(core) = mcp_structured_core(&inner) {
+                let reserve = serde_json::to_string(&core)
+                    .map(|t| t.len() + 32)
+                    .unwrap_or(0);
+                let (slimmed, _note) =
+                    mcp_slim_inner_to_budget(inner, budget.saturating_sub(reserve));
+                let slim_text =
+                    serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+                return json!({
+                    "content": [mcp_text_block(slim_text)],
+                    "structuredContent": core,
+                    "isError": false,
+                });
+            }
             let (slimmed, _note) =
                 mcp_slim_inner_to_budget_keeping(inner, budget / 2, &schema_required_keys(tool));
             let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
             return json!({
-                "content": [{"type": "text", "text": slim_text}],
+                "content": [mcp_text_block(slim_text)],
                 "structuredContent": slimmed,
                 "isError": false,
             });
         }
         json!({
-            "content": [{"type": "text", "text": text}],
+            "content": [mcp_text_block(text)],
             "isError": false,
         })
     } else {
+        // Same core, whatever the size. A client that reads fields should not
+        // find a different shape because today's answer happened to fit: the
+        // mirror stays for every other tool, and a result carrying a splat
+        // always presents the same typed projection.
+        let structured = mcp_structured_core(&inner).unwrap_or_else(|| inner.clone());
         json!({
-            "content": [{"type": "text", "text": text}],
-            "structuredContent": inner,
+            "content": [mcp_text_block(text)],
+            "structuredContent": structured,
             "isError": false,
         })
     }
@@ -30030,7 +30138,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
+            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, `emem.ask_splat.v1`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
@@ -65105,6 +65213,8 @@ fn emem_self_describe() -> JsonValue {
 ///   located   the address the question resolved to
 ///   routed    which topics matched, so which bands will be read
 ///   recalled  the signed facts, and from here `grounded_fact_cids` is non-empty
+///   splat     the same facts as drawable primitives (emem.ask_splat.v1), sent
+///             at `recalled` so a renderer starts before the prose exists
 ///   scored    derived values computed FROM those facts, not new observations
 ///   answer    the complete envelope, identical to what POST /v1/ask returns
 ///
@@ -65241,6 +65351,39 @@ impl AskTrace {
         }
         if let Some(tx) = &self.tx {
             let _ = tx.send(step);
+        }
+    }
+
+    /// Is anyone listening? Building the splat costs a pass over the recalled
+    /// facts, and an envelope consumer already gets it at the end, so the
+    /// early projection is built only when it can actually be delivered early.
+    fn is_streaming(&self) -> bool {
+        self.tx.is_some()
+    }
+
+    /// Emit the evidence as primitives, the moment it is grounded.
+    ///
+    /// The envelope carries the same projection under `spatial_trace`. This
+    /// is the streamed half, and the timing is the whole point: measured on
+    /// this responder, `recalled` lands at 3,419 ms and `scored` at 3,826 ms,
+    /// while the answer prose arrives later still. A consumer that wants to
+    /// draw a field, rather than read a sentence, no longer waits for the
+    /// sentence.
+    ///
+    /// Stream-only on purpose: it is not a stage. Stages are decisions this
+    /// answer was reached through, and every one of them is addressed and
+    /// recorded. This is the same facts in a shape a renderer can take, so
+    /// putting it in `steps` would duplicate the evidence inside the record of
+    /// how the evidence was found.
+    fn spatial_trace(&self, trace: JsonValue) {
+        if let Some(tx) = &self.tx {
+            let _ = tx.send(json!({
+                "schema": "emem.spatial_trace_event.v1",
+                "stage": "splat",
+                "at_ms": self.started.elapsed().as_millis() as u64,
+                "detail": trace,
+                "_means": "the evidence this answer stands on so far, as primitives: one per signed reading at this cell, with the index into the fact_cids the stream has already cited. Drawable before the prose exists.",
+            }));
         }
     }
 
@@ -65444,6 +65587,144 @@ fn english_ordinal(n: u64) -> String {
         _ => "th",
     };
     format!("{n}{suffix}")
+}
+
+/// Which layer of the world skeleton a band belongs to.
+///
+/// Read from the band registry's own family rather than a list of name
+/// prefixes here, so a band added to the registry lands in a layer without
+/// anyone remembering to edit this. The grouping answers the question a model
+/// actually asks about a place: what is the ground made of, what has been
+/// built on it, and what is happening there now.
+///
+/// `embedding` is separated rather than dropped: a foundation vector is not
+/// drawable and is still the most useful thing here for "find me somewhere
+/// like this", so a consumer should be able to skip it by name.
+fn spatial_layer_of(band_key: &str) -> &'static str {
+    use emem_core::bands::BandFamily as F;
+    match emem_core::bands::DEFAULT
+        .lookup(emem_core::bands::cube_band_alias(band_key))
+        .or_else(|| emem_core::bands::DEFAULT.lookup(band_key))
+        .map(|b| b.family)
+    {
+        Some(F::Human) => "built",
+        Some(F::Climate) => "now",
+        Some(F::Foundation) | Some(F::Encoding) => "embedding",
+        Some(F::Optical) | Some(F::Radar) | Some(F::Terrain) | Some(F::Soil)
+        | Some(F::Vegetation) | Some(F::Landcover) | Some(F::Water) | Some(F::Vision) => "surface",
+        _ => "other",
+    }
+}
+
+/// The order layers are presented in: what a reader builds a place from,
+/// coarsest first. Stable, because a consumer diffing two traces should not
+/// see layers move.
+const SPATIAL_LAYERS: [&str; 5] = ["surface", "built", "now", "embedding", "other"];
+
+/// `emem.spatial_trace.v1`: the evidence of one answer as primitives.
+///
+/// Extracted rather than inlined so the counting can be tested. The count that
+/// matters is `truncated`, and it is computed from totals taken BEFORE the cap:
+/// a number derived from an already-capped list cannot witness its own capping,
+/// which is a fault this repo shipped twice in one week.
+fn spatial_trace(
+    band_observations: &[JsonValue],
+    cell: &str,
+    place_resolved: &JsonValue,
+    fact_cids: Option<&JsonValue>,
+) -> JsonValue {
+    const SPLAT_CAP: usize = 48;
+    let registry = &*emem_core::bands::DEFAULT;
+    let cid_index: std::collections::HashMap<&str, usize> = fact_cids
+        .and_then(|c| c.as_array())
+        .map(|a| {
+            a.iter()
+                .enumerate()
+                .filter_map(|(i, c)| Some((c.as_str()?, i)))
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut by_layer: std::collections::HashMap<&'static str, Vec<JsonValue>> =
+        std::collections::HashMap::new();
+    let mut shown = 0usize;
+    let mut absent: Vec<JsonValue> = Vec::new();
+    let (mut n_present, mut n_absent) = (0usize, 0usize);
+    for o in band_observations {
+        let Some(band) = o.get("band_key").and_then(|b| b.as_str()) else {
+            continue;
+        };
+        if o.get("kind").and_then(|k| k.as_str()) == Some("absence") {
+            n_absent += 1;
+            if absent.len() < SPLAT_CAP {
+                absent.push(json!({ "band": band }));
+            }
+            continue;
+        }
+        let Some(value) = o.get("value").filter(|v| !v.is_null()) else {
+            continue;
+        };
+        n_present += 1;
+        if shown >= SPLAT_CAP {
+            continue;
+        }
+        let mut point = serde_json::Map::new();
+        point.insert("band".into(), json!(band));
+        point.insert("value".into(), value.clone());
+        if let Some(u) = o.get("unit").filter(|v| !v.is_null()) {
+            point.insert("unit".into(), u.clone());
+        }
+        if let Some(a) = o.get("age_s").filter(|v| !v.is_null()) {
+            point.insert("age_s".into(), a.clone());
+        }
+        point.insert(
+            "class".into(),
+            json!(registry
+                .provenance_class_for(&resolve_band_name(band))
+                .as_str()),
+        );
+        if let Some(i) = o
+            .get("fact_cid")
+            .and_then(|c| c.as_str())
+            .and_then(|c| cid_index.get(c))
+        {
+            point.insert("f".into(), json!(i));
+        }
+        by_layer
+            .entry(spatial_layer_of(band))
+            .or_default()
+            .push(JsonValue::Object(point));
+        shown += 1;
+    }
+    // Counted over every observation, before the cap: a count taken
+    // from an already-capped list cannot witness its own capping.
+    let truncated = n_present > shown || n_absent > absent.len();
+    // Stable order, and only the layers this place actually has. A layer
+    // present but empty would say "we looked and found nothing here", which is
+    // what `absent` is for; an omitted layer says the question never reached
+    // that kind of evidence.
+    let layers: Vec<JsonValue> = SPATIAL_LAYERS
+        .iter()
+        .filter_map(|name| {
+            let points = by_layer.remove(*name)?;
+            Some(json!({ "layer": name, "points": points }))
+        })
+        .collect();
+    json!({
+        "schema": "emem.spatial_trace.v1",
+        "cell": cell,
+        "at": [place_resolved.get("lat"), place_resolved.get("lng")],
+        "stage": "recalled",
+        "layers": layers,
+        "absent": absent,
+        "counts": {
+            "present": n_present,
+            "absent": n_absent,
+            "points_shown": shown,
+            "absent_shown": absent.len(),
+        },
+        "truncated": truncated,
+        "_means": "a spatial memory trace: what this responder has measured at this place, as primitives for a model to reason over rather than a picture for a person. Points are grouped into layers: `surface` is what the ground is, `built` is what stands on it, `now` is what is happening there, `embedding` is the vectors that answer similarity. Each point carries band, value, unit, age, provenance class, and `f`, the index into this envelope's `fact_cids`. `absent` lists bands this responder looked for and did not find, so coverage is stated rather than assumed.",
+    })
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
@@ -66195,6 +66476,34 @@ async fn ask_inner_traced(
         }),
     );
 
+    // THE EVIDENCE, WHILE THE ANSWER IS STILL BEING WRITTEN.
+    //
+    // A streaming consumer has the signed readings here, at `recalled`, and
+    // everything after this point is scoring and prose. Measured on this
+    // responder: recalled 3,419 ms, scored 3,826 ms, answer later still. A
+    // model drawing a field should not wait on a sentence it may not read.
+    //
+    // Built only when someone is streaming. The envelope carries the same
+    // projection at the end, so a plain POST pays nothing for this.
+    if trace.is_streaming() {
+        let observed_now =
+            band_observations_from_recall(&topics, &recall_resp, &materialize_notes, &cell);
+        let cids_so_far = JsonValue::Array(
+            recall_resp
+                .receipt
+                .fact_cids
+                .iter()
+                .map(|c| json!(c.0))
+                .collect(),
+        );
+        trace.spatial_trace(spatial_trace(
+            &observed_now,
+            &cell,
+            &place_resolved,
+            Some(&cids_so_far),
+        ));
+    }
+
     // Algorithm hints, for each matched topic, surface every recipe key
     // the agent should apply, with input bands, formula, output range,
     // and citation. The agent applies the formula in-process and cites
@@ -66686,6 +66995,32 @@ async fn ask_inner_traced(
         map.insert(
             "band_observations_summary".into(),
             band_observations_summary,
+        );
+
+        // emem.spatial_trace.v1 — the evidence as primitives, not prose.
+        //
+        // Measured before this was written (docs/plans/reasoning-splats.md): a
+        // reading costs 83 bytes, twelve of them were 1.6% of a 99,908-byte
+        // envelope, and the block describing how we found them was 22.1% and
+        // carried none of them. A model that wanted to plot the evidence, or
+        // colour it by age, or cite one point, had to reassemble it from three
+        // other sections of the answer.
+        //
+        // `f` is an INDEX into this envelope's `fact_cids`, not a cid. A cid is
+        // 52 characters and every one is already listed there once; repeating
+        // them here would cost more than the points do.
+        //
+        // Absences are carried beside presences on purpose. A picture drawn
+        // from found readings alone asserts a coverage nobody measured, and
+        // this responder knows which bands it looked for and did not find.
+        map.insert(
+            "spatial_trace".into(),
+            spatial_trace(
+                &band_observations,
+                &cell,
+                &place_resolved,
+                map.get("fact_cids"),
+            ),
         );
 
         if has("temporal_composition") {
@@ -77473,6 +77808,134 @@ mod tests {
         assert_eq!(fetch["body"]["q"], json!("how busy is it right now?"));
         assert_eq!(fetch["body"]["cell"], json!("defi.zb2d8.wAlI.zca2e"));
         assert!(fetch.get("body_incomplete").is_none(), "{fetch}");
+    }
+
+    /// The splat carries the evidence, indexes the cids rather than repeating
+    /// them, keeps absence beside presence, and its `truncated` is computed
+    /// from totals taken before the cap.
+    #[test]
+    fn the_splat_is_evidence_and_its_truncation_can_be_seen() {
+        let reading = |band: &str, v: f64, cid: &str| json!({"band_key": band, "value": v, "unit": "degC", "age_s": 42, "fact_cid": cid});
+        let cids: Vec<String> = (0..60).map(|i| format!("cid{i:04}")).collect();
+        let mut obs: Vec<JsonValue> = cids
+            .iter()
+            .enumerate()
+            .map(|(i, c)| reading(&format!("weather.b{i}"), i as f64, c))
+            .collect();
+        // Two bands looked for and not found: evidence of coverage, not noise.
+        obs.push(
+            json!({"band_key": "hansen.loss_year", "kind": "absence", "value": JsonValue::Null}),
+        );
+        obs.push(json!({"band_key": "s2.B04", "kind": "absence", "value": JsonValue::Null}));
+        let fact_cids = json!(cids);
+        let place = json!({"lat": 51.5, "lng": -0.13});
+
+        let trace_out = spatial_trace(&obs, "defi.zb64a.cAzU.zfa27", &place, Some(&fact_cids));
+
+        assert_eq!(trace_out["schema"], json!("emem.spatial_trace.v1"));
+        assert_eq!(
+            trace_out["counts"]["present"],
+            json!(60),
+            "totals count every reading"
+        );
+        assert_eq!(trace_out["counts"]["absent"], json!(2));
+        assert_eq!(trace_out["counts"]["points_shown"], json!(48), "capped");
+        // Grouped by what kind of evidence each reading is, not one flat list.
+        let layers = trace_out["layers"].as_array().expect("layers");
+        assert!(
+            !layers.is_empty(),
+            "a reading belongs to a layer: {trace_out}"
+        );
+        let named: Vec<&str> = layers.iter().filter_map(|l| l["layer"].as_str()).collect();
+        assert!(
+            named.iter().all(|n| SPATIAL_LAYERS.contains(n)),
+            "every layer is one this responder declares: {named:?}"
+        );
+        let shown: usize = layers
+            .iter()
+            .map(|l| l["points"].as_array().map(|p| p.len()).unwrap_or(0))
+            .sum();
+        assert_eq!(
+            shown, 48,
+            "the cap counts points across layers, not per layer"
+        );
+        assert_eq!(
+            trace_out["truncated"],
+            json!(true),
+            "60 readings, 48 shown, and it says so"
+        );
+
+        let p0 = &trace_out["layers"][0]["points"][0];
+        assert_eq!(p0["band"], json!("weather.b0"));
+        assert_eq!(p0["f"], json!(0), "cids are indexed, never repeated");
+        assert!(
+            p0.get("class").is_some(),
+            "a reading carries what kind of claim it is"
+        );
+        assert!(
+            !serde_json::to_string(&trace_out)
+                .unwrap()
+                .contains("cid0000\""),
+            "the 52-char cids belong to fact_cids, not to every point"
+        );
+        assert_eq!(trace_out["absent"][0]["band"], json!("hansen.loss_year"));
+
+        // Nothing to truncate: the flag must go quiet rather than stay set.
+        let few = vec![reading("weather.b0", 1.0, "cid0000")];
+        let small = spatial_trace(&few, "c", &place, Some(&fact_cids));
+        assert_eq!(small["truncated"], json!(false));
+        assert_eq!(small["counts"]["present"], json!(1));
+    }
+
+    /// A field-reading client gets typed data even when the prose is slimmed,
+    /// and the whole result still fits one budget.
+    ///
+    /// Before this, `structuredContent` was a mirror of the entire result, a
+    /// mirror doubles the payload, and an over-budget result dropped it — so
+    /// `emem_ask`, which is always over budget, shipped none. Both directories
+    /// we list in ask for structured output.
+    #[test]
+    fn an_over_budget_answer_still_carries_its_typed_core() {
+        let trace_fixture = json!({
+            "schema": "emem.spatial_trace.v1",
+            "cell": "defi.zb64a.cAzU.zfa27",
+            "points": [{"band": "weather.temperature_2m", "value": 16.2, "unit": "degC", "f": 3}],
+            "counts": {"present": 1, "absent": 0},
+        });
+        let inner = json!({
+            "schema": "emem.ask.v1",
+            "question": "how busy is it right now?",
+            "answer": "x".repeat(1200),
+            "place_resolved": {"cell64": "defi.zb64a.cAzU.zfa27"},
+            "fact_cids": vec!["c".repeat(52); 60],
+            "algorithms_for_question": vec!["x".repeat(90); 260],
+            "spatial_trace": trace_fixture,
+        });
+        let out = mcp_wrap_call_tool_result_for(inner, "emem_ask");
+
+        let core = &out["structuredContent"];
+        assert_eq!(
+            core["schema"],
+            json!("emem.ask_structured.v1"),
+            "typed core survives: {out}"
+        );
+        assert_eq!(core["cell"], json!("defi.zb64a.cAzU.zfa27"));
+        assert_eq!(
+            core["spatial_trace"]["points"][0]["f"],
+            json!(3),
+            "the evidence is in it"
+        );
+        assert!(
+            core.get("fact_cids").is_none(),
+            "the cid list is not copied into the sibling"
+        );
+
+        // One budget covers text and sibling together.
+        let total = serde_json::to_string(&out).unwrap().len();
+        assert!(
+            total <= mcp_response_budget_bytes(),
+            "text + structuredContent = {total} bytes, over the budget"
+        );
     }
 
     /// A misspelled argument is reported, not silently dropped.
