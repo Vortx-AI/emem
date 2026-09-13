@@ -19626,6 +19626,7 @@ fn state_golden_vector() -> JsonValue {
     let cid = rec.cid().0.clone();
     json!({
         "recipe": "base32_nopad_lc(blake3(canonical_cbor(state_record))). The same rule facts use, over the record below. No signature: a state is addressed by its content, and the responder key inside it says whose derivation it was.",
+        "key_order": "IMPORTANT: `canonical_cbor` here means the map keys in the `field_order` below, which is the record's own field order. It is NOT RFC 8949 4.2 canonical key sorting. A general-purpose canonical-CBOR encoder emits the same 448 bytes of content in sorted order and produces a DIFFERENT address. Verified both ways from outside this codebase: encoding in field_order reproduces `canonical_cbor_hex` exactly; encoding with canonical key sorting does not.",
         "field_order": ["schema", "kind", "derived_from", "fn_key", "payload", "class", "does_not_cover", "responder_pubkey_b32"],
         "from_an_answer": {
             "kind": "the stage's own name, verbatim: located, routed, recalled, scored",
@@ -23266,13 +23267,12 @@ fn looks_like_an_emem_citation(q: &str) -> bool {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
 }
 
-/// A cell64 is four dot-separated parts and nothing else.
+/// A cell64, by the codec's own definition rather than a shape resembling one.
+/// A hand-rolled "four dot-separated alphanumeric parts" test accepts strings
+/// the decoder rejects, and this decides whether `fetch` reads an id as an
+/// address or as a citation.
 fn looks_like_a_cell64(q: &str) -> bool {
-    let parts: Vec<&str> = q.split('.').collect();
-    parts.len() == 4
-        && parts
-            .iter()
-            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
+    emem_codec::is_cell64_shape(q)
 }
 
 /// `search`, in the shape OpenAI's connectors read.
@@ -23307,7 +23307,9 @@ async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, Str
     // demand here exactly as it does there and the two doors cannot disagree.
     let api_req: RecallApiReq =
         serde_json::from_value(json!({ "cell": query })).map_err(|e| (-32602, e.to_string()))?;
-    let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+    let mut req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+    let (resolved_cell, _r) = resolve_cell_field(&req.cell).await.map_err(mcp_err)?;
+    req.cell = resolved_cell;
     let (resp, _notes) = recall_with_auto_materialize(&req, s)
         .await
         .map_err(mcp_err)?;
@@ -23321,10 +23323,16 @@ async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, Str
         .and_then(|l| l.as_str())
         .unwrap_or(query)
         .to_string();
+    // Read from where it IS, which is not where I first looked: a recall
+    // response has no `resolved_from.cell.cell64` and no top-level `cell`. The
+    // address is in the signed receipt, and on every fact. Both were checked
+    // against a live response rather than assumed, which is how this was found
+    // -- the missing entry was silent, because an absent key reads as "no
+    // cell" exactly like a cell with nothing at it.
     let cell64 = v
-        .pointer("/resolved_from/cell/cell64")
+        .pointer("/receipt/cells/0")
         .and_then(|c| c.as_str())
-        .or_else(|| v.get("cell").and_then(|c| c.as_str()))
+        .or_else(|| v.pointer("/facts/0/cell").and_then(|c| c.as_str()))
         .unwrap_or("")
         .to_string();
 
@@ -23384,7 +23392,9 @@ async fn openai_fetch(s: &AppState, id: &str) -> Result<JsonValue, (i64, String)
     if let Some(cell64) = cell_id {
         let api_req: RecallApiReq = serde_json::from_value(json!({ "cell": cell64 }))
             .map_err(|e| (-32602, e.to_string()))?;
-        let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+        let mut req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+        let (resolved_cell, _r) = resolve_cell_field(&req.cell).await.map_err(mcp_err)?;
+        req.cell = resolved_cell;
         let (resp, _notes) = recall_with_auto_materialize(&req, s)
             .await
             .map_err(mcp_err)?;
@@ -23492,17 +23502,26 @@ fn openai_capped_text(text: String, whole: &str) -> String {
 fn mcp_slim_until_the_wire_fits(inner: JsonValue, mirror_bytes: usize, budget: usize) -> String {
     let reserve = mirror_bytes.saturating_add(MCP_RESULT_OVERHEAD_BYTES);
     let mut text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
+    // Measure the whole thing ONCE: a result that already fits is not slimmed
+    // at all, because slimming adds a `_emem_truncation` note and can hand
+    // back something larger than it was given.
+    if mcp_text_wire_len(&text).saturating_add(reserve) <= budget {
+        return text;
+    }
+    // From here the overshoot is always measured on what the slimmer PRODUCED,
+    // never on the input. Subtracting the input's overshoot was the bug: a
+    // 149-fact recall overshoots by ~136 KB, so the first pass drove `room`
+    // straight through zero to the floor and served 512 bytes of truncation
+    // note where 24,000 bytes of facts would have fitted.
     let mut room = budget.saturating_sub(reserve);
     for _ in 0..4 {
-        let over = mcp_text_wire_len(&text)
-            .saturating_add(reserve)
-            .saturating_sub(budget);
-        if over == 0 {
-            return text;
-        }
-        room = room.saturating_sub(over).max(512);
         let (slimmed, _note) = mcp_slim_inner_to_budget(inner.clone(), room);
         text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+        let on_the_wire = mcp_text_wire_len(&text).saturating_add(reserve);
+        if on_the_wire <= budget {
+            return text;
+        }
+        room = room.saturating_sub(on_the_wire - budget).max(512);
     }
     text
 }
@@ -29656,7 +29675,15 @@ async fn mcp_tool_call_inner(
             // the bug: `From<RecallApiReq>` leaves provenance unset because
             // REST applied it afterwards, so `deterministic: true` over MCP
             // returned model_output facts while reporting success.
-            let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+            let mut req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+            // The same geocode REST does, and the reason this line exists:
+            // `cell` is documented as "a cell64 OR a place name", REST resolved
+            // the name and this arm did not, so the identical body answered 149
+            // facts over REST and 0 over MCP -- not an error, an empty list,
+            // which reads as "this place has nothing" rather than "this door
+            // never looked it up".
+            let (resolved_cell, _r) = resolve_cell_field(&req.cell).await.map_err(mcp_err)?;
+            req.cell = resolved_cell;
             let prov_filter = req.provenance.clone();
             let (resp, materialize_notes) = recall_with_auto_materialize(&req, s)
                 .await
@@ -79280,6 +79307,66 @@ mod tests {
             v["self_check"]["recomputed"].as_str(),
             v["state_cid"].as_str()
         );
+    }
+
+    /// A result far over budget still fills the budget, rather than collapsing.
+    ///
+    /// The regression this pins, measured on the live node: `emem_recall` at a
+    /// cell holding 149 facts came back as 10 KB of truncation note with
+    /// `budget_bytes: 512` and `facts: null`. The slimmer was asked for 512
+    /// bytes because the loop measured the overshoot of the UNSLIMMED input --
+    /// ~136 KB on that answer -- and subtracted it from the room, driving the
+    /// room through zero to its floor on the first pass. The overshoot has to
+    /// be measured on what the slimmer produced, which is the only number that
+    /// says how much further it has to go.
+    #[test]
+    fn a_result_far_over_budget_still_fills_the_budget() {
+        let facts: Vec<JsonValue> = (0..149)
+            .map(|i| {
+                json!({"band": format!("weather.band_{i}"), "value": 1.0,
+                       "fact_cid": format!("{i:0>52}"), "cell": "defi.zb64a.cAzU.zfa27",
+                       "memory_token": format!("emem:fact:defi.zb64a.cAzU.zfa27:{i:0>52}"),
+                       "filler": "z".repeat(700)})
+            })
+            .collect();
+        let inner = json!({
+            "schema": "emem.recall.v1",
+            "facts": facts,
+            "receipt": {"cells": ["defi.zb64a.cAzU.zfa27"]},
+        });
+        let raw = serde_json::to_string(&inner).unwrap().len();
+        let out = mcp_wrap_call_tool_result_for(inner, "emem_recall");
+        let text = out["content"][0]["text"].as_str().expect("a text block");
+        let budget = mcp_response_budget_bytes();
+
+        let total = serde_json::to_string(&out).unwrap().len();
+        assert!(
+            total <= budget,
+            "{raw}B input produced a {total}B result, over the {budget}B budget"
+        );
+        // The floor is 512. Anything near it means the loop ran away again.
+        // Size alone would not have caught this. The broken response measured
+        // 10,409 bytes -- comfortably large -- and carried nothing the caller
+        // asked for. What the assertion has to say is that the FACTS arrived.
+        let served: JsonValue = serde_json::from_str(text).expect("valid JSON");
+        let kept = served["facts"].as_array().map(|a| a.len()).unwrap_or(0);
+        assert!(
+            kept > 0,
+            "all 149 facts were dropped from a {raw}B input into a {}B result against a \
+             {budget}B budget; served keys: {:?}",
+            text.len(),
+            served.as_object().map(|m| m.keys().collect::<Vec<_>>())
+        );
+        if let Some(b) = served
+            .pointer("/_emem_truncation/budget_bytes")
+            .and_then(|b| b.as_u64())
+        {
+            assert!(
+                b > (budget / 3) as u64,
+                "the slimmer was asked for {b} bytes out of {budget}: the room collapsed \
+                 instead of converging"
+            );
+        }
     }
 
     /// A schema we publish for peers to declare must actually stand alone.
