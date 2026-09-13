@@ -23134,6 +23134,105 @@ fn mcp_text_block(text: String) -> JsonValue {
     })
 }
 
+/// Convert a REST answer into what an agent asking over MCP actually needs.
+///
+/// The REST envelope is written for a reader who may want everything: prose in
+/// two renderings, citations for algorithms that did not run, editorial notes
+/// about fetches. Measured on one answer: 99,908 bytes, of which
+/// `algorithms_for_question` was 20,561 and `live_perception` 15,977, while
+/// the readings themselves were 1,573.
+///
+/// Handing that to a wire budget meant the budget chose, and it chose by size:
+/// ten fields arrived null, including `band_observations_summary` and
+/// `facts_summary`. Null is this protocol's word for "there is no
+/// observation", so a field nulled for size said something false about the
+/// world. Choosing here, by meaning, is the fix: an agent gets the facts, the
+/// trace and the receipt, and the prose it was never going to read is not
+/// sent at all.
+///
+/// What survives, and why: the question and one prose `answer` (a sentence to
+/// quote), `place_resolved` trimmed to the address, `spatial_trace` (the
+/// evidence), `fact_cids` and `receipt` (so every point dereferences and the
+/// set verifies offline), `facts_summary` counts, the derived
+/// `algorithm_outcomes_summary`, and a small perception summary naming the
+/// detector behind any ground counts.
+fn mcp_project_ask(v: JsonValue) -> JsonValue {
+    let JsonValue::Object(src) = v else {
+        return v;
+    };
+    // Not an answer envelope (needs_location, out_of_scope, corpus_audit):
+    // those are already small and shaped for a caller, so leave them whole.
+    if src.get("routed_to").and_then(|r| r.as_str()) != Some("answer") {
+        return JsonValue::Object(src);
+    }
+    let mut out = serde_json::Map::new();
+    for k in [
+        "schema",
+        "envelope_schema",
+        "routed_to",
+        "question",
+        "answer",
+        "spatial_trace",
+        "fact_cids",
+        "receipt",
+        "algorithm_outcomes_summary",
+        "scene_url",
+    ] {
+        if let Some(val) = src.get(k) {
+            out.insert(k.to_string(), val.clone());
+        }
+    }
+    // The address, without the resolver's deliberation.
+    if let Some(pr) = src.get("place_resolved") {
+        let mut place = serde_json::Map::new();
+        for k in ["cell64", "lat", "lng", "label", "is_high_confidence"] {
+            if let Some(val) = pr.get(k) {
+                place.insert(k.to_string(), val.clone());
+            }
+        }
+        out.insert("place_resolved".into(), JsonValue::Object(place));
+    }
+    // Counts and band names, not the nested copy of the receipt above.
+    if let Some(fs) = src.get("facts_summary") {
+        let mut sum = serde_json::Map::new();
+        for k in ["counts", "bands_present", "bands_absent", "fact_count"] {
+            if let Some(val) = fs.get(k) {
+                sum.insert(k.to_string(), val.clone());
+            }
+        }
+        out.insert("facts_summary".into(), JsonValue::Object(sum));
+    }
+    // Enough of the camera block to re-derive a ground count, and none of the
+    // temporal essay around it.
+    if let Some(lp) = src.get("live_perception").filter(|v| !v.is_null()) {
+        let mut per = serde_json::Map::new();
+        for k in [
+            "detector_fn_id",
+            "clip_sha256",
+            "cameras_near",
+            "newest_clip_age_s",
+            "provenance_class",
+            "what_the_evidence_covers",
+        ] {
+            if let Some(val) = lp.get(k) {
+                per.insert(k.to_string(), val.clone());
+            }
+        }
+        if !per.is_empty() {
+            out.insert("live_perception".into(), JsonValue::Object(per));
+        }
+    }
+    out.insert(
+        "_projection".into(),
+        json!({
+            "for": "mcp",
+            "means": "this answer is shaped for an agent: facts, the spatial memory trace, and the receipt that verifies them. The prose renderings, the citations for algorithms that did not run on this question, the freshness table (every point carries its own age) and the fetch notes are omitted here and are all on POST /v1/ask.",
+            "rest": format!("{}/v1/ask", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
+        }),
+    );
+    JsonValue::Object(out)
+}
+
 fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
     let splat = inner.get("spatial_trace").filter(|v| !v.is_null())?.clone();
     let mut core = serde_json::Map::new();
@@ -25772,17 +25871,46 @@ fn a2a_message_result(s: &AppState, skill: &str, result: JsonValue) -> JsonValue
     let mut h = blake3::Hasher::new();
     h.update(iso8601_now_utc().as_bytes());
     h.update(skill.as_bytes());
-    let mid = format!("a2a-msg-{}", &h.finalize().to_hex().to_string()[..26]);
+    let tid = format!("a2a-task-{}", &h.finalize().to_hex().to_string()[..26]);
     let mut parts = vec![json!({"kind": "data", "data": result})];
     if let Some(rp) = a2a_receipt_part(s, &parts[0]["data"]) {
         parts.push(rp);
     }
+    // A2A 3.7, quoted because we were on the wrong side of it: "Results SHOULD
+    // BE returned using Artifacts associated with a Task", and "Messages
+    // SHOULD NOT be used to deliver task outputs." This path answered with a
+    // Message whose DataPart carried 98 KB of answer — measured on this
+    // responder, one question, 2026-09-13 — while our own ASYNC path already
+    // returned artifacts on a task. Two shapes for the same content, and the
+    // one a synchronous caller saw was the one the spec argues against.
+    //
+    // The conversational half survives as `status.message`: a sentence a peer
+    // can show, with the data beside it rather than inside it.
+    let said = result
+        .get("answer")
+        .and_then(|a| a.as_str())
+        .map(|a| clip_title(a, 280))
+        .unwrap_or_else(|| format!("{skill} completed; the result is in the artifact."));
     json!({
-        "kind":      "message",
-        "role":      "agent",
-        "messageId": mid,
-        "contextId": format!("{mid}-ctx"),
-        "parts":     parts,
+        "id":        tid,
+        "contextId": format!("{tid}-ctx"),
+        "kind":      "task",
+        "status": {
+            "state":     "TASK_STATE_COMPLETED",
+            "timestamp": iso8601_now_utc(),
+            "message": {
+                "kind":      "message",
+                "role":      "agent",
+                "messageId": format!("{tid}-msg"),
+                "parts":     [{"kind": "text", "text": said}],
+            },
+        },
+        "artifacts": [{
+            "artifactId":  format!("{tid}-result"),
+            "name":        format!("{skill}_result"),
+            "description": "The skill's result, plus a receipt this responder signed over the fact_cids it serves, so the artifact verifies offline on its own.",
+            "parts":       parts,
+        }],
         "metadata": {
             "skill":           skill,
             "protocolVersion": A2A_PROTOCOL_VERSION,
@@ -28659,7 +28787,7 @@ async fn mcp_tool_call_inner(
                     .saturating_sub(3);
                 attach_model_answer(&mut v, &q_for_model, &want, s, left).await;
             }
-            Ok(v)
+            Ok(mcp_project_ask(v))
         }
         "emem_hunt" => {
             // Structured hunter-mode: caller picks the event keyword
@@ -65621,6 +65749,63 @@ fn spatial_layer_of(band_key: &str) -> &'static str {
 /// see layers move.
 const SPATIAL_LAYERS: [&str; 5] = ["surface", "built", "now", "embedding", "other"];
 
+/// Add the ground layer: what a camera saw, beside what a satellite measured.
+///
+/// The perception block is collected after the envelope's trace is built, so
+/// this attaches when it lands rather than being threaded through the answer.
+/// It is the half of a place that an orbit cannot see, and the reason two
+/// places reason differently: a cell with retained clips gets counts here, and
+/// one without gets no `ground` layer at all, which a model can detect without
+/// being told.
+///
+/// The counts keep the detector that produced them. A count with no detector
+/// is a number a reader cannot re-derive, and this responder already learned
+/// that lesson once when a budget nulled `detector_fn_id` out of an answer
+/// whose prose said the count was checkable.
+fn spatial_trace_add_ground(trace: &mut JsonValue, live: &JsonValue) {
+    let Some(counts) = live.get("counts").and_then(|c| c.as_object()) else {
+        return;
+    };
+    if counts.is_empty() {
+        return;
+    }
+    let class = live
+        .get("provenance_class")
+        .and_then(|c| c.as_str())
+        .unwrap_or("model_output");
+    let age = live.get("newest_clip_age_s").cloned();
+    let points: Vec<JsonValue> = counts
+        .iter()
+        .filter_map(|(label, n)| {
+            let n = n.as_i64()?;
+            let mut p = serde_json::Map::new();
+            p.insert("band".into(), json!(format!("perception.{label}")));
+            p.insert("value".into(), json!(n));
+            p.insert("unit".into(), json!("count"));
+            p.insert("class".into(), json!(class));
+            if let Some(a) = age.clone().filter(|v| !v.is_null()) {
+                p.insert("age_s".into(), a);
+            }
+            Some(JsonValue::Object(p))
+        })
+        .collect();
+    if points.is_empty() {
+        return;
+    }
+    let mut layer = serde_json::Map::new();
+    layer.insert("layer".into(), json!("ground"));
+    layer.insert("points".into(), JsonValue::Array(points));
+    if let Some(d) = live.get("detector_fn_id").filter(|v| !v.is_null()) {
+        layer.insert("detector".into(), d.clone());
+    }
+    if let Some(c) = live.get("clip_sha256").filter(|v| !v.is_null()) {
+        layer.insert("clip".into(), c.clone());
+    }
+    if let Some(layers) = trace.get_mut("layers").and_then(|l| l.as_array_mut()) {
+        layers.push(JsonValue::Object(layer));
+    }
+}
+
 /// `emem.spatial_trace.v1`: the evidence of one answer as primitives.
 ///
 /// Extracted rather than inlined so the counting can be tested. The count that
@@ -67298,6 +67483,12 @@ async fn ask_inner_traced(
     if let Ok(Ok(Some(block))) =
         tokio::time::timeout(std::time::Duration::from_secs(grace_s), perception).await
     {
+        // The trace gains the camera's half of the place, if there was one.
+        if let Some(live) = block.as_object().map(|_| block.clone()) {
+            if let Some(trace) = body.get_mut("spatial_trace") {
+                spatial_trace_add_ground(trace, &live);
+            }
+        }
         apply_live_perception(&mut body, block);
     }
     attach_imagery(&mut body, cell.as_str());
