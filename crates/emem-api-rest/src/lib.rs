@@ -1118,6 +1118,8 @@ pub fn router(state: AppState) -> Router {
         // surfaced under /v1/manifests. Some agents look here first.
         .route("/v1/algorithm_cids", get(serve_algorithm_cids))
         .route("/openapi.json", get(openapi))
+        .route("/v1/schemas", get(schemas_index))
+        .route("/v1/schemas/{name}", get(schema_by_name))
         // Curated 28-op subset for OpenAI Custom GPT Actions (30-op cap).
         // Filtered live from the full spec, single source of truth.
         // Both the root and /v1 path resolve to the same handler so that
@@ -31023,6 +31025,8 @@ fn openapi_spec() -> JsonValue {
             "/spec/a2a/channel/v1": {"get":{"summary":"The A2A channel extension the agent card advertises by URI: how to write a signed note addressed to this responder, what answers (an acknowledgement within minutes, a considered tool-grounded reply on a timer), and the honest limits, including that a model composes the prose while the fact_cids it cites are the evidence.","operationId":"emem_a2a_channel_spec","tags":["a2a"],"responses":{"200":json_ok}}},
             "/spec/a2a/async-tasks/v1": {"get":{"summary":"The A2A extension the agent card advertises by URI: the declaration verbatim, the task lifecycle, the typed errors, and the request body for each operation with a worked example. A2A names vendor additions by URI so a client meeting an unfamiliar one can follow it; this is what it finds.","operationId":"emem_a2a_async_tasks_spec","tags":["a2a"],"responses":{"200":json_ok}}},
             "/v1/agents":            {"get":{"summary":"Every attester that has written to this responder, with note and correspondence counts. The roster is discovered here, never configured: an agent can join, write, and be visible without anyone editing a list.","operationId":"emem_agents","tags":["discover"],"responses":{"200":json_ok}}},
+            "/v1/schemas":           {"get":{"summary":"Every request and response body this responder publishes, by name, each with the URL that serves it as a standalone JSON Schema. Exists because a peer that PROXIES one of these routes cannot honestly declare an MCP outputSchema for it: MCP requires a server to keep the shape it publishes, and the shape belongs to whoever owns the body. Publishing them here lets a proxy declare ours and point at it.","operationId":"emem_schemas","tags":["discover"],"responses":{"200":json_ok}}},
+            "/v1/schemas/{name}":    {"get":{"summary":"One body as a self-contained draft-2020-12 JSON Schema, every $ref resolved into $defs, carrying its own $id. The OpenAPI document already described these shapes, but an internal `#/components/schemas/...` pointer resolves to nothing for a peer holding only the fragment, so this is the form another server can declare verbatim. A 404 names the index rather than leaving the spelling to guesswork.","operationId":"emem_schema_by_name","tags":["discover"],"parameters":[{"name":"name","in":"path","required":true,"schema":{"type":"string"},"description":"A component name from GET /v1/schemas, for example VerifyResp."}],"responses":{"200":json_ok}}},
             "/v1/limits":            {"get":{"summary":"The operational ceilings an agent would otherwise find by bisection: batch sizes, body caps, rate limits, timeouts. Split into enforced limits and advisory guidance, because conflating them makes both untrustworthy.","operationId":"emem_limits","tags":["discover"],"responses":{"200":json_ok}}},
             "/v1/deprecations":      {"get":{"summary":"Deprecated surfaces and the policy governing them. Stable and typed even when empty, so a crawler learns the surface exists and is intentionally bare rather than reading a 404 as an outage.","operationId":"emem_deprecations","tags":["discover"],"responses":{"200":json_ok}}},
             "/v1/algorithm_cids":    {"get":{"summary":"List-form alias for the algorithm hashes under /v1/manifests, for agents asked to pin the algorithm registry. Mirrors the relevant fields so a caller does not bounce through two URLs.","operationId":"emem_algorithm_cids","tags":["discover"],"responses":{"200":json_ok}}},
@@ -31164,6 +31168,164 @@ fn openapi_spec() -> JsonValue {
 }
 
 /// `GET /openapi.json`.
+/// `GET /v1/schemas` and `GET /v1/schemas/{name}`: our response bodies as
+/// standalone JSON Schema, with every `$ref` resolved into `$defs`.
+///
+/// This exists because a peer asked for it, and the reason they asked is the
+/// interesting part. MCP says a tool that declares an `outputSchema` MUST
+/// return structured results conforming to it. geo.qa proxies two of our
+/// routes, so for those two tools the response body is OURS: they cannot
+/// promise a shape we could change without touching their repository, and
+/// they were right not to declare one. Their words: "If you publish a schema
+/// for those two response bodies we will declare it and point at yours."
+///
+/// `/openapi.json` already carried the shapes, and carrying them was not the
+/// same as publishing them: `VerifyResp` is 423 bytes that `$ref` `Receipt`
+/// and `FactCid`, and an OpenAPI-internal `#/components/schemas/...` pointer
+/// does not resolve anywhere a peer can hand to a JSON Schema validator. So
+/// this rewrites the pointers into `#/$defs/...`, walks them transitively,
+/// and returns one self-contained draft-2020-12 document that a peer can
+/// declare verbatim.
+///
+/// The `$id` is the URL it came from, so a schema that travels still says
+/// where it is authoritative.
+fn dereferenced_schema(name: &str) -> Option<JsonValue> {
+    let spec = openapi_spec();
+    let schemas = spec.pointer("/components/schemas")?.as_object()?.clone();
+    if !schemas.contains_key(name) {
+        return None;
+    }
+    // Collect transitively, by NAME, so a cycle terminates instead of inlining
+    // forever.
+    let mut wanted: std::collections::BTreeSet<String> = Default::default();
+    let mut queue = vec![name.to_string()];
+    while let Some(next) = queue.pop() {
+        if !wanted.insert(next.clone()) {
+            continue;
+        }
+        if let Some(v) = schemas.get(&next) {
+            for r in schema_refs_in(v) {
+                if !wanted.contains(&r) {
+                    queue.push(r);
+                }
+            }
+        }
+    }
+    let rewrite = |v: &JsonValue| -> JsonValue {
+        let mut out = v.clone();
+        rewrite_refs_to_defs(&mut out);
+        out
+    };
+    let mut root = rewrite(schemas.get(name)?);
+    let mut defs = serde_json::Map::new();
+    for dep in wanted.iter().filter(|d| d.as_str() != name) {
+        if let Some(v) = schemas.get(dep) {
+            defs.insert(dep.clone(), rewrite(v));
+        }
+    }
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    if let Some(map) = root.as_object_mut() {
+        map.insert(
+            "$schema".into(),
+            json!("https://json-schema.org/draft/2020-12/schema"),
+        );
+        map.insert("$id".into(), json!(format!("{origin}/v1/schemas/{name}")));
+        if !defs.is_empty() {
+            map.insert("$defs".into(), JsonValue::Object(defs));
+        }
+    }
+    Some(root)
+}
+
+/// Every `#/components/schemas/X` this value points at, at any depth.
+fn schema_refs_in(v: &JsonValue) -> Vec<String> {
+    let mut found = Vec::new();
+    fn walk(v: &JsonValue, found: &mut Vec<String>) {
+        match v {
+            JsonValue::Object(map) => {
+                for (k, val) in map {
+                    if k == "$ref" {
+                        if let Some(name) = val
+                            .as_str()
+                            .and_then(|r| r.strip_prefix("#/components/schemas/"))
+                        {
+                            found.push(name.to_string());
+                        }
+                    }
+                    walk(val, found);
+                }
+            }
+            JsonValue::Array(items) => items.iter().for_each(|i| walk(i, found)),
+            _ => {}
+        }
+    }
+    walk(v, &mut found);
+    found
+}
+
+/// Point every OpenAPI-internal `$ref` at the `$defs` this document carries.
+fn rewrite_refs_to_defs(v: &mut JsonValue) {
+    match v {
+        JsonValue::Object(map) => {
+            if let Some(r) = map.get_mut("$ref") {
+                if let Some(name) = r
+                    .as_str()
+                    .and_then(|r| r.strip_prefix("#/components/schemas/"))
+                {
+                    *r = json!(format!("#/$defs/{name}"));
+                }
+            }
+            for (_, val) in map.iter_mut() {
+                rewrite_refs_to_defs(val);
+            }
+        }
+        JsonValue::Array(items) => items.iter_mut().for_each(rewrite_refs_to_defs),
+        _ => {}
+    }
+}
+
+async fn schemas_index() -> Json<JsonValue> {
+    let spec = openapi_spec();
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let mut names: Vec<&String> = spec
+        .pointer("/components/schemas")
+        .and_then(|s| s.as_object())
+        .map(|m| m.keys().collect())
+        .unwrap_or_default();
+    names.sort();
+    Json(json!({
+        "schema": "emem.schemas_index.v1",
+        "count": names.len(),
+        "schemas": names.iter().map(|n| json!({
+            "name": n,
+            "url": format!("{origin}/v1/schemas/{n}"),
+        })).collect::<Vec<_>>(),
+        "_means": "each URL serves one response or request body as a self-contained draft-2020-12 JSON Schema, every $ref resolved into $defs. A peer that proxies one of our routes can declare that document as its MCP outputSchema verbatim: MCP requires a server to keep the shape it publishes, and a proxy cannot promise a shape it does not own unless the owner publishes it.",
+    }))
+}
+
+async fn schema_by_name(Path(name): Path<String>) -> Result<Json<JsonValue>, ApiError> {
+    match dereferenced_schema(&name) {
+        Some(v) => Ok(Json(v)),
+        // Names the index rather than leaving a caller to guess the spelling:
+        // a 404 that does not say what DOES exist costs a round trip.
+        None => Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!(
+                    "no published schema named `{name}`; GET /v1/schemas lists every name"
+                ),
+                details: Some(json!({
+                    "path": format!("/v1/schemas/{name}"),
+                    "schema": "emem.error.v1",
+                    "index": "/v1/schemas",
+                })),
+            },
+        )),
+    }
+}
+
 async fn openapi() -> Json<JsonValue> {
     Json(openapi_spec())
 }
@@ -79045,6 +79207,94 @@ mod tests {
         );
         let short = openai_capped_text("small".into(), "https://e/x");
         assert_eq!(short, "small", "a record that fits is untouched");
+    }
+
+    /// A schema we publish for peers to declare must actually stand alone.
+    ///
+    /// The point of the route is that another server can declare our response
+    /// shape as its own MCP `outputSchema`, which MCP then requires it to
+    /// keep. A document that still points at `#/components/schemas/Receipt`
+    /// resolves to nothing in a validator that was handed only this document,
+    /// so it would be a promise neither side could check. Every name is
+    /// tested, not a sample: the one that breaks will be the one nobody
+    /// thought to sample.
+    #[test]
+    fn every_published_schema_stands_on_its_own() {
+        let spec = openapi_spec();
+        let names: Vec<String> = spec
+            .pointer("/components/schemas")
+            .and_then(|s| s.as_object())
+            .map(|m| m.keys().cloned().collect())
+            .expect("the spec publishes component schemas");
+        assert!(names.len() > 20, "only {} schemas found", names.len());
+
+        for name in &names {
+            let doc = dereferenced_schema(name)
+                .unwrap_or_else(|| panic!("{name} is in the spec but not served"));
+            let text = serde_json::to_string(&doc).expect("serialisable");
+            assert!(
+                !text.contains("#/components/"),
+                "{name} still points outside itself: an OpenAPI-internal $ref does not resolve \
+                 for a peer holding only this document"
+            );
+            // Every target it does point at has to be in the box with it.
+            let defs = doc.get("$defs").and_then(|d| d.as_object());
+            for r in schema_refs_to_defs_in(&doc) {
+                assert!(
+                    defs.map(|d| d.contains_key(&r)).unwrap_or(false),
+                    "{name} references $defs/{r}, which is not in its $defs"
+                );
+            }
+            assert_eq!(
+                doc["$schema"],
+                json!("https://json-schema.org/draft/2020-12/schema"),
+                "{name} does not say which dialect it is"
+            );
+            assert!(
+                doc["$id"]
+                    .as_str()
+                    .map(|i| i.ends_with(name))
+                    .unwrap_or(false),
+                "{name} does not carry the URL it is authoritative at"
+            );
+        }
+
+        // The one a peer asked for, end to end: geo.qa proxies /v1/verify and
+        // could not declare a shape they do not own until this was published.
+        let verify = dereferenced_schema("VerifyResp").expect("VerifyResp is served");
+        let defs = verify["$defs"].as_object().expect("it has dependencies");
+        assert!(
+            defs.contains_key("Receipt") && defs.contains_key("FactCid"),
+            "VerifyResp refs Receipt and FactCid; $defs has {:?}",
+            defs.keys().collect::<Vec<_>>()
+        );
+        assert!(
+            dereferenced_schema("NoSuchSchemaHere").is_none(),
+            "an unknown name must not resolve"
+        );
+    }
+
+    /// Every `#/$defs/X` a document points at, at any depth.
+    fn schema_refs_to_defs_in(v: &JsonValue) -> Vec<String> {
+        let mut found = Vec::new();
+        fn walk(v: &JsonValue, found: &mut Vec<String>) {
+            match v {
+                JsonValue::Object(map) => {
+                    for (k, val) in map {
+                        if k == "$ref" {
+                            if let Some(n) = val.as_str().and_then(|r| r.strip_prefix("#/$defs/")) {
+                                found.push(n.to_string());
+                            }
+                        }
+                        walk(val, found);
+                    }
+                }
+                JsonValue::Array(items) => items.iter().for_each(|i| walk(i, found)),
+                _ => {}
+            }
+        }
+        walk(v, &mut found);
+        found
     }
 
     /// The state vector we publish must recompute to the address we publish.
