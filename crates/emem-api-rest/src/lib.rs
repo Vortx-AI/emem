@@ -5594,11 +5594,31 @@ fn a2a_receipt_part(s: &AppState, result: &JsonValue) -> Option<JsonValue> {
         std::time::Instant::now(),
         None,
     );
+    // The paste-able form of each citation, beside the raw list.
+    //
+    // A bare cid says which bytes; a token says which bytes AT WHICH PLACE,
+    // and it is the form every other surface hands out. A peer copying a
+    // citation out of an A2A artifact was getting the half that does not
+    // resolve on its own, and had to know to go and find the cell. Emitted
+    // only when the result carries the cell these facts were read at, because
+    // a token built from a guessed address would be worse than none.
+    let tokens: Vec<String> = result
+        .get("place_resolved")
+        .and_then(|p| p.get("cell64"))
+        .or_else(|| result.get("cell"))
+        .and_then(|c| c.as_str())
+        .map(|cell| {
+            cids.iter()
+                .map(|c| format!("emem:fact:{cell}:{c}"))
+                .collect()
+        })
+        .unwrap_or_default();
     Some(json!({
         "kind": "data",
         "data": {
             "schema":   "emem.a2a.receipts.v1",
             "receipt":  receipt,
+            "tokens":   tokens,
             "note":     "This responder's ed25519 signature over the fact_cids the sibling part serves. Verify offline, or POST {\"receipt\": <this receipt>} to /v1/verify_receipt; the preimage rules are /v1/verifier_spec.",
         },
     }))
@@ -19547,6 +19567,82 @@ fn manifest_golden_vector_hex() -> String {
 /// two ever disagree this function returns the disagreement instead of a
 /// fixture, because a golden vector that stopped being golden is worse than
 /// none: it teaches a builder the wrong thing with our name on it.
+/// A published, byte-stable `emem:state:` a third party can recompute.
+///
+/// Ask 2 from the geo.qa backend session, 2026-09-13: every state we emit says
+/// `verifiable_today: false`, and they proposed a weaker digest over fields
+/// that are in the response so a reader can at least check something.
+///
+/// They were asking for less than we can give. Our address already commits to
+/// fields the answer publishes: `payload` IS the step's `detail`, `kind` IS
+/// the stage name, and `derived_from` is the previous state's cid followed by
+/// that step's `new_fact_cids`, typed. What was missing was not a mechanism
+/// but a written recipe and one worked example, which is what this is.
+///
+/// The order is the one their own frontend agent argued for: canonicalisation
+/// spec, then a published vector, then a route. A fetchable record under an
+/// unspecified encoding turns "I cannot check this" into "I checked it and it
+/// failed".
+fn state_golden_vector() -> JsonValue {
+    use emem_fact::state::{Input, StateClass, StateRecord};
+    let rec = StateRecord {
+        schema: "emem.state.v1".into(),
+        kind: "recalled".into(),
+        derived_from: vec![
+            Input::OwnState {
+                cid: "ma2bztgao4g6fldosrl57h7tcfezxnmqfcl26eu6octip6hbivva".into(),
+            },
+            Input::Fact {
+                cid: "7662nrfjkmjw4r2v5oxo4pap27p4pqfdxuvmjhpkpblqujkiviwa".into(),
+            },
+        ],
+        fn_key: None,
+        payload: ciborium::value::Value::serialized(&json!({
+            "facts": 1,
+            "bands": ["weather.temperature_2m"],
+        }))
+        .unwrap_or(ciborium::value::Value::Null),
+        class: StateClass::DeterministicIndex,
+        does_not_cover: vec!["the facts themselves, which are cited in derived_from".into()],
+        responder_pubkey_b32: "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia".into(),
+    };
+    let cbor = rec.to_canonical_cbor();
+    let cid = rec.cid().0.clone();
+    json!({
+        "recipe": "base32_nopad_lc(blake3(canonical_cbor(state_record))). The same rule facts use, over the record below. No signature: a state is addressed by its content, and the responder key inside it says whose derivation it was.",
+        "field_order": ["schema", "kind", "derived_from", "fn_key", "payload", "class", "does_not_cover", "responder_pubkey_b32"],
+        "from_an_answer": {
+            "kind": "the stage's own name, verbatim: located, routed, recalled, scored",
+            "payload": "that stage's `detail` object from `reasoning.steps[]`, unchanged",
+            "derived_from": "the PREVIOUS stage's state cid as {as: own_state}, then this stage's `new_fact_cids` in order as {as: fact}",
+            "fn_key": "absent for every stage this pipeline emits",
+            "class": "deterministic_index: no stage here consults a model",
+            "responder_pubkey_b32": "the responder key in the envelope's receipt",
+            "note": "an absent field is absent from the bytes, never null: that is what makes fn_key's absence addressable rather than a convention.",
+        },
+        "record": rec,
+        "canonical_cbor_hex": cbor.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        "canonical_cbor_bytes": cbor.len(),
+        "state_cid": cid,
+        "token": rec.token(),
+        "self_check": {
+            "recomputed": StateRecord {
+                schema: rec.schema.clone(),
+                kind: rec.kind.clone(),
+                derived_from: rec.derived_from.clone(),
+                fn_key: rec.fn_key.clone(),
+                payload: rec.payload.clone(),
+                class: rec.class,
+                does_not_cover: rec.does_not_cover.clone(),
+                responder_pubkey_b32: rec.responder_pubkey_b32.clone(),
+            }
+            .cid()
+            .0,
+            "means": "this responder rebuilt the record from the published fields and got the address above. A reader doing the same in any language should too.",
+        },
+    })
+}
+
 fn trace_golden_vector() -> JsonValue {
     use emem_trace::schema::{DeviceIdentity, EmittedOutput, OsTrace, TraceSegment};
     // A fixed secret so the fixture is byte-stable across responders and
@@ -19891,6 +19987,11 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
             },
             "trace_cid": "base32(blake3(canonical_cbor(whole signed trace))), the same rule facts use",
             "golden_vector": trace_golden_vector(),
+        },
+        "state": {
+            "what": "emem:state: addresses one stage of an answer's reasoning. Every stage in /v1/ask carries one, and they chain: each commits to the previous stage's address and to the fact cids that stage grounded.",
+            "recomputable_from_the_answer": "yes, and this is the recipe. No second call: the fields the address commits to are published in `reasoning.steps[]` and the envelope's receipt.",
+            "golden_vector": state_golden_vector(),
         },
         "notes": "Every object this responder signs uses one rule: ed25519 over blake3 of a domain-separated, tagged, length-prefixed segment stream. Each segment table above is serialized from the compiled tag constants, so this spec cannot drift from the signer. Two constructions sit outside that rule and both are listed here rather than hidden: the legacy v0 receipt, which is verify-only for pre-cutover receipts and is never emitted, and memory_write under `caller_signed_objects`, which the caller signs rather than the responder.",
     }))
@@ -23126,6 +23227,54 @@ fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonVal
 /// for the human should be told so rather than left to guess from the shape.
 /// `priority` says it is the load-bearing copy: everything the structured
 /// sibling carries is in here too.
+/// Slim a result until what goes ON THE WIRE fits, mirror included.
+///
+/// Two things were wrong with sizing this in one shot. The slimmer counts
+/// unescaped bytes and the wire charges escaped ones, so one pass lands a
+/// little over; and the pass ran unconditionally, so a result that ALREADY fit
+/// was slimmed anyway, and slimming adds a `_emem_truncation` note — on a
+/// measured answer it nulled one 400-byte field, added 1.3 KB of note, and
+/// came out bigger than it went in.
+///
+/// So: measure first, cut only if it is actually over, and measure again.
+/// Bounded at four passes; each pass asks for exactly the overshoot back.
+fn mcp_slim_until_the_wire_fits(inner: JsonValue, mirror_bytes: usize, budget: usize) -> String {
+    let reserve = mirror_bytes.saturating_add(MCP_RESULT_OVERHEAD_BYTES);
+    let mut text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
+    let mut room = budget.saturating_sub(reserve);
+    for _ in 0..4 {
+        let over = mcp_text_wire_len(&text)
+            .saturating_add(reserve)
+            .saturating_sub(budget);
+        if over == 0 {
+            return text;
+        }
+        room = room.saturating_sub(over).max(512);
+        let (slimmed, _note) = mcp_slim_inner_to_budget(inner.clone(), room);
+        text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+    }
+    text
+}
+
+/// Bytes a document costs ON THE WIRE once it is a text block.
+///
+/// The result embeds the inner document as a JSON *string*, so every quote and
+/// backslash inside it is escaped and costs two bytes where it cost one. Sizing
+/// a result by `text.len()` therefore under-counts by however much punctuation
+/// the document happens to contain: 1,842 bytes on a measured Trafalgar Square
+/// answer, against a 24,000-byte budget. A budget that under-counts is not a
+/// budget, and the miscount only showed up when 58 bytes of annotation pushed
+/// an already-over result past an assertion.
+fn mcp_text_wire_len(text: &str) -> usize {
+    serde_json::to_string(&JsonValue::String(text.to_string()))
+        .map(|t| t.len())
+        .unwrap_or_else(|_| text.len() + 2)
+}
+
+/// The keys wrapped around a one-block result: `content`, the block's `type`
+/// and `annotations`, `structuredContent`, `isError`. Measured, not guessed.
+const MCP_RESULT_OVERHEAD_BYTES: usize = 160;
+
 fn mcp_text_block(text: String) -> JsonValue {
     json!({
         "type": "text",
@@ -23173,7 +23322,6 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
         "question",
         "answer",
         "spatial_trace",
-        "fact_cids",
         "receipt",
         "algorithm_outcomes_summary",
         "scene_url",
@@ -23182,6 +23330,29 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
             out.insert(k.to_string(), val.clone());
         }
     }
+    // The receipt already carries the fact cids, and it carries the SAME ones
+    // in the SAME order: measured on a Trafalgar Square ask, 119 cids, 6,664
+    // bytes, sent twice out of a 24,000-byte wire budget. That is not a
+    // degradation to trade off, it is a duplicate to remove, and the copy that
+    // stays is the signed one. `_projection.fact_cids_at` then NAMES the array
+    // `spatial_trace.points[].f` indexes, so a reader never infers it from
+    // which key happens to be present. If the receipt does not carry them, or
+    // carries a different set, the envelope copy rides along as it always did.
+    let cids_are_in_the_receipt = src
+        .get("fact_cids")
+        .zip(src.get("receipt").and_then(|r| r.get("fact_cids")))
+        .map(|(envelope, signed)| envelope == signed && envelope.is_array())
+        .unwrap_or(false);
+    if !cids_are_in_the_receipt {
+        if let Some(val) = src.get("fact_cids") {
+            out.insert("fact_cids".into(), val.clone());
+        }
+    }
+    let cids_at = if cids_are_in_the_receipt {
+        "receipt.fact_cids"
+    } else {
+        "fact_cids"
+    };
     // The address, without the resolver's deliberation.
     if let Some(pr) = src.get("place_resolved") {
         let mut place = serde_json::Map::new();
@@ -23227,10 +23398,171 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
         json!({
             "for": "mcp",
             "means": "this answer is shaped for an agent: facts, the spatial memory trace, and the receipt that verifies them. The prose renderings, the citations for algorithms that did not run on this question, the freshness table (every point carries its own age) and the fetch notes are omitted here and are all on POST /v1/ask.",
+            "fact_cids_at": cids_at,
             "rest": format!("{}/v1/ask", public_origin().unwrap_or_else(|| "https://emem.dev".into())),
         }),
     );
-    JsonValue::Object(out)
+    JsonValue::Object(mcp_fit_ask_to_budget(out))
+}
+
+/// Make a projected answer FIT, by meaning, before anything sizes it blind.
+///
+/// The projection chooses what an agent needs. It cannot choose how much of it
+/// there is: a cell with more bands measured produces more points and a longer
+/// signed cid list, and on a busy cell the projected answer still lands over
+/// the wire budget. What happened then is the fault this whole path exists to
+/// stop: the generic slimmer sized the fields and nulled the eight smallest
+/// wins, `spatial_trace` among them, while keeping 15 KB of receipt. A nulled
+/// `spatial_trace` does not say "too big to send", it says "this responder
+/// measured nothing here", which was false.
+///
+/// So the last cut is made here too, and in an order that can be defended:
+/// derived algorithm outcomes go first (they are recomputable from the facts
+/// that stay, and every one of them has a REST home), then the band-name list
+/// that `spatial_trace.ranges` already carries, then points, fewest-meaning
+/// first, from whichever layer has the most to spare. Nothing is nulled and
+/// nothing leaves silently: `_projection.omitted` names each cut and where the
+/// whole thing lives, and a trimmed trace still reports `counts.present`, the
+/// number BEFORE any cap, so the trace keeps witnessing its own truncation.
+///
+/// The target is not the whole budget. The structured mirror repeats the
+/// question, the answer, the cell and the entire trace, and a client that
+/// reads both pays for both, so the text is sized against what the mirror
+/// leaves. That is recomputed as the trace shrinks, because the mirror shrinks
+/// with it.
+fn mcp_fit_ask_to_budget(
+    mut out: serde_json::Map<String, JsonValue>,
+) -> serde_json::Map<String, JsonValue> {
+    let budget = mcp_response_budget_bytes();
+    let rest = format!(
+        "{}/v1/ask",
+        public_origin().unwrap_or_else(|| "https://emem.dev".into())
+    );
+    let mut omitted: Vec<JsonValue> = Vec::new();
+    let mut points_cut = 0usize;
+
+    // Escaped, because that is what the wire charges for a text block.
+    let size = |m: &serde_json::Map<String, JsonValue>| {
+        serde_json::to_string(m)
+            .map(|t| mcp_text_wire_len(&t))
+            .unwrap_or(0)
+    };
+    // The mirror is a JSON value, not a string, so it costs its plain length.
+    // Recomputed as we cut, because the mirror carries the trace and shrinks
+    // with it.
+    let target = |m: &serde_json::Map<String, JsonValue>| {
+        let mirror = mcp_structured_core(&JsonValue::Object(m.clone()))
+            .and_then(|c| serde_json::to_string(&c).ok())
+            .map(|t| t.len())
+            .unwrap_or(0);
+        budget.saturating_sub(mirror.saturating_add(MCP_RESULT_OVERHEAD_BYTES))
+    };
+
+    // The record of what was cut is part of what is sent, so it is written
+    // BEFORE each measurement and rewritten after each cut. Writing it once at
+    // the end put roughly 600 bytes past the last size check — the same shape
+    // as a count taken before the cap it is supposed to witness.
+    fn record(
+        out: &mut serde_json::Map<String, JsonValue>,
+        omitted: &[JsonValue],
+        points_cut: usize,
+        budget: usize,
+    ) {
+        if points_cut > 0 {
+            if let Some(trace) = out.get_mut("spatial_trace").and_then(|t| t.as_object_mut()) {
+                let shown: usize = trace
+                    .get("layers")
+                    .and_then(|l| l.as_array())
+                    .map(|ls| {
+                        ls.iter()
+                            .filter_map(|l| Some(l.get("points")?.as_array()?.len()))
+                            .sum()
+                    })
+                    .unwrap_or(0);
+                if let Some(counts) = trace.get_mut("counts").and_then(|c| c.as_object_mut()) {
+                    counts.insert("points_shown".into(), json!(shown));
+                }
+                trace.insert("truncated".into(), json!(true));
+            }
+        }
+        if let Some(p) = out.get_mut("_projection").and_then(|p| p.as_object_mut()) {
+            if omitted.is_empty() {
+                p.remove("omitted");
+                p.remove("budget_bytes");
+            } else {
+                p.insert("omitted".into(), JsonValue::Array(omitted.to_vec()));
+                p.insert("budget_bytes".into(), json!(budget));
+            }
+        }
+    }
+
+    record(&mut out, &omitted, points_cut, budget);
+    if size(&out) > target(&out) {
+        if let Some(dropped) = out.remove("algorithm_outcomes_summary") {
+            omitted.push(json!({
+                "field": "algorithm_outcomes_summary",
+                "entries": dropped.as_array().map(|a| a.len()).unwrap_or(0),
+                "why": "derived values, recomputable from the facts in this result",
+                "where": rest.clone(),
+            }));
+            record(&mut out, &omitted, points_cut, budget);
+        }
+    }
+    if size(&out) > target(&out) {
+        let dropped = out
+            .get_mut("facts_summary")
+            .and_then(|f| f.as_object_mut())
+            .and_then(|f| f.remove("bands_present"));
+        if dropped.is_some() {
+            omitted.push(json!({
+                "field": "facts_summary.bands_present",
+                "why": "the same band names are in spatial_trace.ranges",
+                "where": "spatial_trace.ranges",
+            }));
+            record(&mut out, &omitted, points_cut, budget);
+        }
+    }
+    // Points, one at a time, from the layer with the most of them. The layers
+    // are already ordered so the bands the router matched come first, so the
+    // last point of the biggest layer is the least-asked-for thing left.
+    while size(&out) > target(&out) {
+        let Some(layers) = out
+            .get_mut("spatial_trace")
+            .and_then(|t| t.get_mut("layers"))
+            .and_then(|l| l.as_array_mut())
+        else {
+            break;
+        };
+        let fattest = layers
+            .iter()
+            .enumerate()
+            .filter_map(|(i, l)| Some((i, l.get("points")?.as_array()?.len())))
+            .max_by_key(|(_, n)| *n);
+        match fattest {
+            Some((i, n)) if n > 1 => {
+                if let Some(points) = layers[i].get_mut("points").and_then(|p| p.as_array_mut()) {
+                    points.pop();
+                    points_cut += 1;
+                } else {
+                    break;
+                }
+            }
+            _ => break,
+        }
+        if points_cut == 1 {
+            omitted.push(json!({
+                "field": "spatial_trace.layers[].points",
+                "points": 0,
+                "why": "over the MCP wire budget; counts.present is the number before any cap",
+                "where": rest.clone(),
+            }));
+        }
+        if let Some(last) = omitted.last_mut() {
+            last["points"] = json!(points_cut);
+        }
+        record(&mut out, &omitted, points_cut, budget);
+    }
+    out
 }
 
 fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
@@ -23250,9 +23582,17 @@ fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
         core.insert("cell".into(), cell.clone());
     }
     core.insert("spatial_trace".into(), splat);
+    // Where `f` points is not a constant: the envelope copy of the cid list is
+    // dropped when the receipt already carries it, so the core reads the name
+    // the projection recorded instead of asserting one that may not be there.
+    let cids_at = inner
+        .get("_projection")
+        .and_then(|p| p.get("fact_cids_at"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("fact_cids");
     core.insert(
         "_means".into(),
-        json!("the typed core of this answer: the question, the prose answer, the cell it resolved to, and the evidence as primitives. `spatial_trace.points[].f` indexes the `fact_cids` array in this result's text block."),
+        json!(format!("the typed core of this answer: the question, the prose answer, the cell it resolved to, and the evidence as primitives. `spatial_trace.points[].f` indexes the `{cids_at}` array in this result's text block.")),
     );
     Some(JsonValue::Object(core))
 }
@@ -23278,7 +23618,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let budget = mcp_response_budget_bytes();
     let text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
 
-    if text.len() > budget {
+    if mcp_text_wire_len(&text) + MCP_RESULT_OVERHEAD_BYTES > budget {
         // Some results must not be served in part.
         //
         // A due-diligence statement is a regulatory artifact: a caller files
@@ -23294,7 +23634,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // read was never going to be served by a partial one.
         if mcp_must_not_be_partial(tool) {
             return json!({
-                "content": [{"type": "text", "text": format!(
+                "content": [mcp_text_block(format!(
                     "`{tool}` produced {} bytes against an MCP wire budget of {budget}. \
                      This result is a document, not an answer, so it is NOT truncated: a \
                      partial document still reads like a whole one, and relying on it is \
@@ -23308,7 +23648,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
                         "emem_substrates" => "GET /v1/substrates",
                         _ => "the matching /v1 route",
                     }
-                )}],
+                ))],
                 "isError": true,
             });
         }
@@ -23318,21 +23658,23 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // it is reserved for FIRST, and the prose is slimmed against what is
         // left, so one budget still covers the whole result.
         let core = mcp_structured_core(&inner);
-        let reserve = core
+        let mirror = core
             .as_ref()
             .and_then(|c| serde_json::to_string(c).ok())
-            .map(|t| t.len() + 32)
+            .map(|t| t.len())
             .unwrap_or(0);
-        let (slimmed, _note) = mcp_slim_inner_to_budget(inner, budget.saturating_sub(reserve));
-        let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+        let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget);
+        // Annotated like every other block: an over-budget answer is still an
+        // answer addressed to the model, and a client deciding what to show a
+        // person should not have to tell these two paths apart.
         return match core {
             Some(core) => json!({
-                "content": [{"type": "text", "text": slim_text}],
+                "content": [mcp_text_block(slim_text)],
                 "structuredContent": core,
                 "isError": false,
             }),
             None => json!({
-                "content": [{"type": "text", "text": slim_text}],
+                "content": [mcp_text_block(slim_text)],
                 "isError": false,
             }),
         };
@@ -23340,7 +23682,11 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
 
     // One copy fits. Does the standard two-copy envelope also fit? The
     // mirror roughly doubles the inner bytes; +96 covers the envelope keys.
-    if text.len().saturating_mul(2).saturating_add(96) > budget {
+    if mcp_text_wire_len(&text)
+        .saturating_add(text.len())
+        .saturating_add(MCP_RESULT_OVERHEAD_BYTES)
+        > budget
+    {
         // A tool that declared an outputSchema owes conforming
         // structuredContent on every call it ANSWERS, so on this path the
         // mirror cannot be the thing that gives way. (An isError result is not
@@ -23357,13 +23703,8 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
             // So a tool with a core sends the core, and one without keeps the
             // mirror it has always sent.
             if let Some(core) = mcp_structured_core(&inner) {
-                let reserve = serde_json::to_string(&core)
-                    .map(|t| t.len() + 32)
-                    .unwrap_or(0);
-                let (slimmed, _note) =
-                    mcp_slim_inner_to_budget(inner, budget.saturating_sub(reserve));
-                let slim_text =
-                    serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+                let mirror = serde_json::to_string(&core).map(|t| t.len()).unwrap_or(0);
+                let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget);
                 return json!({
                     "content": [mcp_text_block(slim_text)],
                     "structuredContent": core,
@@ -65834,7 +66175,22 @@ fn spatial_trace(
     let mut shown = 0usize;
     let mut absent: Vec<JsonValue> = Vec::new();
     let (mut n_present, mut n_absent) = (0usize, 0usize);
-    for o in band_observations {
+    let mut bands_seen: std::collections::BTreeSet<String> = Default::default();
+    // WHICH readings survive the cap stops being an accident.
+    //
+    // It kept the first N in recall order, so a question about flooding could
+    // lose the water bands to whatever recall happened to return first. Every
+    // observation already carries `topic_matched` — the router's own answer to
+    // "is this band why we are here" — so those are offered to the cap before
+    // the rest. A stable sort, so two identical asks still produce identical
+    // traces.
+    let mut ordered: Vec<&JsonValue> = band_observations.iter().collect();
+    ordered.sort_by_key(|o| {
+        !o.get("topic_matched")
+            .and_then(|t| t.as_bool())
+            .unwrap_or(false)
+    });
+    for o in ordered {
         let Some(band) = o.get("band_key").and_then(|b| b.as_str()) else {
             continue;
         };
@@ -65861,6 +66217,19 @@ fn spatial_trace(
         if let Some(a) = o.get("age_s").filter(|v| !v.is_null()) {
             point.insert("age_s".into(), a.clone());
         }
+        // WHEN the measurement refers to, which is not how stale it is.
+        // `age_s` answers "how old is this reading"; `t` answers "what moment
+        // is it about". A model reasoning across a season needs the second and
+        // was handed only the first.
+        if let Some(t) = o.get("tslot").filter(|v| !v.is_null()) {
+            point.insert("t".into(), t.clone());
+        }
+        // What this responder thinks of its own reading. Present on 31 of 31
+        // observations of a live answer, and dropped by the first cut of this
+        // projection: the attribute a model weighs most directly.
+        if let Some(c) = o.get("confidence").filter(|v| !v.is_null()) {
+            point.insert("conf".into(), c.clone());
+        }
         point.insert(
             "class".into(),
             json!(registry
@@ -65874,6 +66243,7 @@ fn spatial_trace(
         {
             point.insert("f".into(), json!(i));
         }
+        bands_seen.insert(band.to_string());
         by_layer
             .entry(spatial_layer_of(band))
             .or_default()
@@ -65894,9 +66264,24 @@ fn spatial_trace(
             Some(json!({ "layer": name, "points": points }))
         })
         .collect();
+    // The registry's declared range for each band actually present, so a
+    // consumer can normalise one band against another without fetching the
+    // whole band catalogue to do it. Only the bands in this trace: the
+    // registry is a catalogue and this is an answer.
+    let mut ranges = serde_json::Map::new();
+    for name in &bands_seen {
+        if let Some(r) = emem_core::bands::DEFAULT
+            .lookup(emem_core::bands::cube_band_alias(name))
+            .or_else(|| emem_core::bands::DEFAULT.lookup(name))
+            .and_then(|b| b.value_range.clone())
+        {
+            ranges.insert(name.clone(), r);
+        }
+    }
     json!({
         "schema": "emem.spatial_trace.v1",
         "cell": cell,
+        "ranges": ranges,
         "at": [place_resolved.get("lat"), place_resolved.get("lng")],
         "stage": "recalled",
         "layers": layers,
@@ -67198,6 +67583,22 @@ async fn ask_inner_traced(
         // Absences are carried beside presences on purpose. A picture drawn
         // from found readings alone asserts a coverage nobody measured, and
         // this responder knows which bands it looked for and did not find.
+        // ASK 1, from the geo.qa backend session, 2026-09-13.
+        //
+        // Their measurement: over MCP the trace is slimmed by default, and
+        // `verbose: true` buys it back by dropping the evidence sections, so a
+        // caller had to choose between the reasoning and the facts under one
+        // budget. Their diagnosis was right and is the cheap fix: the stages
+        // are small, and `algorithms_for_question` is the heavy block —
+        // 20,561 bytes of citations for algorithms that did not run on this
+        // question.
+        //
+        // So `include: ["reasoning"]` keeps the stages whole and drops that
+        // block; `include: ["reasoning", "algorithms"]` keeps both, for a
+        // caller who wants everything and can afford it.
+        if has("reasoning") && !has("algorithms") {
+            map.remove("algorithms_for_question");
+        }
         map.insert(
             "spatial_trace".into(),
             spatial_trace(
@@ -78126,6 +78527,199 @@ mod tests {
         assert!(
             total <= mcp_response_budget_bytes(),
             "text + structuredContent = {total} bytes, over the budget"
+        );
+    }
+
+    /// An answer too big for the wire loses the least-meaning thing, and says so.
+    ///
+    /// The fault this pins: the projection chose by meaning, then handed an
+    /// over-budget object to a slimmer that chose by size, and the slimmer
+    /// nulled `spatial_trace` while keeping 15 KB of receipt — 6.6 KB of which
+    /// was the cid list a SECOND time, byte-identical to the receipt's own.
+    /// Null is this protocol's word for "no observation", so the served answer
+    /// said this responder had measured nothing at Trafalgar Square.
+    ///
+    /// And the count has to survive the cut: a trimmed trace that recomputed
+    /// `present` from its own trimmed points could not witness its trimming.
+    #[test]
+    fn a_trimmed_answer_drops_meaning_last_and_never_nulls_the_evidence() {
+        let cids: Vec<String> = (0..200).map(|i| format!("{i:0>52}")).collect();
+        let point = |i: usize| {
+            json!({"band": format!("weather.band_{i}"), "value": 1.5, "unit": "degC",
+                   "age_s": 600, "t": 4211, "conf": 0.9, "class": "direct_sensor", "f": i})
+        };
+        let layer = |name: &str, n: usize| json!({"layer": name, "points": (0..n).map(point).collect::<Vec<_>>()});
+        let inner = json!({
+            "schema": "emem.ask.v1",
+            "routed_to": "answer",
+            "question": "how busy is it right now?",
+            "answer": "x".repeat(1400),
+            "place_resolved": {"cell64": "defi.zb64a.cAzU.zfa27", "label": "Trafalgar Square",
+                               "resolver_notes": "y".repeat(4000)},
+            "fact_cids": cids.clone(),
+            "receipt": {"fact_cids": cids.clone(), "signature": "s".repeat(280)},
+            "algorithm_outcomes_summary": (0..90)
+                .map(|i| json!({"algorithm_key": format!("alg_{i}@1"), "skip_reason": null, "value": 1.0}))
+                .collect::<Vec<_>>(),
+            "facts_summary": {"counts": {"present": 60}, "fact_count": 60,
+                              "bands_present": vec!["weather.some_long_band_name"; 40]},
+            "spatial_trace": {
+                "schema": "emem.spatial_trace.v1",
+                "cell": "defi.zb64a.cAzU.zfa27",
+                "layers": [layer("surface", 40), layer("now", 40)],
+                "counts": {"present": 200, "absent": 3, "points_shown": 80, "absent_shown": 3},
+                "truncated": true,
+            },
+        });
+
+        let projected = mcp_project_ask(inner);
+
+        assert_eq!(
+            projected["_projection"]["fact_cids_at"],
+            json!("receipt.fact_cids"),
+            "the index target is named: {}",
+            projected["_projection"]
+        );
+        assert!(
+            projected.get("fact_cids").is_none(),
+            "the envelope still carries a second copy of the signed cid list"
+        );
+
+        let trace = &projected["spatial_trace"];
+        assert_eq!(
+            trace["schema"],
+            json!("emem.spatial_trace.v1"),
+            "the evidence survived the cut: {projected}"
+        );
+        assert_eq!(
+            trace["counts"]["present"],
+            json!(200),
+            "the count must name what was there BEFORE the trim, not after it"
+        );
+        let shown: usize = trace["layers"]
+            .as_array()
+            .expect("layers")
+            .iter()
+            .map(|l| l["points"].as_array().map(|p| p.len()).unwrap_or(0))
+            .sum();
+        assert_eq!(
+            trace["counts"]["points_shown"].as_u64(),
+            Some(shown as u64),
+            "points_shown disagrees with the points actually sent"
+        );
+        assert_eq!(trace["truncated"], json!(true));
+
+        let nulled: Vec<&String> = projected
+            .as_object()
+            .expect("object")
+            .iter()
+            .filter(|(_, v)| v.is_null())
+            .map(|(k, _)| k)
+            .collect();
+        assert!(nulled.is_empty(), "fields nulled for size: {nulled:?}");
+
+        let omitted = projected["_projection"]["omitted"]
+            .as_array()
+            .expect("every cut is named");
+        assert!(
+            omitted
+                .iter()
+                .all(|o| o["why"].is_string() && o["field"].is_string()),
+            "a cut without a reason: {omitted:?}"
+        );
+        assert!(
+            omitted
+                .iter()
+                .any(|o| o["field"] == json!("algorithm_outcomes_summary")),
+            "the recomputable derivations should go before the measurements: {omitted:?}"
+        );
+
+        // Text and mirror together, against the one budget that covers both.
+        let out = mcp_wrap_call_tool_result_for(projected, "emem_ask");
+        assert_eq!(
+            out["structuredContent"]["spatial_trace"]["schema"],
+            json!("emem.spatial_trace.v1")
+        );
+        let total = serde_json::to_string(&out).unwrap().len();
+        assert!(
+            total <= mcp_response_budget_bytes(),
+            "text + structuredContent = {total} bytes, over the budget"
+        );
+
+        // The fault was never in the projection, it was in what the caller
+        // received: a second, size-blind pass nulled the trace on its way out.
+        let served: JsonValue =
+            serde_json::from_str(out["content"][0]["text"].as_str().expect("a text block"))
+                .expect("the text block is JSON");
+        let nulled_on_the_wire: Vec<&String> = served
+            .as_object()
+            .expect("object")
+            .iter()
+            .filter(|(_, v)| v.is_null())
+            .map(|(k, _)| k)
+            .collect();
+        assert!(
+            nulled_on_the_wire.is_empty(),
+            "fields nulled between the projection and the wire: {nulled_on_the_wire:?}"
+        );
+        assert_eq!(
+            served["spatial_trace"]["schema"],
+            json!("emem.spatial_trace.v1"),
+            "the caller received an answer with no evidence in it"
+        );
+        assert_eq!(
+            served["spatial_trace"]["counts"]["present"],
+            json!(200),
+            "the served trace no longer says how much there was"
+        );
+        assert_eq!(
+            out["content"][0]["annotations"]["audience"],
+            json!(["assistant"]),
+            "an over-budget answer arrived without the annotation every other block carries"
+        );
+    }
+
+    /// The state vector we publish must recompute to the address we publish.
+    ///
+    /// A worked example nobody checked would be worse than none: a reader who
+    /// followed it and got a different digest could not tell whether they or
+    /// the recipe were wrong.
+    #[test]
+    fn the_published_state_vector_recomputes() {
+        let v = state_golden_vector();
+        let published = v["state_cid"].as_str().expect("state_cid");
+        assert_eq!(
+            v["self_check"]["recomputed"].as_str(),
+            Some(published),
+            "the vector does not reproduce its own address: {v}"
+        );
+        assert!(
+            v["token"]
+                .as_str()
+                .unwrap_or_default()
+                .starts_with("emem:state:"),
+            "the token form is what a caller pastes: {}",
+            v["token"]
+        );
+        // The bytes are published, not just described, so a reader can diff
+        // their own encoder against ours before blaming the digest.
+        let hex = v["canonical_cbor_hex"].as_str().expect("cbor hex");
+        assert_eq!(
+            hex.len() / 2,
+            v["canonical_cbor_bytes"].as_u64().unwrap_or(0) as usize,
+            "hex and byte count disagree"
+        );
+        let raw: Vec<u8> = (0..hex.len())
+            .step_by(2)
+            .filter_map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
+            .collect();
+        let digest = blake3::hash(&raw);
+        let recomputed = data_encoding::BASE32_NOPAD
+            .encode(digest.as_bytes())
+            .to_lowercase();
+        assert_eq!(
+            recomputed, published,
+            "blake3 of the published bytes is not the published address"
         );
     }
 

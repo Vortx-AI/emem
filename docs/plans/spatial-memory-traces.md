@@ -1,4 +1,4 @@
-# Reasoning splats: what `/v1/ask` should deliver to a model
+# Spatial memory traces: what `/v1/ask` delivers to a model
 
 *Status: research + design. Every number in section 1 is measured live against
 emem.dev on 2026-09-13 (d2f13f1). Section 3 onward is proposal.*
@@ -72,7 +72,7 @@ No `structuredContent`. No `resource_link`. Both are in the protocol version we
 serve. A model therefore parses a blob, and pays for every byte of it whether it
 wanted that section or not.
 
-## 3. `emem.reasoning_splat.v1`
+## 3. `emem.spatial_trace.v1`
 
 One primitive per piece of evidence:
 
@@ -136,7 +136,7 @@ property that makes skipping safe.
 
 ## 6. What the first cut missed, measured against itself
 
-`emem.reasoning_splat.v1` shipped the evidence as primitives, and then the same
+`emem.spatial_trace.v1` shipped the evidence as primitives, and then the same
 instrument that justified it showed it is not yet worth the name.
 
 **It is geometrically degenerate.** A band observation carries no cell of its
@@ -189,7 +189,7 @@ exist as a catalogue, 50,332 bytes over nine cells, and carries no values.
 
 ## 8. v2, and what it is worth
 
-    { "schema": "emem.reasoning_splat.v2",
+    { "schema": "emem.spatial_trace.v2",
       "frame": { "centre": [51.5084, -0.1284], "cells": 9, "tslot": 496497 },
       "points": [ { "c": 0,            // index into `cells`, not a repeated cell64
                     "band": "weather.temperature_2m",
@@ -226,3 +226,65 @@ Build order, revised by what the measurements say:
    land is what makes this a reasoning *stream* rather than a reasoning summary.
 5. **`GET /v1/state/<cid>`** and MCP `structuredContent`/`resource_link`, as in
    section 4, unchanged.
+
+## 9. Built, and what the name settled
+
+Shipped as `emem.spatial_trace.v1`. The name matters and was changed on the
+owner's call before anything went live: "splat" is a renderer's word for a
+primitive a renderer draws, and the consumer here is the model. "Synthetic
+satellite image" was considered and rejected — nothing here is synthesised,
+every point is a signed measurement with a provenance class, and borrowing the
+word would invite exactly the misreading this protocol exists to prevent.
+
+Points are grouped into layers taken from the band registry's own `family`, so
+a band added to the registry lands in a layer without anyone editing the
+projection: `surface` is what the ground is, `built` is what stands on it,
+`now` is what is happening there, `embedding` is the vectors that answer
+similarity, and `ground` is what a camera saw. A layer missing from the list
+means the question never reached that kind of evidence; a band looked for and
+not found is in `absent`. Those are different claims, and a model can read the
+difference — which is what makes a place with cameras reason differently from a
+mid-Pacific cell without being told so in prose.
+
+Each point carries `value`, `unit`, `age_s` (how stale), `t` (the tslot, what
+moment it is about), `conf` (what this responder thinks of its own reading),
+`class` (what kind of claim it is) and `f`, an index into the answer's
+`fact_cids`. `ranges` carries the registry's declared range for the bands
+present, so two bands are comparable without fetching the catalogue.
+Question-matched readings are offered to the cap first, so what survives
+truncation stops being an accident.
+
+## 10. One answer, three protocols, measured
+
+The drift on 2026-09-13, before the fix: REST 99,735 bytes, MCP 22,770 with ten
+fields NULL, A2A 107,039 as a message carrying a 98 KB data part and no
+artifacts.
+
+The MCP nulling was the sharpest fault in the surface. `null` is this
+protocol's word for "there is no observation", so a field nulled to fit a wire
+budget said something false about the world, and every key was present, which
+is why it went unnoticed. The fix is to convert by MEANING before a budget can
+convert by size: an agent gets the facts, the trace, the receipt and the
+counts; it does not get a second prose rendering, a freshness table repeating
+an age every point already carries, or 20,561 bytes of citations for algorithms
+that did not run on that question. `_projection` names what was left out and
+where it lives.
+
+A2A moved to artifacts on a completed task, because the spec is explicit
+("Results SHOULD BE returned using Artifacts… Messages SHOULD NOT be used to
+deliver task outputs") and our own async path already did it, so a synchronous
+caller was receiving a shape an asynchronous caller was not.
+
+## 11. Conformance, as a gate rather than a claim
+
+`scripts/protocol_conformance.py --origin <node>` checks the rules against a
+live responder: the MCP transport header and tools capability; every tool's
+name length, title and read-only/destructive annotation (the Claude directory's
+two deciding criteria, with a public privacy policy as the other); that every
+declared `outputSchema` is a valid Draft 2020-12 schema and that returned
+`structuredContent` VALIDATES against it; the A2A agent card's required fields,
+task shape, artifacts and proto-enum task state.
+
+Exit codes follow this repo's convention: 0 conforms, 1 a rule is violated, 2
+the responder did not answer (waived — it says nothing about the code), 3 our
+own side could not run the check.
