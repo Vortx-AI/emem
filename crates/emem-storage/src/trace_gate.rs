@@ -111,13 +111,36 @@ pub struct PublishedDevice {
 }
 
 impl EnrollmentRecord {
-    /// `"platform_attested"` when a whitelisted anchor endorsed the key,
-    /// else `"operator_asserted"`. The assurance level a reader can weigh.
+    /// What a reader may weigh: `"platform_attested"` when hardware vouched,
+    /// `"operator_endorsed"` when an operator vouched for a machine whose
+    /// platform has no hardware root of trust, `"operator_asserted"` when
+    /// nothing was presented at all.
+    ///
+    /// The middle case is why this is not a two-way branch. A `software_only`
+    /// platform HAS no hardware to attest; its anchors are operator anchors by
+    /// construction, and the family note in the registry says so. Reporting
+    /// that as `platform_attested` reads as a manufacturer vouching, which is
+    /// the stronger claim and the false one.
+    ///
+    /// Measured on the first external encoder to enrol (eudr.dev under
+    /// `generic.linux-host`, 2026-09-13): the enrolment answered
+    /// `assurance: platform_attested` beside `endorsed_by: operator.vortx.v1`,
+    /// and only the second half was true.
     pub fn assurance(&self) -> &'static str {
-        if self.platform_id.is_some() {
-            "platform_attested"
-        } else {
-            "operator_asserted"
+        let Some(pid) = self.platform_id.as_deref() else {
+            return "operator_asserted";
+        };
+        match emem_core::device_platforms::DEFAULT.lookup(pid) {
+            Some(p)
+                if p.root_of_trust == emem_core::device_platforms::RootOfTrust::SoftwareOnly =>
+            {
+                "operator_endorsed"
+            }
+            // An unknown platform id cannot be shown to be software-only, and
+            // guessing upward is the direction that overstates. It keeps the
+            // stronger label only because an enrolment is written through the
+            // gate, which refuses a platform the registry does not hold.
+            _ => "platform_attested",
         }
     }
 }
@@ -745,6 +768,34 @@ mod enrollment_record_tests {
         assert!(gate.enrollment_of("k").is_some());
         gate.revoke("k").expect("revoke");
         assert!(gate.enrollment_of("k").is_none());
+    }
+
+    /// Three assurance levels, and the middle one is the point.
+    ///
+    /// A machine with no hardware root of trust cannot be platform-attested,
+    /// however real the endorsement is. The first external encoder enrolled
+    /// under exactly that platform and the response called it attested.
+    #[test]
+    fn an_operator_vouched_platform_does_not_claim_hardware_attested_it() {
+        let rec = |platform: Option<&str>| EnrollmentRecord {
+            profile_id: "host.counters.v1".into(),
+            platform_id: platform.map(|s| s.to_string()),
+            endorsed_by: None,
+            publish: false,
+            publish_decided_at: None,
+        };
+        // software_only: an operator's word, and the label says so.
+        assert_eq!(
+            rec(Some("generic.linux-host")).assurance(),
+            "operator_endorsed"
+        );
+        // A hardware root of trust: the stronger label is the true one.
+        assert_eq!(
+            rec(Some("nvidia.jetson-orin")).assurance(),
+            "platform_attested"
+        );
+        // Nothing presented at all.
+        assert_eq!(rec(None).assurance(), "operator_asserted");
     }
 
     /// Enrolling must never publish. This is the privacy default, and it is
