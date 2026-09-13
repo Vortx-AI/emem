@@ -170,6 +170,56 @@ check("the control: a real tool still answers",
       "result" in good and not (good.get("result") or {}).get("isError"),
       "result" if "result" in good else str(good.get("error"))[:70])
 
+print("== OpenAI connector contract (search + fetch)")
+# "To work with ChatGPT deep research and company knowledge, your MCP server
+# should implement two read-only tools: `search` and `fetch`." The result
+# shapes are fixed by that contract, and `url` is what decides whether a
+# result becomes a citation or anonymous tool output.
+by_name = {t["name"]: t for t in tools}
+have_pair = "search" in by_name and "fetch" in by_name
+check("the connector pair is advertised by its exact names", have_pair,
+      "search=%s fetch=%s" % ("search" in by_name, "fetch" in by_name))
+
+if have_pair:
+    check("both are declared read-only",
+          all((by_name[n].get("annotations") or {}).get("readOnlyHint") for n in ("search", "fetch")),
+          str({n: (by_name[n].get("annotations") or {}).get("readOnlyHint") for n in ("search", "fetch")}))
+    check("both declare an output schema",
+          all(by_name[n].get("outputSchema") for n in ("search", "fetch")),
+          str({n: bool(by_name[n].get("outputSchema")) for n in ("search", "fetch")}))
+
+    _, sr = rpc("tools/call", {"name": "search",
+                               "arguments": {"query": "Trafalgar Square, London"}})
+    sres = (sr.get("result") or {}).get("structuredContent") or {}
+    rows = sres.get("results") or []
+    check("search returns results with id, title and url",
+          bool(rows) and all(isinstance(r.get(k), str) and r[k] for r in rows
+                             for k in ("id", "title", "url")),
+          f"{len(rows)} result(s); first={json.dumps(rows[0])[:110] if rows else 'none'}")
+    sch = by_name["search"].get("outputSchema")
+    if sch and sres:
+        errs = list(jsonschema.Draft202012Validator(sch).iter_errors(sres))
+        check("search structuredContent conforms to its schema", not errs,
+              "valid" if not errs else errs[0].message[:120])
+
+    if rows:
+        # The round trip is the contract: an id search handed out must open.
+        _, fr = rpc("tools/call", {"name": "fetch", "arguments": {"id": rows[0]["id"]}})
+        fres = (fr.get("result") or {}).get("structuredContent") or {}
+        check("fetch opens an id that search handed out",
+              all(isinstance(fres.get(k), str) and fres[k] for k in ("id", "title", "text", "url")),
+              f"keys={sorted(fres.keys())} url={str(fres.get('url'))[:60]}")
+        fsch = by_name["fetch"].get("outputSchema")
+        if fsch and fres:
+            errs = list(jsonschema.Draft202012Validator(fsch).iter_errors(fres))
+            check("fetch structuredContent conforms to its schema", not errs,
+                  "valid" if not errs else errs[0].message[:120])
+        # The last entry names the cell and the true total: a capped list that
+        # says how much there was.
+        check("a capped search still says how much there was",
+              rows[-1]["id"].startswith("emem:cell:"),
+              rows[-1]["title"][:80])
+
 print("== A2A")
 card = json.loads(u.urlopen(BASE + "/.well-known/agent-card.json", timeout=60).read())
 required = ["protocolVersion", "name", "description", "url", "version",

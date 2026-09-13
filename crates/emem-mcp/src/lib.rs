@@ -614,6 +614,46 @@ const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_c
 "observed_on":{"type":"string","description":"The fact's source capture date (YYYY-MM-DD) as `/v1/recall` reports it in `sources[].captured_at`. Supplied together with `band` it additionally mints the self-describing `descriptor_token`. A wrong date forges nothing: resolve binds the date to the signed fact and answers 409 on a mismatch."}
 }}"#;
 
+// ── The two tools ChatGPT's connectors call by name ──────────────────────
+//
+// OpenAI's remote-MCP documentation: "To work with ChatGPT deep research and
+// company knowledge, your MCP server should implement two read-only tools:
+// `search` and `fetch`." The names and the result shapes are fixed by that
+// contract, not chosen here: `search` takes one query string and returns
+// `{results: [{id, title, url}]}`; `fetch` takes one id and returns
+// `{id, title, text, url, metadata}`.
+//
+// `url` is the field that matters most: ChatGPT mints citation metadata only
+// when it is a non-empty string, so a result carrying one arrives in the
+// answer as a source a reader can follow back to the signed bytes, and a
+// result without one stays ordinary tool output. That is the whole reason
+// these two exist here. They add no new truth: `search` is a recall and
+// `fetch` is a dereference, both already served, wearing the shape the client
+// knows how to cite.
+const SCHEMA_OPENAI_SEARCH: &str = r#"{"type":"object","required":["query"],"properties":{
+"query":{"type":"string","description":"A place ('Trafalgar Square, London'), a cell64, or an emem citation (`emem:fact:<cell64>:<fact_cid>`). A citation returns the one fact it cites, so a result handed over by another agent resolves exactly."}
+}}"#;
+
+const OUT_OPENAI_SEARCH: &str = r#"{"type":"object","required":["results"],"properties":{
+"results":{"type":"array","description":"One entry per signed fact, plus a final entry for the cell itself carrying the true total, so a capped list still says how much there was.","items":{"type":"object","required":["id","title","url"],"properties":{
+"id":{"type":"string","description":"The emem citation handle. Pass it straight to `fetch`."},
+"title":{"type":"string","description":"band, place and the value as it was signed."},
+"url":{"type":"string","description":"Stable URL serving the signed bytes this entry cites."}
+}}}
+}}"#;
+
+const SCHEMA_OPENAI_FETCH: &str = r#"{"type":"object","required":["id"],"properties":{
+"id":{"type":"string","description":"An id from `search`: an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for every fact at one cell."}
+}}"#;
+
+const OUT_OPENAI_FETCH: &str = r#"{"type":"object","required":["id","title","text","url"],"properties":{
+"id":{"type":"string","description":"Echoed id, in canonical form."},
+"title":{"type":"string","description":"What this record is."},
+"text":{"type":"string","description":"The reading in one line, then the signed body it was lifted from. If the body was too large for the wire it says so inline, with the URL that serves it whole."},
+"url":{"type":"string","description":"Stable URL serving these bytes."},
+"metadata":{"type":"object","description":"cell, band, when it was signed and by which key: the fields a reader needs to judge the citation without re-fetching it."}
+}}"#;
+
 const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
 "token":{"type":"string","description":"A `emem:fact:<cell64>:<fact_cid>` citation handle to dereference."}
 }}"#;
@@ -1544,6 +1584,35 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_MEMORY_TOKEN,
         output_schema: Some(OUT_MEMORY_TOKEN),
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "core",
+    },
+    // Named `search` and `fetch` with no prefix, which is deliberate and is
+    // the only reason these are not called `emem_search` / `emem_fetch`:
+    // ChatGPT's connector looks up these two names exactly. `emem_fetch` is a
+    // different tool and keeps its name -- it pulls from an upstream archive,
+    // where this one dereferences a citation emem has already signed.
+    ToolDescriptor {
+        name: "search",
+        title: "Find signed facts for a place, as citable sources",
+        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total.",
+        when_to_use: "Call first when a question is about a place and the answer must be citable: it turns the question into a list of sources, each of which `fetch` expands. For a synthesised answer in one call, use emem_ask instead.",
+        input_schema: SCHEMA_OPENAI_SEARCH,
+        output_schema: Some(OUT_OPENAI_SEARCH),
+        example_args: r#"{"query":"Trafalgar Square, London"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "core",
+    },
+    ToolDescriptor {
+        name: "fetch",
+        title: "Open one search result and read the signed record",
+        description: "Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered.",
+        when_to_use: "Call on each result you intend to cite, before quoting the number. Quote the one-line reading; the body makes it checkable, and emem_echo_verify grades what you emit against it. An oversize body says so inline and names the URL serving it whole.",
+        input_schema: SCHEMA_OPENAI_FETCH,
+        output_schema: Some(OUT_OPENAI_FETCH),
+        example_args: r#"{"id":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
@@ -2827,6 +2896,8 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_edges_recall",
             "emem_derive",
             "emem_derive_list",
+            "search",
+            "fetch",
         ],
     ),
     (
@@ -3098,6 +3169,10 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_memory_bundle_resolve", "emem_edges_recall", "emem_derive",
             "emem_derive_list", "emem_raster_resolve", "emem_cube_resolve",
             "emem_raster_bundle_resolve",
+            // `search` hands back handles and `fetch` resolves one: the same
+            // shape as the pair above, under the names a ChatGPT connector
+            // looks up.
+            "search", "fetch",
         ],
     ),
     (
@@ -3966,9 +4041,14 @@ mod tests {
         // resolve/link)/memory_contradictions/verify_receipt/find_similar/ask/
         // intent). Bounded so it stays a curated "essentials" set, not the
         // whole catalog.
+        // 16 became 18 when `search` and `fetch` joined, and they had to join
+        // the CORE tier specifically: a ChatGPT connector reads page one of
+        // /mcp, so a tool it cannot see on that page is a tool it does not
+        // have. Two of the eighteen are a client's fixed names rather than new
+        // capability of ours.
         assert!(
-            core.len() >= 10 && core.len() <= 16,
-            "core tier should have 10-16 tools, got {}",
+            core.len() >= 10 && core.len() <= 18,
+            "core tier should have 10-18 tools, got {}",
             core.len()
         );
     }
@@ -4245,10 +4325,20 @@ mod tests {
     /// already use them; what changed is what we ADVERTISE.
     #[test]
     fn every_advertised_tool_carries_the_service_prefix() {
+        // Two names are not ours to choose. OpenAI's connector documentation
+        // says a server that works with ChatGPT deep research and company
+        // knowledge "should implement two read-only tools: `search` and
+        // `fetch`", and the client looks those names up literally, so
+        // prefixing them would mean advertising a connector that no connector
+        // finds. They are thin projections of emem_recall and the token
+        // dereference; the prefix rule holds for everything that is a
+        // capability of ours rather than a name a client already knows.
+        const FIXED_BY_A_CLIENT_CONTRACT: [&str; 2] = ["search", "fetch"];
         let bare: Vec<&str> = TOOLS
             .iter()
             .map(|t| t.name)
             .filter(|n| !n.starts_with("emem_"))
+            .filter(|n| !FIXED_BY_A_CLIENT_CONTRACT.contains(n))
             .collect();
         assert!(
             bare.is_empty(),

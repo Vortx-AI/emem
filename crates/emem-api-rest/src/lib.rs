@@ -23227,6 +23227,239 @@ fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonVal
 /// for the human should be told so rather than left to guess from the shape.
 /// `priority` says it is the load-bearing copy: everything the structured
 /// sibling carries is in here too.
+/// How many fact results `search` returns before it points at the cell.
+///
+/// Trafalgar Square holds 148 signed facts. All of them would be ~30 KB of
+/// results against a 24,000-byte wire budget, so the list is capped -- and a
+/// silent cap is the thing this codebase keeps having to fix, so the cap is
+/// not silent: the final result names the cell and the TRUE total and links
+/// the page that serves every one of them.
+const OPENAI_SEARCH_MAX: usize = 40;
+
+/// A `text` field long enough to be useful and short enough to survive the wire.
+const OPENAI_FETCH_TEXT_MAX: usize = 12_000;
+
+/// Does this look like a citation rather than a place?
+fn looks_like_an_emem_citation(q: &str) -> bool {
+    q.starts_with("emem:")
+        || q.starts_with("memt:")
+        || (q.len() == 52
+            && q.chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit()))
+}
+
+/// A cell64 is four dot-separated parts and nothing else.
+fn looks_like_a_cell64(q: &str) -> bool {
+    let parts: Vec<&str> = q.split('.').collect();
+    parts.len() == 4
+        && parts
+            .iter()
+            .all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric()))
+}
+
+/// `search`, in the shape OpenAI's connectors read.
+///
+/// No new truth: this is `emem_recall`, projected. What it adds is the one
+/// field that decides whether a number arrives in a ChatGPT answer as a
+/// citation or as anonymous tool output -- a non-empty `url` per result -- and
+/// an `id` that is the memory token, so `fetch` dereferences the exact fact
+/// rather than something near it.
+async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, String)> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+
+    // A citation IS an answer. Resolving it here means a handle another agent
+    // passed over survives the round trip instead of being geocoded as if it
+    // were the name of a place.
+    if looks_like_an_emem_citation(query) {
+        let resolved = resolve_one_token(s, query)
+            .await
+            .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+        let v = serde_json::to_value(&resolved).map_err(|e| (-32603, e.to_string()))?;
+        let band = v["band"].as_str().unwrap_or("fact");
+        let cell = v["cell"].as_str().unwrap_or("");
+        let reading = openai_reading_of(&v);
+        return Ok(json!({"results": [{
+            "id": v["canonical_token"].as_str().unwrap_or(query),
+            "title": format!("{band} at {cell}: {reading}"),
+            "url": v["fact_url"].as_str().unwrap_or(""),
+        }]}));
+    }
+
+    // Through the same wrapper `emem_recall` uses, so the corpus grows on
+    // demand here exactly as it does there and the two doors cannot disagree.
+    let api_req: RecallApiReq =
+        serde_json::from_value(json!({ "cell": query })).map_err(|e| (-32602, e.to_string()))?;
+    let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+    let (resp, _notes) = recall_with_auto_materialize(&req, s)
+        .await
+        .map_err(mcp_err)?;
+    let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+    // The citation has to be ON the fact; without this the cids exist only as
+    // a positional array a caller must align by index.
+    enrich_facts_with_cid(&mut v);
+
+    let label = v
+        .pointer("/resolved_from/cell/label")
+        .and_then(|l| l.as_str())
+        .unwrap_or(query)
+        .to_string();
+    let cell64 = v
+        .pointer("/resolved_from/cell/cell64")
+        .and_then(|c| c.as_str())
+        .or_else(|| v.get("cell").and_then(|c| c.as_str()))
+        .unwrap_or("")
+        .to_string();
+
+    let facts = v
+        .get("facts")
+        .and_then(|f| f.as_array())
+        .cloned()
+        .unwrap_or_default();
+    let total = facts.len();
+    let mut results: Vec<JsonValue> = Vec::new();
+    for f in facts.iter().take(OPENAI_SEARCH_MAX) {
+        let (Some(token), Some(cid), Some(band)) = (
+            f.get("memory_token").and_then(|t| t.as_str()),
+            f.get("fact_cid").and_then(|c| c.as_str()),
+            f.get("band").and_then(|b| b.as_str()),
+        ) else {
+            continue;
+        };
+        results.push(json!({
+            "id": token,
+            "title": format!("{band} at {label}: {}", openai_reading_of(f)),
+            "url": format!("{origin}/v1/facts/{cid}"),
+        }));
+    }
+    // The cap, said out loud, and followable.
+    if !cell64.is_empty() {
+        results.push(json!({
+            "id": format!("emem:cell:{cell64}"),
+            "title": format!("all {total} signed facts at {label} ({} listed above)", results.len()),
+            "url": format!("{origin}/v1/cells/{cell64}"),
+        }));
+    }
+    Ok(json!({ "results": results }))
+}
+
+/// The reading as it was SIGNED, never re-rendered from a JSON number.
+fn openai_reading_of(f: &JsonValue) -> String {
+    if let Some(verbatim) = f.get("value_verbatim").and_then(|x| x.as_str()) {
+        return verbatim.to_string();
+    }
+    match f.get("value") {
+        None | Some(JsonValue::Null) => "no value (an absence is a reading too)".to_string(),
+        Some(other) => other.to_string(),
+    }
+}
+
+/// `fetch`, in the shape OpenAI's connectors read.
+async fn openai_fetch(s: &AppState, id: &str) -> Result<JsonValue, (i64, String)> {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+
+    // A cell handle is a VIEW, not a signed object, and says so: it lists the
+    // readings held there, each with the citation that does verify.
+    let cell_id = id
+        .strip_prefix("emem:cell:")
+        .map(|c| c.to_string())
+        .or_else(|| looks_like_a_cell64(id).then(|| id.to_string()));
+    if let Some(cell64) = cell_id {
+        let api_req: RecallApiReq = serde_json::from_value(json!({ "cell": cell64 }))
+            .map_err(|e| (-32602, e.to_string()))?;
+        let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+        let (resp, _notes) = recall_with_auto_materialize(&req, s)
+            .await
+            .map_err(mcp_err)?;
+        let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+        enrich_facts_with_cid(&mut v);
+        let label = v
+            .pointer("/resolved_from/cell/label")
+            .and_then(|l| l.as_str())
+            .unwrap_or(&cell64)
+            .to_string();
+        let facts = v
+            .get("facts")
+            .and_then(|f| f.as_array())
+            .cloned()
+            .unwrap_or_default();
+        let mut lines: Vec<String> = Vec::with_capacity(facts.len());
+        for f in &facts {
+            lines.push(format!(
+                "{} = {}  [{}]",
+                f.get("band").and_then(|b| b.as_str()).unwrap_or("?"),
+                openai_reading_of(f),
+                f.get("memory_token").and_then(|t| t.as_str()).unwrap_or("")
+            ));
+        }
+        let text = openai_capped_text(
+            format!(
+                "{} signed facts at {label} ({cell64})\n\n{}",
+                facts.len(),
+                lines.join("\n")
+            ),
+            &format!("{origin}/v1/cells/{cell64}"),
+        );
+        return Ok(json!({
+            "id": format!("emem:cell:{cell64}"),
+            "title": format!("{} signed facts at {label}", facts.len()),
+            "text": text,
+            "url": format!("{origin}/v1/cells/{cell64}"),
+            "metadata": {"cell": cell64, "fact_count": facts.len().to_string(),
+                         "is_signed_object": "no: a cell is a view; each line carries the citation that verifies"},
+        }));
+    }
+
+    let resolved = resolve_one_token(s, id)
+        .await
+        .map_err(|e| (-(e.1.code as i64), e.1.message))?;
+    let v = serde_json::to_value(&resolved).map_err(|e| (-32603, e.to_string()))?;
+    let band = v["band"].as_str().unwrap_or("fact").to_string();
+    let cell = v["cell"].as_str().unwrap_or("").to_string();
+    let url = v["fact_url"].as_str().unwrap_or("").to_string();
+    let reading = openai_reading_of(&v);
+    let unit = v["unit"]
+        .as_str()
+        .map(|u| format!(" {u}"))
+        .unwrap_or_default();
+    let body = serde_json::to_string_pretty(&v["fact"]).unwrap_or_else(|_| "{}".to_string());
+    let text = openai_capped_text(
+        format!("{band} at {cell} = {reading}{unit}\n\nsigned body:\n{body}"),
+        &url,
+    );
+    Ok(json!({
+        "id": v["canonical_token"].as_str().unwrap_or(id),
+        "title": format!("{band} at {cell}: {reading}{unit}"),
+        "text": text,
+        "url": url,
+        "metadata": {
+            "cell": cell,
+            "band": band,
+            "fact_cid": v["fact_cid"].as_str().unwrap_or(""),
+            "signed_at": v.pointer("/fact/signed_at").and_then(|t| t.as_str()).unwrap_or(""),
+            "signer_b32": v["signer_b32"].as_str().unwrap_or(""),
+        },
+    }))
+}
+
+/// Cut a `text` to the wire, and SAY it was cut.
+///
+/// A record silently truncated still reads like a whole one, which is the
+/// shape this codebase refuses everywhere else it appears.
+fn openai_capped_text(text: String, whole: &str) -> String {
+    if text.len() <= OPENAI_FETCH_TEXT_MAX {
+        return text;
+    }
+    let mut cut = text;
+    let full = cut.len();
+    cut.truncate(
+        (0..=OPENAI_FETCH_TEXT_MAX)
+            .rev()
+            .find(|i| cut.is_char_boundary(*i))
+            .unwrap_or(0),
+    );
+    format!("{cut}\n\n[cut here: {OPENAI_FETCH_TEXT_MAX} of {full} bytes, the whole record is at {whole}]")
+}
+
 /// Slim a result until what goes ON THE WIRE fits, mirror included.
 ///
 /// Two things were wrong with sizing this in one shot. The slimmer counts
@@ -29479,6 +29712,36 @@ async fn mcp_tool_call_inner(
                 Ok(v) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
+        }
+        // The two names ChatGPT's connectors call. Thin projections of
+        // `emem_recall` and the token dereference, in the shapes that make a
+        // reading arrive as a citation rather than as anonymous tool output.
+        "search" => {
+            let query = args
+                .get("query")
+                .and_then(|v| v.as_str())
+                .map(|q| q.trim())
+                .filter(|q| !q.is_empty())
+                .ok_or((
+                    -32602,
+                    "`query` is required: a place, a cell64, or an emem citation handle"
+                        .to_string(),
+                ))?
+                .to_string();
+            openai_search(s, &query).await
+        }
+        "fetch" => {
+            let id = args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .map(|q| q.trim())
+                .filter(|q| !q.is_empty())
+                .ok_or((
+                    -32602,
+                    "`id` is required: an id from `search` (an emem citation, a fact_cid, or an emem:cell: handle)".to_string(),
+                ))?
+                .to_string();
+            openai_fetch(s, &id).await
         }
         "emem_memory_token_resolve" => {
             let req: MemoryTokenResolveReq =
@@ -78693,6 +78956,95 @@ mod tests {
             json!(["assistant"]),
             "an over-budget answer arrived without the annotation every other block carries"
         );
+    }
+
+    /// The two names a ChatGPT connector looks up, in the shapes it reads.
+    ///
+    /// These are a client's contract, not ours, so the parts that are easy to
+    /// drift are pinned: the exact names, the result fields, and the fact that
+    /// `search` hands back an `id` that `fetch` takes. A `url` that is not a
+    /// non-empty string is the failure that matters most -- ChatGPT mints
+    /// citation metadata only when it is one, so a result without it stops
+    /// being a source and becomes anonymous tool output.
+    #[test]
+    fn the_connector_pair_keeps_the_shape_the_client_reads() {
+        let search = emem_mcp::TOOLS
+            .iter()
+            .find(|t| t.name == "search")
+            .expect("a tool literally named `search`");
+        let fetch = emem_mcp::TOOLS
+            .iter()
+            .find(|t| t.name == "fetch")
+            .expect("a tool literally named `fetch`");
+        for t in [search, fetch] {
+            assert!(t.read_only_hint, "{} must be read-only", t.name);
+            assert!(!t.destructive_hint);
+            assert!(
+                t.output_schema.is_some(),
+                "{}: OpenAI asks for a declared output schema",
+                t.name
+            );
+            assert_eq!(t.tier, "core", "{}: a connector reads page one", t.name);
+        }
+        let out_s: JsonValue =
+            serde_json::from_str(search.output_schema.expect("schema")).expect("valid JSON");
+        let item = &out_s["properties"]["results"]["items"];
+        let mut want: Vec<&str> = item["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        want.sort_unstable();
+        assert_eq!(
+            want,
+            ["id", "title", "url"],
+            "a search result is {{id, title, url}} and nothing else is citable"
+        );
+        let out_f: JsonValue =
+            serde_json::from_str(fetch.output_schema.expect("schema")).expect("valid JSON");
+        let mut wf: Vec<&str> = out_f["required"]
+            .as_array()
+            .expect("required")
+            .iter()
+            .filter_map(|v| v.as_str())
+            .collect();
+        wf.sort_unstable();
+        assert_eq!(wf, ["id", "text", "title", "url"]);
+
+        // What each helper decides, at the boundaries that actually occur.
+        assert!(looks_like_an_emem_citation(
+            "emem:fact:defi.zb64a.cAzU.zfa27:ivzjtdzy4at4csluhbzv2uoglervpt3m4l4523eourx3namckpaq"
+        ));
+        assert!(looks_like_an_emem_citation(
+            "ivzjtdzy4at4csluhbzv2uoglervpt3m4l4523eourx3namckpaq"
+        ));
+        assert!(
+            !looks_like_an_emem_citation("Trafalgar Square, London"),
+            "a place name must not be mistaken for a citation"
+        );
+        assert!(looks_like_a_cell64("defi.zb64a.cAzU.zfa27"));
+        assert!(!looks_like_a_cell64("Trafalgar Square, London"));
+
+        // The reading is the string it was SIGNED as, not a re-rendered float.
+        assert_eq!(
+            openai_reading_of(&json!({"value": 0.17, "value_verbatim": "0.170"})),
+            "0.170"
+        );
+        assert!(openai_reading_of(&json!({"value": JsonValue::Null})).contains("no value"));
+
+        // A cut record has to admit it was cut.
+        let long = openai_capped_text("x".repeat(OPENAI_FETCH_TEXT_MAX + 500), "https://e/x");
+        assert!(
+            long.contains("cut here"),
+            "a truncated record read as whole"
+        );
+        assert!(
+            long.contains("https://e/x"),
+            "and did not say where the rest is"
+        );
+        let short = openai_capped_text("small".into(), "https://e/x");
+        assert_eq!(short, "small", "a record that fits is untouched");
     }
 
     /// The state vector we publish must recompute to the address we publish.
