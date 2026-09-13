@@ -1119,7 +1119,12 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/algorithm_cids", get(serve_algorithm_cids))
         .route("/openapi.json", get(openapi))
         .route("/v1/schemas", get(schemas_index))
-        .route("/v1/schemas/{name}", get(schema_by_name))
+        // `:name`, not `{name}`: this router is axum 0.7 style, as every other
+        // parameterised route here shows. Written the other way it is a
+        // LITERAL path segment, so /v1/schemas/VerifyResp 404s while
+        // /v1/schemas answers -- and the unit tests all passed, because they
+        // called the function and never the route.
+        .route("/v1/schemas/:name", get(schema_by_name))
         // Curated 28-op subset for OpenAI Custom GPT Actions (30-op cap).
         // Filtered live from the full spec, single source of truth.
         // Both the root and /v1 path resolve to the same handler so that
@@ -79367,6 +79372,61 @@ mod tests {
                  instead of converging"
             );
         }
+    }
+
+    /// The published schema has to be reachable at the URL we publish.
+    ///
+    /// `every_published_schema_stands_on_its_own` called `dereferenced_schema`
+    /// directly and passed while `/v1/schemas/VerifyResp` returned 404: the
+    /// route was registered with axum 0.8 `{name}` syntax in an axum 0.7
+    /// router, which makes it a literal path segment. A fixture proves the
+    /// function; only the route proves the feature, and the URL is the whole
+    /// deliverable here -- it is what a peer puts in their own tool
+    /// definition.
+    #[tokio::test]
+    async fn the_schema_route_serves_the_url_the_index_advertises() {
+        use tower::ServiceExt;
+        let app = Router::new()
+            .route("/v1/schemas", get(schemas_index))
+            .route("/v1/schemas/:name", get(schema_by_name));
+
+        let got = |uri: &'static str| {
+            let app = app.clone();
+            async move {
+                app.oneshot(
+                    axum::extract::Request::builder()
+                        .uri(uri)
+                        .body(axum::body::Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+            }
+        };
+
+        let resp = got("/v1/schemas/VerifyResp").await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "the URL the index advertises does not resolve"
+        );
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let doc: JsonValue = serde_json::from_slice(&body).expect("JSON");
+        assert!(
+            doc["$id"].as_str().unwrap_or("").ends_with("/VerifyResp"),
+            "served document is not the one asked for: {}",
+            doc["$id"]
+        );
+        assert!(doc["$defs"]["Receipt"].is_object());
+
+        // A name nobody published answers 404 and points at the index.
+        let missing = got("/v1/schemas/NoSuchSchemaHere").await;
+        assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+
+        // And the index still answers on its own path.
+        assert_eq!(got("/v1/schemas").await.status(), StatusCode::OK);
     }
 
     /// A schema we publish for peers to declare must actually stand alone.
