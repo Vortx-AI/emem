@@ -19585,6 +19585,20 @@ fn manifest_golden_vector_hex() -> String {
 /// spec, then a published vector, then a route. A fetchable record under an
 /// unspecified encoding turns "I cannot check this" into "I checked it and it
 /// failed".
+/// What every `emem:state:` this pipeline emits declares it does NOT cover.
+///
+/// A constant with two readers, and it had two spellings. The published golden
+/// vector said "the facts themselves, which are cited in derived_from" while
+/// the pipeline signed "... and verified against their own fact_cids", and the
+/// string is inside the canonical bytes the address is taken over. The vector
+/// self-checked -- it recomputed its own address correctly -- so nothing
+/// failed; it just taught a reader a constant that produces the WRONG cid for
+/// every real state. A worked example that disagrees with production turns
+/// "I cannot check this" into "I checked it and it failed", which is the
+/// outcome this whole sequence was ordered to avoid.
+const STATE_DOES_NOT_COVER: &str =
+    "the facts themselves, which are cited in derived_from and verified against their own fact_cids";
+
 fn state_golden_vector() -> JsonValue {
     use emem_fact::state::{Input, StateClass, StateRecord};
     let rec = StateRecord {
@@ -19605,7 +19619,7 @@ fn state_golden_vector() -> JsonValue {
         }))
         .unwrap_or(ciborium::value::Value::Null),
         class: StateClass::DeterministicIndex,
-        does_not_cover: vec!["the facts themselves, which are cited in derived_from".into()],
+        does_not_cover: vec![STATE_DOES_NOT_COVER.into()],
         responder_pubkey_b32: "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia".into(),
     };
     let cbor = rec.to_canonical_cbor();
@@ -19620,7 +19634,9 @@ fn state_golden_vector() -> JsonValue {
             "fn_key": "absent for every stage this pipeline emits",
             "class": "deterministic_index: no stage here consults a model",
             "responder_pubkey_b32": "the responder key in the envelope's receipt",
-            "note": "an absent field is absent from the bytes, never null: that is what makes fn_key's absence addressable rather than a convention.",
+            "schema": "the constant emem.state.v1, the same for every state this pipeline emits",
+            "does_not_cover": [STATE_DOES_NOT_COVER],
+            "note": "an absent field is absent from the bytes, never null: that is what makes fn_key's absence addressable rather than a convention. `schema` and `does_not_cover` are the only two fields you cannot read off an answer, so they are published here verbatim, as the same constants the pipeline signs rather than a copy of them.",
         },
         "record": rec,
         "canonical_cbor_hex": cbor.iter().map(|b| format!("{b:02x}")).collect::<String>(),
@@ -66363,9 +66379,7 @@ impl AskTrace {
                 // pipeline consults a model; a stage that did would carry
                 // ModelOutput and must not be mistaken for this.
                 class: StateClass::DeterministicIndex,
-                does_not_cover: vec![
-                    "the facts themselves, which are cited in derived_from and verified against their own fact_cids".into(),
-                ],
+                does_not_cover: vec![STATE_DOES_NOT_COVER.into()],
                 responder_pubkey_b32: responder_pubkey_b32.to_string(),
             };
             let token = rec.token();
@@ -66394,8 +66408,20 @@ impl AskTrace {
                 // vector, then the route — a fetchable record under an
                 // unspecified encoding turns "I cannot check this" into "I
                 // checked it and it failed", which is worse than silence.
+                // Two different claims, and collapsing them understated what
+                // a reader can do. RETRIEVAL is still not possible: no route
+                // returns the record, so `verifiable_today` stays false.
+                // RECOMPUTATION is: every field of the record is in this
+                // envelope except two constants, and /v1/verifier_spec now
+                // publishes both verbatim alongside a worked example, so a
+                // reader rebuilds the address from the answer in hand with no
+                // second call and nothing to trust. That is what the geo.qa
+                // session asked for, and it was already true here while this
+                // field said otherwise.
                 "verifiable_today": false,
-                "_why_not": "the bytes this address commits to are not retrievable: no route returns the state record yet, so it cannot be verified from this envelope and nothing here says it can. It is stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
+                "recomputable_from_this_answer": true,
+                "_how_to_recompute": "GET /v1/verifier_spec, read `state.golden_vector`: the recipe, the field order, which field of this envelope supplies each one, the two constants you cannot read off an answer, and a worked record with its canonical CBOR and resulting address. An edited stage loses its address.",
+                "_why_not_verifiable": "the bytes are not RETRIEVABLE: no route returns the state record yet, so you can check that this address is the one these published fields produce, but not fetch what this responder stored. It is stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
             }));
         }
         out
@@ -67969,7 +67995,7 @@ async fn ask_inner_traced(
                         .encode(&s.identity.pubkey.0)
                         .to_lowercase(),
                 ),
-                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. The same inputs give the same token, so a consumer holding one can tell a stage that did not change from one that did. The record behind a token is not retrievable yet, and each state's `verifiable_today` says so.",
+                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. The same inputs give the same token, so a consumer holding one can tell a stage that did not change from one that did. The record behind a token is not retrievable yet and `verifiable_today` says so, but the address is RECOMPUTABLE from this answer: every field is here except two constants, both published verbatim at /v1/verifier_spec with a worked example.",
             }),
         );
 
@@ -79207,6 +79233,53 @@ mod tests {
         );
         let short = openai_capped_text("small".into(), "https://e/x");
         assert_eq!(short, "small", "a record that fits is untouched");
+    }
+
+    /// The worked example must use the constants production actually signs.
+    ///
+    /// The vector self-checks: it rebuilds its own record and gets its own
+    /// address, so it passed while carrying a `does_not_cover` string the
+    /// pipeline does not use. That is a gate confirming internal consistency
+    /// and nothing else. A reader templating real states off it would have
+    /// computed a different cid for every one of them and concluded our
+    /// addresses were broken -- the exact failure the spec-then-vector-then-
+    /// route ordering was chosen to prevent.
+    #[test]
+    fn the_worked_example_signs_what_the_pipeline_signs() {
+        let v = state_golden_vector();
+        let published = v["record"]["does_not_cover"]
+            .as_array()
+            .expect("does_not_cover is an array");
+        assert_eq!(
+            published.len(),
+            1,
+            "the pipeline emits exactly one clause; the example carries {}",
+            published.len()
+        );
+        assert_eq!(
+            published[0].as_str(),
+            Some(STATE_DOES_NOT_COVER),
+            "the example's constant is not the one the pipeline signs, so its address \
+             is unreachable from a real state"
+        );
+        // And the recipe hands a reader both fields they cannot read off an
+        // answer, from that same constant rather than a retyped copy.
+        assert_eq!(
+            v["from_an_answer"]["does_not_cover"][0].as_str(),
+            Some(STATE_DOES_NOT_COVER)
+        );
+        assert!(
+            v["from_an_answer"]["schema"]
+                .as_str()
+                .map(|s| s.contains("emem.state.v1"))
+                .unwrap_or(false),
+            "the recipe does not name the schema constant"
+        );
+        // Still self-consistent, which was never the part in doubt.
+        assert_eq!(
+            v["self_check"]["recomputed"].as_str(),
+            v["state_cid"].as_str()
+        );
     }
 
     /// A schema we publish for peers to declare must actually stand alone.
