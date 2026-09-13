@@ -133,3 +133,96 @@ points are readings at addresses. Absence ships as data beside presence, so a
 consumer can see coverage rather than infer it. And a stage address is stable
 for the same inputs and moves when the facts under it move, which is the
 property that makes skipping safe.
+
+## 6. What the first cut missed, measured against itself
+
+`emem.reasoning_splat.v1` shipped the evidence as primitives, and then the same
+instrument that justified it showed it is not yet worth the name.
+
+**It is geometrically degenerate.** A band observation carries no cell of its
+own: measured on a live answer, 31 observations, `distinct cell fields: {None}`.
+Every point therefore inherits the answer's single coordinate, so a splat of 31
+points draws 31 coincident dots. A picture with no spatial extent is a list with
+extra steps.
+
+**It drops fields the evidence already carries.** Of 31 observations: `tslot`
+31/31, `confidence` 31/31 (0.85, 0.80, 0.75 on the first three),
+`derivation_fn_key` 31/31. Confidence is the attribute a model weighs most
+directly, and the first cut left it on the floor.
+
+**It cannot be normalised.** Bands declare `value_range` in the registry. Without
+it a consumer cannot colour-map or compare two bands, and we do not send it.
+
+**Its truncation is arbitrary.** The cap keeps the first 48 in recall order, not
+the 48 that carry the most information. The count is honest; the selection is
+not considered.
+
+**It is not a stream.** `Accept: text/event-stream` emits stages as they
+complete. Points ground during `recalled` and could be emitted as they land; the
+splat exists only in the final envelope.
+
+## 7. The neighbourhood is already there, and it is nearly free
+
+`/v1/locate` returns nine neighbourhood cells. Sampled neighbours already hold
+signed facts: `indices.ndvi` and `weather.temperature_2m` came back from three
+of them with no materialisation.
+
+Measured cost of reading them:
+
+| read | cells x bands | time | result |
+| --- | --- | --- | --- |
+| `recall_many`, materialising | 9 x 4 | 14.19 s | 0 usable, fetched what was missing |
+| parallel recall, already-stored bands only | 9 x 2 | **0.02 s** | 40 points at 9 positions |
+
+Twenty milliseconds against an ask that already takes about four seconds. The
+difference between the two rows is the whole design rule: **read what is stored,
+never fetch to fill a picture.** A splat that triggers materialisation turns a
+question into a bill.
+
+Server-side the non-materialising path is `lookup_canonical_many` for the
+(cell, band) keys followed by `get_facts_many` on the cids that came back. Keys
+with nothing stored return nothing, which is the honest shape: absence is
+already how this protocol says "looked, not there".
+
+`/v1/coverage_matrix` is not the instrument for this. It answers which bands
+exist as a catalogue, 50,332 bytes over nine cells, and carries no values.
+
+## 8. v2, and what it is worth
+
+    { "schema": "emem.reasoning_splat.v2",
+      "frame": { "centre": [51.5084, -0.1284], "cells": 9, "tslot": 496497 },
+      "points": [ { "c": 0,            // index into `cells`, not a repeated cell64
+                    "band": "weather.temperature_2m",
+                    "value": 16.2, "unit": "degC",
+                    "conf": 0.85,      // what the responder thinks of its own reading
+                    "tslot": 496497,   // when the measurement refers to
+                    "age_s": 1924904,  // how stale it is at answer time
+                    "class": "direct_sensor",
+                    "f": 7 } ],        // index into this envelope's fact_cids
+      "cells": ["defi.zb64a.cAzU.zfa27", "..."],
+      "absent": [ { "c": 3, "band": "hansen.loss_year" } ],
+      "ranges": { "weather.temperature_2m": [-60, 60] } }
+
+Both indices exist for the same reason: a cell64 is 21 characters and a cid is
+52, and neither should be repeated once per point when the envelope can carry
+each one once and point at it.
+
+What that buys a model, in one call and inside the existing budget: a field it
+can plot rather than a list it must join; a time axis (`tslot`) separate from
+staleness (`age_s`); a weight (`conf`) it can reason with; a normalisation
+(`ranges`) so two bands are comparable; and a citation per point that resolves
+to signed bytes.
+
+Build order, revised by what the measurements say:
+
+1. **Neighbourhood read, non-materialising**, bounded by a deadline, inside the
+   `recalled` stage. If the read misses its deadline the splat still ships with
+   the centre cell, because a late picture is worse than a smaller one.
+2. **v2 shape**: `conf`, `tslot`, cell indices, `ranges` for the bands present.
+3. **Importance-ordered truncation**: question-matched bands first
+   (`topic_matched` is already on every observation), then one per family, then
+   the rest. The cap stays; what survives it stops being an accident.
+4. **Stream the points.** They ground during `recalled`; emitting them as they
+   land is what makes this a reasoning *stream* rather than a reasoning summary.
+5. **`GET /v1/state/<cid>`** and MCP `structuredContent`/`resource_link`, as in
+   section 4, unchanged.
