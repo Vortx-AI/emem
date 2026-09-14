@@ -360,10 +360,24 @@ fn spawn_tree_backfill(r: Arc<RedbFacts>, tree: sled::Tree, t: crate::redb_facts
                 .unwrap_or(100)
                 .clamp(0, 60_000),
         );
+        // Pace by measured cost, not by a constant. A 2000-row batch against a
+        // saturated disk took seconds and the 100 ms pause after it made this
+        // task a ~97% IO duty cycle: on 2026-09-14 that held sled's fsync
+        // behind it (writers saw "flush has not completed in 20s"), tripped
+        // the watchdog's warm-read probe twice, and each restart re-read a
+        // 41 GB sled file cold, 21 minutes a time. pause >= elapsed*(1-d)/d
+        // bounds this task's share of the disk at d.
+        let duty: f64 = std::env::var("EMEM_HOT_BACKFILL_DUTY")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(0.25_f64)
+            .clamp(0.05, 1.0);
         let mut cursor = r.table_cursor(t).ok().flatten();
-        let (mut copied, mut skipped) = (0u64, 0u64);
-        tracing::info!(target: "emem::backfill", table = ?t, resumed = cursor.is_some(), "tree backfill start");
+        let (mut copied, mut skipped, mut batches) = (0u64, 0u64, 0u64);
+        let t0 = std::time::Instant::now();
+        tracing::info!(target: "emem::backfill", table = ?t, resumed = cursor.is_some(), duty, "tree backfill start");
         loop {
+            let t_batch = std::time::Instant::now();
             let r2 = r.clone();
             let tree2 = tree.clone();
             let c2 = cursor.clone();
@@ -404,13 +418,27 @@ fn spawn_tree_backfill(r: Arc<RedbFacts>, tree: sled::Tree, t: crate::redb_facts
                 Ok((c, sk, last)) => {
                     copied += c;
                     skipped += sk;
+                    batches += 1;
+                    // redb cannot reuse a page freed since its last durable
+                    // commit (a crash must land on that commit), so a run of
+                    // Durability::None batches only allocates: the file went
+                    // 25 -> 43 GB in ten minutes on 2026-09-14. One durable
+                    // commit every 20 batches bounds that to 20 batches' worth.
+                    if batches % 20 == 0 {
+                        if let Err(e) = r.sync() {
+                            tracing::warn!(target: "emem::backfill", table = ?t, error = %e, "durable checkpoint");
+                        }
+                    }
+                    if batches % 200 == 0 {
+                        tracing::info!(target: "emem::backfill", table = ?t, copied, skipped, batches, secs = t0.elapsed().as_secs(), redb_bytes = r.size_on_disk(), "tree backfill progress");
+                    }
                     match last {
                         Some(l) => cursor = Some(l),
                         None => {
                             if let Err(e) = r.mark_table_backfill_done(t) {
                                 tracing::warn!(target: "emem::backfill", error = %e, "mark done");
                             }
-                            tracing::info!(target: "emem::backfill", table = ?t, copied, skipped, "tree backfill done");
+                            tracing::info!(target: "emem::backfill", table = ?t, copied, skipped, batches, secs = t0.elapsed().as_secs(), "tree backfill done");
                             return;
                         }
                     }
@@ -419,9 +447,21 @@ fn spawn_tree_backfill(r: Arc<RedbFacts>, tree: sled::Tree, t: crate::redb_facts
                     tracing::warn!(target: "emem::backfill", table = ?t, error = %e, "tree backfill step failed; retrying after pause");
                 }
             }
-            tokio::time::sleep(pause).await;
+            tokio::time::sleep(paced_pause(t_batch.elapsed(), duty, pause)).await;
         }
     });
+}
+
+/// The pause that keeps a task which just ran for `elapsed` at or under
+/// `duty` of wall time, never shorter than `floor`: duty = e / (e + p), so
+/// p = e * (1 - duty) / duty. duty 1.0 is "no pacing", the floor alone.
+fn paced_pause(
+    elapsed: std::time::Duration,
+    duty: f64,
+    floor: std::time::Duration,
+) -> std::time::Duration {
+    let duty = duty.clamp(0.05, 1.0);
+    floor.max(elapsed.mul_f64((1.0 - duty) / duty))
 }
 
 fn spawn_backfill(r: Arc<RedbFacts>, idx: sled::Tree, facts: sled::Tree) {
@@ -997,6 +1037,20 @@ impl Cache for SledHotCache {
 mod tests {
     /// A sled tree moves into a redb table once, resumably, without touching
     /// rows that already landed in redb.
+    #[test]
+    fn the_pause_holds_the_duty_cycle() {
+        use std::time::Duration;
+        let ms = Duration::from_millis;
+        // a 1 s batch at a quarter duty rests 3 s: 1 / (1 + 3) = 0.25
+        assert_eq!(super::paced_pause(ms(1000), 0.25, ms(100)), ms(3000));
+        // the floor wins when the batch was cheap
+        assert_eq!(super::paced_pause(ms(10), 0.25, ms(100)), ms(100));
+        // duty 1.0 is no pacing at all
+        assert_eq!(super::paced_pause(ms(1000), 1.0, ms(100)), ms(100));
+        // a duty below the clamp behaves as the clamp (5%: 19x the batch)
+        assert_eq!(super::paced_pause(ms(100), 0.0, ms(0)), ms(1900));
+    }
+
     #[tokio::test]
     async fn a_tree_backfill_copies_everything_once_and_keeps_newer_redb_rows() {
         use crate::redb_facts::{KvTable, RedbFacts};
