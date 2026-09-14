@@ -110,6 +110,17 @@ snapshot_wedge() {
 fails=$(cat "$STATE" 2>/dev/null || echo 0)
 case "$fails" in ''|*[!0-9]*) fails=0 ;; esac
 
+# The maintenance sentinel has to be honoured before EITHER signal is read.
+# On 2026-09-14 18:35 it sat only on the /live-miss path, so a slow warm read
+# during a paced store migration counted as a wedge three times and restarted a
+# responder the operator had deliberately left alone; the boot cost 21 minutes.
+if [ -e /run/emem/maintenance ] || [ -e /home/ubuntu/emem/var/emem/.maintenance ]; then
+  echo "emem-watchdog: maintenance sentinel present; probing nothing and restarting nothing"
+  echo 0 >"$STATE"
+  echo 0 >"${XDG_RUNTIME_DIR:-/tmp}/emem_watchdog_storage_fails"
+  exit 0
+fi
+
 if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
   # The runtime is serving. Reset, then note whether the expensive probe is
   # struggling: that is a load signal worth having, not a reason to kill.
