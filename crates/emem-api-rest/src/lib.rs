@@ -23362,27 +23362,49 @@ async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, Str
             "url": format!("{origin}/v1/facts/{cid}"),
         }));
     }
-    // The cap, said out loud, and followable.
+    // The cap, said out loud, and FIRST.
+    //
+    // It was appended last, which is the one position a cap can remove: the
+    // wire budget trimmed the list to its first 14 entries and took the entry
+    // naming the true total with it, so a capped answer stopped saying it was
+    // capped. Anything that reports a truncation has to survive it.
     if !cell64.is_empty() {
-        results.push(json!({
-            "id": format!("emem:cell:{cell64}"),
-            "title": format!("all {total} signed facts at {label} ({} listed above)", results.len()),
-            "url": format!("{origin}/v1/cells/{cell64}"),
-        }));
+        results.insert(
+            0,
+            json!({
+                "id": format!("emem:cell:{cell64}"),
+                "title": format!("all {total} signed facts at {label} ({} listed here)", results.len()),
+                "url": format!("{origin}/v1/cells/{cell64}"),
+            }),
+        );
     }
     Ok(json!({ "results": results }))
 }
 
-/// The reading as it was SIGNED, never re-rendered from a JSON number.
+/// The reading as it was SIGNED, never re-rendered from a JSON number, and
+/// never dumped whole when it is not a scalar.
+///
+/// A `search` result's `title` is what a person sees beside a citation, and a
+/// foundation-encoder band is a 128- or 384-element vector. Serialised into a
+/// title it produced `geotessera.bin128 at Trafalgar Square: [43,224,200,252,
+/// 58,46,...]` for a thousand characters -- unreadable as a title, and it
+/// crowded the cap so the entry naming the true total fell off the end. A
+/// vector is summarised by its shape; the vector itself is one `fetch` away,
+/// which is what the id is for.
 fn openai_reading_of(f: &JsonValue) -> String {
     if let Some(verbatim) = f.get("value_verbatim").and_then(|x| x.as_str()) {
-        return verbatim.to_string();
+        return clip_title(verbatim, OPENAI_READING_MAX);
     }
     match f.get("value") {
         None | Some(JsonValue::Null) => "no value (an absence is a reading too)".to_string(),
-        Some(other) => other.to_string(),
+        Some(JsonValue::Array(v)) => format!("{}-d vector", v.len()),
+        Some(JsonValue::Object(o)) => format!("{} field(s)", o.len()),
+        Some(other) => clip_title(&other.to_string(), OPENAI_READING_MAX),
     }
 }
+
+/// How much of a reading belongs in a one-line title.
+const OPENAI_READING_MAX: usize = 64;
 
 /// `fetch`, in the shape OpenAI's connectors read.
 async fn openai_fetch(s: &AppState, id: &str) -> Result<JsonValue, (i64, String)> {
@@ -79819,6 +79841,35 @@ mod tests {
             !value_is_shortenable_text("text", &json!("short prose")),
             "a short value is never worth cutting"
         );
+    }
+
+    /// A citation title stays a title, and a capped list still says the total.
+    ///
+    /// Measured on the live connector surface: a `geotessera.bin128` fact
+    /// serialised its 128-element vector into the title, producing about a
+    /// thousand characters of `[43,224,200,252,...]` where a person expects a
+    /// label -- and the bytes it ate pushed the entry naming the true total
+    /// off the end of the capped list, so a truncated answer stopped saying it
+    /// was truncated. Anything that reports a truncation must survive it.
+    #[test]
+    fn a_search_title_is_a_title_and_the_total_survives_the_cap() {
+        assert_eq!(
+            openai_reading_of(&json!({"value": vec![0.5_f64; 128]})),
+            "128-d vector",
+            "a vector belongs in fetch, not in a title"
+        );
+        assert_eq!(
+            openai_reading_of(&json!({"value": 0.17, "value_verbatim": "0.170"})),
+            "0.170",
+            "a scalar is still quoted as signed"
+        );
+        let long = openai_reading_of(&json!({"value_verbatim": "9".repeat(500)}));
+        assert!(
+            long.len() <= OPENAI_READING_MAX + 8,
+            "a {}-char reading reached a title",
+            long.len()
+        );
+        assert!(openai_reading_of(&json!({"value": JsonValue::Null})).contains("no value"));
     }
 
     /// The published schema has to be reachable at the URL we publish.

@@ -7,10 +7,36 @@
 //! because several small, live trees remain in it — attesters, fact proofs,
 //! the multi-attester index, the trace gate's five trees, agent stats.
 //!
-//! Opening it costs the whole cold start. Measured on emem.dev, twice:
-//! `storage_open` 1,330,076 ms and 1,320,000 ms, against a `cache.sled/db`
-//! file of 43.7 GB. That is ~22 minutes of downtime on every deploy, and it
-//! grows with the file. The 41 GB is almost entirely the two dead trees.
+//! Opening it costs the whole cold start: `storage_open` measured at
+//! 1,330,076 ms, 1,320,000 ms and 1,273,596 ms on three boots against a
+//! `cache.sled/db` of 43.7 GB. About 21 minutes of downtime per deploy.
+//!
+//! WHAT THIS TOOL DOES NOT FIX, measured by running it on 2026-09-14.
+//!
+//! The premise was that the 41 GB is mostly the two dead trees. It is not.
+//! The inventory:
+//!
+//!   emem.fact_proofs         19,976,065 rows
+//!   emem.multi_attester_index 2,391,244 rows
+//!   everything else            ~281,000 rows across 28 trees
+//!
+//! Those first two are LIVE. The slimmed store came out at 40 GB against the
+//! original's 41 -- about a gigabyte, because sled's heap grows with writes
+//! and the copy rewrites every row it keeps. Not worth the swap, and it was
+//! rolled back.
+//!
+//! The cold start is not sled recovery either. Immediately after this tool
+//! read the whole file, the server opened the SAME 41 GB store in 28,259 ms.
+//! The 21 minutes is page-cache faulting at roughly 33 MB/s of effective
+//! random access; the volume does 135 MB/s sequential. A plain sequential
+//! pre-read does not fix it -- `dd` of the whole file took 5m27s and left
+//! buff/cache LOWER than it found it, because Linux drops behind on streaming
+//! reads.
+//!
+//! So the real lever is the one redb already pulled for facts: move
+//! `emem.fact_proofs` out of sled. ~20M rows is the store. This tool stays
+//! because the inventory it prints is how that was learned, and because the
+//! two dead trees should still go whenever fact_proofs moves.
 //!
 //! What this does NOT do: it never deletes anything. It copies the trees that
 //! are still live into a NEW store beside the old one and leaves the original
