@@ -94,12 +94,22 @@ fn rb<E: std::fmt::Display>(e: E) -> CacheError {
 }
 
 pub struct RedbFacts {
-    db: Database,
+    /// `None` after `close()`. redb writes its "shut down cleanly" header in
+    /// `Database::drop`, and this process ends in `std::process::exit`, which
+    /// skips destructors: every boot since the redb cutover therefore opened a
+    /// database still marked `recovery_required` and paid a full
+    /// `rebuild_allocator_state` walk of the file. Holding the handle in an
+    /// Option is what lets the shutdown path actually drop it.
+    db: std::sync::RwLock<Option<Database>>,
     path: PathBuf,
     /// Set once the sled trees have been copied in full; after that no read
     /// consults sled.
     pub(crate) backfill_done: AtomicBool,
     pub(crate) backfilled: AtomicU64,
+    /// Set when redb told us, through the repair callback, that it had to
+    /// rebuild the allocator state. That happens only when the previous
+    /// process did not drop the `Database`.
+    repaired: AtomicBool,
 }
 
 impl RedbFacts {
@@ -123,9 +133,26 @@ impl RedbFacts {
     /// meta read are separately reported.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, CacheError> {
         let path = path.as_ref().to_path_buf();
+        let repaired = std::sync::Arc::new(AtomicBool::new(false));
         let t0 = std::time::Instant::now();
+        // A repair says so, with progress. Before this, a boot that was
+        // rebuilding the allocator state looked identical to a hang: no line
+        // between "opening persistent storage" and the store being ready,
+        // tens of minutes apart, which is how the cost got blamed on page-cache
+        // faulting for weeks.
         let db = Database::builder()
             .set_cache_size(Self::cache_bytes())
+            .set_repair_callback({
+                let seen = repaired.clone();
+                move |s| {
+                    seen.store(true, Ordering::Relaxed);
+                    tracing::warn!(
+                        target: "emem::boot",
+                        progress = s.progress(),
+                        "redb was NOT closed cleanly; rebuilding the allocator state (this walks the file)"
+                    );
+                }
+            })
             .create(&path)
             .map_err(rb)?;
         let create_ms = t0.elapsed().as_millis();
@@ -158,11 +185,64 @@ impl RedbFacts {
             "redb open"
         );
         Ok(Self {
-            db,
+            db: std::sync::RwLock::new(Some(db)),
             path,
             backfill_done: AtomicBool::new(done),
             backfilled: AtomicU64::new(0),
+            repaired: AtomicBool::new(repaired.load(Ordering::Relaxed)),
         })
+    }
+
+    /// A read transaction, or the error a closed store owes its caller.
+    fn begin_read(&self) -> Result<redb::ReadTransaction, CacheError> {
+        let g = self.db.read().map_err(|_| Self::poisoned())?;
+        let db = g.as_ref().ok_or_else(Self::closed)?;
+        db.begin_read().map_err(rb)
+    }
+
+    /// A write transaction. Transactions hold their own `Arc`s and do not
+    /// borrow the `Database`, so the guard is released as this returns.
+    fn begin_write(&self) -> Result<redb::WriteTransaction, CacheError> {
+        let g = self.db.read().map_err(|_| Self::poisoned())?;
+        let db = g.as_ref().ok_or_else(Self::closed)?;
+        db.begin_write().map_err(rb)
+    }
+
+    fn closed() -> CacheError {
+        CacheError::Backend("the redb store is closed; the process is shutting down".into())
+    }
+
+    fn poisoned() -> CacheError {
+        CacheError::Backend("the redb store lock is poisoned".into())
+    }
+
+    /// Drop the database so redb writes its clean-shutdown header.
+    ///
+    /// Without this the next open finds `recovery_required` set and rebuilds
+    /// the allocator state by walking the file: 29 s for a 43.8 GB sled store
+    /// against tens of minutes for redb, measured on the 2026-09-14 boots.
+    /// Idempotent, and safe to call while other handles still exist: they will
+    /// get `closed()` rather than a panic.
+    pub fn close(&self) {
+        let taken = match self.db.write() {
+            Ok(mut g) => g.take(),
+            Err(e) => e.into_inner().take(),
+        };
+        if taken.is_some() {
+            let t = std::time::Instant::now();
+            drop(taken);
+            tracing::info!(
+                target: "emem::boot",
+                elapsed_ms = t.elapsed().as_millis(),
+                "redb closed cleanly; the next open skips the repair walk"
+            );
+        }
+    }
+
+    /// True when this open had to rebuild the allocator state, meaning the
+    /// previous process left the database dirty.
+    pub fn repaired(&self) -> bool {
+        self.repaired.load(Ordering::Relaxed)
     }
 
     pub fn path(&self) -> &Path {
@@ -177,7 +257,7 @@ impl RedbFacts {
     /// makes the commit an fsync; the backfill batches without it and
     /// closes with one durable commit.
     pub fn put_batch(&self, items: &[FactRow], durable: bool) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(if durable {
             Durability::Immediate
         } else {
@@ -201,7 +281,7 @@ impl RedbFacts {
     /// An fsync with nothing new in it: closes a run of non-durable batches.
     // ── byte-to-byte tables ─────────────────────────────────────────────
     pub fn kv_get(&self, t: KvTable, key: &[u8]) -> Result<Option<Vec<u8>>, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let tb = r.open_table(t.def()).map_err(rb)?;
         Ok(tb.get(key).map_err(rb)?.map(|v| v.value().to_vec()))
     }
@@ -215,7 +295,7 @@ impl RedbFacts {
         if items.is_empty() {
             return Ok(());
         }
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(if durable {
             Durability::Immediate
         } else {
@@ -239,7 +319,7 @@ impl RedbFacts {
         prefix: &[u8],
         limit: usize,
     ) -> Result<KvRows, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let tb = r.open_table(t.def()).map_err(rb)?;
         let mut out = Vec::new();
         for item in tb.range(prefix..).map_err(rb)? {
@@ -253,12 +333,12 @@ impl RedbFacts {
     }
 
     pub fn kv_len(&self, t: KvTable) -> Result<u64, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         r.open_table(t.def()).map_err(rb)?.len().map_err(rb)
     }
 
     pub fn table_backfill_done(&self, t: KvTable) -> bool {
-        let Ok(r) = self.db.begin_read() else {
+        let Ok(r) = self.begin_read() else {
             return false;
         };
         let Ok(m) = r.open_table(META) else {
@@ -268,7 +348,7 @@ impl RedbFacts {
     }
 
     pub fn mark_table_backfill_done(&self, t: KvTable) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(Durability::Immediate).map_err(rb)?;
         {
             let mut m = w.open_table(META).map_err(rb)?;
@@ -280,7 +360,7 @@ impl RedbFacts {
     }
 
     pub fn table_cursor(&self, t: KvTable) -> Result<Option<Vec<u8>>, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let m = r.open_table(META).map_err(rb)?;
         Ok(m.get(t.meta_cursor().as_str())
             .map_err(rb)?
@@ -288,7 +368,7 @@ impl RedbFacts {
     }
 
     pub fn set_table_cursor(&self, t: KvTable, cursor: &[u8]) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(Durability::None).map_err(rb)?;
         {
             let mut m = w.open_table(META).map_err(rb)?;
@@ -299,32 +379,32 @@ impl RedbFacts {
     }
 
     pub fn sync(&self) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(Durability::Immediate).map_err(rb)?;
         w.commit().map_err(rb)?;
         Ok(())
     }
 
     pub fn get_fact(&self, cid: &[u8]) -> Result<Option<Vec<u8>>, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(FACTS).map_err(rb)?;
         Ok(t.get(cid).map_err(rb)?.map(|g| g.value().to_vec()))
     }
 
     pub fn contains_fact(&self, cid: &[u8]) -> Result<bool, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(FACTS).map_err(rb)?;
         Ok(t.get(cid).map_err(rb)?.is_some())
     }
 
     pub fn lookup(&self, key: &[u8]) -> Result<Option<Vec<u8>>, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
         Ok(t.get(key).map_err(rb)?.map(|g| g.value().to_vec()))
     }
 
     pub fn contains_index(&self, key: &[u8]) -> Result<bool, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
         Ok(t.get(key).map_err(rb)?.is_some())
     }
@@ -337,7 +417,7 @@ impl RedbFacts {
         prefix: &[u8],
         limit: usize,
     ) -> Result<(IndexRows, usize), CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
         let mut out = Vec::new();
         let mut seen = 0usize;
@@ -358,7 +438,7 @@ impl RedbFacts {
 
     /// One page of the index in key order, strictly after `after`.
     pub fn index_page(&self, after: Option<&[u8]>, max: usize) -> Result<IndexRows, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
         let mut out = Vec::with_capacity(max.min(4096));
         let iter = match after {
@@ -381,7 +461,7 @@ impl RedbFacts {
     }
 
     pub fn index_len(&self) -> Result<u64, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;
         t.len().map_err(rb)
     }
@@ -391,13 +471,13 @@ impl RedbFacts {
     }
 
     pub fn backfill_cursor(&self) -> Result<Option<Vec<u8>>, CacheError> {
-        let r = self.db.begin_read().map_err(rb)?;
+        let r = self.begin_read()?;
         let m = r.open_table(META).map_err(rb)?;
         Ok(m.get(META_CURSOR).map_err(rb)?.map(|g| g.value().to_vec()))
     }
 
     pub fn set_backfill_cursor(&self, cursor: &[u8], durable: bool) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(if durable {
             Durability::Immediate
         } else {
@@ -413,7 +493,7 @@ impl RedbFacts {
     }
 
     pub fn mark_backfill_done(&self) -> Result<(), CacheError> {
-        let mut w = self.db.begin_write().map_err(rb)?;
+        let mut w = self.begin_write()?;
         w.set_durability(Durability::Immediate).map_err(rb)?;
         {
             let mut m = w.open_table(META).map_err(rb)?;
@@ -422,5 +502,53 @@ impl RedbFacts {
         w.commit().map_err(rb)?;
         self.backfill_done.store(true, Ordering::Release);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    /// A store that was closed reopens without a repair, and a closed handle
+    /// refuses rather than panics.
+    ///
+    /// Only the clean arm runs in-process. The dirty arm is what
+    /// `std::process::exit` does, and simulating it with `std::mem::forget`
+    /// would keep redb's file lock held, so the reopen inside the same test
+    /// could not happen at all. The dirty behaviour is the one measured in
+    /// production on 2026-09-14 and the reason this exists.
+    #[test]
+    fn a_closed_store_reopens_without_a_repair() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("facts.redb");
+
+        let r = RedbFacts::open(&path).unwrap();
+        // The control. A brand-new file goes through the same rebuild path,
+        // so this is `true`, and that is what makes the flag observable here at
+        // all: a test where both arms read `false` would prove nothing.
+        assert!(r.repaired(), "a fresh create is initialised through repair");
+        r.kv_put_batch(KvTable::Proofs, &[(b"k".to_vec(), b"v".to_vec())], true)
+            .unwrap();
+        r.close();
+
+        // Every operation after close reports it; nothing unwraps a None.
+        let err = r.kv_get(KvTable::Proofs, b"k").unwrap_err().to_string();
+        assert!(err.contains("closed"), "{err}");
+        r.close(); // idempotent
+
+        let again = RedbFacts::open(&path).unwrap();
+        // The property under test: after an explicit close, the reopen does
+        // NOT rebuild the allocator state. In production that walk is the whole
+        // boot, tens of minutes on a 53.7 GB file.
+        assert!(
+            !again.repaired(),
+            "a cleanly closed database must not rebuild its allocator state"
+        );
+        assert_eq!(
+            again.kv_get(KvTable::Proofs, b"k").unwrap().as_deref(),
+            Some(&b"v"[..]),
+            "the row written before the close survived it"
+        );
+        again.close();
     }
 }

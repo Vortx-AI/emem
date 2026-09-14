@@ -488,13 +488,21 @@ fn shutdown_grace() -> std::time::Duration {
     std::time::Duration::from_secs(s)
 }
 
-/// Flush the sled index, then leave.
+/// Flush the sled index, close redb, then leave.
 ///
 /// `std::process::exit` skips destructors, so sled's own drop-time flush never
 /// runs and anything still only in its in-memory log would be lost. This
 /// flushes explicitly first, under its own timeout so a wedged flush cannot
 /// reintroduce the hang this whole path exists to remove. sled fsyncs the
 /// whole `Db`, so one call covers every tree.
+///
+/// redb needs the same treatment and did not get it when it was added. It
+/// writes its "shut down cleanly" header in `Database::drop`, which this
+/// function skips, so EVERY boot since the redb cutover opened a database
+/// still marked `recovery_required` and rebuilt the allocator state by walking
+/// the file. Measured 2026-09-14: sled opened in 29,357 ms on 43.8 GB while
+/// the redb open ran for tens of minutes on 53.7 GB, and the whole cost had
+/// been attributed to sled page-faulting.
 ///
 /// Exiting explicitly rather than returning from `main` is deliberate: the
 /// runtime's drop waits for blocking-pool tasks to finish, and this process
@@ -512,6 +520,9 @@ async fn flush_and_exit(server: &Arc<Server>) -> ! {
             Ok(Err(e)) => tracing::error!(error = %e, "sled flush failed"),
             Err(_) => tracing::error!("sled flush did not finish in 10s; exiting anyway"),
         }
+    }
+    if let Some(r) = server.storage.redb() {
+        r.close();
     }
     eprintln!("emem: shutdown complete in {} ms", t0.elapsed().as_millis());
     std::process::exit(0);
