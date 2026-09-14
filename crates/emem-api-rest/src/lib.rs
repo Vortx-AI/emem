@@ -1527,6 +1527,7 @@ pub fn router(state: AppState) -> Router {
         .route("/log/entry/:leaf", get(hosted_no_verdict_log))
         .route("/modules", get(hosted_no_modules))
         .route("/v1/facts/:cid", get(get_fact))
+        .route("/v1/state/:cid", get(get_state_record))
         .route("/v1/fetch", post(post_fetch))
         .route("/v1/demos", get(list_demos))
         .route("/v1/demos/:run", get(get_demo_index))
@@ -21641,6 +21642,87 @@ fn looks_like_cid(s: &str) -> bool {
         .all(|b: u8| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b))
 }
 
+/// `GET /v1/state/<cid>`: the record an `emem:state:` address commits to.
+///
+/// The address was minted on every answer while nothing served the record,
+/// and the envelope said so (`verifiable_today: false`). A peer set the order
+/// to fix that: publish the canonicalisation, then a worked vector, then this
+/// route, because a fetchable record under an unspecified encoding turns "I
+/// cannot check this" into "I checked it and it failed". The first two shipped
+/// earlier; this is the third. The response carries the record as JSON, its
+/// canonical CBOR, and the address recomputed from those bytes beside the one
+/// asked for, so a reader sees the check rather than trusting that it ran.
+async fn get_state_record(
+    State(s): State<AppState>,
+    Path(cid): Path<String>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let cid = cid.trim().trim_start_matches("emem:state:").to_string();
+    if !looks_like_cid(&cid) {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: format!("`{cid}` is not a state cid (base32-nopad-lowercase). Pass the cid, or the whole `emem:state:<cid>` token."),
+                details: None,
+            },
+        ));
+    }
+    let Some(store) = s.storage.redb() else {
+        return Err(ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: "this responder runs without a redb store, so state records are not retained; the address is still recomputable from the answer that carried it (GET /v1/verifier_spec).".into(),
+                details: None,
+            },
+        ));
+    };
+    let bytes = store
+        .kv_get(emem_cache::KvTable::States, cid.as_bytes())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: e.to_string(),
+                    details: None,
+                },
+            )
+        })?;
+    let Some(bytes) = bytes else {
+        return Err(ApiError(
+            StatusCode::NOT_FOUND,
+            ErrorBody {
+                code: ErrorCode::CidNotFound,
+                message: format!("no state record {cid} on this responder. States are retained from the answers this responder emitted after 2026-09-14; an older address is recomputable from its own answer but was never stored, and a state minted by another responder lives there."),
+                details: Some(json!({"schema": "emem.error.v1", "recompute": "/v1/verifier_spec", "cid": cid})),
+            },
+        ));
+    };
+    let record: emem_fact::state::StateRecord = ciborium::de::from_reader(bytes.as_slice())
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CanonicalEncodingDivergence,
+                    message: format!("stored state record does not decode: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let recomputed = record.cid().0.clone();
+    Ok(Json(json!({
+        "schema": "emem.state_record.v1",
+        "cid": cid,
+        "token": record.token(),
+        "record": record,
+        "canonical_cbor_hex": bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+        "recomputed_cid": recomputed,
+        "address_holds": recomputed == cid,
+        "_means": "the bytes this address commits to, as stored, plus the address recomputed from them. `address_holds` false would mean the store returned bytes that are not what the address names, and you should trust neither.",
+    })))
+}
+
 async fn get_fact(
     State(s): State<AppState>,
     Path(cid): Path<String>,
@@ -31289,6 +31371,7 @@ fn openapi_spec() -> JsonValue {
             // the duplicate. Keep the ETag/304-aware shape, expose both
             // operationIds via tags so the legacy clients still resolve.
             "/v1/facts/{cid}":       {"get":{"summary":"fact dereference by CID (immutable, ETag-tagged). Send `Accept: application/cbor` to get THE BYTES THE CID COMMITS TO, so you can check the binding yourself: base32-nopad-lowercase(blake3(body)) must equal the cid in the path. The JSON form cannot be used for this -- it cannot carry the CBOR type widths (confidence is an f32 written as float32, which a document widens to a double) and the receipt does not close the gap either, because a receipt signs a LIST OF CIDS and says nothing about the values printed beside them.","operationId":"emem_fetch","tags":["fetch","get_fact"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"}},{"name":"Accept","in":"header","required":false,"schema":{"type":"string","enum":["application/json","application/cbor"]},"description":"application/cbor returns the exact preimage of the cid"}],"responses":{"200":json_etag,"304":json_unchanged,"404":json_not_found}}},
+            "/v1/state/{cid}":      {"get":{"summary":"The record an emem:state: address commits to, as stored, with its canonical CBOR and the address recomputed from those bytes beside the one asked for. Third step of the order a peer set for reasoning states: canonicalisation (published), worked vector (published), then this route. 404 for an address this responder never stored; the answer that carried it remains recomputable via /v1/verifier_spec.","operationId":"emem_state_record","tags":["memory","verify"],"parameters":[{"name":"cid","in":"path","required":true,"schema":{"type":"string"},"description":"The state cid, or the whole emem:state:<cid> token."}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
@@ -66946,8 +67029,19 @@ impl AskTrace {
     /// Each state commits to the cids of the step before it and of the facts
     /// that step grounded — hashes, never bytes. An input cannot be swapped
     /// without this address moving, and the input travels once.
-    fn addressed_steps(&self, responder_pubkey_b32: &str) -> Vec<JsonValue> {
+    /// The same states, and when a store is present their records are written
+    /// under their own address so `GET /v1/state/<cid>` can return the bytes
+    /// the address commits to. That is the third step of the order a peer
+    /// argued for (spec, then vector, then route), and it is the step that
+    /// turns `verifiable_today` true. Content-addressed, so re-emitting an
+    /// unchanged stage writes the same row.
+    fn addressed_steps_persisting(
+        &self,
+        store: Option<std::sync::Arc<emem_cache::RedbFacts>>,
+        responder_pubkey_b32: &str,
+    ) -> Vec<JsonValue> {
         use emem_fact::state::{Input, StateClass, StateRecord};
+        let mut rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
         let mut out = Vec::new();
         let mut previous: Option<String> = None;
         for step in self.steps() {
@@ -67001,46 +67095,33 @@ impl AskTrace {
                 responder_pubkey_b32: responder_pubkey_b32.to_string(),
             };
             let token = rec.token();
-            previous = Some(rec.cid().0.clone());
+            let cid = rec.cid().0.clone();
+            if store.is_some() {
+                rows.push((cid.as_bytes().to_vec(), rec.to_canonical_cbor()));
+            }
+            previous = Some(cid.clone());
+            let retrievable = store.is_some();
             out.push(json!({
                 "state": token,
                 "stage": step.get("stage"),
                 "at_ms": step.get("at_ms"),
                 "computed_at": chrono_iso8601_utc(),
                 "derived_from": rec.derived_from,
-                // NOT `_recompute`, deliberately, and silent about a route
-                // that does not exist.
-                //
-                // That field told a reader to blake3 the canonical CBOR of the
-                // record "at GET /v1/state/<cid>" and closed with "this
-                // responder is not the authority on its own addresses" — the
-                // strongest claim in the document, resting on a 404. An
-                // instruction to do something impossible, framed as the trust
-                // model, on every state in every response.
-                //
-                // Minting an address nobody can verify yet is an incomplete
-                // feature. Saying it is verifiable is a false statement. Only
-                // the second was urgent, so the sentence goes now and the
-                // route arrives when it is real. Order, from the geo.qa
-                // frontend agent: canonicalisation spec, then a published test
-                // vector, then the route — a fetchable record under an
-                // unspecified encoding turns "I cannot check this" into "I
-                // checked it and it failed", which is worse than silence.
-                // Two different claims, and collapsing them understated what
-                // a reader can do. RETRIEVAL is still not possible: no route
-                // returns the record, so `verifiable_today` stays false.
-                // RECOMPUTATION is: every field of the record is in this
-                // envelope except two constants, and /v1/verifier_spec now
-                // publishes both verbatim alongside a worked example, so a
-                // reader rebuilds the address from the answer in hand with no
-                // second call and nothing to trust. That is what the geo.qa
-                // session asked for, and it was already true here while this
-                // field said otherwise.
-                "verifiable_today": false,
+                // Two claims, kept apart. RECOMPUTABLE has been true since the
+                // recipe was published; RETRIEVABLE is true once the record is
+                // stored under its address, which this responder does whenever
+                // it has a store to put it in.
+                "verifiable_today": retrievable,
+                "retrieve": if retrievable { json!(format!("/v1/state/{cid}")) } else { JsonValue::Null },
                 "recomputable_from_this_answer": true,
                 "_how_to_recompute": "GET /v1/verifier_spec, read `state.golden_vector`: the recipe, the field order, which field of this envelope supplies each one, the two constants you cannot read off an answer, and a worked record with its canonical CBOR and resulting address. An edited stage loses its address.",
-                "_why_not_verifiable": "the bytes are not RETRIEVABLE: no route returns the state record yet, so you can check that this address is the one these published fields produce, but not fetch what this responder stored. It is stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
+                "_stability": "stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
             }));
+        }
+        if let (Some(r), false) = (store.as_ref(), rows.is_empty()) {
+            if let Err(e) = r.kv_put_batch(emem_cache::KvTable::States, &rows, false) {
+                tracing::warn!(target: "emem::state", error = %e, "state records not persisted");
+            }
         }
         out
     }
@@ -68608,12 +68689,13 @@ async fn ask_inner_traced(
                 // token, so a consumer that holds it skips the bytes. This is
                 // the half that makes the trace REUSABLE rather than merely
                 // visible.
-                "states": trace.addressed_steps(
+                "states": trace.addressed_steps_persisting(
+                    s.storage.redb(),
                     &data_encoding::BASE32_NOPAD
                         .encode(&s.identity.pubkey.0)
                         .to_lowercase(),
                 ),
-                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. The same inputs give the same token, so a consumer holding one can tell a stage that did not change from one that did. The record behind a token is not retrievable yet and `verifiable_today` says so, but the address is RECOMPUTABLE from this answer: every field is here except two constants, both published verbatim at /v1/verifier_spec with a worked example.",
+                "_states_mean": "one emem:state: per stage, each committing to the cids of the stage before it and the facts it grounded. The same inputs give the same token, so a consumer holding one can tell a stage that did not change from one that did. Each state's `verifiable_today` says whether the record is RETRIEVABLE at `retrieve` (GET /v1/state/<cid> returns the canonical bytes the address commits to and recomputes it in front of you); it is RECOMPUTABLE from this answer either way: every field is here except two constants, both published verbatim at /v1/verifier_spec with a worked example.",
             }),
         );
 
@@ -80293,6 +80375,65 @@ mod tests {
             entity_alias_read(&legacy, "north dam"),
             vec!["e1".to_string()]
         );
+    }
+
+    /// A state address dereferences to the bytes it names, and says so.
+    #[tokio::test]
+    async fn a_state_record_is_stored_under_its_address_and_served_back() {
+        use tower::ServiceExt;
+        let s = test_app_state();
+        let store = s.storage.redb().expect("test storage has a redb store");
+        let rec = emem_fact::state::StateRecord {
+            schema: "emem.state.v1".into(),
+            kind: "recalled".into(),
+            derived_from: vec![],
+            fn_key: None,
+            payload: ciborium::value::Value::serialized(&json!({"facts": 1})).unwrap(),
+            class: emem_fact::state::StateClass::DeterministicIndex,
+            does_not_cover: vec![STATE_DOES_NOT_COVER.into()],
+            responder_pubkey_b32: "k".repeat(52),
+        };
+        let cid = rec.cid().0.clone();
+        store
+            .kv_put_batch(
+                emem_cache::KvTable::States,
+                &[(cid.as_bytes().to_vec(), rec.to_canonical_cbor())],
+                true,
+            )
+            .unwrap();
+        let app = Router::new()
+            .route("/v1/state/:cid", get(get_state_record))
+            .with_state(s.clone());
+        let req = |u: String| {
+            axum::extract::Request::builder()
+                .uri(u)
+                .body(axum::body::Body::empty())
+                .unwrap()
+        };
+        let resp = app
+            .clone()
+            .oneshot(req(format!("/v1/state/{cid}")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .unwrap();
+        let doc: JsonValue = serde_json::from_slice(&body).unwrap();
+        assert_eq!(doc["address_holds"], json!(true), "{doc}");
+        assert_eq!(doc["recomputed_cid"].as_str(), Some(cid.as_str()));
+        assert_eq!(doc["record"]["kind"], json!("recalled"));
+        let resp = app
+            .clone()
+            .oneshot(req(format!("/v1/state/emem:state:{cid}")))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "the token form is accepted");
+        let resp = app
+            .oneshot(req(format!("/v1/state/{}", "a".repeat(52))))
+            .await
+            .unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     /// The published schema has to be reachable at the URL we publish.

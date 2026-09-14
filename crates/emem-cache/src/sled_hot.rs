@@ -338,6 +338,92 @@ fn backfill_step(
     Ok((n_copied, skip, last))
 }
 
+/// Copy one sled tree into one redb byte-to-byte table, resumably, at the
+/// same pace and with the same disk guard as the facts backfill. Rows are
+/// copied verbatim; a row already present in redb is left alone, so a write
+/// that landed in redb after the backfill started is never clobbered by the
+/// older sled copy.
+fn spawn_tree_backfill(r: Arc<RedbFacts>, tree: sled::Tree, t: crate::redb_facts::KvTable) {
+    let Ok(h) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    h.spawn(async move {
+        let batch: usize = std::env::var("EMEM_HOT_BACKFILL_BATCH")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2000)
+            .clamp(50, 20_000);
+        let pause = std::time::Duration::from_millis(
+            std::env::var("EMEM_HOT_BACKFILL_PAUSE_MS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(100)
+                .clamp(0, 60_000),
+        );
+        let mut cursor = r.table_cursor(t).ok().flatten();
+        let (mut copied, mut skipped) = (0u64, 0u64);
+        tracing::info!(target: "emem::backfill", table = ?t, resumed = cursor.is_some(), "tree backfill start");
+        loop {
+            let r2 = r.clone();
+            let tree2 = tree.clone();
+            let c2 = cursor.clone();
+            let step = off_thread(move || -> Result<(u64, u64, Option<Vec<u8>>), CacheError> {
+                let mut items: Vec<(Vec<u8>, Vec<u8>)> = Vec::with_capacity(batch);
+                let (mut n, mut skip, mut last) = (0usize, 0u64, None);
+                let iter: Box<dyn Iterator<Item = sled::Result<(sled::IVec, sled::IVec)>>> = match &c2 {
+                    Some(c) => Box::new(tree2.range(c.clone()..)),
+                    None => Box::new(tree2.iter()),
+                };
+                for kv in iter {
+                    let (k, v) = kv?;
+                    if let Some(c) = &c2 {
+                        if k.as_ref() == c.as_slice() {
+                            continue;
+                        }
+                    }
+                    n += 1;
+                    last = Some(k.to_vec());
+                    if r2.kv_get(t, &k)?.is_some() {
+                        skip += 1;
+                    } else {
+                        items.push((k.to_vec(), v.to_vec()));
+                    }
+                    if n >= batch {
+                        break;
+                    }
+                }
+                let n_copied = items.len() as u64;
+                r2.kv_put_batch(t, &items, false)?;
+                if let Some(l) = &last {
+                    r2.set_table_cursor(t, l)?;
+                }
+                Ok((n_copied, skip, last))
+            })
+            .await;
+            match step {
+                Ok((c, sk, last)) => {
+                    copied += c;
+                    skipped += sk;
+                    match last {
+                        Some(l) => cursor = Some(l),
+                        None => {
+                            if let Err(e) = r.mark_table_backfill_done(t) {
+                                tracing::warn!(target: "emem::backfill", error = %e, "mark done");
+                            }
+                            tracing::info!(target: "emem::backfill", table = ?t, copied, skipped, "tree backfill done");
+                            return;
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(target: "emem::backfill", table = ?t, error = %e, "tree backfill step failed; retrying after pause");
+                }
+            }
+            tokio::time::sleep(pause).await;
+        }
+    });
+}
+
 fn spawn_backfill(r: Arc<RedbFacts>, idx: sled::Tree, facts: sled::Tree) {
     let Ok(h) = tokio::runtime::Handle::try_current() else {
         tracing::info!("hot backfill not started: no async runtime (CLI use)");
@@ -505,6 +591,19 @@ impl SledHotCache {
             tracing::info!(path = %rp.display(), backfill_done = r.backfill_done(), "hot facts on redb");
             if !r.backfill_done() {
                 spawn_backfill(r.clone(), idx.clone(), facts.clone());
+            }
+            // The two trees that are the sled store's bulk. Each moves once.
+            for t in [
+                crate::redb_facts::KvTable::Proofs,
+                crate::redb_facts::KvTable::Multi,
+            ] {
+                if !r.table_backfill_done(t) {
+                    if let Some(name) = t.sled_tree() {
+                        if let Ok(tree) = db.open_tree(name) {
+                            spawn_tree_backfill(r.clone(), tree, t);
+                        }
+                    }
+                }
             }
             Some(r)
         } else {
@@ -896,6 +995,58 @@ impl Cache for SledHotCache {
 
 #[cfg(test)]
 mod tests {
+    /// A sled tree moves into a redb table once, resumably, without touching
+    /// rows that already landed in redb.
+    #[tokio::test]
+    async fn a_tree_backfill_copies_everything_once_and_keeps_newer_redb_rows() {
+        use crate::redb_facts::{KvTable, RedbFacts};
+        let sled_db = sled::Config::new().temporary(true).open().unwrap();
+        let tree = sled_db.open_tree("emem.fact_proofs").unwrap();
+        for i in 0..2500u32 {
+            tree.insert(
+                format!("cid-{i:05}").as_bytes(),
+                format!("sled-{i}").as_bytes(),
+            )
+            .unwrap();
+        }
+        let tmp = tempfile::tempdir().unwrap();
+        let r = std::sync::Arc::new(RedbFacts::open(tmp.path().join("f.redb")).unwrap());
+        r.kv_put_batch(
+            KvTable::Proofs,
+            &[(b"cid-00007".to_vec(), b"redb-newer".to_vec())],
+            true,
+        )
+        .unwrap();
+        std::env::set_var("EMEM_HOT_BACKFILL_BATCH", "300");
+        std::env::set_var("EMEM_HOT_BACKFILL_PAUSE_MS", "0");
+        super::spawn_tree_backfill(r.clone(), tree.clone(), KvTable::Proofs);
+        for _ in 0..200 {
+            if r.table_backfill_done(KvTable::Proofs) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        assert!(
+            r.table_backfill_done(KvTable::Proofs),
+            "backfill did not finish"
+        );
+        assert_eq!(r.kv_len(KvTable::Proofs).unwrap(), 2500);
+        assert_eq!(
+            r.kv_get(KvTable::Proofs, b"cid-00007").unwrap().unwrap(),
+            b"redb-newer".to_vec()
+        );
+        assert_eq!(
+            r.kv_get(KvTable::Proofs, b"cid-02499").unwrap().unwrap(),
+            b"sled-2499".to_vec()
+        );
+        assert_eq!(
+            r.kv_scan_prefix(KvTable::Proofs, b"cid-0001", 100)
+                .unwrap()
+                .len(),
+            10
+        );
+    }
+
     use super::*;
     use emem_core::AttesterKey;
     use emem_fact::{Derivation, PrimaryFact, SchemaCid, Source};

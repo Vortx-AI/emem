@@ -62,6 +62,13 @@ use anyhow::{Context, Result};
 /// The trees the migration emptied of meaning. Nothing reads them: the fact
 /// path consults sled only while `backfill_done` is false.
 const MIGRATED: &[&str] = &["emem.facts", "emem.canonical_index"];
+/// Two more trees move into redb by a background backfill; each is dead in
+/// sled only once redb reports its own backfill done, so they join the
+/// migrated set at run time from redb's meta, never by assumption.
+const MIGRATING: &[(&str, emem_cache::KvTable)] = &[
+    ("emem.fact_proofs", emem_cache::KvTable::Proofs),
+    ("emem.multi_attester_index", emem_cache::KvTable::Multi),
+];
 
 fn main() -> Result<()> {
     let mut data_dir = PathBuf::from("var/emem");
@@ -101,6 +108,21 @@ fn main() -> Result<()> {
         redb.backfill_done(),
         "redb says the backfill is NOT done; the sled fact trees are still the live copy. Nothing to slim."
     );
+    let mut migrated: Vec<&str> = MIGRATED.to_vec();
+    for (tree, t) in MIGRATING {
+        let done = redb.table_backfill_done(*t);
+        println!(
+            "redb: {tree} backfill_done={done}{}",
+            if done {
+                " (dead in sled, will be dropped)"
+            } else {
+                " (still moving; kept)"
+            }
+        );
+        if done {
+            migrated.push(tree);
+        }
+    }
     println!();
 
     println!("opening sled (this is the 22 minutes the server pays at every boot)…");
@@ -118,7 +140,7 @@ fn main() -> Result<()> {
             continue;
         }
         let len = db.open_tree(&name)?.len();
-        if MIGRATED.contains(&label.as_str()) {
+        if migrated.contains(&label.as_str()) {
             drop_.push((label, len));
         } else {
             keep.push((label, len));

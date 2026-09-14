@@ -572,6 +572,11 @@ pub trait Storage: Send + Sync {
     /// the API layer's agent-stats persistence) can open auxiliary trees
     /// alongside the canonical index. Optional: ephemeral or non-sled
     /// backends return `None`.
+    /// The redb store, where the byte-to-byte tables live. `None` on a
+    /// backend without one.
+    fn redb(&self) -> Option<std::sync::Arc<emem_cache::RedbFacts>> {
+        None
+    }
     fn hot_sled_db(&self) -> Option<&sled::Db> {
         None
     }
@@ -1041,15 +1046,16 @@ impl Storage for MaterializingStorage {
             // global canonical index and stays byte-identical to the
             // pre-v0.0.8 path.
             let db = hot.db().clone();
+            let redb_w = hot.redb().cloned();
             let facts = att.facts.clone();
             let cids_c = cids.clone();
             let pv = att.preimage_version;
             let scope = att.scope.clone();
             let idx_writes = tokio::task::spawn_blocking(move || {
-                if let Err(e) = persist_fact_proofs(&db, &facts, &cids_c, pv) {
+                if let Err(e) = persist_fact_proofs(&db, redb_w.as_deref(), &facts, &cids_c, pv) {
                     tracing::warn!(error=%e, "fact proof persistence error (ignored)");
                 }
-                if let Err(e) = append_multi_attester(&db, &facts, &cids_c) {
+                if let Err(e) = append_multi_attester(&db, redb_w.as_deref(), &facts, &cids_c) {
                     tracing::warn!(error=%e, "multi-attester index append error (ignored)");
                 }
                 if let Some(scope) = scope.as_ref().filter(|sc| !sc.is_empty()) {
@@ -1183,12 +1189,24 @@ impl Storage for MaterializingStorage {
         self.attesters.as_ref()
     }
 
+    fn redb(&self) -> Option<std::sync::Arc<emem_cache::RedbFacts>> {
+        self.hot.as_ref().and_then(|h| h.redb().cloned())
+    }
     fn hot_sled_db(&self) -> Option<&sled::Db> {
         self.hot.as_ref().map(|h| h.db())
     }
 
     fn proof_for_cid(&self, cid: &FactCid) -> Option<MerkleProof> {
         let hot = self.hot.as_ref()?;
+        // redb first; the sled tree only while its rows are still moving.
+        if let Some(r) = hot.redb() {
+            if let Ok(Some(b)) = r.kv_get(emem_cache::KvTable::Proofs, cid.as_str().as_bytes()) {
+                return ciborium::de::from_reader::<MerkleProof, _>(&*b).ok();
+            }
+            if r.table_backfill_done(emem_cache::KvTable::Proofs) {
+                return None;
+            }
+        }
         let tree = hot.db().open_tree(TREE_FACT_PROOFS).ok()?;
         let bytes = tree.get(cid.as_str().as_bytes()).ok()??;
         ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
@@ -1203,7 +1221,7 @@ impl Storage for MaterializingStorage {
             code: ErrorCode::Internal,
             message: "scan_multi_attester requires a SledHotCache handle".into(),
         })?;
-        scan_multi_attester_tree(hot.db(), cell_prefix, limit)
+        scan_multi_attester_tree(hot.db(), hot.redb().map(|r| r.as_ref()), cell_prefix, limit)
     }
 
     async fn history_many(
@@ -1607,6 +1625,7 @@ fn scan_edges_anchored(
 /// error here is logged but never fails the attestation.
 fn append_multi_attester(
     db: &sled::Db,
+    redb: Option<&emem_cache::RedbFacts>,
     facts: &[Fact],
     cids: &[FactCid],
 ) -> Result<(), StorageError> {
@@ -1616,15 +1635,35 @@ fn append_multi_attester(
     let tree = db
         .open_tree(TREE_MULTI_ATTESTER_INDEX)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+    // While this tree is still moving into redb the scan reads sled, so sled
+    // must stay complete: write both. Once redb reports its backfill done,
+    // sled is read by nothing and receives nothing.
+    let multi_done = redb
+        .map(|r| r.table_backfill_done(emem_cache::KvTable::Multi))
+        .unwrap_or(false);
     for (f, cid) in facts.iter().zip(cids.iter()) {
         let key_bytes = match fact_canonical_key_bytes(f) {
             Some(k) => k,
             None => continue, // derivative facts have no canonical key
         };
-        let existing: Vec<String> = match tree
-            .get(&key_bytes)
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
-        {
+        let sled_get = || -> Result<Option<Vec<u8>>, StorageError> {
+            Ok(tree
+                .get(&key_bytes)
+                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?
+                .map(|v| v.to_vec()))
+        };
+        let current: Option<Vec<u8>> = match redb {
+            Some(r) => match r
+                .kv_get(emem_cache::KvTable::Multi, &key_bytes)
+                .map_err(StorageError::Cache)?
+            {
+                Some(b) => Some(b),
+                None if !multi_done => sled_get()?,
+                None => None,
+            },
+            None => sled_get()?,
+        };
+        let existing: Vec<String> = match current {
             Some(b) => ciborium::de::from_reader::<Vec<String>, _>(&*b)
                 .map_err(|e| StorageError::Cbor(format!("multi_attester decode: {e}")))?,
             None => Vec::new(),
@@ -1637,21 +1676,22 @@ fn append_multi_attester(
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&updated, &mut buf)
             .map_err(|e| StorageError::Cbor(format!("multi_attester encode: {e}")))?;
-        tree.insert(&key_bytes, buf)
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        if let Some(r) = redb {
+            r.kv_put_batch(
+                emem_cache::KvTable::Multi,
+                &[(key_bytes.clone(), buf.clone())],
+                false,
+            )
+            .map_err(StorageError::Cache)?;
+        }
+        if redb.is_none() || !multi_done {
+            tree.insert(&key_bytes, buf)
+                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        }
     }
-    // Durability is forced once by `put_attestation` (this fn's only
-    // caller) after all index writes — sled fsyncs the whole Db, so a
-    // flush here too was a redundant fsync on every write.
     Ok(())
 }
 
-/// Encode the four-field scope prefix for [`TREE_SCOPE_INDEX`] keys:
-/// `user \0 agent \0 run \0 org \0`. Absent fields use the empty-string
-/// sentinel (a bare NUL), consistent with how [`Scope`] canonicalises —
-/// a recall scoped to `{user_id:"u1"}` produces the prefix
-/// `u1 \0 \0 \0 \0` and range-scans exactly the facts written under that
-/// same four-tuple.
 fn scope_prefix_bytes(scope: &emem_fact::Scope) -> Vec<u8> {
     let u = scope.user_id.as_deref().unwrap_or("");
     let a = scope.agent_id.as_deref().unwrap_or("");
@@ -1870,22 +1910,57 @@ fn decode_key_bytes(b: &[u8]) -> Option<emem_cache::CanonicalKey> {
 /// remains O(scanned_keys) rather than O(all_keys).
 fn scan_multi_attester_tree(
     db: &sled::Db,
+    redb: Option<&emem_cache::RedbFacts>,
     cell_prefix: Option<&str>,
     limit: usize,
 ) -> Result<Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>, StorageError> {
+    fn keep(
+        out: &mut Vec<(emem_cache::CanonicalKey, Vec<FactCid>)>,
+        k: &[u8],
+        v: &[u8],
+    ) -> Result<(), StorageError> {
+        let Some(key) = decode_key_bytes(k) else {
+            return Ok(());
+        };
+        let cids: Vec<String> = ciborium::de::from_reader::<Vec<String>, _>(v)
+            .map_err(|e| StorageError::Cbor(format!("multi_attester decode: {e}")))?;
+        if cids.len() >= 2 {
+            out.push((key, cids.into_iter().map(FactCid::new).collect()));
+        }
+        Ok(())
+    }
+    let mut out: Vec<(emem_cache::CanonicalKey, Vec<FactCid>)> = Vec::new();
+    // One complete source at a time: redb once its backfill is done (sled
+    // received every write until then), sled before that.
+    if let Some(r) = redb {
+        if r.table_backfill_done(emem_cache::KvTable::Multi) {
+            let prefix: Vec<u8> = cell_prefix
+                .filter(|p| !p.is_empty())
+                .map(|p| p.as_bytes().to_vec())
+                .unwrap_or_default();
+            // Rows with fewer than two cids are skipped, so ask for more than
+            // `limit` and stop when enough qualify.
+            let rows = r
+                .kv_scan_prefix(
+                    emem_cache::KvTable::Multi,
+                    &prefix,
+                    limit.saturating_mul(8).max(4096),
+                )
+                .map_err(StorageError::Cache)?;
+            for (k, v) in &rows {
+                if out.len() >= limit {
+                    break;
+                }
+                keep(&mut out, k, v)?;
+            }
+            return Ok(out);
+        }
+    }
     let tree = db
         .open_tree(TREE_MULTI_ATTESTER_INDEX)
         .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-    let mut out: Vec<(emem_cache::CanonicalKey, Vec<FactCid>)> = Vec::new();
     let iter: Box<dyn Iterator<Item = sled::Result<(sled::IVec, sled::IVec)>>> = match cell_prefix {
-        Some(p) if !p.is_empty() => {
-            // Iterator at the sled level over the byte prefix. We
-            // include the SEP byte only when the caller passed the
-            // full cell64 path; for a partial prefix we keep it as
-            // a raw bytewise prefix.
-            let prefix_bytes = p.as_bytes().to_vec();
-            Box::new(tree.scan_prefix(prefix_bytes))
-        }
+        Some(p) if !p.is_empty() => Box::new(tree.scan_prefix(p.as_bytes())),
         _ => Box::new(tree.iter()),
     };
     for kv in iter {
@@ -1893,30 +1968,14 @@ fn scan_multi_attester_tree(
             break;
         }
         let (k, v) = kv.map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
-        let Some(key) = decode_key_bytes(&k) else {
-            continue;
-        };
-        let cids: Vec<String> = ciborium::de::from_reader::<Vec<String>, _>(&*v)
-            .map_err(|e| StorageError::Cbor(format!("multi_attester decode: {e}")))?;
-        if cids.len() < 2 {
-            continue;
-        }
-        let cids: Vec<FactCid> = cids.into_iter().map(FactCid::new).collect();
-        out.push((key, cids));
+        keep(&mut out, &k, &v)?;
     }
     Ok(out)
 }
 
-/// Compute the per-fact merkle inclusion proof for every fact in the
-/// attestation and write it to the dedicated sled tree, keyed by
-/// `FactCid` string. The tree is opened on demand so attestations that
-/// pre-date this surface continue to round-trip without it.
-///
-/// The leaves are ordered exactly as they are inside [`verify_attestation`]:
-/// CBOR-encode each fact, blake3 the bytes, sort the leaves bytewise.
-/// `MerkleProof.leaf_index` is the leaf's position in that sorted order.
 fn persist_fact_proofs(
     db: &sled::Db,
+    redb: Option<&emem_cache::RedbFacts>,
     facts: &[Fact],
     cids: &[FactCid],
     preimage_version: u8,
@@ -1963,8 +2022,21 @@ fn persist_fact_proofs(
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&proof, &mut buf)
             .map_err(|e| StorageError::Cbor(format!("fact_proofs cbor: {e}")))?;
-        tree.insert(cid.as_str().as_bytes(), buf)
-            .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))?;
+        match redb {
+            // New proofs go to redb only: looked up there first, and the sled
+            // tree is read only until its backfill reports done.
+            Some(r) => r
+                .kv_put_batch(
+                    emem_cache::KvTable::Proofs,
+                    &[(cid.as_str().as_bytes().to_vec(), buf)],
+                    false,
+                )
+                .map_err(StorageError::Cache)?,
+            None => tree
+                .insert(cid.as_str().as_bytes(), buf)
+                .map_err(|e| StorageError::Io(std::io::Error::other(e.to_string())))
+                .map(|_| ())?,
+        }
     }
     // Durability is forced once by `put_attestation` (this fn's only
     // caller) after all index writes — sled fsyncs the whole Db, so a
@@ -3205,6 +3277,55 @@ mod trace_gate_tests {
             _ => unreachable!(),
         };
         assert!(storage.cache.lookup_many(&[key]).await.unwrap()[0].is_none());
+    }
+
+    /// A proof written today lands in redb and is read from there; the sled
+    /// tree is consulted only while its rows are still moving.
+    #[tokio::test]
+    async fn a_new_proof_lives_in_redb_and_is_found_there() {
+        let storage = ephemeral();
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
+        let mut sec = [0u8; 32];
+        sec[0] = 77;
+        let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
+        let att = build_signed(vec![mk_fact(0.4, pk)], sec);
+        let (cids, _) = storage
+            .put_attestation_gated(&att, None)
+            .await
+            .expect("write");
+        let mut proof = None;
+        for _ in 0..50 {
+            proof = storage.proof_for_cid(&cids[0]);
+            if proof.is_some() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        }
+        assert!(proof.is_some(), "no proof for a fact just written");
+        let r = storage.redb().expect("ephemeral storage has redb");
+        assert!(
+            r.kv_get(emem_cache::KvTable::Proofs, cids[0].as_str().as_bytes())
+                .unwrap()
+                .is_some(),
+            "the proof was not written to redb"
+        );
+        let sled_tree = storage
+            .hot
+            .as_ref()
+            .unwrap()
+            .db()
+            .open_tree(TREE_FACT_PROOFS)
+            .unwrap();
+        assert!(
+            sled_tree
+                .get(cids[0].as_str().as_bytes())
+                .unwrap()
+                .is_none(),
+            "a new proof still went into sled"
+        );
     }
 
     /// The responder's own key is admitted: its materialiser writes this way.

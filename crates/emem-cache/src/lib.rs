@@ -87,6 +87,7 @@ pub enum CacheError {
 }
 
 pub mod redb_facts;
+pub use redb_facts::{KvTable, RedbFacts};
 pub mod sled_hot;
 pub use sled_hot::SledHotCache;
 pub use sled_hot::{fact_canonical_cbor, fact_cid_of};
