@@ -117,7 +117,7 @@ def main() -> int:
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All {total} emem MCP tools, generated from the registry: what question each answers and the exact call to make. The {len(core)}-tool core loop first. Every one readable with no key; writes are ed25519-signed and tiered by reach.">
+<meta name=description content="All {total} emem MCP tools from the registry: what each answers and the exact call. The {len(core)}-tool core loop first. Free to read; writes are signed and tiered.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
