@@ -49,7 +49,11 @@ HEALTH_TIMEOUT="${EMEM_WATCHDOG_HEALTH_TIMEOUT:-20}"
 STATE="${XDG_RUNTIME_DIR:-/tmp}/emem_watchdog_fails"
 
 snapshot_wedge() {
-  pid=$($SYSTEMCTL show -p MainPID --value emem-server.service 2>/dev/null)
+  # The unit's MainPID is the `docker run` client, not the responder. The
+  # 2026-09-14 17:53 snapshot recorded 12 sleeping docker threads and taught
+  # nothing; the process to snapshot is the container's init, which docker knows.
+  pid=$(docker inspect --format '{{.State.Pid}}' emem-server 2>/dev/null)
+  case "$pid" in ''|0|*[!0-9]*) pid=$($SYSTEMCTL show -p MainPID --value emem-server.service 2>/dev/null) ;; esac
   [ -n "$pid" ] && [ "$pid" != 0 ] && [ -d "/proc/$pid" ] || return 0
   dir="${EMEM_WEDGE_DIR:-/home/ubuntu/emem/var/wedge}"
   mkdir -p "$dir"
