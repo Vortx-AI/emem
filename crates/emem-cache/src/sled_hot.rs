@@ -606,6 +606,20 @@ mod sled_config_tests {
     }
 }
 
+/// Bytes under a sled store directory, for the boot log. Best effort: a store
+/// whose size cannot be read is reported as 0 rather than failing an open.
+fn dir_bytes(path: &std::path::Path) -> u64 {
+    std::fs::read_dir(path)
+        .map(|rd| {
+            rd.filter_map(Result::ok)
+                .filter_map(|e| e.metadata().ok())
+                .filter(|m| m.is_file())
+                .map(|m| m.len())
+                .sum()
+        })
+        .unwrap_or(0)
+}
+
 impl SledHotCache {
     pub fn open(path: impl AsRef<std::path::Path>) -> Result<Self, CacheError> {
         // Not `sled::open` with its defaults. A 1 GiB pagecache in front of
@@ -618,11 +632,21 @@ impl SledHotCache {
         // restarts in one day. A larger cache cuts the pulls; a shorter
         // flush interval shortens the wait. Both are operator knobs.
         let path = path.as_ref();
+        // Timed, because `storage_open` is one number covering two stores and
+        // the expensive one changes with whatever warmed the page cache last.
+        let t_sled = std::time::Instant::now();
         let db = sled::Config::new()
             .path(path)
             .cache_capacity(sled_cache_bytes())
             .flush_every_ms(Some(sled_flush_every_ms()))
             .open()?;
+        tracing::info!(
+            target: "emem::boot",
+            path = %path.display(),
+            bytes = dir_bytes(path),
+            elapsed_ms = t_sled.elapsed().as_millis(),
+            "sled open"
+        );
         let idx = db.open_tree(TREE_INDEX)?;
         let facts = db.open_tree(TREE_FACTS)?;
         let redb = if redb_enabled() {

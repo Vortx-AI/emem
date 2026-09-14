@@ -112,12 +112,24 @@ impl RedbFacts {
             .clamp(64 << 20, 32 << 30) as usize
     }
 
+    /// Timed in three parts, because the whole open is minutes on a large file
+    /// and "storage_open took 34 minutes" names no cause. On 2026-09-14 the
+    /// responder spent 2,051,951 ms here and in the sled open together, with
+    /// no way to tell which, while a standalone run of emem-sled-slim put ~30
+    /// minutes before its first redb line and then opened sled in 28.2 s. The
+    /// two stores total ~95 GB against a 61 GB page cache, so each open evicts
+    /// the other and the attribution flips with whatever ran last. These three
+    /// numbers end the guessing: file open, the table-creating commit, and the
+    /// meta read are separately reported.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, CacheError> {
         let path = path.as_ref().to_path_buf();
+        let t0 = std::time::Instant::now();
         let db = Database::builder()
             .set_cache_size(Self::cache_bytes())
             .create(&path)
             .map_err(rb)?;
+        let create_ms = t0.elapsed().as_millis();
+        let t1 = std::time::Instant::now();
         {
             let w = db.begin_write().map_err(rb)?;
             w.open_table(INDEX).map_err(rb)?;
@@ -128,12 +140,23 @@ impl RedbFacts {
             w.open_table(STATES).map_err(rb)?;
             w.commit().map_err(rb)?;
         }
+        let tables_ms = t1.elapsed().as_millis();
+        let t2 = std::time::Instant::now();
         let done = {
             let r = db.begin_read().map_err(rb)?;
             let m = r.open_table(META).map_err(rb)?;
             let hit = m.get(META_DONE).map_err(rb)?;
             hit.is_some()
         };
+        tracing::info!(
+            target: "emem::boot",
+            path = %path.display(),
+            bytes = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0),
+            create_ms,
+            tables_ms,
+            meta_ms = t2.elapsed().as_millis(),
+            "redb open"
+        );
         Ok(Self {
             db,
             path,
