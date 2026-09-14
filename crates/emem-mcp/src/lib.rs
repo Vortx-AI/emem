@@ -699,7 +699,7 @@ const SCHEMA_DERIVE_LIST: &str = r#"{"type":"object","required":["attester_pubke
 // one signed envelope out. The composed `bundle_token` is `emem:bundle:<bundle_cid>`
 //, a single rebindable string that cites the whole set.
 const SCHEMA_MEMORY_CONTRADICTIONS: &str = r#"{"type":"object","properties":{
-"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap. A full cell64 is a prefix of itself, so passing one narrows the scan to exactly that place."},"cell":{"type":"string","description":"Alias for `cell_prefix`, and the name the other six tools that take a cell64 use. Send a cell64 you already hold and the scan narrows to that place instead of running over the corpus."},"cell64":{"type":"string","description":"Alias for `cell_prefix`."},
+"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. `defi.zb5f9`). Omit to scan the whole corpus up to the scan cap. A full cell64 is a prefix of itself, so passing one narrows the scan to exactly that place."},"cell":{"type":"string","description":"Alias for `cell_prefix`, and the spelling the rest of the surface uses for a cell64. Send a cell64 you already hold and the scan narrows to that place instead of running over the corpus."},"cell64":{"type":"string","description":"Alias for `cell_prefix`."},
 "band":{"type":"string","description":"Band key filter (e.g. `indices.ndvi`). Omit to include all bands."},
 "window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at, all disagreeing attestations must fall in the window."},
 "limit":{"type":"integer","minimum":1,"maximum":1000,"default":100,"description":"Max contradictions to return."},
@@ -4494,6 +4494,35 @@ mod tests {
                                 ));
                             }
                         }
+                    }
+                    // Counts get SPELLED, and a digit scan never sees them. The
+                    // `emem_memory_contradictions` schema served "the other six
+                    // tools that take a cell64" while 43 declared `cell`: wrong
+                    // by a factor of seven, in text an agent reads, for as long
+                    // as nothing counted words. Any number-word before "tool" is
+                    // a claim about the registry; write it so it cannot drift,
+                    // or let `with_counts` fill it.
+                    // "one" is excluded: it reads as an article far more often
+                    // than as a count ("for one tool's full schema"), and a
+                    // registry count of exactly 1 written as a digit is still
+                    // caught above.
+                    const WORDS: [&str; 11] = [
+                        "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+                        "eleven", "twelve",
+                    ];
+                    let before = text[..end].to_ascii_lowercase();
+                    if let Some(w) = WORDS.iter().find(|w| {
+                        before.ends_with(**w)
+                            && before[..before.len() - w.len()]
+                                .chars()
+                                .next_back()
+                                .is_none_or(|c| !c.is_alphanumeric())
+                    }) {
+                        bad.push(format!(
+                            "{} [{field}] \"{w} tool…\" is a spelled count; it cannot be \
+                             checked and it drifts",
+                            t.name
+                        ));
                     }
                     from = end + 5;
                 }
