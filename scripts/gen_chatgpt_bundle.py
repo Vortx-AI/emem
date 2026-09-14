@@ -435,8 +435,17 @@ def render(sub: dict, live: dict, origin: str) -> str:
                 spec = props[k] or {}
                 ex = spec.get("example")
                 if ex is None:
+                    # JSON Schema lets `type` be a LIST, and seven properties
+                    # became unions when their types were declared. Passing a
+                    # list to dict.get raises "unhashable type: 'list'", which
+                    # crashed this generator rather than failing a check: a
+                    # traceback where a verdict belongs. The first member is the
+                    # one a placeholder should look like.
+                    t = spec.get("type")
+                    if isinstance(t, list):
+                        t = t[0] if t else None
                     ex = {"string": f"<{k}>", "number": 0, "integer": 0,
-                          "boolean": False, "array": [], "object": {}}.get(spec.get("type"), f"<{k}>")
+                          "boolean": False, "array": [], "object": {}}.get(t, f"<{k}>")
                 # ensure_ascii=False, or a placeholder renders as \u2026 in a code block
                 body.append((k, json.dumps(ex, ensure_ascii=False), k in required))
             width = max(len(json.dumps(k, ensure_ascii=False)) + len(v) for k, v, _ in body)
