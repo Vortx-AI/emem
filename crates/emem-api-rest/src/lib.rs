@@ -76203,6 +76203,18 @@ mod tests {
     // client makes implicitly.
 
     /// Bytes a client actually receives for one page, envelope included.
+    /// What `list_bytes` may report, which is BELOW the host ceiling on purpose.
+    ///
+    /// The measured host limit is 76,800 raw bytes (102,400 base64-wrapped).
+    /// This function measures the handler's value inside a JSON-RPC envelope,
+    /// and the served response is consistently ~1,500 bytes larger than that
+    /// -- 76,918 here against 78,272 on the wire for the same listing. A
+    /// ceiling is a property of what is SENT, so the authoritative check runs
+    /// against the live origin in `scripts/protocol_conformance.py`; this one
+    /// is the early warning, and it is set low enough that passing it means
+    /// the wire passes too.
+    const CORE_PAGE_LOCAL_CEILING: usize = 75_000;
+
     fn list_bytes(v: &JsonValue) -> usize {
         serde_json::to_string(&json!({"jsonrpc":"2.0","id":1,"result":v}))
             .map(|s| s.len())
@@ -76226,7 +76238,7 @@ mod tests {
             pages += 1;
             bytes += list_bytes(&r);
             assert!(
-                list_bytes(&r) <= 76_800,
+                list_bytes(&r) <= CORE_PAGE_LOCAL_CEILING,
                 "page {pages} of {params} is {} bytes, over the wrapped-body ceiling",
                 list_bytes(&r)
             );
@@ -77432,8 +77444,8 @@ mod tests {
             r.get("nextCursor")
         );
         assert!(
-            list_bytes(&r) <= 76_800,
-            "core page is {} bytes, over the wrapped-body ceiling",
+            list_bytes(&r) <= CORE_PAGE_LOCAL_CEILING,
+            "core page is {} bytes, over the local ceiling that keeps the wire under 76,800",
             list_bytes(&r)
         );
     }

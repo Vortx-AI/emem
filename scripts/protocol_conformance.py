@@ -98,6 +98,31 @@ check("descriptions say what and when", not short_desc, short_desc[:6] or
 open_world = sum(1 for t in tools if (t.get("annotations") or {}).get("openWorldHint"))
 print(f"      openWorldHint set on {open_world}/{len(tools)} (emem reaches upstream archives)")
 
+# The core listing has a byte ceiling because a host has one, and the unit
+# test that guards it measures the handler's value while the wire carries more
+# -- 76,918 by the test, 78,272 on the wire, for the same listing. A ceiling
+# is a property of what is SENT, so it is asserted here, where the bytes are
+# the ones a client received.
+_h, _raw = None, None
+import urllib.request as _u
+_req = _u.Request(BASE + "/mcp",
+                  data=json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list",
+                                   "params": {}}).encode(),
+                  headers={"content-type": "application/json",
+                           "accept": "application/json, text/event-stream",
+                           "MCP-Protocol-Version": "2025-11-25"})
+with _u.urlopen(_req, timeout=240) as _r:
+    _body = _r.read().decode()
+_json = _body
+for _line in _body.splitlines():
+    if _line.startswith("data: "):
+        _json = _line[6:]
+CORE_PAGE_CEILING = 76_800
+check("the core listing fits the host ceiling on the wire",
+      len(_json) <= CORE_PAGE_CEILING,
+      f"{len(_json):,} B against {CORE_PAGE_CEILING:,} "
+      f"({sum(len(t.get('description') or '') for t in tools):,} B of it descriptions)")
+
 print("== MCP: structured output conformance")
 schema_tools = [t for t in tools if t.get("outputSchema")]
 print(f"      {len(schema_tools)} tool(s) declare an outputSchema: {[t['name'] for t in schema_tools]}")
