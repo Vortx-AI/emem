@@ -256,11 +256,13 @@ if have_pair:
             errs = list(jsonschema.Draft202012Validator(fsch).iter_errors(fres))
             check("fetch structuredContent conforms to its schema", not errs,
                   "valid" if not errs else errs[0].message[:120])
-        # The last entry names the cell and the true total: a capped list that
-        # says how much there was.
+        # The FIRST entry names the cell and the true total. It was appended
+        # last, which is the one position a wire cap can remove -- and it was
+        # removed, so a capped answer stopped saying it was capped. Anything
+        # that reports a truncation has to survive one, so it leads.
         check("a capped search still says how much there was",
-              rows[-1]["id"].startswith("emem:cell:"),
-              rows[-1]["title"][:80])
+              rows[0]["id"].startswith("emem:cell:") and "signed facts at" in rows[0]["title"],
+              rows[0]["title"][:80])
 
 print("== A2A")
 card = json.loads(u.urlopen(BASE + "/.well-known/agent-card.json", timeout=60).read())
