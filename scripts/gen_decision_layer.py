@@ -76,7 +76,32 @@ def terse(row):
     return s[:1].upper() + s[1:] if s else row.get("need", "")
 
 
-def render(reg):
+def core_loop_size(base):
+    """The core tier's size, read from the responder's own tools/list.
+
+    This line carried a literal 16 while the responder advertised 18, and the
+    counts hook corrected the generated page after every run, so the
+    decision-layer check and the counts check took turns failing. A number
+    describing the registry comes from the registry; if it cannot be read,
+    the run fails rather than printing a guess.
+    """
+    import json, urllib.request
+    body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}).encode()
+    req = urllib.request.Request(base.rstrip("/") + "/mcp", data=body, headers={
+        "content-type": "application/json",
+        "accept": "application/json, text/event-stream",
+        "MCP-Protocol-Version": "2025-11-25"})
+    raw = urllib.request.urlopen(req, timeout=120).read().decode()
+    for line in raw.splitlines():
+        if line.startswith("data: "):
+            raw = line[6:]
+    d = json.loads(raw)["result"]
+    n = (d.get("_discovery") or {}).get("profile_count") or len(d.get("tools") or [])
+    if not n:
+        raise SystemExit("decision-layer: could not read the core tier size from tools/list")
+    return n
+
+def render(reg, origin=DEFAULT_ORIGIN):
     rows = reg.get("intents", [])
     served = [r for r in rows if r.get("coverage") == "served"]
     partial = [r for r in rows if r.get("coverage") == "partial"]
@@ -113,7 +138,8 @@ def render(reg):
             continue
         out.append(f"| {terse(r)} | `{tool}` |")
 
-    out += ["", "**MCP**  `https://emem.dev/mcp` (16-tool core loop) · "
+    core_n = core_loop_size(origin)
+    out += ["", f"**MCP**  `https://emem.dev/mcp` ({core_n}-tool core loop) · "
             "`https://emem.dev/mcp/full` (everything)", "",
             "**READS NEED NO KEY.** No account, no token, no bearer. A key is "
             "required only to WRITE, because a signature the responder could "
@@ -173,7 +199,7 @@ def main():
         # because the responder was down", which was not what happened.
         return 3
 
-    block = render(reg)
+    block = render(reg, origin=a.origin)
     text = open(GUIDE, encoding="utf-8").read()
     updated = splice(text, block)
 
