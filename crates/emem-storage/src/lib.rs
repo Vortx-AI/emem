@@ -259,7 +259,99 @@ impl AsOfBound {
 }
 
 /// The lazy-materialization storage facade. Composes cache + fetch + log.
+/// Who may occupy an ADDRESS in the fact plane.
+///
+/// An address is `(cell, band, tslot)`. A fact stored there is what every
+/// reader of this responder recalls at that place, and the canonical index
+/// was last-writer-wins, so until this policy existed the plane was open to
+/// any key that could produce a valid ed25519 signature: `verify_attestation`
+/// checked the signature and the subject and nothing about the signer, the
+/// trace gate answered "does not apply" for any key it had not enrolled, and
+/// the attester registry only counted. The ladder published at /v1/enlist said
+/// "no caller can write a fact today by any route". That was false.
+///
+/// Closed by default. Admitted: this responder's own key (its materialiser
+/// signs with it), a device the trace gate has enrolled (it must also present
+/// its execution trace, checked before this), and keys an operator lists in
+/// `EMEM_FACT_PLANE_WRITERS`. `EMEM_FACT_PLANE_OPEN=1` reopens it, for a dev
+/// or air-gapped node that wants the old behaviour on purpose and says so at
+/// boot.
+///
+/// What this does NOT gate, deliberately: a `Fact::Derivative` cites parents
+/// and takes no address, and an edge links two cids and takes no address.
+/// Those stay open at T1 -- signed, attributed, append-only -- because they
+/// are how a stranger's agent CONTRIBUTES without being able to overwrite
+/// what anyone else recalls. The line is: you may add a claim about the
+/// world; you may not occupy the world's address book.
+#[derive(Debug, Clone, Default)]
+pub struct FactPlanePolicy {
+    pub responder: Option<[u8; 32]>,
+    pub allowlist: std::collections::BTreeSet<[u8; 32]>,
+    pub open: bool,
+}
+
+impl FactPlanePolicy {
+    /// The production policy: closed except for the responder and whoever the
+    /// operator named. Reads both environment variables so the decision is in
+    /// one place and the boot log can say what it decided.
+    pub fn for_responder(responder: [u8; 32]) -> Self {
+        let mut allowlist = std::collections::BTreeSet::new();
+        if let Ok(v) = std::env::var("EMEM_FACT_PLANE_WRITERS") {
+            for tok in v.split(',').map(str::trim).filter(|t| !t.is_empty()) {
+                if let Some(k) = parse_pubkey_b32(tok) {
+                    allowlist.insert(k);
+                } else {
+                    tracing::warn!(key = %tok, "EMEM_FACT_PLANE_WRITERS: not a base32 ed25519 key, ignored");
+                }
+            }
+        }
+        let open = std::env::var("EMEM_FACT_PLANE_OPEN")
+            .map(|v| v == "1")
+            .unwrap_or(false);
+        Self {
+            responder: Some(responder),
+            allowlist,
+            open,
+        }
+    }
+
+    pub fn admits(&self, key: &[u8; 32]) -> bool {
+        self.open || self.responder.as_ref() == Some(key) || self.allowlist.contains(key)
+    }
+
+    pub fn describe(&self) -> String {
+        if self.open {
+            return "OPEN: any signing key may occupy an address (EMEM_FACT_PLANE_OPEN=1)".into();
+        }
+        format!(
+            "closed: responder key{} + {} operator-listed key(s) + trace-enrolled devices",
+            if self.responder.is_some() {
+                ""
+            } else {
+                " (UNSET)"
+            },
+            self.allowlist.len()
+        )
+    }
+}
+
+/// Lower-case, unpadded base32 -> 32 raw bytes, the spelling every pubkey on
+/// this surface uses.
+pub fn parse_pubkey_b32(s: &str) -> Option<[u8; 32]> {
+    let up = s.trim().to_ascii_uppercase();
+    let bytes = data_encoding::BASE32_NOPAD.decode(up.as_bytes()).ok()?;
+    <[u8; 32]>::try_from(bytes.as_slice()).ok()
+}
+
+/// Does this attestation try to occupy an address? Derivatives cite parents
+/// and edges link cids; neither takes a `(cell, band, tslot)` slot.
+fn attestation_takes_an_address(att: &Attestation) -> bool {
+    att.facts.iter().any(|f| !matches!(f, Fact::Derivative(_)))
+}
+
 pub struct MaterializingStorage {
+    /// Who may occupy an address. See [`FactPlanePolicy`].
+    pub fact_plane: std::sync::RwLock<FactPlanePolicy>,
     /// Multi-tier fact cache.
     pub cache: Arc<dyn Cache>,
     /// Optional concrete handle to the hot cache when callers need
@@ -640,6 +732,17 @@ pub enum StorageError {
     Protocol { code: ErrorCode, message: String },
 }
 
+impl MaterializingStorage {
+    /// Install the fact-plane policy once the responder identity is known.
+    /// Storage opens before the identity loads at boot, so this is a setter
+    /// rather than a constructor argument.
+    pub fn set_fact_plane_policy(&self, policy: FactPlanePolicy) {
+        if let Ok(mut p) = self.fact_plane.write() {
+            *p = policy;
+        }
+    }
+}
+
 impl StorageError {
     /// Map this error to the wire-stable [`ErrorCode`] for transport-layer
     /// envelopes (REST / MCP).
@@ -693,6 +796,7 @@ impl MaterializingStorage {
             functions,
             sources,
             log,
+            fact_plane: std::sync::RwLock::new(FactPlanePolicy::default()),
             attesters,
             trace_gate,
         })
@@ -722,6 +826,7 @@ impl MaterializingStorage {
             functions,
             sources,
             log,
+            fact_plane: std::sync::RwLock::new(FactPlanePolicy::default()),
             attesters,
             trace_gate,
         })
@@ -877,6 +982,41 @@ impl Storage for MaterializingStorage {
 
     async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError> {
         verify_attestation(att)?;
+        // The fact plane is closed by default. A valid signature proves who
+        // wrote this, which is a different thing from whether they may occupy
+        // an address every reader here recalls. Enrolled devices already
+        // passed the trace gate (and presented a trace) in the gated wrapper;
+        // they are admitted by enrolment, everything else by policy.
+        if attestation_takes_an_address(att) {
+            let key = &att.attester.0;
+            let enrolled = self
+                .trace_gate
+                .as_ref()
+                .map(|g| g.is_enrolled(key))
+                .unwrap_or(false);
+            let admitted = enrolled
+                || self
+                    .fact_plane
+                    .read()
+                    .map(|p| p.admits(key))
+                    .unwrap_or(false);
+            if !admitted {
+                return Err(StorageError::Protocol {
+                    code: ErrorCode::LevelTooLow,
+                    message: format!(
+                        "fact_plane_closed: key {} may not occupy an address on this responder. \
+                         An address (cell, band, tslot) is what every reader recalls at a place, \
+                         and it is written only by this responder's materialiser, by a device \
+                         enrolled through the OS-trace gate, or by a key the operator listed. \
+                         Your signature verified; the tier is what is short (GET /v1/enlist, \
+                         surface fact_plane). To contribute a value, POST /v1/derive: a signed \
+                         derivation that cites its parents, attributed to your key, recallable \
+                         by its own token, and unable to overwrite what anyone else recalls.",
+                        trace_gate::render_key(key)
+                    ),
+                });
+            }
+        }
         let cids = self.cache.put_many(&att.facts).await?;
         self.log.append(att).await?;
         // Persist a per-fact merkle inclusion proof so receipts citing
@@ -959,7 +1099,7 @@ impl Storage for MaterializingStorage {
                 Some(cid) => out.push(cid),
                 None => {
                     return Err(StorageError::MaterializeMiss(format!(
-                        "no fact for cell={}, band={}, tslot={}; submit a signed Attestation via /v1/attest before recall, or operator must register an upstream connector for the function recipe that produces band '{}'",
+                        "no fact for cell={}, band={}, tslot={}; this responder has no upstream connector registered for the recipe that produces band '{}', and the address is not open to caller attestations. Contribute a value with POST /v1/derive (attributed, cites parents), or ask the operator to register a connector.",
                         key.cell, key.band, key.tslot, key.band)));
                 }
             }
@@ -2110,6 +2250,12 @@ mod multi_attester_tests {
             Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
         let storage =
             MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
+        // This test is about the multi-attester index, not admission. Open the plane so the
+        // test keys may occupy an address; the gate has its own tests below.
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
 
         let cell = "damO.zb000.xUti.zde78";
         let tslot = 12u64;
@@ -2155,9 +2301,16 @@ mod multi_attester_tests {
             }])
             .await
             .unwrap();
+        // This used to assert `cids_b`: last-writer-wins at the address, written
+        // down as the intended behaviour. That was the poisoning primitive --
+        // any later signer replaced what every reader recalled at a place --
+        // and the test protected it. The address stays with the key that holds
+        // it; B's fact is stored, indexed under multi-attester, and visible to
+        // the contradiction scan, and does not become the recall answer.
         assert_eq!(
             canonical[0].as_ref().map(|c| c.as_str()),
-            Some(cids_b[0].as_str())
+            Some(cids_a[0].as_str()),
+            "a second signer took over the address"
         );
 
         // Multi-attester index MUST carry both CIDs.
@@ -2171,6 +2324,36 @@ mod multi_attester_tests {
         assert!(cid_strs.contains(cids_a[0].as_str()));
         assert!(cid_strs.contains(cids_b[0].as_str()));
         assert_eq!(entry.1.len(), 2, "exactly two distinct CIDs preserved");
+        // Both facts are stored and both are in the multi-attester index, but
+        // the ADDRESS stays with the key that held it: B's fact did not become
+        // what a reader recalls at (cell, band, tslot). Before this, the index
+        // was last-writer-wins and B silently replaced A for every reader.
+        let key = match &f_a {
+            Fact::Primary(pf) => emem_cache::CanonicalKey {
+                cell: pf.cell.clone(),
+                band: pf.band.clone(),
+                tslot: pf.tslot,
+            },
+            _ => unreachable!("fixture is a primary fact"),
+        };
+        let winner = storage.cache.lookup_many(&[key]).await.expect("lookup");
+        let winner_cid = winner[0].clone().expect("the address is occupied");
+        let held = storage
+            .cache
+            .get_many(&[winner_cid])
+            .await
+            .expect("fetch")
+            .remove(0)
+            .expect("the winner dereferences");
+        let holder_key = match &held {
+            Fact::Primary(pf) => pf.signer.0,
+            _ => unreachable!("the winner is a primary fact"),
+        };
+        assert_eq!(
+            holder_key, att_a.attester.0,
+            "a second signer took over the address"
+        );
+        assert_ne!(holder_key, att_b.attester.0);
     }
 
     #[tokio::test]
@@ -2181,6 +2364,12 @@ mod multi_attester_tests {
         let sources =
             Arc::new(emem_core::SourceRegistry::parse_default().expect("default sources"));
         let storage = MaterializingStorage::ephemeral(bands, functions, sources).unwrap();
+        // This test is about prefix filtering in the multi-attester scan, not admission. Open the plane so the
+        // test keys may occupy an address; the gate has its own tests below.
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
 
         // Two contradictions in different cell prefixes — only the
         // matching prefix should surface.
@@ -2402,6 +2591,12 @@ mod edge_tests {
         // are computed exactly as a pre-v0.0.9 attestation. verify must
         // pass and the JSON must round-trip without an `edges` key.
         let storage = ephemeral();
+        // This test is about the legacy envelope round-tripping, not admission. Open the plane so the
+        // test keys may occupy an address; the gate has its own tests below.
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let fact = mk_fact("damO.zb000.xUti.zde78", 1);
         let att = build_signed_with_edges(vec![fact], vec![], [9u8; 32]);
         // No edges → round-trips through canonical CBOR with edges == [].
@@ -2421,6 +2616,12 @@ mod edge_tests {
     #[tokio::test]
     async fn attestation_with_edges_verifies_and_persists() {
         let storage = ephemeral();
+        // This test is about edge persistence, not admission. Open the plane so the
+        // test keys may occupy an address; the gate has its own tests below.
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let fact = mk_fact("damO.zb000.xUti.zde79", 2);
         let edge = mk_edge("subj-e", "links", "obj-f", 7, None);
         let att = build_signed_with_edges(vec![fact], vec![edge.clone()], [11u8; 32]);
@@ -2703,6 +2904,12 @@ mod trace_gate_tests {
     #[tokio::test]
     async fn a_signed_fact_can_be_keyed_to_an_object_rather_than_a_place() {
         let storage = ephemeral();
+        // This test is about object-keyed subjects, not admission. Open the plane so the
+        // test keys may occupy an address; the gate has its own tests below.
+        storage.set_fact_plane_policy(FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let secret = [7u8; 32];
         let signing = SigningKey::from_bytes(&secret);
         let mut pk = [0u8; 32];
@@ -2960,19 +3167,103 @@ mod trace_gate_tests {
         assert_eq!(via_trait.trace_cid().unwrap(), admitted.trace_cid);
     }
 
+    /// An unenrolled key may not occupy an address. This test used to assert
+    /// the opposite ("unenrolled writers are untouched") and it passed, which
+    /// is how a fact plane that /v1/enlist described as closed was open to any
+    /// key with a valid signature. The trace gate answering "does not apply"
+    /// for a key it never enrolled is correct for the TRACE gate; it is not an
+    /// admission to the address book.
     #[tokio::test]
-    async fn unenrolled_writers_are_untouched() {
+    async fn unenrolled_writers_may_not_occupy_an_address() {
         let storage = ephemeral();
         let mut sec = [0u8; 32];
-        sec[0] = 9;
+        sec[0] = 42;
         let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
         let att = build_signed(vec![mk_fact(0.85, pk)], sec);
+        let err = storage
+            .put_attestation_gated(&att, None)
+            .await
+            .expect_err("a stranger's key occupied an address");
+        match err {
+            StorageError::Protocol { code, message } => {
+                assert_eq!(code, ErrorCode::LevelTooLow, "{message}");
+                assert!(message.contains("fact_plane_closed"), "{message}");
+                assert!(
+                    message.contains("/v1/derive"),
+                    "the refusal names the open door: {message}"
+                );
+            }
+            other => panic!("wrong error: {other}"),
+        }
+        // Nothing was stored: the address is still empty.
+        let key = match &att.facts[0] {
+            Fact::Primary(pf) => emem_cache::CanonicalKey {
+                cell: pf.cell.clone(),
+                band: pf.band.clone(),
+                tslot: pf.tslot,
+            },
+            _ => unreachable!(),
+        };
+        assert!(storage.cache.lookup_many(&[key]).await.unwrap()[0].is_none());
+    }
+
+    /// The responder's own key is admitted: its materialiser writes this way.
+    #[tokio::test]
+    async fn the_responder_key_is_admitted() {
+        let storage = ephemeral();
+        let mut sec = [0u8; 32];
+        sec[0] = 43;
+        let pk = SigningKey::from_bytes(&sec).verifying_key().to_bytes();
+        storage.set_fact_plane_policy(FactPlanePolicy::for_responder(pk));
+        let att = build_signed(vec![mk_fact(0.5, pk)], sec);
         let (cids, admitted) = storage
             .put_attestation_gated(&att, None)
             .await
-            .expect("ungated write");
+            .expect("the responder writes its own plane");
         assert_eq!(cids.len(), 1);
-        assert!(admitted.is_none());
+        assert!(
+            admitted.is_none(),
+            "no trace was presented, none is claimed"
+        );
+    }
+
+    /// An operator-listed key is admitted; the same key is refused when the
+    /// list does not name it. The list is the policy, not the signature.
+    #[tokio::test]
+    async fn an_operator_listed_key_is_admitted_and_no_other() {
+        let storage = ephemeral();
+        let mut sec_ok = [0u8; 32];
+        sec_ok[0] = 44;
+        let mut sec_no = [0u8; 32];
+        sec_no[0] = 45;
+        let pk_ok = SigningKey::from_bytes(&sec_ok).verifying_key().to_bytes();
+        let pk_no = SigningKey::from_bytes(&sec_no).verifying_key().to_bytes();
+        let mut policy = FactPlanePolicy::default();
+        policy.allowlist.insert(pk_ok);
+        storage.set_fact_plane_policy(policy);
+        storage
+            .put_attestation_gated(&build_signed(vec![mk_fact(0.1, pk_ok)], sec_ok), None)
+            .await
+            .expect("listed key admitted");
+        storage
+            .put_attestation_gated(&build_signed(vec![mk_fact(0.2, pk_no)], sec_no), None)
+            .await
+            .expect_err("unlisted key admitted");
+    }
+
+    /// The plane is closed unless an operator opens it, and `describe` says
+    /// which. A default that fails open is documentation, not a gate.
+    #[test]
+    fn the_plane_is_closed_by_default_and_says_so() {
+        let p = FactPlanePolicy::default();
+        assert!(!p.admits(&[1u8; 32]));
+        assert!(p.describe().starts_with("closed"), "{}", p.describe());
+        let open = FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        };
+        assert!(open.admits(&[1u8; 32]));
+        assert!(open.describe().starts_with("OPEN"), "{}", open.describe());
     }
 
     #[tokio::test]

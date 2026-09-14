@@ -747,6 +747,11 @@ mod include_edges_tests {
         let sources = Arc::new(emem_core::SourceRegistry::parse_default().expect("sources"));
         let storage =
             Arc::new(MaterializingStorage::ephemeral(bands, functions, sources).expect("storage"));
+        // Throwaway test keys seed facts; the plane is closed by default.
+        storage.set_fact_plane_policy(emem_storage::FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let srv = Server {
             storage: storage.clone(),
             identity: ResponderIdentity::fresh(),

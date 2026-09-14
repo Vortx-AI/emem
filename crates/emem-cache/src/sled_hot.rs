@@ -717,6 +717,15 @@ fn decode_key(b: &[u8]) -> Result<CanonicalKey, String> {
 
 /// The canonical key derived from a fact's storage tuple. Returns None for
 /// derivative facts (which are keyed by parent CIDs, not cell/band/tslot).
+/// Which key signed this fact, whatever its variant.
+fn fact_signer(fact: &Fact) -> &[u8; 32] {
+    match fact {
+        Fact::Primary(p) => &p.signer.0,
+        Fact::Absence(n) => &n.signer.0,
+        Fact::Derivative(d) => &d.signer.0,
+    }
+}
+
 fn fact_canonical_key(fact: &Fact) -> Option<CanonicalKey> {
     match fact {
         Fact::Primary(p) => Some(CanonicalKey {
@@ -807,7 +816,38 @@ impl Cache for SledHotCache {
                 let hash = h.finalize();
                 let cid_s = BASE32_NOPAD.encode(hash.as_bytes()).to_lowercase();
                 let cid = FactCid::new(cid_s);
-                let key = fact_canonical_key(f).map(|k| encode_key(&k));
+                let mut key = fact_canonical_key(f).map(|k| encode_key(&k));
+                // The index at (cell, band, tslot) was last-writer-wins, so a
+                // second signer's fact silently REPLACED what every reader
+                // recalled at that address. Now the address stays with the key
+                // that holds it: a different signer's fact is stored and
+                // reachable by its own cid (and by the multi-attester index and
+                // the contradiction scan), but it does not take the slot. The
+                // same signer refreshing its own reading still does.
+                if let Some(kb) = key.as_ref() {
+                    let holder: Option<Vec<u8>> = match &redb {
+                        Some(r) => r.lookup(kb)?,
+                        None => idx.get(kb)?.map(|v| v.to_vec()),
+                    };
+                    if let Some(holder_cid) = holder {
+                        let holder_fact: Option<Vec<u8>> = match &redb {
+                            Some(r) => r.get_fact(&holder_cid)?,
+                            None => facts_tree.get(&holder_cid)?.map(|v| v.to_vec()),
+                        };
+                        if let Some(hb) = holder_fact {
+                            if let Ok(hf) = cbor_to_fact(&hb) {
+                                if fact_signer(&hf) != fact_signer(f) {
+                                    tracing::info!(
+                                        target: "emem::fact_plane",
+                                        cid = %cid.as_str(),
+                                        "address held by another signer; fact stored without taking the index"
+                                    );
+                                    key = None;
+                                }
+                            }
+                        }
+                    }
+                }
                 match &redb {
                     // New facts go to redb only: durable when the commit
                     // returns, and no explicit sled flush from this path.

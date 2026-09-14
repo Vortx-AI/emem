@@ -659,7 +659,7 @@ pub fn ladder_doc() -> serde_json::Value {
             {"surface": "shared_entity_address_space", "min_tier": Tier::T3Declared.as_str(),
              "note": "entity + entity_link change what every other agent resolves a name to. This is the one genuine poisoning surface in the current design."},
             {"surface": "fact_plane", "min_tier": Tier::T4Affiliated.as_str(),
-             "note": "no caller can write a fact today by any route; this states the rule rather than relying on the absence of a door"}
+             "note": "an address (cell, band, tslot) is written only by this responder's materialiser, by a device enrolled through the OS-trace gate, or by a key the operator lists in EMEM_FACT_PLANE_WRITERS; every other signed attestation that tries to occupy one is refused 403 level_too_low at storage, on every route. Derivations and edges take no address and stay open at T1: signed, attributed, append-only, unable to overwrite what anyone else recalls."}
         ],
         "org_verification": {
             "why_not_oauth": "Browser OAuth 2.1 + Dynamic Client Registration \

@@ -152,6 +152,22 @@ if curl -fsS -m "$TIMEOUT" "$LIVE" >/dev/null 2>&1; then
   exit 0
 fi
 
+# A deliberate stop is not a stall. On 2026-09-14 the responder was stopped
+# for a storage maintenance that took 57 minutes; this counter reached the
+# threshold and restarted the service the instant the maintenance tool
+# released its lock, before the operator had swapped the store back -- so the
+# server came up holding a directory that was renamed under it seconds later.
+# `inactive` is what systemctl reports after `systemctl stop`; a crash reads as
+# `failed` and a boot in progress as `activating`, and both of those still
+# count. A sentinel file covers the case where the unit is up but an operator
+# has asked for hands off.
+UNIT_STATE=$($SYSTEMCTL is-active emem-server.service 2>/dev/null || true)
+if [ "$UNIT_STATE" = "inactive" ] || [ -e /run/emem/maintenance ] || [ -e /home/ubuntu/emem/var/emem/.maintenance ]; then
+  echo "emem-watchdog: emem-server is ${UNIT_STATE:-unknown} by operator action (or a maintenance sentinel is present); not counting this miss and not restarting"
+  echo 0 >"$STATE"
+  exit 0
+fi
+
 fails=$((fails + 1))
 echo "$fails" >"$STATE"
 echo "emem-watchdog: /live did not respond within ${TIMEOUT}s (${fails}/${THRESHOLD}) — this is a real runtime stall, /live touches no storage"

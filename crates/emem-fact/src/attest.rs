@@ -142,3 +142,9 @@ impl Attestation {
         })
     }
 }
+
+/// Lower-case, unpadded base32 of an attester key: the one spelling of a
+/// pubkey every surface here uses (`signer_pubkey_b32`, `responder_pubkey_b32`).
+pub fn render_attester_b32(key: &AttesterKey) -> String {
+    data_encoding::BASE32_NOPAD.encode(&key.0).to_lowercase()
+}

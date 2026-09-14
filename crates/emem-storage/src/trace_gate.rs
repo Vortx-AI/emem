@@ -383,6 +383,12 @@ impl TraceGate {
     /// enrolled (the gate does not apply); `Ok(Some(profile))` with the
     /// enrolled profile when the trace admits; an
     /// [`StorageError::AttestationInvalid`] otherwise.
+    /// Is this key an enrolled device? The fact-plane gate admits enrolled
+    /// devices by enrolment; `check` has already required their trace.
+    pub fn is_enrolled(&self, key: &[u8; 32]) -> bool {
+        self.enrollment_of(&render_key(key)).is_some()
+    }
+
     pub fn check(
         &self,
         att: &Attestation,
@@ -700,7 +706,7 @@ impl TraceGate {
 
 /// Render a 32-byte attester key the way `AttesterRegistry` renders it:
 /// base32-nopad lowercase, matching every other digest rendering.
-fn render_key(key: &[u8; 32]) -> String {
+pub(crate) fn render_key(key: &[u8; 32]) -> String {
     data_encoding::BASE32_NOPAD.encode(key).to_lowercase()
 }
 

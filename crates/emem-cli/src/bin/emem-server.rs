@@ -143,6 +143,18 @@ async fn main() -> anyhow::Result<()> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    // The fact plane is closed by default; only now, with the identity loaded,
+    // is the responder's own key known, so the policy is installed here. The
+    // log line is the operator's evidence of what this node admits.
+    let fact_plane = emem_storage::FactPlanePolicy::for_responder(identity.pubkey.0);
+    tracing::info!(policy = %fact_plane.describe(), "fact plane");
+    if fact_plane.open {
+        tracing::warn!(
+            "EMEM_FACT_PLANE_OPEN=1: any signing key may occupy an address on this node"
+        );
+    }
+    storage.set_fact_plane_policy(fact_plane);
+
     let server = Arc::new(Server {
         storage: Arc::new(storage),
         identity,

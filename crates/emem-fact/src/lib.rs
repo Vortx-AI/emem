@@ -14,7 +14,7 @@ pub mod receipt;
 pub mod scope;
 pub mod state;
 
-pub use attest::Attestation;
+pub use attest::{render_attester_b32, Attestation};
 pub use cid::{EdgeCid, FactCid, ReasonCid, RegistryCid, SchemaCid};
 pub use edge::EdgeFact;
 pub use fact::{

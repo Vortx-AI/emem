@@ -18594,6 +18594,7 @@ async fn post_edges_write(
     State(s): State<AppState>,
     EmemJson(att): EmemJson<Attestation>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    enforce_write_rate_limit_key(&emem_fact::render_attester_b32(&att.attester))?;
     if att.edges.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
@@ -19327,6 +19328,7 @@ async fn post_attest(
     State(s): State<AppState>,
     EmemJson(att): EmemJson<Attestation>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    enforce_write_rate_limit_key(&emem_fact::render_attester_b32(&att.attester))?;
     // Routed through the trace gate: identical to put_attestation for any
     // key that was never enrolled (the archive writers and every existing
     // attester), but an enrolled device key with no trace is rejected here
@@ -19369,6 +19371,7 @@ async fn post_attest_traced(
                     },
                 )
             })?;
+    enforce_write_rate_limit_key(&emem_fact::render_attester_b32(&att.attester))?;
     let trace: Option<emem_trace::OsTrace> = match req.get("trace") {
         Some(JsonValue::Null) | None => None,
         Some(v) => Some(serde_json::from_value(v.clone()).map_err(|e| {
@@ -31292,7 +31295,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, `emem.ask_splat.v1`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/attest":            {"post":{"summary":"submit signed attestation (JSON). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
             // meant the agent-to-agent front door the .well-known descriptor
@@ -39760,6 +39763,14 @@ fn write_limiter() -> &'static WriteRateLimiter {
 /// signed, append-only-logged, and namespace-scoped), it was only slowed.
 fn enforce_write_rate_limit(attester: Option<&MemoryAttester>) -> Result<(), ApiError> {
     let key = attester.map(|a| a.pubkey_b32.as_str()).unwrap_or("@open");
+    enforce_write_rate_limit_key(key)
+}
+
+/// The same per-key backstop for writes whose attester arrives as a raw key
+/// inside a signed Attestation envelope (/v1/attest, /v1/edges,
+/// /v1/attest_traced) rather than as a `MemoryAttester` block. Those routes
+/// had no rate bound at all.
+fn enforce_write_rate_limit_key(key: &str) -> Result<(), ApiError> {
     match write_limiter().check(key) {
         Ok(()) => Ok(()),
         Err(retry_after_s) => Err(ApiError(
@@ -58786,9 +58797,16 @@ fn parse_skill_declaration(body: &str) -> Option<JsonValue> {
 ///
 /// `EMEM_ENLISTMENT_ENFORCE=1` enforces.
 fn enlistment_enforcing() -> bool {
-    std::env::var("EMEM_ENLISTMENT_ENFORCE")
-        .map(|v| v == "1")
-        .unwrap_or(false)
+    // Enforcing unless an operator turns it OFF. It used to be the other way
+    // round -- shadow mode unless EMEM_ENLISTMENT_ENFORCE=1 -- which is a
+    // security default that fails open: a fresh deployment, a test node, an
+    // air-gapped satellite that forgot one variable, all accepted shared-space
+    // writes from any key while reporting that they would have refused them.
+    // A gate that needs a flag to be a gate is documentation.
+    !matches!(
+        std::env::var("EMEM_ENLISTMENT_ENFORCE").as_deref(),
+        Ok("0") | Ok("off") | Ok("false") | Ok("shadow")
+    )
 }
 
 /// The tier this responder can currently prove about a key.
@@ -82717,6 +82735,12 @@ mod tests {
         let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
         let storage =
             MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
+        // Tests seed facts from throwaway keys; the plane is closed by default,
+        // so open it here. The gate has its own tests in emem-storage.
+        storage.set_fact_plane_policy(emem_storage::FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let identity = ResponderIdentity::fresh();
         let manifests = ManifestCids {
             registry_cid: emem_fact::RegistryCid::new("reg".to_string()),
@@ -85781,6 +85805,12 @@ mod tests {
         let sources = std::sync::Arc::new((*emem_core::sources::DEFAULT).clone());
         let storage =
             MaterializingStorage::ephemeral(bands, functions, sources).expect("ephemeral storage");
+        // Tests seed facts from throwaway keys; the plane is closed by default,
+        // so open it here. The gate has its own tests in emem-storage.
+        storage.set_fact_plane_policy(emem_storage::FactPlanePolicy {
+            open: true,
+            ..Default::default()
+        });
         let mut sec = [0u8; 32];
         sec[0] = 0xa5; // deterministic so the pubkey is stable in CI
         let identity = ResponderIdentity::from_secret(sec, 10);
