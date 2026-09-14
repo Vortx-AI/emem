@@ -826,7 +826,7 @@ const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
 "q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`. Plain lowercased substring over name + title + description + trigger text, not fuzzy and not stemmed: `ndvi` hits, `vegetation index` only hits tools that spell that phrase. Combines with `shape`/`bundle`/`category`/`tier` as AND, so an over-narrow combination answers with an empty catalog rather than an error."},
 "shape":{"type":"string","enum":["scalar","timeseries","raster","geometry","vector","identity","token","proof","plan","file","catalog"],"description":"Filter by what the answer looks like, which is usually the real question. `scalar` is one number at one address; `raster` is a gridded field over an area; `timeseries` is a value per timestep; `vector` is a learned embedding; `identity` is a canonical name for a thing; `token` is a citation handle; `proof` checks one."},
 "bundle":{"type":"string","enum":["tokenisation","verification","agent_to_agent","long_horizon","robotics","satellites","agriculture","forestry","climate_risk"],"description":"Filter by the job you are doing. Call with no arguments first to see each bundle and its size."},
-"category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category. This is about the shape of the job, NOT about safety: 13 tools outside `write` declare `readOnlyHint: false` because reading a cold address can materialise or mint as a side effect, so `category: \"read\"` is not a safe-tools filter. Read each result's `annotations.readOnlyHint` for that."},
+"category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category. This is about the shape of the job, NOT about safety: {TOOL_SIDE_EFFECT} tools outside `write` declare `readOnlyHint: false` because reading a cold address can materialise or mint as a side effect, so `category: \"read\"` is not a safe-tools filter. Read each result's `annotations.readOnlyHint` for that."},
 "tier":{"type":"string","enum":["core","extended","all"],"description":"Which slice to list. Defaults to `all`, so this tool shows the whole surface even when the endpoint advertises only the core loop, and an `extended` tool you find here is callable by name through tools/call whether or not your host listed it. Pass `core` to see only what a default connection advertises."}
 }}"#;
 
@@ -1971,27 +1971,31 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_find_similar",
         title: "k-NN over the corpus by embedding",
-        description: "k-NN over the corpus by cell embedding or inline vector. Returns `neighbours` ordered nearest-first, each with `cell64`, `score` and the `band` scanned, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds and materialises nothing, so an empty result means nobody has attested a vector nearby, not that nowhere resembles the key.",
+        description: "k-NN over the corpus by cell embedding or inline vector. Returns `neighbours` ordered nearest-first, each with `cell64`, `score` and the `band` scanned, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never materialised, so an empty result means nobody has attested a vector nearby, not that nowhere resembles the key.",
         when_to_use: "Call when the user asks 'find places like X', 'where else looks like this', or hands an embedding to find neighbours. `key` is either a cell64 or `inline:[x,y,...]`. Default band is `geotessera` (128-D Tessera foundation embedding); pass `band: \"geotessera.multi_year\"` for the 1152-D 9-vintage (2017–2025) fusion.",
         input_schema: SCHEMA_FIND_SIMILAR,
         output_schema: None,
         example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
         level: "L0", category: ToolCategory::Read,
-    // `readOnlyHint: false` contradicted this tool's own description, which
-    // says it "ranks what the corpus already holds and materialises nothing".
-    // find_similar reads vectors and returns a receipt over what it read; it
-    // writes nothing and signs no new fact. The wrong flag made a pure read
-    // advertise itself as a mutation, so a cautious host would gate it like
-    // one. It also set the floor of the whole server's score, because the
-    // Glama rubric weights the MINIMUM tool score at 40%.
+    // `false`, and it was wrong to flip it to `true` on 2026-09-14.
     //
-    // The paragraph above shipped; the flag under it did not. It read `false`
-    // for as long as this comment has existed, which is the failure mode of
-    // writing the reason beside the value instead of changing the value: the
-    // file explains a fix it does not contain, and every reader after that
-    // takes it as done. Anthropic's directory portal read the live listing and
-    // grouped this tool with the writes.
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    // That change quoted this tool's own description, "materialises nothing",
+    // and the description was the thing that was wrong. The MCP arm dispatches
+    // `find_similar_with_auto_materialize`: on `CidNotFound` it calls
+    // `try_materialize_bands` for the key's band, which mints and persists a
+    // SIGNED fact, and the response carries `materialize_notes` naming it.
+    // `auto_materialize_enabled()` defaults true and production does not set
+    // EMEM_AUTO_MATERIALIZE. So a caller can observe state this call created,
+    // which is what `readOnlyHint` asks about.
+    //
+    // The other reason given was that the Glama rubric weights the MINIMUM
+    // tool score at 40%, so this flag set the server's floor. A score is not
+    // evidence about behaviour. If the hint is to become true, the write has
+    // to go, not the disclosure of it.
+    //
+    // Re-derive: the dispatch arm is `"emem_find_similar" =>` in emem-api-rest,
+    // and it is the only MCP tool whose handler differs from its REST twin.
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -2805,6 +2809,25 @@ pub fn tool_task_support(name: &str) -> &'static str {
 pub fn with_counts(text: &str) -> String {
     text.replace("{TOOL_TOTAL}", &TOOLS.len().to_string())
         .replace("{TOOL_CORE}", &tools_at_tier("core").len().to_string())
+        .replace(
+            "{TOOL_SIDE_EFFECT}",
+            &tools_with_side_effects_outside_write().to_string(),
+        )
+}
+
+/// Tools a caller would not classify as writes that can still change state.
+///
+/// `category` answers "what shape of job is this", `readOnlyHint` answers "can
+/// this change anything", and they disagree because reading a cold address can
+/// materialise and sign a fact. The number was typed as `13` into the
+/// `emem_tools` category schema, which is a count of the registry living
+/// outside it: correct the day it was written, wrong the moment one hint
+/// moved. Schemas go through `with_counts` for exactly this reason.
+pub fn tools_with_side_effects_outside_write() -> usize {
+    TOOLS
+        .iter()
+        .filter(|t| !matches!(t.category, ToolCategory::Write) && !t.read_only_hint)
+        .count()
 }
 
 pub fn tools_at_tier(tier: &str) -> Vec<&'static ToolDescriptor> {
@@ -4413,11 +4436,17 @@ mod tests {
     fn no_tool_text_types_its_own_count() {
         let core = tools_at_tier("core").len();
         let total = TOOLS.len();
+        let side_effect = tools_with_side_effects_outside_write();
         let mut bad = Vec::new();
         for t in TOOLS {
             for (field, text) in [
                 ("description", t.description),
                 ("when_to_use", t.when_to_use),
+                // A schema's `description` is prose a host renders, and it was
+                // the one field this test did not read. `emem_tools` carried
+                // "13 tools outside `write` declare `readOnlyHint: false`"
+                // there, correct when typed and wrong the moment a hint moved.
+                ("input_schema", t.input_schema),
             ] {
                 for phrase in [
                     "LIST OF ",
@@ -4440,6 +4469,33 @@ mod tests {
                         }
                         from = at;
                     }
+                }
+                // The phrase list above is a list of ways someone HAS written a
+                // count, so it only ever catches the last drift. This catches
+                // the shape instead: any literal immediately before the word
+                // "tool" that equals a number the registry can compute. That is
+                // what "13 tools outside `write`" was, and no phrase would have
+                // matched it.
+                let bytes = text.as_bytes();
+                let mut from = 0;
+                while let Some(i) = text[from..].find(" tool") {
+                    let end = from + i;
+                    let mut start = end;
+                    while start > 0 && bytes[start - 1].is_ascii_digit() {
+                        start -= 1;
+                    }
+                    if start < end {
+                        if let Ok(n) = text[start..end].parse::<usize>() {
+                            if n == core || n == total || n == side_effect {
+                                bad.push(format!(
+                                    "{} [{field}] \"{} tool…\" is a computable count",
+                                    t.name,
+                                    &text[start..end]
+                                ));
+                            }
+                        }
+                    }
+                    from = end + 5;
                 }
             }
         }

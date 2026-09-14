@@ -11566,7 +11566,8 @@ async fn tools(Query(params): Query<std::collections::HashMap<String, String>>) 
         "title": t.title,
         "description": emem_mcp::with_counts(t.description),
         "when_to_use": t.when_to_use,
-        "input_schema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+        "input_schema": serde_json::from_str::<JsonValue>(&emem_mcp::with_counts(t.input_schema))
+            .unwrap_or(json!({})),
         "example_args": serde_json::from_str::<JsonValue>(t.example_args).unwrap_or(json!({})),
         "level": t.level,
         "category": t.category,
@@ -27166,7 +27167,11 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
             t.when_to_use,
             mcp_example_clause(t.name, t.example_args)
         )),
-        "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
+        // Through `with_counts` as well: a schema's `description` is prose a
+        // host renders, and one of them carried a typed registry count that
+        // went stale the moment a readOnlyHint moved.
+        "inputSchema": serde_json::from_str::<JsonValue>(&emem_mcp::with_counts(t.input_schema))
+            .unwrap_or(json!({})),
         // Declared only where the tool can keep the promise: the spec binds
         // outputSchema to returning conforming structuredContent on every
         // call, and the wrapper protects the mirror for exactly these tools.
