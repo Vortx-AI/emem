@@ -72,6 +72,23 @@ check("server declares tools capability", "tools" in caps, json.dumps(caps)[:120
 
 _, listed = rpc("tools/list", {})
 tools = (listed.get("result") or {}).get("tools") or []
+print("== MCP: server/discover (mandatory in revision 2026-07-28)")
+_, disc = rpc("server/discover", {})
+dres = disc.get("result") or {}
+check("server/discover is implemented", bool(dres) and not disc.get("error"),
+      f"resultType={dres.get('resultType')!r}" if dres else str(disc.get("error"))[:80])
+if dres:
+    sv = dres.get("supportedVersions") or []
+    check("it lists the versions actually negotiated", isinstance(sv, list) and bool(sv), str(sv))
+    si = (dres.get("_meta") or {}).get("io.modelcontextprotocol/serverInfo") or {}
+    check("it carries serverInfo", bool(si.get("name")), json.dumps(si))
+    # The claim that matters: discover and initialize describe ONE server.
+    icaps = (init.get("result") or {}).get("capabilities") or {}
+    dcaps = dres.get("capabilities") or {}
+    check("discover and initialize agree on capabilities",
+          sorted(dcaps.keys()) == sorted(icaps.keys()),
+          f"discover={sorted(dcaps.keys())} initialize={sorted(icaps.keys())}")
+
 print(f"== Claude directory rules, across {len(tools)} advertised tools")
 
 long_names = [t["name"] for t in tools if len(t["name"]) > 64]

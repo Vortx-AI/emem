@@ -24088,6 +24088,37 @@ fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
     Some(JsonValue::Object(core))
 }
 
+/// The capabilities this responder serves, for one negotiated revision.
+///
+/// Extracted because `server/discover` and `initialize` must answer the same
+/// thing: a client that reads capabilities from one and calls against the
+/// other would otherwise be reading two independently maintained lists. Only
+/// features with an implemented path appear here -- `sampling` and
+/// `elicitation` are client capabilities with no server-initiated path in
+/// emem, and claiming them would be false.
+fn mcp_capabilities_for(version: &str) -> JsonValue {
+    let mut capabilities = json!({
+        "tools":     { "listChanged": false },
+        "resources": { "listChanged": false, "subscribe": false },
+        "prompts":   { "listChanged": false },
+    });
+    // The task layer arrived in 2025-11-25 and is additive, so it is
+    // advertised only when that revision is the negotiated one.
+    if version == "2025-11-25" {
+        if let Some(obj) = capabilities.as_object_mut() {
+            obj.insert(
+                "tasks".into(),
+                json!({
+                    "list":   {},
+                    "cancel": {},
+                    "requests": { "tools": { "call": {} } },
+                }),
+            );
+        }
+    }
+    capabilities
+}
+
 fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
     let raw_content = inner
         .get("_mcp_content")
@@ -27700,50 +27731,36 @@ async fn mcp_jsonrpc_inner(
             //   capabilities (server-initiated), and emem has no
             //   implemented server-initiated sampling/elicitation path, so
             //   claiming them would be false.
-            let mut capabilities = json!({
-                "tools":     { "listChanged": false },
-                "resources": { "listChanged": false, "subscribe": false },
-                "prompts":   { "listChanged": false },
-            });
-            if negotiated == "2025-11-25" {
-                if let Some(obj) = capabilities.as_object_mut() {
-                    obj.insert(
-                        "tasks".into(),
-                        json!({
-                            "list":   {},
-                            "cancel": {},
-                            "requests": { "tools": { "call": {} } },
-                        }),
-                    );
-                }
-            }
-            // MCP Apps (SEP-1865, extension id io.modelcontextprotocol/ui,
-            // Final 2026-01-26). The extensions map is a 2025-11-25 feature,
-            // so this needs no migration to 2026-07-28: the apps extension
-            // negotiates over the initialize handshake that revision still
-            // has.
-            //
-            // Why emem serves a view at all. Every hop of a recall carries a
-            // content address until the last one, where the agent writes a
-            // sentence about the fact for a person to read. Prose is the one
-            // link in that chain nobody can check, which is the failure this
-            // protocol exists to prevent, surviving at the step we never
-            // instrumented. A rendered card closes it.
-            //
-            // Advertised only at 2025-11-25 and only because a `ui://`
-            // resource is actually served and a tool actually points at it;
-            // an extension declared without a view behind it is the same
-            // defect as a route in the OpenAPI document that 404s.
-            if negotiated == "2025-11-25" {
-                if let Some(obj) = capabilities.as_object_mut() {
-                    obj.insert(
-                        "extensions".into(),
-                        json!({
-                            "io.modelcontextprotocol/ui": {
-                                "mimeTypes": [MCP_APP_MIME],
-                            }
-                        }),
-                    );
+            let mut capabilities = mcp_capabilities_for(negotiated);
+            {
+                // MCP Apps (SEP-1865, extension id io.modelcontextprotocol/ui,
+                // Final 2026-01-26). The extensions map is a 2025-11-25 feature,
+                // so this needs no migration to 2026-07-28: the apps extension
+                // negotiates over the initialize handshake that revision still
+                // has.
+                //
+                // Why emem serves a view at all. Every hop of a recall carries a
+                // content address until the last one, where the agent writes a
+                // sentence about the fact for a person to read. Prose is the one
+                // link in that chain nobody can check, which is the failure this
+                // protocol exists to prevent, surviving at the step we never
+                // instrumented. A rendered card closes it.
+                //
+                // Advertised only at 2025-11-25 and only because a `ui://`
+                // resource is actually served and a tool actually points at it;
+                // an extension declared without a view behind it is the same
+                // defect as a route in the OpenAPI document that 404s.
+                if negotiated == "2025-11-25" {
+                    if let Some(obj) = capabilities.as_object_mut() {
+                        obj.insert(
+                            "extensions".into(),
+                            json!({
+                                "io.modelcontextprotocol/ui": {
+                                    "mimeTypes": [MCP_APP_MIME],
+                                }
+                            }),
+                        );
+                    }
                 }
             }
             Ok(json!({
@@ -27762,6 +27779,46 @@ async fn mcp_jsonrpc_inner(
                 // anti-drift), not just that it exists. Kept in sync with the
                 // agent_card `purpose` and the primary/secondary tool split.
                 "instructions": mcp_instructions(default_tier),
+            }))
+        }
+        // `server/discover`, spec revision 2026-07-28: "lets a client query a
+        // server's supported protocol versions, capabilities, and identity
+        // before sending any other requests. Servers MUST implement it."
+        //
+        // We serve 2025-11-25, which is a revision behind, and that is exactly
+        // the fact this method exists to communicate: `supportedVersions`
+        // lists what we actually negotiate rather than what is current, so a
+        // client asking for 2026-07-28 learns it in one request instead of
+        // discovering it through a handshake that quietly answers with
+        // something else. Implementing it costs nothing a client can trip
+        // over, and the alternative -- a mandatory method answering -32601 --
+        // is the thing a directory review reads as unmaintained.
+        //
+        // The body is the same identity, capabilities and instructions that
+        // `initialize` returns, by construction rather than by copy.
+        "server/discover" => {
+            let mut capabilities = mcp_capabilities_for(MCP_LATEST_VERSION);
+            if let Some(obj) = capabilities.as_object_mut() {
+                obj.insert(
+                    "extensions".into(),
+                    json!({ "io.modelcontextprotocol/ui": { "mimeTypes": [MCP_APP_MIME] } }),
+                );
+            }
+            Ok(json!({
+                "resultType": "complete",
+                "supportedVersions": MCP_SUPPORTED_VERSIONS,
+                "capabilities": capabilities,
+                "instructions": mcp_instructions(default_tier),
+                "_meta": {
+                    "io.modelcontextprotocol/serverInfo": {
+                        "name": "emem",
+                        "version": env!("CARGO_PKG_VERSION"),
+                    },
+                },
+                // Compiled-in tool, resource and prompt sets: this answer
+                // changes on a redeploy and not before.
+                "ttlMs": 3_600_000,
+                "cacheScope": "public",
             }))
         }
         "tools/list" => {

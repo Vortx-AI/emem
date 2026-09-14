@@ -10,6 +10,10 @@ name = "emem"
 path = "src/main.rs"
 
 [[bin]]
+name = "emem-sled-slim"
+path = "src/bin/emem-sled-slim.rs"
+
+[[bin]]
 name = "emem-server"
 path = "src/bin/emem-server.rs"
 

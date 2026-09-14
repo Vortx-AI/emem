@@ -1,0 +1,174 @@
+//! One-shot admin tool: take the migrated fact data out of the sled store.
+//!
+//! Why this exists. Facts moved to redb (`facts.redb`) and the migration
+//! finished: `backfill_done` is set, so `consult_sled()` is false and no read
+//! touches the sled fact trees, and `put_many` writes new facts to redb only.
+//! What did not change is that the server still OPENS the sled store at boot,
+//! because several small, live trees remain in it — attesters, fact proofs,
+//! the multi-attester index, the trace gate's five trees, agent stats.
+//!
+//! Opening it costs the whole cold start. Measured on emem.dev, twice:
+//! `storage_open` 1,330,076 ms and 1,320,000 ms, against a `cache.sled/db`
+//! file of 43.7 GB. That is ~22 minutes of downtime on every deploy, and it
+//! grows with the file. The 41 GB is almost entirely the two dead trees.
+//!
+//! What this does NOT do: it never deletes anything. It copies the trees that
+//! are still live into a NEW store beside the old one and leaves the original
+//! untouched, so the rollback is renaming a directory back. Dropping trees
+//! in place would not have reclaimed the space anyway — sled frees pages for
+//! reuse rather than truncating the heap file, and it is the file length that
+//! the boot pays for.
+//!
+//! Usage:
+//!
+//! ```text
+//! emem-sled-slim                        # dry run: every tree, its size, and the check
+//! emem-sled-slim --apply                # write cache.sled.slim beside it
+//! emem-sled-slim --data-dir ./var/emem  # override path
+//! ```
+//!
+//! Server must be stopped first — sled holds an exclusive lock.
+
+use std::path::PathBuf;
+
+use anyhow::{Context, Result};
+
+/// The trees the migration emptied of meaning. Nothing reads them: the fact
+/// path consults sled only while `backfill_done` is false.
+const MIGRATED: &[&str] = &["emem.facts", "emem.canonical_index"];
+
+fn main() -> Result<()> {
+    let mut data_dir = PathBuf::from("var/emem");
+    let mut apply = false;
+    let mut args = std::env::args().skip(1);
+    while let Some(a) = args.next() {
+        match a.as_str() {
+            "--apply" => apply = true,
+            "--data-dir" => {
+                data_dir = PathBuf::from(args.next().context("--data-dir needs a path")?)
+            }
+            other => anyhow::bail!("unknown argument {other}"),
+        }
+    }
+
+    let cache_path = data_dir.join("cache.sled");
+    let redb_path = data_dir.join("facts.redb");
+    let out_path = data_dir.join("cache.sled.slim");
+
+    println!("sled store : {}", cache_path.display());
+    println!("redb store : {}", redb_path.display());
+    println!("mode       : {}", if apply { "APPLY" } else { "dry-run" });
+    println!();
+
+    // The check that has to pass before anything is called dead: the facts
+    // must already be in redb. A tree is only migrated if its contents went
+    // somewhere, and "backfill_done is set" is a flag, not evidence.
+    let redb = emem_cache::redb_facts::RedbFacts::open(&redb_path)
+        .with_context(|| format!("open redb at {}", redb_path.display()))?;
+    println!(
+        "redb: backfill_done={} index_len={} size_on_disk={} bytes",
+        redb.backfill_done(),
+        redb.index_len().unwrap_or(0),
+        redb.size_on_disk()
+    );
+    anyhow::ensure!(
+        redb.backfill_done(),
+        "redb says the backfill is NOT done; the sled fact trees are still the live copy. Nothing to slim."
+    );
+    println!();
+
+    println!("opening sled (this is the 22 minutes the server pays at every boot)…");
+    let started = std::time::Instant::now();
+    let db = sled::open(&cache_path)
+        .with_context(|| format!("open sled at {}", cache_path.display()))?;
+    println!("opened in {:.1}s", started.elapsed().as_secs_f64());
+    println!();
+
+    let mut keep: Vec<(String, usize)> = Vec::new();
+    let mut drop_: Vec<(String, usize)> = Vec::new();
+    for name in db.tree_names() {
+        let label = String::from_utf8_lossy(&name).to_string();
+        if label == "__sled__default" {
+            continue;
+        }
+        let len = db.open_tree(&name)?.len();
+        if MIGRATED.contains(&label.as_str()) {
+            drop_.push((label, len));
+        } else {
+            keep.push((label, len));
+        }
+    }
+    keep.sort();
+    drop_.sort();
+
+    println!("trees that stay ({}):", keep.len());
+    for (n, l) in &keep {
+        println!("   {l:>12} rows  {n}");
+    }
+    println!("trees already migrated to redb ({}):", drop_.len());
+    for (n, l) in &drop_ {
+        println!("   {l:>12} rows  {n}");
+    }
+    println!();
+
+    let sled_facts = drop_
+        .iter()
+        .find(|(n, _)| n == "emem.facts")
+        .map(|(_, l)| *l)
+        .unwrap_or(0);
+    let redb_index = redb.index_len().unwrap_or(0);
+    println!("sled emem.facts rows : {sled_facts}");
+    println!("redb index rows      : {redb_index}");
+    if (redb_index as usize) < sled_facts {
+        println!(
+            "WARNING: redb holds fewer index rows than sled holds facts. That is not proof of \
+             loss (the index is keyed differently) but it is a reason to look before applying."
+        );
+    }
+
+    if !apply {
+        println!();
+        println!(
+            "dry run. Re-run with --apply to write {}.",
+            out_path.display()
+        );
+        return Ok(());
+    }
+
+    anyhow::ensure!(
+        !out_path.exists(),
+        "{} already exists; move it aside first",
+        out_path.display()
+    );
+    println!();
+    println!("writing {} …", out_path.display());
+    let out = sled::open(&out_path)?;
+    let mut copied = 0usize;
+    for (name, _) in &keep {
+        let src = db.open_tree(name.as_bytes())?;
+        let dst = out.open_tree(name.as_bytes())?;
+        let mut n = 0usize;
+        for kv in src.iter() {
+            let (k, v) = kv?;
+            dst.insert(k, v)?;
+            n += 1;
+        }
+        dst.flush()?;
+        println!("   copied {n:>12} rows  {name}");
+        copied += n;
+    }
+    out.flush()?;
+    drop(out);
+
+    println!();
+    println!("copied {copied} rows into {}", out_path.display());
+    println!("The original is untouched. To adopt it, with the server stopped:");
+    println!(
+        "   mv {} {}.migrated",
+        cache_path.display(),
+        cache_path.display()
+    );
+    println!("   mv {} {}", out_path.display(), cache_path.display());
+    println!("Roll back by reversing those two moves.");
+    Ok(())
+}
