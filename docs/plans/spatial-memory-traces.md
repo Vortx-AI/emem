@@ -19,7 +19,7 @@ pays:
   `resource_link` for anything heavy, so a model reads fields instead of parsing
   a blob, and fetches the bulk only if it wants it.
 
-That is the game-changer sentence, and none of it is rhetoric: the pieces are
+That is the sentence that matters, and none of it is rhetoric: the pieces are
 measured below, and the budget for them already exists inside what we currently
 spend on material no model asked for.
 
@@ -232,7 +232,7 @@ Build order, revised by what the measurements say:
 Shipped as `emem.spatial_trace.v1`. The name matters and was changed on the
 owner's call before anything went live: "splat" is a renderer's word for a
 primitive a renderer draws, and the consumer here is the model. "Synthetic
-satellite image" was considered and rejected — nothing here is synthesised,
+satellite image" was considered and rejected: nothing here is synthesised,
 every point is a signed measurement with a provenance class, and borrowing the
 word would invite exactly the misreading this protocol exists to prevent.
 
@@ -243,7 +243,7 @@ projection: `surface` is what the ground is, `built` is what stands on it,
 similarity, and `ground` is what a camera saw. A layer missing from the list
 means the question never reached that kind of evidence; a band looked for and
 not found is in `absent`. Those are different claims, and a model can read the
-difference — which is what makes a place with cameras reason differently from a
+difference, which is what makes a place with cameras reason differently from a
 mid-Pacific cell without being told so in prose.
 
 Each point carries `value`, `unit`, `age_s` (how stale), `t` (the tslot, what
@@ -286,5 +286,5 @@ declared `outputSchema` is a valid Draft 2020-12 schema and that returned
 task shape, artifacts and proto-enum task state.
 
 Exit codes follow this repo's convention: 0 conforms, 1 a rule is violated, 2
-the responder did not answer (waived — it says nothing about the code), 3 our
+the responder did not answer (waived: it says nothing about the code), 3 our
 own side could not run the check.
