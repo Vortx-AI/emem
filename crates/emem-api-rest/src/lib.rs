@@ -27117,6 +27117,36 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     d
 }
 
+/// Longest worked example a listing inlines. Measured over all 110 tools on
+/// 2026-09-14: median 52 B, p90 122 B, second largest 311 B, and one outlier
+/// at 1,602 B (`emem_verify_receipt`, whose example is a real signed receipt
+/// and is byte-for-byte or nothing). Inlining that one put the 18-tool core
+/// listing at 77,715 B on the wire against the 76,800 B host ceiling
+/// `scripts/protocol_conformance.py` asserts, so the whole listing failed
+/// over a single example. 512 sits between the outlier and every other tool
+/// with room on both sides. Re-derive with
+/// `scripts/mcp_example_sizes.py --origin https://emem.dev`.
+const MCP_INLINE_EXAMPLE_MAX_BYTES: usize = 512;
+
+/// The example clause of a tool's listing description.
+///
+/// Over the cap the example is OMITTED and the listing names the one call
+/// that returns it whole, rather than being truncated: half a JSON object is
+/// not a runnable example, and a caller who copies it sends a malformed
+/// argument that the responder then has to explain. This is the same rule the
+/// result path follows for tokens and ids, which are never shortened to fit.
+fn mcp_example_clause(name: &str, example_args: &str) -> String {
+    if example_args.len() <= MCP_INLINE_EXAMPLE_MAX_BYTES {
+        return format!("Example arguments: {example_args}");
+    }
+    format!(
+        "Example arguments: {} bytes, too long to inline in a listing. Call \
+         `emem_tools` with `{{\"name\": \"{name}\"}}` for it whole and runnable; it is \
+         not shortened here because a truncated example is not one.",
+        example_args.len()
+    )
+}
+
 fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
     json!({
         "name": t.name,
@@ -27131,8 +27161,10 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         // filled from the registry rather than from whatever was true when
         // someone typed it.
         "description": emem_mcp::with_counts(&format!(
-            "{}\n\nWhen to use: {}\n\nExample arguments: {}",
-            t.description, t.when_to_use, t.example_args
+            "{}\n\nWhen to use: {}\n\n{}",
+            t.description,
+            t.when_to_use,
+            mcp_example_clause(t.name, t.example_args)
         )),
         "inputSchema": serde_json::from_str::<JsonValue>(t.input_schema).unwrap_or(json!({})),
         // Declared only where the tool can keep the promise: the spec binds
@@ -87743,6 +87775,70 @@ mod tests {
         assert!(!band_is_known("totally_made_up_band"));
         assert!(!band_is_known("elevation_mean")); // missing namespace
         assert!(band_is_known("temporal_diff:indices.ndvi:1y")); // parametric
+    }
+
+    /// A host ceiling is a property of the bytes SENT, and the whole 18-tool
+    /// core listing failed it over one tool's example: a real signed receipt,
+    /// 1,602 B, which cannot be shortened without ceasing to verify. The cap
+    /// omits it and points at the call that returns it whole. Asserted on the
+    /// serialized descriptors, because that is what a host receives.
+    #[test]
+    fn an_example_too_large_to_inline_is_named_rather_than_cut() {
+        let big = "x".repeat(super::MCP_INLINE_EXAMPLE_MAX_BYTES + 1);
+        let clause = super::mcp_example_clause("emem_verify_receipt", &big);
+        assert!(
+            !clause.contains(&big),
+            "the oversized example was inlined anyway"
+        );
+        assert!(
+            !clause.contains("xxxx"),
+            "the example was truncated; half a JSON object is not runnable"
+        );
+        // The pointer has to be callable, not a gesture: the tool that serves
+        // it, the argument name it takes, and this tool's own name.
+        assert!(clause.contains("emem_tools"), "{clause}");
+        assert!(clause.contains("\"name\""), "{clause}");
+        assert!(clause.contains("emem_verify_receipt"), "{clause}");
+        assert!(clause.contains(&big.len().to_string()), "{clause}");
+
+        // At or under the cap the example is inlined verbatim, including the
+        // boundary: an off-by-one here silently drops a runnable example.
+        let edge = "y".repeat(super::MCP_INLINE_EXAMPLE_MAX_BYTES);
+        assert_eq!(
+            super::mcp_example_clause("emem_ask", &edge),
+            format!("Example arguments: {edge}")
+        );
+    }
+
+    /// The cap is only worth having if it actually brings the core listing
+    /// under the ceiling the gate asserts on the wire. Measured here on the
+    /// real registry so a new core tool, or a grown description, fails in CI
+    /// rather than at a host. The wire carries a little more than this value
+    /// (JSON-RPC envelope), which is why the number here is under 76,800.
+    #[test]
+    fn the_core_listing_stays_under_the_host_ceiling() {
+        let core: Vec<JsonValue> = emem_mcp::tools_at_tier("core")
+            .iter()
+            .map(|t| mcp_tool_descriptor(t))
+            .collect();
+        let bytes = serde_json::to_string(&core).unwrap().len();
+        assert!(
+            bytes <= 75_000,
+            "core listing is {bytes} B; the measured host ceiling is 76,800 B on \
+             the wire. Trim a description or raise the cap deliberately."
+        );
+        // And the reason it fits: nothing over the cap is inlined.
+        for t in emem_mcp::TOOLS {
+            if t.example_args.len() > super::MCP_INLINE_EXAMPLE_MAX_BYTES {
+                let d = mcp_tool_descriptor(t);
+                let desc = d["description"].as_str().unwrap();
+                assert!(
+                    !desc.contains(t.example_args),
+                    "{}: oversized example still inlined",
+                    t.name
+                );
+            }
+        }
     }
 
     /// The Claude connector-directory portal hard-gates on `title` and the
