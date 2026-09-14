@@ -42,7 +42,7 @@ Add this line in the Data & Analytics section of the README:
 ```markdown
 - [emem](https://emem.dev/gemini-extension.json) — Signed, cite-able Earth memory.
   Recall air quality, vegetation, flood, fire, elevation facts for any place.
-  No API key. Install: `gemini extensions install https://emem.dev/gemini-extension.json`
+  No API key to read. Install: `gemini extensions install https://emem.dev/gemini-extension.json`
 ```
 
 **B. `Piebald-AI/awesome-gemini-cli`**
@@ -119,7 +119,7 @@ gcloud agent-registry services create emem \
   --display-name="emem — verifiable Earth memory" \
   --mcp-url="https://emem.dev/mcp" \
   --auth-type=none \
-  --description="Signed, cite-able Earth observation facts for AI agents. No API key."
+  --description="Signed, cite-able Earth observation facts for AI agents. No API key to read."
 ```
 
 Or via Agent Registry MCP tool (once they have Agent Registry set up):

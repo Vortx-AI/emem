@@ -45,7 +45,7 @@ Hi,
 
 We're preparing to submit emem (https://emem.dev/mcp) as a federated connector.
 emem is a read-only MCP server — all tools carry readOnlyHint: true and reads
-require no authentication (no OAuth, no API key).
+require no authentication to read (no OAuth, no API key); writes are ed25519-signed by the caller and tiered by reach, see GET /v1/enlist.
 
 Could you confirm whether no-auth / anonymous read-only MCP servers are accepted
 in the federated connector program, and if so, how to handle the OAuth credential
@@ -63,7 +63,7 @@ Vortx AI
 |---|---|---|
 | **MCP server URL** |, | `https://emem.dev/mcp` |
 | **Connector display name** |, | `emem, verifiable Earth memory` |
-| **Short description** | ≤80 chars | `Signed, cite-able Earth observation facts for any place. No API key.` |
+| **Short description** | ≤80 chars | `Signed, cite-able Earth observation facts for any place. No API key to read.` |
 | **Synonyms** (keywords) | ≤10 | `earth observation, geospatial, climate risk, satellite, air quality, flood, deforestation, vegetation, signed memory, MCP` |
 | **Color logo** | 192×192 PNG | `web/icon-192.png`, already correct size ✅ |
 | **Outline logo** | 32×32 white-on-transparent PNG | **Must be created**, see below |
@@ -160,7 +160,7 @@ This lists emem in **Copilot Studio + Azure Foundry**, broader than M365 Copilot
     "full": "emem — verifiable Earth memory"
   },
   "description": {
-    "short": "Signed, cite-able Earth observation facts for any place. No API key.",
+    "short": "Signed, cite-able Earth observation facts for any place. No API key to read.",
     "full": "emem is shared, verifiable memory for AI agents grounded in Earth observation. Recall Ed25519-signed, BLAKE3 content-addressed facts about air quality, vegetation, flood extent, fire severity, elevation, and deforestation for any place on Earth. No API key, no signup, no rate limits for reads. Every response includes an offline-verifiable receipt. 110 MCP tools. Apache 2.0."
   },
   "agentConnectors": [
@@ -217,7 +217,7 @@ fire severity, vegetation health, elevation, deforestation — with offline-veri
 
 ## Setup
 
-No API key or signup required. Add the connector URL: `https://emem.dev/mcp`
+No API key or signup required to read. Add the connector URL: `https://emem.dev/mcp`
 
 ## Example prompts
 
@@ -274,7 +274,7 @@ Base it on `examples/autogen/emem_mcp_geospatial_agent.py`, the pattern is the s
 """
 emem geospatial memory example for Microsoft Semantic Kernel.
 
-Uses emem as a Streamable HTTP MCP plugin — no API key required.
+Uses emem as a Streamable HTTP MCP plugin — no API key required to read; writes are signed and tiered.
 
 Install:
     pip install semantic-kernel

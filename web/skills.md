@@ -15,7 +15,7 @@ installable bundle at [claude-skills/](https://github.com/Vortx-AI/emem/tree/mai
 for Claude Code users; see § Installing as Claude Skills below.
 
 The endpoint is `https://emem.dev` (or your self-host URL). Reads need
-no auth. Every response carries an Ed25519 receipt signed over a
+no auth to read; writes are ed25519-signed by the caller and tiered by reach (GET /v1/enlist). Every response carries an Ed25519 receipt signed over a
 deterministic preimage; verify it offline with the responder's pubkey
 from `/.well-known/emem.json`.
 

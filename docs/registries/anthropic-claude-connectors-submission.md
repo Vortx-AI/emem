@@ -76,7 +76,7 @@ signed record of what every place on Earth looks like right now and how it has c
 
 When an agent asks "is the air bad here?", "has this site flooded?", "is this farmland 
 being deforested?", or "what is the elevation?" — it calls emem_locate then emem_recall, 
-gets a signed fact with a receipt, and quotes the receipt. No API keys, no signup, no 
+gets a signed fact with a receipt, and quotes the receipt. No API keys to read, no signup, no 
 rate limits for reads.
 
 Every response includes an Ed25519-signed receipt verifiable offline. Facts are 

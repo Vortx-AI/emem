@@ -38,7 +38,7 @@ server. Call `emem_tools` to search the rest or fetch one tool's schema.
 ## Manual config
 
 Two shapes, and they are not interchangeable. Everything else about the server
-is identical: same endpoint, same 108 tools, no key.
+is identical: same endpoint, same 110 tools, no key to read.
 
 **Cline, Claude Code, Claude Desktop, Cursor** and most Streamable HTTP hosts
 use `mcpServers`:

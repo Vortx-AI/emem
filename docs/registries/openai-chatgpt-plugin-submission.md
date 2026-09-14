@@ -113,7 +113,7 @@ operator's challenge from its own domain. Same rule as `EMEM_TLS_CONTACT`.
 | Field | Limit | Value |
 |---|---|---|
 | **Plugin name** | - | `emem` |
-| **Short description** | ~100 chars | `Shared, verifiable memory for AI agents. Cite a fact, verify it offline, no API key.` |
+| **Short description** | ~100 chars | `Shared, verifiable memory for AI agents. Cite a fact, verify it offline. No API key to read.` |
 | **Long description** | ~500 chars | See block below |
 | **Category** | pick from list | `Research & Analysis` or `Data` |
 | **Logo** | Square PNG/SVG | Already at `https://emem.dev/logo.png`, confirm it's square and ≥512px |
@@ -229,7 +229,7 @@ all reviewer-relevant flows are read-only and require no credentials.
 Initial submission. emem is a no-auth, read-only (for reviewers) MCP server providing 
 Ed25519-signed, BLAKE3 content-addressed Earth observation facts. 110 tools covering 
 air quality, vegetation, flood, fire, elevation, deforestation, and multi-agent memory 
-token composition. Apache 2.0. No API key required.
+token composition. Apache 2.0. No API key to read; writes are ed25519-signed and tiered by reach (GET /v1/enlist).
 ```
 
 ---

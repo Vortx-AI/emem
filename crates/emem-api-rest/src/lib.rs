@@ -6749,13 +6749,14 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             //
             // So the explicit sentence lives in our namespace, where it costs
             // a reader nothing and misleads no parser.
-            "authentication": "none. Every read is open: no key, no account, \
-                               no callback. The absence of securitySchemes and \
-                               securityRequirements above is the A2A way of \
-                               saying this, and this field is here so a human \
-                               does not have to infer it from a gap.",
+            "authentication": "none to READ: every read is open, no key, no account, \
+                               no callback, and that is what the absence of \
+                               securitySchemes and securityRequirements above says \
+                               in A2A's own terms. Writes are a different matter, \
+                               stated in `write_path`, so nobody infers 'no auth' \
+                               from a gap and then tries to write.",
             "readonly_profile": format!("{origin}/.well-known/emem-readonly.json"),
-            "write_path":       "writes need an ed25519 attester block; reads never do",
+            "write_path":       "every write is ed25519-signed by the caller and tiered by what it can REACH, never by who is asking: your own namespace at T1 (any keypair, on first contact); the shared entity space at T3 (a declared, testable endpoint), where every claim is stored with your key and ranked by independent agreement; the fact plane is closed -- an address (cell, band, tslot) is written only by this responder, an enrolled device, or an operator-listed key; derivations and edges cite parents and take no address, so they stay open at T1. The ladder, each check and what it proves: GET /v1/enlist.",
             // WHICH BINARY IS ANSWERING. An agent auditing a response should not
             // have to hash the HTML and guess which build produced it: a peer
             // agent did exactly that for an evening and drew the wrong
