@@ -108,19 +108,23 @@ fn main() -> Result<()> {
         redb.backfill_done(),
         "redb says the backfill is NOT done; the sled fact trees are still the live copy. Nothing to slim."
     );
-    let mut migrated: Vec<&str> = MIGRATED.to_vec();
+    // Which trees are CANDIDATES to drop. The flag says the backfill walked to
+    // the end; it does not say the rows arrived, and this file's own preamble
+    // says a flag is not evidence. The row counts decide, below, once sled is
+    // open and both sides can be counted.
+    let mut candidates: Vec<(&str, emem_cache::KvTable)> = Vec::new();
     for (tree, t) in MIGRATING {
         let done = redb.table_backfill_done(*t);
         println!(
             "redb: {tree} backfill_done={done}{}",
             if done {
-                " (dead in sled, will be dropped)"
+                " (candidate to drop, pending a row count)"
             } else {
                 " (still moving; kept)"
             }
         );
         if done {
-            migrated.push(tree);
+            candidates.push((tree, *t));
         }
     }
     println!();
@@ -130,6 +134,31 @@ fn main() -> Result<()> {
     let db = sled::open(&cache_path)
         .with_context(|| format!("open sled at {}", cache_path.display()))?;
     println!("opened in {:.1}s", started.elapsed().as_secs_f64());
+    println!();
+
+    // The evidence, now that both sides can be counted. A tree is dropped only
+    // if redb holds AT LEAST as many rows as sled does for it. Resuming from a
+    // cursor across three restarts is exactly the shape of run that can walk
+    // to the end having skipped a span, and the flag would still be set at the
+    // end of it. Short of that count the tree stays, and the copy is merely
+    // large rather than lossy.
+    let mut migrated: Vec<&str> = MIGRATED.to_vec();
+    for (tree, t) in &candidates {
+        let sled_rows = db.open_tree(tree.as_bytes())?.len() as u64;
+        let redb_rows = redb.kv_len(*t).unwrap_or(0);
+        let ok = redb_rows >= sled_rows;
+        println!(
+            "evidence: {tree} sled={sled_rows} redb={redb_rows} -> {}",
+            if ok {
+                "DROP"
+            } else {
+                "KEPT (redb is short; this is not a migration that finished)"
+            }
+        );
+        if ok {
+            migrated.push(tree);
+        }
+    }
     println!();
 
     let mut keep: Vec<(String, usize)> = Vec::new();
