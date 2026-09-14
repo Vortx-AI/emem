@@ -51,16 +51,24 @@ CARGO = REPO / "Cargo.toml"
 # written to and the value --check enforces across every surface.
 # ---------------------------------------------------------------------------
 CANON = {
-    # 105 = every ToolDescriptor in emem-mcp, emem_tools and the labelled
-    # reasoning tier (emem_reason) included: the
-    # catalog tool is core because /mcp advertises the loop rather than
-    # the full surface, so one visible tool must describe the rest.
-    "mcp_tools": 108,
-    "mcp_core": 16,
+    # Every ToolDescriptor in emem-mcp, emem_tools and the labelled reasoning
+    # tier (emem_reason) included: the catalog tool is core because /mcp
+    # advertises the loop rather than the full surface, so one visible tool
+    # must describe the rest.
+    #
+    # 2026-09-14: 108 -> 110 and core 16 -> 18 with `search` and `fetch`, the
+    # two names a ChatGPT connector looks up. This block had gone stale and
+    # this gate said so on every run; nobody ran it, and Anthropic's directory
+    # portal read the drifted numbers out of the live listing instead. The
+    # counts inside MCP tool text are now filled from the registry at render
+    # time (emem_mcp::with_counts), so only the static twins below still need
+    # a human to move them.
+    "mcp_tools": 110,
+    "mcp_core": 18,
     "mcp_extended": 92,
     "algorithms": 168,
-    "rest_paths_v1": 163,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 174,  # all paths in OpenAPI
+    "rest_paths_v1": 165,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 176,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -904,8 +912,26 @@ def verify_prose_counts() -> list[str]:
     # is a fact about the CONTENT, and COUNT_HISTORY matches file names, so
     # `collaboration-log.md` would otherwise come straight back in as
     # `collaboration-log.html` carrying every count it ever recorded.
+    # docs/book is mdbook OUTPUT, gitignored, and rebuilt in CI from the .md
+    # beside it (ci.yml bakes it into the binary with include_dir!). Reporting
+    # drift there names a file nobody can usefully edit -- the fix is always in
+    # the source, which this gate already checks -- and un-actionable findings
+    # are how a gate gets ignored. This one was reporting real drift in CANON
+    # on every run while the counts went stale for two releases.
+    #
+    # So it is checked only when it is TRACKED, i.e. when someone has decided
+    # the built page is a shipped artifact rather than a local build.
     book = REPO / "docs" / "book"
+    book_is_tracked = False
     if book.is_dir():
+        try:
+            import subprocess
+            book_is_tracked = bool(subprocess.run(
+                ["git", "ls-files", "--error-unmatch", str(book / "index.html")],
+                cwd=REPO, capture_output=True).returncode == 0)
+        except Exception:
+            book_is_tracked = False
+    if book.is_dir() and book_is_tracked:
         targets += [b for p in sorted(REPO.glob("docs/*.md"))
                     if not any(h in p.name for h in COUNT_HISTORY)
                     and (b := book / f"{p.stem}.html").exists()]

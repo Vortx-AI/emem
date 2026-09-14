@@ -8,7 +8,7 @@
      while the submission JSON beside it declared nine real ones. Nothing
      generated it, so nothing kept it true. -->
 
-The app declares **16 tools**. Each one below is checked against `https://emem.dev/mcp/full` at generation time: the name exists, and the MCP annotations here are the annotations the server sends.
+The app declares **18 tools**. Each one below is checked against `https://emem.dev/mcp/full` at generation time: the name exists, and the MCP annotations here are the annotations the server sends.
 
 Reads need no key and no account. None of emem's write verbs is exposed in this app.
 

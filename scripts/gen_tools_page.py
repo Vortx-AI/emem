@@ -3,7 +3,7 @@
 tool registry, so it can never be hand-maintained or drift.
 
 Runs inside the deploy ritual (before cargo build; the page is baked via
-include_str). Groups: the 15-tool core loop pinned first, then every
+include_str). Groups: the core loop pinned first (its size comes from the registry), then every
 remaining tool by category. Each row is name, what question it answers,
 and a copy-paste call. A model-mediated reader gets capabilities, not a
 count.

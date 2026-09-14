@@ -37,7 +37,7 @@ same bytes in another session or in another agent's session.
 
 ## Tools
 
-The app exposes the **16 tools** that `https://emem.dev/mcp` advertises, listed
+The app exposes the **18 tools** that `https://emem.dev/mcp` advertises, listed
 with their inputs and their MCP annotations in [tools.md](tools.md), which is
 GENERATED from the catalogue the responder actually serves. Nine are strictly
 read-only. The other seven can add state: `emem_ask`, `emem_recall`,

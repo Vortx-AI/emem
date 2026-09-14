@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 108 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 16-tool core loop first. Every one callable with no key.">
+<meta name=description content="All 110 emem MCP tools, generated from the registry: what question each answers and the exact call to make. The 18-tool core loop first. Every one callable with no key.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -91,8 +91,8 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
-<p class="lede">All 108 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
-<h2>The core loop (16 tools)</h2>
+<p class="lede">All 110 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<h2>The core loop (18 tools)</h2>
 <p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
 
 <details class="tool" id="emem_tools">
@@ -117,6 +117,18 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
   <summary><code>emem_memory_token</code><span class="tt">Compose a memory_token citation handle</span><span class="tw">Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it.</span></summary>
   <p>Mint a citation handle, `emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;` (or `:&lt;state_cid&gt;`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Memory algebra: the `cite` operation (https://emem.dev/docs/model.html).</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_memory_token&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;fact_cid&quot;: &quot;cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="search">
+  <summary><code>search</code><span class="tt">Find signed facts for a place, as citable sources</span><span class="tw">Call first when a question is about a place and the answer must be citable: it turns the question into a list of sources, each of which `fetch` expands.</span></summary>
+  <p>Search emem&#x27;s signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;search&quot;, &quot;arguments&quot;: {&quot;query&quot;: &quot;Trafalgar Square, London&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="fetch">
+  <summary><code>fetch</code><span class="tt">Open one search result and read the signed record</span><span class="tw">Call on each result you intend to cite, before quoting the number.</span></summary>
+  <p>Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;fetch&quot;, &quot;arguments&quot;: {&quot;id&quot;: &quot;emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq&quot;}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_memory_token_resolve">

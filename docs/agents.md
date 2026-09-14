@@ -51,7 +51,7 @@ emem_recall           # facts at a place, signed, with a receipt
 | Signed observations at a place | `emem_locate` |
 | Compare places, or find similar ones | `emem_compare` |
 
-**MCP**  `https://emem.dev/mcp` (16-tool core loop) · `https://emem.dev/mcp/full` (everything)
+**MCP**  `https://emem.dev/mcp` (18-tool core loop) · `https://emem.dev/mcp/full` (everything)
 
 **READS NEED NO KEY.** No account, no token, no bearer. A key is required only to WRITE, because a signature the responder could produce for you would attest nothing about you.
 
@@ -274,9 +274,9 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface documents 163 paths under
-`/v1/*` (174 total in `/openapi.json`), 108 MCP tools (16 core, 92 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 108), 20 static MCP
+port 5051. The live surface documents 165 paths under
+`/v1/*` (176 total in `/openapi.json`), 110 MCP tools (18 core, 92 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 110), 20 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
@@ -299,7 +299,7 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 174 documented, 163 under `/v1/*` |
+| REST paths (OpenAPI) | 176 documented, 165 under `/v1/*` |
 | MCP tools | 107 (16 core / 92 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
@@ -687,8 +687,8 @@ without historical fetch return `status: "present_only"`; check
 
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
-`tools/list` at `/mcp` advertises the 16 tools of the loop in one page (about
-66 KB of descriptors); `/mcp/full` advertises all 108 (about 288 KB over 7
+`tools/list` at `/mcp` advertises the 18 tools of the loop in one page (about
+66 KB of descriptors); `/mcp/full` advertises all 110 (about 288 KB over 7
 pages), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of

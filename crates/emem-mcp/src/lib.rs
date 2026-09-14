@@ -194,7 +194,7 @@ pub const RESOURCE_TEMPLATES: &[ResourceTemplateDescriptor] = &[
     //
     // An agent connected over MCP had no way to read messages sent to it. The
     // inbox was a REST endpoint it had to be told about separately, and not
-    // one of the 108 tools named it, so the whole agent-to-agent layer was
+    // one of the {TOOL_TOTAL} tools named it, so the whole agent-to-agent layer was
     // invisible from the door most agents arrive through.
     //
     // Honest limit: this is READABLE, not subscribable. This responder is
@@ -386,7 +386,7 @@ const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"pro
 "claim":{"type":"object","required":["band","op","value"],"description":"The proposition to test. The verdict names the signed facts it rests on, so a false is as citeable as a true.","properties":{
   "band":{"type":"string","description":"Band to test, e.g. \"indices.ndvi\"."},
   "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. in/ni take an array `value` (member / not member). exists and absent ignore `value` and ask only whether the band is attested here."},
-  "value":{"description":"Right-hand side. A number for the ordering ops, an array for in/ni, omitted for exists/absent."},
+  "value":{"type":["string","number","boolean","array","null"],"description":"Right-hand side. A number for the ordering ops, an array for in/ni, omitted for exists/absent."},
   "tslot":{"type":"integer","description":"Test at one tslot. Omit for the latest. Mutually exclusive with `window`."},
   "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg` to say how the values across the window collapse to a verdict."},
   "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces: any/all quantify over the facts in it; mean/min/max compare the reduced value against `value`."}
@@ -413,7 +413,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "filter":{"type":"object","required":["band","op","value"],"description":"find_like only: optional claim constraining which cells may be returned. Same object as `claim` below, same ops, same required fields.","properties":{
   "band":{"type":"string","description":"Band the neighbour must satisfy, e.g. \"indices.ndvi\"."},
   "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. Symbolic only: `gt`, not `greater_than` or `>`."},
-  "value":{"description":"Right-hand side. Required by the parser even for exists/absent, which ignore it."},
+  "value":{"type":["string","number","boolean","array","null"],"description":"Right-hand side. Required by the parser even for exists/absent, which ignore it."},
   "tslot":{"type":"integer","description":"Test at one tslot. Mutually exclusive with `window`."},
   "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg`."},
   "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces to a single verdict."}
@@ -421,7 +421,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "claim":{"type":"object","required":["band","op","value"],"description":"confirm only: the claim to test at `cell`, e.g. {\"band\":\"indices.ndvi\",\"op\":\"gt\",\"value\":0.4}. The answer is a verdict plus the signed facts it rests on.","properties":{
   "band":{"type":"string","description":"Band to test, e.g. \"indices.ndvi\"."},
   "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. These ten spellings and no others: `greater_than`, `>` and `gte` are all rejected. in/ni take an array `value` (member / not member). exists and absent ask only whether the band is attested here."},
-  "value":{"description":"Right-hand side. A number for the ordering ops, an array for in/ni. REQUIRED by the parser even for exists/absent, which then ignore it — omitting it fails the whole intent with `missing field value`."},
+  "value":{"type":["string","number","boolean","array","null"],"description":"Right-hand side. A number for the ordering ops, an array for in/ni. REQUIRED by the parser even for exists/absent, which then ignore it — omitting it fails the whole intent with `missing field value`."},
   "tslot":{"type":"integer","description":"Test at one tslot. Omit for the latest. Mutually exclusive with `window`."},
   "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Test across [start, end] tslots instead of one. Requires `agg` to say how the values across the window collapse to a verdict."},
   "agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"How a `window` reduces: any/all quantify over the facts in it; mean/min/max compare the reduced value against `value`."}
@@ -550,7 +550,7 @@ const OUT_ASK: &str = r#"{"type":"object","required":["schema","spatial_trace"],
 "layer":{"type":"string","enum":["surface","built","now","embedding","other","ground"]},
 "points":{"type":"array","description":"One per signed reading.","items":{"type":"object","required":["band","value"],"properties":{
 "band":{"type":"string"},
-"value":{"description":"The measured value, in the band's own units."},
+"value":{"type":["number","string","boolean","null"],"description":"The measured value, in the band's own units. `null` where the band was looked for and not found: an absence is a reading."},
 "unit":{"type":"string"},
 "age_s":{"type":"integer","description":"How old the reading was when this answer was written."},
 "class":{"type":"string","description":"Provenance class: direct_sensor, deterministic_index, estimator, model_output, attested_execution, human_curated, unclassified. What KIND of claim this is."},
@@ -665,7 +665,7 @@ const SCHEMA_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["token
 // agents actually speak.
 const SCHEMA_ECHO_VERIFY: &str = r#"{"type":"object","required":["token","claimed_value"],"properties":{
 "token":{"type":"string","description":"The citation you used. Any form resolve accepts, including a bare cid, which answers with `degraded: true`: a bare cid asserts no location, so the cell-binding check is skipped and the grade covers the value only. A cid that is not 52 characters is refused as a damaged citation rather than as a missing one, and must not be retried."},
-"claimed_value":{"description":"The value you are about to publish, as a string or a number. Send it as a STRING, character for character as you will emit it. A JSON number is stringified before the comparison, so `0.50` arrives as `0.5` and `0.2411000` as `0.2411` (measured against the live responder): the trailing digits this check exists to defend are gone before it runs. Quote `value_verbatim` from resolve as a string and echo the exact characters you will publish."},
+"claimed_value":{"type":["string","number"],"description":"The value you are about to publish, as a string or a number. Send it as a STRING, character for character as you will emit it. A JSON number is stringified before the comparison, so `0.50` arrives as `0.5` and `0.2411000` as `0.2411` (measured against the live responder): the trailing digits this check exists to defend are gone before it runs. Quote `value_verbatim` from resolve as a string and echo the exact characters you will publish."},
 "strict":{"type":"boolean","description":"Require BYTE-IDENTICAL equality. Default false, which also accepts a numerically equal value spelled differently (0.50 for 0.5). It changes exactly one outcome: the numerically-equal-but-respelled case, which passes by default and becomes `drift: \"reformatted\"` here. `rounded` and `wrong` already fail either way, so `strict` never turns a pass into a pass. It is also inert when `claimed_value` came in as a JSON number, because the respelling then happened in the JSON parser, before this tool saw it."}
 }}"#;
 
@@ -680,7 +680,7 @@ const SCHEMA_DERIVE: &str = r#"{"type":"object","required":["fn_key","inputs","c
 "band":{"type":"string","description":"Band key the derivative pertains to, e.g. `indices.ndvi`."},
 "tslot_window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] tslot window the derivation spans."},
 "op":{"type":"string","description":"Operator: delta | mean | trend | rate | anomaly."},
-"value":{"description":"The value you computed. Any JSON value."},
+"value":{"type":["string","number","boolean","array","object","null"],"description":"The value you computed. Any JSON value."},
 "confidence":{"type":"number","minimum":0,"maximum":1,"description":"YOUR confidence in the value. The responder records it; it does not check it."},
 "provenance_class":{"type":"string","enum":["model_output","human_curated"],"description":"How the value was produced. `direct_sensor` and `deterministic_index` are refused as a DECLARATION: this responder did not compute your value and will not take your word that it is recomputable. It can still EARN `deterministic_index`, see `code_cid`: for a pure op (delta/mean/sum) the responder re-runs it over the cited parents and upgrades the record itself when it reproduces the value. Exact for delta; `mean` and `sum` over more than two parents are compared against a stated 4-ULP window, because nobody signed the sum and no accumulation order is specified. The measured `ulp_gap` comes back either way."},
 "code_cid":{"type":"string","description":"Optional blake3 of the code/formula that computed the value. GC-1 tier-1: if `op` is a pure scalar function this responder recognises (delta = inputs[1]-inputs[0], mean, sum), pinning a `code_cid` makes the responder RE-RUN the op over the cited parent facts (no code execution, the op itself is evaluated) and compare under the canonical-float rule. When the responder reproduces the value the derivation is recorded as `deterministic_index` (recomputed, not merely attributed) with a `recomputation` receipt naming the `rule` that ran, its `ulp_tolerance` and the measured `ulp_gap`. `delta` and classification are exact; `mean`/`sum` over more than two parents use a 4-ULP window, so require `ulp_gap == 0` if you need bit-identity; on a mismatch or an op it cannot reproduce, it stays `model_output` with an honest note. Arbitrary code in a sandbox (tier 2) is not yet built. Without a `code_cid`, nothing is recomputed and behaviour is unchanged."},
@@ -902,7 +902,7 @@ const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":
 const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properties":{
 "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate for EUDR compliance.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
   "plot_id":{"type":"string","description":"Operator-supplied plot identifier; preserved verbatim."},
-  "geometry_geojson":{"description":"GeoJSON Polygon (preferred for >4 ha) OR GeoJSON Point (≤4 ha non-cattle per Article 2(28)) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}."},
+  "geometry_geojson":{"type":"object","description":"GeoJSON Polygon (preferred for >4 ha) OR GeoJSON Point (≤4 ha non-cattle per Article 2(28)) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}."},
   "country_of_production":{"type":"string","description":"ISO 3166-1 alpha-3 (e.g. BRA, IDN, CIV)."},
   "commodity_hs":{"type":"string","description":"Combined Nomenclature code (HS-6+). First 4 digits detect cattle (0102/0201/0202) for the Article 2(28) cattle exemption: cattle plots are POLYGON regardless of size."},
   "commodity_name":{"type":"string","description":"Optional plain-English commodity name."},
@@ -1241,7 +1241,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_tools",
         title: "What tools exist here, and when to reach for each",
-        description: "The map of emem's tool surface, and the only tool you need to find the rest. Returns the working loop in the order you walk it (name a thing, ground it, cite it, resolve it, verify it, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` to get one tool's full input schema and a runnable example, so you can use a tool without loading all of the descriptors into context. IF YOU ARE READING A LIST OF 16 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 108, NOT THE WHOLE SURFACE. The count is served in tools/list `_meta` and `_discovery`, and most MCP hosts strip non-standard top-level fields before a model sees them, so it is repeated HERE — a description is the one field every host passes through. The Earth-observation, search, embedding and transparency-log tools are catalogued by this tool and every one of them stays callable by name through tools/call at either endpoint.",
+        description: "The map of emem's tool surface, and the only tool you need to find the rest. Returns the working loop in the order you walk it (name a thing, ground it, cite it, resolve it, verify it, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` to get one tool's full input schema and a runnable example, so you can use a tool without loading all of the descriptors into context. IF YOU ARE READING A LIST OF {TOOL_CORE} TOOLS, YOU ARE SEEING A CURATED SUBSET OF {TOOL_TOTAL}, NOT THE WHOLE SURFACE. The count is served in tools/list `_meta` and `_discovery`, and most MCP hosts strip non-standard top-level fields before a model sees them, so it is repeated HERE — a description is the one field every host passes through. The Earth-observation, search, embedding and transparency-log tools are catalogued by this tool and every one of them stays callable by name through tools/call at either endpoint.",
         when_to_use: "Call this FIRST when you do not know which emem tool answers the question, or when you need a capability you cannot see in your tool list. This responder advertises a small core loop by default rather than its full catalog, so a tool being absent from your list does not mean it is absent from the server. Pass `q` to search by topic (`ndvi`, `cloud`, `flood`, `verify`), `name` for one tool's exact schema, or no arguments for the whole map. If you want the full catalog registered as callable tools instead, reconnect to the /mcp/full endpoint; for a one-shot answer without picking a primitive at all, use emem_ask.",
         input_schema: SCHEMA_TOOLS,
         output_schema: None,
@@ -1580,7 +1580,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_memory_token",
         title: "Compose a memory_token citation handle",
         description: "Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Memory algebra: the `cite` operation (https://emem.dev/docs/model.html).",
-        when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token. FOR MANY FACTS, USE emem_memory_bundle INSTEAD, and this is a measured cost rather than a style preference. Measured over 131 scalar facts at 12 places across 57 bands: a token is 84 characters and 51 LLM tokens, while the signed value it points at averages 10.9 characters and 5.4 LLM tokens. So N individual tokens cost roughly 9.5x the CONTEXT of simply pasting the N numbers (7.7x by characters; the gap is BPE fragmenting a base32 cid, and LLM tokens are the unit that bills a window), and an N-token prompt hits the context wall SOONER than the plain values would. A bundle is 38 characters and 23 LLM tokens at ANY N up to 256 and resolves in one round trip: it beats individual tokens from N=1 and beats pasting the plain values from N>=5. Individual tokens are for citing ONE fact you must be able to verify later; they are the wrong tool for carrying a set.",
+        when_to_use: "Call when the agent wants a single rebindable string to cite a place plus an attested fact across messages, threads, agents, or tools, without re-fetching or re-describing it. Pair with `emem_verify_receipt` on the receiving end to check the signed payload. To cite an OBJECT rather than a single reading, use emem_entity's `emem:entity:` token. FOR MANY FACTS, USE emem_memory_bundle INSTEAD, and this is a measured cost rather than a style preference. Measured over 131 scalar facts at 12 places across 57 bands: a token is 83 to 84 characters (83 for a 20-character cell64, 84 for a 21) and 51 LLM tokens, while the signed value it points at averages 10.9 characters and 5.4 LLM tokens. So N individual tokens cost roughly 9.5x the CONTEXT of simply pasting the N numbers (7.7x by characters; the gap is BPE fragmenting a base32 cid, and LLM tokens are the unit that bills a window), and an N-token prompt hits the context wall SOONER than the plain values would. A bundle is 38 characters and 23 LLM tokens at ANY N up to 256 and resolves in one round trip: it beats individual tokens from N=1 and beats pasting the plain values from N>=5. Individual tokens are for citing ONE fact you must be able to verify later; they are the wrong tool for carrying a set.",
         input_schema: SCHEMA_MEMORY_TOKEN,
         output_schema: Some(OUT_MEMORY_TOKEN),
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","fact_cid":"cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
@@ -1983,7 +1983,14 @@ pub const TOOLS: &[ToolDescriptor] = &[
     // advertise itself as a mutation, so a cautious host would gate it like
     // one. It also set the floor of the whole server's score, because the
     // Glama rubric weights the MINIMUM tool score at 40%.
-    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    //
+    // The paragraph above shipped; the flag under it did not. It read `false`
+    // for as long as this comment has existed, which is the failure mode of
+    // writing the reason beside the value instead of changing the value: the
+    // file explains a fix it does not contain, and every reader after that
+    // takes it as done. Anthropic's directory portal read the live listing and
+    // grouped this tool with the writes.
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -2596,7 +2603,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_intent",
         title: "Intent-routed planner",
         description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype             | needs                        | optional            | answers\nwhere_is         | description                  |                     | cell64 for a named place\nwhat_is_here     | cell OR place                | description         | what is attested at a location\nis_like          | a, b                         |                     | cosine similarity of two cells\ndid_change       | cell, band, window           |                     | delta for one band over [start,end] tslots\nfind_like        | key                          | k, filter           | nearest cells by embedding\nconfirm          | claim, cell                  |                     | verdict plus the signed facts behind it\nask              | description                  | place/cell/lat+lng  | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.",
-        when_to_use: "Call when the user's question maps cleanly onto one of the seven rows above and you would rather state the goal than pick a primitive. Reach past it for anything else: a specific band at a cell is emem_recall, a region is emem_recall_polygon, and a free-text place question with no obvious primitive is emem_ask directly (type:\"ask\" here just forwards to it). `window` takes tslots, not dates: get valid ones from emem_trajectory first. A tool this router names but `tools/list` does not show is NOT a dead end: every one of the 107 dispatches by name at `/mcp` and `/mcp/full`, so call `emem_trajectory` or `emem_recall_polygon` directly. The core list is 16 to keep the per-request catalog small, not to fence the rest off; `emem_tools` enumerates them.",
+        when_to_use: "Call when the user's question maps cleanly onto one of the seven rows above and you would rather state the goal than pick a primitive. Reach past it for anything else: a specific band at a cell is emem_recall, a region is emem_recall_polygon, and a free-text place question with no obvious primitive is emem_ask directly (type:\"ask\" here just forwards to it). `window` takes tslots, not dates: get valid ones from emem_trajectory first. A tool this router names but `tools/list` does not show is NOT a dead end: every one of the {TOOL_TOTAL} dispatches by name at `/mcp` and `/mcp/full`, so call `emem_trajectory` or `emem_recall_polygon` directly. The core list is {TOOL_CORE} to keep the per-request catalog small, not to fence the rest off; `emem_tools` enumerates them.",
         input_schema: SCHEMA_INTENT,
         output_schema: None,
         example_args: r#"{"type":"did_change","cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[20245,20620]}"#,
@@ -2782,6 +2789,23 @@ pub fn tool_task_support(name: &str) -> &'static str {
 /// Tools at the given discovery tier. `"core"` returns the default
 /// high-signal subset; `"extended"` returns the rest; `"all"` returns
 /// everything. Unknown values fall back to `"core"`.
+/// Substitute the tool counts into shipped text at render time.
+///
+/// These numbers were typed into descriptions and drifted, as typed numbers
+/// do: the listing said "A CURATED SUBSET OF 108" while the server dispatched
+/// 110, and "THE CORE LIST IS 16" while it advertised 18. Anthropic's
+/// directory portal reads `tools/list` live, so the first reader to notice was
+/// a submission review.
+///
+/// A count belongs to whatever can compute it. `{TOOL_TOTAL}` and
+/// `{TOOL_CORE}` are filled from the registry itself, so adding a tool moves
+/// every number that describes the registry, and a test pins that no literal
+/// count is reintroduced.
+pub fn with_counts(text: &str) -> String {
+    text.replace("{TOOL_TOTAL}", &TOOLS.len().to_string())
+        .replace("{TOOL_CORE}", &tools_at_tier("core").len().to_string())
+}
+
 pub fn tools_at_tier(tier: &str) -> Vec<&'static ToolDescriptor> {
     match tier {
         // Core is returned in CORE_LOOP order, not declaration order.
@@ -4323,6 +4347,110 @@ mod tests {
     /// loaded had two different `memory_delete` and no way to tell which one
     /// a model meant. The bare spellings still dispatch for callers that
     /// already use them; what changed is what we ADVERTISE.
+    /// Every parameter a directory reads has a declared type, at any depth.
+    ///
+    /// Anthropic's submission portal reads `tools/list` live and blocks on
+    /// "Parameters missing type". It flagged one, `emem_echo_verify`'s
+    /// `claimed_value`. A scan of the served listing found a second at the top
+    /// level (`emem_derive.value`) and three more one level down
+    /// (`emem_intent.claim.value`, `emem_intent.filter.value`,
+    /// `emem_verify.claim.value`), which the portal does not reach and a
+    /// stricter client would. A property that accepts several kinds declares a
+    /// union; it does not go untyped.
+    #[test]
+    fn every_schema_property_declares_a_type() {
+        fn walk(
+            name: &str,
+            where_: &str,
+            path: &str,
+            node: &serde_json::Value,
+            bad: &mut Vec<String>,
+        ) {
+            let Some(props) = node.get("properties").and_then(|p| p.as_object()) else {
+                return;
+            };
+            for (key, prop) in props {
+                let typed = ["type", "anyOf", "oneOf", "allOf", "$ref", "enum", "const"]
+                    .iter()
+                    .any(|k| prop.get(*k).is_some());
+                let here = if path.is_empty() {
+                    key.clone()
+                } else {
+                    format!("{path}.{key}")
+                };
+                if !typed {
+                    bad.push(format!("{name} [{where_}] {here}"));
+                }
+                walk(name, where_, &here, prop, bad);
+                if let Some(items) = prop.get("items") {
+                    walk(name, where_, &format!("{here}[]"), items, bad);
+                }
+            }
+        }
+        let mut bad = Vec::new();
+        for t in TOOLS {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(t.input_schema) {
+                walk(t.name, "input", "", &v, &mut bad);
+            }
+            if let Some(o) = t.output_schema {
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(o) {
+                    walk(t.name, "output", "", &v, &mut bad);
+                }
+            }
+        }
+        assert!(bad.is_empty(), "properties with no declared type: {bad:#?}");
+    }
+
+    /// A number describing the registry is not typed into the registry's text.
+    ///
+    /// "A CURATED SUBSET OF 108" shipped while the server dispatched 110, and
+    /// "THE CORE LIST IS 16" while it advertised 18. Typed counts drift the
+    /// moment a tool is added, and the first reader to notice was a directory
+    /// review. `{TOOL_TOTAL}` and `{TOOL_CORE}` are filled from the registry at
+    /// render time; this fails if a literal creeps back in.
+    #[test]
+    fn no_tool_text_types_its_own_count() {
+        let core = tools_at_tier("core").len();
+        let total = TOOLS.len();
+        let mut bad = Vec::new();
+        for t in TOOLS {
+            for (field, text) in [
+                ("description", t.description),
+                ("when_to_use", t.when_to_use),
+            ] {
+                for phrase in [
+                    "LIST OF ",
+                    "SUBSET OF ",
+                    "core list is ",
+                    "one of the ",
+                    "every one of the ",
+                ] {
+                    let mut from = 0;
+                    while let Some(i) = text[from..].find(phrase) {
+                        let at = from + i + phrase.len();
+                        let num: String = text[at..]
+                            .chars()
+                            .take_while(|c| c.is_ascii_digit())
+                            .collect();
+                        if let Ok(n) = num.parse::<usize>() {
+                            if n == core || n == total || (95..=130).contains(&n) {
+                                bad.push(format!("{} [{field}] \"{phrase}{num}\"", t.name));
+                            }
+                        }
+                        from = at;
+                    }
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "tool text types a count that the registry should supply: {bad:#?}"
+        );
+        // And the substitution actually substitutes.
+        let filled = with_counts("{TOOL_CORE} of {TOOL_TOTAL}");
+        assert_eq!(filled, format!("{core} of {total}"));
+    }
+
     #[test]
     fn every_advertised_tool_carries_the_service_prefix() {
         // Two names are not ours to choose. OpenAI's connector documentation
