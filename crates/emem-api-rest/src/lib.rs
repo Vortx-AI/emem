@@ -23482,15 +23482,231 @@ fn openai_capped_text(text: String, whole: &str) -> String {
     if text.len() <= OPENAI_FETCH_TEXT_MAX {
         return text;
     }
+    let full = text.len();
+    // On a LINE boundary, not a byte one. This body lists one reading per line
+    // with its `emem:fact:` token on the end, so a cut chosen by byte count
+    // lands mid-token and leaves a citation that parses and resolves to
+    // nothing. Falling back to a character boundary only when there is no
+    // newline to use, which is the prose case, where a tail is just a tail.
+    let ceiling = (0..=OPENAI_FETCH_TEXT_MAX)
+        .rev()
+        .find(|i| text.is_char_boundary(*i))
+        .unwrap_or(0);
+    let at = text[..ceiling]
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(ceiling);
     let mut cut = text;
-    let full = cut.len();
-    cut.truncate(
-        (0..=OPENAI_FETCH_TEXT_MAX)
-            .rev()
-            .find(|i| cut.is_char_boundary(*i))
-            .unwrap_or(0),
-    );
+    cut.truncate(at);
     format!("{cut}\n\n[cut here: {OPENAI_FETCH_TEXT_MAX} of {full} bytes, the whole record is at {whole}]")
+}
+
+/// Serve BOTH copies from one slimmed object, sized against what the wire
+/// actually charges for each.
+///
+/// `budget / 2` was the old split and it is wrong twice over: the text block is
+/// escaped when it becomes a JSON string, so the two copies never cost the
+/// same, and neither half paid for the envelope. Measured on `fetch`: 12,705
+/// bytes of text plus the same mirror came to 25,643 against a 24,000-byte
+/// budget. So the room is solved for, not halved.
+fn mcp_slim_both_copies(inner: JsonValue, tool: &str, budget: usize) -> (String, JsonValue) {
+    let required = schema_required_keys(tool);
+    let mut room = budget / 2;
+    let mut last = ("{}".to_string(), json!({}));
+    for _ in 0..4 {
+        // The plain slimmer, deliberately, not the `_keeping` one. `_keeping`
+        // refuses to touch a required key at all, so when the required key IS
+        // the bulk -- `facts` on a 149-fact recall -- the room solver has
+        // nothing left to give and never converges: 288,342 bytes against a
+        // 24,000-byte budget. The plain slimmer truncates that array to a
+        // usable prefix and records `_kept` / `_next_offset`, which is a
+        // smaller answer of the DECLARED SHAPE rather than a refusal to shrink.
+        let (mut slimmed, _note) = mcp_slim_inner_to_budget(inner.clone(), room);
+        mcp_shorten_rather_than_empty(&mut slimmed, &inner, &required, room);
+        let mirror = mcp_mirror_for_schema(&slimmed, &required);
+        let text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+        let on_the_wire = mcp_text_wire_len(&text)
+            .saturating_add(serde_json::to_string(&mirror).map(|t| t.len()).unwrap_or(0))
+            .saturating_add(MCP_RESULT_OVERHEAD_BYTES);
+        last = (text, mirror);
+        if on_the_wire <= budget {
+            break;
+        }
+        room = room.saturating_sub(on_the_wire - budget).max(512);
+    }
+    last
+}
+
+/// Is this string free text that may lose its tail, or an identity that may not?
+///
+/// The distinction is the whole of it: prose shortened and marked is still
+/// true, while `emem:fact:<cell64>:<cid>` shortened by any amount is a
+/// citation that parses, resolves to nothing, and carries our name. Same for a
+/// bare cid, a cell64, a signature, a key and a URL. The rule is deliberately
+/// conservative on both axes -- the key name AND the value's own shape -- and
+/// a 1 KiB floor on top, because nothing identity-bearing on this surface is a
+/// kilobyte long and free text worth keeping always is.
+fn value_is_shortenable_text(key: &str, value: &JsonValue) -> bool {
+    const NEVER: &[&str] = &[
+        "id",
+        "token",
+        "cid",
+        "url",
+        "uri",
+        "cell",
+        "cell64",
+        "fact_cid",
+        "fact_cids",
+        "memory_token",
+        "canonical_token",
+        "signature",
+        "signature_b32",
+        "pubkey",
+        "responder_pubkey_b32",
+        "signer",
+        "signer_b32",
+        "schema",
+        "schema_cid",
+        "registry_cid",
+        "bands_cid",
+        "algorithms_cid",
+        "clip_sha256",
+        "state",
+        "state_cid",
+        "hash",
+        "digest",
+        "fn_key",
+        "request_id",
+    ];
+    if NEVER.contains(&key)
+        || key.ends_with("_cid")
+        || key.ends_with("_url")
+        || key.ends_with("_token")
+    {
+        return false;
+    }
+    let Some(text) = value.as_str() else {
+        return false;
+    };
+    const IDENTITY_PREFIXES: &[&str] = &["emem:", "memt:", "memb:", "meme:", "http://", "https://"];
+    if IDENTITY_PREFIXES.iter().any(|p| text.starts_with(p)) {
+        return false;
+    }
+    // Long enough that no identifier on this surface reaches it.
+    text.len() > 1024
+}
+
+/// A required key is SHORTENED, never emptied.
+///
+/// Neither slimmer could serve this contract alone. The `_keeping` one refuses
+/// to touch a required key, so a required key that IS the bulk never shrinks
+/// and the budget is never met. The plain one nulls it, and a required key
+/// arriving null fails the very schema the server published -- measured on
+/// `fetch`, whose required `text` came back null against `{"type":"string"}`.
+///
+/// So whatever the slimmer emptied is put back at a size that fits, and says
+/// it was cut. A string keeps a prefix; an array keeps the elements that fit.
+/// Both are smaller answers OF THE DECLARED SHAPE, which is the thing a
+/// declared schema actually promises, and the `_emem_truncation` note above
+/// still names the field.
+fn mcp_shorten_rather_than_empty(
+    slimmed: &mut JsonValue,
+    original: &JsonValue,
+    required: &[String],
+    room: usize,
+) {
+    let used = serde_json::to_string(&slimmed)
+        .map(|t| t.len())
+        .unwrap_or(0);
+    // Halved because whatever goes back here is paid for twice: once escaped
+    // in the text block, once plain in the mirror.
+    let mut spare = room.saturating_sub(used) / 2;
+    for key in required {
+        let is_empty = slimmed.get(key).map(|v| v.is_null()).unwrap_or(true);
+        if !is_empty {
+            continue;
+        }
+        let Some(whole) = original.get(key) else {
+            continue;
+        };
+        let (replacement, cost) = match whole {
+            // An identifier is never shortened. A token cut to fit is not a
+            // smaller token, it is a corrupted one that still LOOKS like a
+            // token: `emem:fact:<cell>:<cid>` shortened by ten characters
+            // still parses as a citation and dereferences to nothing, or
+            // worse, and the same is true of a cid, a cell64, a signature or
+            // a URL. Prose can lose its tail and stay honest about it;
+            // identity cannot. So only long free text is shortened, and
+            // anything identifier-shaped is left out rather than mangled --
+            // the `_emem_truncation` note already names it.
+            JsonValue::String(_) if !value_is_shortenable_text(key, whole) => continue,
+            JsonValue::String(full) => {
+                let keep = spare.min(full.len());
+                let keep = (0..=keep)
+                    .rev()
+                    .find(|i| full.is_char_boundary(*i))
+                    .unwrap_or(0);
+                if keep < 64 {
+                    continue;
+                }
+                let cut = format!(
+                    "{}\n\n[cut here: {keep} of {} bytes; the whole value is on the matching /v1 route]",
+                    &full[..keep],
+                    full.len()
+                );
+                let cost = cut.len();
+                (JsonValue::String(cut), cost)
+            }
+            JsonValue::Array(items) => {
+                let mut kept: Vec<JsonValue> = Vec::new();
+                let mut cost = 2usize;
+                for item in items {
+                    let n = serde_json::to_string(item)
+                        .map(|t| t.len() + 1)
+                        .unwrap_or(0);
+                    if cost + n > spare {
+                        break;
+                    }
+                    cost += n;
+                    kept.push(item.clone());
+                }
+                if kept.is_empty() {
+                    continue;
+                }
+                (JsonValue::Array(kept), cost)
+            }
+            other => {
+                let cost = serde_json::to_string(other).map(|t| t.len()).unwrap_or(0);
+                if cost > spare {
+                    continue;
+                }
+                (other.clone(), cost)
+            }
+        };
+        if let Some(map) = slimmed.as_object_mut() {
+            map.insert(key.clone(), replacement);
+        }
+        spare = spare.saturating_sub(cost);
+    }
+}
+
+/// A mirror the declared schema can actually accept.
+///
+/// The slimmer nulls a field to reclaim its bytes, and for a tool that
+/// declares an output schema that is not a smaller answer, it is a field that
+/// failed its own declared type: `fetch` published `metadata` as
+/// `{"type":"object"}` and served `null`. An ABSENT optional field is valid
+/// where a null one is not, and the `_emem_truncation` note already names what
+/// went, so nothing is hidden by dropping the key instead of emptying it.
+/// Required keys are left exactly as they are: a required key arriving null is
+/// a different fault, and `truncation_never_nulls_a_schema_required_key` is
+/// the test that owns it.
+fn mcp_mirror_for_schema(slimmed: &JsonValue, required: &[String]) -> JsonValue {
+    let mut out = slimmed.clone();
+    if let Some(map) = out.as_object_mut() {
+        map.retain(|k, v| !v.is_null() || required.iter().any(|r| r == k));
+    }
+    out
 }
 
 /// Slim a result until what goes ON THE WIRE fits, mirror included.
@@ -23938,6 +24154,13 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
             .and_then(|c| serde_json::to_string(c).ok())
             .map(|t| t.len())
             .unwrap_or(0);
+        // Kept for the schema-without-a-core arm below, which has to slim the
+        // original against BOTH copies rather than reuse a text sized for one.
+        let inner_for_mirror = if core.is_none() && emem_mcp::declares_output_schema(tool) {
+            Some(inner.clone())
+        } else {
+            None
+        };
         let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget);
         // Annotated like every other block: an over-budget answer is still an
         // answer addressed to the model, and a client deciding what to show a
@@ -23948,6 +24171,23 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
                 "structuredContent": core,
                 "isError": false,
             }),
+            // A tool with no typed core but a DECLARED schema still owes a
+            // mirror: "if an output schema is provided, servers MUST provide
+            // structured results that conform to it". This branch used to drop
+            // it, so `search` -- which publishes one -- answered with a text
+            // block and nothing structured at all.
+            None if inner_for_mirror.is_some() => {
+                let (text, mirror) = mcp_slim_both_copies(
+                    inner_for_mirror.expect("guarded by the arm above"),
+                    tool,
+                    budget,
+                );
+                json!({
+                    "content": [mcp_text_block(text)],
+                    "structuredContent": mirror,
+                    "isError": false,
+                })
+            }
             None => json!({
                 "content": [mcp_text_block(slim_text)],
                 "isError": false,
@@ -23986,12 +24226,10 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
                     "isError": false,
                 });
             }
-            let (slimmed, _note) =
-                mcp_slim_inner_to_budget_keeping(inner, budget / 2, &schema_required_keys(tool));
-            let slim_text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
+            let (slim_text, mirror) = mcp_slim_both_copies(inner, tool, budget);
             return json!({
                 "content": [mcp_text_block(slim_text)],
-                "structuredContent": slimmed,
+                "structuredContent": mirror,
                 "isError": false,
             });
         }
@@ -26507,6 +26745,39 @@ fn a2a_message_result(s: &AppState, skill: &str, result: JsonValue) -> JsonValue
         .and_then(|a| a.as_str())
         .map(|a| clip_title(a, 280))
         .unwrap_or_else(|| format!("{skill} completed; the result is in the artifact."));
+    // An id a caller cannot dereference is not a handle.
+    //
+    // This path minted `a2a-task-<hash>`, returned it on a completed Task, and
+    // registered nothing, so `tasks/get` on the id we had just handed over
+    // answered -32001 TaskNotFound with a note about TTLs -- for a task that
+    // was seconds old and had never existed. A2A clients poll the id they were
+    // given; ours resolved for the async path and not for this one. Same fault
+    // as a documented route that answers 404, and the registry was already
+    // shared, so the fix is to put the task in it rather than to stop minting
+    // ids.
+    {
+        let now_ms = now_unix_ms();
+        mcp_tasks_reap(now_ms);
+        let mut map = mcp_tasks_lock();
+        if mcp_make_room_locked(&mut map, mcp_max_tasks()).is_ok() {
+            let now_iso = iso8601_now_utc();
+            map.insert(
+                tid.clone(),
+                McpTaskSlot {
+                    status: "completed".into(),
+                    status_message: Some(said.clone()),
+                    created_at_iso: now_iso.clone(),
+                    last_updated_iso: now_iso,
+                    last_updated_ms: now_ms,
+                    ttl_ms: 600_000,
+                    result: None,
+                    raw_result: Some(result.clone()),
+                    skill: skill.to_string(),
+                    abort: None,
+                },
+            );
+        }
+    }
     json!({
         "id":        tid,
         "contextId": format!("{tid}-ctx"),
@@ -79372,6 +79643,110 @@ mod tests {
                  instead of converging"
             );
         }
+    }
+
+    /// A declared schema is kept on the answers that do NOT fit, too.
+    ///
+    /// Three faults measured on the live surface, all on this path. `search`
+    /// declares an output schema and returned a text block with no
+    /// `structuredContent` at all, because the over-budget branch only sent a
+    /// mirror when the tool had a typed core. `fetch` sent one, in a 25,643-byte
+    /// result against a 24,000-byte budget, because the two copies were split
+    /// at a raw `budget / 2` and the text is escaped on the wire. And that
+    /// mirror carried `metadata: null` against its own `{"type":"object"}` --
+    /// a field nulled to reclaim bytes is not a smaller answer here, it is one
+    /// that fails the shape the server promised.
+    #[test]
+    fn a_declared_schema_survives_an_answer_that_does_not_fit() {
+        let inner = json!({
+            "id": "emem:cell:defi.zb64a.cAzU.zfa27",
+            "title": "149 signed facts at Trafalgar Square",
+            "text": "x".repeat(60_000),
+            "url": "https://emem.dev/v1/cells/defi.zb64a.cAzU.zfa27",
+            "metadata": {"cell": "defi.zb64a.cAzU.zfa27", "fact_count": "149"},
+        });
+        let out = mcp_wrap_call_tool_result_for(inner, "fetch");
+        let budget = mcp_response_budget_bytes();
+
+        let total = serde_json::to_string(&out).unwrap().len();
+        assert!(
+            total <= budget,
+            "text + mirror = {total} bytes against a {budget} budget"
+        );
+
+        let sc = out
+            .get("structuredContent")
+            .filter(|v| !v.is_null())
+            .unwrap_or_else(|| {
+                panic!("`fetch` declares an output schema and sent no mirror: {out}")
+            });
+
+        let schema: JsonValue =
+            serde_json::from_str(emem_mcp::output_schema_of("fetch").expect("a declared schema"))
+                .expect("valid schema JSON");
+        for key in schema["required"].as_array().expect("required") {
+            let k = key.as_str().expect("a string key");
+            assert!(
+                sc.get(k).map(|v| !v.is_null()).unwrap_or(false),
+                "required key `{k}` is missing or null in the mirror: {sc}"
+            );
+        }
+        // Typed-but-optional fields are dropped rather than emptied.
+        let nulls: Vec<&String> = sc
+            .as_object()
+            .expect("an object")
+            .iter()
+            .filter(|(_, v)| v.is_null())
+            .map(|(k, _)| k)
+            .collect();
+        assert!(
+            nulls.is_empty(),
+            "the mirror carries nulls that its own schema types: {nulls:?}"
+        );
+    }
+
+    /// A token is served whole or not at all. It is never shortened.
+    ///
+    /// Shortening is how a required field survives a budget, and applying it to
+    /// an identity would be the worst failure this surface can produce: an
+    /// `emem:fact:<cell64>:<cid>` missing its tail still PARSES as a citation,
+    /// still looks like one in a transcript, and dereferences to nothing while
+    /// carrying our name. Prose can lose its tail and say so; identity cannot.
+    #[test]
+    fn a_token_is_never_shortened_to_fit() {
+        let token = format!("emem:fact:defi.zb64a.cAzU.zfa27:{}", "c".repeat(52));
+        let url = "https://emem.dev/v1/cells/defi.zb64a.cAzU.zfa27";
+        let inner = json!({
+            "id": token,
+            "title": "149 signed facts at Trafalgar Square",
+            "text": "x".repeat(80_000),
+            "url": url,
+            "metadata": {"cell": "defi.zb64a.cAzU.zfa27"},
+        });
+        let out = mcp_wrap_call_tool_result_for(inner, "fetch");
+        let sc = &out["structuredContent"];
+        let served = sc["id"].as_str().expect("the id survived");
+        assert_eq!(served, token, "the citation was shortened to fit the wire");
+        assert_eq!(sc["url"].as_str(), Some(url), "the URL was shortened");
+
+        // The free text is what gives way, and it says so.
+        let text = sc["text"].as_str().expect("text is required");
+        assert!(text.len() < 80_000, "nothing was shortened at all");
+        assert!(text.contains("cut here"), "shortened without saying so");
+
+        // And the decision is the function's, not this fixture's.
+        assert!(!value_is_shortenable_text("id", &json!(token)));
+        assert!(!value_is_shortenable_text("url", &json!(url)));
+        assert!(!value_is_shortenable_text(
+            "anything",
+            &json!("emem:bundle:abcdefghijklmnopqrstuvwxyz")
+        ));
+        assert!(!value_is_shortenable_text("cid", &json!("c".repeat(4000))));
+        assert!(value_is_shortenable_text("text", &json!("x".repeat(2000))));
+        assert!(
+            !value_is_shortenable_text("text", &json!("short prose")),
+            "a short value is never worth cutting"
+        );
     }
 
     /// The published schema has to be reachable at the URL we publish.
