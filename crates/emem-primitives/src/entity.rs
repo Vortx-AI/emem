@@ -180,6 +180,44 @@ pub const ENTITIES_TREE: &str = "emem.entities";
 /// can converge divergent phrasings and list objects at a place.
 pub const ENTITY_ALIASES_TREE: &str = "emem.entity_aliases";
 
+/// Sled tree: `normalize_alias(key) -> JSON([AliasClaim, ...])`, append-only.
+///
+/// The tree above stores WHAT an alias points at and nothing about WHO said so:
+/// a bare list of entity cids, appended in arrival order. That made a name in
+/// the shared space a first-writer-wins redirect with no author, no way for a
+/// reader to weigh it, and no way for anyone to disagree with it on the record.
+/// This tree stores the claim itself: which key asserted (or disputed) that
+/// this alias denotes this entity, when, under which receipt. Resolution ranks
+/// by how many INDEPENDENT keys agree, never by who wrote first.
+pub const ENTITY_ALIAS_CLAIMS_TREE: &str = "emem.entity_alias_claims";
+
+/// What a key is saying about an alias -> entity binding.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AliasStance {
+    /// "this phrasing denotes this object"
+    Asserts,
+    /// "it does not" -- author-scoped, weighs against, deletes nothing
+    Disputes,
+}
+
+/// One signed statement about an alias, by one key.
+///
+/// `attester_pubkey_b32` is `None` only for rows written before authorship was
+/// persisted or by a responder running the ladder in shadow mode; resolution
+/// labels those `unattributed` and counts them as zero independent keys.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AliasClaim {
+    pub entity_cid: String,
+    pub stance: AliasStance,
+    pub attester_pubkey_b32: Option<String>,
+    pub signed_at: String,
+    /// The responder receipt that covered the write: request id and signature,
+    /// so a claim can be tied back to the transparency log.
+    pub request_id: String,
+    pub receipt_signature_b32: String,
+}
+
 /// Normalize a label/kind for identity + alias indexing: trim, lowercase,
 /// collapse internal whitespace runs to a single space. Deterministic and
 /// locale-independent (ASCII-lowercase only, so it never depends on a locale

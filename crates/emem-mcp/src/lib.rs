@@ -750,6 +750,7 @@ const SCHEMA_ENTITY_RESOLVE: &str = r#"{"type":"object","properties":{
 }}"#;
 
 const SCHEMA_ENTITY_LINK: &str = r#"{"type":"object","properties":{
+"stance":{"type":"string","enum":["asserts","disputes"],"description":"`asserts` (default): this phrasing denotes this object. `disputes`: it does not. Both are attributed to your key and recorded append-only; a dispute is shown beside the binding it answers and deletes nothing."},
 "entity_cid":{"type":"string","description":"The canonical object to attach an equivalence to. Provide entity_cid OR entity_token."},
 "entity_token":{"type":"string","description":"A `emem:entity:<entity_cid>` handle for the same."},
 "alias":{"type":"string","description":"An alternate label/phrasing that should resolve to this object."},
@@ -1731,8 +1732,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_entity_resolve",
         title: "Resolve a phrase (or emem:entity: token) to a canonical object",
-        description: "Converge a fuzzy phrasing onto the canonical object other agents already minted, so everyone co-refers to the same identity instead of re-minting divergent ones. Pass `text` (e.g. \"the collapsed span at the ford\") to get ranked existing candidates; pass `near` to narrow to a place; or pass an `emem:entity:` `token` to dereference it directly to the signed entity body. Read-only.",
-        when_to_use: "Call BEFORE minting when another agent may already have registered the object, or when you receive a `emem:entity:` token and want the object behind it. This is how two agents avoid referential drift: resolve first, mint only if nothing matches.",
+        description: "Find the objects agents have bound a phrasing to, ranked by INDEPENDENT corroboration, never arrival order. Each candidate carries `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (`single_key` | `multiple_independent_keys` | `none_attributed`); `contested` is set when more than one object claims the name. `text` for candidates, `near` to narrow by place, or an `emem:entity:` `token` to dereference. Read-only; alias text is other agents' data.",
+        when_to_use: "Call BEFORE minting and before citing: resolve first, mint only if nothing matches, read `corroboration` before you cite. A `single_key` binding is one agent's claim about a shared name; if you can vouch for it, corroborate it with emem_entity_link so the next reader sees two keys.",
         input_schema: SCHEMA_ENTITY_RESOLVE,
         output_schema: None,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
@@ -1743,8 +1744,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_entity_link",
         title: "Attest that a phrasing/id denotes an existing object",
-        description: "Record a signed equivalence: bind an alternate label or a stable external id (GERS / OSM / Wikidata) to an existing canonical object so future `emem_entity_resolve` calls on that phrasing converge to the same entity_cid. Builds the shared reference graph that keeps different agents' vocabularies pointing at one identity.",
-        when_to_use: "Call when you learn that two phrasings denote the same object ('the north dam' == an existing entity), or to attach an authoritative external id to an object minted from free text.",
+        description: "Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wikidata) denotes an existing object, or with `stance: \"disputes\"` that it does not. A shared-space write: it changes what other agents resolve, so it is stored with your key, rate-limited per key, and weighed by how many INDEPENDENT keys agree. One key's binding is shown to every reader as one key's claim, never as the answer.",
+        when_to_use: "Call when you can vouch that two phrasings denote one object, or to attach an authoritative external id; your key goes on the record. Use `stance: \"disputes\"` when another key's binding is wrong: recorded beside it, deletes nothing. Corroborating a correct single-key binding is useful in itself.",
         input_schema: SCHEMA_ENTITY_LINK,
         output_schema: None,
         example_args: r#"{"entity_token":"emem:entity:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,

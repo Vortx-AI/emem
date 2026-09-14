@@ -31462,8 +31462,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted) or a bare bundle_cid; the response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb: or bare cid accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the canonical object other agents already minted (converge, do not re-mint), or dereference an emem:entity: `token` directly to its signed body. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/entity/alias":      {"post":{"summary":"Attest a signed equivalence: bind an alternate label or a stable external id (GERS/OSM/Wikidata) to an existing entity so future entity_resolve calls on that phrasing converge to the same entity_cid. Builds the shared reference graph.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the objects agents have bound it to, ranked by INDEPENDENT corroboration: each candidate carries `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (single_key vs multiple_independent_keys), and the response says `contested` when more than one object claims the name. Or dereference an emem:entity: `token` directly. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only; alias text is other agents' data.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/entity/alias":      {"post":{"summary":"Record a signed, ATTRIBUTED claim that an alternate label or a stable external id (GERS/OSM/Wikidata) denotes an existing entity -- or, with `stance: disputes`, that it does not. Shared-space write: T3 tier, per-key rate backstop. It changes what other agents see when they resolve this phrasing, so it is stored with your key and ranked by how many independent keys agree, never by arrival order.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"stance":{"type":"string","enum":["asserts","disputes"],"description":"asserts (default) or disputes; both attributed to your key, append-only"},"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/{id}":       {"get":{"summary":"Dereference a canonical object by entity_cid or emem:entity: token to its signed body, receipt, and recall hint. 404 with a typed code when this responder does not hold it.","operationId":"emem_entity_get","tags":["entity","identity"],"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"},"description":"entity_cid or emem:entity:<entity_cid> (legacy meme: accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
             "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default that means two or more DISTINCT attesters; pass include_same_attester_sources to also report one attester answering from two different upstreams. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"cell":{"type":"string","description":"Alias for cell_prefix, and the name the other tools that take a cell64 use."},"cell64":{"type":"string","description":"Alias for cell_prefix."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":false,"description":"Also report keys where ONE attester answered the same address from two different upstreams. Default false: the scan asks only whether two or more DISTINCT attesters disagree, so on a single-responder corpus a zero means that narrower question came back empty, not that nothing disagrees. When true a single-attester key qualifies only if the facts differ in derivation.fn_key or in their sources[].scheme set — the same provider re-signed is a refresh, not a disagreement. Every record carries disagreement_scope (multi_attester | same_attester_provider_substitution) and a providers[] list, index-aligned with attestations, naming the recipe and schemes behind each value."}}}}}},"responses":{"200":json_ok}},
@@ -38505,6 +38505,116 @@ fn entity_alias_read(tree: &sled::Tree, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Append one attributed claim under an alias key. Append-only: a later
+/// disagreement is a new row, never an edit of an old one.
+fn alias_claim_append(tree: &sled::Tree, key: &str, claim: &emem_primitives::entity::AliasClaim) {
+    let mut claims = alias_claims_read(tree, key);
+    claims.push(claim.clone());
+    if let Ok(buf) = serde_json::to_vec(&claims) {
+        let _ = tree.insert(key.as_bytes(), buf);
+    }
+}
+
+fn alias_claims_read(tree: &sled::Tree, key: &str) -> Vec<emem_primitives::entity::AliasClaim> {
+    tree.get(key.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_slice(&v).ok())
+        .unwrap_or_default()
+}
+
+/// One entity a name might denote, with the evidence for and against it.
+#[derive(Debug, Clone, serde::Serialize)]
+struct RankedAliasCandidate {
+    entity_cid: String,
+    /// Distinct keys asserting this binding. Disputes are listed beside it
+    /// rather than subtracted, so a reader sees both sides.
+    independent_attesters: usize,
+    asserted_by: Vec<String>,
+    disputed_by: Vec<String>,
+    /// `attributed` when every supporting claim names its key;
+    /// `legacy_unattributed` when the only support is a pre-attribution row.
+    provenance: &'static str,
+    first_seen: String,
+}
+
+/// Rank what a name might denote by INDEPENDENT corroboration.
+///
+/// The old resolver returned entity cids in the order they were appended, so
+/// the first key to bind a name decided what every later reader saw, and a
+/// reader could not tell one key's claim from ten keys' agreement. This ranks
+/// by the number of distinct asserting keys, then by age, and never lets a
+/// row with no author outrank a row with one: legacy rows count as zero keys.
+/// A single-key binding is still returned -- it is a claim, and claims are
+/// data -- but it arrives labelled as exactly that.
+fn rank_alias_candidates(
+    claims: &[emem_primitives::entity::AliasClaim],
+    legacy_cids: &[String],
+) -> Vec<RankedAliasCandidate> {
+    use emem_primitives::entity::AliasStance;
+    use std::collections::{BTreeMap, BTreeSet};
+    struct Acc {
+        asserts: BTreeSet<String>,
+        disputes: BTreeSet<String>,
+        unattributed_support: bool,
+        first_seen: String,
+    }
+    let mut by_cid: BTreeMap<String, Acc> = BTreeMap::new();
+    for c in claims {
+        let acc = by_cid.entry(c.entity_cid.clone()).or_insert_with(|| Acc {
+            asserts: BTreeSet::new(),
+            disputes: BTreeSet::new(),
+            unattributed_support: false,
+            first_seen: c.signed_at.clone(),
+        });
+        if c.signed_at < acc.first_seen {
+            acc.first_seen = c.signed_at.clone();
+        }
+        match (&c.stance, &c.attester_pubkey_b32) {
+            (AliasStance::Asserts, Some(k)) => {
+                acc.asserts.insert(k.clone());
+            }
+            (AliasStance::Asserts, None) => acc.unattributed_support = true,
+            (AliasStance::Disputes, Some(k)) => {
+                acc.disputes.insert(k.clone());
+            }
+            (AliasStance::Disputes, None) => {}
+        }
+    }
+    for cid in legacy_cids {
+        by_cid.entry(cid.clone()).or_insert_with(|| Acc {
+            asserts: BTreeSet::new(),
+            disputes: BTreeSet::new(),
+            unattributed_support: true,
+            first_seen: String::new(),
+        });
+    }
+    let mut out: Vec<RankedAliasCandidate> = by_cid
+        .into_iter()
+        .map(|(cid, acc)| RankedAliasCandidate {
+            entity_cid: cid,
+            independent_attesters: acc.asserts.len(),
+            provenance: if acc.asserts.is_empty() && acc.unattributed_support {
+                "legacy_unattributed"
+            } else {
+                "attributed"
+            },
+            asserted_by: acc.asserts.into_iter().collect(),
+            disputed_by: acc.disputes.into_iter().collect(),
+            first_seen: acc.first_seen,
+        })
+        .collect();
+    // Most independent agreement first; among equals the older binding, since
+    // age is at least observable where arrival order was arbitrary.
+    out.sort_by(|a, b| {
+        b.independent_attesters
+            .cmp(&a.independent_attesters)
+            .then_with(|| a.first_seen.cmp(&b.first_seen))
+            .then_with(|| a.entity_cid.cmp(&b.entity_cid))
+    });
+    out
+}
+
 fn entity_record_get(tree: &sled::Tree, entity_cid: &str) -> Option<JsonValue> {
     tree.get(entity_cid.as_bytes())
         .ok()
@@ -38517,6 +38627,7 @@ async fn post_entity(
     EmemJson(req): EmemJson<EntityMintReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // The shared address space: what every other agent resolves a name to.
+    enforce_write_rate_limit(req.attester.as_ref())?;
     let enlistment = enlistment_gate(
         &s,
         req.attester.as_ref(),
@@ -38655,6 +38766,24 @@ async fn post_entity(
         tracing::error!(target: "emem::durability", error = %e, "flush failed");
     }
 
+    // The minter's own aliases are the minter's claims, attributed to the
+    // minter -- not to the responder, which only signed the receipt.
+    let mint_claim = emem_primitives::entity::AliasClaim {
+        entity_cid: entity_cid.clone(),
+        stance: emem_primitives::entity::AliasStance::Asserts,
+        attester_pubkey_b32: req.attester.as_ref().map(|a| a.pubkey_b32.clone()),
+        signed_at: receipt.served_at.clone(),
+        request_id: receipt.request_id.clone(),
+        receipt_signature_b32: receipt.signature_b32.clone(),
+    };
+    if let Ok(claims) = db.open_tree(emem_primitives::entity::ENTITY_ALIAS_CLAIMS_TREE) {
+        for k in alias_keys(&entity) {
+            alias_claim_append(&claims, &k, &mint_claim);
+        }
+        if let Err(e) = flush_off_runtime(&claims).await {
+            tracing::error!(target: "emem::durability", error = %e, "flush failed");
+        }
+    }
     if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
         for k in alias_keys(&entity) {
             entity_alias_append(&aliases, &k, &entity_cid);
@@ -38742,18 +38871,32 @@ async fn post_entity_resolve(
         )
     })?;
 
-    let mut cids: Vec<String> = entity_alias_read(&aliases, &key);
+    let claims_tree = db
+        .open_tree(emem_primitives::entity::ENTITY_ALIAS_CLAIMS_TREE)
+        .map_err(|e| {
+            entity_err(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorCode::CacheError,
+                format!("open alias claims: {e}"),
+            )
+        })?;
+    let mut claims = alias_claims_read(&claims_tree, &key);
+    let mut legacy: Vec<String> = entity_alias_read(&aliases, &key);
     let near_cell = if let Some(near) = req.near.as_deref().filter(|s| !s.trim().is_empty()) {
         let (cell, _) = resolve_cell_field(near).await?;
-        for c in entity_alias_read(&aliases, &format!("cell:{cell}")) {
-            if !cids.contains(&c) {
-                cids.push(c);
+        let ck = format!("cell:{cell}");
+        claims.extend(alias_claims_read(&claims_tree, &ck));
+        for c in entity_alias_read(&aliases, &ck) {
+            if !legacy.contains(&c) {
+                legacy.push(c);
             }
         }
         Some(cell)
     } else {
         None
     };
+    let ranked = rank_alias_candidates(&claims, &legacy);
+    let cids: Vec<String> = ranked.iter().map(|r| r.entity_cid.clone()).collect();
 
     let entities = db.open_tree(ENTITIES_TREE).map_err(|e| {
         entity_err(
@@ -38763,27 +38906,54 @@ async fn post_entity_resolve(
         )
     })?;
     let mut candidates = Vec::new();
-    for cid in cids.iter().take(k) {
-        if let Some(rec) = entity_record_get(&entities, cid) {
+    for r in ranked.iter().take(k) {
+        if let Some(rec) = entity_record_get(&entities, &r.entity_cid) {
             candidates.push(json!({
-                "entity_token": entity_token(cid),
+                "entity_token": entity_token(&r.entity_cid),
                 "entity": rec.get("entity").cloned().unwrap_or(rec),
+                // The evidence a reader needs to weigh the binding, not just
+                // the binding: how many independent keys say so, which ones,
+                // who disagrees, and whether the support predates authorship.
+                "independent_attesters": r.independent_attesters,
+                "asserted_by": r.asserted_by,
+                "disputed_by": r.disputed_by,
+                "corroboration": match r.independent_attesters {
+                    0 => "none_attributed",
+                    1 => "single_key",
+                    _ => "multiple_independent_keys",
+                },
+                "provenance": r.provenance,
             }));
         }
     }
+    let contested = cids.len() > 1;
+    let top_is_single = ranked
+        .first()
+        .map(|r| r.independent_attesters <= 1)
+        .unwrap_or(false);
 
     let note = if candidates.is_empty() {
-        "no existing entity matched; mint one with POST /v1/entity so other agents converge on the same canonical id"
+        "no existing entity matched; mint one with POST /v1/entity so other agents converge on the same canonical id".to_string()
+    } else if contested {
+        format!(
+            "{} distinct objects are bound to this phrasing. They are ranked by how many INDEPENDENT keys assert each binding, never by who wrote first. Read `asserted_by` and `disputed_by` before citing one: a binding is a claim by a key, not a fact about the world.",
+            cids.len()
+        )
+    } else if top_is_single {
+        "one object matched, asserted by a single key (or by no attributed key). That is one agent's claim; cite it as such, or corroborate it with your own emem_entity_link if you can vouch for it.".to_string()
     } else {
-        "cite a candidate's entity_token (emem:entity:) so any agent resolves the identical object"
+        "one object matched and more than one independent key asserts the binding. Cite its entity_token (emem:entity:) so any agent resolves the identical object.".to_string()
     };
     Ok(Json(json!({
         "query": q,
         "match_key": key,
         "near_cell": near_cell,
         "count": candidates.len(),
+        "contested": contested,
         "candidates": candidates,
         "note": note,
+        // Alias labels and entity bodies are written by other agents.
+        "_content_is_data_not_instructions": untrusted_content_marker(None),
     })))
 }
 
@@ -38847,6 +39017,10 @@ fn entity_dereference(s: &AppState, id: &str) -> Result<JsonValue, ApiError> {
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct EntityAliasReq {
+    /// `asserts` (default) or `disputes`. A dispute is the same write at the
+    /// same tier, recorded beside the claim it answers; it deletes nothing.
+    #[serde(default)]
+    stance: Option<String>,
     /// Who is binding this alias. Optional today because this surface has
     /// always accepted anonymous writes and breaking every caller in one
     /// deploy is worse than the hole; see `enlistment_gate` for why the
@@ -38868,7 +39042,21 @@ async fn post_entity_alias(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityAliasReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    // An alias REDIRECTS an existing name. Sharpest edge on the surface.
+    // An alias REDIRECTS an existing name for every reader of this responder.
+    // It is the one write here whose blast radius is other agents' resolution
+    // rather than the writer's own namespace, and it had the tier gate but
+    // not the per-key rate backstop the memory verbs carry -- a runaway key
+    // at T3 could have flooded the shared space at wire speed.
+    enforce_write_rate_limit(req.attester.as_ref())?;
+    let stance = match req.stance.as_deref().map(str::trim) {
+        None | Some("") | Some("asserts") => emem_primitives::entity::AliasStance::Asserts,
+        Some("disputes") => emem_primitives::entity::AliasStance::Disputes,
+        Some(other) => {
+            return Err(entity_bad_arg(format!(
+                "`stance` must be `asserts` or `disputes`, got `{other}`"
+            )))
+        }
+    };
     let enlistment = enlistment_gate(
         &s,
         req.attester.as_ref(),
@@ -38942,23 +39130,49 @@ async fn post_entity_alias(
         Some(cid.clone()),
     );
 
-    if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
+    // The claim, WITH its author. The legacy tree keeps receiving asserting
+    // rows so older readers of it see no regression; resolution reads claims.
+    let claim = emem_primitives::entity::AliasClaim {
+        entity_cid: cid.clone(),
+        stance,
+        attester_pubkey_b32: req.attester.as_ref().map(|a| a.pubkey_b32.clone()),
+        signed_at: receipt.served_at.clone(),
+        request_id: receipt.request_id.clone(),
+        receipt_signature_b32: receipt.signature_b32.clone(),
+    };
+    if let Ok(claims) = db.open_tree(emem_primitives::entity::ENTITY_ALIAS_CLAIMS_TREE) {
         for k in &keys {
-            entity_alias_append(&aliases, k, &cid);
+            alias_claim_append(&claims, k, &claim);
         }
-        if let Err(e) = flush_off_runtime(&aliases).await {
+        if let Err(e) = flush_off_runtime(&claims).await {
             tracing::error!(target: "emem::durability", error = %e, "flush failed");
         }
     }
+    if stance == emem_primitives::entity::AliasStance::Asserts {
+        if let Ok(aliases) = db.open_tree(ENTITY_ALIASES_TREE) {
+            for k in &keys {
+                entity_alias_append(&aliases, k, &cid);
+            }
+            if let Err(e) = flush_off_runtime(&aliases).await {
+                tracing::error!(target: "emem::durability", error = %e, "flush failed");
+            }
+        }
+    }
 
+    let note = match stance {
+        emem_primitives::entity::AliasStance::Asserts => "Claim recorded and signed, attributed to your key. entity_resolve on this alias now lists this object with you among its asserters; it is ranked by how many INDEPENDENT keys agree, not by who wrote first, and a single-key binding is labelled as one.",
+        emem_primitives::entity::AliasStance::Disputes => "Dispute recorded and signed, attributed to your key. It is shown beside the binding it answers and deletes nothing.",
+    };
     Ok(Json(json!({
         "enlistment": enlistment.clone(),
         "ok": true,
+        "stance": stance,
         "entity_cid": cid,
         "entity_token": entity_token(&cid),
         "aliases_added": keys,
+        "asserted_by": claim.attester_pubkey_b32,
         "receipt": receipt,
-        "note": "Equivalence recorded + signed. entity_resolve on any added alias now converges to this canonical object.",
+        "note": note,
     })))
 }
 
@@ -79870,6 +80084,196 @@ mod tests {
             long.len()
         );
         assert!(openai_reading_of(&json!({"value": JsonValue::Null})).contains("no value"));
+    }
+
+    /// A shared name is ranked by independent agreement, never by who wrote first.
+    ///
+    /// `emem_entity_link` changes what every other agent resolves a phrasing
+    /// to. Before this, the alias tree stored a bare list of entity cids in
+    /// arrival order and nothing about who wrote them, so the first key to bind
+    /// a name decided what every later reader saw, one key's claim was
+    /// indistinguishable from ten keys' agreement, and nobody could disagree on
+    /// the record. These are the properties that close that surface.
+    #[test]
+    fn a_shared_name_is_ranked_by_independent_keys_not_arrival_order() {
+        use emem_primitives::entity::{AliasClaim, AliasStance};
+        let claim = |cid: &str, key: Option<&str>, stance: AliasStance, at: &str| AliasClaim {
+            entity_cid: cid.into(),
+            stance,
+            attester_pubkey_b32: key.map(String::from),
+            signed_at: at.into(),
+            request_id: format!("r-{cid}-{}", key.unwrap_or("anon")),
+            receipt_signature_b32: "sig".into(),
+        };
+
+        // (a) The attacker writes FIRST and alone; two independent keys later
+        // agree on a different object. Arrival order must not decide.
+        let claims = vec![
+            claim(
+                "attacker",
+                Some("k-mallory"),
+                AliasStance::Asserts,
+                "2026-09-14T00:00:00Z",
+            ),
+            claim(
+                "genuine",
+                Some("k-alice"),
+                AliasStance::Asserts,
+                "2026-09-14T00:01:00Z",
+            ),
+            claim(
+                "genuine",
+                Some("k-bob"),
+                AliasStance::Asserts,
+                "2026-09-14T00:02:00Z",
+            ),
+        ];
+        let ranked = rank_alias_candidates(&claims, &[]);
+        assert_eq!(
+            ranked[0].entity_cid, "genuine",
+            "first writer won: {ranked:?}"
+        );
+        assert_eq!(ranked[0].independent_attesters, 2);
+        assert_eq!(ranked[1].entity_cid, "attacker");
+        assert_eq!(ranked[1].independent_attesters, 1);
+        assert_eq!(
+            ranked[1].asserted_by,
+            vec!["k-mallory".to_string()],
+            "the claim carries its author"
+        );
+
+        // (b) One key asserting the same binding ten times is still one key.
+        let mut spam = Vec::new();
+        for i in 0..10 {
+            spam.push(claim(
+                "attacker",
+                Some("k-mallory"),
+                AliasStance::Asserts,
+                &format!("2026-09-14T00:00:{i:02}Z"),
+            ));
+        }
+        spam.push(claim(
+            "genuine",
+            Some("k-alice"),
+            AliasStance::Asserts,
+            "2026-09-14T01:00:00Z",
+        ));
+        spam.push(claim(
+            "genuine",
+            Some("k-bob"),
+            AliasStance::Asserts,
+            "2026-09-14T01:01:00Z",
+        ));
+        let ranked = rank_alias_candidates(&spam, &[]);
+        assert_eq!(
+            ranked[0].entity_cid, "genuine",
+            "repetition inflated a single key: {ranked:?}"
+        );
+        assert_eq!(
+            ranked[1].independent_attesters, 1,
+            "ten claims from one key counted as more than one"
+        );
+
+        // (c) A dispute is recorded beside the binding and deletes nothing.
+        let mut disputed = claims.clone();
+        disputed.push(claim(
+            "attacker",
+            Some("k-carol"),
+            AliasStance::Disputes,
+            "2026-09-14T02:00:00Z",
+        ));
+        let ranked = rank_alias_candidates(&disputed, &[]);
+        let att = ranked
+            .iter()
+            .find(|r| r.entity_cid == "attacker")
+            .expect("still listed");
+        assert_eq!(att.disputed_by, vec!["k-carol".to_string()]);
+        assert_eq!(
+            att.independent_attesters, 1,
+            "a dispute is shown, not subtracted"
+        );
+
+        // (d) A legacy row with no author never outranks an attributed row,
+        // and says what it is.
+        let ranked = rank_alias_candidates(
+            &[claim(
+                "genuine",
+                Some("k-alice"),
+                AliasStance::Asserts,
+                "2026-09-14T00:00:00Z",
+            )],
+            &["legacy-first".to_string()],
+        );
+        assert_eq!(ranked[0].entity_cid, "genuine");
+        assert_eq!(ranked[1].entity_cid, "legacy-first");
+        assert_eq!(ranked[1].provenance, "legacy_unattributed");
+        assert_eq!(ranked[1].independent_attesters, 0);
+        assert_eq!(ranked[0].provenance, "attributed");
+
+        // (e) An unattributed ASSERT (shadow-mode row) also counts as zero keys.
+        let ranked = rank_alias_candidates(
+            &[
+                claim(
+                    "anon-bound",
+                    None,
+                    AliasStance::Asserts,
+                    "2026-09-14T00:00:00Z",
+                ),
+                claim(
+                    "keyed",
+                    Some("k-alice"),
+                    AliasStance::Asserts,
+                    "2026-09-14T00:00:01Z",
+                ),
+            ],
+            &[],
+        );
+        assert_eq!(ranked[0].entity_cid, "keyed");
+        assert_eq!(ranked[1].provenance, "legacy_unattributed");
+    }
+
+    /// The claims tree round-trips with its author, append-only.
+    #[test]
+    fn an_alias_claim_is_stored_with_its_author_and_never_overwritten() {
+        use emem_primitives::entity::{AliasClaim, AliasStance, ENTITY_ALIAS_CLAIMS_TREE};
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let tree = db.open_tree(ENTITY_ALIAS_CLAIMS_TREE).unwrap();
+        let mk = |cid: &str, key: &str, stance: AliasStance| AliasClaim {
+            entity_cid: cid.into(),
+            stance,
+            attester_pubkey_b32: Some(key.into()),
+            signed_at: "2026-09-14T00:00:00Z".into(),
+            request_id: format!("r-{key}"),
+            receipt_signature_b32: "sig".into(),
+        };
+        alias_claim_append(
+            &tree,
+            "north dam",
+            &mk("e1", "k-alice", AliasStance::Asserts),
+        );
+        alias_claim_append(
+            &tree,
+            "north dam",
+            &mk("e2", "k-mallory", AliasStance::Asserts),
+        );
+        alias_claim_append(
+            &tree,
+            "north dam",
+            &mk("e2", "k-bob", AliasStance::Disputes),
+        );
+        let got = alias_claims_read(&tree, "north dam");
+        assert_eq!(got.len(), 3, "a later claim replaced an earlier one");
+        assert_eq!(got[0].attester_pubkey_b32.as_deref(), Some("k-alice"));
+        assert_eq!(got[2].stance, AliasStance::Disputes);
+        assert!(alias_claims_read(&tree, "south dam").is_empty());
+        // And the legacy tree, still written for compatibility, is unchanged in shape.
+        let legacy = db.open_tree("emem.entity_aliases").unwrap();
+        entity_alias_append(&legacy, "north dam", "e1");
+        entity_alias_append(&legacy, "north dam", "e1");
+        assert_eq!(
+            entity_alias_read(&legacy, "north dam"),
+            vec!["e1".to_string()]
+        );
     }
 
     /// The published schema has to be reachable at the URL we publish.
