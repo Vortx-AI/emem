@@ -5,10 +5,20 @@
 
 Why this exists
 ---------------
-Half this suite reads the live responder. Deploys restart it, and the restart
-takes about ninety seconds during which the port refuses connections: longer
-than any single gate's patience, and every one of those gates then reports a
-finding about the thing it checks rather than about the service being down.
+Half this suite reads the live responder. Deploys restart it, and during the
+restart the port refuses connections: longer than any single gate's patience,
+and every one of those gates then reports a finding about the thing it checks
+rather than about the service being down.
+
+How long a restart actually takes is a measured number, and it has moved. A
+warm restart is about ninety seconds. A COLD one is not: `storage_open`
+measured 971,233 / 1,264,857 / 1,644,625 ms on 2026-09-14, because the open
+page-faults a multi-gigabyte sled heap off the volume. No wait that fits inside
+a CI job covers that, so this gate does not pretend to. It draws the line
+instead: a timeout here says the responder was down for the whole wait, which
+is an outage to go and look at, and explicitly NOT a finding from the gates
+behind it. Re-derive the boot cost with
+`journalctl -u emem-server | grep 'boot step step="storage_open"'`.
 One run of this repository's history has `route_truth` failing on
 `/.well-known/emem-guard.json` while three curls seconds later returned 200 in
 28 ms.
@@ -49,8 +59,9 @@ def probe(url: str, timeout: float = 10.0) -> int:
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--origin", default="https://emem.dev")
-    ap.add_argument("--wait", type=float, default=180.0,
-                    help="seconds to wait for the responder (a restart is about 90)")
+    ap.add_argument("--wait", type=float, default=300.0,
+                    help="seconds to wait (a warm restart is about 90; a cold "
+                         "one exceeds any CI wait, see the module docstring)")
     args = ap.parse_args()
 
     url = f"{args.origin.rstrip('/')}/health"
@@ -72,6 +83,9 @@ def main() -> int:
                   f"({attempt} probes, last result {code or 'no connection'}).")
             print("  Not running the checks behind this: a suite that ran against")
             print("  nothing and reported clean is worse than one that did not run.")
+            print("  Read this as an OUTAGE, not as a finding about any gate behind")
+            print("  it. A cold storage_open takes longer than this whole wait, so a")
+            print("  deploy in flight reaches CI as exactly this line.")
             return 1
         time.sleep(min(5.0, max(1.0, args.wait / 30)))
 
