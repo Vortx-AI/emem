@@ -34117,7 +34117,57 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
 // (which encoder's state is freshest at this cell?), and concatenated
 // state for downstream linear probes.
 
-const FOUNDATION_ENCODERS: &[&str] = &["geotessera", "clay_v1", "prithvi_eo2", "galileo"];
+/// Encoders `/v1/state_multi` fans out to: the foundation bands the registry
+/// still offers, never a typed list.
+///
+/// It was a typed list of four until 2026-09-15, when the GPU behind them was
+/// removed and all four went on being advertised because nothing connected the
+/// list to whether the model ran. Reading the registry means retiring a band is
+/// the only edit needed, and the fan-out cannot outlive the encoder again.
+fn foundation_encoders() -> Vec<&'static str> {
+    emem_core::bands::DEFAULT
+        .bands
+        .iter()
+        // Foundation family, minus the reserved slots. `_reserved_128` sits in
+        // this family with `provenance_class: unclassified` because it is a
+        // held cube range, not a model, and a fan-out that included it asked
+        // the responder for an encoder that was never meant to exist. A band
+        // with no declared producer is not something to ask for.
+        .filter(|b| {
+            matches!(b.family, emem_core::bands::BandFamily::Foundation)
+                && !matches!(
+                    b.provenance_class,
+                    emem_core::bands::ProvenanceClass::Unclassified
+                )
+        })
+        .map(|b| b.key.as_str())
+        .filter(|k| !retired_bands().contains(*k))
+        .collect()
+}
+
+/// Bands this DEPLOYMENT no longer offers, from `EMEM_RETIRED_BANDS`
+/// (comma-separated). Empty by default.
+///
+/// Deliberately not in the band manifest. `manifest_cid` is
+/// `blake3(canonical_cbor(registry data))` and every receipt commits to it, so
+/// adding a `retired` field to `Band` moves `bands_cid` and breaks verification
+/// of every fact ever signed. Measured on 2026-09-15 and caught by
+/// `the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary`. It is the
+/// right boundary anyway: the manifest says what a band MEANS, which has not
+/// changed, while whether a model runs here is a property of this host.
+/// Reclaiming the slots for real is a `bands-v1` layout, not an edit to v0.
+fn retired_bands() -> &'static std::collections::BTreeSet<String> {
+    static RETIRED: std::sync::OnceLock<std::collections::BTreeSet<String>> =
+        std::sync::OnceLock::new();
+    RETIRED.get_or_init(|| {
+        std::env::var("EMEM_RETIRED_BANDS")
+            .unwrap_or_default()
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    })
+}
 
 #[derive(Debug, Deserialize)]
 struct StateMultiReq {
@@ -34205,10 +34255,12 @@ async fn post_state_multi(
             .map(|i| i.iter().any(|x| x.eq_ignore_ascii_case("vectors")))
             .unwrap_or(false)
     });
-    let encoders: Vec<String> = req
-        .encoders
-        .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| FOUNDATION_ENCODERS.iter().map(|s| s.to_string()).collect());
+    let encoders: Vec<String> = req.encoders.filter(|v| !v.is_empty()).unwrap_or_else(|| {
+        foundation_encoders()
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
+    });
 
     let mut hits: Vec<EncoderState> = Vec::with_capacity(encoders.len());
     let mut missing: Vec<EncoderMissing> = Vec::new();
@@ -55377,6 +55429,11 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("temporal_diff:indices.ndvi:1y".into());
     out.push("temporal_diff:indices.ndvi:30d".into());
     out.push("temporal_diff:weather.temperature_2m:1y".into());
+    // A retired band keeps its cube slot and loses its offer. Without this
+    // filter /v1/data_availability went on advertising three encoders that
+    // answered `missing` at every cell, which is how an agent designs a
+    // feature against a model nobody is running.
+    out.retain(|b| !retired_bands().contains(b.as_str()));
     out
 }
 
@@ -58938,13 +58995,28 @@ fn enlistment_enforcing() -> bool {
 
 /// The tier this responder can currently prove about a key.
 ///
-/// UNDER-reports on purpose where it cannot check cheaply. T2 (profile) and
-/// T5 (corroboration) are roster aggregations too expensive to run per write,
-/// so a key holding either still reads at the tier below. That direction
+/// UNDER-reports where it cannot check cheaply, but never for a rung that
+/// gates a surface. T5 (corroboration) is a roster aggregation too expensive
+/// to run per write, so a corroborated key still reads T4 here. That direction
 /// matters: an under-reported tier refuses a legitimate writer, which is
 /// visible and complained about, while an over-reported one admits a stranger
-/// silently. It is also the reason the gate ships in shadow — a gate whose
-/// input understates is not one to enforce before measuring.
+/// silently.
+///
+/// T2 and T3 used to be under-reported too, by `..Default::default()`, and
+/// that was not a conservative choice, it was a dead end. **T3 is the rung
+/// that gates the shared entity space.** We document how to reach it — publish
+/// a signed `agent-skills.md` in your own namespace — and then never read it
+/// here, so `may_write(.., SharedEntitySpace)` refused every caller who had
+/// done exactly what we asked. An integrator published both notes, got
+/// `ok: true` on each, watched `/v1/entity` answer `T1_keyed`, and had no way
+/// to tell a missed step from a rung that could not be climbed. Reported
+/// 2026-09-15.
+///
+/// The "too expensive" reasoning did not apply: the roster SCANS every note to
+/// build a table, but this needs two point lookups at paths already determined
+/// by the caller's own key. A ladder whose documented rung is unreachable is
+/// worse than no ladder, because it sends the honest caller looking for their
+/// own mistake.
 fn attester_tier(s: &AppState, att: Option<&MemoryAttester>) -> crate::enlistment::Tier {
     use crate::enlistment::{tier_for, Facts};
     let Some(att) = att else {
@@ -58953,11 +59025,24 @@ fn attester_tier(s: &AppState, att: Option<&MemoryAttester>) -> crate::enlistmen
     let org_verified = enlistment_evidence(s, &att.pubkey_b32)
         .map(|e| e.is_fresh(now_unix()))
         .unwrap_or(false);
+    // Two point reads at the caller's own namespace, not a scan.
+    let ns = att.pubkey_b32.chars().take(8).collect::<String>();
+    let note = |name: &str| {
+        read_memory_file(s, &format!("/memories/by_attester/{ns}/{name}"))
+            .ok()
+            .flatten()
+    };
+    let has_profile_with_nick = note("profile.md").is_some();
+    let declares_endpoint = note("agent-skills.md")
+        .and_then(|(body, _)| parse_skill_declaration(&String::from_utf8_lossy(&body)))
+        .is_some();
     tier_for(&Facts {
         has_signed_note: true,
         // The caller presented an attester block; the per-verb signature check
         // on the write path is what proves it, and runs before this.
         namespace_proven: true,
+        has_profile_with_nick,
+        declares_endpoint,
         org_verified,
         ..Default::default()
     })
@@ -82835,7 +82920,7 @@ mod tests {
         }
     }
 
-    /// `FOUNDATION_ENCODERS` is the default fan-out for `/v1/state_multi`,
+    /// `foundation_encoders()` is the default fan-out for `/v1/state_multi`,
     /// and every entry must have a materialiser wired.
     ///
     /// This test used to assert that the list contained four typed names,
@@ -82871,15 +82956,14 @@ mod tests {
     fn every_advertised_encoder_is_a_materialisable_band() {
         let wired: std::collections::BTreeSet<String> =
             all_materializable_bands().into_iter().collect();
-        let unknown: Vec<&str> = FOUNDATION_ENCODERS
-            .iter()
-            .copied()
+        let unknown: Vec<&str> = foundation_encoders()
+            .into_iter()
             .filter(|e| !wired.contains(*e))
             .collect();
         assert!(
             unknown.is_empty(),
             "/v1/state_multi fans out to {unknown:?}, which this build cannot materialise \
-             at all. Either wire them or take them out of FOUNDATION_ENCODERS."
+             at all. Either wire them, or retire them for this deployment with EMEM_RETIRED_BANDS."
         );
     }
 
@@ -87881,6 +87965,68 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Put a note where `read_memory_file` will find it: path -> cid, cid ->
+    /// bytes, cid -> meta.
+    fn seed_note(s: &AppState, path: &str, body: &str) {
+        let db = memory_db(s).expect("memory db");
+        let cid = format!("t{:016x}", path.len() as u64 * 131 + body.len() as u64);
+        db.open_tree(emem_storage::TREE_MEMORY_FILES)
+            .unwrap()
+            .insert(path.as_bytes(), cid.as_bytes())
+            .unwrap();
+        db.open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+            .unwrap()
+            .insert(cid.as_bytes(), body.as_bytes())
+            .unwrap();
+        let meta = serde_json::json!({
+            "file_cid": cid, "path": path, "signed_at": "2026-09-15T00:00:00Z",
+            "signed_at_unix_s": 1_789_000_000_i64, "size_bytes": body.len() as u64,
+            "verb": "create",
+        });
+        db.open_tree(emem_storage::TREE_MEMORY_FILE_META)
+            .unwrap()
+            .insert(cid.as_bytes(), serde_json::to_vec(&meta).unwrap())
+            .unwrap();
+    }
+
+    /// A key that published the two notes the ladder asks for reaches T3 and
+    /// may write the shared entity space.
+    ///
+    /// The control is the same key before it publishes: `attester_tier` built
+    /// its `Facts` with `..Default::default()`, so `declares_endpoint` was
+    /// false for every caller and `tier_for` could not return T3 under any
+    /// input. The rung we document as the way into `emem_entity` was
+    /// unreachable, and the only symptom a correct caller saw was `T1_keyed`.
+    #[test]
+    fn publishing_the_two_notes_reaches_t3_on_the_write_path() {
+        use crate::enlistment::{may_write, Surface, Tier};
+        let s = test_app_state();
+        let pk = "bzvyqrsp6bcwtllr5dkgyzwvrlojlzy2h4uj6ducb52n4lkvawfa";
+        let att = MemoryAttester {
+            pubkey_b32: pk.to_string(),
+            sig_b32: String::new(),
+        };
+        let ns: String = pk.chars().take(8).collect();
+
+        assert_eq!(attester_tier(&s, Some(&att)), Tier::T1Keyed);
+        assert!(may_write(Tier::T1Keyed, Surface::SharedEntitySpace).is_err());
+
+        seed_note(
+            &s,
+            &format!("/memories/by_attester/{ns}/profile.md"),
+            "# nick: rail",
+        );
+        assert_eq!(attester_tier(&s, Some(&att)), Tier::T2Named);
+
+        seed_note(
+            &s,
+            &format!("/memories/by_attester/{ns}/agent-skills.md"),
+            r#"declaring what I answer {"skills":[{"id":"farm-world-model","description":"per-field model"}]}"#,
+        );
+        assert_eq!(attester_tier(&s, Some(&att)), Tier::T3Declared);
+        assert!(may_write(Tier::T3Declared, Surface::SharedEntitySpace).is_ok());
     }
 
     /// The Claude connector-directory portal hard-gates on `title` and the
