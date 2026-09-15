@@ -88446,7 +88446,7 @@ mod tests {
         );
         assert!(
             msg.contains("does not yet verify"),
-            "the refusal must name the gap so a caller stops hunting their own              mistake: {msg}"
+            "the refusal must name the gap so a caller stops hunting their own mistake: {msg}"
         );
     }
 

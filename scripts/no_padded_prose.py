@@ -44,9 +44,13 @@ PAD = re.compile(r"\S {8,}\S")
 VERB = re.compile(r"^\s*(GET|POST|PUT|DELETE|PATCH|HEAD)\b")
 COLUMN = re.compile(r" {8,}[,|{]")
 MIN_LEN = 24
+# Matched at a position, never over `src[i:]`: slicing the remainder at every
+# character made this quadratic, and the step took five minutes on a tree this
+# size.
+RAW = re.compile(r'r(#*)"')
 
 
-def literals(src: str):
+def literals(src: str, truncated: list | None = None):
     """Every string literal in a Rust source file, with its line number.
 
     Walks the file rather than matching it: line comments, block comments,
@@ -78,12 +82,18 @@ def literals(src: str):
                         line += 1
                     i += 1
             continue
-        m = re.match(r'r(#*)"', src[i:])
+        m = RAW.match(src, i)
         if m:
             hashes = m.group(1)
-            start = i + m.end()
+            start = m.end()
             end = src.find('"' + hashes, start)
             if end == -1:
+                # A raw string with no close means the walker cannot say where
+                # the rest of the file is code and where it is text. Returning
+                # here scanned the file up to this point and reported nothing
+                # for everything after it, which reads exactly like clean.
+                if truncated is not None:
+                    truncated.append(line)
                 return
             text = src[start:end]
             yield line, text
@@ -129,12 +139,23 @@ def main() -> int:
 
     hits = []
     scanned = 0
+    cut = []
     for p in files:
         src = p.read_text(encoding="utf-8", errors="replace")
-        for line, text in literals(src):
+        stopped: list[int] = []
+        for line, text in literals(src, stopped):
             scanned += 1
             if padded(text):
                 hits.append((p, line, text))
+        for line in stopped:
+            cut.append((p, line))
+
+    if cut:
+        print(f"{len(cut)} file(s) stopped early on an unterminated raw string; "
+              f"everything after the line named went unread:")
+        for p, line in cut:
+            print(f"  {p}:{line}")
+        return 3
 
     if scanned < 1000:
         print(f"read {scanned} literal(s) from {len(files)} file(s); the scanner is not "
