@@ -38816,22 +38816,142 @@ fn entity_record_get(tree: &sled::Tree, entity_cid: &str) -> Option<JsonValue> {
         .and_then(|v| serde_json::from_slice::<JsonValue>(&v).ok())
 }
 
+/// The bytes an entity mint signs over: every identity-bearing field, in
+/// DECLARATION order, as a definite-length CBOR map, deliberately NOT RFC 8949
+/// key-sorted. The same rule `/v1/derive` already states, so a caller that
+/// signs derivations learns no second convention.
+///
+/// `attester` is excluded, because a signature cannot cover itself.
+fn entity_body_hash(req: &EntityMintReq) -> [u8; 32] {
+    use ciborium::Value as C;
+    let text = |o: &Option<String>| o.clone().map(C::Text).unwrap_or(C::Null);
+    let map = C::Map(vec![
+        (C::Text("label".into()), C::Text(req.label.clone())),
+        (C::Text("kind".into()), text(&req.kind)),
+        (C::Text("place".into()), text(&req.place)),
+        (C::Text("cell".into()), text(&req.cell)),
+        (
+            C::Text("lat".into()),
+            req.lat.map(C::Float).unwrap_or(C::Null),
+        ),
+        (
+            C::Text("lng".into()),
+            req.lng.map(C::Float).unwrap_or(C::Null),
+        ),
+        (
+            C::Text("external_ids".into()),
+            match &req.external_ids {
+                Some(x) => serde_json::to_vec(x).ok().map(C::Bytes).unwrap_or(C::Null),
+                None => C::Null,
+            },
+        ),
+        (C::Text("parent".into()), text(&req.parent)),
+    ]);
+    let mut buf = Vec::new();
+    // Serialization of a fixed 8-entry map cannot fail; an empty buffer would
+    // still hash, and a caller reproducing it would get the same empty-buffer
+    // digest, so there is nothing to diverge on.
+    let _ = ciborium::ser::into_writer(&map, &mut buf);
+    emem_primitives::memory_acl::body_hash(&buf)
+}
+
+/// The digest an entity mint's `attester.sig_b32` must sign.
+fn entity_sign_digest(req: &EntityMintReq) -> [u8; 32] {
+    emem_primitives::memory_acl::attester_preimage("entity", "/v1/entity", &entity_body_hash(req))
+}
+
+/// Verify the attester block against the digest THIS responder derived.
+///
+/// Returns `false` for a missing, malformed or wrong signature; the caller
+/// then treats the request as anonymous rather than refusing outright, so the
+/// enlistment refusal can carry `how_to_sign` and the caller learns the digest
+/// from the same round trip the memory verbs and `/v1/derive` already use.
+///
+/// Until this existed these routes read a tier off an unverified `pubkey_b32`,
+/// which is public by design, and a 103-character run of `a` was accepted as a
+/// signature. That is why the check is here and not in the gate: the gate
+/// decides reach, this decides identity, and conflating them is what let a
+/// stranger write under a named key.
+fn entity_signature_verified(req: &EntityMintReq) -> bool {
+    let Some(att) = req.attester.as_ref() else {
+        return false;
+    };
+    verify_attester_over(&att.pubkey_b32, &att.sig_b32, &entity_sign_digest(req))
+}
+
+/// ed25519 over a digest this responder derived. One implementation, because
+/// two surfaces needing the same check is exactly how one of them ends up
+/// without it.
+fn verify_attester_over(pubkey_b32: &str, sig_b32: &str, digest: &[u8; 32]) -> bool {
+    let Some(pk) = data_encoding::BASE32_NOPAD
+        .decode(pubkey_b32.to_uppercase().as_bytes())
+        .ok()
+        .and_then(|v| <[u8; 32]>::try_from(v.as_slice()).ok())
+        .and_then(|b| ed25519_dalek::VerifyingKey::from_bytes(&b).ok())
+    else {
+        return false;
+    };
+    let Some(sig) = data_encoding::BASE32_NOPAD
+        .decode(sig_b32.to_uppercase().as_bytes())
+        .ok()
+        .and_then(|v| <[u8; 64]>::try_from(v.as_slice()).ok())
+        .map(|b| ed25519_dalek::Signature::from_bytes(&b))
+    else {
+        return false;
+    };
+    // verify_strict: the permissive check accepts small-order keys, so one
+    // signature could verify under more than one key. For a decision about
+    // WHICH agent owns a name, that ambiguity is the whole bug.
+    pk.verify_strict(digest, &sig).is_ok()
+}
+
+/// What an unsigned or wrongly-signed entity mint is told, so the digest is
+/// learned from the refusal rather than guessed. Mirrors the memory verbs.
+fn entity_how_to_sign(req: &EntityMintReq) -> JsonValue {
+    json!({
+        "code": "entity_attestation_required",
+        "sign_this": {
+            "digest_hex": data_encoding::HEXLOWER.encode(&entity_sign_digest(req)),
+            "what_it_is": "The 32-byte blake3 digest this responder verifies your signature against, for this exact body. Sign these raw bytes with ed25519; do not sign the hex string.",
+        },
+        "preimage": "blake3(\"emem.memory_write|entity|/v1/entity|\" || body_hash), body_hash = blake3(CBOR definite-length 8-entry map {label, kind, place, cell, lat, lng, external_ids, parent} in THAT order, declaration order, deliberately NOT RFC 8949 key-sorted; absent fields are CBOR null; external_ids is the JSON bytes)",
+        "encoding": {
+            "alphabet": "RFC 4648 base32, no padding, lowercase, both fields",
+            "pubkey_b32": "52 chars = 32 raw bytes of the ed25519 public key",
+            "sig_b32": "103 chars = 64 raw bytes of the signature over digest_hex's BYTES",
+            "verification": "ed25519 verify_strict, which rejects malleable signatures",
+        },
+        "why": "This surface is the shared entity space: what every other agent resolves a name to. A public key proves nothing on its own, because it is published in every receipt.",
+    })
+}
+
 async fn post_entity(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityMintReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
     // The shared address space: what every other agent resolves a name to.
     enforce_write_rate_limit(req.attester.as_ref())?;
+    let verified = entity_signature_verified(&req);
     let enlistment = enlistment_gate(
         &s,
         req.attester.as_ref(),
         crate::enlistment::Surface::SharedEntitySpace,
-        // These routes do not verify a signature over a responder-named
-        // preimage yet, so no attester block on them proves possession of the
-        // key it names. Until one exists they are capped at the anonymous tier
-        // and the shared entity space stays shut.
-        false,
-    )?;
+        verified,
+    )
+    .map_err(|e| {
+        // A refusal on this surface hands back the digest, so the caller
+        // learns it from the same round trip the memory verbs and /v1/derive
+        // already use rather than guessing a preimage. The old refusal
+        // promised exactly this and delivered nothing, which is how an
+        // integrator ended up signing a digest of their own choosing and
+        // being admitted.
+        if verified {
+            return e;
+        }
+        let ApiError(code, mut body) = e;
+        body.details = Some(json!({ "how_to_sign": entity_how_to_sign(&req) }));
+        ApiError(code, body)
+    })?;
     use emem_primitives::entity::{
         alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
         ENTITIES_TREE, ENTITY_ALIASES_TREE,
@@ -39237,6 +39357,53 @@ struct EntityAliasReq {
     external_ids: Option<emem_primitives::entity::ExternalIds>,
 }
 
+/// The bytes an alias claim signs over. Same rule as the mint: identity-bearing
+/// fields, declaration order, definite-length CBOR map, not key-sorted.
+///
+/// An alias redirects a NAME for every reader of this responder, so the
+/// signature has to bind which name is being pointed at which object and with
+/// what stance. Binding less would let one signature be replayed onto a
+/// different alias.
+fn entity_alias_body_hash(req: &EntityAliasReq) -> [u8; 32] {
+    use ciborium::Value as C;
+    let text = |o: &Option<String>| o.clone().map(C::Text).unwrap_or(C::Null);
+    let map = C::Map(vec![
+        (C::Text("stance".into()), text(&req.stance)),
+        (C::Text("entity_cid".into()), text(&req.entity_cid)),
+        (C::Text("entity_token".into()), text(&req.entity_token)),
+        (C::Text("alias".into()), text(&req.alias)),
+        (
+            C::Text("external_ids".into()),
+            match &req.external_ids {
+                Some(x) => serde_json::to_vec(x).ok().map(C::Bytes).unwrap_or(C::Null),
+                None => C::Null,
+            },
+        ),
+    ]);
+    let mut buf = Vec::new();
+    let _ = ciborium::ser::into_writer(&map, &mut buf);
+    emem_primitives::memory_acl::body_hash(&buf)
+}
+
+fn entity_alias_sign_digest(req: &EntityAliasReq) -> [u8; 32] {
+    emem_primitives::memory_acl::attester_preimage(
+        "entity_alias",
+        "/v1/entity/alias",
+        &entity_alias_body_hash(req),
+    )
+}
+
+fn entity_alias_signature_verified(req: &EntityAliasReq) -> bool {
+    let Some(att) = req.attester.as_ref() else {
+        return false;
+    };
+    verify_attester_over(
+        &att.pubkey_b32,
+        &att.sig_b32,
+        &entity_alias_sign_digest(req),
+    )
+}
+
 async fn post_entity_alias(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityAliasReq>,
@@ -39260,11 +39427,7 @@ async fn post_entity_alias(
         &s,
         req.attester.as_ref(),
         crate::enlistment::Surface::SharedEntitySpace,
-        // These routes do not verify a signature over a responder-named
-        // preimage yet, so no attester block on them proves possession of the
-        // key it names. Until one exists they are capped at the anonymous tier
-        // and the shared entity space stays shut.
-        false,
+        entity_alias_signature_verified(&req),
     )?;
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
@@ -88053,6 +88216,75 @@ mod tests {
             .unwrap()
             .insert(cid.as_bytes(), serde_json::to_vec(&meta).unwrap())
             .unwrap();
+    }
+
+    /// A real signature over the responder's own digest opens the entity
+    /// surface; a forged one does not, even under a key that would clear it.
+    ///
+    /// The control is the same key with a wrong signature. Before this existed
+    /// the routes read the tier off `pubkey_b32` and never called a verifier,
+    /// so a 103-character run of `a` was accepted and a caller signed a digest
+    /// of their own choosing and minted with it. A test that only asserted the
+    /// happy path would have passed then too.
+    #[test]
+    fn only_a_signature_over_our_own_digest_opens_the_entity_surface() {
+        use ed25519_dalek::{Signer, SigningKey};
+        let sk = SigningKey::from_bytes(&[9u8; 32]);
+        let pk_b32 = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        let mk = |sig_b32: String| EntityMintReq {
+            attester: Some(MemoryAttester {
+                pubkey_b32: pk_b32.clone(),
+                sig_b32,
+            }),
+            label: "Dhaulana farm".into(),
+            kind: None,
+            place: None,
+            cell: None,
+            lat: None,
+            lng: None,
+            external_ids: None,
+            parent: None,
+        };
+
+        // Forged: right key, wrong signature. This is the exact shape that was
+        // admitted at T3 before the check existed.
+        assert!(
+            !entity_signature_verified(&mk("a".repeat(103))),
+            "a forged signature must not verify"
+        );
+
+        // Real: sign the digest THIS responder derives from THIS body.
+        let real = {
+            let probe = mk(String::new());
+            let sig = sk.sign(&entity_sign_digest(&probe));
+            mk(data_encoding::BASE32_NOPAD
+                .encode(&sig.to_bytes())
+                .to_lowercase())
+        };
+        assert!(
+            entity_signature_verified(&real),
+            "a signature over our own digest must verify"
+        );
+
+        // The digest binds the body: change an identity-bearing field and the
+        // same signature stops verifying, so one signature cannot be replayed
+        // onto a different name.
+        let mut moved = real.clone();
+        moved.label = "Some other farm".into();
+        assert!(
+            !entity_signature_verified(&moved),
+            "the signature must not survive a changed label"
+        );
+
+        // And the refusal carries the digest a caller needs, which is what the
+        // old one promised and did not deliver.
+        let how = entity_how_to_sign(&mk(String::new()));
+        assert_eq!(
+            how["sign_this"]["digest_hex"].as_str().unwrap(),
+            data_encoding::HEXLOWER.encode(&entity_sign_digest(&mk(String::new()))),
+        );
     }
 
     /// A refusal may not claim a check the call did not run.
