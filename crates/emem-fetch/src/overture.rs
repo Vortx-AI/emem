@@ -2608,6 +2608,103 @@ fn clip_segment_to_bbox(
 #[cfg(test)]
 mod tests {
 
+    /// What the buildings parquet actually declares for height, by name and
+    /// arrow type.
+    ///
+    /// A downcast to the wrong array type returns None for every row, which is
+    /// indistinguishable from an absent value — the bug this file just shipped.
+    /// Before reporting "no building here has a height", prove the column was
+    /// read: print the schema and the null count the reader itself reports.
+    /// Run: `cargo test -p emem-fetch -- --ignored buildings_schema_probe --nocapture`.
+    #[tokio::test]
+    #[ignore = "reads the live Overture archive over the network"]
+    async fn buildings_schema_probe() {
+        use futures_util::TryStreamExt;
+        let c = super::OvertureClient::shared();
+        // Buildings are sharded globally; most files hold no row group over a
+        // 6 km bbox. Walk until one does rather than reporting on the first.
+        let files = c.list_files(BUILDINGS).await.expect("list");
+        let mut found = None;
+        for key in &files {
+            let meta = c.footer(key).await.expect("footer");
+            let rgs = c.pick_row_groups(&meta, 28.6009, 28.6549, 77.7073, 77.7689);
+            if !rgs.is_empty() {
+                found = Some((key.clone(), rgs));
+                break;
+            }
+        }
+        let Some((key, rgs)) = found else {
+            println!("  no file holds a row group over this bbox");
+            return;
+        };
+        println!("file {key}  row groups {}", rgs.len());
+        let mut stream = c
+            .open_stream(&key, rgs, &["id", "height", "num_floors"])
+            .await
+            .expect("stream");
+        if let Some(batch) = stream.try_next().await.expect("batch") {
+            for f in batch.schema().fields() {
+                let col = batch.column_by_name(f.name()).unwrap();
+                println!(
+                    "  {:<16} {:<28} nulls {}/{}",
+                    f.name(),
+                    format!("{:?}", f.data_type()),
+                    col.null_count(),
+                    col.len()
+                );
+            }
+        }
+    }
+
+    /// Report how many buildings over one bbox carry a measured height, how
+    /// many carry only a storey count, and how many carry neither.
+    ///
+    /// Not an assertion: a reporting run. A caller deciding whether to extrude
+    /// a settlement needs the distribution before it chooses, because drawing
+    /// a plausible skyline from a minority of real heights is a claim about the
+    /// place. Printed rather than asserted, since the answer is a property of
+    /// the Overture release and will move.
+    /// Run: `cargo test -p emem-fetch -- --ignored building_height_distribution --nocapture`.
+    #[tokio::test]
+    #[ignore = "reads the live Overture archive over the network"]
+    async fn building_height_distribution() {
+        let out = super::OvertureClient::shared()
+            .buildings_in_bbox(28.6009, 28.6549, 77.7073, 77.7689, 200_000)
+            .await
+            .expect("overture buildings");
+        let n = out.features.len();
+        let h = out.features.iter().filter(|b| b.height_m.is_some()).count();
+        let f_only = out
+            .features
+            .iter()
+            .filter(|b| b.height_m.is_none() && b.num_floors.is_some())
+            .count();
+        let neither = n - h - f_only;
+        let gers = out.features.iter().filter(|b| b.gers.is_some()).count();
+        println!(
+            "DISTRIBUTION over the Dhaulana disc, release {}",
+            out.release
+        );
+        println!("  count in bbox          {}", out.count);
+        println!("  returned               {n}");
+        println!(
+            "  carry height_m         {h}  ({:.1}%)",
+            100.0 * h as f64 / n as f64
+        );
+        println!(
+            "  only num_floors        {f_only}  ({:.1}%)",
+            100.0 * f_only as f64 / n as f64
+        );
+        println!(
+            "  neither                {neither}  ({:.1}%)",
+            100.0 * neither as f64 / n as f64
+        );
+        println!(
+            "  carry gers             {gers}  ({:.1}%)",
+            100.0 * gers as f64 / n as f64
+        );
+    }
+
     /// Every Overture building carries an `id`, so an all-null `gers` means the
     /// column was not read, not that the source is missing it.
     ///
