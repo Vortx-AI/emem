@@ -59106,19 +59106,38 @@ fn enlistment_gate(
                 // whole life and every existing caller was built against
                 // that. Telling those callers the tier they lack is true and
                 // useless; telling them the field they are missing is the fix.
-                let how = if att.is_none() {
-                    " This request carried NO attester block, so it is anonymous. Add `attester: {pubkey_b32, sig_b32}` signing the same preimage the memory verbs use: send it once unsigned and the refusal hands you the exact digest to sign. No registration and no API key."
+                // Neither branch may claim a check this call did not run.
+                //
+                // The old text said, to any caller presenting an attester
+                // block, "Your signature verified; the tier is what is short."
+                // These routes have no verifier, so that sentence was returned
+                // for a 103-character run of `a` and for a signature over a
+                // preimage this responder never named. It is the reason the
+                // missing verification stayed invisible for three weeks: a
+                // caller following the documented path was told the signature
+                // half was fine and only the tier was short, so nobody looked
+                // at the half that was actually broken. The other branch
+                // promised a digest round trip these routes do not offer, which
+                // sent the integrator who reported it looking for a preimage
+                // that does not exist, and then signing one of their own.
+                let how = if !signature_verified {
+                    " This surface does not yet verify a signature over a responder-named preimage, so an `attester` block here proves nothing and cannot raise your tier: you are treated as anonymous whatever you send. That is a gap on this responder, not something you can fix from your side, and it is why this refusal offers no `how_to_sign`. The signed surfaces today are the memory verbs over MCP tools/call and POST /v1/derive, both of which hand you the exact digest in `details.how_to_sign.sign_this.digest_hex` on an unsigned first call."
+                } else if att.is_none() {
+                    " This request carried NO attester block, so it is anonymous. GET /v1/enlist lists each check and what it proves."
                 } else {
-                    " Your signature verified; the tier is what is short. GET /v1/enlist lists each check and what it proves."
+                    " Your signature verified against the digest this responder named; the tier is what is short. GET /v1/enlist lists each check and what it proves."
                 };
                 return Err(ApiError(
                     StatusCode::FORBIDDEN,
                     ErrorBody {
-                        // LevelTooLow, not Unauthorized: nothing here is an
-                        // authentication failure. The caller is who they say
-                        // they are and simply has not passed the check this
-                        // surface asks for, which is a different thing to say
-                        // and a different thing to fix.
+                        // LevelTooLow, not Unauthorized, and only because the
+                        // tier is genuinely what is short. "The caller is who
+                        // they say they are" stood here as the justification
+                        // and was not true on the entity routes, which never
+                        // checked. Where a signature was verified the
+                        // distinction holds; where none was, the message above
+                        // now says so rather than letting this comment stand in
+                        // for a check nobody ran.
                         code: ErrorCode::LevelTooLow,
                         message: format!("{why}{how}"),
                         details: Some(json!({"ladder": "GET /v1/enlist", "tier": tier.as_str()})),
@@ -88022,6 +88041,33 @@ mod tests {
             .unwrap()
             .insert(cid.as_bytes(), serde_json::to_vec(&meta).unwrap())
             .unwrap();
+    }
+
+    /// A refusal may not claim a check the call did not run.
+    ///
+    /// The sentence "Your signature verified; the tier is what is short" was
+    /// returned by routes with no verifier, which is how a three-week
+    /// authentication gap stayed invisible: the caller was told the signature
+    /// half was fine and looked at the tier instead.
+    #[test]
+    fn an_unverified_refusal_does_not_claim_a_verified_signature() {
+        use crate::enlistment::Surface;
+        let s = test_app_state();
+        let att = MemoryAttester {
+            pubkey_b32: "bzvyqrsp6bcwtllr5dkgyzwvrlojlzy2h4uj6ducb52n4lkvawfa".to_string(),
+            sig_b32: "a".repeat(103),
+        };
+        let err = enlistment_gate(&s, Some(&att), Surface::SharedEntitySpace, false)
+            .expect_err("the entity surface refuses an unverified caller");
+        let msg = err.1.message.to_lowercase();
+        assert!(
+            !msg.contains("your signature verified"),
+            "a route that ran no verifier claimed one did: {msg}"
+        );
+        assert!(
+            msg.contains("does not yet verify"),
+            "the refusal must name the gap so a caller stops hunting their own              mistake: {msg}"
+        );
     }
 
     /// A key that published the two notes the ladder asks for reaches T3 and
