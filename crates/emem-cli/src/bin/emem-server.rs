@@ -522,7 +522,31 @@ async fn flush_and_exit(server: &Arc<Server>) -> ! {
         }
     }
     if let Some(r) = server.storage.redb() {
-        r.close();
+        // Bounded by what is LEFT of the container's stop grace, not by a
+        // constant. `ExecStop=docker stop -t 60` SIGKILLs 60 s after SIGTERM,
+        // and a kill inside the close is worse than not waiting at all: the
+        // deferred close never runs, the file stays marked for recovery, and
+        // the next open walks it (40 minutes for 56 GB on 2026-09-15). The
+        // drain and the sled flush have already spent part of the budget, and
+        // on that incident `close()` itself blocked 37 s on the db lock behind
+        // a write transaction that was stuck on a wedged disk.
+        let stop_grace = std::time::Duration::from_secs(
+            std::env::var("EMEM_STOP_GRACE_S")
+                .ok()
+                .and_then(|v| v.trim().parse::<u64>().ok())
+                .unwrap_or(60)
+                .clamp(5, 3600),
+        );
+        let margin = std::time::Duration::from_secs(5);
+        let spent = shutdown_grace() + t0.elapsed();
+        let left = stop_grace.saturating_sub(spent + margin);
+        let budget = left.min(emem_cache::RedbFacts::close_wait_default());
+        tracing::info!(
+            close_budget_ms = budget.as_millis() as u64,
+            spent_ms = spent.as_millis() as u64,
+            "closing redb"
+        );
+        r.close_with_budget(budget);
     }
     eprintln!("emem: shutdown complete in {} ms", t0.elapsed().as_millis());
     std::process::exit(0);
