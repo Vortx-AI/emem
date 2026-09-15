@@ -1263,7 +1263,15 @@ impl OvertureClient {
         if rgs.is_empty() {
             return Ok((Vec::new(), 0));
         }
-        let mut stream = self.open_stream(key, rgs, &[]).await?;
+        // `open_stream` projects ONLY bbox and geometry unless the extra
+        // columns are named. Passing an empty list read neither the GERS id
+        // nor the height, and both came back null — indistinguishable from
+        // "Overture carries no height for this building", which is the exact
+        // reading the agent_hint warns callers against. A column that was
+        // never read must not be reported as a column that is empty.
+        let mut stream = self
+            .open_stream(key, rgs, &["id", "height", "num_floors"])
+            .await?;
         let mut out: Vec<BuildingFootprint> = Vec::new();
         let mut count = 0u64;
         while let Some(batch) = stream
@@ -2599,6 +2607,41 @@ fn clip_segment_to_bbox(
 
 #[cfg(test)]
 mod tests {
+
+    /// Every Overture building carries an `id`, so an all-null `gers` means the
+    /// column was not read, not that the source is missing it.
+    ///
+    /// This is the control the first version lacked. `open_stream` projects
+    /// only `bbox` and `geometry` unless extra columns are named, and passing
+    /// none returned footprints whose `gers`, `height_m` and `num_floors` were
+    /// all null — which reads exactly like "Overture has no height for these",
+    /// the interpretation the route's own agent_hint warns against. A column
+    /// never read must not be reportable as a column that is empty, and `id` is
+    /// the one field mandatory enough to assert on.
+    /// Run: `cargo test -p emem-fetch -- --ignored every_building_carries_its_gers`.
+    #[tokio::test]
+    #[ignore = "reads the live Overture archive over the network"]
+    async fn every_building_carries_its_gers() {
+        let out = super::OvertureClient::shared()
+            .buildings_in_bbox(28.6009, 28.6549, 77.7073, 77.7689, 64)
+            .await
+            .expect("overture buildings");
+        assert!(
+            out.count > 0,
+            "this bbox holds buildings; got {}",
+            out.count
+        );
+        assert!(!out.features.is_empty(), "returned nothing to check");
+        let with_gers = out.features.iter().filter(|b| b.gers.is_some()).count();
+        assert_eq!(
+            with_gers,
+            out.features.len(),
+            "{} of {} footprints carry no GERS; `id` is mandatory in Overture, so this \
+             means the column was not projected, not that the source lacks it",
+            out.features.len() - with_gers,
+            out.features.len()
+        );
+    }
     use super::*;
 
     fn pt_le(x: f64, y: f64) -> Vec<u8> {
