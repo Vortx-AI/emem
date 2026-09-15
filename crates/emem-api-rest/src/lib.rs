@@ -82835,21 +82835,52 @@ mod tests {
         }
     }
 
-    /// `FOUNDATION_ENCODERS` is the default fan-out list for
-    /// `/v1/state_multi`. It MUST stay aligned with the live
-    /// materialiser-bearing foundation embeddings so the multi-encoder
-    /// state vector covers every wired model, never one less, never
-    /// one more (so agents don't get a never-materialising encoder
-    /// like `clay_v1` was historically reported as).
+    /// `FOUNDATION_ENCODERS` is the default fan-out for `/v1/state_multi`,
+    /// and every entry must have a materialiser wired.
+    ///
+    /// This test used to assert that the list contained four typed names,
+    /// against a list of the same four typed names. Both sides came from the
+    /// same place, so it could only ever pass. Its own doc comment said it
+    /// existed to stop agents getting "a never-materialising encoder like
+    /// `clay_v1`" — and on 2026-09-15 `clay_v1`, `prithvi_eo2` and `galileo`
+    /// were being fanned out with no materialiser behind any of them, while
+    /// `/v1/materializers` listed only `geotessera`. The named example had
+    /// come back and the test could not see it.
+    ///
+    /// Now it compares the fan-out against `all_materializable_bands()`, which
+    /// is what `/v1/data_availability` is built from. Evidence on one side, the
+    /// claim on the other, so removing a materialiser fails here instead of
+    /// quietly advertising an encoder that answers `missing` at every cell.
+    /// Every encoder `/v1/state_multi` fans out to must at least be a band this
+    /// build knows how to materialise.
+    ///
+    /// What stood here asserted that a typed list of four names contained the
+    /// same four typed names, so it could only pass. Its own comment said it
+    /// existed to stop agents getting "a never-materialising encoder like
+    /// `clay_v1`".
+    ///
+    /// This is the half the compiler can check. It does NOT prove the encoder
+    /// produces anything at a given deployment: on 2026-09-15 `clay_v1`,
+    /// `prithvi_eo2` and `galileo` passed this while answering `missing` at
+    /// every cell live, because the GPU behind them was removed. Whether an
+    /// advertised encoder actually returns a vector is a fact about the running
+    /// responder, not about this source tree, so it is asserted against the
+    /// live responder in `scripts/encoder_truth.py`. Keep both: this one
+    /// catches a typo, that one catches a deployment.
     #[test]
-    fn foundation_encoders_includes_every_live_foundation_band() {
-        for band in ["geotessera", "clay_v1", "prithvi_eo2", "galileo"] {
-            assert!(
-                FOUNDATION_ENCODERS.contains(&band),
-                "FOUNDATION_ENCODERS missing `{band}`, /v1/state_multi default fan-out \
-                 would skip it"
-            );
-        }
+    fn every_advertised_encoder_is_a_materialisable_band() {
+        let wired: std::collections::BTreeSet<String> =
+            all_materializable_bands().into_iter().collect();
+        let unknown: Vec<&str> = FOUNDATION_ENCODERS
+            .iter()
+            .copied()
+            .filter(|e| !wired.contains(*e))
+            .collect();
+        assert!(
+            unknown.is_empty(),
+            "/v1/state_multi fans out to {unknown:?}, which this build cannot materialise \
+             at all. Either wire them or take them out of FOUNDATION_ENCODERS."
+        );
     }
 
     /// The bands manifest must carry a `galileo` entry under the
