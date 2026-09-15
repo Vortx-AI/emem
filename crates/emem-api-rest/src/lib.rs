@@ -38814,6 +38814,11 @@ async fn post_entity(
         &s,
         req.attester.as_ref(),
         crate::enlistment::Surface::SharedEntitySpace,
+        // These routes do not verify a signature over a responder-named
+        // preimage yet, so no attester block on them proves possession of the
+        // key it names. Until one exists they are capped at the anonymous tier
+        // and the shared entity space stays shut.
+        false,
     )?;
     use emem_primitives::entity::{
         alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
@@ -39243,6 +39248,11 @@ async fn post_entity_alias(
         &s,
         req.attester.as_ref(),
         crate::enlistment::Surface::SharedEntitySpace,
+        // These routes do not verify a signature over a responder-named
+        // preimage yet, so no attester block on them proves possession of the
+        // key it names. Until one exists they are capped at the anonymous tier
+        // and the shared entity space stays shut.
+        false,
     )?;
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
@@ -59017,10 +59027,32 @@ fn enlistment_enforcing() -> bool {
 /// by the caller's own key. A ladder whose documented rung is unreachable is
 /// worse than no ladder, because it sends the honest caller looking for their
 /// own mistake.
-fn attester_tier(s: &AppState, att: Option<&MemoryAttester>) -> crate::enlistment::Tier {
+fn attester_tier(
+    s: &AppState,
+    att: Option<&MemoryAttester>,
+    signature_verified: bool,
+) -> crate::enlistment::Tier {
     use crate::enlistment::{tier_for, Facts};
     let Some(att) = att else {
         return tier_for(&Facts::default());
+    };
+    // Everything above T0 is a claim ABOUT A KEY, so it may only be granted to
+    // a caller who proved they hold that key on THIS request. A public key is
+    // public: it is in the caller's own profile note and in every receipt, so
+    // reading a tier off an unverified `pubkey_b32` grants a stranger the tier
+    // of whoever they name.
+    //
+    // Reported 2026-09-15 by an integrator who signed a digest of their own
+    // choosing, over a preimage this responder never named, and was admitted to
+    // the shared entity space at T3. The entity routes never verified a
+    // signature at all; that was survivable only while `..Default::default()`
+    // kept T3 unreachable and the surface refused everyone. Making T3 reachable
+    // turned a dormant hole into a live one, so this cap ships with it.
+    if !signature_verified {
+        return tier_for(&Facts {
+            has_signed_note: false,
+            ..Default::default()
+        });
     };
     let org_verified = enlistment_evidence(s, &att.pubkey_b32)
         .map(|e| e.is_fresh(now_unix()))
@@ -59057,8 +59089,9 @@ fn enlistment_gate(
     s: &AppState,
     att: Option<&MemoryAttester>,
     surface: crate::enlistment::Surface,
+    signature_verified: bool,
 ) -> Result<JsonValue, ApiError> {
-    let tier = attester_tier(s, att);
+    let tier = attester_tier(s, att, signature_verified);
     match crate::enlistment::may_write(tier, surface) {
         Ok(()) => Ok(json!({
             "tier": tier.as_str(),
@@ -88010,7 +88043,11 @@ mod tests {
         };
         let ns: String = pk.chars().take(8).collect();
 
-        assert_eq!(attester_tier(&s, Some(&att)), Tier::T1Keyed);
+        // Unverified: a named key proves nothing, so it does not even reach T1.
+        assert_eq!(attester_tier(&s, Some(&att), false), Tier::T0Anonymous);
+        assert!(may_write(Tier::T0Anonymous, Surface::SharedEntitySpace).is_err());
+        // Verified, but nothing published yet.
+        assert_eq!(attester_tier(&s, Some(&att), true), Tier::T1Keyed);
         assert!(may_write(Tier::T1Keyed, Surface::SharedEntitySpace).is_err());
 
         seed_note(
@@ -88018,15 +88055,18 @@ mod tests {
             &format!("/memories/by_attester/{ns}/profile.md"),
             "# nick: rail",
         );
-        assert_eq!(attester_tier(&s, Some(&att)), Tier::T2Named);
+        assert_eq!(attester_tier(&s, Some(&att), true), Tier::T2Named);
 
         seed_note(
             &s,
             &format!("/memories/by_attester/{ns}/agent-skills.md"),
             r#"declaring what I answer {"skills":[{"id":"farm-world-model","description":"per-field model"}]}"#,
         );
-        assert_eq!(attester_tier(&s, Some(&att)), Tier::T3Declared);
+        assert_eq!(attester_tier(&s, Some(&att), true), Tier::T3Declared);
         assert!(may_write(Tier::T3Declared, Surface::SharedEntitySpace).is_ok());
+        // And the notes never lift an unverified caller, which is the hole a
+        // reachable T3 would otherwise have opened on the entity routes.
+        assert_eq!(attester_tier(&s, Some(&att), false), Tier::T0Anonymous);
     }
 
     /// The Claude connector-directory portal hard-gates on `title` and the
