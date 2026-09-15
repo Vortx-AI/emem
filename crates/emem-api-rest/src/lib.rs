@@ -16892,6 +16892,14 @@ struct FieldBoundariesReq {
     /// 1..=200000.
     #[serde(default)]
     max_features: Option<usize>,
+    /// Which annual map to return. Default: the newest present over this
+    /// bbox. `"all"` returns every vintage concatenated, which is what this
+    /// route used to do unconditionally and without saying so — a stack of
+    /// complete maps of the same ground, so `count` double-counts, summed
+    /// `area_m2` can exceed the area requested, and any distance-to-boundary
+    /// measure over it is degenerate. `vintages` in the response lists what
+    /// the archive holds here.
+    vintage: Option<String>,
 }
 
 /// `POST /v1/field_boundaries`, fetch FTW agricultural field polygons
@@ -16995,7 +17003,7 @@ async fn post_field_boundaries(
             },
         )
     })?;
-    let coll = emem_fetch::ftw::fetch_field_polygons_bbox(&b, req.zoom)
+    let coll = emem_fetch::ftw::fetch_field_polygons_bbox(&b, req.zoom, req.vintage.as_deref())
         .await
         .map_err(|e| {
             ApiError(
@@ -17032,6 +17040,8 @@ async fn post_field_boundaries(
             "min_lng": bbox.2, "max_lng": bbox.3,
         },
         "count": coll.count,
+        "vintages": coll.vintages.iter().map(|(t, n)| json!({"time": t, "fields": n})).collect::<Vec<_>>(),
+        "vintage_returned": coll.vintage_returned,
         "returned": returned,
         "truncated": truncated,
         "max_features": cap,
@@ -17687,7 +17697,7 @@ async fn post_recall_polygon(
         .unwrap_or(false);
     if want_ftw {
         match emem_core::Bbox::new(bbox.0, bbox.1, bbox.2, bbox.3) {
-            Ok(b) => match emem_fetch::ftw::fetch_field_polygons_bbox(&b, None).await {
+            Ok(b) => match emem_fetch::ftw::fetch_field_polygons_bbox(&b, None, None).await {
                 Ok(coll) => {
                     if let Some(o) = out.as_object_mut() {
                         o.insert(
@@ -17695,6 +17705,8 @@ async fn post_recall_polygon(
                             json!({
                                 "schema": "emem.ftw_fields.v1",
                                 "count": coll.count,
+                                "vintages": coll.vintages.iter().map(|(t, n)| json!({"time": t, "fields": n})).collect::<Vec<_>>(),
+                                "vintage_returned": coll.vintage_returned,
                                 "total_area_m2": coll.total_area_m2,
                                 "zoom_used": coll.zoom_used,
                                 "tiles_read": coll.tiles_read.iter().map(|(z, x, y)| json!([*z, *x, *y])).collect::<Vec<_>>(),

@@ -167,6 +167,21 @@ pub struct FieldCollection {
     pub license: String,
     /// Attribution string required by the license.
     pub attribution: String,
+    /// Every `properties.time` present in the ARCHIVE over this bbox, with
+    /// its feature count, newest first — including vintages not returned.
+    ///
+    /// The archive stacks complete annual maps of the same ground. Returning
+    /// them concatenated, which is what this did until 2026-09-15, is not a
+    /// map: over one 36 km² disc it produced 26,211 fields across 2024 and
+    /// 2025 whose polygons overlapped each other by 14.9 km², so `count` was a
+    /// double count, summed `area_m2` exceeded the bbox, and distance-to-
+    /// nearest-boundary returned the same answer for a real map, a displaced
+    /// map and noise. Nothing in the envelope said a temporal stack was what
+    /// you got. Reported by an integrator who lost two passes to a degenerate
+    /// control before splitting on `time` themselves.
+    pub vintages: Vec<(String, usize)>,
+    /// The vintage the features are drawn from, or `"all"`.
+    pub vintage_returned: String,
     /// The features themselves.
     pub features: Vec<FieldPolygon>,
 }
@@ -219,6 +234,7 @@ async fn reader(
 pub async fn fetch_field_polygons_bbox(
     bbox: &Bbox,
     zoom: Option<u8>,
+    vintage: Option<&str>,
 ) -> Result<FieldCollection, FtwError> {
     let reader = reader().await?;
     let hdr = reader.get_header();
@@ -271,6 +287,39 @@ pub async fn fetch_field_polygons_bbox(
         }
     }
 
+    // Census every vintage present, then keep one. Default is the newest:
+    // a single coherent map is what a caller asking for field boundaries
+    // means, and a stack of maps silently breaks every area, count and
+    // distance measure taken over it. `vintage: "all"` restores the stack
+    // for a caller who wants to compare years, which is the one use the old
+    // behaviour served and the one it never announced.
+    let mut census: std::collections::BTreeMap<String, usize> = Default::default();
+    for f in &features {
+        let t = f
+            .properties
+            .get("time")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+        *census.entry(t).or_default() += 1;
+    }
+    let mut vintages: Vec<(String, usize)> = census.into_iter().collect();
+    vintages.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let vintage_returned = match vintage {
+        Some("all") => "all".to_string(),
+        Some(v) => v.to_string(),
+        None => vintages
+            .first()
+            .map(|(t, _)| t.clone())
+            .unwrap_or_else(|| "all".to_string()),
+    };
+    if vintage_returned != "all" {
+        features.retain(|f| {
+            f.properties.get("time").and_then(|v| v.as_str()) == Some(vintage_returned.as_str())
+        });
+    }
+
     let total_area_m2 = features.iter().map(|f| f.area_m2).sum();
     let source_cid = data_encoding::BASE32_NOPAD
         .encode(&hasher.finalize().as_bytes()[..20])
@@ -279,6 +328,8 @@ pub async fn fetch_field_polygons_bbox(
     Ok(FieldCollection {
         count: features.len(),
         total_area_m2,
+        vintages,
+        vintage_returned,
         zoom_used,
         tiles_read,
         source_cid,
@@ -743,6 +794,53 @@ mod tests {
         assert!(!geom_intersects_bbox(&outside, &bbox));
     }
 
+    /// One vintage by default, every vintage on request, and the census says
+    /// what the archive holds either way.
+    ///
+    /// The archive stacks complete annual maps of the same ground.
+    /// Concatenating them is not a map: it double-counts fields, sums an area
+    /// larger than the ground it covers, and makes distance-to-nearest-boundary
+    /// degenerate. The control is the census itself — if `vintages` reports a
+    /// single entry this test proves nothing about selection, so it asserts the
+    /// stack EXISTS before asserting it is split.
+    /// Run: `cargo test -p emem-fetch -- --ignored a_default_call_returns_one_vintage`.
+    #[tokio::test]
+    #[ignore = "reads the live FTW archive over the network"]
+    async fn a_default_call_returns_one_vintage_not_a_stack_of_maps() {
+        let bbox = Bbox::new(28.6009, 28.6549, 77.7073, 77.7689).unwrap();
+        let all = fetch_field_polygons_bbox(&bbox, Some(14), Some("all"))
+            .await
+            .expect("all vintages");
+        assert!(
+            all.vintages.len() > 1,
+            "this bbox must hold a stack for the split to be testable; got {:?}",
+            all.vintages
+        );
+        assert_eq!(all.vintage_returned, "all");
+
+        let one = fetch_field_polygons_bbox(&bbox, Some(14), None)
+            .await
+            .expect("default");
+        assert_eq!(
+            one.vintage_returned, all.vintages[0].0,
+            "default must be the newest vintage"
+        );
+        assert_eq!(one.count, all.vintages[0].1, "count is that vintage alone");
+        assert!(
+            one.count < all.count,
+            "a single map must hold fewer fields than the stack: {} vs {}",
+            one.count,
+            all.count
+        );
+        assert!(
+            one.features
+                .iter()
+                .all(|f| f.properties.get("time").and_then(|v| v.as_str())
+                    == Some(one.vintage_returned.as_str())),
+            "every returned feature carries the vintage that was selected"
+        );
+    }
+
     /// Network-gated smoke: fetch over Fresno County / Central Valley,
     /// California — one of the world's densest field-mosaic regions.
     /// At z=14 a 4 km × 4 km bbox must return >0 fields if FTW is
@@ -753,10 +851,12 @@ mod tests {
     #[ignore]
     async fn ftw_live_central_valley_returns_fields() {
         let bbox = Bbox::new(36.70, 36.74, -119.84, -119.80).unwrap();
-        let coll = fetch_field_polygons_bbox(&bbox, Some(14)).await.expect(
-            "FTW live fetch failed — check network or that the global.pmtiles \
+        let coll = fetch_field_polygons_bbox(&bbox, Some(14), None)
+            .await
+            .expect(
+                "FTW live fetch failed — check network or that the global.pmtiles \
              URL is still served at source.coop",
-        );
+            );
         eprintln!(
             "FTW Central Valley @ z={}: {} fields, {:.2} ha total, tiles_read={:?}, source_cid={}",
             coll.zoom_used,
