@@ -1252,6 +1252,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/recall_many", post(post_recall_many))
         .route("/v1/recall_polygon", post(post_recall_polygon))
         .route("/v1/field_boundaries", post(post_field_boundaries))
+        .route("/v1/building_footprints", post(post_building_footprints))
         // Semantic search over /memories/* files (Anthropic memory tool).
         // Backed by the BGE-base-en-v1.5 ONNX embedder + Lance partition
         // `memory_text_index_d768.lance`. Falls back to a brute-force
@@ -13255,7 +13256,7 @@ impl LatLngQ {
                 ApiError(
                     StatusCode::NOT_FOUND,
                     ErrorBody {
-                        code: ErrorCode::NoGeocoderMatch,
+                        code: ErrorCode::InvalidArgument,
                         message: format!("locate succeeded for '{p}' but no lat_input"),
                         details: None,
                     },
@@ -13268,7 +13269,7 @@ impl LatLngQ {
                 ApiError(
                     StatusCode::NOT_FOUND,
                     ErrorBody {
-                        code: ErrorCode::NoGeocoderMatch,
+                        code: ErrorCode::InvalidArgument,
                         message: format!("locate succeeded for '{p}' but no lng_input"),
                         details: None,
                     },
@@ -16913,6 +16914,103 @@ struct FieldBoundariesReq {
 /// rendering an interactive farm map call this; agents that want
 /// "facts at every cell inside the farm + the field polygons" call
 /// recall_polygon with the include flag.
+#[derive(Debug, Deserialize)]
+struct BuildingFootprintsReq {
+    /// Place name to resolve to a bbox, as `/v1/field_boundaries` accepts.
+    #[serde(default)]
+    place: Option<String>,
+    /// Explicit bbox. Named corners, never an array: array orders disagree
+    /// between GeoJSON/OGC and Nominatim, so the order is not inferred.
+    #[serde(default)]
+    polygon_bbox: Option<RecallPolygonBbox>,
+    /// Cap on returned footprints. `count` still reports the true total.
+    #[serde(default)]
+    max_features: Option<usize>,
+}
+
+/// Overture building footprints over a bbox, with height where the source has
+/// one.
+///
+/// Why this exists: `overture.buildings.count` was the only building surface
+/// here, and a count cannot be rendered. An agent drawing a settlement from it
+/// draws nothing, which is how a village ends up as a hole in the middle of a
+/// 3D scene. The counter already decoded each footprint's WKB to test whether
+/// its centroid fell in the bbox and then threw the polygon away; this keeps it.
+async fn post_building_footprints(
+    EmemJson(req): EmemJson<BuildingFootprintsReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let bbox = match req.polygon_bbox.as_ref() {
+        Some(b) => (b.min_lat, b.max_lat, b.min_lng, b.max_lng),
+        None => {
+            let Some(place) = req.place.as_deref() else {
+                return Err(bad_request(
+                    "needs_location",
+                    "provide `polygon_bbox` {min_lat,max_lat,min_lng,max_lng} or a `place`"
+                        .to_string(),
+                ));
+            };
+            let resp = locate_inner(LocateReq {
+                lat: None,
+                lng: None,
+                place: Some(place.into()),
+            })
+            .await?;
+            let pb = resp.0.get("polygon_bbox").cloned().ok_or_else(|| {
+                bad_request(
+                    "needs_location",
+                    format!("`{place}` resolved to no bounding box; pass `polygon_bbox`"),
+                )
+            })?;
+            let g = |k: &str| pb.get(k).and_then(|v| v.as_f64());
+            match (g("min_lat"), g("max_lat"), g("min_lng"), g("max_lng")) {
+                (Some(a), Some(b), Some(c), Some(d)) => (a, b, c, d),
+                _ => {
+                    return Err(bad_request(
+                        "needs_location",
+                        "the resolved bounding box was incomplete; pass `polygon_bbox`".to_string(),
+                    ))
+                }
+            }
+        }
+    };
+    let cap = req.max_features.unwrap_or(10_000).clamp(1, 200_000);
+    let out = emem_fetch::overture::OvertureClient::shared()
+        .buildings_in_bbox(bbox.0, bbox.1, bbox.2, bbox.3, cap)
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::BAD_GATEWAY,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!("overture buildings: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+    let truncated = (out.returned as u64) < out.count;
+    Ok(Json(json!({
+        "schema": "emem.building_footprints.v1",
+        "count": out.count,
+        "returned": out.returned,
+        "truncated": truncated,
+        "max_features": cap,
+        "polygon_bbox": {"min_lat": bbox.0, "max_lat": bbox.1, "min_lng": bbox.2, "max_lng": bbox.3},
+        "release": out.release,
+        "provider_url": "s3://overturemaps-us-west-2/release/<release>/theme=buildings/type=building/",
+        "license": "ODbL-1.0 / CC-BY-4.0 per source; see Overture attribution",
+        "attribution": "© Overture Maps Foundation",
+        "geojson": {
+            "type": "FeatureCollection",
+            "features": out.features.iter().map(|b| json!({
+                "type": "Feature",
+                "geometry": b.geometry,
+                "properties": {"height_m": b.height_m, "num_floors": b.num_floors},
+            })).collect::<Vec<_>>(),
+        },
+        "agent_hint": "`height_m` is null for most buildings and null is NOT zero: Overture carries a height for a minority. Use `num_floors` times your own storey height as the fallback, and say which you used. A footprint with neither is still a footprint.",
+    })))
+}
+
 async fn post_field_boundaries(
     EmemJson(req): EmemJson<FieldBoundariesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
@@ -31469,6 +31567,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/cells_in_bbox":     {"post":{"summary":"enumerate the cell64s in a bounding box, paged (row-major, north row first). Pure geometry: reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid. Returns `cells`, `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job rather than every client reimplementing a lattice; feed a page's cells to /v1/recall_many with a budget_ms to read them under the partial-results contract. page_size defaults 1024, caps at 4096.","operationId":"emem_cells_in_bbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024},"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; use the previous response's next_cursor"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
@@ -44302,7 +44401,7 @@ pub(crate) async fn resolve_cell_field(s: &str) -> Result<(String, ResolvedRef),
             return Err(ApiError(
                 StatusCode::GATEWAY_TIMEOUT,
                 ErrorBody {
-                    code: ErrorCode::NoGeocoderMatch,
+                    code: ErrorCode::InvalidArgument,
                     message: format!(
                         "resolving '{s}' to a cell timed out (the geocoder did not answer in 10 s). \
                          Pass a valid cell64 (4 dot-separated bigrams, e.g. defi.zb4d9.pefa.zf619) \
@@ -71975,7 +72074,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         return Err(ApiError(
                             StatusCode::NOT_FOUND,
                             ErrorBody {
-                                code: ErrorCode::NoGeocoderMatch,
+                                code: ErrorCode::InvalidArgument,
                                 message: format!(
                                     "no geocoder match for '{p}' (Photon + Nominatim both returned zero results, try a more specific name, or pass lat+lng directly)"
                                 ),
@@ -71993,7 +72092,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         return Err(ApiError(
                             StatusCode::NOT_FOUND,
                             ErrorBody {
-                                code: ErrorCode::NoGeocoderMatch,
+                                code: ErrorCode::InvalidArgument,
                                 message: format!(
                                     "no geocoder match for '{p}' (Nominatim returned zero results; Photon transport failed: {ph_err})"
                                 ),

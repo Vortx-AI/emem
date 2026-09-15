@@ -1205,6 +1205,145 @@ impl OvertureClient {
         Ok(total)
     }
 
+    /// Building footprints intersecting the bbox, as GeoJSON polygons with
+    /// their height where Overture carries one.
+    ///
+    /// The count already read `geometry` as WKB and filtered on it; this keeps
+    /// the polygon instead of discarding it. A caller rendering a settlement
+    /// cannot use a count: `overture.buildings.count` was the only building
+    /// surface here, and a village drawn from it is a number, not a village.
+    ///
+    /// `max_features` bounds the answer because a city bbox is unbounded work;
+    /// `count` reports the true total so a caller can tell a truncated answer
+    /// from a complete one.
+    pub async fn buildings_in_bbox(
+        &self,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
+        max_features: usize,
+    ) -> Result<BuildingFootprints, OvertureError> {
+        let files = self.list_files(BUILDINGS).await?;
+        let parallel = scan_parallelism();
+        let per_file: Vec<(Vec<BuildingFootprint>, u64)> = futures_util::stream::iter(files)
+            .map(|key| async move {
+                self.scan_one_file_buildings(&key, s_lat, n_lat, w_lng, e_lng, max_features)
+                    .await
+            })
+            .buffer_unordered(parallel)
+            .try_collect()
+            .await?;
+        let count: u64 = per_file.iter().map(|(_, n)| n).sum();
+        let mut features: Vec<BuildingFootprint> =
+            per_file.into_iter().flat_map(|(f, _)| f).collect();
+        features.truncate(max_features);
+        Ok(BuildingFootprints {
+            count,
+            returned: features.len(),
+            features,
+            release: self
+                .release()
+                .await
+                .unwrap_or_else(|_| "unavailable".into()),
+        })
+    }
+
+    async fn scan_one_file_buildings(
+        &self,
+        key: &str,
+        s_lat: f64,
+        n_lat: f64,
+        w_lng: f64,
+        e_lng: f64,
+        max_features: usize,
+    ) -> Result<(Vec<BuildingFootprint>, u64), OvertureError> {
+        let meta = self.footer(key).await?;
+        let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
+        if rgs.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+        let mut stream = self.open_stream(key, rgs, &[]).await?;
+        let mut out: Vec<BuildingFootprint> = Vec::new();
+        let mut count = 0u64;
+        while let Some(batch) = stream
+            .try_next()
+            .await
+            .map_err(|e| OvertureError::Parquet {
+                key: key.to_string(),
+                detail: format!("next batch: {e}"),
+            })?
+        {
+            let bbox_col = batch
+                .column_by_name("bbox")
+                .ok_or_else(|| OvertureError::Schema {
+                    key: key.to_string(),
+                    detail: "no bbox column in batch".into(),
+                })?;
+            let geom_col =
+                batch
+                    .column_by_name("geometry")
+                    .ok_or_else(|| OvertureError::Schema {
+                        key: key.to_string(),
+                        detail: "no geometry column in batch".into(),
+                    })?;
+            let bb = BBoxAccess::new(bbox_col.as_ref()).map_err(|e| OvertureError::Schema {
+                key: key.to_string(),
+                detail: e,
+            })?;
+            let geoms = WkbAccess::new(geom_col.as_ref()).map_err(|e| OvertureError::Schema {
+                key: key.to_string(),
+                detail: e,
+            })?;
+            // `height` is metres and often absent; `num_floors` is the usual
+            // fallback a renderer wants. Both optional: Overture carries a
+            // height for a minority of buildings, and a footprint with no
+            // height is still a footprint. Reported as null rather than
+            // defaulted, so a caller extruding them chooses its own storey
+            // height knowingly instead of inheriting one from us.
+            let height = batch.column_by_name("height").and_then(|c| {
+                c.as_any()
+                    .downcast_ref::<arrow::array::Float64Array>()
+                    .cloned()
+            });
+            let floors = batch.column_by_name("num_floors").and_then(|c| {
+                c.as_any()
+                    .downcast_ref::<arrow::array::Int32Array>()
+                    .cloned()
+            });
+            for i in 0..batch.num_rows() {
+                if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                let Some(wkb) = geoms.get(i) else {
+                    continue;
+                };
+                if !wkb_polygon_centroid_inside(wkb, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                count += 1;
+                if out.len() >= max_features {
+                    continue;
+                }
+                let Some(geometry) = wkb_polygon_to_geojson(wkb) else {
+                    continue;
+                };
+                out.push(BuildingFootprint {
+                    geometry,
+                    height_m: height
+                        .as_ref()
+                        .filter(|a| a.is_valid(i))
+                        .map(|a| a.value(i)),
+                    num_floors: floors
+                        .as_ref()
+                        .filter(|a| a.is_valid(i))
+                        .map(|a| a.value(i)),
+                });
+            }
+        }
+        Ok((out, count))
+    }
+
     async fn scan_one_file_count(
         &self,
         key: &str,
@@ -1270,6 +1409,30 @@ impl OvertureClient {
         }
         Ok(count)
     }
+}
+
+/// One Overture building: the footprint, and its height if the source has one.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BuildingFootprint {
+    /// GeoJSON Polygon (or MultiPolygon) in EPSG:4326.
+    pub geometry: serde_json::Value,
+    /// Metres, from Overture's `height`. `None` is common and is NOT zero.
+    pub height_m: Option<f64>,
+    /// Storeys, from Overture's `num_floors`. A renderer with no `height_m`
+    /// usually wants this times its own storey height.
+    pub num_floors: Option<i32>,
+}
+
+/// Result of one `buildings_in_bbox` call.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BuildingFootprints {
+    /// True number intersecting the bbox, even when more than were returned.
+    pub count: u64,
+    /// How many are in `features`.
+    pub returned: usize,
+    pub features: Vec<BuildingFootprint>,
+    /// Overture release the footprints came from, or `"unavailable"`.
+    pub release: String,
 }
 
 /// Discover the latest Overture release tag by listing the public bucket.
