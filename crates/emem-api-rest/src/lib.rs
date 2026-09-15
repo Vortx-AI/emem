@@ -16190,12 +16190,19 @@ async fn get_v1_elevation(
     Ok(Json(v))
 }
 
-/// `GET /v1/air?lat=&lon=` → cams.pm25 + cams.no2 + cams.o3
+/// `GET /v1/air?lat=&lon=` → cams.pm25 + cams.no2 + cams.o3 + cams.aod_550
 async fn get_v1_air(
     State(s): State<AppState>,
     Query(q): Query<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3"]).await
+    // `cams.aod_550` belongs here and was missing from both air routes. The
+    // band is wired, materialisable and covered by its own test; the routes an
+    // agent calls to ask about the air simply did not request it, so the only
+    // way to reach aerosol optical depth was to know the band name and go
+    // around them. An integrator rendering measured haze hit exactly that on
+    // 2026-09-15. A capability that exists and is unreachable by the obvious
+    // path is not a capability.
+    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3", "cams.aod_550"]).await
 }
 
 /// `GET /v1/lst?lat=&lon=` → MODIS LST day + night, 8-day composite
@@ -16334,7 +16341,14 @@ async fn post_v1_air(
     State(s): State<AppState>,
     EmemJson(q): EmemJson<LatLngQ>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3"]).await
+    // `cams.aod_550` belongs here and was missing from both air routes. The
+    // band is wired, materialisable and covered by its own test; the routes an
+    // agent calls to ask about the air simply did not request it, so the only
+    // way to reach aerosol optical depth was to know the band name and go
+    // around them. An integrator rendering measured haze hit exactly that on
+    // 2026-09-15. A capability that exists and is unreachable by the obvious
+    // path is not a capability.
+    boring_named(&s, q, &["cams.pm25", "cams.no2", "cams.o3", "cams.aod_550"]).await
 }
 
 async fn post_v1_lst(
@@ -31615,7 +31629,7 @@ fn openapi_spec() -> JsonValue {
                 "post":{"summary":"POST /v1/ndvi {place|lat,lng}","operationId":"emem_ndvi_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/air":               {
-                "get":{"summary":"GET /v1/air?lat=&lon=, CAMS PM2.5 + NO2 + O3 bundle (signed). Also accepts ?place=…","operationId":"emem_air_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
+                "get":{"summary":"GET /v1/air?lat=&lon=, CAMS PM2.5 + NO2 + O3 + aerosol optical depth at 550 nm (signed). Also accepts ?place=…","operationId":"emem_air_get","tags":["boring"],"parameters":[{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lon","in":"query","required":false,"schema":{"type":"number"}},{"name":"place","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok}},
                 "post":{"summary":"POST /v1/air {place|lat,lng}","operationId":"emem_air_post","tags":["boring"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BoringPostReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/lst":               {
@@ -88384,6 +88398,29 @@ mod tests {
             how["sign_this"]["digest_hex"].as_str().unwrap(),
             data_encoding::HEXLOWER.encode(&entity_sign_digest(&mk(String::new()))),
         );
+    }
+
+    /// The air routes must offer aerosol optical depth.
+    ///
+    /// `cams.aod_550` was wired, materialisable and covered by a test asserting
+    /// it was wired — and neither `/v1/air` route requested it, so the only way
+    /// to reach it was to know the band name and go around the route built for
+    /// exactly this question. The existing test proved the band existed; it
+    /// could not see that nothing offered it. This asserts the reachable path.
+    #[test]
+    fn the_air_routes_offer_aerosol_optical_depth() {
+        let src = include_str!("lib.rs");
+        let asked: Vec<&str> = src
+            .match_indices("boring_named(&s, q, &[\"cams.pm25\"")
+            .map(|(i, _)| &src[i..i + 200])
+            .collect();
+        assert_eq!(asked.len(), 2, "expected the GET and POST air routes");
+        for block in asked {
+            assert!(
+                block.contains("cams.aod_550"),
+                "an air route does not request aerosol optical depth: {block}"
+            );
+        }
     }
 
     /// A refusal may not claim a check the call did not run.
