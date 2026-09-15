@@ -1315,7 +1315,7 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **165 documented REST paths under `/v1/*`** (176 total
+`0.0.0.0:5051`): **166 documented REST paths under `/v1/*`** (177 total
 in OpenAPI) and **110 MCP tools (16 core, 92 extended)**.
 
 Discovery on first contact:
@@ -1358,9 +1358,9 @@ a factor of two and a half while making an argument about trust.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 108 cost about 288 KB of every conversation whether or not it
+connect. All 110 cost about 324 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 18 tools of
-the core loop in a single page, about 66 KB, and `POST /mcp/full`
+the core loop in a single page, about 75 KB, and `POST /mcp/full`
 advertises all 110. Both byte figures were measured on the wire on
 2026-08-11 and move whenever a tool description is edited; re-measure
 rather than quote.
@@ -1370,13 +1370,13 @@ Narrowing discovery removes no capability: **`tools/call` dispatches all
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
-mode of a 288 KB dump is the same conclusion reached for a different
+mode of a 324 KB dump is the same conclusion reached for a different
 reason: the agent stops reading.
 
 `emem_tools` is itself core and maps the rest. With no arguments it
-returns the core loop in order plus a bundle and shape menu in about 6
+returns the core loop in order plus a bundle and shape menu in about 13
 KB. `{"name":"emem_ndvi"}` returns one tool's input schema and a runnable
-example in about 2 KB. `{"q":"ndvi"}` searches.
+example in about 8 KB. `{"q":"ndvi"}` searches.
 
 Every tool declares exactly one **shape** and any number of overlapping
 **bundles** in MCP-standard `_meta`, as `dev.emem/shape` and

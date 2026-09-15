@@ -274,8 +274,8 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface documents 165 paths under
-`/v1/*` (176 total in `/openapi.json`), 110 MCP tools (18 core, 92 extended, with
+port 5051. The live surface documents 166 paths under
+`/v1/*` (177 total in `/openapi.json`), 110 MCP tools (18 core, 92 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 110), 20 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
@@ -299,7 +299,7 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 176 documented, 165 under `/v1/*` |
+| REST paths (OpenAPI) | 177 documented, 166 under `/v1/*` |
 | MCP tools | 107 (16 core / 92 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
@@ -688,7 +688,7 @@ without historical fetch return `status: "present_only"`; check
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
 `tools/list` at `/mcp` advertises the 18 tools of the loop in one page (about
-66 KB of descriptors); `/mcp/full` advertises all 110 (about 288 KB over 7
+75 KB of descriptors); `/mcp/full` advertises all 110 (about 324 KB over 8
 pages), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
@@ -696,7 +696,7 @@ tier, so a tool absent from your list is still callable and the narrower
 list costs no capability.
 
 `emem_tools` is the way in when you do not know the name. With no arguments
-it returns the loop, a bundle menu, and a shape menu in about 6 KB. Every
+it returns the loop, a bundle menu, and a shape menu in about 13 KB. Every
 tool declares its selection vocabulary in MCP-standard `_meta`: one
 `dev.emem/shape`, and any number of `dev.emem/bundles`.
 
@@ -705,7 +705,7 @@ tool declares its selection vocabulary in MCP-standard `_meta`: one
 | `{"shape":"raster"}` | the form of the answer, exactly one per tool | `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` |
 | `{"bundle":"robotics"}` | the job, a view that overlaps | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
 | `{"q":"ndvi"}` | free-text search over the catalog | any string |
-| `{"name":"emem_ndvi"}` | one tool's exact input schema and a runnable example, about 2 KB | any tool name |
+| `{"name":"emem_ndvi"}` | one tool's exact input schema and a runnable example, about 8 KB | any tool name |
 
 Shape is usually the real question. "Which tool do I use" is nearly always
 about the shape of the answer rather than its topic, and `scalar` (one

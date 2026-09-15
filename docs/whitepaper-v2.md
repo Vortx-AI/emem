@@ -1280,7 +1280,7 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **165 documented REST paths under `/v1/*`** (176 total
+`0.0.0.0:5051`): **166 documented REST paths under `/v1/*`** (177 total
 in OpenAPI) and **110 MCP tools (16 core, 92 extended)**.
 
 Discovery on first contact:
@@ -1337,9 +1337,9 @@ mode of a 243 KB dump is the same conclusion reached for a different
 reason: the agent stops reading.
 
 `emem_tools` is itself core and maps the rest. With no arguments it
-returns the core loop in order plus a bundle and shape menu in about 6
+returns the core loop in order plus a bundle and shape menu in about 13
 KB. `{"name":"emem_ndvi"}` returns one tool's input schema and a runnable
-example in about 2 KB. `{"q":"ndvi"}` searches.
+example in about 8 KB. `{"q":"ndvi"}` searches.
 
 Every tool declares exactly one **shape** and any number of overlapping
 **bundles** in MCP-standard `_meta`, as `dev.emem/shape` and

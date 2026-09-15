@@ -66,9 +66,19 @@ CANON = {
     "mcp_tools": 110,
     "mcp_core": 18,
     "mcp_extended": 92,
+    # The subset the ChatGPT app submission declares. A real quantity, not a
+    # stale copy of `mcp_core`: the near-miss sweep flagged the bundle's "16
+    # tools" as a drifted 18 because 16 is within its tolerance of 18, and the
+    # only way to tell a different count from a rotted one is to make it
+    # canonical. Verified against the submission JSON below, so it cannot
+    # silently disagree with the file it describes.
+    "chatgpt_declared": 16,
     "algorithms": 168,
-    "rest_paths_v1": 165,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 176,  # all paths in OpenAPI
+    # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
+    # `emem:state:` address dereference. CANON was last pinned at 285a12e and
+    # the route shipped after it, so this was a real addition the pin missed.
+    "rest_paths_v1": 166,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 177,  # all paths in OpenAPI
     "cube_slots": 43,
     "materializer_wired": 129,
     "source_schemes": 46,
@@ -128,8 +138,25 @@ def compute_offline() -> dict:
         "mcp_resources": resources,
         "mcp_uri_templates": templates,
         "crates": crates,
+        # From the submission itself, so the number in the bundle's prose and
+        # the set the bundle declares cannot disagree.
+        "chatgpt_declared": chatgpt_declared(),
         "version": version.group(1) if version else "?",
     }
+
+
+def chatgpt_declared() -> int:
+    """How many tools the ChatGPT app submission declares.
+
+    Zero when the file is missing or unreadable, which `verify_canon` then
+    reports as drift rather than passing quietly: a count that cannot be read
+    is not a count that agrees.
+    """
+    f = REPO / "integrations" / "chatgpt" / "chatgpt-app-submission.json"
+    try:
+        return len(json.loads(f.read_text(encoding="utf-8"))["tools"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return 0
 
 
 # Filled by verify_canon(), read by main(). Not drift: see the branch that
@@ -383,7 +410,8 @@ COUNT_HISTORY = (
 # Each family lists the counts legitimately claimable for that noun, so a
 # genuine subset does not trip it.
 NEAR_MISS_FAMILIES = (
-    (r"(?:MCP\s+)?tools?", ("mcp_tools", "mcp_core", "mcp_extended")),
+    (r"(?:MCP\s+)?tools?", ("mcp_tools", "mcp_core", "mcp_extended",
+                            "chatgpt_declared")),
     (r"bands?", ("cube_slots",)),
     (r"algorithms?", ("algorithms",)),
     (r"materializers?", ("materializer_wired",)),
@@ -1564,7 +1592,12 @@ MCP_BYTES_CLAIMS = [
     ("README.md", r"core loop in one page, about (\d+) KB of context", "core"),
     ("README.md", r"all " + str(CANON["mcp_tools"]) + r" descriptors costs about (\d+) KB", "full"),
     ("docs/agents.md", r"in one page \(about\s+(\d+) KB of descriptors\)", "core"),
-    ("docs/agents.md", r"advertises all " + str(CANON["mcp_tools"]) + r" \(about (\d+) KB over 7", "full"),
+    # `over \d+`, not `over 7`. Pinning the page count inside this pattern meant
+    # that correcting the page count (7 -> 8, which had itself gone stale)
+    # blinded the KB check beside it: one number moving switched off the check
+    # on another. The page count is verified on its own, below.
+    ("docs/agents.md",
+     r"advertises all " + str(CANON["mcp_tools"]) + r" \(about (\d+) KB over \d+", "full"),
     ("docs/intro.md", r"carries about (\d+) KB of descriptors instead of (?:\d+) KB", "core"),
     ("docs/intro.md", r"instead of (\d+) KB", "full"),
     ("docs/mcp-directory.md", r"in a single page \(about (\d+) KB\)", "core"),
@@ -1572,6 +1605,13 @@ MCP_BYTES_CLAIMS = [
     ("docs/integrations.md", r"registers about (\d+) KB of descriptors", "core"),
     ("docs/integrations.md", r"rather than about (\d+) KB for all " + str(CANON["mcp_tools"]) + r"", "full"),
     ("docs/whitepaper.md", r"All " + str(CANON["mcp_tools"]) + r" cost about (\d+) KB", "full"),
+    # The map, and one tool out of it. Same rule as the two above: the file
+    # names the surface, the regex captures the KB figure, the responder is
+    # asked what it actually sends.
+    ("docs/agents.md", r"a bundle menu, and a shape menu in about (\d+) KB", "menu"),
+    ("docs/agents.md", r"a runnable example, about (\d+) KB", "one_tool"),
+    ("README.md", r"returns the loop and a menu in about (\d+) KB", "menu"),
+    ("docs/mcp-directory.md", r"\(about (\d+) KB, versus about \d+ KB for the full list", "one_tool"),
     ("docs/whitepaper.md", r"core loop in a single page, about (\d+) KB", "core"),
 ]
 
@@ -1606,7 +1646,24 @@ def measure_mcp_list_bytes(responder: str) -> dict | None:
             cursor = res.get("nextCursor")
             if not cursor or pages > 20:
                 break
-        return {"core": core, "full": total}
+        # The two `emem_tools` answers the docs quote. They were never
+        # measured by anything and had rotted to roughly half: the menu was
+        # published as "about 6 KB" against 13 KB live, and one tool's schema
+        # as "about 2 KB" against 8 KB. A claim nothing checks is a claim that
+        # drifts, and these are the numbers an agent uses to decide whether
+        # calling the map is cheaper than loading the catalogue.
+        def call(args):
+            body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+                               "params": {"name": "emem_tools", "arguments": args}}).encode()
+            req = urllib.request.Request(
+                responder + "/mcp", data=body,
+                headers={"Content-Type": "application/json",
+                         "Accept": "application/json, text/event-stream"})
+            with patient(req, timeout=60) as r:
+                return len(r.read())
+
+        return {"core": core, "full": total, "pages": pages,
+                "menu": call({}), "one_tool": call({"name": "emem_ndvi"})}
     except Exception:
         return None
 
@@ -1634,6 +1691,19 @@ def verify_mcp_byte_claims(responder: str) -> list[str]:
         if abs(claimed_kb - real_kb) > real_kb * MCP_BYTES_TOLERANCE:
             hits.append(f"{rel}: claims ~{claimed_kb} KB for the {which} "
                         f"tools/list surface; measured {real_kb:.0f} KB live.")
+
+    # How many pages `/mcp/full` takes. Stated in one place and checked by
+    # nothing, it sat at 7 while the responder sent 8.
+    pages_claim = REPO / "docs" / "agents.md"
+    if pages_claim.exists() and "pages" in measured:
+        m = re.search(r"advertises all " + str(CANON["mcp_tools"]) + r" \(about \d+ KB over (\d+)",
+                      pages_claim.read_text(encoding="utf-8"))
+        if not m:
+            hits.append("docs/agents.md: the /mcp/full page-count claim no longer "
+                        "matches its pattern; the prose moved and this check went blind.")
+        elif int(m.group(1)) != measured["pages"]:
+            hits.append(f"docs/agents.md: says /mcp/full is {m.group(1)} pages; "
+                        f"the responder sent {measured['pages']}.")
     return hits
 
 
