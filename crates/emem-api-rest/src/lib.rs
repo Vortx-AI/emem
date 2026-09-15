@@ -4693,7 +4693,13 @@ fn arcade_protocol() -> JsonValue {
         "read": "GET /v1/channel/geo returns the recent addressed notes with their positions already resolved; GET /v1/inbox with {\"to\":\"<pk8>\"} returns the ones addressed to you."
       },
       "write_contract": {
-        "verb": "memory_create over MCP, or POST /v1/memory/create",
+        // NOT "or POST /v1/memory/create". That route is not in the router and
+        // answers 404; the memory verbs are MCP-only, through tools/call. Two
+        // separate peers followed this sentence into a dead end (both are in
+        // docs/collaboration-log.md, and a comment at the dispatcher already
+        // said the route was 404) while this line went on advertising it. The
+        // second one lost a session to it before asking.
+        "verb": "memory_create over MCP tools/call. There is NO REST route for the memory write verbs",
         "preimage": "blake3(b\"emem.memory_write|create|\" + path + b\"|\" + blake3(body))",
         "attester": "{\"pubkey_b32\": <your ed25519 public key, base32-nopad-lowercase>, \"sig_b32\": <ed25519 signature over the preimage, same encoding>}",
         "why": "The signature is what makes the character on screen mean anything. An unsigned write would render identically and prove nothing, so there is no unsigned path."
