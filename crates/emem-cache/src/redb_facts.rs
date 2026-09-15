@@ -200,21 +200,66 @@ impl RedbFacts {
         // between "opening persistent storage" and the store being ready,
         // tens of minutes apart, which is how the cost got blamed on page-cache
         // faulting for weeks.
+        // redb calls the repair callback when IT decides to, and on a file this
+        // size that was TWICE in fifty minutes: 0.0 at the start and 0.6 at
+        // minute forty-nine. A line every forty-nine minutes does not
+        // distinguish a repair from a hang, which is the thing the callback was
+        // added for, so the callback is paired with a heartbeat that says how
+        // long this has been running and what the last value redb gave was.
+        // The heartbeat never computes a progress of its own: two generators
+        // must not own one number, and an interpolated percentage on a walk
+        // whose rate is unknown is a number that would be believed.
+        let last_progress = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let stop_beat = std::sync::Arc::new(AtomicBool::new(false));
+        let beat = std::thread::spawn({
+            let repairing = repaired.clone();
+            let progress = last_progress.clone();
+            let stop = stop_beat.clone();
+            let every = std::time::Duration::from_secs(
+                std::env::var("EMEM_REDB_REPAIR_HEARTBEAT_S")
+                    .ok()
+                    .and_then(|v| v.trim().parse::<u64>().ok())
+                    .unwrap_or(60)
+                    .clamp(5, 3600),
+            );
+            move || {
+                let mut since = std::time::Instant::now();
+                while !stop.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(250));
+                    if since.elapsed() < every || !repairing.load(Ordering::Relaxed) {
+                        continue;
+                    }
+                    since = std::time::Instant::now();
+                    tracing::warn!(
+                        target: "emem::boot",
+                        elapsed_s = t0.elapsed().as_secs(),
+                        last_progress_redb_reported =
+                            progress.load(Ordering::Relaxed) as f64 / 1000.0,
+                        "still rebuilding the allocator state; this is work, not a hang"
+                    );
+                }
+            }
+        });
         let db = Database::builder()
             .set_cache_size(Self::cache_bytes())
             .set_repair_callback({
                 let seen = repaired.clone();
+                let progress = last_progress.clone();
                 move |s| {
                     seen.store(true, Ordering::Relaxed);
+                    progress.store((s.progress() * 1000.0) as u64, Ordering::Relaxed);
                     tracing::warn!(
                         target: "emem::boot",
                         progress = s.progress(),
+                        elapsed_s = t0.elapsed().as_secs(),
                         "redb was NOT closed cleanly; rebuilding the allocator state (this walks the file)"
                     );
                 }
             })
-            .create(&path)
-            .map_err(rb)?;
+            .create(&path);
+        stop_beat.store(true, Ordering::Relaxed);
+        let _ = beat.join();
+        let db = db.map_err(rb)?;
         let create_ms = t0.elapsed().as_millis();
         let t1 = std::time::Instant::now();
         {
