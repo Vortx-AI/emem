@@ -1301,6 +1301,9 @@ impl OvertureClient {
             // height is still a footprint. Reported as null rather than
             // defaulted, so a caller extruding them chooses its own storey
             // height knowingly instead of inheriting one from us.
+            let gers = batch
+                .column_by_name("id")
+                .and_then(|c| c.as_any().downcast_ref::<StringArray>().cloned());
             let height = batch.column_by_name("height").and_then(|c| {
                 c.as_any()
                     .downcast_ref::<arrow::array::Float64Array>()
@@ -1329,6 +1332,10 @@ impl OvertureClient {
                     continue;
                 };
                 out.push(BuildingFootprint {
+                    gers: gers
+                        .as_ref()
+                        .filter(|a| a.is_valid(i))
+                        .map(|a| a.value(i).to_string()),
                     geometry,
                     height_m: height
                         .as_ref()
@@ -1414,6 +1421,12 @@ impl OvertureClient {
 /// One Overture building: the footprint, and its height if the source has one.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct BuildingFootprint {
+    /// Overture's `id`, which IS the GERS identifier: the stable external id
+    /// for this building. Carried because an agent minting an entity for this
+    /// ground converges on a shared `entity_cid` when it supplies a GERS and
+    /// falls back to label-based identity when it cannot, so one call gives
+    /// both the footprint and the thing that makes the name discoverable.
+    pub gers: Option<String>,
     /// GeoJSON Polygon (or MultiPolygon) in EPSG:4326.
     pub geometry: serde_json::Value,
     /// Metres, from Overture's `height`. `None` is common and is NOT zero.

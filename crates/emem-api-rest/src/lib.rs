@@ -17004,10 +17004,10 @@ async fn post_building_footprints(
             "features": out.features.iter().map(|b| json!({
                 "type": "Feature",
                 "geometry": b.geometry,
-                "properties": {"height_m": b.height_m, "num_floors": b.num_floors},
+                "properties": {"gers": b.gers, "height_m": b.height_m, "num_floors": b.num_floors},
             })).collect::<Vec<_>>(),
         },
-        "agent_hint": "`height_m` is null for most buildings and null is NOT zero: Overture carries a height for a minority. Use `num_floors` times your own storey height as the fallback, and say which you used. A footprint with neither is still a footprint.",
+        "agent_hint": "`height_m` is null for most buildings and null is NOT zero: Overture carries a height for a minority. Use `num_floors` times your own storey height as the fallback, and say which you used. A footprint with neither is still a footprint. `gers` is Overture's stable id for this building: pass it as `external_ids.gers` to POST /v1/entity and two agents naming this building mint the same entity_cid instead of two twins.",
     })))
 }
 
