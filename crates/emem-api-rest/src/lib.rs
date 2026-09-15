@@ -2149,11 +2149,22 @@ fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
         // the pixels but not the pass that produced them, and a crop of the
         // Earth that cannot say which overpass it came from is decoration
         // rather than evidence.
+        //
+        // ALL of them, and the list is now gated. Four of fifteen were exposed
+        // until 2026-09-15: the georeference headers whose own comment says a
+        // tile without bounds is one nobody can index, the stretch values
+        // without which the image cannot be reproduced, and the sun and view
+        // geometry shipped that same day. Each was served, documented, and
+        // unreadable by the browser it was written for -- a header a client
+        // cannot read is a header that is not published.
         HeaderValue::from_static(
             "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version, \
              x-emem-commit, \
              x-emem-scene-item-id, x-emem-scene-datetime, x-emem-scene-cloud-cover, \
-             x-emem-scene-epsg",
+             x-emem-scene-epsg, x-emem-scene-bbox-crs, x-emem-scene-pixel-size, \
+             x-emem-scene-width, x-emem-scene-height, x-emem-scene-format, \
+             x-emem-scene-channels, x-emem-scene-stretch-r, x-emem-scene-stretch-g, \
+             x-emem-scene-stretch-b, x-emem-scene-sun, x-emem-scene-view",
         ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
@@ -88461,6 +88472,64 @@ mod tests {
         assert_eq!(
             how["sign_this"]["digest_hex"].as_str().unwrap(),
             data_encoding::HEXLOWER.encode(&entity_sign_digest(&mk(String::new()))),
+        );
+    }
+
+    /// Every `x-emem-scene-*` header we SET must be one a browser can READ.
+    ///
+    /// Four of fifteen were exposed. The georeference pair carries a comment
+    /// explaining that a tile with an EPSG and no bounds is 256x256 pixels
+    /// nobody can index, and it was unreadable cross-origin for as long as it
+    /// had existed; the stretch values, published so the image can be
+    /// reproduced, likewise; and the sun and view geometry joined them the day
+    /// they shipped. A header the client cannot read is not published, however
+    /// carefully it is set.
+    ///
+    /// The two sides come from different constructs — `.header("x-emem-...")`
+    /// call sites against the comma list inside `access-control-expose-headers`
+    /// — so a header added tomorrow without the list is representable and this
+    /// fails.
+    #[test]
+    fn every_scene_header_we_set_is_one_a_browser_may_read() {
+        let src = include_str!("lib.rs");
+        let mut set: std::collections::BTreeSet<String> = Default::default();
+        // The quoted name, not the call: `cargo fmt` breaks a long `.header(`
+        // onto its own line, so a scan keyed to `.header("x-emem-scene-` found
+        // 7 of 15 and would have certified the other 8 as exposed. The floor
+        // below is what caught it.
+        for (i, _) in src.match_indices("\"x-emem-scene-") {
+            // Prose about a pattern is not a use of it: this very test
+            // discusses the header prefix, and the first run collected its own
+            // comment as a served header.
+            let line_start = src[..i].rfind('\n').map(|n| n + 1).unwrap_or(0);
+            if src[line_start..i].trim_start().starts_with("//") {
+                continue;
+            }
+            let rest = &src[i + 1..];
+            if let Some(end) = rest.find('"') {
+                set.insert(rest[..end].to_string());
+            }
+        }
+        assert!(
+            set.len() >= 10,
+            "found {} scene headers; the scan is not finding them and a clean result would mean nothing",
+            set.len()
+        );
+        // Anchored on the literal, not on the key: a comment between them
+        // pushed the list out of a fixed window on the first run and the test
+        // reported a header it had just been given as missing.
+        let key = src
+            .find("access-control-expose-headers")
+            .expect("the expose-headers insert");
+        let lit = key + src[key..].find("from_static(").expect("its literal");
+        let window = &src[lit..lit + 1200];
+        let missing: Vec<&String> = set
+            .iter()
+            .filter(|h| !window.contains(h.as_str()))
+            .collect();
+        assert!(
+            missing.is_empty(),
+            "served but not exposed, so no browser can read them: {missing:?}"
         );
     }
 

@@ -1,0 +1,111 @@
+{
+  "schema": "emem.object_templates.v0",
+  "version": "0.1.0",
+  "purpose": "Parametric templates for the objects a provenance-led scene has to draw. NOT meshes: a mesh is someone's guess at a tree. Each template is a shape family, the measurable that sets its size, the relation between them, and the PROSAIL inputs it implies, with every parameter carrying its basis so a renderer can say which numbers were measured and which were assumed.",
+  "how_to_use": "Fit every `fit_locally` relation on your own ground before drawing anything. You have heights (ICESat-2 h_canopy) and crown widths (sub-metre imagery) over the same objects, so the allometry is a measurement you can make rather than a citation you have to trust. An `assumed_range` is a placeholder that must be declared in the render's provenance, never presented as measured.",
+  "basis_vocabulary": {
+    "measured": "fitted on this landscape from a named instrument, with n and a residual",
+    "fit_locally": "the form is given, the coefficients are yours to fit; do not ship the default",
+    "assumed_range": "a plausible range from general knowledge; declare it, never claim it",
+    "derived": "computed from other parameters by a stated relation"
+  },
+  "cross_checks": {
+    "shadow": "shadow_length_m = height_m / tan(sun_elevation_deg), cast toward (sun_azimuth_deg + 180) mod 360; subtract the off-nadir lean height_m * tan(view_incidence_deg) along view_azimuth before comparing to a plan-view outline. Sun and view geometry per granule: x-emem-scene-sun and x-emem-scene-view on emem.dev scene routes.",
+    "reflectance": "crown LAI and leaf-angle distribution feed PROSAIL; the forward run at the granule's own geometry must reproduce the measured reflectance after downsampling to the sensor's support.",
+    "storey": "a built object's height and its floor count must agree at the declared storey height; disagreement is a finding, not a rounding error."
+  },
+  "trees": {
+    "_note": "Species of the western Ganga plain. Crown shape drives the shadow; deciduousness drives the calendar; LAI and leaf angle drive the reflectance. The same height parameter is testable by shadow AND by PROSAIL, which is why these are the templates to build first.",
+    "_allometry_form": "crown_diameter_m = a * height_m^b, fitted per species on this landscape. Report a, b, n and the residual spread. Do not use a published coefficient from another region as if it were measured here.",
+    "dalbergia_sissoo": {
+      "common_name": "shisham",
+      "crown_shape": "ellipsoid",
+      "crown_depth_ratio": {"value": [0.55, 0.75], "basis": "assumed_range", "note": "crown depth as a share of total height"},
+      "allometry": {"form": "a * H^b", "a": null, "b": null, "basis": "fit_locally"},
+      "phenology": {"class": "deciduous", "leafless_window": "dry season, typically Jan-Mar in this belt", "basis": "assumed_range", "test": "its NDVI floor must drop in that window; if it does not, the class is wrong or the pixel is mixed"},
+      "prosail": {"lai_peak": [2.5, 4.5], "leaf_angle_distribution": "spherical", "basis": "assumed_range"},
+      "planting_context": ["field bund", "canal bank", "roadside row"]
+    },
+    "azadirachta_indica": {
+      "common_name": "neem",
+      "crown_shape": "ellipsoid, broad",
+      "crown_depth_ratio": {"value": [0.6, 0.8], "basis": "assumed_range"},
+      "allometry": {"form": "a * H^b", "a": null, "b": null, "basis": "fit_locally"},
+      "phenology": {"class": "near_evergreen", "note": "brief leaf exchange; the NDVI floor stays high, which is exactly why it confuses a floor-and-swing tree rule with standing cane", "basis": "assumed_range"},
+      "prosail": {"lai_peak": [3.0, 5.0], "leaf_angle_distribution": "spherical", "basis": "assumed_range"},
+      "planting_context": ["village edge", "yard", "roadside"]
+    },
+    "mangifera_indica": {
+      "common_name": "mango",
+      "crown_shape": "dome, dense",
+      "crown_depth_ratio": {"value": [0.6, 0.85], "basis": "assumed_range"},
+      "allometry": {"form": "a * H^b", "a": null, "b": null, "basis": "fit_locally"},
+      "phenology": {"class": "evergreen", "basis": "assumed_range"},
+      "prosail": {"lai_peak": [4.0, 6.0], "leaf_angle_distribution": "planophile", "basis": "assumed_range"},
+      "planting_context": ["orchard block", "village grove"],
+      "note": "an orchard is a REGULAR lattice; its row spacing is a measurable period in the image and a strong control on any orchard classification"
+    },
+    "eucalyptus_spp": {
+      "common_name": "eucalyptus",
+      "crown_shape": "columnar, narrow",
+      "crown_depth_ratio": {"value": [0.35, 0.55], "basis": "assumed_range"},
+      "allometry": {"form": "a * H^b", "a": null, "b": null, "basis": "fit_locally", "note": "b is markedly lower than for the broad-crowned species; a single pooled fit across species will be wrong for both"},
+      "phenology": {"class": "evergreen", "basis": "assumed_range"},
+      "prosail": {"lai_peak": [1.5, 3.0], "leaf_angle_distribution": "erectophile", "basis": "assumed_range"},
+      "planting_context": ["boundary row", "woodlot block"],
+      "note": "narrow crown and tall habit make this the best shadow-test subject in the landscape: the shadow is long and the crown is small, so the two measurements are nearly independent"
+    },
+    "populus_deltoides": {
+      "common_name": "poplar",
+      "crown_shape": "columnar",
+      "crown_depth_ratio": {"value": [0.4, 0.6], "basis": "assumed_range"},
+      "allometry": {"form": "a * H^b", "a": null, "b": null, "basis": "fit_locally"},
+      "phenology": {"class": "deciduous", "basis": "assumed_range"},
+      "prosail": {"lai_peak": [2.0, 4.0], "leaf_angle_distribution": "spherical", "basis": "assumed_range"},
+      "planting_context": ["agroforestry row", "block plantation with an intercrop beneath"],
+      "note": "poplar agroforestry carries a crop UNDER the canopy; a pixel here is two layers and a single-layer inversion will be wrong in a stated direction"
+    }
+  },
+  "built": {
+    "rcc_flat_roof_house": {
+      "geometry": "extruded footprint, flat roof, parapet",
+      "storey_height_m": {"value": [3.0, 3.5], "basis": "assumed_range", "note": "the cross-check: height_m should equal num_floors * storey_height_m within one parapet"},
+      "footprint_source": "Overture buildings via emem /v1/building_footprints, each carrying its GERS id",
+      "height_availability": {"note": "measured 2026-09-15: Overture release 2026-08-19.0 returns height on 262 of 276 buildings in a Manhattan test bbox and 0 of 691 in a Delhi bbox. Absence here is real, not an unread column. Derive height from floors where floors exist, else declare it assumed."}
+    },
+    "bull_trench_brick_kiln": {
+      "geometry": "oval trench footprint plus a single tall chimney",
+      "chimney_height_m": {"value": [20, 35], "basis": "assumed_range"},
+      "note": "the characteristic tall built object of this district and the most recognisable landmark a viewer will check. Its chimney casts the longest built shadow in the scene, so it is the best built-object shadow control; and its firing season is a thermal and aerosol signature.",
+      "cross_check": "chimney shadow length at a winter sun is tens of metres, which is several Sentinel-2 pixels; predicted and observed should agree before any tree shadow is trusted"
+    },
+    "tube_well_and_channel": {
+      "geometry": "small pump structure plus a linear channel to the field",
+      "note": "not visually significant at 10 m, but it explains irrigation timing, which is a calendar feature; place from the channel, not from the structure"
+    }
+  },
+  "linear": {
+    "tree_row_on_bund": {
+      "geometry": "a line of crowns at a spacing, on a raised bund",
+      "spacing_m": {"basis": "fit_locally", "note": "measurable as a period along the row in sub-metre imagery"},
+      "bund_height_m": {"value": [0.3, 1.0], "basis": "assumed_range"},
+      "note": "the row, not the individual tree, is the detectable object at 10 m: a row casts a continuous band tens of metres wide and hundreds long, in a direction the granule predicts"
+    },
+    "canal_with_bund": {
+      "geometry": "trapezoidal channel with raised banks",
+      "note": "water surface is a specular reflector: at the specular angle it should brighten, which falsifies a water classification"
+    },
+    "cart_track": {
+      "geometry": "unsurfaced linear strip",
+      "width_m": {"value": [2.5, 4.0], "basis": "assumed_range"},
+      "note": "a 3 m track in a 10 m pixel is about a third of it, which is the unclaimed-fraction signature already used to call a pixel lane or bund"
+    }
+  },
+  "placement": {
+    "rule": "Never place an object where no measurement puts it. Every instance carries the fact or facts that located it, and an instance with no locating fact belongs to a separate, declarable scene-dressing layer.",
+    "trees": "from the tree-class pixels, refined to crowns by sub-metre texture where available; a crown whose predicted shadow is absent in the granule is a candidate for removal, not for a bigger crown",
+    "buildings": "from Overture footprints by GERS id, so an instance is traceable to a global entity a third party can look up",
+    "rows": "along measured field boundaries with a measured ploughing direction; the row's azimuth is a measurement, not a styling choice",
+    "density": "if your instance count exceeds what the classified pixel area supports, you are decorating. State instances-per-hectare against class-area-per-hectare and let the number be visible."
+  }
+}
