@@ -374,6 +374,14 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
             "asset": url,
             "captured_at": item.datetime,
             "cloud_cover": item.cloud_cover,
+            // The illumination the scene was acquired under, carried into the
+            // signed record so a shadow read out of this raster can be checked
+            // against the geometry that cast it. Null on collections that
+            // publish no sun.
+            "sun_azimuth_deg": item.sun_azimuth,
+            "sun_elevation_deg": item.sun_elevation,
+            "view_azimuth_deg": item.view_azimuth,
+            "view_incidence_deg": item.view_incidence,
         }],
         "artifact": {
             "artifact_cid": artifact_cid,
@@ -2297,6 +2305,10 @@ async fn read_masked_scene(
         "scl_asset": scl_url,
         "captured_at": item.datetime,
         "cloud_cover": item.cloud_cover,
+        "sun_azimuth_deg": item.sun_azimuth,
+        "sun_elevation_deg": item.sun_elevation,
+        "view_azimuth_deg": item.view_azimuth,
+        "view_incidence_deg": item.view_incidence,
         "tslot": scene_tslot(&item.datetime),
     });
     Some((out, meta))

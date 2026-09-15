@@ -30973,6 +30973,27 @@ async fn mcp_tool_call_inner(
                                 bbox covers the pixels returned, including any that fall outside \
                                 the source image and came back zero: those have a location too.",
                     },
+                    // WHERE THE SUN WAS, so a shadow in these pixels can be
+                    // checked rather than admired. The geometry is recorded by
+                    // the granule, not computed here, so it is the same bytes
+                    // that produced the image: `direct_sensor`.
+                    //
+                    // A height estimate made any other way has an independent
+                    // test waiting in this image. On flat ground a vertical
+                    // object of height h casts `h / tan(sun_elevation)` metres
+                    // toward `sun_azimuth + 180`. At 10 m pixels that is
+                    // nothing for a crop canopy and three pixels for a mature
+                    // tree, so the tall things are exactly the things the check
+                    // reaches. Null when the catalogue does not publish the
+                    // angles, which is every radar collection: a scene with no
+                    // sun must not report one.
+                    "illumination": {
+                        "sun_azimuth_deg": scene.sun.0,
+                        "sun_elevation_deg": scene.sun.1,
+                        "view_azimuth_deg": scene.view.0,
+                        "view_incidence_deg": scene.view.1,
+                        "how": "shadow_length_m = height_m / tan(sun_elevation_deg), cast toward (sun_azimuth_deg + 180) mod 360. Off-nadir view leans a tall object away from its footprint by height_m * tan(view_incidence_deg), in the view_azimuth direction; subtract that before comparing a shadow to a plan-view outline.",
+                    },
                     "rest_url": format!("{}/v1/cells/{cell}/scene.png?max_cloud={max_cloud}",
                         public_origin().unwrap_or_else(|| "urn:emem".into())),
                 },
@@ -58388,6 +58409,11 @@ struct SceneRgb {
     bbox_crs: (f64, f64, f64, f64),
     /// Ground size of one pixel in the scene's CRS units, `(x, y)`.
     pixel_size: (f64, f64),
+    /// Sun azimuth and elevation in degrees, as the granule recorded them.
+    /// `None` when the catalogue does not publish them.
+    sun: (Option<f64>, Option<f64>),
+    /// Viewing azimuth and incidence angle in degrees, same source.
+    view: (Option<f64>, Option<f64>),
 }
 
 /// Build a Sentinel-2 L2A true-colour PNG centred on the cell. Picks
@@ -58570,6 +58596,8 @@ async fn build_cell_scene_rgb(
         stretch_p2_p98: ((r_lo, r_hi), (g_lo, g_hi), (b_lo, b_hi)),
         bbox_crs: red_prof.window_bbox(utm.easting, utm.northing, W, H),
         pixel_size: red_prof.pixel_scale,
+        sun: (item.sun_azimuth, item.sun_elevation),
+        view: (item.view_azimuth, item.view_incidence),
     })
 }
 
@@ -58690,6 +58718,24 @@ async fn get_cell_scene_rgb(
             "x-emem-scene-pixel-size",
             format!("{:.4},{:.4}", scene.pixel_size.0, scene.pixel_size.1),
         )
+        // THE SUN, so a shadow in this image can be checked. Recorded by the
+        // granule, empty when the catalogue publishes none (every radar
+        // collection). `height / tan(elevation)` metres, cast toward
+        // `azimuth + 180`.
+        .header(
+            "x-emem-scene-sun",
+            match (scene.sun.0, scene.sun.1) {
+                (Some(az), Some(el)) => format!("{az:.3},{el:.3}"),
+                _ => String::new(),
+            },
+        )
+        .header(
+            "x-emem-scene-view",
+            match (scene.view.0, scene.view.1) {
+                (Some(az), Some(inc)) => format!("{az:.3},{inc:.3}"),
+                _ => String::new(),
+            },
+        )
         .body(axum::body::Body::from(scene.rgb))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
@@ -58770,6 +58816,24 @@ async fn get_cell_scene_png(
         .header(
             "x-emem-scene-pixel-size",
             format!("{:.4},{:.4}", scene.pixel_size.0, scene.pixel_size.1),
+        )
+        // THE SUN, so a shadow in this image can be checked. Recorded by the
+        // granule, empty when the catalogue publishes none (every radar
+        // collection). `height / tan(elevation)` metres, cast toward
+        // `azimuth + 180`.
+        .header(
+            "x-emem-scene-sun",
+            match (scene.sun.0, scene.sun.1) {
+                (Some(az), Some(el)) => format!("{az:.3},{el:.3}"),
+                _ => String::new(),
+            },
+        )
+        .header(
+            "x-emem-scene-view",
+            match (scene.view.0, scene.view.1) {
+                (Some(az), Some(inc)) => format!("{az:.3},{inc:.3}"),
+                _ => String::new(),
+            },
         )
         // THE STRETCH, because without it this image cannot be reproduced.
         //

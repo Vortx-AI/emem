@@ -55,6 +55,35 @@ pub struct StacItem {
     /// every index silently.
     #[serde(default)]
     pub processing_baseline: Option<String>,
+    /// Sun azimuth at the scene centre, degrees clockwise from north, as the
+    /// granule recorded it (`view:sun_azimuth`). Not an ephemeris: this is the
+    /// value the acquisition carries, so a shadow read out of these pixels and
+    /// the geometry that cast it come from the same bytes. `direct_sensor`.
+    ///
+    /// Shadows are the reason this is parsed. A 1 m canopy at a 40 degree sun
+    /// casts 1.2 m and is invisible at 10 m; a 24 m tree casts 29 m, which is
+    /// three pixels and plainly there. An agent holding the image and not the
+    /// geometry can see the dark stripe and cannot say whether it is the tree
+    /// it just measured, so the check that would falsify a height estimate is
+    /// the one it cannot run.
+    #[serde(default)]
+    pub sun_azimuth: Option<f64>,
+    /// Sun elevation above the horizon in degrees (`view:sun_elevation`).
+    /// Shadow length on flat ground is `height / tan(elevation)`, cast toward
+    /// `sun_azimuth + 180`.
+    #[serde(default)]
+    pub sun_elevation: Option<f64>,
+    /// Viewing azimuth in degrees clockwise from north (`view:azimuth`).
+    #[serde(default)]
+    pub view_azimuth: Option<f64>,
+    /// Angle between the sensor and the local vertical, degrees
+    /// (`view:incidence_angle`). Sentinel-2 reaches about 10 degrees off nadir
+    /// at the swath edge, which leans a 24 m tree some 4 m away from its trunk
+    /// in the image. A tall object measured against its own footprint without
+    /// this term is out by that much, and the error is systematic across a
+    /// granule rather than noise.
+    #[serde(default)]
+    pub view_incidence: Option<f64>,
 }
 
 /// The ESA processing baseline from which Sentinel-2 L2A reflectance
@@ -197,6 +226,14 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .get("s2:processing_baseline")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    // Illumination and viewing geometry, absent on collections that do not
+    // publish it and on any catalogue that names the properties differently.
+    // `None` rather than a default for the same reason as the baseline: a
+    // wrong sun angle silently relocates every shadow in the scene.
+    let sun_azimuth = props.get("view:sun_azimuth").and_then(|v| v.as_f64());
+    let sun_elevation = props.get("view:sun_elevation").and_then(|v| v.as_f64());
+    let view_azimuth = props.get("view:azimuth").and_then(|v| v.as_f64());
+    let view_incidence = props.get("view:incidence_angle").and_then(|v| v.as_f64());
     let mut assets = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
@@ -213,6 +250,10 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         assets,
         collection: collection.to_string(),
         processing_baseline,
+        sun_azimuth,
+        sun_elevation,
+        view_azimuth,
+        view_incidence,
     }
 }
 
@@ -538,6 +579,60 @@ mod tests {
         let item = parse_stac_feature(&feat, "sentinel-1-rtc");
         assert_eq!(item.processing_baseline, None);
         assert_eq!(s2_baseline_has_boa_offset(None), None);
+    }
+
+    #[test]
+    fn the_scene_carries_the_sun_that_lit_it() {
+        // Values as Element84 publishes them on a sentinel-2-l2a item over
+        // Gujarat on 2026-09-13, read off the live catalogue.
+        let feat = json!({
+            "id": "S2C_42QZK_20260913_0_L2A",
+            "properties": {
+                "datetime": "2026-09-13T05:52:56.755000Z",
+                "eo:cloud_cover": 3.1,
+                "proj:epsg": 32642,
+                "view:sun_azimuth": 133.236_439_892_155,
+                "view:sun_elevation": 64.486_849_236_483_69,
+                "view:azimuth": 122.890_585_028_847_7,
+                "view:incidence_angle": 3.545_566_870_643_658_5
+            },
+            "assets": {"red": {"href": "https://example.invalid/B04.tif"}}
+        });
+        let item = parse_stac_feature(&feat, "sentinel-2-l2a");
+        assert_eq!(item.sun_azimuth, Some(133.236_439_892_155));
+        assert_eq!(item.sun_elevation, Some(64.486_849_236_483_69));
+        assert_eq!(item.view_azimuth, Some(122.890_585_028_847_7));
+        assert_eq!(item.view_incidence, Some(3.545_566_870_643_658_5));
+
+        // What the geometry buys: a 24 m tree at this sun casts 11.4 m, which
+        // is one Sentinel-2 pixel of shadow. The same tree at a 20 degree
+        // winter sun casts 66 m. A check that assumes one of those and reads
+        // the other is not a check.
+        let len = |h: f64, elev_deg: f64| h / elev_deg.to_radians().tan();
+        let summer = len(24.0, item.sun_elevation.unwrap());
+        assert!(
+            (11.0..12.0).contains(&summer),
+            "shadow at a 64 degree sun: {summer:.1} m"
+        );
+        assert!(len(24.0, 20.0) > 60.0);
+    }
+
+    #[test]
+    fn a_catalogue_without_the_angles_reports_none_not_noon() {
+        // Sentinel-1 publishes no sun, and a radar scene is not lit by one.
+        // The fields must read back absent: a defaulted azimuth points every
+        // shadow in the same wrong direction and nothing in the response says
+        // the number was invented.
+        let feat = json!({
+            "id": "S1A_IW_GRDH_20260425",
+            "properties": {"datetime": "2026-04-25T11:16:19Z", "proj:epsg": 32630},
+            "assets": {}
+        });
+        let item = parse_stac_feature(&feat, "sentinel-1-rtc");
+        assert_eq!(item.sun_azimuth, None);
+        assert_eq!(item.sun_elevation, None);
+        assert_eq!(item.view_azimuth, None);
+        assert_eq!(item.view_incidence, None);
     }
 
     #[test]
