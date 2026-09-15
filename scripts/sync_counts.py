@@ -80,10 +80,24 @@ CANON = {
     "rest_paths_v1": 166,            # documented /v1/* paths in OpenAPI
     "rest_paths_openapi_total": 177,  # all paths in OpenAPI
     "cube_slots": 43,
-    "materializer_wired": 129,
+    # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
+    # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was
+    # removed. They are no longer advertised by /v1/data_availability and no
+    # longer fanned out by /v1/state_multi. Their cube slots stay reserved at
+    # their offsets, because stored vectors and issued emem:cube: tokens decode
+    # by offset; reclaiming them is a bands-v1 layout, not an edit to v0.
+    "materializer_wired": 125,
     "source_schemes": 46,
     "topics": 27,
-    "foundation_encoders": 4,
+    # 0 since 2026-09-15. Four were declared and none is wired: the GPU was
+    # removed and the encoders retired for this deployment. The band manifest
+    # still DESCRIBES them, because it is a wire format every receipt commits
+    # to and describing a slot is not offering it; what changed is what this
+    # responder serves. Deterministic structure (spatial_fourier,
+    # temporal_fourier, temporal_diff, multiscale, phenology, terrain_derived
+    # and the raw S1/S2/DEM bands) is the replacement and is recomputable,
+    # which a learned embedding never was.
+    "foundation_encoders": 0,
     "mcp_resources": 20,       # resources/list entries (emem-mcp 7 + emem-api-rest 12)
     "mcp_uri_templates": 9,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 19,
