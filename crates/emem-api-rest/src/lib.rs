@@ -12194,6 +12194,30 @@ async fn recall_with_auto_materialize_capped(
         _ => Vec::new(),
     };
 
+    // A band retired on this deployment is refused before it is attempted.
+    //
+    // `EMEM_RETIRED_BANDS` already filters the catalogue, so nothing offers
+    // these. A caller naming one directly still reached the materializer,
+    // which tried the GPU sidecar, failed, and answered "this responder does
+    // not run the sidecar this band needs" -- true when it was written, and
+    // now the wrong cause: it tells an agent that a GPU would fix it, when
+    // the band has been withdrawn here and a GPU would not. The retirement is
+    // the operative fact, so it is the one the caller gets.
+    if !retired_bands().is_empty() {
+        let (retired, keep): (Vec<String>, Vec<String>) = candidates
+            .into_iter()
+            .partition(|b| retired_bands().contains(b.as_str()));
+        candidates = keep;
+        if !retired.is_empty() {
+            materialize_notes.push(json!({
+                "status": "skipped",
+                "reason": "band_retired_at_this_responder",
+                "bands": retired,
+                "note": "These bands are withdrawn on this deployment and will not be materialized here. This is a deployment decision, not an outage and not a missing GPU: retrying will not change it and neither would adding hardware. GET /v1/bands lists what this responder serves; the registry still declares the band, so a different responder may answer it.",
+            }));
+        }
+    }
+
     // Cold-band cap (ask path): materialise at most `cold_band_cap` of the
     // cold bands this call; defer the rest. Bounds the worst-case fan-out
     // to one materialiser wave so ask returns a partial answer in budget
@@ -88472,6 +88496,40 @@ mod tests {
         assert_eq!(
             how["sign_this"]["digest_hex"].as_str().unwrap(),
             data_encoding::HEXLOWER.encode(&entity_sign_digest(&mk(String::new()))),
+        );
+    }
+
+    /// A retired band is refused, not attempted.
+    ///
+    /// `EMEM_RETIRED_BANDS` filtered the catalogue and nothing else, so a
+    /// caller naming a retired encoder directly reached the materializer and
+    /// got the sidecar's refusal: "this responder does not run the GPU
+    /// inference sidecar this band needs". True of the machine, wrong about
+    /// the cause, and it tells an agent that hardware would fix something a
+    /// deployment decision withdrew.
+    ///
+    /// The control is the same source with no retirement configured, where
+    /// the partition must not fire.
+    #[test]
+    fn a_retired_band_is_refused_before_the_materializer_is_tried() {
+        let src = include_str!("lib.rs");
+        let i = src
+            .find("band_retired_at_this_responder")
+            .expect("the retirement note");
+        let before = &src[i.saturating_sub(900)..i];
+        assert!(
+            before.contains("partition(|b| retired_bands().contains(b.as_str()))"),
+            "the note must be produced by partitioning the candidate list, not by a later filter"
+        );
+        let note = &src[i..i + 700];
+        assert!(
+            note.contains("not an outage") && note.contains("GPU"),
+            "the refusal must say what it is NOT, because the message it replaces named a cause that no longer applies"
+        );
+        // The guard that keeps this free when nothing is retired.
+        assert!(
+            before.contains("if !retired_bands().is_empty()"),
+            "an empty retirement set must not walk the candidate list"
         );
     }
 
