@@ -1,0 +1,17 @@
+{
+  "name": "emem",
+  "owner": {
+    "name": "Vortx AI",
+    "email": "avijeet@vortx.ai",
+    "url": "https://emem.dev"
+  },
+  "plugins": [
+    {
+      "name": "emem",
+      "source": "./plugins/emem",
+      "description": "Verifiable shared memory for AI agents: one address per place, one signature you check offline.",
+      "version": "2.4.0",
+      "author": { "name": "Vortx AI" }
+    }
+  ]
+}

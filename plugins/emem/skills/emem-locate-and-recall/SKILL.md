@@ -67,9 +67,18 @@ total dims). Common picks:
 - **Vegetation**: `indices.ndvi`, `indices.evi`, `modis.ndvi_mean`
 - **Elevation**: `copdem30m.elevation_mean`, `gmrt.topobathy_mean`
 - **Land cover**: `esa_worldcover.lc_2021`
-- **Embeddings**: `geotessera` (128-D, default 2024 vintage); the
-  responder also ships `geotessera.{2017..2024}` for per-year and
-  `geotessera.multi_year` (1024-D = 8×128 stacked).
+- **Air**: `cams.pm25`, `cams.no2`, `cams.o3`, `cams.aod_550`
+- **Embeddings**: RETIRED on emem.dev since 2026-09-15. The four
+  foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`,
+  `galileo`) are withdrawn on this deployment: stored vectors still
+  read, no new ones are computed, and asking for one returns a note with
+  reason `band_retired_at_this_responder`. Reach for the deterministic
+  indices instead — they are computed from Sentinel-1 and Sentinel-2 by
+  a published formula, so anyone can recompute them and get your number.
+
+Ask the responder rather than trusting this list: `GET /v1/bands`
+reflects what this deployment actually serves today, and a band retired
+here may still be live elsewhere.
 
 If unsure which band fits the user's question, call `/v1/bands` and
 filter by family (`weather`, `vegetation`, `terrain`, `landcover`,

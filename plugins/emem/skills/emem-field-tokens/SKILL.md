@@ -14,7 +14,9 @@ This skill fetches that field from emem as a signed, re-derivable artifact:
   recipes share this shape: a raw satellite band (`band_raster@1`), a
   cloud-free median composite (`s2_median_composite@1`), static terrain
   (`dem_raster@1`), and a foundation-model embedding, 128-D per cell
-  (`embedding_raster@1`).
+  (`embedding_raster@1`) — this last one only where the embedding was
+  already materialised, since the encoder bands are retired on emem.dev
+  and no new vectors are computed.
 - `POST /v1/band_cube` — the same field over several dates, a signed manifest
   over the raster slices, as an `emem:cube:` token (the field-over-time token).
 - `POST /v1/raster_bundle` — several rasters as one re-derivable set, as an

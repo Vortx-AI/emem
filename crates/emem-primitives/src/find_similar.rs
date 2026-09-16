@@ -464,16 +464,21 @@ pub async fn find_similar(
             b.dedup();
             b
         };
+        // The hint must not promise a remedy this deployment may have
+        // withdrawn. A responder can retire a band (EMEM_RETIRED_BANDS), and
+        // then "call /v1/recall to materialize it" is a loop with no exit:
+        // recall answers `band_retired_at_this_responder` and the caller comes
+        // back here. This library cannot see that configuration, so it names
+        // the check rather than asserting the cure.
         let hint = if cell_bands.is_empty() {
             format!(
-                "cell {} has no attested facts at all — call /v1/recall first to materialize bands",
+                "cell {} has no attested facts at all. Call /v1/recall to materialize bands; if the note comes back band_retired_at_this_responder, that band is withdrawn here and retrying will not populate it.",
                 req.key
             )
         } else {
             format!(
-                "cell {} has bands {:?} but none under requested band {}. \
-                 Either pass `band: \"<one_of_those>\"` or call /v1/recall with `bands: [\"{band}\"]` to materialize it.",
-                req.key, cell_bands, band, band = band,
+                "cell {} has bands {:?} but none under requested band {band}. Pass `band: \"<one of those>\"`, or call /v1/recall with `bands: [\"{band}\"]` — which populates it unless the note says band_retired_at_this_responder, in which case this responder no longer materializes it.",
+                req.key, cell_bands, band = band,
             )
         };
         return Err(StorageError::Protocol {

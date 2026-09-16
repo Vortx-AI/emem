@@ -1,0 +1,22 @@
+{
+  "name": "emem",
+  "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall ed25519-signed Earth observations, and hand another agent a token it can check offline. No account, no API key, reads are public.",
+  "version": "2.4.0",
+  "author": {
+    "name": "Vortx AI",
+    "email": "avijeet@vortx.ai",
+    "url": "https://vortx.ai"
+  },
+  "homepage": "https://emem.dev",
+  "repository": "https://github.com/Vortx-AI/emem",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "verifiable",
+    "geospatial",
+    "earth-observation",
+    "ed25519",
+    "content-addressed",
+    "agent-memory"
+  ]
+}

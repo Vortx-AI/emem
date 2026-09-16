@@ -426,7 +426,7 @@ POST.)
 
 **Python** `pip install ememdev`, then `from ememdev import Client`. **TypeScript** `npm i @vortxai/emem`, then `import { Client } from "@vortxai/emem"`. Both were verified as the published artifact, installed into an empty environment and called against production, not tested as a source tree. The npm name is scoped and the PyPI name is not, because npm refuses `ememdev` as too similar to an existing package and a scoped name is exempt; `emem` on PyPI is an unrelated project by another company.
 
-**Your framework is already wired.** Runnable examples for [LangChain](examples/langchain/), [LlamaIndex](examples/llamaindex/), [CrewAI](examples/crewai/), [AutoGen](examples/autogen/), [Agno](examples/agno/), and [Mastra](examples/mastra/) ship in [`examples/`](examples/), plus packaged Claude skills in [`claude-skills/`](claude-skills/) and copy-paste configs for 12 clients in [the agent guide](https://emem.dev/agents.md).
+**Your framework is already wired.** Runnable examples for [LangChain](examples/langchain/), [LlamaIndex](examples/llamaindex/), [CrewAI](examples/crewai/), [AutoGen](examples/autogen/), [Agno](examples/agno/), and [Mastra](examples/mastra/) ship in [`examples/`](examples/), plus a Claude Code plugin in [`plugins/emem/`](plugins/emem/) (`/plugin marketplace add Vortx-AI/emem`) and copy-paste configs for 12 clients in [the agent guide](https://emem.dev/agents.md).
 
 ## If you are an agent
 
