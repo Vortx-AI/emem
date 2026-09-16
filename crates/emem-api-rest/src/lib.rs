@@ -16984,6 +16984,18 @@ struct FieldBoundariesReq {
     /// boundaries but more tiles per query (capped internally at 16).
     #[serde(default)]
     zoom: Option<u8>,
+    /// Resolve overlaps and drop duplicate rings before returning, and say so.
+    ///
+    /// The product ships two vintages whose rings overlap each other and,
+    /// after per-ring straightening downstream, their neighbours: 137 ha of a
+    /// 3 km disc counted twice, measured 2026-09-16. With `clean: true` the
+    /// contested ground goes to the field it is the larger share of, nested
+    /// duplicates are dropped, and the response carries a `synthesis` record
+    /// naming the operator, its inputs and what changed, so a consumer can
+    /// tell a cleaned parcel from a delivered one. Gaps between parcels are
+    /// left alone on purpose: they are bunds and tracks, not defects.
+    #[serde(default)]
+    clean: bool,
     /// Maximum number of field polygons to return in `geojson`. A wide
     /// place (e.g. a whole agricultural state) can hold 100k+ fields and
     /// a 100+ MB response will OOM or time out most clients, so the
@@ -17219,6 +17231,64 @@ async fn post_field_boundaries(
     // fewer features than that total.
     let cap = req.max_features.unwrap_or(10_000).clamp(1, 200_000);
     let mut geojson = emem_fetch::ftw::to_geojson_feature_collection(&coll);
+    // Tessellation, if asked for. Done on the GeoJSON we are about to return,
+    // in a planar frame about the bbox's mid-latitude, and recorded.
+    let mut synthesis: Option<JsonValue> = None;
+    if req.clean {
+        let lat0 = (bbox.0 + bbox.1) / 2.0;
+        if let Some(feats) = geojson.get_mut("features").and_then(|f| f.as_array_mut()) {
+            // the element type is whatever `to_planar` returns; api-rest does not depend on geo directly
+            let mut planar: Vec<_> = feats
+                .iter()
+                .map(|f| {
+                    f.get("geometry")
+                        .filter(|g| g.get("type").and_then(|t| t.as_str()) == Some("Polygon"))
+                        .and_then(|g| g.get("coordinates"))
+                        .and_then(|c| emem_fetch::parcels::to_planar(c, lat0))
+                })
+                .collect();
+            let rep = emem_fetch::parcels::resolve_overlaps(&mut planar, 0.98);
+            let mut kept: Vec<JsonValue> = Vec::with_capacity(feats.len());
+            for (f, pl) in feats.drain(..).zip(planar) {
+                let mut f = f;
+                // a duplicate, or a ring that lost all its ground, is None here: not returned, counted in the report
+                if let Some(poly) = pl {
+                    if let Some(g) = f.get_mut("geometry") {
+                        g["coordinates"] = emem_fetch::parcels::to_geojson(&poly, lat0);
+                    }
+                    if let Some(props) = f.get_mut("properties").and_then(|p| p.as_object_mut()) {
+                        props.insert(
+                            "synthesis".into(),
+                            json!({
+                                "operator": emem_fetch::parcels::OPERATOR,
+                                "from": coll.vintage_returned,
+                                "deterministic": true,
+                            }),
+                        );
+                    }
+                    kept.push(f);
+                }
+            }
+            *feats = kept;
+            synthesis = Some(json!({
+                "operator": rep.operator,
+                "deterministic": rep.deterministic,
+                "inputs": {"product": "fields_of_the_world", "vintage": coll.vintage_returned, "source_cid": coll.source_cid},
+                "parameters": {"duplicate_share": 0.98, "projection": "equirectangular about the bbox mid-latitude"},
+                "input_polygons": rep.input_polygons,
+                "output_polygons": rep.output_polygons,
+                "duplicates_dropped": rep.duplicates_dropped,
+                "pairs_resolved": rep.pairs_resolved,
+                "emptied": rep.emptied,
+                "overlap_before_m2": rep.overlap_before_m2,
+                "overlap_after_m2": rep.overlap_after_m2,
+                "area_before_m2": rep.area_before_m2,
+                "area_after_m2": rep.area_after_m2,
+                "gaps": rep.gaps_note,
+                "what_this_is_not": "not a regularisation and not an infill of unmapped ground; each of those is a different claim with its own provenance and is not folded into this flag",
+            }));
+        }
+    }
     let mut truncated = false;
     let mut returned = coll.count;
     if let Some(feats) = geojson.get_mut("features").and_then(|f| f.as_array_mut()) {
@@ -17250,6 +17320,7 @@ async fn post_field_boundaries(
         "provider_url": coll.provider_url,
         "license": coll.license,
         "attribution": coll.attribution,
+        "synthesis": synthesis,
         "geojson": geojson,
         "agent_hint": if truncated {
             "Per-field agricultural boundaries from Fields of The World (https://fieldsofthe.world). \
@@ -31687,7 +31758,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
-            "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
             "/v1/cells_in_bbox":     {"post":{"summary":"enumerate the cell64s in a bounding box, paged (row-major, north row first). Pure geometry: reads no facts and signs no receipt, because the answer is a deterministic function of the bbox and the active grid. Returns `cells`, `total`, and `next_cursor` (null when exhausted). This is the paging loop as emem's job rather than every client reimplementing a lattice; feed a page's cells to /v1/recall_many with a budget_ms to read them under the partial-results contract. page_size defaults 1024, caps at 4096.","operationId":"emem_cells_in_bbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"page_size":{"type":"integer","minimum":1,"maximum":4096,"default":1024},"cursor":{"type":"integer","minimum":0,"description":"row-major offset to resume from; use the previous response's next_cursor"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},

@@ -46,6 +46,7 @@ pub mod koppen;
 pub mod latency;
 pub mod opera_dist;
 pub mod overture;
+pub mod parcels;
 pub mod pois;
 pub mod proj;
 pub mod radd_alerts;

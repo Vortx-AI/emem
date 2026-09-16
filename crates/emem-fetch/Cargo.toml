@@ -47,3 +47,7 @@ mvt-reader    = "2.3"
 # this same version in transitively, so adding it explicitly does not
 # expand the dep graph.
 geo-types     = "0.7"
+# Parcel tessellation (crates/emem-fetch/src/parcels.rs): boolean ops over polygons via i_overlay, and an
+# R-tree for the pair search. Pure Rust, no system libraries. Pinned to the series that shares our geo-types.
+geo           = "0.33"
+rstar         = "0.12"
