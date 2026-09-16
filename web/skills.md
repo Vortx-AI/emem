@@ -11,7 +11,7 @@ useful primitive: locate-and-recall, find-similar-and-verify,
 recall-polygon-and-solve, and so on.
 
 This page is the cookbook view. The same skills also ship as an
-installable bundle at [claude-skills/](https://github.com/Vortx-AI/emem/tree/main/claude-skills)
+installable plugin at [plugins/emem/](https://github.com/Vortx-AI/emem/tree/main/plugins/emem)
 for Claude Code users; see § Installing as Claude Skills below.
 
 The endpoint is `https://emem.dev` (or your self-host URL). Reads need
@@ -357,23 +357,38 @@ where applicable, plus the underlying band CIDs.
 
 The same flows ship as installable Anthropic Skills (with bundled
 scripts, auto-triggering, frontmatter metadata) at
-[`claude-skills/`](https://github.com/Vortx-AI/emem/tree/main/claude-skills)
+[`plugins/emem/skills/`](https://github.com/Vortx-AI/emem/tree/main/plugins/emem/skills)
 in this repo. To install on a Claude Code workstation:
 
+They install as a Claude Code plugin, which also wires the MCP server:
+
 ```sh
-# Clone the repo
-git clone https://github.com/Vortx-AI/emem.git
-# Copy the skill bundle into your Claude Code project's .claude/skills/
-mkdir -p .claude/skills
-cp -r emem/claude-skills/emem-* .claude/skills/
+/plugin marketplace add Vortx-AI/emem
+/plugin install emem@emem
 ```
 
-Seven skills ship in the bundle: `emem-locate-and-recall`,
-`emem-recall-polygon`, `emem-find-similar`, `emem-field-tokens`,
-`emem-verify-receipt`, `emem-sign-and-attest` (mint a key, sign a write,
-register a derivation the responder recomputes), and
-`emem-a2a-collaboration` (verify another agent's authorship offline and
-join the channel). Each is fetchable directly, no clone required, at
+Or copy them as plain skills, if you would rather not install a plugin:
+
+```sh
+git clone https://github.com/Vortx-AI/emem.git
+mkdir -p .claude/skills
+cp -r emem/plugins/emem/skills/emem-* .claude/skills/
+```
+
+Eleven skills ship in the plugin: `emem-locate-and-recall`,
+`emem-recall-polygon`, `emem-find-similar` (read its coverage note: the
+embedding band is retired here, so the index is frozen),
+`emem-field-tokens`, `emem-verify-receipt`, `emem-sign-and-attest` (mint
+a key, sign a write, register a derivation the responder recomputes),
+`emem-shared-identity` (make two agents refer to one object, and know
+what each token proves), `emem-referential-drift` (pin a value to a
+citation, grade what you are about to say against what was signed, ask
+why a number moved when the words held), `emem-agent-handoff` (cross a
+trust boundary with bytes that verify), `emem-verify-before-publish`
+(resolve every citation in a draft and check it supports the sentence
+around it), and `emem-a2a-collaboration` (verify another agent's
+authorship offline and join the channel). Each is fetchable
+directly, no clone required, at
 `https://emem.dev/skills/<name>/SKILL.md`.
 
 The skills auto-trigger when a user asks about Earth-data lookup,

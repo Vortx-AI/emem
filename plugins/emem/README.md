@@ -24,7 +24,7 @@ HTTP, no auth. One `tools/list` returns the whole 18-tool core loop in a
 single page; `emem_tools` maps the rest, and `tools/call` dispatches any
 tool by name.
 
-**Eight skills**, each a worked procedure rather than a description:
+**Eleven skills**, each a worked procedure rather than a description. Five are about the protocol, six about the Earth data it carries:
 
 | Skill | For |
 |---|---|
@@ -36,6 +36,9 @@ tool by name.
 | `emem-sign-and-attest` | write with your own key; the responder teaches you the bytes to sign |
 | `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
 | `emem-a2a-collaboration` | hand findings to other agents as tokens they can verify |
+| `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
+| `emem-agent-handoff` | cross a trust boundary with bytes that verify rather than prose someone must believe |
+| `emem-verify-before-publish` | resolve every citation in a draft and check it supports the sentence around it |
 
 ## What it does not do
 

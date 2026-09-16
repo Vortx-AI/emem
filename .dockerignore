@@ -12,7 +12,8 @@ python/
 # A directory literally named ":memory:", created by a test that took the
 # sqlite in-memory sentinel as a path.
 :memory:
-# NOTE: docs/, web/, examples/, claude-skills/ and root *.md MUST stay
+# NOTE: docs/, web/, examples/, plugins/ and root *.md MUST stay
 # in the build context — crates/emem-api-rest/src/lib.rs include_str!()s
-# files from those trees (llms.txt, skills.md, claude-skills/*/SKILL.md,
-# WHITEPAPER.md, agent-walkthroughs.md, …) at compile time.
+# files from those trees (llms.txt, skills.md,
+# plugins/emem/skills/*/SKILL.md, WHITEPAPER.md, agent-walkthroughs.md, …)
+# at compile time. The skills moved out of claude-skills/ on 2026-09-16.

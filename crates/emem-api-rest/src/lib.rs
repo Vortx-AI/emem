@@ -172,17 +172,27 @@ const WORLDS_SPLAT_MATH_JS: &str = include_str!("../../../examples/3d-worlds/spl
 const WORLDS_ENGINE_JS: &str = include_str!("../../../examples/3d-worlds/emem-world.js");
 const SKILLS_MD: &str = include_str!("../../../web/skills.md");
 const SKILL_LOCATE_AND_RECALL: &str =
-    include_str!("../../../claude-skills/emem-locate-and-recall/SKILL.md");
+    include_str!("../../../plugins/emem/skills/emem-locate-and-recall/SKILL.md");
 const SKILL_VERIFY_RECEIPT: &str =
-    include_str!("../../../claude-skills/emem-verify-receipt/SKILL.md");
-const SKILL_FIND_SIMILAR: &str = include_str!("../../../claude-skills/emem-find-similar/SKILL.md");
+    include_str!("../../../plugins/emem/skills/emem-verify-receipt/SKILL.md");
+const SKILL_FIND_SIMILAR: &str =
+    include_str!("../../../plugins/emem/skills/emem-find-similar/SKILL.md");
 const SKILL_RECALL_POLYGON: &str =
-    include_str!("../../../claude-skills/emem-recall-polygon/SKILL.md");
-const SKILL_FIELD_TOKENS: &str = include_str!("../../../claude-skills/emem-field-tokens/SKILL.md");
+    include_str!("../../../plugins/emem/skills/emem-recall-polygon/SKILL.md");
+const SKILL_FIELD_TOKENS: &str =
+    include_str!("../../../plugins/emem/skills/emem-field-tokens/SKILL.md");
 const SKILL_SIGN_AND_ATTEST: &str =
-    include_str!("../../../claude-skills/emem-sign-and-attest/SKILL.md");
+    include_str!("../../../plugins/emem/skills/emem-sign-and-attest/SKILL.md");
 const SKILL_A2A_COLLABORATION: &str =
-    include_str!("../../../claude-skills/emem-a2a-collaboration/SKILL.md");
+    include_str!("../../../plugins/emem/skills/emem-a2a-collaboration/SKILL.md");
+const SKILL_SHARED_IDENTITY: &str =
+    include_str!("../../../plugins/emem/skills/emem-shared-identity/SKILL.md");
+const SKILL_REFERENTIAL_DRIFT: &str =
+    include_str!("../../../plugins/emem/skills/emem-referential-drift/SKILL.md");
+const SKILL_AGENT_HANDOFF: &str =
+    include_str!("../../../plugins/emem/skills/emem-agent-handoff/SKILL.md");
+const SKILL_VERIFY_BEFORE_PUBLISH: &str =
+    include_str!("../../../plugins/emem/skills/emem-verify-before-publish/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 /// The MCP server descriptor. It lives at the repo root because that is
@@ -915,6 +925,22 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/skills/emem-a2a-collaboration/SKILL.md",
             get(serve_skill_a2a_collaboration),
+        )
+        .route(
+            "/skills/emem-shared-identity/SKILL.md",
+            get(serve_skill_shared_identity),
+        )
+        .route(
+            "/skills/emem-referential-drift/SKILL.md",
+            get(serve_skill_referential_drift),
+        )
+        .route(
+            "/skills/emem-agent-handoff/SKILL.md",
+            get(serve_skill_agent_handoff),
+        )
+        .route(
+            "/skills/emem-verify-before-publish/SKILL.md",
+            get(serve_skill_verify_before_publish),
         )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
@@ -4973,16 +4999,23 @@ async fn serve_worlds_engine_js() -> Response {
 
 /// `/skills.md`, composed-recipe cookbook for agents.
 ///
-/// The same recipes ship as installable Anthropic Skills bundles at
-/// `claude-skills/` in the repo (and at `/skills/<name>/SKILL.md` on
-/// this responder for direct URL fetch).
+/// The same recipes ship inside the Claude Code plugin at
+/// `plugins/emem/skills/` in the repo (and at `/skills/<name>/SKILL.md`
+/// on this responder for direct URL fetch).
 async fn serve_skills_md() -> Response {
     text_response("text/markdown; charset=utf-8", SKILLS_MD)
 }
 
 /// `/skills/<name>/SKILL.md`, individual installable skills (Anthropic
 /// Skills format with YAML frontmatter). A Claude Code user can fetch
-/// any of these and drop them into `.claude/skills/<name>/SKILL.md`.
+/// any of these and drop them into `.claude/skills/<name>/SKILL.md`, or
+/// install the whole set with the plugin: `/plugin marketplace add
+/// Vortx-AI/emem`.
+///
+/// These constants are `include_str!` from `plugins/emem/skills/`, so a
+/// skill served here and a skill the plugin installs are the same bytes
+/// and cannot drift. Moving that directory is a compile error, which is
+/// how the move on 2026-09-16 was caught.
 async fn serve_skill_locate_and_recall() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_LOCATE_AND_RECALL)
 }
@@ -5003,6 +5036,24 @@ async fn serve_skill_sign_and_attest() -> Response {
 }
 async fn serve_skill_a2a_collaboration() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_A2A_COLLABORATION)
+}
+/// The identity surface had skills for everything it measures and none
+/// for the thing that makes two agents agree what they are measuring.
+async fn serve_skill_shared_identity() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_SHARED_IDENTITY)
+}
+/// The three protocol skills. The bundle had covered the Earth-observation
+/// half thoroughly and the reason the protocol exists barely at all:
+/// referential drift, handing work across a trust boundary, and checking a
+/// draft before it is sent.
+async fn serve_skill_referential_drift() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_REFERENTIAL_DRIFT)
+}
+async fn serve_skill_agent_handoff() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_AGENT_HANDOFF)
+}
+async fn serve_skill_verify_before_publish() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_VERIFY_BEFORE_PUBLISH)
 }
 async fn serve_llms_full() -> Response {
     // `/llms-full.txt` used to alias `/llms.txt` byte-for-byte, which

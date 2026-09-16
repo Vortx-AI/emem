@@ -63,7 +63,7 @@ COPY crates/ crates/
 COPY web/ web/
 COPY docs/ docs/
 COPY examples/ examples/
-COPY claude-skills/ claude-skills/
+COPY plugins/ plugins/
 # Root-level markdown is include_str!'d directly by emem-api-rest.
 # Without these the build fails with `couldn't read PRIVACY.md`.
 # server.json is include_str!()d by crates/emem-api-rest at COMPILE time (it

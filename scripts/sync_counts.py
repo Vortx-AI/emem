@@ -77,8 +77,8 @@ CANON = {
     # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
     # `emem:state:` address dereference. CANON was last pinned at 285a12e and
     # the route shipped after it, so this was a real addition the pin missed.
-    "rest_paths_v1": 166,            # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 177,  # all paths in OpenAPI
+    "rest_paths_v1": 167,            # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 178,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was
@@ -1427,7 +1427,7 @@ STALE_PHRASES = {
                            "not yet served by"],
     "AGENTS.md": ["version 1.0.0"],
     "web/ai-plugin.json": ["91 MCP tools", "77 extended", "102 MCP tools", "87 extended", "104 MCP tools", "89 extended"],
-    "claude-skills/emem-locate-and-recall/SKILL.md": ["35 bands"],
+    "plugins/emem/skills/emem-locate-and-recall/SKILL.md": ["35 bands"],
     "web/skills.md": ["75 tools", "71 paths", "87 paths"],
     "web/llms.txt": ["75 MCP", "71 paths", "87 paths", "118 materializer",
                      "91 MCP", "108 documented", "160 algorithms",
