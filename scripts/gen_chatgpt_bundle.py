@@ -101,8 +101,11 @@ def source_annotations() -> dict:
     if not f.exists():
         return {}
     src = f.read_text(encoding="utf-8", errors="ignore")
+    # `search` and `fetch` are served without the prefix (a ChatGPT connector
+    # looks those names up literally). A parser keyed to `emem_` read neither,
+    # so their annotations were checked by nothing for four months.
     names = [(m.start(), m.group(1))
-             for m in re.finditer(r'name:\s*"(emem_[a-z0-9_]+)"', src)]
+             for m in re.finditer(r'name:\s*"(emem_[a-z0-9_]+|search|fetch)"', src)]
     anns = [(m.start(), m) for m in ANNOT.finditer(src)]
     out = {}
     for pos, name in names:
@@ -249,7 +252,7 @@ def local_findings(sub: dict) -> list[str]:
     return bad
 
 
-def check(sub: dict, live: dict, card: dict) -> list[str]:
+def check(sub: dict, live: dict, card: dict, live_core: list | None = None) -> list[str]:
     global CLAIMS_CHECKED, SOURCE_ANN
     SOURCE_ANN = source_annotations()
     DEPLOY_LAG.clear()
@@ -312,6 +315,17 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
                   if ((live.get(n) or {}).get("annotations") or {}).get("readOnlyHint") is True)
     total = len(sub["tools"])
     rw_true = total - ro_true
+    # Counts follow the same two-question rule as the flags above. A sentence
+    # that agrees with THIS TREE's catalogue and not with the responder is a
+    # deploy that has not happened. Judged against live alone, this block
+    # reddened the commit that added `search` and `fetch` to the submission,
+    # on thirty sentences that were all right.
+    if SOURCE_ANN and all(n in SOURCE_ANN for n in sub["tools"]):
+        ro_src = sum(1 for n in sub["tools"] if SOURCE_ANN[n].get("readOnlyHint") is True)
+        if ro_src != ro_true:
+            DEPLOY_LAG.append(f"read-only count: {ro_src} of {total} in this tree, "
+                              f"the responder still serves {ro_true}")
+            ro_true, rw_true = ro_src, total - ro_src
     claims = 0
 
     def _num(tok: str):
@@ -330,7 +344,7 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
             claims += 1
             if n != ro_true:
                 bad.append(f"{f.name}: says {m.group(1)} tools are strictly read-only, "
-                           f"the live annotations say {ro_true}")
+                           f"the catalogue says {ro_true}")
             t = _num(m.group(2)) if m.group(2) else None
             if t is not None and t != total:
                 bad.append(f"{f.name}: says 'of the {m.group(2)} tools', "
@@ -345,7 +359,7 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
             claims += 1
             if n != rw_true:
                 bad.append(f"{f.name}: says the other {m.group(1)} can add state, "
-                           f"the live annotations say {rw_true}")
+                           f"the catalogue says {rw_true}")
 
     CLAIMS_CHECKED = claims
     if claims == 0:
@@ -369,9 +383,22 @@ def check(sub: dict, live: dict, card: dict) -> list[str]:
         bad.append(f"portal rule (not in the schema): test_cases must be exactly 5, "
                    f"found {len(cases)}")
 
+    # Every tool the responder serves on /mcp, the endpoint this submission
+    # names, must be declared. The check above walks the declared set and asks
+    # the server; the portal also walks the server and asks the declared set,
+    # and for four months `search` and `fetch` were served there, wrongly
+    # annotated, and declared nowhere. An empty /mcp listing is a read that
+    # failed, not a surface with nothing on it.
+    declared = set(sub.get("tools") or {})
+    served = [t["name"] for t in (live_core or [])]
+    if live_core is not None and not served:
+        raise CannotValidate("/mcp listed no tools; the core tier cannot be empty, so the read failed")
+    for name in served:
+        if name not in declared:
+            bad.append(f"{name}: served on /mcp, not declared in the submission")
+
     # Every tools_triggered must name a tool this submission declares, or the
     # reviewer is told to expect a call we never advertised.
-    declared = set(sub.get("tools") or {})
     for i, c in enumerate(cases or []):
         named = [t.strip() for t in str(c.get("tools_triggered") or "").split(",") if t.strip()]
         for t in named:
@@ -490,6 +517,7 @@ def main() -> int:
 
     try:
         live = catalogue(a.origin)
+        live_core = rpc(a.origin.rstrip("/") + "/mcp", "tools/list", {})["tools"]
         card = json.loads(urllib.request.urlopen(
             a.origin.rstrip("/") + "/.well-known/agent-card.json", timeout=45).read().decode())
     except Exception as e:
@@ -499,7 +527,7 @@ def main() -> int:
         return 2
 
     try:
-        problems = check(sub, live, card)
+        problems = check(sub, live, card, live_core)
     except CannotValidate as e:
         print(f"the submission was not checked: {e}")
         return 3

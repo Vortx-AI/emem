@@ -1597,25 +1597,25 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "search",
         title: "Find signed facts for a place, as citable sources",
-        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total.",
+        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, through the same wrapper as `emem_recall`: the responder fetches the upstream value, signs it and persists it, so the corpus grows on demand here exactly as it does there. That is why readOnlyHint is false and openWorldHint is true.",
         when_to_use: "Call first when a question is about a place and the answer must be citable: it turns the question into a list of sources, each of which `fetch` expands. For a synthesised answer in one call, use emem_ask instead.",
         input_schema: SCHEMA_OPENAI_SEARCH,
         output_schema: Some(OUT_OPENAI_SEARCH),
         example_args: r#"{"query":"Trafalgar Square, London"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     ToolDescriptor {
         name: "fetch",
         title: "Open one search result and read the signed record",
-        description: "Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered.",
+        description: "Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle is a local dereference and writes nothing; a cell handle goes through the same wrapper as `emem_recall`, so on a cold cell it MATERIALIZES a missing band first, reaching upstream and signing what it fetched. The weaker path sets the flags: readOnlyHint false, openWorldHint true.",
         when_to_use: "Call on each result you intend to cite, before quoting the number. Quote the one-line reading; the body makes it checkable, and emem_echo_verify grades what you emit against it. An oversize body says so inline and names the URL serving it whole.",
         input_schema: SCHEMA_OPENAI_FETCH,
         output_schema: Some(OUT_OPENAI_FETCH),
         example_args: r#"{"id":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     ToolDescriptor {
@@ -4264,6 +4264,38 @@ mod tests {
             offenders.is_empty(),
             "these tools claim readOnlyHint while their description says they author state: {offenders:#?}"
         );
+    }
+
+    /// `search` and `fetch` are projections of `emem_recall`: `search`
+    /// always, `fetch` whenever it is handed an `emem:cell:` handle. Both
+    /// dispatch through `recall_with_auto_materialize`, so whatever recall
+    /// can do to the store or reach upstream, they can do too.
+    ///
+    /// They shipped as `readOnlyHint: true` / `openWorldHint: false` for
+    /// four months. The sibling phrase test never fired because neither
+    /// description contained a phrase from its list, and both directory
+    /// gates only parse `emem_`-prefixed names. A projection that declares
+    /// itself safer than the tool it projects is the exact lie a host reads
+    /// before deciding whether to ask the user; this pins it to the source
+    /// it wraps rather than to a phrase.
+    #[test]
+    fn a_projection_never_claims_more_safety_than_the_tool_it_projects() {
+        let recall = TOOLS.iter().find(|t| t.name == "emem_recall").unwrap();
+        for name in ["search", "fetch"] {
+            let t = TOOLS.iter().find(|t| t.name == name).unwrap();
+            assert!(
+                !t.read_only_hint || recall.read_only_hint,
+                "{name} claims readOnlyHint while emem_recall, which it dispatches through, does not"
+            );
+            assert!(
+                t.open_world_hint || !recall.open_world_hint,
+                "{name} claims a closed world while emem_recall, which it dispatches through, reaches upstream"
+            );
+            assert!(
+                t.destructive_hint == recall.destructive_hint,
+                "{name} disagrees with emem_recall on destructiveHint"
+            );
+        }
     }
 
     /// A description must not claim read-only while the annotation says

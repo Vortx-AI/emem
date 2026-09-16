@@ -24,9 +24,10 @@ app is not a map or a geocoder.
 
 ## Safety and scope
 
-- **No user data is written.** Nine of the sixteen tools are strictly read-only.
-  Five more (`emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`,
-  `emem_memory_bundle`) materialise and sign new facts into emem's publicly
+- **No user data is written.** Nine of the eighteen tools are strictly read-only.
+  Seven more (`emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`,
+  `emem_memory_bundle`, and `search` and `fetch`, the two names a ChatGPT
+  connector looks up, which project `emem_recall`) materialise and sign new facts into emem's publicly
   readable store when a requested band is cold, which is why their
   `readOnlyHint` is false. What they write is derived from public
   Earth-observation sources, never from anything the user sent. Nothing is ever

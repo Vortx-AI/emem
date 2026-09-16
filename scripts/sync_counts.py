@@ -72,7 +72,7 @@ CANON = {
     # only way to tell a different count from a rotted one is to make it
     # canonical. Verified against the submission JSON below, so it cannot
     # silently disagree with the file it describes.
-    "chatgpt_declared": 16,
+    "chatgpt_declared": 18,
     "algorithms": 168,
     # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
     # `emem:state:` address dereference. CANON was last pinned at 285a12e and

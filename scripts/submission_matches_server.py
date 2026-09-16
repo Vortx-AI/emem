@@ -24,6 +24,12 @@ What this checks
 Every tool named in the submission exists in the server's descriptor table, and
 its readOnlyHint, destructiveHint and openWorldHint match exactly.
 
+And the other direction: every tool the server serves on /mcp (tier "core", the
+endpoint the submission names) is declared in the submission. This was
+one-way for four months, and `search` and `fetch` -- served on /mcp, wrong
+annotations, absent from the JSON -- were invisible to it. The portal compares
+both directions, so a gate that checks one is not the portal's question.
+
 Exit codes
 ----------
   0  the submission says what the server says
@@ -86,7 +92,21 @@ def main() -> int:
                     f"{name}.{js}: the submission says {declared.get(js)}, "
                     f"the server says {actual.get(js)}")
 
-    print(f"  {len(tools)} tools in the submission, checked against the server")
+    # Every tool served on /mcp must be declared. Tier is read from the same
+    # descriptor table; a name the regex below misses is a gate that went
+    # blind again, so the count is printed and must be non-zero.
+    core = [m.group(1) for m in re.finditer(
+        r'name:\s*"([a-z0-9_]+)",(?:(?!name:\s*").)*?tier:\s*"core"', src, re.S)]
+    if not core:
+        print("submission-match: cannot run: parsed no core-tier tool out of the source",
+              file=sys.stderr)
+        return 2
+    for name in core:
+        if name not in tools:
+            problems.append(f"{name} is served on /mcp (tier core) but the submission does not declare it")
+
+    print(f"  {len(tools)} tools in the submission, checked against the server; "
+          f"{len(core)} core-tier tools in the server, checked against the submission")
     if problems:
         print("\nA submission that describes a tool differently from the server "
               "misinforms whoever reads the listing, and the read-only flag is "

@@ -40,9 +40,10 @@ same bytes in another session or in another agent's session.
 The app exposes the **18 tools** that `https://emem.dev/mcp` advertises, listed
 with their inputs and their MCP annotations in [tools.md](tools.md), which is
 GENERATED from the catalogue the responder actually serves. Nine are strictly
-read-only. The other seven can add state: `emem_ask`, `emem_recall`,
+read-only. The other nine can add state: `emem_ask`, `emem_recall`,
 `emem_find_similar`, `emem_intent` and `emem_memory_bundle` materialise and sign
-new facts on a cold cell, and `emem_entity` and `emem_entity_link` mint or bind
+new facts on a cold cell, as do `search` and `fetch`, which project `emem_recall`
+under the names a ChatGPT connector looks up, and `emem_entity` and `emem_entity_link` mint or bind
 an identity in the shared address space.
 
 Those last two are the only writes here, and they are **gated**: without a valid
