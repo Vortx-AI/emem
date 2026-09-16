@@ -717,6 +717,26 @@ jobs:
       # call to find that emem_echo_verify declared `drift` as a string and
       # returned null on every exact match, violating its own schema on the
       # most common path. Same warn-on-unreachable rule as the counts gate.
+      # A directory reviewer connects to the URL we advertise, reads
+      # tools/list, and calls the tools: "Every tool must return a successful
+      # response when called with valid parameters. Generic errors fail
+      # review." This runs that same sweep over the core tier, with each
+      # tool's own declared `required` list satisfied. A typed refusal (the
+      # T3 gate on the shared entity space) counts as working, because
+      # counting it as a failure would push someone toward weakening the gate
+      # to get a green light.
+      - name: every tool a reviewer would call answers
+        run: |
+          set +e
+          python3 scripts/core_tier_callable.py --check
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; the core tier was not exercised"
+            exit 0
+          fi
+          exit $code
+
       - name: declared output schemas are honoured live
         run: |
           python3 -m pip install --quiet jsonschema
