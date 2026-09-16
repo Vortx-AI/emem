@@ -1067,6 +1067,7 @@ const SCHEMA_FIELD_BOUNDARIES: &str = r#"{"type":"object","properties":{
 }, "description":"Explicit bbox; alternative to `place`."},
 "zoom":{"type":"integer","minimum":6,"maximum":15,"description":"Web-Mercator zoom level for the FTW PMTiles read. Default = library-picked min(14, archive.max_zoom). Higher zoom = sharper boundaries but more tiles per query (capped internally at 16, split very wide farms)."},
 "max_features":{"type":"integer","description":"Cap on returned field polygons (default 10000, clamped 1..=200000). When the cap bites, `truncated` is true and `count` still reports the true total, so a capped answer is distinguishable from a small one."},
+"clean":{"type":"boolean","default":false,"description":"Resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."},
 "q":{"type":"string","description":"Alias for `place`."},
 "query":{"type":"string","description":"Alias for `place`."},
 "name":{"type":"string","description":"Alias for `place`."}

@@ -80565,8 +80565,25 @@ mod tests {
             .iter()
             .find(|t| t.name == "fetch")
             .expect("a tool literally named `fetch`");
+        // OpenAI's page calls the pair "two read-only tools". Ours are not:
+        // both dispatch through recall_with_auto_materialize, so on a cold
+        // cell they fetch upstream, sign and persist a fact, exactly as
+        // emem_recall does. The flag has to say what the handler does, not
+        // what the client's page wishes; this asserted the wish for four
+        // months. Pinned to the tool they project instead, so the two can
+        // only move together (the emem-mcp crate makes the same assertion
+        // from its side).
+        let recall = emem_mcp::TOOLS
+            .iter()
+            .find(|t| t.name == "emem_recall")
+            .expect("emem_recall");
         for t in [search, fetch] {
-            assert!(t.read_only_hint, "{} must be read-only", t.name);
+            assert_eq!(
+                t.read_only_hint,
+                recall.read_only_hint,
+                "{}: readOnlyHint must match emem_recall, which it dispatches through",
+                t.name
+            );
             assert!(!t.destructive_hint);
             assert!(
                 t.output_schema.is_some(),
