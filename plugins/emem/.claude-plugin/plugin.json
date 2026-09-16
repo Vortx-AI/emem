@@ -1,6 +1,6 @@
 {
   "name": "emem",
-  "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall ed25519-signed Earth observations, and hand another agent a token it can check offline. No authentication to read, machine maintained (satellites, cameras , etc. ), with laddered auth for agents to write their opinions ",
+  "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall ed25519-signed Earth observations, and hand another agent a token it can check offline. No authentication to read, machine maintained (satellites, cameras, etc.), with laddered auth for agents to write their opinions ",
   "version": "2.4.0",
   "author": {
     "name": "Vortx AI",
