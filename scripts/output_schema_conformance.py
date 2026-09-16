@@ -51,6 +51,14 @@ ARGS: dict[str, dict] = {
     "emem_substrates": {},
     "emem_log_sth": {},
     "emem_log_witnesses": {},
+    # The ChatGPT deep-research contract pair plus the one-shot ask. All
+    # three declared an outputSchema with no success-path call here, so
+    # three of fourteen promises were unverified. `fetch` takes an id from
+    # `search`, so like echo_verify it is filled at runtime from a real one
+    # rather than from a constant that would rot.
+    "emem_ask": {"cell": CELL, "question": "What is the elevation here?"},
+    "search": {"query": CELL},
+    "fetch": {},  # filled at runtime with an id `search` actually returned
 }
 
 
@@ -99,6 +107,23 @@ def _all_tools(ep: str = "/mcp/full") -> list[dict]:
         seen_cursors.add(cursor)
 
 
+def _real_search_id() -> str | None:
+    """An id `search` actually returned, so `fetch` is exercised on its
+    success path against a live result rather than a hand-written constant.
+
+    A constant here would be the fixture trap this repo keeps finding: it
+    would pass while search's id format drifted, and the drift is exactly
+    what pairs these two tools.
+    """
+    try:
+        r = _rpc("tools/call", {"name": "search", "arguments": {"query": CELL}})["result"]
+        sc = r.get("structuredContent") or {}
+        results = sc.get("results") or []
+        return results[0].get("id") if results else None
+    except Exception:
+        return None
+
+
 def _real_token() -> tuple[str, str] | None:
     """A token that resolves, so echo_verify is exercised on its success path."""
     try:
@@ -141,6 +166,18 @@ def main() -> int:
     tok = _real_token()
     if tok:
         ARGS["emem_echo_verify"] = {"token": tok[0], "claimed_value": tok[1]}
+    sid = _real_search_id()
+    if sid:
+        ARGS["fetch"] = {"id": sid}
+    else:
+        # Leaving the empty dict would call fetch with no id, get a typed
+        # error, and report a schema violation that is really a fixture
+        # failure. Say which it is.
+        problems_fetch = ("fetch: search returned no id to dereference, so its "
+                          "output schema could not be exercised. That is a "
+                          "broken fixture, not a proven violation.")
+        print(f"\n  ! {problems_fetch}")
+        ARGS.pop("fetch", None)
 
     problems: list[str] = []
     # A fixture for a tool that no longer declares a schema is a decision about
