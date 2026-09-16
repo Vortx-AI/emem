@@ -80579,8 +80579,7 @@ mod tests {
             .expect("emem_recall");
         for t in [search, fetch] {
             assert_eq!(
-                t.read_only_hint,
-                recall.read_only_hint,
+                t.read_only_hint, recall.read_only_hint,
                 "{}: readOnlyHint must match emem_recall, which it dispatches through",
                 t.name
             );
