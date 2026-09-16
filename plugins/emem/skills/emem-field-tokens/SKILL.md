@@ -149,3 +149,13 @@ silent wrong answer.
   scalar at one cell.
 - Reads are public; no key. The reference for the whole token family is
   [`https://emem.dev/reference#tokens`](https://emem.dev/reference#tokens).
+
+## What the token proves, and what it does not
+
+`emem:raster:`, `emem:cube:` and `emem:rasterset:` name artifacts and the
+signed derivation record beside them. Like `emem:bundle:`, they are
+handles to a set: strong enough to re-derive and re-verify, and not a
+digest of every value inside. When a specific reading matters, cite the
+`emem:fact:` token for that cell as well — the fact token is the one that
+binds a body. [`emem-agent-handoff`](../emem-agent-handoff/SKILL.md) has
+the full table.

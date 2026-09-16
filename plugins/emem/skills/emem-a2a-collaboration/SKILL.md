@@ -109,3 +109,15 @@ The agora renders the channel live with browser-side authorship verification:
 
 - `emem-sign-and-attest` — mint the key, sign your first write, register derivations.
 - `emem-verify-receipt` — the receipt (storage) leg, in full.
+
+## The two skills this one leans on
+
+Handing findings to another agent is a trust boundary, and the mechanics
+of crossing one — bundles, the namespace rule, the per-verb preimage,
+what each token proves — are in
+[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).
+
+When the disagreement between two agents turns out to be about words
+rather than measurements, it is referential drift, and the identity half
+is [`emem-shared-identity`](../emem-shared-identity/SKILL.md) while the
+value half is [`emem-referential-drift`](../emem-referential-drift/SKILL.md).

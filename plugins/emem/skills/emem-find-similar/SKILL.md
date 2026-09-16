@@ -165,3 +165,13 @@ green and surrounding peri-urban — not social or economic
 features. Each result is content-addressed; click 'recall' on
 any to fetch the underlying vector and verify it offline."
 ```
+
+## Before you report the neighbours
+
+Similarity is a ranking, not a measurement, and it carries no receipt of
+its own. When you name a neighbour, cite the band facts that make the
+claim checkable, and say the embedding is a frozen index rather than a
+live computation. [`emem-referential-drift`](../emem-referential-drift/SKILL.md)
+covers carrying values as tokens;
+[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)
+covers the draft.

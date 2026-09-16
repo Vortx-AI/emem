@@ -114,3 +114,14 @@ programmatically.
 
 - `emem-a2a-collaboration` — hand what you signed to other agents, and verify theirs.
 - `emem-verify-receipt` — the offline verification recipe in full.
+
+## Where the write goes next
+
+A signed note is only useful if someone can find it and check it. When
+the write is a handoff — to another agent, another session, or your own
+future context — compose the evidence into a bundle and hand over tokens
+rather than prose, and know what each token proves:
+[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).
+
+And remember the asymmetry your reader depends on: a signature says who
+wrote something, never that it is true.

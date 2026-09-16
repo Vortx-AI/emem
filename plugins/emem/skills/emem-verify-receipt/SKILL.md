@@ -143,3 +143,12 @@ fact 'temperature_2m at Bengaluru' was signed by emem.dev at
   (whitespace in the JSON, wrong byte order on `signature` /
   `responder` arrays). Re-fetch the receipt with `jq -c` to
   guarantee canonical JSON.
+
+## This is one of three checks
+
+Verifying the signature answers **did this responder really sign this**.
+It does not answer whether you quoted the value correctly, or whether the
+fact supports the sentence you wrote around it. Those are
+`emem_echo_verify` and `emem_guard_verdict`, and a draft can pass this
+check and fail either of them. See
+[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).

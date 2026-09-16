@@ -6,6 +6,10 @@ allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read
 
 # emem-shared-identity
 
+This is one half of referential drift — the words half. The values half,
+where a number is paraphrased and re-summarised until nobody can trace
+it, is [`emem-referential-drift`](../emem-referential-drift/SKILL.md).
+
 Two agents studying one farm will call it "plot 14", "the Dhaulana
 parcel", and `defi.zb64a.cAzU.zfa27`. Nothing in their measurements
 disagrees; their *words* do. emem's identity surface exists to collapse
@@ -103,3 +107,11 @@ second is fixed by signing correctly.
   linked.
 - **Treating T3 as a paywall.** It is a check, not a fee. If you cannot
   climb it, you can still read everything and write your own namespace.
+
+## Before you publish an identity claim
+
+"These two phrasings denote one object" is a claim like any other, and
+`emem_guard_verdict` checks a draft that makes it against the citations
+in it: [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).
+Handing the identity onward is
+[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).

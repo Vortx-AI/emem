@@ -137,3 +137,14 @@ returned 0.18 (heavily built up), the highest 0.62 (the
 Cubbon Park area). All twelve facts are signed individually;
 re-fetching any fact_cid returns the same bytes."
 ```
+
+## Before you quote the summary
+
+A per-cell answer aggregated into one figure is the easiest thing in this
+protocol to misreport, because the aggregate has no receipt of its own —
+each cell does. Say which cells, say the statistic, and carry the cells'
+tokens rather than the mean alone. See
+[`emem-referential-drift`](../emem-referential-drift/SKILL.md) for
+pinning values, and
+[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)
+before the summary goes out.

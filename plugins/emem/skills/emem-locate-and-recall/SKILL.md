@@ -123,3 +123,17 @@ is 0.42 — middling, consistent with a dry urban core. Both
 facts are content-addressed: qi3jo4...l2hgjtwm and
 bn7c4d...kkb73a respectively."
 ```
+
+## Before you quote the number
+
+A reading that leaves this session as a number starts drifting the moment
+it is paraphrased. Carry the handle instead: mint
+`emem:fact:<cell64>:<fact_cid>` from the `fact_cid` in the response, and
+whoever receives it resolves the byte-identical signed object rather than
+trusting your summary. See [`emem-referential-drift`](../emem-referential-drift/SKILL.md).
+
+If the number is going into a sentence you are about to send, run the two
+checks that are not the same check: `emem_echo_verify` grades your value
+against the fact you are citing, and `emem_guard_verdict` asks whether
+that fact supports the claim you wrote around it
+([`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)).
