@@ -104,6 +104,8 @@ jobs:
     # one number cannot be both a real backstop for ubuntu (~30 min) and
     # honest headroom for macOS (~90).
     timeout-minutes: ${{ matrix.os == 'macos-latest' && 120 || 60 }}
+    env:
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
     # macOS test is BLOCKING again (was temporarily non-blocking). A GitHub
     # macOS image/Xcode update had broken linking of the `ort` (ONNX
     # Runtime) prebuilt static lib against the clang runtime — `ld: library
@@ -132,6 +134,14 @@ jobs:
           # and only save the cache from main so PR runs never pay the upload.
           cache-targets: ${{ matrix.os != 'macos-latest' }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      # The ort prebuilt's extract directory, pinned by ORT_CACHE_DIR and kept across runs.
+      # Keyed on the lockfile because the hash in dfbin/<target>/<hash> changes exactly when
+      # ort-sys does. A hit means the ort fetch step touches no network at all.
+      - uses: actions/cache@v4
+        with:
+          path: .ort-cache
+          key: ort-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ort-${{ runner.os }}-
       - name: install protoc (lance build scripts, ubuntu)
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
@@ -197,6 +207,23 @@ jobs:
       # The coverage is real and is not deleted: `cargo test -p emem-fetch
       # --test live_cog_fetch` runs the wire paths on demand, and it is the
       # right thing to run after touching a connector or the source registry.
+      # ort-sys fetches the ONNX Runtime prebuilt from cdn.pyke.io inside its build script and
+      # fails the job when that host does not resolve, which it did not from a macOS runner on
+      # 2026-09-16 ("failed to lookup address information"), ~25 minutes into a build that had
+      # nothing to do with ort. The fetch is isolated here with a bounded retry, BEFORE the
+      # tests: the download is the only thing retried, and the test step below runs once, so a
+      # flaky test cannot hide behind a flaky CDN. With the cache below warm this is a no-op:
+      # the build script skips the download when dfbin/<target>/<hash> already exists.
+      - name: ort prebuilt (network only, retried)
+        shell: bash
+        run: |
+          for i in 1 2 3 4 5; do
+            cargo build -p ort-sys --release --locked && exit 0
+            echo "::warning::ort-sys prebuilt fetch failed (attempt $i of 5); retrying in 30 s"
+            sleep 30
+          done
+          echo "::error::ort-sys prebuilt could not be fetched after 5 attempts; cdn.pyke.io unreachable from this runner"
+          exit 1
       - run: cargo test --workspace --release
         env:
           EMEM_NO_NETWORK: "1"
