@@ -8,7 +8,7 @@
      while the submission JSON beside it declared nine real ones. Nothing
      generated it, so nothing kept it true. -->
 
-The app declares **16 tools**. Each one below is checked against `https://emem.dev/mcp/full` at generation time: the name exists, and the MCP annotations here are the annotations the server sends.
+The app declares **18 tools**. Each one below is checked against `https://emem.dev/mcp/full` at generation time: the name exists, and the MCP annotations here are the annotations the server sends.
 
 Reads need no key and no account. None of emem's write verbs is exposed in this app.
 
@@ -352,6 +352,42 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 ```
 
 Required: `triples`
+
+---
+
+## `search`
+
+Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, through the same wrapper as `emem_recall`: the responder fetches the upstream value, signs it and persists it, so the corpus grows on demand here…
+
+**Read-only:** no. 
+
+**Input**
+
+```json
+{
+  "query": "<query>"
+}
+```
+
+Required: `query`
+
+---
+
+## `fetch`
+
+Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle is a local dereference and writes nothing; a cell handle goes through the same wrapper as `emem_recall`, so on a cold cell it MATERIALIZES a missing band first, reaching upstream and signing what it fetched. The weaker path sets…
+
+**Read-only:** no. 
+
+**Input**
+
+```json
+{
+  "id": "<id>"
+}
+```
+
+Required: `id`
 
 ---
 
