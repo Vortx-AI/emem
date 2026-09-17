@@ -27362,7 +27362,7 @@ fn latency_of(tool: &str) -> Option<JsonValue> {
         "p50_ms": pick(0.50),
         "p95_ms": pick(0.95),
         "n": sorted.len(),
-        "note": "measured on this responder over the last calls, not a declared budget; absent until a tool has been called",
+        "note": "measured here over recent calls, not a budget",
     }))
 }
 
