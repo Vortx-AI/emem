@@ -357,7 +357,7 @@ Required: `triples`
 
 ## `search`
 
-Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, through the same wrapper as `emem_recall`: the responder fetches the upstream value, signs it and persists it, so the corpus grows on demand here…
+Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false. When to use: Call first when a question is about a place and the…
 
 **Read-only:** no. 
 
@@ -375,7 +375,7 @@ Required: `query`
 
 ## `fetch`
 
-Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle is a local dereference and writes nothing; a cell handle goes through the same wrapper as `emem_recall`, so on a cold cell it MATERIALIZES a missing band first, reaching upstream and signing what it fetched. The weaker path sets…
+Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle writes nothing; a cell handle, like `emem_recall`, MATERIALIZES a missing band on a cold cell (fetched upstream, signed, persisted), so the flags follow that path: readOnlyHint false. When to use: Call on each result you intend…
 
 **Read-only:** no. 
 
