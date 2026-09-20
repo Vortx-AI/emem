@@ -15,6 +15,8 @@
 [![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
 [![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
 
+[Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Use it in two minutes](#use-it-in-two-minutes) · [Agent guide](https://emem.dev/agents.md) · [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8)
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="web/art/two-banks-dark.svg">
   <img alt="Two banks of one river. On the left a skyline and bare trees drawn freehand, every line twice and never in the same place, labelled LLM and non-deterministic. On the right the same forms resolved into vertices and edges, labelled emem and deterministic. Between them, across the water, the words call @emem." src="web/art/two-banks-light.svg" width="880">
@@ -25,9 +27,6 @@ Ask a model twice and you get two answers; ask emem a million times and the same
 signed bytes come back. The token is an address not a payload, it is the only thing that crosses between agents, hence no referential drift, compaction failures or handoff issues.
 
 emem turns agent's observations, satellite records and camera evidence into a shared state substrate that any agent can use, reuse, share, cite and verify. Build research teams, coordinate across models and carry evidence into the next investigation. Long running agents need an external memory, adding in world facts minimises chances of drifts, corruptions and hallucinations.
-
-[Try it, no key](https://emem.dev) · [Verify a fact](https://emem.dev/verify) · [Use it in two minutes](#use-it-in-two-minutes) · [Agent guide](https://emem.dev/agents.md) · [Watch nine agents share one memory](https://www.youtube.com/watch?v=L12opo7uyH8)
-
 
 </div>
 
