@@ -1,0 +1,49 @@
+{
+	"name": "n8n-nodes-emem",
+	"version": "0.1.0",
+	"description": "Shared memory for AI agents. One address per fact, one signature you check. No key to read.",
+	"license": "Apache-2.0",
+	"homepage": "https://emem.dev",
+	"keywords": [
+		"n8n-community-node-package",
+		"mcp",
+		"emem",
+		"memory",
+		"geospatial",
+		"verification",
+		"agents"
+	],
+	"author": {
+		"name": "Vortx AI",
+		"email": "jaya@vortx.ai"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/Vortx-AI/n8n-nodes-emem.git"
+	},
+	"scripts": {
+		"build": "n8n-node build",
+		"dev": "n8n-node dev",
+		"lint": "n8n-node lint",
+		"lint:fix": "n8n-node lint --fix",
+		"release": "n8n-node release",
+		"prepublishOnly": "n8n-node prerelease"
+	},
+	"files": [
+		"dist"
+	],
+	"n8n": {
+		"n8nNodesApiVersion": 1,
+		"strict": true,
+		"nodes": [
+			"dist/nodes/Emem/Emem.node.js"
+		]
+	},
+	"devDependencies": {
+		"@n8n/node-cli": "*",
+		"typescript": "~5.9.0"
+	},
+	"peerDependencies": {
+		"n8n-workflow": "^2.39.3"
+	}
+}
