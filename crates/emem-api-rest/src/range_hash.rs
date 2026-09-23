@@ -140,7 +140,7 @@ pub(crate) fn range_hash_preimage(
     pb.finalize()
 }
 
-fn refuse(status: StatusCode, wire: &str, message: String) -> Response {
+pub(crate) fn refuse(status: StatusCode, wire: &str, message: String) -> Response {
     crate::ApiError(
         status,
         ErrorBody {
@@ -160,10 +160,10 @@ fn refuse(status: StatusCode, wire: &str, message: String) -> Response {
 /// resolved and checked here, never following a redirect itself.
 // The Err is a finished response returned straight to the handler, once.
 #[allow(clippy::result_large_err)]
-async fn fetch_pinned(
+pub(crate) async fn fetch_pinned(
     url: &reqwest::Url,
     host: &str,
-    range: &str,
+    headers: &[(&str, String)],
 ) -> Result<reqwest::Response, Response> {
     let addrs: Vec<SocketAddr> = match tokio::net::lookup_host((host, 443u16)).await {
         Ok(a) => a.collect(),
@@ -206,10 +206,9 @@ async fn fetch_pinned(
         ))
         .build()
         .map_err(|e| refuse(StatusCode::INTERNAL_SERVER_ERROR, "client", e.to_string()))?;
-    client
-        .get(url.clone())
-        .header("range", range)
-        .header("accept-encoding", "identity")
+    headers
+        .iter()
+        .fold(client.get(url.clone()), |r, (k, v)| r.header(*k, v))
         .send()
         .await
         .map_err(|e| {
@@ -219,6 +218,49 @@ async fn fetch_pinned(
                 format!("{host}: {e}"),
             )
         })
+}
+
+/// GET `url`, following at most three redirects, each target admitted and
+/// pinned by the same rules as the first. Returns the response, the url it
+/// came from, that url's host, and how many redirects were followed.
+// The Err is a finished response returned straight to the handler, once.
+#[allow(clippy::result_large_err)]
+pub(crate) async fn fetch_following(
+    url: &reqwest::Url,
+    host: &str,
+    headers: &[(&str, String)],
+) -> Result<(reqwest::Response, reqwest::Url, String, u32), Response> {
+    let (mut target, mut target_host) = (url.clone(), host.to_string());
+    let mut hops = 0u32;
+    loop {
+        let resp = fetch_pinned(&target, &target_host, headers).await?;
+        if !resp.status().is_redirection() {
+            return Ok((resp, target, target_host, hops));
+        }
+        hops += 1;
+        let next = resp
+            .headers()
+            .get("location")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|l| target.join(l).ok());
+        let Some(next) = next.filter(|_| hops <= 3) else {
+            return Err(refuse(
+                StatusCode::BAD_GATEWAY,
+                "too_many_redirects",
+                format!("{target_host} redirected {hops} times or without a Location"),
+            ));
+        };
+        match admit_url(next.as_str()) {
+            Ok((u, h)) => (target, target_host) = (u, h),
+            Err(e) => {
+                return Err(refuse(
+                    StatusCode::BAD_GATEWAY,
+                    "redirect_refused",
+                    format!("{target_host} redirected to a url this route does not fetch: {e}"),
+                ))
+            }
+        }
+    }
 }
 
 pub(crate) async fn post_range_hash(
@@ -282,41 +324,16 @@ pub(crate) async fn post_range_hash(
     };
 
     let range = format!("bytes={}-{last}", r.offset);
-    let (mut target, mut target_host) = (url.clone(), host.clone());
-    let mut hops = 0;
-    let mut resp = loop {
-        let resp = match fetch_pinned(&target, &target_host, &range).await {
-            Ok(x) => x,
-            Err(e) => return e,
-        };
-        if !resp.status().is_redirection() {
-            break resp;
-        }
-        hops += 1;
-        let next = resp
-            .headers()
-            .get("location")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|l| target.join(l).ok());
-        let Some(next) = next.filter(|_| hops <= 3) else {
-            return refuse(
-                StatusCode::BAD_GATEWAY,
-                "too_many_redirects",
-                format!("{target_host} redirected {hops} times or without a Location"),
-            );
-        };
-        match admit_url(next.as_str()) {
-            Ok((u, h)) => (target, target_host) = (u, h),
-            Err(e) => {
-                return refuse(
-                    StatusCode::BAD_GATEWAY,
-                    "redirect_refused",
-                    format!("{target_host} redirected to a url this route does not fetch: {e}"),
-                )
-            }
-        }
+    let (mut resp, target, host, hops) = match fetch_following(
+        &url,
+        &host,
+        &[("range", range), ("accept-encoding", "identity".into())],
+    )
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => return e,
     };
-    let host = target_host;
     if resp.status() != StatusCode::PARTIAL_CONTENT {
         return refuse(
             StatusCode::BAD_GATEWAY,

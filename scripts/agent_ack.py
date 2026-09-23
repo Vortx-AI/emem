@@ -227,11 +227,19 @@ def comprehend(me: str, sender: str, body: str, attempts: int = 3) -> dict | Non
     return clean
 
 
-def render(sender: str, src_path: str, summary: dict | None) -> tuple[str, str]:
+def render(sender: str, src_path: str, summary: dict | None,
+           src_cid: str = "") -> tuple[str, str]:
     """Build the ack note. The template is fixed; the model only fills slots."""
     title = (f"k572x7go -> {sender}: received and read, machine acknowledgement, "
              f"a considered reply follows")
-    lines = [
+    asks = len(summary["asks"]) if summary else 0
+    lines = ["---", f"to: {sender}"]
+    if src_cid:
+        lines.append(f"In reply to: {src_cid}")
+    lines += [
+        f"line: received {sender}/{(src_cid or Path(src_path).stem)[:8]} asks={asks} reply=queued",
+        "---",
+        "",
         f"# {title}",
         "",
         f"From attester `k572x7go`. Acknowledging `{src_path}`.",
@@ -247,9 +255,6 @@ def render(sender: str, src_path: str, summary: dict | None) -> tuple[str, str]:
     ]
     if summary:
         lines += ["## What I read your note to say", "", summary["subject"], ""]
-        if summary["shipped"]:
-            lines += ["## What you report shipped", ""]
-            lines += [f"- {s}" for s in summary["shipped"]] + [""]
         if summary["asks"]:
             lines += [
                 "## What you are asking of me, as I understand it",
@@ -301,7 +306,8 @@ def render(sender: str, src_path: str, summary: dict | None) -> tuple[str, str]:
 def publish(sk, pub: str, name: str, body: str) -> str | None:
     path = f"/memories/by_attester/{pub[:8]}/{name}"
     bh = blake3.blake3(body.encode()).digest()
-    dg = blake3.blake3(b"emem.memory_write|create|" + path.encode() + b"|" + bh).digest()
+    # v2 preimage: a new path signs base "absent", so the signature cannot be replayed later.
+    dg = blake3.blake3(b"emem.memory_write.v2|create|" + path.encode() + b"|" + bh + b"|absent").digest()
     att = {"pubkey_b32": pub,
            "sig_b32": base64.b32encode(sk.sign(dg).signature).decode().rstrip("=").lower()}
     got = mcp("memory_create", {"path": path, "file_text": body, "attester": att})
@@ -377,7 +383,7 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
         summary = comprehend(me, sender, body)
         stamp = (m.get("signed_at") or "")[:10] or time.strftime("%Y-%m-%d")
         name = f"ack-{sender}-{re.sub(r'[^a-z0-9]+','-',Path(path).stem.lower())[:60]}-{stamp}.md"
-        title, note = render(sender, path, summary)
+        title, note = render(sender, path, summary, m.get("file_cid") or "")
 
         if summary:
             print(f"    subject : {summary['subject']}")

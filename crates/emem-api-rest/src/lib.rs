@@ -58,6 +58,7 @@ mod jepa_v2;
 mod physics;
 mod prithvi_chip;
 mod range_hash;
+mod reader;
 mod terrain;
 pub mod topic_router;
 mod tree;
@@ -1457,6 +1458,10 @@ pub fn router(state: AppState) -> Router {
         // Signed BLAKE3 of a byte range, read next to the data. See
         // crates/emem-api-rest/src/range_hash.rs for the egress bounds.
         .route("/v1/range_hash", post(range_hash::post_range_hash))
+        // A signed page reader and open-source OCR, under range_hash's egress
+        // bounds. See crates/emem-api-rest/src/reader.rs.
+        .route("/v1/read", post(reader::post_read))
+        .route("/v1/ocr", post(reader::post_ocr))
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
@@ -20199,6 +20204,37 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 ],
             },
             {
+                "name": "read",
+                "domain": reader::READ_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "POST /v1/read",
+                "segments": [
+                    seg(reader::read_tag::URL, "url", "scalar", false, ""),
+                    seg(reader::read_tag::FETCHED_URL, "fetched_url", "scalar", false, "after at most three redirects"),
+                    seg(reader::read_tag::BODY_BLAKE3, "body_blake3", "scalar", false, "32 raw bytes"),
+                    seg(reader::read_tag::BODY_SHA256, "body_sha256", "scalar", false, "32 raw bytes"),
+                    seg(reader::read_tag::ETAG, "etag", "scalar", false, "or `absent`"),
+                    seg(reader::read_tag::TEXT_BLAKE3, "text_blake3", "scalar", false, "32 raw bytes"),
+                    seg(reader::read_tag::FETCHED_AT, "fetched_at", "scalar", false, ""),
+                    seg(reader::read_tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
+                "name": "ocr",
+                "domain": reader::OCR_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "POST /v1/ocr",
+                "segments": [
+                    seg(reader::ocr_tag::IMAGE_BLAKE3, "image_blake3", "scalar", false, "32 raw bytes"),
+                    seg(reader::ocr_tag::SOURCE, "source", "scalar", false, "the fetched url, or `upload`"),
+                    seg(reader::ocr_tag::LANG, "lang", "scalar", false, ""),
+                    seg(reader::ocr_tag::ENGINE, "engine", "scalar", false, "the engine's version line"),
+                    seg(reader::ocr_tag::TEXT_BLAKE3, "text_blake3", "scalar", false, "32 raw bytes"),
+                    seg(reader::ocr_tag::READ_AT, "read_at", "scalar", false, ""),
+                    seg(reader::ocr_tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
                 "name": "range_hash",
                 "domain": range_hash::RANGE_HASH_DOMAIN,
                 "construction": "preimage_v1",
@@ -29325,6 +29361,8 @@ async fn mcp_read_resource_dynamic(uri: &str, s: &AppState) -> Result<JsonValue,
                 since: None,
                 limit: None,
                 include_broadcast: None,
+                from: None,
+                in_reply_to: None,
             }),
         )
         .await
@@ -31991,6 +32029,8 @@ fn openapi_spec() -> JsonValue {
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
             "/v1/tree/{file_cid}": {"get":{"summary":"emem:tree: the audit path from one row of a note's Merkle table to the note's signed root, so an agent checks one chunk with log2(n) hashes instead of fetching the whole table. Reads pointer.v1 and directory.v1 notes; leaf = blake3(url || u64_be offset || u64_be length || hash), node = blake3(left || right), an odd node promoted. Refuses with root_mismatch when the note's stated root does not match its own rows, and not_a_tree for other kinds. Without ?row, returns the row count and root. Token: emem:tree:<file_cid>#row=<index>.","operationId":"emem_tree","parameters":[{"name":"file_cid","in":"path","required":true,"schema":{"type":"string"}},{"name":"row","in":"query","required":false,"schema":{"type":"string"},"description":"row index, or its label (a pointer's chunk label, a directory's path)"}],"responses":{"200":json_ok}}},
+            "/v1/read": {"post":{"summary":"A signed page reader: fetch a public https url under range_hash's egress bounds (DNS pinned, redirects re-admitted, 4 MiB cap, per-IP quota), return its visible text (html) or its text as is, with blake3 and sha256 of the exact bytes, the ETag, and a PreimageV1 emem.read.v1 receipt. An alternative to a third-party text reader: the hashes let anyone who fetches the same url check they got the same page.","operationId":"emem_read","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url"],"properties":{"url":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/ocr": {"post":{"summary":"Open-source OCR (Tesseract) on the responder: an image by `url` (fetched under range_hash's bounds) or `image_b64` (png, jpeg, tiff, webp, gif, bmp; 8 MiB), `lang` (default eng). Returns the text, blake3 of the image and of the text, the engine version, and a PreimageV1 emem.ocr.v1 receipt. provenance_class model_output: the receipt proves which image, engine and language produced the text, not that it is correct. 501 ocr_unavailable where no engine is installed.","operationId":"emem_ocr","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"url":{"type":"string"},"image_b64":{"type":"string"},"lang":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/range_hash": {"post":{"summary":"range_hash: BLAKE3-256 of exactly `length` bytes at `offset` of a public https url, as fetched by this responder, under a signed receipt binding url, offset, length, hash, ETag and fetch time (PreimageV1 emem.range_hash.v1). Also returns the pointer-row leaf, so the answer slots into an emem:tree. Bounds: https on 443 only, no IP literals or local names, DNS pinned to publicly routable addresses, at most three redirects each admitted and pinned the same way (the receipt binds the url asked and the url fetched), the upstream must answer 206 with the exact Content-Range, at most 16 MiB per call, a per-IP daily quota.","operationId":"emem_range_hash","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url","offset","length"],"properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/tree/path": {"post":{"summary":"emem:tree over rows the caller holds: the same audit path and root as GET /v1/tree/{file_cid}, from `leaves` (base32 leaf hashes) or `chunks` ({url, offset, length, hash}), with no note and no parser in between.","operationId":"emem_tree_path","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["index"],"properties":{"index":{"type":"integer"},"leaves":{"type":"array","items":{"type":"string"}},"chunks":{"type":"array","items":{"type":"object","properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"},"hash":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. The ledger persists as a derivative fact and returns its emem:fact: token under ledger_fact; its cid is a function of the cell and the input facts, so the same inputs return the same token (persistence: existing_derivative_fact on a repeat). The receipt binds the input cids plus the ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
@@ -32041,7 +32081,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/a2a/tasks/{id}":    {"get":{"summary":"poll an async task","operationId":"emem_a2a_task_get","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/tasks/{id}/cancel": {"post":{"summary":"cancel an async task","operationId":"emem_a2a_task_cancel","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"}}],"requestBody":{"required":false,"description":"No body. The task is named by the path parameter; declared explicitly so the spec states the emptiness rather than omitting the field.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/a2a/skills":        {"get":{"summary":"find a skill in one call","operationId":"emem_a2a_skills","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string"},"description":"free-text query over skill ids and descriptions"}],"responses":{"200":json_ok}}},
-            "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}},"get":{"summary":"the same mailbox over a query string, for a client that would rather not POST to read. `to` is required and the 400 says so.","operationId":"emem_inbox_get","parameters":[{"name":"to","in":"query","required":true,"schema":{"type":"string"},"description":"attester pubkey or its 8-char shortcode"},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/inbox":             {"post":{"summary":"read-side mailbox: the notes addressed to an attester, newest first. Read-only; it does not accept mail, it reports what was written to the shared memory naming you.","operationId":"emem_inbox","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["to"],"properties":{"to":{"type":"string","description":"attester pubkey or its 8-char shortcode"},"limit":{"type":"integer","minimum":1,"description":"default 20"},"from":{"type":"string","description":"only notes from these authors: comma-separated 8-char prefixes or keys, checked against the namespace owner"},"in_reply_to":{"type":"string","description":"only notes whose `In reply to:` names this file_cid, one request's thread"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}},"get":{"summary":"the same mailbox over a query string, for a client that would rather not POST to read. `to` is required and the 400 says so.","operationId":"emem_inbox_get","parameters":[{"name":"to","in":"query","required":true,"schema":{"type":"string"},"description":"attester pubkey or its 8-char shortcode"},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1}},{"name":"from","in":"query","required":false,"schema":{"type":"string"}},{"name":"in_reply_to","in":"query","required":false,"schema":{"type":"string"}}],"responses":{"200":json_ok,"400":json_bad_request}}},
             "/mcp":                  {"post":{"summary":emem_mcp::with_counts("MCP JSON-RPC 2.0 (Streamable HTTP). tools/list here returns the {TOOL_CORE}-tool core surface; /mcp/full returns all {TOOL_TOTAL}. tools/call dispatches any of the {TOOL_TOTAL} by name at either endpoint."),"operationId":"mcp_jsonrpc","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["jsonrpc","method"],"properties":{"jsonrpc":{"type":"string","enum":["2.0"]},"id":{"description":"request id; omit for a notification"},"method":{"type":"string","description":"initialize | tools/list | tools/call | resources/list | resources/read | prompts/list"},"params":{"type":"object","description":"method-specific; for tools/call it is {name, arguments}"}}}}}},"responses":{"200":json_ok}},
                                       "get":{"summary":"Discovery document for the MCP endpoint (transport, protocol versions, tool names, client configs). This responder is stateless — no Mcp-Session-Id, no server-initiated messages — so a GET carrying `Accept: text/event-stream`, i.e. a Streamable HTTP stream open, is answered 405 Method Not Allowed as the transport spec requires, with `Allow: POST, OPTIONS`. Every other GET gets the discovery document.","operationId":"mcp_discover","responses":{"200":json_ok,"405":{"description":"no SSE stream is offered at this endpoint; use POST"}}}},
             // High-traffic endpoints that were previously discoverable
@@ -59925,6 +59965,15 @@ struct InboxReq {
     /// Include broadcasts (notes addressed to "the channel" / "all"). Default true.
     #[serde(default)]
     include_broadcast: Option<bool>,
+    /// Only notes from these authors (8-char prefixes or full keys,
+    /// comma-separated). Checked against the namespace owner, not the heading.
+    #[serde(default)]
+    from: Option<String>,
+    /// Only notes whose `In reply to:` names this file_cid: one request's
+    /// thread. A page of mail can be filled by anyone who addresses you; a
+    /// thread filtered by cid and author cannot.
+    #[serde(default)]
+    in_reply_to: Option<String>,
 }
 
 /// Split an agent-list clause like `aaaa1111 AND bbbb2222` into tokens.
@@ -61226,6 +61275,8 @@ struct InboxQuery {
     since: Option<String>,
     limit: Option<usize>,
     include_broadcast: Option<bool>,
+    from: Option<String>,
+    in_reply_to: Option<String>,
 }
 
 /// `GET /v1/channel/geo`, the channel, geolocated: the last N addressed
@@ -61405,6 +61456,8 @@ async fn get_inbox(
         since: q.since,
         limit: q.limit,
         include_broadcast: q.include_broadcast,
+        from: q.from,
+        in_reply_to: q.in_reply_to,
     };
     post_inbox(State(s), EmemJson(req)).await
 }
@@ -61445,6 +61498,19 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
     let since = req.since.as_deref().unwrap_or("");
     let limit = req.limit.unwrap_or(50).clamp(1, 500);
     let include_broadcast = req.include_broadcast.unwrap_or(true);
+    let from_filter: Vec<String> = req
+        .from
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(|f| f.trim().to_lowercase().chars().take(8).collect::<String>())
+        .filter(|f| f.len() == 8)
+        .collect();
+    let thread = req
+        .in_reply_to
+        .as_deref()
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty());
 
     let db = memory_db(&s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
@@ -61489,6 +61555,13 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
         if from.to_lowercase().starts_with(&want8) {
             continue; // your own notes are not your inbox
         }
+        if !from_filter.is_empty()
+            && !from_filter
+                .iter()
+                .any(|f| from.to_lowercase().starts_with(f))
+        {
+            continue;
+        }
         let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
             continue;
         };
@@ -61496,6 +61569,11 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
             continue;
         }
         let body = String::from_utf8_lossy(&bytes);
+        if let Some(t) = &thread {
+            if reply_to_cid(&body).as_deref() != Some(t.as_str()) {
+                continue;
+            }
+        }
         let (direct, cc, broadcast) = parse_note_addressing(&body);
         let hit_direct = direct.iter().any(|t| t.to_lowercase().starts_with(&want8));
         let hit_cc = cc.iter().any(|t| t.to_lowercase().starts_with(&want8));

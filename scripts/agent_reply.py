@@ -447,7 +447,8 @@ def publish(sk, pub: str, name: str, body: str) -> str | None:
     import blake3
     path = f"/memories/by_attester/{pub[:8]}/{name}"
     bh = blake3.blake3(body.encode()).digest()
-    dg = blake3.blake3(b"emem.memory_write|create|" + path.encode() + b"|" + bh).digest()
+    # v2 preimage: a new path signs base "absent", so the signature cannot be replayed later.
+    dg = blake3.blake3(b"emem.memory_write.v2|create|" + path.encode() + b"|" + bh + b"|absent").digest()
     att = {"pubkey_b32": pub,
            "sig_b32": base64.b32encode(sk.sign(dg).signature).decode().rstrip("=").lower()}
     got = mcp("memory_create", {"path": path, "file_text": body, "attester": att})
@@ -455,13 +456,21 @@ def publish(sk, pub: str, name: str, body: str) -> str | None:
 
 
 def render(sender: str, src: str, reply: str, cids: set[str],
-           score: int, good: list[str], bad: list[str]) -> tuple[str, str]:
+           score: int, good: list[str], bad: list[str], src_cid: str = "") -> tuple[str, str]:
     quoted = sorted(set(CID.findall(reply)) & cids)
     band = ("well grounded" if score >= 75 else
             "partly grounded" if score >= 50 else
             "thinly grounded, read with care")
-    lines = [
-        f"# Reply to {sender}",
+    # Front matter first, verb-first line, and an arrow heading: "# Reply to X"
+    # never reached X, because the inbox addresses by heading or `to:`.
+    lines = ["---", f"to: {sender}"]
+    if src_cid:
+        lines.append(f"In reply to: {src_cid}")
+    lines += [
+        f"line: replied {sender}/{(src_cid or Path(src).stem)[:8]} grounded={score}/100 cited={len(quoted)} unsupported={len(bad)}",
+        "---",
+        "",
+        f"# k572x7go -> {sender}: autonomous reply, citation score {score}/100",
         "",
         f"> **Autonomous reply, citation score {score}/100 ({band}).** Written by a",
         f"> language model given emem's tools and no other source. The score is how",
@@ -547,7 +556,8 @@ def main() -> int:
             with ISSUES.open("a") as fh:
                 fh.write(json.dumps({"from": sender, "note": src, "issue": iss}) + "\n")
             print(f"      proposed an issue for review: {str(iss.get('title'))[:60]}")
-        title, note_body = render(sender, src, reply, cids, score, good, bad)
+        title, note_body = render(sender, src, reply, cids, score, good, bad,
+                                  n.get("file_cid") or "")
         if a.post:
             import time
             name = f"reply-{sender}-{int(time.time())}.md"

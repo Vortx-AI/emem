@@ -127,11 +127,12 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie-r2,target=/usr/loc
 # Must match the build stage's libc (glibc 2.41 on trixie) so the
 # binary's __isoc23_* references resolve at runtime.
 FROM debian:trixie-slim AS runtime
+# tesseract-ocr: open-source OCR (Apache-2.0) for POST /v1/ocr; without it the route answers 501.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates libcap2-bin bash && \
+        ca-certificates libcap2-bin bash tesseract-ocr tesseract-ocr-eng && \
     rm -rf /var/lib/apt/lists/* && \
     useradd --system --uid 65532 --no-create-home --shell /usr/sbin/nologin emem
 
