@@ -22,9 +22,9 @@ Two endpoints, one server:
 - `https://emem.dev/mcp` advertises a 18-tool core loop, so a client
   connecting cold spends about 40 KB of context instead of a quarter of a
   megabyte.
-- `https://emem.dev/mcp/full` advertises all 110.
+- `https://emem.dev/mcp/full` advertises all 115.
 
-The split is listing-only. Every one of the 110 tools is callable by name at
+The split is listing-only. Every one of the 115 tools is callable by name at
 either endpoint, so a tool missing from your list is not missing from the
 server. Call `emem_tools` to search the rest or fetch one tool's schema.
 
@@ -38,7 +38,7 @@ server. Call `emem_tools` to search the rest or fetch one tool's schema.
 ## Manual config
 
 Two shapes, and they are not interchangeable. Everything else about the server
-is identical: same endpoint, same 110 tools, no key to read.
+is identical: same endpoint, same 115 tools, no key to read.
 
 **Cline, Claude Code, Claude Desktop, Cursor** and most Streamable HTTP hosts
 use `mcpServers`:

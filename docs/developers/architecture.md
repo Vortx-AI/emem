@@ -10,9 +10,9 @@ deploy, `whitepaper-v2.md` for the math.
 ## The shape of the system
 
 A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **167 unique paths under
+`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **173 unique paths under
 `/v1/*`** in `openapi.json`) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**92 tools**: 14 core / 75 extended, with `tools/list` advertising the core
+(**115 tools**: 18 core / 97 extended, with `tools/list` advertising the core
 tier and `POST /mcp/full` advertising all 89). An optional Python sidecar over a Unix domain socket
 handles GPU inference for Clay v1.5, Prithvi-EO-2.0, Galileo, and
 JEPA v2. Storage is a sled hot cache plus an append-only Merkle
@@ -80,7 +80,7 @@ signed `Receipt`.
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
 | emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (92 tools) |
+| emem-mcp | MCP tool registry (115 tools) |
 | emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 7-variant `Intent` enum and rule-based planner |
@@ -454,8 +454,8 @@ for the JEPA v2 untrained sentinel.
 REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (92 tools). Its `tools/list`
-advertises the 18 core tools; `POST /mcp/full` advertises all 110.
+backed by `crates/emem-mcp/src/lib.rs` (115 tools). Its `tools/list`
+advertises the 18 core tools; `POST /mcp/full` advertises all 115.
 Both dispatch every tool by name from `tools/call`. Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`
