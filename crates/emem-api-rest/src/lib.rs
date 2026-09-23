@@ -48,6 +48,7 @@ mod ask_foundation;
 mod band_raster;
 mod change_attribution;
 mod clay_chip;
+mod decide;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
@@ -1462,6 +1463,8 @@ pub fn router(state: AppState) -> Router {
         // bounds. See crates/emem-api-rest/src/reader.rs.
         .route("/v1/read", post(reader::post_read))
         .route("/v1/ocr", post(reader::post_ocr))
+        // Typed decisions from a small open-weights model. See decide.rs.
+        .route("/v1/decide", post(decide::post_decide))
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
@@ -20204,6 +20207,19 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 ],
             },
             {
+                "name": "decide",
+                "domain": decide::DECIDE_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "POST /v1/decide",
+                "segments": [
+                    seg(decide::tag::INPUT_BLAKE3, "input_blake3", "scalar", false, "blake3 of the request body as sent"),
+                    seg(decide::tag::MODEL, "model", "scalar", false, "the local model's id"),
+                    seg(decide::tag::OUTPUT_BLAKE3, "output_blake3", "scalar", false, "blake3 of the answers array as serialised"),
+                    seg(decide::tag::DECIDED_AT, "decided_at", "scalar", false, ""),
+                    seg(decide::tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                ],
+            },
+            {
                 "name": "read",
                 "domain": reader::READ_DOMAIN,
                 "construction": "preimage_v1",
@@ -32029,6 +32045,7 @@ fn openapi_spec() -> JsonValue {
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
             "/v1/tree/{file_cid}": {"get":{"summary":"emem:tree: the audit path from one row of a note's Merkle table to the note's signed root, so an agent checks one chunk with log2(n) hashes instead of fetching the whole table. Reads pointer.v1 and directory.v1 notes; leaf = blake3(url || u64_be offset || u64_be length || hash), node = blake3(left || right), an odd node promoted. Refuses with root_mismatch when the note's stated root does not match its own rows, and not_a_tree for other kinds. Without ?row, returns the row count and root. Token: emem:tree:<file_cid>#row=<index>.","operationId":"emem_tree","parameters":[{"name":"file_cid","in":"path","required":true,"schema":{"type":"string"}},{"name":"row","in":"query","required":false,"schema":{"type":"string"},"description":"row index, or its label (a pointer's chunk label, a directory's path)"}],"responses":{"200":json_ok}}},
+            "/v1/decide": {"post":{"summary":"System-one decisions from a small open-weights model on this node: send a `state` (text or JSON) and up to 8 `questions`, each `choice` (2-8 `options`), `bool`, or `score` (`scale` [min,max], at most 8 steps). Each answer is a value from that closed set with the model's probability for every option, `confidence`, and `valid_mass` (how much of the first token went to the options; under 0.5 the answer abstains as null). No free text is generated. provenance_class model_output; probabilities are uncalibrated. PreimageV1 emem.decide.v1 receipt over input, model and answers.","operationId":"emem_decide","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["state","questions"],"properties":{"state":{},"questions":{"type":"array","maxItems":8,"items":{"type":"object","required":["kind","ask"],"properties":{"id":{"type":"string"},"kind":{"type":"string","enum":["choice","bool","score"]},"ask":{"type":"string"},"options":{"type":"array","items":{"type":"string"}},"scale":{"type":"array","items":{"type":"integer"}}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/read": {"post":{"summary":"A signed page reader: fetch a public https url under range_hash's egress bounds (DNS pinned, redirects re-admitted, 4 MiB cap, per-IP quota), return its visible text (html) or its text as is, with blake3 and sha256 of the exact bytes, the ETag, and a PreimageV1 emem.read.v1 receipt. An alternative to a third-party text reader: the hashes let anyone who fetches the same url check they got the same page.","operationId":"emem_read","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url"],"properties":{"url":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ocr": {"post":{"summary":"Open-source OCR (Tesseract) on the responder: an image by `url` (fetched under range_hash's bounds) or `image_b64` (png, jpeg, tiff, webp, gif, bmp; 8 MiB), `lang` (default eng). Returns the text, blake3 of the image and of the text, the engine version, and a PreimageV1 emem.ocr.v1 receipt. provenance_class model_output: the receipt proves which image, engine and language produced the text, not that it is correct. 501 ocr_unavailable where no engine is installed.","operationId":"emem_ocr","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"url":{"type":"string"},"image_b64":{"type":"string"},"lang":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/range_hash": {"post":{"summary":"range_hash: BLAKE3-256 of exactly `length` bytes at `offset` of a public https url, as fetched by this responder, under a signed receipt binding url, offset, length, hash, ETag and fetch time (PreimageV1 emem.range_hash.v1). Also returns the pointer-row leaf, so the answer slots into an emem:tree. Bounds: https on 443 only, no IP literals or local names, DNS pinned to publicly routable addresses, at most three redirects each admitted and pinned the same way (the receipt binds the url asked and the url fetched), the upstream must answer 206 with the exact Content-Range, at most 16 MiB per call, a per-IP daily quota.","operationId":"emem_range_hash","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url","offset","length"],"properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
