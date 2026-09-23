@@ -38,6 +38,10 @@ name = "emem-purge-fnkey"
 path = "src/bin/emem-purge-fnkey.rs"
 
 [[bin]]
+name = "emem-demo-device"
+path = "src/bin/emem-demo-device.rs"
+
+[[bin]]
 name = "emem-ask-eval"
 path = "src/bin/emem-ask-eval.rs"
 
@@ -52,6 +56,7 @@ emem-storage    = { workspace = true }
 emem-cubes      = { workspace = true }
 emem-primitives = { workspace = true }
 emem-attest     = { workspace = true }
+emem-trace      = { workspace = true }
 emem-intent     = { workspace = true }
 emem-mcp        = { workspace = true }
 emem-api-rest   = { workspace = true }
