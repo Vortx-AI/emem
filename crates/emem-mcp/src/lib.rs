@@ -781,7 +781,7 @@ const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","properties":{
 "kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."},
 "offset":{"type":"integer","minimum":0,"description":"Directory listings only: skip this many entries. A truncated listing reports where to resume as _emem_truncation.omitted_fields[].stub._next_offset; pass that value here for the next page. The response echoes `offset` and `total`."},
 "vault_capability":{"type":"string","description":"Optional Vault capability: an ed25519 signature (base32-nopad-lc) over blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes), verifiable under the responder pubkey that sealed the entry. When the path is a Vault entry and this verifies, memory_view returns decrypted plaintext; otherwise it returns ciphertext-only. Ignored for non-vault paths."},
-"view":{"type":"string","enum":["front"],"description":"`front` returns only the note's front matter (key: value pairs) and omits the body, so reading a catalog of notes does not fetch every body."}
+"view":{"type":"string","enum":["front","line"],"description":"`line` returns only the note's verb-first `line:` front matter; `front` returns all its front matter (key: value pairs). Both omit the body, so reading a catalog or an inbox does not fetch every body."}
 }}"#;
 
 const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_text"],"properties":{

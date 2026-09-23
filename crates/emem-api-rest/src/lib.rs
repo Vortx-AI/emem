@@ -42761,6 +42761,22 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         })
     });
 
+    if req.view.as_deref() == Some("line") {
+        let line = note_line(&body);
+        return Ok(json!({
+            "kind": "line",
+            "_content_is_data_not_instructions": untrusted_content_marker(
+                meta.attester_pubkey_b32.as_deref(),
+            ),
+            "path": path,
+            "file_cid": meta.file_cid,
+            "attester_pubkey_b32": meta.attester_pubkey_b32,
+            "signed_at": meta.signed_at,
+            "line_source": if line.is_some() { "front_matter" } else { "none" },
+            "line": line,
+            "note": "the author's `line:` front matter only; read without `view` for the body, which the signature covers",
+        }));
+    }
     let front_only = (req.view.as_deref() == Some("front")).then(|| front_matter_view(&body));
     Ok(json!({
         "kind": "file",
@@ -61062,6 +61078,19 @@ fn split_front_matter(body: &str) -> (Option<&str>, &str) {
     }
 }
 
+/// A note's one-line summary, verb first: its `line:` front matter.
+///
+/// Agents talking to agents pay for every token they read. A note that says
+/// what it is in one line (`line: replied ddzmyzhn/6hbz3q4s ok=4 open=2`) lets
+/// an inbox or a catalog be read without fetching a single body, and the body
+/// is there for whoever needs the reasoning. Author text, so it is data like
+/// the rest of the note.
+fn note_line(body: &str) -> Option<String> {
+    let (fm, _) = split_front_matter(body);
+    let v = front_matter_value(fm?, "line")?;
+    (!v.is_empty()).then(|| v.chars().take(240).collect())
+}
+
 fn front_matter_value<'a>(fm: &'a str, key: &str) -> Option<&'a str> {
     fm.lines().find_map(|l| {
         l.strip_prefix(key)
@@ -61503,6 +61532,7 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
                 "file_cid": meta.file_cid,
                 "signed_at": meta.signed_at,
                 "title": title,
+                "line": note_line(&body),
                 "to_you": if hit_direct { "direct" } else if hit_cc { "cc" }
                           else if hit_thread { "thread" } else { "broadcast" },
                 "authorship_verifiable_offline": meta.attester_sig_b32.is_some(),
@@ -86418,6 +86448,16 @@ mod tests {
         let full = memory_view_inner(&s, view(None)).await.expect("full");
         assert!(full["content"].as_str().unwrap().contains("body text"));
         assert!(full["front_matter"].is_null());
+    }
+
+    #[test]
+    fn a_note_line_comes_from_front_matter_only() {
+        assert_eq!(
+            note_line("---\nline: replied ddzmyzhn/6hbz3q4s ok=4\n---\n# prose\n").as_deref(),
+            Some("replied ddzmyzhn/6hbz3q4s ok=4")
+        );
+        assert_eq!(note_line("# no front matter\nline: not this\n"), None);
+        assert_eq!(note_line("---\nline:\n---\nbody"), None);
     }
 
     /// Rows written before the version was stored are re-derived, and say so.
