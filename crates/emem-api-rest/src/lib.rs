@@ -3421,11 +3421,55 @@ const OPERATOR_KEYS: &[&str] = &[
 ];
 
 fn text_response(content_type: &'static str, body: &'static str) -> Response {
+    let body: axum::body::Body = match public_origin() {
+        // Not html: inline scripts are allowed by hash, so rewriting inside
+        // one would get it blocked by our own CSP.
+        Some(origin)
+            if origin != CANONICAL_ORIGIN
+                && !content_type.starts_with("text/html")
+                && body.contains(CANONICAL_ORIGIN) =>
+        {
+            rewrite_origin(body, &origin).into()
+        }
+        _ => body.into(),
+    };
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, content_type)
-        .body(axum::body::Body::from(body))
+        .body(body)
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+}
+
+/// The origin the baked docs are written against.
+const CANONICAL_ORIGIN: &str = "https://emem.dev";
+
+/// A baked document as THIS node serves it: every `https://emem.dev` url
+/// points at this node's own public origin instead.
+///
+/// The docs are compiled in, so every node anyone runs serves the same text,
+/// and that text told every agent and indexer reading a self-hosted node to
+/// call emem.dev. On emem.dev itself nothing changes. Only whole-host matches
+/// are rewritten: a name that merely starts with `emem.dev` is left alone.
+fn rewrite_origin(body: &str, origin: &str) -> String {
+    let origin = origin.trim_end_matches('/');
+    let mut out = String::with_capacity(body.len());
+    let mut rest = body;
+    while let Some(i) = rest.find(CANONICAL_ORIGIN) {
+        let after = &rest[i + CANONICAL_ORIGIN.len()..];
+        // A dot continues the host only when a name follows it; a sentence
+        // ending in the url is still the url.
+        let mut chars = after.chars();
+        let whole_host = match chars.next() {
+            None => true,
+            Some('.') => !chars.next().is_some_and(|c| c.is_ascii_alphanumeric()),
+            Some(c) => !(c.is_ascii_alphanumeric() || c == '-'),
+        };
+        out.push_str(&rest[..i]);
+        out.push_str(if whole_host { origin } else { CANONICAL_ORIGIN });
+        rest = after;
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Did the caller ASK for html, rather than merely fail to ask for markdown?
@@ -5077,7 +5121,12 @@ async fn serve_llms_full() -> Response {
     // Section dividers are lightweight headings so any markdown viewer
     // groups them cleanly; agents that grep by URL still find the
     // matching block in one fetch.
-    let body = LLMS_FULL_CACHED.as_str();
+    let body: axum::body::Body = match public_origin() {
+        Some(origin) if origin != CANONICAL_ORIGIN => {
+            rewrite_origin(&LLMS_FULL_CACHED, &origin).into()
+        }
+        _ => LLMS_FULL_CACHED.as_str().into(),
+    };
     Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "text/plain; charset=utf-8")
@@ -5085,7 +5134,7 @@ async fn serve_llms_full() -> Response {
             CACHE_CONTROL,
             "public, max-age=86400, stale-while-revalidate=604800",
         )
-        .body(axum::body::Body::from(body))
+        .body(body)
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
 }
 
@@ -32148,7 +32197,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/guard/verdict":     {"post":{"summary":"Run emem-guard's policy pipeline over a transcript against this responder's corpus. Finds every emem: citation, resolves each against local storage, and answers allow or deny with the machine-readable reason `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes: PROV_SIG, PROV_BYTES, PROV_DRIFT, CLAIM_UNGROUNDED. ADVISORY: nothing is blocked, this responder is not in anybody's request path, and a citation it does not hold is never a denial because it is indistinguishable from one minted elsewhere. Set `claim_gating` to also be told which measurable physical-world claims carry no citation and which band would answer them. The request body is the same shape a self-hosted node accepts at POST /verdict, so learning one is enough. To ENFORCE rather than consult, run your own node: GET /v1/guard/selfhost.","operationId":"emem_guard_verdict","tags":["verify"],"parameters":[{"name":"shape","in":"query","required":false,"schema":{"type":"string","enum":["native","mcp","openai","cloudevent","policy"],"default":"native"},"description":"Which envelope the body is in, and which envelope to answer in. Exists so you never reshape a payload to ask the question: post the body your own framework produced. `mcp` reads a JSON-RPC tools/call or a tool result and answers with the CallToolResult to substitute on a deny; `openai` reads a moderations or chat-completions body; `cloudevent` reads a CloudEvents 1.0 structured event; `policy` reads {input} and answers {result:{allow,deny}}. An unrecognised value falls back to native rather than erroring."},{"name":"claim_gating","in":"query","required":false,"schema":{"type":"boolean","default":false},"description":"Also flag measurable physical-world claims that carry NO citation. Reports on absence rather than on a failed check, so it is off unless asked for."}],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"texts":{"type":"array","items":{"type":"string"},"description":"Free text to check: a draft answer, a tool result, a whole turn."},"messages":{"type":"array","description":"A chat-completions-shaped transcript, read for its text only.","items":{"type":"object"}},"claim_gating":{"type":"boolean","default":false,"description":"Also flag measurable physical-world claims that carry no citation."},"agent":{"type":"string","description":"Free-text label for the caller. Advisory, never a trust boundary."}}}}}},"responses":{"200":json_ok}}},
             "/v1/guard/capabilities": {"get":{"summary":"The emem-guard contract, machine-readable: every deny code and what it means, every remedy and what to do about it, the reason grammar, what the hosted route will and will not do, and how to stand up a node that enforces. Mirrors the /.well-known/emem-guard.json a self-hosted node serves, so an agent that learned one learned both.","operationId":"emem_guard_capabilities","tags":["verify","introspect"],"responses":{"200":json_ok}}},
             "/v1/guard/selfhost":    {"get":{"summary":"The full self-host procedure for emem-guard as markdown, plus the exact build, test and run commands. Every step is a command and a check, written to be run unattended by an agent. A node you run needs no account here and no key from us: it generates its own signing key, keeps its own append-only verdict log, verifies what it holds, and cites what it does not. It serves checkpoints for Anthropic Inference hooks, Claude Code client hooks, MCP tools/call, OpenAI-shaped clients, CloudEvents 1.0 and OPA-style policy clients, plus a native route that belongs to no vendor.","operationId":"emem_guard_selfhost","tags":["introspect"],"responses":{"200":json_ok}}},
-            "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["triples"],"properties":{"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory_bundle":     {"post":{"summary":"Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are collapsed into a content-addressed bundle and the responder signs a receipt over the whole set. Returns `bundle_token` (emem:bundle:<bundle_cid>) plus per-triple citations, and `members`/`resolved` so partial coverage is visible without walking them. The memory algebra's `merge`: one handle that cites many facts. CAP: at most 256 triples per call. A bundle token is O(1) in size for any N, but covering N facts costs ceil(N/256) calls, so budget round trips accordingly rather than discovering the limit at 257.","operationId":"emem_memory_bundle","tags":["memory","cite"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"fact_cids":{"type":"array","maxItems":256,"items":{"type":"string"},"description":"Instead of triples: the exact facts to bind, by cid (a triple is resolved through recall and can bind a newer fact). Pass one of triples or fact_cids."},"triples":{"type":"array","maxItems":256,"description":"At most 256 per call; 257 is a typed 400. Chunk larger sets into ceil(N/256) bundles.","items":{"type":"object","properties":{"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"}}}},"purpose":{"type":"string","description":"Optional free-text purpose folded into the bundle_cid, so the same triples bundled for a different purpose get a distinct id."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_bundle/{token}": {"get":{"summary":"Dereference a bundle token back to its signed envelope: the citations, the fact_cids, the cells, and the receipt. Accepts emem:bundle:<bundle_cid> (legacy memb: also accepted) or a bare bundle_cid; the response always re-emits the canonical `bundle_token`. 404 when this responder did not compose the bundle (the composer is stateless, the resolver is sled-backed, so paste the token at the responder that minted it or re-compose from the original triples).","operationId":"emem_memory_bundle_resolve","tags":["memory","cite"],"parameters":[{"name":"token","in":"path","required":true,"schema":{"type":"string"},"description":"emem:bundle:<bundle_cid> (legacy memb: or bare cid accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/entity":            {"post":{"summary":"Mint (or idempotently get) a canonical, content-addressed identity for a real-world object. Anchor with `place`, `cell`, or `lat`+`lng`; returns `entity_token` (emem:entity:<entity_cid>) + a signed receipt attesting the resolution. Identity converges on a stable external id (Overture GERS / OSM) when known, so two agents naming the same object mint the same entity_cid. The object-level antidote to referential drift.","operationId":"emem_entity","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["label"],"properties":{"label":{"type":"string"},"kind":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},"parent":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/resolve":    {"post":{"summary":"Resolve a fuzzy phrasing to the objects agents have bound it to, ranked by INDEPENDENT corroboration: each candidate carries `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (single_key vs multiple_independent_keys), and the response says `contested` when more than one object claims the name. Or dereference an emem:entity: `token` directly. `text` for candidates, optional `near` to narrow by place, `k` for count. Read-only; alias text is other agents' data.","operationId":"emem_entity_resolve","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string"},"label":{"type":"string"},"token":{"type":"string","description":"emem:entity:<entity_cid> (legacy meme: accepted) to dereference"},"near":{"type":"string"},"k":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
@@ -32740,10 +32789,10 @@ async fn list_worlds() -> Json<JsonValue> {
     Json(list_worlds_at(&worlds_root()))
 }
 
-/// `root_exists` is what tells "no worlds baked" from "the directory is not
-/// there". Both answered `count: 0`: prod served that for weeks because the
-/// container runs with WORKDIR `/`, so the relative default resolved to
-/// nothing while four baked worlds sat on the host.
+/// `root_exists` tells "no worlds baked" from "the directory is not there",
+/// which both answer `count: 0`. The default is relative, so a process that
+/// does not start in the checkout (the container image starts in `/`) sees
+/// nothing unless `EMEM_WORLDS_DIR` is set.
 fn list_worlds_at(root: &std::path::Path) -> JsonValue {
     let root_exists = root.is_dir();
     static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
@@ -33557,14 +33606,11 @@ fn perception_path_admitted(clean: &str, allowed: &[&str], trees: &[&str]) -> bo
 
 /// An upstream 5xx, restated as this responder's 502.
 ///
-/// Passing the upstream's 500 through unchanged made the perception service's
-/// outage read as ours: a 44-minute geo.qa failure on 2026-09-23 reached a
-/// caller as `/v1/perception/at` "answering 500" from emem.dev, and an issue
-/// was filed against this responder for it. The transport-error branch already
-/// said "fronted, not run"; an upstream that answers with a 5xx is the same
-/// fact and gets the same envelope, plus the status and the head of the body so
-/// the upstream's own diagnosis is not discarded here. 4xx pass through: those
-/// are typed answers about the request, not failures of the service.
+/// Passed through unchanged, the upstream's 500 reads as this responder's own
+/// failure. The transport-error branch already says "fronted, not run"; a 5xx
+/// answer is the same fact and gets the same envelope, plus the status and the
+/// head of the body so the upstream's own diagnosis is kept. 4xx pass through:
+/// those are typed answers about the request, not failures of the service.
 fn perception_upstream_failure(status: u16, body: &[u8]) -> Option<Response> {
     if !(500..=599).contains(&status) {
         return None;
@@ -38826,17 +38872,18 @@ async fn post_memory_bundle(
         compute_bundle_cid, dedupe_first, BundleCitation, BundleResp, BUNDLES_TREE,
     };
 
-    if req.triples.is_empty() {
+    let by_cid = req.fact_cids.as_deref().unwrap_or_default();
+    if req.triples.is_empty() == by_cid.is_empty() {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
-                message: "memory_bundle requires at least one triple in `triples`".into(),
+                message: "memory_bundle takes either `triples` (resolved through recall) or `fact_cids` (bound exactly), one of them and not both".into(),
                 details: None,
             },
         ));
     }
-    if req.triples.len() > 256 {
+    if req.triples.len().max(by_cid.len()) > 256 {
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
@@ -38852,6 +38899,49 @@ async fn post_memory_bundle(
 
     let started = std::time::Instant::now();
     let mut citations: Vec<BundleCitation> = Vec::with_capacity(req.triples.len());
+
+    if !by_cid.is_empty() {
+        let cids: Vec<emem_fact::FactCid> = by_cid
+            .iter()
+            .map(|c| emem_fact::FactCid::new(c.trim().to_string()))
+            .collect();
+        let facts = s
+            .storage
+            .get_facts_many(&cids)
+            .await
+            .map_err(ApiError::from)?;
+        for (cid, fact) in cids.iter().zip(facts) {
+            let cid = cid.as_str().to_string();
+            citations.push(match fact {
+                Some(emem_fact::Fact::Primary(p)) => BundleCitation {
+                    memory_token: Some(format!("emem:fact:{}:{cid}", p.cell)),
+                    cell: p.cell,
+                    band: p.band,
+                    resolved_tslot: p.tslot,
+                    fact_cid: Some(cid),
+                    miss_reason: None,
+                },
+                Some(_) => BundleCitation {
+                    cell: String::new(),
+                    band: String::new(),
+                    resolved_tslot: 0,
+                    fact_cid: None,
+                    miss_reason: Some(format!(
+                        "{cid} is not a primary fact; a bundle binds primary facts"
+                    )),
+                    memory_token: None,
+                },
+                None => BundleCitation {
+                    cell: String::new(),
+                    band: String::new(),
+                    resolved_tslot: 0,
+                    fact_cid: None,
+                    miss_reason: Some(format!("this responder holds no fact with cid {cid}")),
+                    memory_token: None,
+                },
+            });
+        }
+    }
 
     // Resolve each triple through the same recall path REST callers
     // hit. Geocoding + auto-materialize follow as a side-effect, a
@@ -38917,7 +39007,12 @@ async fn post_memory_bundle(
 
     // Deduplicate cells & fact_cids preserving first-seen order; the
     // receipt cites the union of both lists.
-    let cells: Vec<String> = dedupe_first(citations.iter().map(|c| c.cell.clone()));
+    let cells: Vec<String> = dedupe_first(
+        citations
+            .iter()
+            .filter(|c| !c.cell.is_empty())
+            .map(|c| c.cell.clone()),
+    );
     let fact_cids: Vec<String> = dedupe_first(citations.iter().filter_map(|c| c.fact_cid.clone()));
 
     let bundle_cid = compute_bundle_cid(&citations, req.purpose.as_deref());
@@ -42073,6 +42168,11 @@ struct MemoryViewReq {
     /// Ignored for non-vault paths.
     #[serde(default)]
     vault_capability: Option<String>,
+    /// `"front"` returns the note's front matter and not its body, so an
+    /// agent reading a catalog of notes does not fetch every body to learn
+    /// what each one is.
+    #[serde(default)]
+    view: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -42177,6 +42277,7 @@ async fn get_memory_markdown(
             kind: None,
             offset: None,
             vault_capability: None,
+            view: None,
         },
     )
     .await?;
@@ -42660,6 +42761,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         })
     });
 
+    let front_only = (req.view.as_deref() == Some("front")).then(|| front_matter_view(&body));
     Ok(json!({
         "kind": "file",
         // Emitted before `content`, and named so it reads as a boundary
@@ -42685,10 +42787,36 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         },
         "superseded_by": meta.superseded_by,
         "size_bytes": meta.size_bytes,
-        "content": body,
+        "front_matter": front_only.as_ref().map(|(fm, _)| fm),
+        "content": match &front_only {
+            Some(_) => json!(null),
+            None => json!(body),
+        },
+        "content_omitted": front_only.as_ref().map(|(_, why)| why),
         "signed_at": meta.signed_at,
         "receipt": meta.receipt,
     }))
+}
+
+/// The front matter of a note as `key: value` pairs, and why the body is
+/// absent, for `view: "front"`.
+fn front_matter_view(body: &str) -> (JsonValue, &'static str) {
+    let (fm, _) = split_front_matter(body);
+    let mut map = serde_json::Map::new();
+    for line in fm.unwrap_or("").lines() {
+        if let Some((k, v)) = line.split_once(':') {
+            let k = k.trim();
+            if !k.is_empty() && !k.starts_with(' ') && !map.contains_key(k) {
+                map.insert(k.to_string(), json!(v.trim()));
+            }
+        }
+    }
+    let why = if fm.is_some() {
+        "view: front; read without `view` for the body, which authorship.body_hash_hex is checked against"
+    } else {
+        "view: front, and this note has no front matter; read without `view` for the body"
+    };
+    (JsonValue::Object(map), why)
 }
 
 /// The data-not-instructions boundary carried on every read of
@@ -59303,12 +59431,10 @@ const SCENE_MISS_PREFIX: &str = "no Sentinel-2 L2A scene with cloud_cover";
 ///
 /// A caller who named a cloud limit or a time gets exactly that search. One
 /// who named nothing gets the 90-day, 20 % search first, then wider ones, each
-/// run only after the previous missed. The fixed 90-day window answered 404 at
-/// Cubbon Park through a whole monsoon while this responder held Sentinel-2
-/// facts there: a cell is not unimageable because its last three months were
-/// cloudy. The label goes out as `x-emem-scene-fallback`, beside the scene's
-/// own datetime and cloud cover, so an older or cloudier picture never passes
-/// as the current clear one.
+/// run only after the previous missed: a cell whose last three months were
+/// cloudy is not unimageable. The rung's label goes out as
+/// `x-emem-scene-fallback`, beside the scene's own datetime and cloud cover, so
+/// an older or cloudier picture never passes as the current clear one.
 fn scene_search_rungs(explicit: bool) -> &'static [(f64, i64, Option<&'static str>)] {
     const DEFAULT: &[(f64, i64, Option<&str>)] = &[
         (20.0, 90, None),
@@ -60917,11 +61043,69 @@ fn reply_to_cid(body: &str) -> Option<String> {
     None
 }
 
+/// A note's YAML-ish front matter (between a leading `---` line and the next)
+/// and the text after it.
+fn split_front_matter(body: &str) -> (Option<&str>, &str) {
+    let Some(rest) = body
+        .strip_prefix("---\n")
+        .or_else(|| body.strip_prefix("---\r\n"))
+    else {
+        return (None, body);
+    };
+    match rest.find("\n---") {
+        Some(end) => {
+            let after = &rest[end + 4..];
+            let after = after.split_once('\n').map_or("", |(_, r)| r);
+            (Some(&rest[..end]), after)
+        }
+        None => (None, body),
+    }
+}
+
+fn front_matter_value<'a>(fm: &'a str, key: &str) -> Option<&'a str> {
+    fm.lines().find_map(|l| {
+        l.strip_prefix(key)
+            .and_then(|r| r.strip_prefix(':'))
+            .map(str::trim)
+    })
+}
+
 fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
-    let h1 = body
+    let (front, text) = split_front_matter(body);
+    if let Some(fm) = front {
+        // An explicit address is the author's own statement and wins.
+        if let Some(to) = front_matter_value(fm, "to") {
+            let cc = front_matter_value(fm, "cc")
+                .map(split_agent_tokens)
+                .unwrap_or_default();
+            let mut broadcast = false;
+            let mut direct = Vec::new();
+            for tok in split_agent_tokens(to) {
+                let low = tok.to_lowercase();
+                if low.contains("channel") || low == "all" || low == "everyone" {
+                    broadcast = true;
+                } else {
+                    direct.push(tok);
+                }
+            }
+            return (direct, cc, broadcast);
+        }
+        // A copy of someone else's text: its headings are theirs. Storing a
+        // quoted `X -> Y` heading must not make the storer appear to write to Y.
+        if front_matter_value(fm, "source").is_some() {
+            return (Vec::new(), Vec::new(), false);
+        }
+    }
+    // The heading is the first line of the note, not the first `# ` line
+    // anywhere in it. A comment inside a stored source file ("# an index lists
+    // every section by its name, so ... commits to all of them") was being
+    // read as a heading, and its "to all" as a broadcast, on every reseal.
+    let h1 = text
         .lines()
-        .find(|l| l.trim_start().starts_with("# "))
-        .map(|l| l.trim_start().trim_start_matches("# ").trim())
+        .find(|l| !l.trim().is_empty())
+        .map(str::trim_start)
+        .filter(|l| l.starts_with("# "))
+        .map(|l| l.trim_start_matches("# ").trim())
         .unwrap_or("");
     let rhs = h1
         .split_once("->")
@@ -78683,6 +78867,19 @@ mod tests {
         assert!(!mcp_browser_admits("tasks/cancel", None));
     }
 
+    #[test]
+    fn baked_docs_name_the_serving_nodes_own_origin() {
+        let doc = "POST https://emem.dev/v1/ask, see https://emem.dev. Not https://emem.devices.example or github.com/Vortx-AI/emem.";
+        assert_eq!(
+            rewrite_origin(doc, "https://node.example.org/"),
+            "POST https://node.example.org/v1/ask, see https://node.example.org. Not https://emem.devices.example or github.com/Vortx-AI/emem."
+        );
+        assert_eq!(
+            rewrite_origin("no origin here", "https://x.org"),
+            "no origin here"
+        );
+    }
+
     /// An upstream outage must not read as this responder's own 500.
     #[tokio::test]
     async fn perception_upstream_5xx_becomes_a_typed_502() {
@@ -84430,6 +84627,37 @@ mod tests {
         assert!(!broadcast, "naming recipients is not a broadcast");
     }
 
+    /// Text an agent stores is not mail it sends: a heading-like line inside a
+    /// stored file, or a quoted heading in a copy of someone else's note.
+    #[test]
+    fn stored_code_and_quoted_copies_are_not_mail() {
+        let js = "// emem.mjs: the wire.\nconst help=`\n# an index lists every section by its name, so the index commits to all of them\n`;\n";
+        assert_eq!(parse_note_addressing(js), (vec![], vec![], false));
+        let copy = "---\nsource: github.com/Vortx-AI/emem\nsection: docs/roadmap\n---\n\n# docs/roadmap agent -> mx67w2uj: the roadmap\n";
+        assert_eq!(parse_note_addressing(copy), (vec![], vec![], false));
+        // Control: the same heading as the note's own first line still addresses.
+        let (d, _, _) = parse_note_addressing("# ddzmyzhn -> mx67w2uj (cc k572x7go): a question\n");
+        assert_eq!(d, vec!["mx67w2uj"]);
+        // Front matter before the heading is fine.
+        let (d, c, _) =
+            parse_note_addressing("---\nemem: ask.v1\n---\n\n# a -> mx67w2uj (cc k572x7go): q\n");
+        assert_eq!(
+            (d, c),
+            (vec!["mx67w2uj".to_string()], vec!["k572x7go".to_string()])
+        );
+        // An explicit `to:` wins, even on a copy.
+        let (d, c, b) =
+            parse_note_addressing("---\nsource: x\nto: mx67w2uj\ncc: k572x7go\n---\n# anything\n");
+        assert_eq!(
+            (d, c, b),
+            (
+                vec!["mx67w2uj".to_string()],
+                vec!["k572x7go".to_string()],
+                false
+            )
+        );
+    }
+
     /// The arrow convention still works and still wins, so nothing that was
     /// being delivered stops being delivered.
     #[test]
@@ -85328,6 +85556,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -85368,6 +85597,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -85401,6 +85631,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -85436,6 +85667,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await;
@@ -85614,6 +85846,7 @@ mod tests {
                     view_range: None,
                     kind: None,
                     vault_capability: None,
+                    view: None,
                 },
             )
             .await
@@ -85685,6 +85918,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -85722,6 +85956,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: Some(cap),
+                view: None,
             },
         )
         .await
@@ -85947,6 +86182,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -86025,6 +86261,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -86094,6 +86331,7 @@ mod tests {
                 view_range: None,
                 kind: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -86143,6 +86381,43 @@ mod tests {
         ciborium::ser::into_writer(&json!({"facts": [], "batch_root": "x"}), &mut att_cbor)
             .unwrap();
         assert_eq!(log_entry_kind(&att_cbor), "attestation");
+    }
+
+    #[tokio::test]
+    async fn view_front_returns_the_front_matter_and_not_the_body() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let path = format!("/memories/by_attester/{short}/front.md");
+        let body =
+            b"---\nemem: pointer.v1\nroot: abc\n---\n\n# a pointer\n\nsecret-ish body text\n";
+        let att = sign_attester_v2(&sk, "create", &path, body, emem_primitives::BASE_ABSENT);
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect("create");
+        let view = |v: Option<&str>| MemoryViewReq {
+            path: path.clone(),
+            view: v.map(String::from),
+            ..Default::default()
+        };
+        let front = memory_view_inner(&s, view(Some("front")))
+            .await
+            .expect("front");
+        assert_eq!(front["front_matter"]["emem"], "pointer.v1");
+        assert_eq!(front["front_matter"]["root"], "abc");
+        assert!(front["content"].is_null() && front["content_omitted"].is_string());
+        // Control: without `view` the body is served and no front matter block is added.
+        let full = memory_view_inner(&s, view(None)).await.expect("full");
+        assert!(full["content"].as_str().unwrap().contains("body text"));
+        assert!(full["front_matter"].is_null());
     }
 
     /// Rows written before the version was stored are re-derived, and say so.
@@ -86468,6 +86743,7 @@ mod tests {
                 kind: None,
                 offset: None,
                 vault_capability: None,
+                view: None,
             },
         )
         .await
@@ -86910,6 +87186,7 @@ mod tests {
         // with fact_cid=None; the receipt's fact_cids list is empty
         // but cells are populated and the envelope still signs.
         let req = emem_primitives::memory_bundle::BundleReq {
+            fact_cids: None,
             triples: vec![emem_primitives::memory_bundle::BundleTriple {
                 cell: cell.into(),
                 band: "indices.ndvi".into(),
@@ -87731,6 +88008,75 @@ mod tests {
     /// lock so they never run concurrently. (Tests that operate on a LOCAL
     /// map, e.g. the capacity/eviction policy tests, do not need it.)
     static MCP_TASK_TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// A bundle by cid binds exactly the facts named, even when a newer fact
+    /// for the same cell and band exists, and a cid it does not hold is a
+    /// visible miss rather than a substitution.
+    #[tokio::test]
+    async fn a_bundle_by_fact_cid_binds_that_fact_and_no_newer_one() {
+        let s = test_app_state();
+        let cell = "defi.zb493.yiwo.zcb4e";
+        let old = seed_ndvi_fact(
+            &s,
+            cell,
+            20000,
+            [3u8; 32],
+            0.41,
+            0.9,
+            "2026-09-01T00:00:00Z",
+        )
+        .await;
+        let _newer = seed_ndvi_fact(
+            &s,
+            cell,
+            20010,
+            [3u8; 32],
+            0.52,
+            0.9,
+            "2026-09-11T00:00:00Z",
+        )
+        .await;
+        let req = emem_primitives::memory_bundle::BundleReq {
+            triples: vec![],
+            fact_cids: Some(vec![old.clone(), "nosuchfactcidnosuchfactcid".into()]),
+            purpose: None,
+            scope: None,
+        };
+        let Json(b) = post_memory_bundle(State(s.clone()), EmemJson(req))
+            .await
+            .expect("bundle");
+        assert_eq!(b.members, 2);
+        assert_eq!(b.resolved, 1);
+        assert_eq!(b.citations[0].fact_cid.as_deref(), Some(old.as_str()));
+        assert_eq!(b.citations[0].resolved_tslot, 20000);
+        assert_eq!(b.citations[0].cell, cell);
+        assert!(b.citations[1].fact_cid.is_none() && b.citations[1].miss_reason.is_some());
+        assert_eq!(b.cells, vec![cell.to_string()], "a miss adds no empty cell");
+        // Neither form, or both, is refused.
+        for (t, f) in [
+            (vec![], None),
+            (
+                vec![emem_primitives::memory_bundle::BundleTriple {
+                    cell: cell.into(),
+                    band: "indices.ndvi".into(),
+                    tslot: None,
+                    as_of_tslot: None,
+                    as_of_signed_at: None,
+                }],
+                Some(vec![old.clone()]),
+            ),
+        ] {
+            let req = emem_primitives::memory_bundle::BundleReq {
+                triples: t,
+                fact_cids: f,
+                purpose: None,
+                scope: None,
+            };
+            assert!(post_memory_bundle(State(s.clone()), EmemJson(req))
+                .await
+                .is_err());
+        }
+    }
 
     /// Seed ONE Primary NDVI fact at `(cell, "indices.ndvi", tslot)`
     /// signed by an arbitrary attester `secret`, persisted through the

@@ -200,7 +200,10 @@ async fn fetch_pinned(
         .redirect(reqwest::redirect::Policy::none())
         .no_proxy()
         .timeout(std::time::Duration::from_secs(30))
-        .user_agent("emem-range-hash/1 (+https://emem.dev)")
+        .user_agent(format!(
+            "emem-range-hash/1 (+{})",
+            crate::public_origin().unwrap_or_else(|| crate::CANONICAL_ORIGIN.to_string())
+        ))
         .build()
         .map_err(|e| refuse(StatusCode::INTERNAL_SERVER_ERROR, "client", e.to_string()))?;
     client

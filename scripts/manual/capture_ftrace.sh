@@ -38,8 +38,9 @@ done
 for d in "${made[@]}"; do echo 1 > "$d/tracing_on"; done
 # Real work in every layer during the window, so no log is empty by accident.
 ( dd if=/dev/zero of="$out/.io" bs=1M count=8 oflag=direct status=none; rm -f "$out/.io" ) &
-getent hosts emem.dev >/dev/null || true
-curl -s -o /dev/null https://emem.dev/live || true
+base=${EMEM_BASE:-https://emem.dev}
+getent hosts "$(echo "$base" | sed -E 's#^https?://##; s#[/:].*##')" >/dev/null || true
+curl -s -o /dev/null "$base/live" || true
 sleep "$secs"
 wait
 for d in "${made[@]}"; do echo 0 > "$d/tracing_on"; done

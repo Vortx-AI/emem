@@ -38,11 +38,18 @@ use emem_trace::{DeviceIdentity, OsTrace, PlatformAttestation, TraceSegment};
 
 const PROFILE: &str = "host.counters.v1";
 const PLATFORM: &str = "generic.linux-host";
-const ANCHOR_ID: &str = "operator.vortx.v1";
+/// The operator anchor that vouches for this host, as the responder lists it
+/// in /v1/device_platforms. `EMEM_OPERATOR_ANCHOR` names another operator's.
+fn anchor_id() -> String {
+    std::env::var("EMEM_OPERATOR_ANCHOR").unwrap_or_else(|_| "operator.vortx.v1".into())
+}
 const ENCODING: &str = "linux.ftrace.v1";
 const HWMODEL: &str =
     "emem-demo-device: a generic Linux host, software_only, no hardware root of trust, no measured boot";
-const OEMID: &str = "vortx.ai (operator-endorsed demo)";
+fn oemid() -> String {
+    std::env::var("EMEM_DEMO_OEMID")
+        .unwrap_or_else(|_| format!("{} (operator-endorsed demo)", anchor_id()))
+}
 const LAYERS: [(TraceLayerKind, &str); 4] = [
     (TraceLayerKind::Scheduler, "scheduler"),
     (TraceLayerKind::Memory, "memory"),
@@ -274,7 +281,7 @@ async fn main() -> Result<()> {
     let device_b32 = b32(&device_key.0);
     let endorser_fp = b32(blake3::hash(endorser.verifying_key().as_bytes()).as_bytes());
     println!("device key      {device_b32}");
-    println!("endorser anchor {ANCHOR_ID} fingerprint {endorser_fp}");
+    println!("endorser anchor {} fingerprint {endorser_fp}", anchor_id());
 
     // Evidence: the operator's word, and it says so. No measurements are
     // claimed because this host has no measured boot to report.
@@ -284,7 +291,7 @@ async fn main() -> Result<()> {
         PLATFORM,
         device_key,
         HWMODEL,
-        OEMID,
+        &oemid(),
         &b32(&nonce),
         Vec::new(),
         &endorser,
@@ -375,12 +382,15 @@ async fn main() -> Result<()> {
         .and_then(|p| p["trust_anchors"].as_array())
         .and_then(|a| {
             a.iter()
-                .find(|t| t["id"] == ANCHOR_ID && t["provisional"] == false)
+                .find(|t| t["id"] == anchor_id().as_str() && t["provisional"] == false)
         })
         .and_then(|t| t["fingerprint"].as_str())
         .map(str::to_string);
     if anchor_fp.as_deref() != Some(endorser_fp.as_str()) {
-        bail!("{base} does not list {ANCHOR_ID} with this endorser's fingerprint (it lists {anchor_fp:?})");
+        bail!(
+            "{base} does not list {} with this endorser's fingerprint (it lists {anchor_fp:?})",
+            anchor_id()
+        );
     }
     let manifests = call(&cli, base, "GET", "/v1/manifests", None).await?;
     let registry_cid = manifests["registry_cid"]

@@ -74,8 +74,15 @@ pub struct BundleCitation {
 /// Request body for `POST /v1/memory_bundle`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct BundleReq {
-    /// One or more triples to bundle. At least one required.
+    /// One or more triples to bundle. Required unless `fact_cids` is given.
+    #[serde(default)]
     pub triples: Vec<BundleTriple>,
+    /// Or the exact facts to bind, by cid. A triple is resolved through
+    /// recall, so it can bind a newer fact than the one a caller showed; a
+    /// cid binds that fact and no other. Each citation's cell, band and tslot
+    /// come from the stored fact.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fact_cids: Option<Vec<String>>,
     /// Optional human-readable purpose string. Persisted verbatim
     /// inside the envelope and included in the bundle_cid preimage
     /// so the same triples + different purposes produce distinct CIDs.

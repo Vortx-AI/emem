@@ -77,9 +77,10 @@ The maintained dev host runs this way. Walk through:
      ~/.config/systemd/user/emem-server.service
    ```
 
-3. Edit the `Environment=` lines to match the host. The example pins
-   `WorkingDirectory=/home/ubuntu/emem`, `EMEM_DATA=/home/ubuntu/emem/var/emem`,
-   `EMEM_BIND=127.0.0.1:5051`, and `EMEM_TLS_DOMAINS=emem.dev,www.emem.dev`.
+3. Edit the `Environment=` lines to match the host: `WorkingDirectory=`
+   your checkout, `EMEM_DATA=<checkout>/var/emem`, `EMEM_BIND=127.0.0.1:5051`,
+   and `EMEM_TLS_DOMAINS=` the names your node answers on. The example's
+   values are one maintainer's host; none of them is required.
 
 4. Reload and start:
 
@@ -184,9 +185,9 @@ when the variable is unset.
 | `EMEM_TRUST_FORWARDED` | unset | `=1` to honour `X-Forwarded-For` for rate limiting |
 | `EMEM_REDIRECT_HTTPS` | unset | `=1` to redirect plain HTTP to TLS |
 | `EMEM_ALLOWED_ORIGINS` | `*` | CORS allowlist; comma-separated |
-| `EMEM_MCP_ALLOWED_ORIGINS` | claude.ai, chatgpt.com, cursor.com, emem.dev | extra origins allowed every MCP call; comma-separated |
+| `EMEM_MCP_ALLOWED_ORIGINS` | the MCP hosts compiled in (claude.ai, chatgpt.com, cursor.com) plus emem.dev | extra origins allowed every MCP call; comma-separated. Add your own site's origin here |
 | `EMEM_MCP_BROWSER_READS` | on | from any other origin, MCP answers the handshake, listings and `readOnlyHint: true` tools and refuses the rest with 403; `=0` refuses them all (a node whose tools reach private data) |
-| `EMEM_WORLDS_DIR` | `var/worlds` (relative, so it resolves to nothing in the container) | baked splat worlds served at `/v1/worlds`; the listing reports `root_exists` |
+| `EMEM_WORLDS_DIR` | `var/worlds`, relative to the working directory | baked splat worlds served at `/v1/worlds`; set an absolute path when the process does not start in the checkout (the container image starts in `/`). The listing reports `root_exists` |
 | `EMEM_PUBLIC_URL` | derived from `EMEM_TLS_DOMAINS` | canonical origin for `/.well-known/emem.json` and User-Agent |
 | `EMEM_SECURITY_POLICY_URL` | unset | `Policy:` line in `/.well-known/security.txt` |
 | `EMEM_SIDECAR_SOCK` | `%t/emem/jepa_sidecar.sock` | UDS path the Rust server dials |
