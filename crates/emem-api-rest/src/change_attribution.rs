@@ -108,6 +108,8 @@ struct ScalarRow {
     tslot: u64,
     value: f64,
     cid: String,
+    /// The fact's own `signed_at`, so the ledger's time comes from its inputs.
+    signed_at: String,
     /// `scheme:id` per source entry, the sensor ledger's unit of record.
     sources: Vec<String>,
 }
@@ -161,6 +163,7 @@ fn scalar_rows(resp: &emem_primitives::RecallResp, band: &str) -> Vec<ScalarRow>
                         .get(idx)
                         .map(|c| c.as_str().to_string())
                         .unwrap_or_default(),
+                    signed_at: p.signed_at.clone(),
                     sources: p
                         .sources
                         .iter()
@@ -246,6 +249,7 @@ pub async fn change_attribution(
     let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
 
     let mut all_cids: Vec<String> = Vec::new();
+    let mut input_signed_at: Vec<String> = Vec::new();
     let mut tessera_tslot: Option<u64> = None;
     // Window bounds from the env-evidence pairs only: one tempo family,
     // so the min/max is meaningful. See the module header.
@@ -273,6 +277,7 @@ pub async fn change_attribution(
             });
             if let Some((i, p)) = primary {
                 tessera_tslot = Some(p.tslot);
+                input_signed_at.push(p.signed_at.clone());
                 let cid = resp
                     .receipt
                     .fact_cids
@@ -334,6 +339,8 @@ pub async fn change_attribution(
                         all_cids.push(c.clone());
                     }
                 }
+                input_signed_at.push(pair.now.signed_at.clone());
+                input_signed_at.push(pair.prev.signed_at.clone());
                 env_tslots.push(pair.now.tslot);
                 env_tslots.push(pair.prev.tslot);
                 env_evidence.push(json!({
@@ -371,6 +378,8 @@ pub async fn change_attribution(
                     all_cids.push(c.clone());
                 }
             }
+            input_signed_at.push(pair.now.signed_at.clone());
+            input_signed_at.push(pair.prev.signed_at.clone());
             json!({
                 "band": "s2.scl",
                 "class_now": pair.now.value,
@@ -424,6 +433,11 @@ pub async fn change_attribution(
 
     // ── persist the ledger as a derivative fact, /v1/derive's path. ───
     let window = ledger_window(&env_tslots, tessera_tslot);
+    // The fact's `signed_at` is the newest input's, not the wall clock: a fact
+    // cid hashes the whole fact, so a wall-clock stamp minted a new ledger
+    // token on every call over identical evidence, and two readings of one
+    // place could not be compared or cached. When this responder signed it is
+    // still recorded, in the attestation and the receipt.
     let signed_at = emem_storage::server::iso8601_now();
     let ledger_fact = DerivativeFact {
         cell: cell.clone(),
@@ -439,11 +453,28 @@ pub async fn change_attribution(
         },
         schema_cid: s.manifests.schema_cid.clone(),
         signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
+        signed_at: ledger_signed_at(&input_signed_at),
     };
-    let (persistence, ledger_fact_json, ledger_cid) =
+    // Same evidence, same fact: answer with the stored one rather than
+    // appending a duplicate to the log.
+    let ledger_fact = Fact::Derivative(ledger_fact);
+    let existing = match emem_cache::sled_hot::fact_cid_of(&ledger_fact) {
+        Ok(cid) => match s.storage.get_facts_many(std::slice::from_ref(&cid)).await {
+            Ok(v) if matches!(v.first(), Some(Some(_))) => Some(cid.as_str().to_string()),
+            _ => None,
+        },
+        Err(_) => None,
+    };
+    let (persistence, ledger_fact_json, ledger_cid) = if let Some(cid) = existing {
+        let token = format!("emem:fact:{cell}:{cid}");
+        (
+            json!("existing_derivative_fact"),
+            json!({ "fact_cid": cid, "token": token, "band": "change_attribution.ledger", "note": "the same inputs already produced this ledger; its cid is a function of the cell and the input facts, so the same question returns the same token" }),
+            Some(cid),
+        )
+    } else {
         match emem_fact::Attestation::build_and_sign_v1(
-            vec![Fact::Derivative(ledger_fact)],
+            vec![ledger_fact],
             vec![],
             s.manifests.registry_cid.clone(),
             s.manifests.schema_cid.clone(),
@@ -474,7 +505,8 @@ pub async fn change_attribution(
                 json!(null),
                 None,
             ),
-        };
+        }
+    };
 
     // The receipt binds the inputs read plus, when stored, the ledger's
     // own cid, so one signature covers the evidence and the attribution.
@@ -501,6 +533,18 @@ pub async fn change_attribution(
     out["input_fact_cids"] = json!(all_cids);
     out["receipt"] = serde_json::to_value(&receipt).unwrap_or(JsonValue::Null);
     Ok(out)
+}
+
+/// The ledger fact's `signed_at`: the newest input fact's. Inputs are RFC 3339
+/// UTC strings from one signer's clock format, which sort lexically. With no
+/// input the epoch, because nothing was read and no wall clock may leak into
+/// the cid.
+fn ledger_signed_at(inputs: &[String]) -> String {
+    inputs
+        .iter()
+        .max()
+        .cloned()
+        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string())
 }
 
 /// The stored fact's tslot window: min/max over the env-evidence pair
@@ -538,6 +582,44 @@ mod tests {
         assert_eq!(embedding_change(&a, &c), Some(1.0));
         let nan = vec![f32::NAN, f32::NAN, f32::NAN];
         assert_eq!(embedding_change(&a, &nan), None);
+    }
+
+    /// The ledger token is a function of its inputs: equal inputs give one
+    /// cid, a changed parent gives another, and no wall clock enters it.
+    #[test]
+    fn ledger_cid_depends_only_on_inputs() {
+        let times = vec![
+            "2026-09-01T10:00:00Z".to_string(),
+            "2026-09-20T08:30:00Z".to_string(),
+            "2026-08-11T00:00:00Z".to_string(),
+        ];
+        assert_eq!(ledger_signed_at(&times), "2026-09-20T08:30:00Z");
+        assert_eq!(ledger_signed_at(&[]), "1970-01-01T00:00:00Z");
+
+        let fact = |parents: &[&str]| {
+            Fact::Derivative(DerivativeFact {
+                cell: "defi.zb493.yiwo.zcb4e".into(),
+                band: "change_attribution.ledger".into(),
+                tslot_window: [20470, 20510],
+                op: "attribution_ledger".into(),
+                parents: parents
+                    .iter()
+                    .map(|p| FactCid::new(p.to_string()))
+                    .collect(),
+                value: json_to_cbor(&serde_json::json!({"schema": "emem.change_attribution.v1"})),
+                confidence: 1.0,
+                derivation: Derivation {
+                    fn_key: "change_attribution@1".into(),
+                    args: None,
+                },
+                schema_cid: emem_fact::SchemaCid::new("s"),
+                signer: emem_core::AttesterKey([7u8; 32]),
+                signed_at: ledger_signed_at(&times),
+            })
+        };
+        let cid = |f: &Fact| emem_cache::sled_hot::fact_cid_of(f).unwrap();
+        assert_eq!(cid(&fact(&["a", "b"])), cid(&fact(&["a", "b"])));
+        assert_ne!(cid(&fact(&["a", "b"])), cid(&fact(&["a", "c"])));
     }
 
     #[test]

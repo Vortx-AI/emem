@@ -57,8 +57,10 @@ mod intents;
 mod jepa_v2;
 mod physics;
 mod prithvi_chip;
+mod range_hash;
 mod terrain;
 pub mod topic_router;
+mod tree;
 mod triple_consensus;
 mod vault;
 
@@ -1448,6 +1450,13 @@ pub fn router(state: AppState) -> Router {
             "/v1/change_attribution",
             post(change_attribution::post_change_attribution),
         )
+        // emem:tree, per-row audit paths into a note's Merkle table. See
+        // crates/emem-api-rest/src/tree.rs.
+        .route("/v1/tree/path", post(tree::post_tree_path))
+        .route("/v1/tree/:file_cid", get(tree::get_tree))
+        // Signed BLAKE3 of a byte range, read next to the data. See
+        // crates/emem-api-rest/src/range_hash.rs for the egress bounds.
+        .route("/v1/range_hash", post(range_hash::post_range_hash))
         // A field as a signed derivation: docs/plans/field-tokens.md.
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
@@ -2185,12 +2194,13 @@ fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
         // cannot read is a header that is not published.
         HeaderValue::from_static(
             "etag, x-emem-receipt-cid, traceparent, mcp-session-id, mcp-protocol-version, \
-             x-emem-commit, \
+             x-emem-commit, x-emem-upstream-status, \
              x-emem-scene-item-id, x-emem-scene-datetime, x-emem-scene-cloud-cover, \
              x-emem-scene-epsg, x-emem-scene-bbox-crs, x-emem-scene-pixel-size, \
              x-emem-scene-width, x-emem-scene-height, x-emem-scene-format, \
              x-emem-scene-channels, x-emem-scene-stretch-r, x-emem-scene-stretch-g, \
-             x-emem-scene-stretch-b, x-emem-scene-sun, x-emem-scene-view",
+             x-emem-scene-stretch-b, x-emem-scene-sun, x-emem-scene-view, \
+             x-emem-scene-fallback",
         ),
     );
     h.insert("access-control-max-age", HeaderValue::from_static("86400"));
@@ -20140,6 +20150,22 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 ],
             },
             {
+                "name": "range_hash",
+                "domain": range_hash::RANGE_HASH_DOMAIN,
+                "construction": "preimage_v1",
+                "served_at": "POST /v1/range_hash",
+                "segments": [
+                    seg(range_hash::tag::URL, "url", "scalar", false, "the url as fetched"),
+                    seg(range_hash::tag::OFFSET, "offset", "scalar", false, "u64 big-endian"),
+                    seg(range_hash::tag::LENGTH, "length", "scalar", false, "u64 big-endian"),
+                    seg(range_hash::tag::BLAKE3, "blake3", "scalar", false, "32 raw bytes"),
+                    seg(range_hash::tag::ETAG, "etag", "scalar", false, "the upstream ETag, or `absent`"),
+                    seg(range_hash::tag::FETCHED_AT, "fetched_at", "scalar", false, ""),
+                    seg(range_hash::tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
+                    seg(range_hash::tag::FETCHED_URL, "fetched_url", "scalar", false, "the url the bytes came from, after at most three redirects"),
+                ],
+            },
+            {
                 "name": "transparency_log_witness",
                 "domain": TRANSLOG_WITNESS_DOMAIN,
                 "construction": "preimage_v1",
@@ -20199,8 +20225,11 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 "name": "memory_write",
                 "direction": "the caller signs and this responder verifies. Every other object on this page is the reverse, which is why this one does not use the receipt rule.",
                 "construction": "blake3_pipe",
-                "preimage": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash)",
-                "source_of_truth": "emem_primitives::attester_preimage, the one function the responder verifies against.",
+                "preimage": "blake3(\"emem.memory_write.v2|\" || verb || \"|\" || path || \"|\" || body_hash || \"|\" || base)",
+                "base": "the file_cid currently at `path`, or the literal `absent` when the path holds nothing (a create of a new path signs `absent`)",
+                "preimage_v1": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash), still accepted for create/str_replace/insert and refused for delete/rename",
+                "which_was_signed": "memory_view's authorship block states preimage_version (1 or 2) and base for each note; verify against that one rather than trying both",
+                "source_of_truth": "emem_primitives::attester_preimage_v2 and attester_preimage, the functions the responder verifies against (verify_attester_versioned tries v2 first).",
                 "signed_bytes": "ed25519 signs the 32-byte blake3 digest, same as preimage_v1",
                 "verbs": {
                     "create": "body_hash = blake3(the `file_text` string's UTF-8 bytes, exactly as transmitted)",
@@ -21361,11 +21390,18 @@ async fn get_log_entries(
     let entries: Vec<JsonValue> = rows
         .iter()
         .map(|(i, cbor)| {
+            let bytes = b32_lower(cbor);
             json!({
                 "leaf_index": i,
+                "entry_kind": log_entry_kind(cbor),
                 // The bytes themselves, so a caller re-derives the leaf rather than
                 // taking our word for it. Same base32 alphabet as every other id here.
-                "attestation_cbor_b32": b32_lower(cbor),
+                "entry_cbor_b32": bytes,
+                // The same bytes under the name every entry had when all of them
+                // were attestations. Kept, and filled for every kind, because
+                // witnesses re-hash this field to check the leaf; renaming it
+                // would have broken them the day the second kind appeared.
+                "attestation_cbor_b32": bytes,
                 "entry_hash_b32": b32_lower(blake3::hash(cbor).as_bytes()),
             })
         })
@@ -21380,7 +21416,7 @@ async fn get_log_entries(
         "returned": returned,
         "truncated": asked_end > end || start + returned < end,
         "max_per_call": LOG_ENTRIES_MAX,
-        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash attestation_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold.",
+        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Two kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation) and `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds.",
         "spec": "https://emem.dev/spec.md#transparency-log"
     })))
 }
@@ -21422,6 +21458,7 @@ async fn get_log_inclusion(
         }
         None => n,
     };
+    let mut note_match: Option<String> = None;
     let m: usize = if let Some(li) = q.get("leaf_index") {
         li.parse()
             .map_err(|_| translog_bad_arg("leaf_index must be a non-negative integer"))?
@@ -21434,6 +21471,15 @@ async fn get_log_inclusion(
         }
         let mut want = [0u8; 32];
         want.copy_from_slice(&raw);
+        // Not an entry hash? It may be a memory note's content hash, which is
+        // what a reader holding only the note has. Resolve it through the
+        // note's meta to the entry that logged it.
+        if !leaves[..size].contains(&want) {
+            if let Some((entry, cid)) = memory_log_entry_for_content(&s, &want) {
+                note_match = Some(cid);
+                want = entry;
+            }
+        }
         leaves[..size]
             .iter()
             .position(|l| *l == want)
@@ -21491,8 +21537,37 @@ async fn get_log_inclusion(
         "leaf_hash_b32": b32_lower(&leaf),
         "audit_path_b32": path.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
         "sth": sth,
-        "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, root)"
+        "matched": if note_match.is_some() { "memory_note_content" } else { "entry_hash" },
+        "memory_note_file_cid": note_match,
+        "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, root). For matched=memory_note_content, also fetch entry leaf_index from /v1/log/entries and check its content_blake3 equals the hash you asked with."
     })))
+}
+
+/// The log entry that recorded the memory note whose content hashes to
+/// `content`, if one did: the note's file_cid is the first 16 bytes of that
+/// hash, and its meta carries the entry hash. The note's bytes are re-hashed
+/// so a meta row cannot vouch for content it does not hold.
+fn memory_log_entry_for_content(s: &AppState, content: &[u8; 32]) -> Option<([u8; 32], String)> {
+    let cid = data_encoding::BASE32_NOPAD
+        .encode(&content[..16])
+        .to_ascii_lowercase();
+    let db = s.storage.hot_sled_db()?;
+    let blob = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_BLOBS)
+        .ok()?
+        .get(cid.as_bytes())
+        .ok()??;
+    if blake3::hash(&blob).as_bytes() != content {
+        return None;
+    }
+    let raw = db
+        .open_tree(emem_storage::TREE_MEMORY_FILE_META)
+        .ok()?
+        .get(cid.as_bytes())
+        .ok()??;
+    let meta: MemoryFileMeta = ciborium::de::from_reader(&raw[..]).ok()?;
+    let entry = b32_decode_n::<32>(meta.log_entry_hash_b32.as_deref()?)?;
+    Some((entry, cid))
 }
 
 /// `GET /v1/log/consistency?first=<m>&second=<n>`, an RFC 6962
@@ -21691,6 +21766,10 @@ async fn post_log_witness(
             },
         ));
     }
+    // The same per-key write backstop every other signed write has. This
+    // route had none, and every visitor of a page that co-signs with its
+    // writer key is a new witness row.
+    enforce_write_rate_limit_key(&b32_lower(&pk))?;
 
     // Persist: key = tree_size_be(8) || pubkey(32) so a range scan can list
     // every witness at a given size, and a witness re-submitting the same
@@ -21814,6 +21893,67 @@ async fn witness_rows(
     Ok((current, out))
 }
 
+/// Operator domains this node answers for, so keys vouched by our own domain
+/// are counted as us rather than as independent operators. From the same env
+/// the public origin comes from.
+fn own_operator_domains() -> Vec<String> {
+    let mut out: Vec<String> = std::env::var("EMEM_TLS_DOMAINS")
+        .unwrap_or_default()
+        .split(',')
+        .map(|d| d.trim().to_ascii_lowercase())
+        .filter(|d| !d.is_empty())
+        .collect();
+    if let Some(host) = public_origin()
+        .as_deref()
+        .and_then(|o| o.split("://").nth(1))
+        .map(|h| {
+            h.split(['/', ':'])
+                .next()
+                .unwrap_or("")
+                .to_ascii_lowercase()
+        })
+        .filter(|h| !h.is_empty())
+    {
+        out.push(host);
+    }
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// What a witness key is, as far as this responder can check.
+///
+/// A verified co-signature proves only that someone holds the key, and keys
+/// are free, so a count of keys is a count a swarm can inflate at will. The
+/// one signal here that costs something is fresh org evidence (a DNS TXT or
+/// well-known record under a domain the key's holder controls), so
+/// independence is counted in DOMAINS, not keys: two keys under one domain are
+/// one operator. Keys vouched by this node's own domains, and its declared
+/// witness key, are this node.
+fn witness_tier(
+    pubkey_b32: &str,
+    self_key: Option<&str>,
+    evidence: Option<&crate::enlistment::Evidence>,
+    own_domains: &[String],
+    now: u64,
+) -> (&'static str, Option<String>) {
+    let domain = evidence
+        .filter(|e| e.is_fresh(now))
+        .map(|e| e.domain.trim().trim_end_matches('.').to_ascii_lowercase());
+    let is_own = |d: &str| {
+        own_domains
+            .iter()
+            .any(|o| d == o || d.ends_with(&format!(".{o}")))
+    };
+    if self_key == Some(pubkey_b32) || domain.as_deref().is_some_and(is_own) {
+        return ("self_operator", domain);
+    }
+    match domain {
+        Some(d) => ("org_vouched", Some(d)),
+        None => ("key_only", None),
+    }
+}
+
 async fn get_log_witnesses(
     State(s): State<AppState>,
     Query(q): Query<std::collections::HashMap<String, String>>,
@@ -21880,7 +22020,60 @@ async fn get_log_witnesses(
             .collect();
         (gap, keys.len(), rows.len())
     };
-    let out: Vec<JsonValue> = all.into_iter().rev().take(limit).collect();
+    // Tier every distinct key once (one point read each), over every row.
+    let own_domains = own_operator_domains();
+    let now = now_unix();
+    let mut tiers: std::collections::BTreeMap<String, (&'static str, Option<String>)> =
+        std::collections::BTreeMap::new();
+    for w in &all {
+        if let Some(k) = w["witness_pubkey_b32"].as_str() {
+            if !tiers.contains_key(k) {
+                let ev = enlistment_evidence(&s, k);
+                tiers.insert(
+                    k.to_string(),
+                    witness_tier(k, self_key.as_deref(), ev.as_ref(), &own_domains, now),
+                );
+            }
+        }
+    }
+    let mut keys_by_tier: std::collections::BTreeMap<&str, usize> =
+        [("key_only", 0), ("org_vouched", 0), ("self_operator", 0)]
+            .into_iter()
+            .collect();
+    for (t, _) in tiers.values() {
+        *keys_by_tier.entry(t).or_default() += 1;
+    }
+    let operator_domains: std::collections::BTreeSet<&str> = tiers
+        .values()
+        .filter(|(t, _)| *t == "org_vouched")
+        .filter_map(|(_, d)| d.as_deref())
+        .collect();
+    let operator_head_gap = all
+        .iter()
+        .filter(|w| {
+            w["witness_pubkey_b32"]
+                .as_str()
+                .and_then(|k| tiers.get(k))
+                .is_some_and(|(t, _)| *t == "org_vouched")
+        })
+        .filter_map(|w| w["entries_behind_current"].as_u64())
+        .min();
+    let out: Vec<JsonValue> = all
+        .into_iter()
+        .rev()
+        .take(limit)
+        .map(|mut w| {
+            let tier = w["witness_pubkey_b32"]
+                .as_str()
+                .and_then(|k| tiers.get(k))
+                .cloned();
+            if let (Some((t, d)), Some(o)) = (tier, w.as_object_mut()) {
+                o.insert("tier".into(), json!(t));
+                o.insert("vouched_by_domain".into(), json!(d));
+            }
+            w
+        })
+        .collect();
     let freshest_gap = out
         .iter()
         .filter_map(|w| w["entries_behind_current"].as_u64())
@@ -21910,6 +22103,22 @@ async fn get_log_witnesses(
         // when the operator declared no witness key, in which case the four
         // fields above counted every row and are not really independent.
         "self_witness_pubkey_b32": self_key,
+        // Independence by identity tier rather than by key. Keys are free, so
+        // `independent_witness_count` above is a number a swarm of fresh keys
+        // inflates at will; it stays for compatibility and should not be read
+        // as a count of parties. `independent_operator_count` is distinct org
+        // DOMAINS with fresh DNS or well-known evidence, excluding this node's
+        // own, and is the number that costs something to move.
+        "witness_keys_by_tier": keys_by_tier,
+        "independent_operator_count": operator_domains.len(),
+        "independent_operator_domains": operator_domains,
+        "head_is_witnessed_by_independent_operator": operator_head_gap == Some(0),
+        "freshest_independent_operator_entries_behind": operator_head_gap,
+        "tiers": {
+            "key_only": "the co-signature verifies, which proves someone holds the key and nothing more; keys are free",
+            "org_vouched": "the key has fresh (under 30 days) DNS TXT or well-known evidence under a domain (GET /v1/enlist); counted once per domain",
+            "self_operator": "this node's declared witness key, or a key vouched by one of this node's own domains",
+        },
         "witnesses": out,
         "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed, and it is the one that speaks to split view. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
@@ -24855,6 +25064,57 @@ fn mcp_origin_allowed(origin: &str) -> bool {
         }
     }
     false
+}
+
+/// What a request from an origin outside that list may still do: read.
+///
+/// The Origin check is DNS-rebinding protection for a LOCAL listener, where a
+/// page could reach an MCP server that holds the user's session. On a public
+/// responder it guarded nothing: REST and A2A already answer any origin, no
+/// bearer or cookie grants authority, and every write needs the caller's own
+/// signature. What it did do was stop a web page speaking MCP at all. So an
+/// unlisted origin may run the handshake, the listings, and any tool that
+/// declares `readOnlyHint: true`; everything else is refused with HTTP 403, as
+/// the streamable-HTTP transport requires for a rejected Origin.
+/// `EMEM_MCP_BROWSER_READS=0` restores the strict gate, for a node whose tools
+/// can reach something private.
+fn mcp_browser_admits(method: &str, params: Option<&JsonValue>) -> bool {
+    if std::env::var("EMEM_MCP_BROWSER_READS").as_deref() == Ok("0") {
+        return false;
+    }
+    match method {
+        "initialize"
+        | "ping"
+        | "tools/list"
+        | "resources/list"
+        | "resources/read"
+        | "resources/templates/list"
+        | "prompts/list"
+        | "prompts/get" => true,
+        m if m.starts_with("notifications/") => true,
+        "tools/call" => params
+            .and_then(|p| p.get("name"))
+            .and_then(|v| v.as_str())
+            .and_then(emem_mcp::lookup)
+            .is_some_and(|t| t.read_only_hint),
+        _ => false,
+    }
+}
+
+fn mcp_origin_refused(id: JsonValue) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (
+        StatusCode::FORBIDDEN,
+        Json(json!({
+            "jsonrpc": "2.0",
+            "id":      id,
+            "error":   {
+                "code":    -32000i64,
+                "message": "Origin not allowed for this call. From an unlisted origin this endpoint answers the handshake, the listings and tools that declare readOnlyHint: true; writes go through POST /a2a/tasks with a signed attester block. Operators can allow an origin with EMEM_MCP_ALLOWED_ORIGINS.",
+            },
+        })),
+    )
+        .into_response()
 }
 
 // ── A2A round 2: the free-text front door ────────────────────────────────
@@ -28063,25 +28323,14 @@ async fn mcp_jsonrpc_inner(
     default_tier: &str,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    // DNS-rebinding defense, see `mcp_origin_allowed` above. We check
-    // the Origin header BEFORE parsing the body so an attacker can't
-    // burn the JSON-RPC dispatcher just by sending a crafted request
-    // from a disallowed origin.
+    // DNS-rebinding defense, see `mcp_origin_allowed` above. An unlisted
+    // origin is refused before dispatch unless the call only reads, see
+    // `mcp_browser_admits`; the body has to be parsed to know which.
     let origin = headers
         .get("origin")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
-    if !mcp_origin_allowed(origin) {
-        return Json(json!({
-            "jsonrpc": "2.0",
-            "id":      JsonValue::Null,
-            "error":   {
-                "code":    -32000i64,
-                "message": "Origin not allowed. Set EMEM_MCP_ALLOWED_ORIGINS if this is a legitimate host.",
-            },
-        }))
-        .into_response();
-    }
+    let origin_listed = mcp_origin_allowed(origin);
     // Spec: malformed JSON / missing required JSON-RPC fields MUST be
     // returned as a JSON-RPC `-32600 Invalid Request` envelope, NOT as
     // an HTTP-level 422 (which is what axum's `Json<T>` extractor
@@ -28089,6 +28338,7 @@ async fn mcp_jsonrpc_inner(
     // contract a host like Claude.ai expects).
     let req: JsonRpcReq = match serde_json::from_slice(&body) {
         Ok(r) => r,
+        Err(_) if !origin_listed => return mcp_origin_refused(JsonValue::Null),
         Err(e) => {
             return Json(json!({
                 "jsonrpc": "2.0",
@@ -28101,6 +28351,9 @@ async fn mcp_jsonrpc_inner(
             .into_response();
         }
     };
+    if !origin_listed && !mcp_browser_admits(&req.method, req.params.as_ref()) {
+        return mcp_origin_refused(req.id.clone().unwrap_or(JsonValue::Null));
+    }
     metrics_inc(&MCP_TOTAL);
     let started = std::time::Instant::now();
     // Per JSON-RPC 2.0 §4.1 + MCP Streamable-HTTP spec, a request without
@@ -31688,7 +31941,10 @@ fn openapi_spec() -> JsonValue {
             // registry algorithms actually computable. Each signs its
             // result and returns an honest `inconclusive` verdict (no
             // fabricated number) when the inputs are not materializable.
-            "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. Each run persists as a derivative fact and returns its own emem:fact: token under ledger_fact; the receipt binds the input cids plus the stored ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/tree/{file_cid}": {"get":{"summary":"emem:tree: the audit path from one row of a note's Merkle table to the note's signed root, so an agent checks one chunk with log2(n) hashes instead of fetching the whole table. Reads pointer.v1 and directory.v1 notes; leaf = blake3(url || u64_be offset || u64_be length || hash), node = blake3(left || right), an odd node promoted. Refuses with root_mismatch when the note's stated root does not match its own rows, and not_a_tree for other kinds. Without ?row, returns the row count and root. Token: emem:tree:<file_cid>#row=<index>.","operationId":"emem_tree","parameters":[{"name":"file_cid","in":"path","required":true,"schema":{"type":"string"}},{"name":"row","in":"query","required":false,"schema":{"type":"string"},"description":"row index, or its label (a pointer's chunk label, a directory's path)"}],"responses":{"200":json_ok}}},
+            "/v1/range_hash": {"post":{"summary":"range_hash: BLAKE3-256 of exactly `length` bytes at `offset` of a public https url, as fetched by this responder, under a signed receipt binding url, offset, length, hash, ETag and fetch time (PreimageV1 emem.range_hash.v1). Also returns the pointer-row leaf, so the answer slots into an emem:tree. Bounds: https on 443 only, no IP literals or local names, DNS pinned to publicly routable addresses, at most three redirects each admitted and pinned the same way (the receipt binds the url asked and the url fetched), the upstream must answer 206 with the exact Content-Range, at most 16 MiB per call, a per-IP daily quota.","operationId":"emem_range_hash","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["url","offset","length"],"properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/tree/path": {"post":{"summary":"emem:tree over rows the caller holds: the same audit path and root as GET /v1/tree/{file_cid}, from `leaves` (base32 leaf hashes) or `chunks` ({url, offset, length, hash}), with no note and no parser in between.","operationId":"emem_tree_path","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["index"],"properties":{"index":{"type":"integer"},"leaves":{"type":"array","items":{"type":"string"}},"chunks":{"type":"array","items":{"type":"object","properties":{"url":{"type":"string"},"offset":{"type":"integer"},"length":{"type":"integer"},"hash":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/change_attribution": {"post":{"summary":"The attribution ledger for a readout change at a cell: per-term evidence for Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε, with NO numeric split. Reports the observed Tessera year-over-year embedding change, label-free index pairs (NDVI, NBR, NDWI) with raw deltas as environment evidence, the sources each visit was observed through (sensor record), the encoder pinning proof (one signed multi-year fact, one recipe), and the S2 scene-class per visit (noise evidence). `split` is null and `attribution_note` says why: a calibrated cross-encoder, cross-sensor stability model does not exist in this build. The ledger persists as a derivative fact and returns its emem:fact: token under ledger_fact; its cid is a function of the cell and the input facts, so the same inputs return the same token (persistence: existing_derivative_fact on a repeat). The receipt binds the input cids plus the ledger cid.","operationId":"emem_change_attribution","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12; window cap 512 px per side, refused with the cap named. The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
@@ -32481,9 +32737,21 @@ fn world_file_mime(file: &str) -> Option<&'static str> {
 /// (title, counts, artifact sizes + hashes) without touching the scene
 /// or the receipts.
 async fn list_worlds() -> Json<JsonValue> {
-    let root = worlds_root();
+    Json(list_worlds_at(&worlds_root()))
+}
+
+/// `root_exists` is what tells "no worlds baked" from "the directory is not
+/// there". Both answered `count: 0`: prod served that for weeks because the
+/// container runs with WORKDIR `/`, so the relative default resolved to
+/// nothing while four baked worlds sat on the host.
+fn list_worlds_at(root: &std::path::Path) -> JsonValue {
+    let root_exists = root.is_dir();
+    static WARNED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !root_exists && !WARNED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        tracing::warn!(root = %root.display(), "worlds root does not exist; set EMEM_WORLDS_DIR");
+    }
     let mut worlds: Vec<JsonValue> = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(&root) {
+    if let Ok(rd) = std::fs::read_dir(root) {
         for ent in rd.flatten() {
             let name = ent.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') || !ent.path().is_dir() {
@@ -32508,11 +32776,12 @@ async fn list_worlds() -> Json<JsonValue> {
             .unwrap_or("")
             .cmp(b["preset"].as_str().unwrap_or(""))
     });
-    Json(json!({
+    json!({
         "root": root.to_string_lossy(),
+        "root_exists": root_exists,
         "count": worlds.len(),
         "worlds": worlds,
-    }))
+    })
 }
 
 /// Serve one baked artifact. Scenes only change when a re-bake swaps the
@@ -33286,6 +33555,43 @@ fn perception_path_admitted(clean: &str, allowed: &[&str], trees: &[&str]) -> bo
     in_tree || allowed.contains(&clean)
 }
 
+/// An upstream 5xx, restated as this responder's 502.
+///
+/// Passing the upstream's 500 through unchanged made the perception service's
+/// outage read as ours: a 44-minute geo.qa failure on 2026-09-23 reached a
+/// caller as `/v1/perception/at` "answering 500" from emem.dev, and an issue
+/// was filed against this responder for it. The transport-error branch already
+/// said "fronted, not run"; an upstream that answers with a 5xx is the same
+/// fact and gets the same envelope, plus the status and the head of the body so
+/// the upstream's own diagnosis is not discarded here. 4xx pass through: those
+/// are typed answers about the request, not failures of the service.
+fn perception_upstream_failure(status: u16, body: &[u8]) -> Option<Response> {
+    if !(500..=599).contains(&status) {
+        return None;
+    }
+    let text = String::from_utf8_lossy(body);
+    let mut end = text.len().min(512);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut resp = (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({
+            "error": format!("the perception service answered {status}"),
+            "code": "upstream_failed",
+            "upstream_status": status,
+            "upstream_body": &text[..end],
+            "fronted_by": "emem",
+            "note": "this responder fronts that service and does not run it; the capability is declared and the service is failing upstream",
+        })),
+    )
+        .into_response();
+    if let Ok(v) = HeaderValue::from_str(&status.to_string()) {
+        resp.headers_mut().insert("x-emem-upstream-status", v);
+    }
+    Some(resp)
+}
+
 async fn perception_proxy(
     Path(path): Path<String>,
     method: axum::http::Method,
@@ -33504,6 +33810,9 @@ async fn perception_proxy(
                 .to_string();
             match resp.bytes().await {
                 Ok(b) => {
+                    if let Some(failed) = perception_upstream_failure(status, &b) {
+                        return failed;
+                    }
                     // Forward the labels, not just the bytes.
                     //
                     // This returned content-type and nothing else, so every
@@ -40005,6 +40314,21 @@ struct MemoryFileMeta {
     /// blake3(""); rename = blake3(old_path)). Pairs with `attester_sig_b32`.
     #[serde(default)]
     attester_body_hash_hex: Option<String>,
+    /// Which preimage the caller's signature verified against at write time
+    /// (1 or 2), and for v2 the `base` it named. Without these the authorship
+    /// block could only describe one formula, and it described v1 for notes
+    /// signed under v2, so a verifier that followed it literally reported a
+    /// false "signature fails". `None` on rows written before these existed;
+    /// memory_view re-derives those at read time and says so.
+    #[serde(default)]
+    attester_preimage_version: Option<u8>,
+    #[serde(default)]
+    attester_base: Option<String>,
+    /// This write's entry in the transparency log (`blake3` of the record,
+    /// base32), so `/v1/log/inclusion?entry_hash=` proves the note existed by
+    /// any later signed head. `None` for writes before notes were logged.
+    #[serde(default)]
+    log_entry_hash_b32: Option<String>,
     /// If this file has been consolidated, the file_cid of the
     /// consolidated summary that supersedes it.
     #[serde(default)]
@@ -40489,13 +40813,94 @@ fn current_base_cid(s: &AppState, path: &str) -> String {
     }
 }
 
+/// The preimage a caller's write signature verified against, kept so the
+/// authorship block can state the formula that was actually signed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SignedPreimage {
+    version: u8,
+    /// The v2 `base` component; `None` for v1, which has no base.
+    base: Option<String>,
+}
+
+impl SignedPreimage {
+    fn new(version: emem_primitives::PreimageVersion, base: &str) -> Self {
+        match version {
+            emem_primitives::PreimageVersion::V1 => Self {
+                version: 1,
+                base: None,
+            },
+            emem_primitives::PreimageVersion::V2 => Self {
+                version: 2,
+                base: Some(base.to_string()),
+            },
+        }
+    }
+}
+
+const MEMORY_PREIMAGE_V1_FORMULA: &str = "blake3(b\"emem.memory_write|\" + verb + b\"|\" + signed_path + b\"|\" + bytes.fromhex(body_hash_hex))";
+const MEMORY_PREIMAGE_V2_FORMULA: &str = "blake3(b\"emem.memory_write.v2|\" + verb + b\"|\" + signed_path + b\"|\" + bytes.fromhex(body_hash_hex) + b\"|\" + base)";
+
+/// Which preimage a stored write signature verifies against, and how we know.
+///
+/// Rows written since the version was persisted carry it. Older rows do not,
+/// so the signature is re-verified here: v2 with `base = absent` for a create
+/// (a create of a new path is the only case whose base is knowable without the
+/// path's history), then v1. A row that verifies under neither is reported as
+/// `unknown` with both formulas, never as one of them.
+fn memory_authorship_preimage(
+    meta: &MemoryFileMeta,
+    pk: &str,
+    sig: &str,
+    body_hash_hex: &str,
+) -> (Option<SignedPreimage>, &'static str) {
+    if let Some(version) = meta.attester_preimage_version {
+        return (
+            Some(SignedPreimage {
+                version,
+                base: meta.attester_base.clone(),
+            }),
+            "recorded_at_write",
+        );
+    }
+    reverify_memory_preimage(&meta.verb, &meta.path, pk, sig, body_hash_hex)
+}
+
+fn reverify_memory_preimage(
+    verb: &str,
+    signed_path: &str,
+    pk: &str,
+    sig: &str,
+    body_hash_hex: &str,
+) -> (Option<SignedPreimage>, &'static str) {
+    let Ok(bh) = data_encoding::HEXLOWER.decode(body_hash_hex.as_bytes()) else {
+        return (None, "unknown");
+    };
+    let Ok(bh) = <[u8; 32]>::try_from(bh.as_slice()) else {
+        return (None, "unknown");
+    };
+    let att = MemoryAttester {
+        pubkey_b32: pk.to_string(),
+        sig_b32: sig.to_string(),
+    };
+    let base = emem_primitives::BASE_ABSENT;
+    let (verdict, version) =
+        emem_primitives::verify_attester_versioned(verb, signed_path, &bh, base, &att);
+    match verdict {
+        AttestationVerdict::Ok | AttestationVerdict::NamespaceMismatch => (
+            Some(SignedPreimage::new(version, base)),
+            "reverified_at_read",
+        ),
+        _ => (None, "unknown"),
+    }
+}
+
 fn validate_attester_binding(
     verb: &str,
     path: &str,
     body_hash: &[u8; 32],
     base: &str,
     attester: Option<&MemoryAttester>,
-) -> Result<(), ApiError> {
+) -> Result<Option<SignedPreimage>, ApiError> {
     match attester {
         None => {
             // Bare write: the `by_attester` sub-tree is always gated; the
@@ -40528,7 +40933,7 @@ fn validate_attester_binding(
                     },
                 ));
             }
-            Ok(())
+            Ok(None)
         }
         Some(att) => {
             let (verdict, version) =
@@ -40541,11 +40946,10 @@ fn validate_attester_binding(
                 // rather than a lookup, and survives a restart because nothing
                 // has to be remembered.
                 AttestationVerdict::Ok => {
-                    if version == emem_primitives::PreimageVersion::V2 {
-                        Ok(())
-                    } else {
-                        replay_guard(verb, path, att)
+                    if version != emem_primitives::PreimageVersion::V2 {
+                        replay_guard(verb, path, att)?;
                     }
+                    Ok(Some(SignedPreimage::new(version, base)))
                 }
                 AttestationVerdict::BadPubkey => Err(ApiError(
                     StatusCode::UNAUTHORIZED,
@@ -40570,7 +40974,7 @@ fn validate_attester_binding(
                         code: ErrorCode::BadSignature,
                         message: format!(
                             "memory_attestation_invalid: attester.sig_b32 does not verify over the expected preimage. This responder expected blake3 digest {} for `{verb}` at `{path}`. Compare it with the digest you signed: `details.how_to_sign` shows how it was built, including what body_hash means for this verb.",
-                            data_encoding::HEXLOWER.encode(&emem_primitives::attester_preimage(verb, path, body_hash))
+                            data_encoding::HEXLOWER.encode(&emem_primitives::attester_preimage_v2(verb, path, body_hash, base))
                         ),
                         details: Some(json!({
                             "code": "memory_attestation_invalid",
@@ -40832,6 +41236,9 @@ fn read_memory_file(
             attester_pubkey_b32: None,
             attester_sig_b32: None,
             attester_body_hash_hex: None,
+            attester_preimage_version: None,
+            attester_base: None,
+            log_entry_hash_b32: None,
             superseded_by: None,
             // Synthesise a minimal receipt for pre-meta entries. The
             // round-trip test path always writes meta, so this branch
@@ -41279,7 +41686,68 @@ fn flush_off_runtime_blocking(tree: &sled::Tree) {
     let _ = tree.flush();
 }
 
-// Nine arguments, against clippy's threshold of seven. The obvious grouping,
+/// The kind tag of a memory-write entry in the transparency log. Every other
+/// entry is an `Attestation`; this one is a CBOR map carrying this key, so an
+/// auditor walking `/v1/log/entries` tells the two apart by decoding one field.
+const MEMORY_LOG_KIND: &str = "emem.memory_write.v1";
+
+/// A memory write as a log entry: what was written where, by whom, and the
+/// signature that proves it, with text keys in deterministic order (length,
+/// then bytes). The note's bytes are named by `content_blake3`, not copied.
+fn memory_log_record(meta: &MemoryFileMeta, content_blake3: &[u8; 32]) -> Vec<u8> {
+    use ciborium::Value as V;
+    let opt = |v: &Option<String>| v.clone().map(V::Text).unwrap_or(V::Null);
+    let mut entries: Vec<(&str, V)> = vec![
+        ("kind", V::Text(MEMORY_LOG_KIND.into())),
+        ("path", V::Text(meta.path.clone())),
+        ("file_cid", V::Text(meta.file_cid.clone())),
+        ("content_blake3", V::Bytes(content_blake3.to_vec())),
+        ("size_bytes", V::Integer(meta.size_bytes.into())),
+        ("verb", V::Text(meta.verb.clone())),
+        ("signed_at", V::Text(meta.signed_at.clone())),
+        ("attester_pubkey_b32", opt(&meta.attester_pubkey_b32)),
+        ("sig_b32", opt(&meta.attester_sig_b32)),
+        ("body_hash_hex", opt(&meta.attester_body_hash_hex)),
+        (
+            "preimage_version",
+            meta.attester_preimage_version
+                .map(|v| V::Integer(v.into()))
+                .unwrap_or(V::Null),
+        ),
+        ("base", opt(&meta.attester_base)),
+    ];
+    entries.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(b.0)));
+    let map = V::Map(
+        entries
+            .into_iter()
+            .map(|(k, v)| (V::Text(k.into()), v))
+            .collect(),
+    );
+    let mut buf = Vec::new();
+    let _ = ciborium::ser::into_writer(&map, &mut buf);
+    buf
+}
+
+/// Which kind a log entry is: `emem.memory_write.v1`, or `attestation`.
+fn log_entry_kind(cbor: &[u8]) -> &'static str {
+    let is_memory = ciborium::de::from_reader::<ciborium::Value, _>(cbor)
+        .ok()
+        .and_then(|v| match v {
+            ciborium::Value::Map(m) => m.into_iter().find_map(|(k, v)| match (k, v) {
+                (ciborium::Value::Text(k), ciborium::Value::Text(v)) if k == "kind" => Some(v),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .is_some_and(|k| k == MEMORY_LOG_KIND);
+    if is_memory {
+        MEMORY_LOG_KIND
+    } else {
+        "attestation"
+    }
+}
+
+// Ten arguments, against clippy's threshold of seven. The obvious grouping,
 // folding the attester triple into one struct, would be wrong here:
 // `signed_body_hash` is passed on every write including unattested ones, so it
 // does not travel with the key and the signature and cannot share their Option.
@@ -41294,12 +41762,13 @@ async fn persist_memory_write(
     attester_pubkey_b32: Option<&str>,
     attester_sig_b32: Option<&str>,
     signed_body_hash: Option<&[u8; 32]>,
+    signed_preimage: Option<SignedPreimage>,
     started: std::time::Instant,
 ) -> Result<MemoryFileMeta, ApiError> {
     let db = memory_db(s)?;
     let file_cid = compute_file_cid(bytes);
     let receipt = synth_memory_receipt(s, path, &file_cid, verb, attester_pubkey_b32, started);
-    let meta = MemoryFileMeta {
+    let mut meta = MemoryFileMeta {
         file_cid: file_cid.clone(),
         path: path.to_string(),
         signed_at: receipt.served_at.clone(),
@@ -41312,6 +41781,9 @@ async fn persist_memory_write(
         // authorship is offline-verifiable (T1). Only when a caller signed.
         attester_sig_b32: attester_sig_b32.map(|s| s.to_string()),
         attester_body_hash_hex: signed_body_hash.map(|bh| data_encoding::HEXLOWER.encode(bh)),
+        attester_preimage_version: signed_preimage.as_ref().map(|p| p.version),
+        attester_base: signed_preimage.and_then(|p| p.base),
+        log_entry_hash_b32: None,
         superseded_by: None,
         receipt,
     };
@@ -41460,6 +41932,18 @@ async fn persist_memory_write(
                 },
             )
         })?;
+    // Into the transparency log, so the note has an upper-bound timestamp:
+    // every signed head after this entry proves the bytes existed by then.
+    // Appended before the meta commit so the meta can carry the entry hash; a
+    // log failure is logged and the write still succeeds without it, because
+    // the log is evidence about the write, not a condition of it.
+    if let Some(log) = s.storage.transparency_log() {
+        let record = memory_log_record(&meta, blake3::hash(bytes).as_bytes());
+        match log.append_cbor(record).await {
+            Ok(out) => meta.log_entry_hash_b32 = Some(b32_lower(&out.record_hash)),
+            Err(e) => tracing::warn!(path, error = %e, "memory write not logged"),
+        }
+    }
     let mut mbuf = Vec::new();
     let _ = ciborium::ser::into_writer(&meta, &mut mbuf);
     let _ = metas.insert(file_cid.as_bytes(), mbuf);
@@ -42115,7 +42599,24 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         meta.attester_sig_b32.as_deref(),
         meta.attester_body_hash_hex.as_deref(),
     ) {
-        (Some(pk), Some(sig), Some(bhh)) => json!({
+        (Some(pk), Some(sig), Some(bhh)) => {
+            let (signed, source) = memory_authorship_preimage(&meta, pk, sig, bhh);
+            let (version, base, preimage) = match &signed {
+                Some(SignedPreimage { version: 2, base }) => {
+                    (json!(2), json!(base), json!(MEMORY_PREIMAGE_V2_FORMULA))
+                }
+                Some(_) => (
+                    json!(1),
+                    serde_json::Value::Null,
+                    json!(MEMORY_PREIMAGE_V1_FORMULA),
+                ),
+                None => (
+                    serde_json::Value::Null,
+                    serde_json::Value::Null,
+                    json!({"v1": MEMORY_PREIMAGE_V1_FORMULA, "v2": MEMORY_PREIMAGE_V2_FORMULA}),
+                ),
+            };
+            json!({
             "caller_signed": true,
             "attester_pubkey_b32": pk,
             "sig_b32": sig,
@@ -42127,9 +42628,13 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             // proves who authored these bytes.
             "signed_path": meta.path,
             "body_hash_hex": bhh,
-            "preimage": "blake3(b\"emem.memory_write|\" + verb + b\"|\" + signed_path + b\"|\" + bytes.fromhex(body_hash_hex))",
+            "preimage_version": version,
+            "base": base,
+            "preimage_version_source": source,
+            "preimage": preimage,
             "verify": "ed25519_verify(attester_pubkey_b32, sig_b32, that 32-byte digest). For create/str_replace/insert also assert body_hash_hex == blake3(content) so the signature is bound to THESE bytes, not a different body.",
-        }),
+            })
+        }
         _ => json!({
             "caller_signed": false,
             "note": "no persisted caller signature: an unattested open-namespace write, a responder-internal write, or a record written before authorship persistence (T1). attester_pubkey_b32 (if present) is a responder claim, not third-party-verifiable.",
@@ -42168,6 +42673,16 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         "memory_kind": meta.kind,
         "attester_pubkey_b32": meta.attester_pubkey_b32,
         "authorship": authorship,
+        // Where this write sits in the transparency log: any signed head at or
+        // after this entry is an upper bound on when these bytes existed.
+        "log": match meta.log_entry_hash_b32.as_deref() {
+            Some(h) => json!({
+                "entry_hash_b32": h,
+                "entry_kind": MEMORY_LOG_KIND,
+                "inclusion": format!("/v1/log/inclusion?entry_hash={h}"),
+            }),
+            None => json!(null),
+        },
         "superseded_by": meta.superseded_by,
         "size_bytes": meta.size_bytes,
         "content": body,
@@ -42339,7 +42854,7 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         .unwrap_or_default();
     let body = req.file_text.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding(
+    let signed_preimage = validate_attester_binding(
         "create",
         &path,
         &bh,
@@ -42382,6 +42897,7 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
         attester_pk.as_deref(),
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
+        signed_preimage,
         started,
     )
     .await?;
@@ -42495,7 +43011,7 @@ async fn memory_str_replace_inner(
     let updated = text.replacen(&req.old_str, &req.new_str, 1);
     let body = updated.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding(
+    let signed_preimage = validate_attester_binding(
         "str_replace",
         &path,
         &bh,
@@ -42527,6 +43043,7 @@ async fn memory_str_replace_inner(
         attester_pk.as_deref(),
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
+        signed_preimage,
         started,
     )
     .await?;
@@ -42619,7 +43136,7 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
     }
     let body = out.as_bytes();
     let bh = emem_primitives::body_hash(body);
-    validate_attester_binding(
+    let signed_preimage = validate_attester_binding(
         "insert",
         &path,
         &bh,
@@ -42644,6 +43161,7 @@ async fn memory_insert_inner(s: &AppState, req: MemoryInsertReq) -> Result<JsonV
         attester_pk.as_deref(),
         req.attester.as_ref().map(|a| a.sig_b32.as_str()),
         Some(&bh),
+        signed_preimage,
         started,
     )
     .await?;
@@ -43397,6 +43915,9 @@ async fn memory_list_by_kind_inner(
                 attester_pubkey_b32: None,
                 attester_sig_b32: None,
                 attester_body_hash_hex: None,
+                attester_preimage_version: None,
+                attester_base: None,
+                log_entry_hash_b32: None,
                 superseded_by: None,
                 receipt: synth_memory_receipt(
                     s,
@@ -43945,6 +44466,7 @@ pub(crate) async fn run_memory_consolidation_pass(
             joined.as_bytes(),
             "consolidate",
             MemoryKind::Semantic,
+            None,
             None,
             None,
             None,
@@ -58605,12 +59127,16 @@ async fn build_cell_scene_rgb(
 
     let cli = s2_http_client();
     let item = emem_fetch::stac::search_one(
-        &cli, "sentinel-2-l2a", lng, lat, &datetime, Some(max_cloud_pct),
-    ).await
-        .map_err(|e| format!("stac: {e}"))?
-        .ok_or_else(|| format!(
-            "no Sentinel-2 L2A scene with cloud_cover < {max_cloud_pct}% in the last 90 days at this cell"
-        ))?;
+        &cli,
+        "sentinel-2-l2a",
+        lng,
+        lat,
+        &datetime,
+        Some(max_cloud_pct),
+    )
+    .await
+    .map_err(|e| format!("stac: {e}"))?
+    .ok_or_else(|| format!("{SCENE_MISS_PREFIX} < {max_cloud_pct}% in {datetime} at this cell"))?;
 
     let red_url = item
         .assets
@@ -58768,6 +59294,103 @@ async fn build_cell_scene_rgb(
 /// Returns Ok(None) when neither param is present (caller falls back to
 /// its own "last 90 days" default). Returns Err on malformed input so
 /// the handler can return a 400 instead of silently dropping the param.
+///
+/// Also the marker `build_cell_scene_rgb` puts on a search that found no
+/// scene, so a miss (widen and retry) is told apart from a failed fetch.
+const SCENE_MISS_PREFIX: &str = "no Sentinel-2 L2A scene with cloud_cover";
+
+/// The search ladder for a scene request: `(max_cloud %, lookback days, label)`.
+///
+/// A caller who named a cloud limit or a time gets exactly that search. One
+/// who named nothing gets the 90-day, 20 % search first, then wider ones, each
+/// run only after the previous missed. The fixed 90-day window answered 404 at
+/// Cubbon Park through a whole monsoon while this responder held Sentinel-2
+/// facts there: a cell is not unimageable because its last three months were
+/// cloudy. The label goes out as `x-emem-scene-fallback`, beside the scene's
+/// own datetime and cloud cover, so an older or cloudier picture never passes
+/// as the current clear one.
+fn scene_search_rungs(explicit: bool) -> &'static [(f64, i64, Option<&'static str>)] {
+    const DEFAULT: &[(f64, i64, Option<&str>)] = &[
+        (20.0, 90, None),
+        (20.0, 365, Some("widened_window")),
+        (60.0, 365, Some("relaxed_cloud")),
+    ];
+    if explicit {
+        &[]
+    } else {
+        DEFAULT
+    }
+}
+
+/// Run the scene search a REST or MCP request asks for, as the ladder above.
+/// `Err` is a finished typed response: 404 `no_clear_scene` when every rung
+/// missed, 502 `scene_upstream_failed` when a fetch failed.
+// The Err is a finished response returned straight to the handler, once.
+#[allow(clippy::result_large_err)]
+async fn scene_for_request(
+    cell: &str,
+    qs: &std::collections::HashMap<String, String>,
+) -> Result<(SceneRgb, Option<&'static str>), Response> {
+    let datetime_window =
+        resolve_scene_window(qs).map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
+    let explicit_cloud = qs.get("max_cloud").and_then(|v| v.parse::<f64>().ok());
+    let explicit = explicit_cloud.is_some() || datetime_window.is_some();
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    let mut tried = Vec::new();
+    let attempts: Vec<(f64, Option<String>, Option<&'static str>)> = if explicit {
+        vec![(explicit_cloud.unwrap_or(20.0), datetime_window, None)]
+    } else {
+        scene_search_rungs(false)
+            .iter()
+            .map(|(cloud, days, label)| {
+                let window = format!(
+                    "{}/{}",
+                    iso8601_utc((now_unix - days * 86_400).max(0) as u64),
+                    iso8601_utc(now_unix as u64)
+                );
+                (*cloud, Some(window), *label)
+            })
+            .collect()
+    };
+    for (cloud, window, label) in attempts {
+        match build_cell_scene_rgb(cell, cloud, window.as_deref()).await {
+            Ok(scene) => return Ok((scene, label)),
+            Err(e) if e.starts_with(SCENE_MISS_PREFIX) => {
+                tried.push(json!({"max_cloud": cloud, "window": window, "result": e}));
+            }
+            Err(e) => {
+                return Err((
+                    StatusCode::BAD_GATEWAY,
+                    Json(json!({
+                        "error": format!("scene unavailable: {e}"),
+                        "code": "scene_upstream_failed",
+                        "cell": cell,
+                    })),
+                )
+                    .into_response())
+            }
+        }
+    }
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(json!({
+            "error": "scene unavailable: no Sentinel-2 L2A scene passed any search tried",
+            "code": "no_clear_scene",
+            "cell": cell,
+            "tried": tried,
+            "hint": if explicit {
+                "retry with a higher max_cloud or a wider datetime window, or omit both to let this responder widen the search"
+            } else {
+                "every default search missed; retry with max_cloud=100 for the latest scene at any cloud cover"
+            },
+        })),
+    )
+        .into_response())
+}
+
 fn resolve_scene_window(
     qs: &std::collections::HashMap<String, String>,
 ) -> Result<Option<String>, String> {
@@ -58814,21 +59437,11 @@ async fn get_cell_scene_rgb(
     axum::extract::Query(qs): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Response {
     let cell = cell64.trim_end_matches(".rgb").to_string();
-    let max_cloud = qs
-        .get("max_cloud")
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(20.0);
-    let datetime_window = match resolve_scene_window(&qs) {
-        Ok(w) => w,
-        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
-    };
-    let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
+    let (scene, fallback) = match scene_for_request(&cell, &qs).await {
         Ok(s) => s,
-        Err(e) => {
-            return (StatusCode::NOT_FOUND, format!("scene unavailable: {e}")).into_response()
-        }
+        Err(resp) => return resp,
     };
-    Response::builder()
+    let resp = Response::builder()
         .status(StatusCode::OK)
         // application/octet-stream is the safe choice, image/x-rgb is
         // a Silicon Graphics legacy MIME type many clients reject as
@@ -58894,7 +59507,16 @@ async fn get_cell_scene_rgb(
             },
         )
         .body(axum::body::Body::from(scene.rgb))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    with_scene_fallback(resp, fallback)
+}
+
+fn with_scene_fallback(mut resp: Response, fallback: Option<&'static str>) -> Response {
+    if let Some(f) = fallback {
+        resp.headers_mut()
+            .insert("x-emem-scene-fallback", HeaderValue::from_static(f));
+    }
+    resp
 }
 
 /// `GET /v1/cells/{cell64}/scene.png`, true-colour Sentinel-2 RGB
@@ -58933,21 +59555,11 @@ async fn get_cell_scene_png(
             .into_response();
     }
     let cell = cell64.trim_end_matches(".png").to_string();
-    let max_cloud = qs
-        .get("max_cloud")
-        .and_then(|v| v.parse::<f64>().ok())
-        .unwrap_or(20.0);
-    let datetime_window = match resolve_scene_window(&qs) {
-        Ok(w) => w,
-        Err(e) => return (StatusCode::BAD_REQUEST, e).into_response(),
-    };
-    let scene = match build_cell_scene_rgb(&cell, max_cloud, datetime_window.as_deref()).await {
+    let (scene, fallback) = match scene_for_request(&cell, &qs).await {
         Ok(s) => s,
-        Err(e) => {
-            return (StatusCode::NOT_FOUND, format!("scene unavailable: {e}")).into_response()
-        }
+        Err(resp) => return resp,
     };
-    Response::builder()
+    let resp = Response::builder()
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "image/png")
         .header(CACHE_CONTROL, "public, max-age=3600")
@@ -59025,7 +59637,8 @@ async fn get_cell_scene_png(
             ),
         )
         .body(axum::body::Body::from(scene.png))
-        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
+        .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+    with_scene_fallback(resp, fallback)
 }
 
 // ── /v1/ask, single-shot free-text answer routing ─────────────────────
@@ -77931,6 +78544,177 @@ mod tests {
         assert!(perception_path_admitted("at", ALLOWED, TREES));
     }
 
+    /// A request that names no cloud limit or time widens only after a miss,
+    /// and every widened rung is labelled; one that names either gets exactly
+    /// what it asked for.
+    #[test]
+    fn scene_ladder_starts_strict_and_labels_every_widening() {
+        let r = scene_search_rungs(false);
+        assert_eq!(
+            r[0],
+            (20.0, 90, None),
+            "the first search is today's default"
+        );
+        for w in r.windows(2) {
+            assert!(
+                w[1].0 >= w[0].0 && w[1].1 >= w[0].1,
+                "rungs only widen: {r:?}"
+            );
+        }
+        assert!(
+            r[1..].iter().all(|x| x.2.is_some()),
+            "a widened rung is never silent"
+        );
+        assert!(
+            scene_search_rungs(true).is_empty(),
+            "explicit params are not widened"
+        );
+        assert!(
+            "no Sentinel-2 L2A scene with cloud_cover < 20% in a/b at this cell"
+                .starts_with(SCENE_MISS_PREFIX)
+        );
+    }
+
+    #[test]
+    fn worlds_listing_says_when_its_root_is_missing() {
+        let dir = std::env::temp_dir().join(format!("emem-worlds-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let missing = list_worlds_at(&dir);
+        assert_eq!(missing["root_exists"], false);
+        assert_eq!(missing["count"], 0);
+
+        std::fs::create_dir_all(dir.join("canyon")).unwrap();
+        std::fs::create_dir_all(dir.join("half-baked")).unwrap();
+        std::fs::write(dir.join("canyon/meta.json"), br#"{"preset":"canyon"}"#).unwrap();
+        let found = list_worlds_at(&dir);
+        assert_eq!(found["root_exists"], true);
+        assert_eq!(
+            found["count"], 1,
+            "a directory without meta.json is not listed"
+        );
+        assert_eq!(found["worlds"][0]["url"], "/v1/worlds/canyon");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A swarm of fresh keys must not look like independent oversight: only
+    /// fresh org evidence lifts a key, domains are counted once, and our own
+    /// key or domain is us.
+    #[test]
+    fn witness_tiers_count_operators_not_keys() {
+        use crate::enlistment::{Evidence, Method};
+        let own = vec!["emem.dev".to_string()];
+        let now = 10_000_000;
+        let ev = |domain: &str, checked_at: u64| Evidence {
+            method: Method::Dns,
+            domain: domain.into(),
+            nick: None,
+            checked_at,
+            detail: String::new(),
+            ok: true,
+        };
+        assert_eq!(witness_tier("k", None, None, &own, now), ("key_only", None));
+        assert_eq!(
+            witness_tier("k", None, Some(&ev("Example.ORG.", now - 5)), &own, now),
+            ("org_vouched", Some("example.org".into()))
+        );
+        let stale = ev("example.org", now - crate::enlistment::EVIDENCE_TTL_SECS);
+        assert_eq!(
+            witness_tier("k", None, Some(&stale), &own, now).0,
+            "key_only"
+        );
+        let mut failed = ev("example.org", now);
+        failed.ok = false;
+        assert_eq!(
+            witness_tier("k", None, Some(&failed), &own, now).0,
+            "key_only"
+        );
+        assert_eq!(
+            witness_tier("mine", Some("mine"), None, &own, now).0,
+            "self_operator"
+        );
+        assert_eq!(
+            witness_tier("k", None, Some(&ev("agents.emem.dev", now)), &own, now).0,
+            "self_operator"
+        );
+        // A look-alike domain is not ours.
+        assert_eq!(
+            witness_tier("k", None, Some(&ev("notemem.dev", now)), &own, now).0,
+            "org_vouched"
+        );
+    }
+
+    /// A page on an unlisted origin may read but not write.
+    #[test]
+    fn mcp_unlisted_origin_may_read_but_not_write() {
+        assert!(!mcp_origin_allowed("https://vortx-ai.github.io"));
+        for m in [
+            "initialize",
+            "tools/list",
+            "ping",
+            "notifications/initialized",
+        ] {
+            assert!(mcp_browser_admits(m, None), "{m}");
+        }
+        let call = |name: &str| json!({"name": name, "arguments": {}});
+        let ro = emem_mcp::TOOLS
+            .iter()
+            .find(|t| t.read_only_hint)
+            .expect("some tool is read-only");
+        let rw = emem_mcp::TOOLS
+            .iter()
+            .find(|t| !t.read_only_hint)
+            .expect("some tool writes");
+        assert!(
+            mcp_browser_admits("tools/call", Some(&call(ro.name))),
+            "{}",
+            ro.name
+        );
+        assert!(
+            !mcp_browser_admits("tools/call", Some(&call(rw.name))),
+            "{}",
+            rw.name
+        );
+        // Unknown tool names and unknown methods are refused, not guessed.
+        assert!(!mcp_browser_admits(
+            "tools/call",
+            Some(&call("no_such_tool"))
+        ));
+        assert!(!mcp_browser_admits("tools/call", None));
+        assert!(!mcp_browser_admits("tasks/cancel", None));
+    }
+
+    /// An upstream outage must not read as this responder's own 500.
+    #[tokio::test]
+    async fn perception_upstream_5xx_becomes_a_typed_502() {
+        for s in [500u16, 503, 599] {
+            let r = perception_upstream_failure(s, b"boom").expect("5xx is restated");
+            assert_eq!(r.status(), StatusCode::BAD_GATEWAY);
+            assert_eq!(
+                r.headers()
+                    .get("x-emem-upstream-status")
+                    .and_then(|v| v.to_str().ok()),
+                Some(s.to_string().as_str())
+            );
+            let b = axum::body::to_bytes(r.into_body(), 1 << 16).await.unwrap();
+            let j: serde_json::Value = serde_json::from_slice(&b).unwrap();
+            assert_eq!(j["code"], "upstream_failed");
+            assert_eq!(j["upstream_status"], s);
+            assert_eq!(j["upstream_body"], "boom");
+        }
+        // Controls: success and typed client errors pass through untouched.
+        for s in [200u16, 404, 429, 499] {
+            assert!(perception_upstream_failure(s, b"x").is_none(), "{s}");
+        }
+        // The body head is bounded and cut on a char boundary, never mid-codepoint.
+        let long = "é".repeat(400);
+        let r = perception_upstream_failure(500, long.as_bytes()).unwrap();
+        let b = axum::body::to_bytes(r.into_body(), 1 << 16).await.unwrap();
+        let j: serde_json::Value = serde_json::from_slice(&b).unwrap();
+        let head = j["upstream_body"].as_str().unwrap();
+        assert!(head.len() <= 512 && head.len() >= 510, "{}", head.len());
+        assert!(head.chars().all(|c| c == 'é'));
+    }
+
     /// A reading old enough to be the wrong answer must say so IN THE PROSE,
     /// not only in the freshness block beside it.
     ///
@@ -85203,6 +85987,195 @@ mod tests {
         sk.verifying_key()
             .verify(&preimage, &sig)
             .expect("persisted authorship signature verifies offline");
+        // The block says which preimage that was, recorded at write time.
+        assert_eq!(a["preimage_version"], 1);
+        assert_eq!(a["preimage_version_source"], "recorded_at_write");
+        assert!(a["base"].is_null());
+    }
+
+    /// A v2-signed note must be described as v2. The block described v1 for
+    /// every note, so a verifier that followed it literally reported a false
+    /// "signature fails" for everything written by a migrated client.
+    #[tokio::test]
+    async fn memory_view_names_the_v2_preimage_a_note_was_signed_with() {
+        use ed25519_dalek::Verifier;
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let path = format!("/memories/by_attester/{short}/v2.md");
+        let body = b"signed with the base-bound preimage";
+        let att = sign_attester_v2(&sk, "create", &path, body, emem_primitives::BASE_ABSENT);
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect("v2 create");
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                file_cid: None,
+                path: path.clone(),
+                offset: None,
+                view_range: None,
+                kind: None,
+                vault_capability: None,
+            },
+        )
+        .await
+        .expect("view");
+        let a = &view["authorship"];
+        assert_eq!(a["preimage_version"], 2, "{a}");
+        assert_eq!(a["base"], emem_primitives::BASE_ABSENT);
+        assert_eq!(a["preimage_version_source"], "recorded_at_write");
+        assert!(a["preimage"]
+            .as_str()
+            .unwrap()
+            .contains("emem.memory_write.v2|"));
+
+        // Following the block literally verifies; the v1 formula does not.
+        let bh = emem_primitives::body_hash(body);
+        let sig_bytes = data_encoding::BASE32_NOPAD
+            .decode(a["sig_b32"].as_str().unwrap().to_uppercase().as_bytes())
+            .unwrap();
+        let sig = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
+        let stated = emem_primitives::attester_preimage_v2(
+            "create",
+            &path,
+            &bh,
+            a["base"].as_str().unwrap(),
+        );
+        sk.verifying_key()
+            .verify(&stated, &sig)
+            .expect("the stated preimage verifies");
+        assert!(
+            sk.verifying_key()
+                .verify(
+                    &emem_primitives::attester_preimage("create", &path, &bh),
+                    &sig
+                )
+                .is_err(),
+            "control: the v1 formula the block used to describe fails"
+        );
+    }
+
+    /// A memory write lands in the transparency log as its own entry kind, and
+    /// a reader holding only the note's bytes finds that entry by their hash.
+    #[tokio::test]
+    async fn memory_writes_are_logged_and_findable_by_content() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let path = format!("/memories/by_attester/{short}/logged.md");
+        let body = b"a note with an upper-bound timestamp";
+        let att = sign_attester_v2(&sk, "create", &path, body, emem_primitives::BASE_ABSENT);
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: String::from_utf8(body.to_vec()).unwrap(),
+                kind: None,
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect("create");
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                file_cid: None,
+                path: path.clone(),
+                offset: None,
+                view_range: None,
+                kind: None,
+                vault_capability: None,
+            },
+        )
+        .await
+        .expect("view");
+        let entry_b32 = view["log"]["entry_hash_b32"]
+            .as_str()
+            .expect("the view names its log entry")
+            .to_string();
+
+        // The entry is in the log, hashes to that entry hash, and says what it is.
+        let log = s.storage.transparency_log().expect("durable log");
+        let entry = log
+            .entries(0, u64::MAX)
+            .unwrap()
+            .into_iter()
+            .map(|(_, cbor)| cbor)
+            .find(|cbor| b32_lower(blake3::hash(cbor).as_bytes()) == entry_b32)
+            .expect("the entry is in the log");
+        assert_eq!(log_entry_kind(&entry), MEMORY_LOG_KIND);
+        let v: ciborium::Value = ciborium::de::from_reader(&entry[..]).unwrap();
+        let content = blake3::hash(body);
+        let field = |k: &str| {
+            v.as_map()
+                .unwrap()
+                .iter()
+                .find(|(key, _)| key.as_text() == Some(k))
+                .map(|(_, v)| v.clone())
+        };
+        assert_eq!(
+            field("content_blake3").and_then(|v| v.as_bytes().cloned()),
+            Some(content.as_bytes().to_vec())
+        );
+        assert_eq!(
+            field("path").and_then(|v| v.as_text().map(String::from)),
+            Some(path.clone())
+        );
+
+        // Found from the note's content hash alone, and only for real content.
+        let (found, cid) =
+            memory_log_entry_for_content(&s, content.as_bytes()).expect("resolves by content");
+        assert_eq!(b32_lower(&found), entry_b32);
+        assert_eq!(cid, compute_file_cid(body));
+        assert!(memory_log_entry_for_content(&s, blake3::hash(b"other").as_bytes()).is_none());
+
+        // Control: an attestation entry is not mistaken for a memory write.
+        let mut att_cbor = Vec::new();
+        ciborium::ser::into_writer(&json!({"facts": [], "batch_root": "x"}), &mut att_cbor)
+            .unwrap();
+        assert_eq!(log_entry_kind(&att_cbor), "attestation");
+    }
+
+    /// Rows written before the version was stored are re-derived, and say so.
+    #[test]
+    fn legacy_authorship_rows_are_reverified_not_assumed() {
+        use ed25519_dalek::Signer;
+        let (sk, pk) = test_attester_signer();
+        let path = "/memories/by_attester/legacy/x.md";
+        let bh = emem_primitives::body_hash(b"old bytes");
+        let bhh = data_encoding::HEXLOWER.encode(&bh);
+        let b32 = |sig: ed25519_dalek::Signature| {
+            data_encoding::BASE32_NOPAD
+                .encode(&sig.to_bytes())
+                .to_lowercase()
+        };
+        let v2 = b32(sk.sign(&emem_primitives::attester_preimage_v2(
+            "create",
+            path,
+            &bh,
+            emem_primitives::BASE_ABSENT,
+        )));
+        let v1 = b32(sk.sign(&emem_primitives::attester_preimage("create", path, &bh)));
+
+        let (p, src) = reverify_memory_preimage("create", path, &pk, &v2, &bhh);
+        assert_eq!(src, "reverified_at_read");
+        assert_eq!(p.unwrap().version, 2);
+        let (p, src) = reverify_memory_preimage("create", path, &pk, &v1, &bhh);
+        assert_eq!(src, "reverified_at_read");
+        assert_eq!(p.unwrap().version, 1);
+        // A signature over neither formula is `unknown`, never a guess.
+        let other = b32(sk.sign(b"something else entirely, 32+ bytes long"));
+        let (p, src) = reverify_memory_preimage("create", path, &pk, &other, &bhh);
+        assert_eq!((p, src), (None, "unknown"));
     }
 
     #[tokio::test]

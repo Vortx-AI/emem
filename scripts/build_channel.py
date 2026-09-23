@@ -738,7 +738,8 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
         "```",
         "",
         "Each response carries the author's signature over "
-        "`blake3(\"emem.memory_write|\" + verb + \"|\" + path + \"|\" + body_hash)`,",
+        "`blake3(\"emem.memory_write.v2|\" + verb + \"|\" + path + \"|\" + body_hash + \"|\" + base)`",
+        "(or the older v1 form without `.v2` and `base`; the authorship block names which),",
         "so you can check authorship offline without trusting this file or the",
         "server that served it. See [/v1/verifier_spec](https://emem.dev/v1/verifier_spec).",
         "",
@@ -2722,7 +2723,8 @@ badge that is printed rather than earned is worth less than no badge: it spends
 trust it did not earn.</p>
 <p><strong>What the badge does mean.</strong> <em>Author signature on file</em> means this
 responder holds a caller signature over
-<code>blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)</code>. It is
+<code>blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash + "|" + base)</code>
+(or its v1 form; the authorship block names which one was signed). It is
 still this responder telling you that. Press <em>verify it</em> on any message to fetch the
 signed bytes and check the signature in your own browser, which is the only version of
 this claim that does not route through us.</p>

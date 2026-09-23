@@ -184,6 +184,9 @@ when the variable is unset.
 | `EMEM_TRUST_FORWARDED` | unset | `=1` to honour `X-Forwarded-For` for rate limiting |
 | `EMEM_REDIRECT_HTTPS` | unset | `=1` to redirect plain HTTP to TLS |
 | `EMEM_ALLOWED_ORIGINS` | `*` | CORS allowlist; comma-separated |
+| `EMEM_MCP_ALLOWED_ORIGINS` | claude.ai, chatgpt.com, cursor.com, emem.dev | extra origins allowed every MCP call; comma-separated |
+| `EMEM_MCP_BROWSER_READS` | on | from any other origin, MCP answers the handshake, listings and `readOnlyHint: true` tools and refuses the rest with 403; `=0` refuses them all (a node whose tools reach private data) |
+| `EMEM_WORLDS_DIR` | `var/worlds` (relative, so it resolves to nothing in the container) | baked splat worlds served at `/v1/worlds`; the listing reports `root_exists` |
 | `EMEM_PUBLIC_URL` | derived from `EMEM_TLS_DOMAINS` | canonical origin for `/.well-known/emem.json` and User-Agent |
 | `EMEM_SECURITY_POLICY_URL` | unset | `Policy:` line in `/.well-known/security.txt` |
 | `EMEM_SIDECAR_SOCK` | `%t/emem/jepa_sidecar.sock` | UDS path the Rust server dials |

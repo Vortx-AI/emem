@@ -90,6 +90,14 @@ impl AttestationLog {
         let mut buf = Vec::new();
         ciborium::ser::into_writer(att, &mut buf)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e.to_string()))?;
+        self.append_cbor(buf).await
+    }
+
+    /// Append one record's CBOR bytes as they are. The framing, the fsync and
+    /// the leaf (`blake3(cbor)`) are the same as for an attestation; this is
+    /// how an entry that is not an attestation, such as a memory write, gets
+    /// into the same tree under the same signed head.
+    pub async fn append_cbor(&self, buf: Vec<u8>) -> Result<AppendOutcome, std::io::Error> {
         let len = u32::try_from(buf.len()).map_err(|_| {
             std::io::Error::new(std::io::ErrorKind::InvalidData, "attestation > 4 GiB")
         })?;
@@ -511,6 +519,25 @@ mod tests {
     /// diverge, a caller who re-hashes an entry and compares it to the tree
     /// gets a false mismatch, and every inclusion proof they build is noise.
     /// Nothing else in this file couples the two walks, so pin it.
+    /// A raw entry of another kind shares the framing, the order and the leaf
+    /// rule with attestations, so one tree covers both.
+    #[tokio::test]
+    async fn a_raw_entry_is_a_leaf_like_any_attestation() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        log.append(&distinct_attestation(1)).await.unwrap();
+        let raw = b"\xa1dkindtemem.memory_write.v1".to_vec();
+        let out = log.append_cbor(raw.clone()).await.unwrap();
+        log.append(&distinct_attestation(2)).await.unwrap();
+        assert_eq!(&out.record_hash, blake3::hash(&raw).as_bytes());
+        let leaves = log.leaf_hashes().unwrap();
+        let all = log.entries(0, u64::MAX).unwrap();
+        assert_eq!(leaves.len(), 3);
+        assert_eq!(all[1].1, raw, "the bytes come back as written");
+        assert_eq!(leaves[1], out.record_hash);
+        assert_eq!(log.record_count().await, 3);
+    }
+
     #[tokio::test]
     async fn entries_are_the_preimages_of_leaf_hashes_in_the_same_order() {
         let tmp = tempfile::tempdir().unwrap();

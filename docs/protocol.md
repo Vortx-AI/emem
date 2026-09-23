@@ -456,6 +456,14 @@ Worked example (90-day NDVI mean over three monthly composites):
 }
 ```
 
+A derivative's `signed_at` is part of its CID, so a responder derivative
+that should be comparable across calls takes it from its inputs rather
+than the wall clock. The change ledger (`change_attribution@1`) signs the
+newest parent's `signed_at` (the epoch when it read nothing), so equal
+inputs give one fact and one token, and a repeat call returns the stored
+fact (`persistence: "existing_derivative_fact"`). When the responder signed
+it is still in the attestation and the receipt.
+
 #### Caller-registered derivations (`POST /v1/derive`)
 
 A responder computes derivatives of its own. A caller can also register
@@ -1145,10 +1153,25 @@ namespace belongs to a different attester.
 
 ```
 attester_preimage = blake3(
-    "emem.memory_write|" || verb || "|" || path || "|" || body_hash
+    "emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash
+    || "|" || base
 )
 attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 ```
+
+`base` is the `file_cid` currently at `path`, or the literal `absent` when
+the path holds nothing, so a create of a new path signs `absent`. It makes
+each signature name the version it replaces, so a signature read off the
+public ledger cannot be replayed later. The v1 preimage is the same without
+`.v2` and without `|| "|" || base`; it is still accepted for `create`,
+`str_replace` and `insert`, and refused for `delete` and `rename`.
+
+`memory_view` returns an `authorship` block that says which one was signed:
+`preimage_version` (1 or 2), `base`, and `preimage_version_source`, which is
+`recorded_at_write` for writes that stored the version, `reverified_at_read`
+for older rows the responder re-checked (v2 with `base = absent`, then v1),
+or `unknown` when neither verifies. Verify against the stated version; do
+not try both.
 
 where:
 
@@ -1426,9 +1449,43 @@ also no witness allowlist or trust anchor: `POST /v1/log/witness` accepts
 any well-formed ed25519 key, so a co-signature proves only that *some* key
 signed a `(size, root)` pair, not that the key is independent of the
 responder. Treat witness co-signing as a mechanism awaiting an operating
-network. A
+network. `GET /v1/log/witnesses` therefore also tiers each witness key:
+`key_only` (the signature verifies, nothing more), `org_vouched` (fresh DNS
+TXT or well-known evidence under a domain, from `GET /v1/enlist`) and
+`self_operator` (this node's declared key, or a key vouched by its own
+domains). `independent_operator_count` counts distinct `org_vouched`
+domains, not keys, since keys are free and domains are not. Each key's
+co-signatures also share the per-key write rate limit. A
 `fact_cid -> leaf_index` index, so an inclusion proof can be requested by
 fact rather than by log position, is the next increment on this substrate.
+
+#### Memory writes in the log
+
+Every `create`, `str_replace` and `insert` through the memory surface (and
+the summary a `consolidate` writes) is also a log entry, so a note has an
+upper-bound timestamp: any signed head at or after its entry proves the
+bytes existed by then. Together with the `after: sth …` lower bound a
+writer can put inside a note, that is a two-sided timestamp. `delete`,
+`rename` and `supersede` are not logged yet.
+
+A memory entry is a CBOR map, keys in length-then-bytewise order:
+
+```
+{ "base", "kind": "emem.memory_write.v1", "path", "verb", "sig_b32",
+  "file_cid", "signed_at", "size_bytes", "body_hash_hex",
+  "content_blake3": bytes(32), "preimage_version", "attester_pubkey_b32" }
+```
+
+The note's bytes are named by `content_blake3`, not copied. Its leaf is
+`blake3(entry_cbor)` like any other entry. `GET /v1/log/entries` labels
+each entry `entry_kind` (`attestation` or `emem.memory_write.v1`) and
+serves its bytes as `entry_cbor_b32`; `attestation_cbor_b32` is kept as
+the legacy name for the same bytes. `memory_view` returns `log:
+{entry_hash_b32, inclusion}`, and `GET /v1/log/inclusion?entry_hash=`
+also accepts a note's content hash (blake3 of its bytes), answering
+`matched: "memory_note_content"`. Writes made before this was added have
+no entry; logging them now would record the time of logging, not of
+writing.
 
 ---
 

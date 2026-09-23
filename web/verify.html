@@ -1155,8 +1155,11 @@ function concatBytes(parts){
 // 8871f14, on the one page whose promise is that you can verify without us.
 
 // T1 authorship: the one construction where the CALLER signs and the responder
-// verifies. preimage = blake3("emem.memory_write|"+verb+"|"+signed_path+"|"+
-// raw(body_hash)); ed25519 over the 32-byte digest against the ATTESTER's key.
+// verifies. v2 preimage = blake3("emem.memory_write.v2|"+verb+"|"+signed_path+
+// "|"+raw(body_hash)+"|"+base); v1 is the same without the ".v2" and without
+// "|"+base. The authorship block names the version that was signed
+// (preimage_version, base); a block without one is tried as v2 with base
+// "absent", then v1. This page built only v1, so every v2-signed note failed.
 // For create/str_replace/insert also assert body_hash == blake3(content),
 // binding the signature to THESE bytes. Rule of record: /v1/verifier_spec.
 async function verifyAuthorshipInBrowser(a, content){
@@ -1167,18 +1170,25 @@ async function verifyAuthorshipInBrowser(a, content){
       return { via:'browser', ok:null, error:'no authorship block · this object is responder-signed only, not caller-authored' };
     let bodyOk = null;
     if (content != null) bodyOk = (bytesToHex(nobleBlake3(_enc.encode(content))) === a.body_hash_hex);
-    const preimage = concatBytes([
-      _enc.encode('emem.memory_write|'), _enc.encode(a.verb),
+    const build = (v, base) => concatBytes([
+      _enc.encode(v === 2 ? 'emem.memory_write.v2|' : 'emem.memory_write|'), _enc.encode(a.verb),
       _enc.encode('|'), _enc.encode(a.signed_path),
       _enc.encode('|'), hexToBytes(a.body_hash_hex),
-    ]);
-    const digest = nobleBlake3(preimage);
+    ].concat(v === 2 ? [_enc.encode('|'), _enc.encode(base)] : []));
     const sig = b32decode(a.sig_b32);
     const pub = b32decode(a.attester_pubkey_b32);
     if (sig.length !== 64) throw new Error('attester signature is ' + sig.length + ' bytes, expected 64');
     if (pub.length !== 32) throw new Error('attester pubkey is ' + pub.length + ' bytes, expected 32');
-    const sigOk = nobleEd.verify(sig, digest, pub);
-    return { via:'browser', ok: sigOk && bodyOk !== false, sigOk, bodyOk, digest, preimage };
+    const tries = a.preimage_version === 2 ? [[2, a.base]]
+      : a.preimage_version === 1 ? [[1, null]]
+      : [[2, 'absent'], [1, null]];
+    let preimage = null, digest = null, sigOk = false, version = null;
+    for (const [v, base] of tries) {
+      if (v === 2 && typeof base !== 'string') continue;
+      preimage = build(v, base); digest = nobleBlake3(preimage);
+      if (nobleEd.verify(sig, digest, pub)) { sigOk = true; version = v; break; }
+    }
+    return { via:'browser', ok: sigOk && bodyOk !== false, sigOk, bodyOk, digest, preimage, version };
   } catch (e) { return { via:'browser', ok:false, error:String(e) }; }
 }
 
