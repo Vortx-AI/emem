@@ -1528,11 +1528,11 @@ document.querySelectorAll('.cp').forEach(function(b){
       groups[t].push(el);
     });
     if (!facts.length && !bundles.length) { btn.textContent = 'nothing here to re-check'; return; }
-    var tally = {ok: 0, missing: 0, other: 0};
+    var tally = {ok: 0, missing: 0, unresolvable: 0, unchecked: 0};
     function apply(t, state, label, why){
       (groups[t] || []).forEach(function(el){
         mark(el, state, label, why);
-        tally[state === 'ok' ? 'ok' : (state === 'missing' ? 'missing' : 'other')]++;
+        tally[state]++;
       });
     }
     function done(){
@@ -1540,7 +1540,8 @@ document.querySelectorAll('.cp').forEach(function(b){
       // tokens that have no dereference route here are named rather than
       // folded into a total that would imply they were looked at.
       btn.textContent = 'checked in your browser: ' + tally.ok + ' resolve, ' +
-        tally.missing + ' do not, ' + tally.other + ' are not resolvable token forms' +
+        tally.missing + ' do not, ' + tally.unresolvable + ' are not resolvable token forms, ' +
+        tally.unchecked + ' could not be checked' +
         (skipped ? ', ' + skipped + (skipped === 1 ? ' has' : ' have') +
          ' no dereference route here' : '');
       btn.disabled = false;
@@ -1550,33 +1551,43 @@ document.querySelectorAll('.cp').forEach(function(b){
 
     if (facts.length) {
       pending++;
-      fetch('/v1/memory_token/resolve_many', {
-        method: 'POST', headers: {'content-type': 'application/json'},
-        body: JSON.stringify({tokens: facts.slice(0, 256)})
-      }).then(function(r){ return r.json(); }).then(function(j){
-        var items = j.items || [], proven = {};
-        ((j.receipt || {}).fact_cids || []).forEach(function(c){ proven[c] = 1; });
-        facts.forEach(function(t, i){
-          var it = items[i] || {}, code = ((it.error || {}).code) || '';
-          if (it.ok) {
-            var cid = ((it.resolution || {}).fact_cid) || '';
-            apply(t, 'ok', 'resolves', proven[cid]
-              ? 'the responder returned the signed fact and its cid is in the receipt'
-              : 'the responder returned the signed fact');
-          } else if (code === 'cid_not_found') {
-            apply(t, 'missing', 'does not resolve',
-                  'well formed, and this responder holds no such fact');
-          } else {
-            apply(t, 'unresolvable', 'not a resolvable token',
-                  ((it.error || {}).message) || 'not a dereferenceable token');
+      // The endpoint accepts at most 256 tokens. Every later batch must be
+      // checked too; an omitted response is not evidence of an invalid token.
+      (async function(){
+        for (var offset = 0; offset < facts.length; offset += 256) {
+          var batch = facts.slice(offset, offset + 256);
+          try {
+            var r = await fetch('/v1/memory_token/resolve_many', {
+              method: 'POST', headers: {'content-type': 'application/json'},
+              body: JSON.stringify({tokens: batch})
+            });
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            var j = await r.json(), items = j.items || [], proven = {};
+            ((j.receipt || {}).fact_cids || []).forEach(function(c){ proven[c] = 1; });
+            batch.forEach(function(t, i){
+              var it = items[i], code = ((it && it.error || {}).code) || '';
+              if (it && it.ok) {
+                var cid = ((it.resolution || {}).fact_cid) || '';
+                apply(t, 'ok', 'resolves', proven[cid]
+                  ? 'the responder returned the signed fact and its cid is in the receipt'
+                  : 'the responder returned the signed fact');
+              } else if (code === 'cid_not_found') {
+                apply(t, 'missing', 'does not resolve',
+                      'well formed, and this responder holds no such fact');
+              } else if (code === 'invalid_token' || code === 'invalid_params') {
+                apply(t, 'unresolvable', 'not a resolvable token', it.error.message || code);
+              } else {
+                apply(t, 'unchecked', 'not re-checked',
+                  (it && it.error && it.error.message) || 'no resolution returned for this token');
+              }
+            });
+          } catch (e) {
+            batch.forEach(function(t){ apply(t, 'unchecked', 'not re-checked',
+              'the responder did not answer this batch'); });
           }
-        });
-        step();
-      }).catch(function(){
-        facts.forEach(function(t){ apply(t, 'unchecked', 'not re-checked',
-          'the responder did not answer this re-check'); });
-        step();
-      });
+          if (offset + 256 < facts.length) await new Promise(function(resolve){ setTimeout(resolve, 350); });
+        }
+      })().then(step, step);
     }
     // Bundles have their own route: 200 is the bundle, 404 is a bundle this
     // responder does not hold.
@@ -2619,6 +2630,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 <style>
 {CHANNEL_CSS}
 </style>
+{(REPO / 'scripts/templates/arcade-channel.html').read_text()}
 </head>
 <body>
 {gen_nav.render("/channel")}
