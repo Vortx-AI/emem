@@ -20114,8 +20114,19 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
     // Built from the compiled tag constants, not re-typed literals.
+    // A segment with no note of its own is text, and says so: a verifier
+    // asked which bytes `version` or `registry_cid` sign had to guess.
     let seg = |tag: u8, name: &str, kind: &str, optional: bool, note: &str| {
         let mut o = json!({ "tag": tag, "name": name, "kind": kind, "optional": optional });
+        o["encoding"] = json!(if !note.is_empty()
+            && (note.contains("raw bytes") || note.contains("big-endian"))
+        {
+            "binary, as noted"
+        } else if kind == "list" {
+            "each item is the UTF-8 bytes of its text"
+        } else {
+            "the UTF-8 bytes of the text value"
+        });
         if !note.is_empty() {
             o["note"] = json!(note);
         }
@@ -20215,9 +20226,9 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 "construction": "preimage_v1",
                 "served_at": "POST /v1/decide",
                 "segments": [
-                    seg(decide::tag::INPUT_BLAKE3, "input_blake3", "scalar", false, "blake3 of the request body as sent"),
+                    seg(decide::tag::INPUT_BLAKE3, "input_blake3", "scalar", false, "32 raw bytes: blake3 of the request body as sent"),
                     seg(decide::tag::MODEL, "model", "scalar", false, "the local model's id"),
-                    seg(decide::tag::OUTPUT_BLAKE3, "output_blake3", "scalar", false, "blake3 of the answers array as serialised"),
+                    seg(decide::tag::OUTPUT_BLAKE3, "output_blake3", "scalar", false, "32 raw bytes: blake3 of the answers array as serialised"),
                     seg(decide::tag::DECIDED_AT, "decided_at", "scalar", false, ""),
                     seg(decide::tag::RESPONDER_PUBKEY, "responder_pubkey", "scalar", false, "32 raw bytes"),
                 ],
