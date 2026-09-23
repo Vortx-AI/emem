@@ -16858,6 +16858,7 @@ async fn post_recall_many(
         "schema": "emem.recall_many.v1",
         "cells_requested": req.cells.len(),
         "facts_returned": total_facts,
+        "units_by_band": units_by_band(&by_cell),
         "by_cell": JsonValue::Object(by_cell),
         "note": "Each cell carries its own signed receipt under by_cell.<cell>.receipt. There is no aggregate receipt, verifying any one cell verifies that cell only. To audit the bulk call, verify each cell's receipt independently via /v1/verify_receipt.",
     });
@@ -17950,6 +17951,7 @@ async fn post_recall_polygon(
         "drill_cells_added": drill_added.len(),
         "facts_returned": total_facts,
         "merged_facts": merged_facts,
+        "units_by_band": units_by_band(&by_cell),
         "by_cell": JsonValue::Object(by_cell),
         "next": [
             "Each cell.receipt is independently signed; verify any cell's receipt via POST /v1/verify_receipt.",
@@ -19305,6 +19307,7 @@ async fn backfill_prepare(
         "cells_requested": cells.len(),
         "converged": converged,
         "progress": { "ready": by_cell.len(), "pending": pending.len() },
+        "units_by_band": units_by_band(&by_cell),
         "by_cell": JsonValue::Object(by_cell),
         "pending": pending,
         "retry": {
@@ -30673,6 +30676,40 @@ async fn mcp_tool_call_inner(
             let req: CompareSameDoyReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_compare_same_doy(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
+        "emem_read" | "emem_ocr" | "emem_decide" | "emem_range_hash" => {
+            let req = axum::http::Request::post("/")
+                .header("content-type", "application/json")
+                .body(axum::body::Body::from(args.to_string()))
+                .map_err(|e| (-32603, e.to_string()))?;
+            let st = State(s.clone());
+            let resp = match name {
+                "emem_read" => reader::post_read(st, req).await,
+                "emem_ocr" => reader::post_ocr(st, req).await,
+                "emem_decide" => decide::post_decide(st, req).await,
+                _ => range_hash::post_range_hash(st, req).await,
+            };
+            response_json(resp).await
+        }
+        "emem_tree" => {
+            let cid = args
+                .get("file_cid")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let mut q = std::collections::HashMap::new();
+            if let Some(r) = args.get("row") {
+                q.insert(
+                    "row".to_string(),
+                    r.as_str()
+                        .map(str::to_string)
+                        .unwrap_or_else(|| r.to_string()),
+                );
+            }
+            match tree::get_tree(State(s.clone()), Path(cid), Query(q)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -61274,6 +61311,77 @@ fn parse_note_addressing(body: &str) -> (Vec<String>, Vec<String>, bool) {
     (direct, cc, broadcast)
 }
 
+/// A REST handler's finished response as an MCP tool result: its JSON body on
+/// success, its typed error message otherwise.
+async fn response_json(resp: Response) -> Result<JsonValue, (i64, String)> {
+    let ok = resp.status().is_success();
+    let bytes = axum::body::to_bytes(resp.into_body(), 32 << 20)
+        .await
+        .map_err(|e| (-32603, e.to_string()))?;
+    let v: JsonValue = serde_json::from_slice(&bytes)
+        .unwrap_or_else(|_| json!({"text": String::from_utf8_lossy(&bytes)}));
+    if ok {
+        Ok(v)
+    } else {
+        Err((
+            -32000,
+            v["message"]
+                .as_str()
+                .or(v["error"].as_str())
+                .unwrap_or("request refused")
+                .to_string(),
+        ))
+    }
+}
+
+/// The unit of every band in a multi-cell answer, and where it was read from.
+///
+/// Stated beside the facts, not inside them: a fact's JSON is what a verifier
+/// re-encodes to check its cid, so a field added there would break the check.
+/// A unit comes from the facts when any of them carries one, else from the
+/// band registry (the exact key, then its family, which is how the spectral
+/// indices declare "unitless ratio"), else it is `not_stated`, which means
+/// unknown and never dimensionless.
+fn units_by_band(by_cell: &serde_json::Map<String, JsonValue>) -> JsonValue {
+    let mut units: std::collections::BTreeMap<String, JsonValue> =
+        std::collections::BTreeMap::new();
+    let facts = by_cell
+        .values()
+        .filter_map(|c| c.get("facts").and_then(|f| f.as_array()))
+        .flatten();
+    let mut from_facts: std::collections::BTreeMap<String, Option<String>> =
+        std::collections::BTreeMap::new();
+    for f in facts {
+        let Some(band) = f.get("band").and_then(|b| b.as_str()) else {
+            continue;
+        };
+        let unit = f.get("unit").and_then(|u| u.as_str()).map(str::to_string);
+        let slot = from_facts.entry(band.to_string()).or_insert(None);
+        if slot.is_none() {
+            *slot = unit;
+        }
+    }
+    let reg = &*emem_core::bands::DEFAULT;
+    for (band, unit) in from_facts {
+        let entry = match unit {
+            Some(u) => json!({"unit": u, "source": "fact"}),
+            None => {
+                let family = band.split('.').next().unwrap_or(&band);
+                match reg
+                    .lookup(&band)
+                    .and_then(|b| b.units.clone())
+                    .or_else(|| reg.lookup(family).and_then(|b| b.units.clone()))
+                {
+                    Some(u) => json!({"unit": u, "source": "registry"}),
+                    None => json!({"unit": null, "source": "not_stated"}),
+                }
+            }
+        };
+        units.insert(band, entry);
+    }
+    json!(units)
+}
+
 /// `POST /v1/inbox`: the read-side mailbox emem never had.
 ///
 /// A reply lives in the REPLIER's namespace, addressed to you in its heading,
@@ -84750,6 +84858,33 @@ mod tests {
         assert_eq!(direct, vec!["u4aaoieq", "sgozfgkr"]);
         assert_eq!(cc, vec!["hvev7m7n", "6ww7pxav"]);
         assert!(!broadcast, "naming recipients is not a broadcast");
+    }
+
+    #[test]
+    fn units_come_from_facts_then_the_registry_then_nowhere() {
+        let by_cell: serde_json::Map<String, JsonValue> = serde_json::from_value(json!({
+            "c1": {"facts": [
+                {"band": "modis.lst_day_8day", "unit": "K"},
+                {"band": "indices.ndvi", "unit": null},
+                {"band": "no.such_band"}
+            ]},
+            "c2": {"facts": [{"band": "modis.lst_day_8day", "unit": null}]}
+        }))
+        .unwrap();
+        let u = units_by_band(&by_cell);
+        assert_eq!(
+            u["modis.lst_day_8day"],
+            json!({"unit": "K", "source": "fact"})
+        );
+        assert_eq!(u["indices.ndvi"]["source"], "registry");
+        assert!(u["indices.ndvi"]["unit"]
+            .as_str()
+            .unwrap()
+            .contains("unitless"));
+        assert_eq!(
+            u["no.such_band"],
+            json!({"unit": null, "source": "not_stated"})
+        );
     }
 
     /// Text an agent stores is not mail it sends: a heading-like line inside a

@@ -1487,6 +1487,45 @@ also accepts a note's content hash (blake3 of its bytes), answering
 no entry; logging them now would record the time of logging, not of
 writing.
 
+
+### 9.7 Signed readings of things emem did not measure
+
+Four routes sign what the responder read, not what it measured. None of them
+persists anything, and none of their outputs is a fact: each receipt says
+which bytes, url, engine or model went together, never that the content is
+true. All use the same PreimageV1 construction as the STH (§9.6), under the
+responder key; `/v1/verifier_spec` lists every segment.
+
+| domain | route | segments, in tag order |
+|---|---|---|
+| `emem.range_hash.v1` | `POST /v1/range_hash` | url, u64_be offset, u64_be length, blake3 (32 raw bytes), etag or `absent`, fetched_at, responder_pubkey, fetched_url |
+| `emem.read.v1` | `POST /v1/read` | url, fetched_url, body_blake3, body_sha256, etag or `absent`, text_blake3, fetched_at, responder_pubkey |
+| `emem.ocr.v1` | `POST /v1/ocr` | image_blake3, source url or `upload`, lang, engine version line, text_blake3, read_at, responder_pubkey |
+| `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
+
+The fetching routes share one set of egress bounds: https on port 443 only,
+no IP literals or local names, the name resolved once and the connection
+pinned to publicly routable addresses, at most three redirects each admitted
+and pinned the same way, a size cap, and a per-IP daily quota. `range_hash`
+also requires a 206 whose Content-Range is exactly the bytes asked.
+
+`/v1/ocr` runs Tesseract; `/v1/decide` reads the first-token probabilities of
+the node's local open-weights model over option letters and abstains when the
+letters carry under half of that token. Both are `model_output`.
+
+#### emem:tree
+
+`GET /v1/tree/{file_cid}?row=` returns the audit path from one row of a
+`pointer.v1` or `directory.v1` note's table to the root the note states.
+The tree is the one those notes commit to: `leaf = blake3(url || u64_be
+offset || u64_be length || hash)`, `node = blake3(left || right)`, an odd
+node promoted unchanged; a pointer row at the note's own source hashes an
+empty url, and a directory row's `hash` is `blake3(path "\n" size "\n"
+publisher_hash)` over `(url, 0, size)`. Unlike §9.6 this tree has no
+leaf/node domain separation. A note whose stated root does not match its
+rows gets `root_mismatch` and no path. `POST /v1/tree/path` computes the same
+path over leaves or chunks the caller holds.
+
 ---
 
 ## 10. Privacy classes

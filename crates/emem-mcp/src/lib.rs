@@ -727,6 +727,38 @@ const SCHEMA_MEMORY_BUNDLE: &str = r#"{"type":"object","properties":{
 "scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`, applied to EVERY triple's underlying recall so the whole bundle cites only facts written under that four-tuple."}
 }}"#;
 
+const SCHEMA_READ: &str = r#"{"type":"object","required":["url"],"properties":{
+"url":{"type":"string","description":"A public https url. The responder fetches it (DNS pinned to public addresses, at most three redirects, each re-admitted, 4 MiB) and returns its visible text with blake3 and sha256 of the exact bytes."}
+}}"#;
+
+const SCHEMA_OCR: &str = r#"{"type":"object","properties":{
+"url":{"type":"string","description":"A public https url of a png, jpeg, tiff, webp, gif or bmp (8 MiB). Give this or image_b64."},
+"image_b64":{"type":"string","description":"The image itself, base64. Give this or url."},
+"lang":{"type":"string","description":"Tesseract language code(s), e.g. eng or eng+deu. Default eng."}
+}}"#;
+
+const SCHEMA_DECIDE: &str = r#"{"type":"object","required":["state","questions"],"properties":{
+"state":{"type":["string","object","array"],"description":"The situation to decide about, as text or a JSON value (8000 characters)."},
+"questions":{"type":"array","minItems":1,"maxItems":8,"items":{"type":"object","required":["kind","ask"],"properties":{
+  "id":{"type":"string"},
+  "kind":{"type":"string","enum":["choice","bool","score"]},
+  "ask":{"type":"string","description":"The question in words."},
+  "options":{"type":"array","items":{"type":"string"},"description":"For choice: 2 to 8 options."},
+  "scale":{"type":"array","items":{"type":"integer"},"description":"For score: [min, max], at most 8 steps. Default [1, 5]."}
+}}}
+}}"#;
+
+const SCHEMA_RANGE_HASH: &str = r#"{"type":"object","required":["url","offset","length"],"properties":{
+"url":{"type":"string","description":"A public https url that honours byte ranges."},
+"offset":{"type":"integer","minimum":0},
+"length":{"type":"integer","minimum":1,"description":"At most 16 MiB."}
+}}"#;
+
+const SCHEMA_TREE: &str = r#"{"type":"object","required":["file_cid"],"properties":{
+"file_cid":{"type":"string","description":"A pointer.v1 or directory.v1 note's file_cid (or an emem:tree: token)."},
+"row":{"type":"string","description":"Row index, or its label (a chunk label or a file path). Omit for the row count and root."}
+}}"#;
+
 const SCHEMA_MEMORY_BUNDLE_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{
 "token":{"type":"string","description":"A `emem:bundle:<bundle_cid>` rebindable handle to dereference."}
 }}"#;
@@ -1397,6 +1429,66 @@ pub const TOOLS: &[ToolDescriptor] = &[
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_read",
+        title: "Read a web page, signed",
+        description: "Fetch a public https page as this responder and return its visible text, with blake3 and sha256 of the exact bytes received, the ETag, and a signed receipt (PreimageV1 emem.read.v1). The hashes let anyone who fetches the same url check they got the same page; the text is derived from those bytes. https only, DNS pinned to publicly routable addresses, at most three redirects each re-admitted, 4 MiB, per-IP daily quota. This signs a receipt and persists nothing.",
+        when_to_use: "Call instead of a third-party text reader when a page cannot be fetched from where you run (no CORS) or when you need to cite exactly which bytes you read. Record body_sha256_hex or body_blake3_b32 next to anything you quote from it.",
+        input_schema: SCHEMA_READ,
+        output_schema: None,
+        example_args: r#"{"url":"https://example.com/"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_ocr",
+        title: "Read the text in an image (Tesseract)",
+        description: "Run open-source Tesseract on an image, by url or base64 upload (png, jpeg, tiff, webp, gif, bmp; 8 MiB), and return the text with blake3 of the image and of the text, the engine version, and a signed receipt (PreimageV1 emem.ocr.v1). provenance_class model_output: the receipt proves which image, engine and language produced the text, not that the reading is right. 501 ocr_unavailable on a responder with no engine installed. Persists nothing.",
+        when_to_use: "Call when an agent needs the text in a scan, screenshot, sign or chart and wants the reading tied to the exact image bytes. Quote image_blake3_b32 with the text; treat the text as a reading, not a fact.",
+        input_schema: SCHEMA_OCR,
+        output_schema: None,
+        example_args: r#"{"url":"https://emem.dev/release.png"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_decide",
+        title: "Typed decisions from a small open-weights model",
+        description: "A system-one call: give a state and up to 8 questions whose answers are known in advance (choice among 2-8 options, bool, or score on a small scale) and get back only values from that set, each with the model's probability for every option, a confidence, and valid_mass (the share of the first token that went to the options; under 0.5 the answer abstains as null). No free text is generated. Runs on this node's local open-weights model; provenance_class model_output; probabilities are uncalibrated. Signed receipt over input, model and answers (PreimageV1 emem.decide.v1). Persists nothing.",
+        when_to_use: "Call for repeated closed-set decisions: route an incoming note to request/claim/deliver/verify, flag whether a result needs review, score a match. Do not use it as a verifier of facts: the state it reads can steer it, and its probabilities are not a hit rate until you measure them on your own labelled cases.",
+        input_schema: SCHEMA_DECIDE,
+        output_schema: None,
+        example_args: r#"{"state":"ddzmyzhn -> k572x7go: please witness pointer amii4tnp, chunks 1-107","questions":[{"id":"kind","kind":"choice","ask":"What does this note ask for?","options":["witness a pointer","report a bug","say thanks","request a feature"]}]}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_range_hash",
+        title: "Hash a byte range next to the data, signed",
+        description: "Have this responder read exactly `length` bytes at `offset` of a public https url and return their BLAKE3, the pointer-row leaf (so the answer slots into an emem:tree), and a signed receipt binding url asked, url fetched after redirects, offset, length, hash, ETag and fetch time (PreimageV1 emem.range_hash.v1). The upstream must answer 206 with that exact Content-Range. 16 MiB per call, https only, DNS pinned, redirects re-admitted. Persists nothing.",
+        when_to_use: "Call to witness one chunk of a large remote file without moving it through your own network, or to spot-check a pointer note's row independently of its author.",
+        input_schema: SCHEMA_RANGE_HASH,
+        output_schema: None,
+        example_args: r#"{"url":"https://huggingface.co/openai-community/gpt2/resolve/main/model.safetensors","offset":0,"length":14291}"#,
+        level: "L0", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_tree",
+        title: "Audit path into a note's Merkle table",
+        description: "Given a pointer.v1 or directory.v1 note's file_cid and a row (index or label), return that row's leaf and its audit path to the root the note states, so one chunk is checked with log2(n) hashes instead of the whole table. Refuses root_mismatch when the stated root does not match the note's own rows, and not_a_tree for other kinds. Without row, returns the row count and root. Token: emem:tree:<file_cid>#row=<i>. Persists nothing.",
+        when_to_use: "Call when a note names a large object by a Merkle root over its chunks and you want to verify one chunk you fetched, or hand another agent a one-row proof.",
+        input_schema: SCHEMA_TREE,
+        output_schema: None,
+        example_args: r#"{"file_cid":"amii4tnpkfoofsyzrbbs2vxsj4","row":"0"}"#,
+        level: "L0", category: ToolCategory::Verify,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2958,6 +3050,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         // about to publish against the fact you cited, which is the step where a
         // correctly-resolved fact still becomes a wrong number.
         &[
+            "emem_range_hash", "emem_tree",
             "emem_verify",
             "emem_triple_consensus",
             "emem_echo_verify",
@@ -2967,6 +3060,11 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             // has not left yet.
             "emem_guard_verdict",
         ],
+    ),
+    (
+        "readers",
+        "Read what emem did not measure: a web page, the text in an image, a closed-set decision. Each answer carries the hashes of what was read and a signed receipt; none of it is persisted, and none of it is a fact.",
+        &["emem_read", "emem_ocr", "emem_decide"],
     ),
     (
         "earth_observation",
@@ -3208,6 +3306,11 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &["emem_reason"],
     ),
     (
+        "reading",
+        "Text or a typed decision read from something emem did not measure, signed together with the hashes of what was read. A reading, not a fact.",
+        &["emem_read", "emem_ocr", "emem_decide"],
+    ),
+    (
         "identity",
         "A canonical, citeable name for a thing, so two agents refer to one object instead of two descriptions.",
         &["emem_locate", "emem_entity", "emem_entity_resolve", "emem_entity_link"],
@@ -3230,6 +3333,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         "proof",
         "Evidence about evidence: receipts, inclusion proofs, disagreement between sources.",
         &[
+            "emem_range_hash", "emem_tree",
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency", "emem_log_witnesses",
             "emem_guard_verdict",
