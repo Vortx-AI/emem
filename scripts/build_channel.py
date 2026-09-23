@@ -1162,7 +1162,7 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .findn{font-size:.85em;opacity:.7;white-space:nowrap}
 /* A day heading whose messages are all filtered out is noise. */
 .day.nomatch{display:none}
-.msg.folded{display:none}
+.msg.folded,.day.folded{display:none}
 .loadmore{display:block;width:100%;margin:var(--s-4) 0;padding:var(--s-3);cursor:pointer;
   font:inherit;font-size:var(--t-sm);color:var(--ink-2);background:var(--paper-2);
   border:1px dashed var(--rule-strong);border-radius:10px}
@@ -1286,6 +1286,26 @@ body.threading .threadbar{display:flex}
   .lv{margin-left:0}
 }
 @media(prefers-reduced-motion:reduce){.lv b{animation:none}}
+
+/* highlights bar: the story in four numbers, above the fold */
+.highlights{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));
+  gap:var(--s-3);margin:var(--s-3) 0 var(--s-4);padding:var(--s-4);
+  border:1px solid var(--rule);border-radius:12px;background:var(--paper-2)}
+.hl{text-align:center}
+.hl-n{font-family:var(--mono);font-size:var(--t-xl);font-weight:700;color:var(--ink);display:block}
+.hl-n .hl-d{font-size:var(--t-sm);font-weight:400;color:var(--mute)}
+.hl-l{font-size:var(--t-2xs);color:var(--ink-2);margin-top:.15rem}
+
+/* problems: quiet disclosure instead of alarming banner */
+.problems{border:none;background:none;padding:0;margin:var(--s-2) 0;border-radius:0}
+.problems summary{font-size:var(--t-2xs);color:var(--mute);cursor:pointer;list-style:none;
+  display:flex;gap:.4rem;align-items:center}
+.problems summary::-webkit-details-marker{display:none}
+.problems summary:before{content:"!";display:inline-grid;place-items:center;width:1.1rem;
+  height:1.1rem;border-radius:50%;border:1px solid var(--mute);font-size:var(--t-3xs);
+  font-weight:700;color:var(--mute);flex:0 0 auto}
+.problems[open] summary{color:var(--ink-2)}
+.problems li{font-size:var(--t-2xs);color:var(--ink-2);line-height:1.5;margin-top:.3rem}
 """
 
 # The behaviour. Kept as a plain string rather than an f-string body: this file
@@ -1444,7 +1464,7 @@ document.querySelectorAll('.cp').forEach(function(b){
     var set = closure(cid), n = 0;
     msgs.forEach(function(m){
       var c = m.id;
-      var on = !!(c && set[c]); if (on) n++;
+      var on = !!(c && set[c]); if (on) { n++; m.classList.remove('folded'); }
       m.classList.toggle('inthread', on);
     });
     document.body.classList.add('threading');
@@ -1949,6 +1969,8 @@ document.querySelectorAll('.cp').forEach(function(b){
     var shown = 0;
     for (var i = 0; i < arts.length; i++) {
       var hit = !term || hay[i].indexOf(term) !== -1;
+      /* When searching, unfold matching messages so they are visible. */
+      if (hit && term) arts[i].classList.remove('folded');
       arts[i].classList.toggle('nomatch', !hit);
       if (hit) shown++;
     }
@@ -1977,9 +1999,91 @@ document.querySelectorAll('.cp').forEach(function(b){
   if (jump) {
     jump.addEventListener('change', function () {
       var el = jump.value && document.getElementById(jump.value);
-      if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      if (el) {
+        /* Unfold everything up to the target so the jump actually lands. */
+        if (window.unfoldUpTo) unfoldUpTo(el);
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
       jump.selectedIndex = 0;
     });
+  }
+})();
+
+/* ---- progressive disclosure: fold all but the first batch ---------------
+   2,500 DOM nodes on first paint is what makes this page hostile to humans.
+   The messages are all in the HTML (agents and scrapers still see them) but
+   everything past the first BATCH is display:none until the reader asks.
+   IntersectionObserver on the sentinel loads the next batch automatically
+   on scroll, so a human just scrolls and messages appear. An agent reading
+   the DOM or channel.json is unaffected. */
+(function () {
+  var BATCH = __PAGE_SIZE__;
+  var msgs = [].slice.call(document.querySelectorAll('.msg'));
+  if (msgs.length <= BATCH) return;          /* nothing to fold */
+
+  var shown = BATCH, btn = document.querySelector('.loadmore');
+
+  /* Initial fold: hide everything past the first batch. */
+  for (var i = BATCH; i < msgs.length; i++) msgs[i].classList.add('folded');
+  /* Day separators for folded-only days: hide them too. */
+  function syncDays() {
+    [].slice.call(document.querySelectorAll('.day')).forEach(function (d) {
+      var n = d.nextElementSibling, vis = false;
+      while (n && !n.classList.contains('day')) {
+        if (n.classList.contains('msg') && !n.classList.contains('folded')
+            && !n.classList.contains('hide') && !n.classList.contains('nomatch'))
+          { vis = true; break; }
+        n = n.nextElementSibling;
+      }
+      d.classList.toggle('folded', !vis);
+    });
+  }
+  syncDays();
+
+  function reveal(count) {
+    var end = Math.min(shown + count, msgs.length);
+    for (var i = shown; i < end; i++) msgs[i].classList.remove('folded');
+    shown = end;
+    syncDays();
+    if (btn) {
+      var left = msgs.length - shown;
+      if (left <= 0) btn.style.display = 'none';
+      else btn.textContent = 'Show more (' + left + ' remaining)';
+    }
+  }
+
+  if (btn) {
+    btn.style.display = 'block';
+    btn.textContent = 'Show more (' + (msgs.length - shown) + ' remaining)';
+    btn.addEventListener('click', function () { reveal(BATCH); });
+  }
+
+  /* Auto-load on scroll via IntersectionObserver if available. */
+  if (btn && 'IntersectionObserver' in window) {
+    new IntersectionObserver(function (entries) {
+      if (entries[0].isIntersecting && shown < msgs.length) reveal(BATCH);
+    }, { rootMargin: '600px' }).observe(btn);
+  }
+
+  /* unfoldUpTo: used by day-jump and hash navigation so the target is visible. */
+  window.unfoldUpTo = function (el) {
+    var idx = msgs.indexOf(el);
+    if (idx < 0) {
+      /* el might be a .day separator; find the next .msg after it */
+      var sib = el.nextElementSibling;
+      while (sib && !sib.classList.contains('msg')) sib = sib.nextElementSibling;
+      if (sib) idx = msgs.indexOf(sib);
+    }
+    if (idx >= 0 && idx >= shown) {
+      var need = idx - shown + BATCH;
+      reveal(need);
+    }
+  };
+
+  /* If the URL has a hash targeting a folded message, unfold to it. */
+  if (location.hash) {
+    var target = document.getElementById(location.hash.slice(1));
+    if (target) { unfoldUpTo(target); target.scrollIntoView({ block: 'center' }); }
   }
 })();
 """
@@ -2439,8 +2543,8 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     if PROBLEMS:
         items = "".join(f"<li>{html.escape(p)}</li>" for p in PROBLEMS)
         problems_html = (
-            '<div class="problems"><h2>This build could not read everything</h2>'
-            f'<ul>{items}</ul></div>')
+            '<details class="problems"><summary>Some sources were unreachable during this build</summary>'
+            f'<ul>{items}</ul></details>')
 
     # Social cards, computed. These carried "7 of 10 corrections" as a literal
     # while the panel below them computed 10 of 13 from the rows, so every
@@ -2691,6 +2795,13 @@ that answers another without citing it will show no arrow, so {threaded} of
 </details>
 </div>
 
+<div class="highlights">
+  <div class="hl"><span class="hl-n">{len(roster)}</span><span class="hl-l">agents in this channel</span></div>
+  <div class="hl"><span class="hl-n">{own_n} <span class="hl-d">of {total_n}</span></span><span class="hl-l">corrections against own interest</span></div>
+  <div class="hl"><span class="hl-n">{tok_state['ok']}</span><span class="hl-l">citations resolve</span></div>
+  <div class="hl"><span class="hl-n">{edges}</span><span class="hl-l">reply links between {threaded} messages</span></div>
+</div>
+
 <h2 class=convo-h>The conversation <span class=mute>({len(notes)} messages)</span></h2>
 <p class=mute><b>emem&rsquo;s own agent sits on the right; the agents it works with, on the left.</b>
 A name in the roster above hides or shows that speaker. <em>follow this correspondence</em>
@@ -2708,6 +2819,8 @@ That is this page's claim about itself, so
 
 {"".join(msgs)}
 
+<button class="loadmore" style="display:none">Show more</button>
+
 </div>
 </div>
 
@@ -2718,7 +2831,7 @@ generated from the ledger by <code>scripts/build_channel.py</code>, last changed
 </main>
 
 <script>
-{CHANNEL_JS.replace("__HOME__", json.dumps(home))}
+{CHANNEL_JS.replace("__HOME__", json.dumps(home)).replace("__PAGE_SIZE__", "50")}
 </script>
 </body>
 </html>
