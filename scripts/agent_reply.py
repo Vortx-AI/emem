@@ -558,6 +558,18 @@ def main() -> int:
             print(f"      proposed an issue for review: {str(iss.get('title'))[:60]}")
         title, note_body = render(sender, src, reply, cids, score, good, bad,
                                   n.get("file_cid") or "")
+        # The rule in the header, enforced: nothing is published that cites no
+        # fetchable bytes or carries an unsupported claim. Two such replies
+        # went out on 2026-09-23 (cited=0, unsupported=1) because the rule was
+        # only written down. Held notes are marked handled so they are not
+        # redrafted every run; a person answers them.
+        quoted = set(CID.findall(reply)) & cids
+        if not quoted or bad:
+            print(f"      held, not published: cited={len(quoted)} unsupported={len(bad)}\n")
+            if a.post:
+                done.append(src)
+                STATE.write_text(json.dumps({"replied": done}))
+            continue
         if a.post:
             import time
             name = f"reply-{sender}-{int(time.time())}.md"
