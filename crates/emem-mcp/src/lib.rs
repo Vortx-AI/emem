@@ -1186,8 +1186,9 @@ const SCHEMA_GRID: &str = r#"{"type":"object","required":["center","bands"],"pro
 
 const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"properties":{
 "budget_ms":{"type":"integer","description":"Optional soft materialization budget in ms; on expiry the response is a partial 200 with converged false, a typed pending[] and a retry hint. The identical call retried returns strictly more from cache. Absent = unchanged behaviour."},
-"cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and the responses are merged into a single signed envelope."},
+"cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and carries its own signed receipt; use emem_grid for one receipt over an area."},
 "bands":{"type":"array","items":{"type":"string"},"description":"Optional band filter, same shape as emem_recall.bands."},
+"compact":{"type":"boolean","default":false,"description":"Return each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token; the full signed body stays at /v1/facts/{fact_cid}."},
 "band":{"type":"string","description":"Optional single band override (alias for bands:[band])."},
 "tslot":{"type":"integer","description":"Optional tslot offset."},
 "cell64s":{"type":"array","description":"Alias for `cells`."}

@@ -490,7 +490,10 @@ struct CachedSas {
     /// never a constant.
     valid_for: Duration,
 }
-static SAS_CACHE: Mutex<Option<(String, CachedSas)>> = Mutex::new(None);
+/// One token per collection: Sentinel-1 and Sentinel-2 reads interleave,
+/// and a single slot made each switch a sign call to the host that
+/// rate-limits this box.
+static SAS_CACHE: Mutex<Vec<(String, CachedSas)>> = Mutex::new(Vec::new());
 
 /// Refresh a cached SAS token this long before its true expiry, so a
 /// long materialize call never races the expiry and we never hand Azure a
@@ -533,8 +536,8 @@ const SAS_FALLBACK_TTL: Duration = Duration::from_secs(30 * 60);
 /// is designed to prevent.
 pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, String> {
     if let Ok(guard) = SAS_CACHE.lock() {
-        if let Some((cached_collection, cached)) = guard.as_ref() {
-            if cached_collection == collection && cached.fetched_at.elapsed() < cached.valid_for {
+        if let Some((_, cached)) = guard.iter().find(|(c, _)| c == collection) {
+            if cached.fetched_at.elapsed() < cached.valid_for {
                 return Ok(cached.token.clone());
             }
         }
@@ -593,7 +596,8 @@ pub async fn mpc_sas_token(client: &Client, collection: &str) -> Result<String, 
                 })
                 .unwrap_or(SAS_FALLBACK_TTL);
             if let Ok(mut guard) = SAS_CACHE.lock() {
-                *guard = Some((
+                guard.retain(|(c, _)| c != collection);
+                guard.push((
                     collection.to_string(),
                     CachedSas {
                         token: token.clone(),

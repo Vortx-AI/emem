@@ -233,6 +233,8 @@ impl MemoryTextIndex {
         let batch = rows_to_batch(self.schema.clone(), rows)?;
         let schema = batch.schema();
         let reader = RecordBatchIterator::new(vec![Ok(batch)].into_iter(), schema);
+        let mut resident = self.resident.write().await;
+        let mut known = self.known.write().await;
         let mut guard = self.inner.lock().await;
         let uri = self.path.to_string_lossy().to_string();
         let mode = if guard.is_some() {
@@ -249,10 +251,10 @@ impl MemoryTextIndex {
             .map_err(|e| IndexerError::Lance(e.to_string()))?;
         *guard = Some(ds);
         drop(guard);
-        if let Some(known) = self.known.write().await.as_mut() {
+        if let Some(known) = known.as_mut() {
             known.extend(rows.iter().map(|r| (r.path.clone(), r.file_cid.clone())));
         }
-        if let Some(resident) = self.resident.write().await.as_mut() {
+        if let Some(resident) = resident.as_mut() {
             Arc::make_mut(resident).extend(rows.iter().cloned());
         }
         let now = unix_s();
@@ -265,11 +267,15 @@ impl MemoryTextIndex {
     pub async fn existing_pairs(
         &self,
     ) -> Result<std::collections::HashSet<(String, String)>, IndexerError> {
-        if let Some(known) = self.known.read().await.as_ref() {
-            return Ok(known.clone());
+        // Lock order everywhere: resident, known, then the dataset. Loading
+        // under the write lock means an append cannot land between the scan
+        // and the store and be missing from both.
+        let mut known = self.known.write().await;
+        if let Some(k) = known.as_ref() {
+            return Ok(k.clone());
         }
         let scanned = self.scan_pairs().await?;
-        *self.known.write().await = Some(scanned.clone());
+        *known = Some(scanned.clone());
         Ok(scanned)
     }
 
@@ -403,6 +409,8 @@ impl MemoryTextIndex {
         // Single-quote escape: Lance's SQL parser doubles them.
         let escaped = target.replace('\'', "''");
         let predicate = format!("path = '{escaped}'");
+        let mut resident = self.resident.write().await;
+        let mut known = self.known.write().await;
         let mut guard = self.inner.lock().await;
         let Some(ds) = guard.as_mut() else {
             return Ok(());
@@ -413,10 +421,10 @@ impl MemoryTextIndex {
         // Drop the cached handle so reads see the new manifest version.
         drop(guard);
         self.reload().await;
-        if let Some(known) = self.known.write().await.as_mut() {
+        if let Some(known) = known.as_mut() {
             known.retain(|(p, _)| p != target);
         }
-        if let Some(resident) = self.resident.write().await.as_mut() {
+        if let Some(resident) = resident.as_mut() {
             Arc::make_mut(resident).retain(|r| r.path != target);
         }
         Ok(())
@@ -427,8 +435,12 @@ impl MemoryTextIndex {
         if let Some(rows) = self.resident.read().await.as_ref() {
             return Ok(rows.clone());
         }
+        let mut resident = self.resident.write().await;
+        if let Some(rows) = resident.as_ref() {
+            return Ok(rows.clone());
+        }
         let rows = Arc::new(self.read_all().await?);
-        *self.resident.write().await = Some(rows.clone());
+        *resident = Some(rows.clone());
         Ok(rows)
     }
 

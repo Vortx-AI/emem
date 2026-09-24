@@ -238,8 +238,8 @@ type TileCacheSlot = Arc<OnceCell<Bytes>>;
 /// because (a) the access pattern is bursty (a polygon recall fills
 /// then drains), (b) wholesale clear is one mutex round-trip vs
 /// per-insert LRU bookkeeping, and (c) at the default cap of 512
-/// × ~64 KiB worst-case tile size the memory ceiling is ~32 MiB,
-/// well inside the responder's budget. The cap is configurable for
+/// Sentinel-2 tiles (~600 KB compressed each) the ceiling is ~300 MB,
+/// inside this responder's budget. The cap is configurable for
 /// memory-constrained deployments.
 type TileKey = (String, usize);
 static TILE_CACHE: LazyLock<Mutex<HashMap<TileKey, TileCacheSlot>>> =
@@ -251,6 +251,14 @@ fn tile_cache_cap() -> usize {
         .and_then(|v| v.parse::<usize>().ok())
         .unwrap_or(512)
         .max(1)
+}
+
+/// The cache identity of a COG url: without its query string. A signed
+/// Planetary Computer url carries a SAS token that rotates about every 40
+/// minutes; keyed by the full url, each rotation re-fetched every header
+/// and tile and left the old profiles behind for good.
+fn cache_key(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
 }
 
 /// Fetch (or share an in-flight fetch of) the compressed bytes for
@@ -266,7 +274,7 @@ async fn get_or_fetch_tile(
     off: u64,
     len: u64,
 ) -> Result<Bytes, CogError> {
-    let key: TileKey = (url.to_string(), tile_idx);
+    let key: TileKey = (cache_key(url).to_string(), tile_idx);
     let cell = {
         let mut guard = TILE_CACHE.lock().await;
         if guard.len() >= tile_cache_cap() && !guard.contains_key(&key) {
@@ -322,8 +330,11 @@ pub async fn open_profile(client: &Client, url: &str) -> Result<Arc<CogProfile>,
     // calls for *other* URLs aren't blocked behind us.
     let cell = {
         let mut guard = PROFILE_CACHE.lock().await;
+        if guard.len() > 8192 {
+            guard.clear();
+        }
         guard
-            .entry(url.to_string())
+            .entry(cache_key(url).to_string())
             .or_insert_with(|| Arc::new(OnceCell::new()))
             .clone()
     };

@@ -12204,6 +12204,7 @@ async fn recall_with_auto_materialize_capped(
             // scene can exist re-runs the same search and probes and signs
             // the same Absence again, once per recall of a cloudy area.
             let recheck = absence_recheck_secs();
+            let bound_is_set = req.tslot.is_some() || req.as_of_tslot.is_some();
             let fresh_after =
                 iso8601_utc(now_unix_s().saturating_sub(recheck as i64).max(0) as u64);
             let present: HashSet<&str> = resp
@@ -12211,10 +12212,22 @@ async fn recall_with_auto_materialize_capped(
                 .iter()
                 .filter_map(|f| match f {
                     emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+                    // Only an Absence about the recent past answers a recall
+                    // for "now": one signed today about a 2023 date says
+                    // nothing about the latest scene.
                     emem_fact::Fact::Absence(a)
                         if recheck > 0
                             && a.signer == s.identity.pubkey
-                            && a.signed_at.as_str() >= fresh_after.as_str() =>
+                            && a.signed_at.as_str() >= fresh_after.as_str()
+                            && (bound_is_set
+                                || band_tempo_for_key(&a.band).is_some_and(|t| {
+                                    a.tslot
+                                        >= emem_core::tslot::Tslot::from_unix(
+                                            now_unix_s() - 90 * 86_400,
+                                            t,
+                                        )
+                                        .0
+                                })) =>
                     {
                         Some(a.band.as_str())
                     }
@@ -16591,7 +16604,25 @@ struct RecallManyReq {
     /// behaviour is unchanged.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     budget_ms: Option<u64>,
+    /// Facts as the fields an agent reads (band, value, unit, tslot,
+    /// observed_at, kind, confidence, fact_cid, memory_token); the full
+    /// signed body stays one GET away at /v1/facts/{fact_cid}.
+    #[serde(default)]
+    compact: bool,
 }
+
+/// The fields a compact recall keeps per fact.
+const COMPACT_FACT_KEYS: &[&str] = &[
+    "band",
+    "value",
+    "unit",
+    "tslot",
+    "observed_at",
+    "kind",
+    "confidence",
+    "fact_cid",
+    "memory_token",
+];
 
 /// `POST /v1/recall_many`, bulk recall in one round trip. The
 /// `polygon_sample_cells` field on `/v1/locate` returns up to 64 cells,
@@ -16676,7 +16707,7 @@ async fn post_recall_many(
     type RecallManyOut = (
         usize,
         String,
-        Result<emem_primitives::recall::RecallResp, ApiError>,
+        Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallManyOut> = tokio::task::JoinSet::new();
     let area = s2_area_for_cells(&req.cells);
@@ -16697,9 +16728,7 @@ async fn post_recall_many(
             // Auto-materialize cold cells to honour the contract; drop the
             // per-band notes (the per-cell signed receipt under
             // by_cell.<cell>.receipt is the citation surface for a bulk call).
-            let out = in_s2_area(area, recall_with_auto_materialize(&r, &s_clone))
-                .await
-                .map(|(resp, _notes)| resp);
+            let out = in_s2_area(area, recall_with_auto_materialize(&r, &s_clone)).await;
             (idx, cell, out)
         });
     }
@@ -16735,14 +16764,46 @@ async fn post_recall_many(
     let mut collected_cells: std::collections::HashSet<String> =
         std::collections::HashSet::with_capacity(req.cells.len());
     let mut pending: Vec<JsonValue> = Vec::new();
+    let mut not_retryable: Vec<JsonValue> = Vec::new();
     for (_, cell, r) in indexed_recall {
         collected_cells.insert(cell.clone());
         match r {
-            Ok(resp) => {
+            Ok((resp, notes)) => {
+                // A band the materializer skipped (deferred at the cold-fetch
+                // ceiling, timed out, upstream refused) is not an answer: it
+                // goes to `pending` with its reason, so `converged` means
+                // every requested band came back as a fact or an Absence.
+                let skipped: Vec<&JsonValue> = notes
+                    .iter()
+                    .filter(|n| n.get("status").and_then(|v| v.as_str()) == Some("skipped"))
+                    .collect();
+                let (retry, stuck): (Vec<&JsonValue>, Vec<&JsonValue>) = skipped
+                    .into_iter()
+                    .partition(|n| n.get("retryable").and_then(|v| v.as_bool()) == Some(true));
+                for (group, into) in [(retry, &mut pending), (stuck, &mut not_retryable)] {
+                    if let Some(first) = group.first() {
+                        into.push(json!({
+                            "cell": cell,
+                            "bands": group.iter().filter_map(|n| n.get("band")).collect::<Vec<_>>(),
+                            "state": "skipped",
+                            "reason": first.get("reason"),
+                            "reason_class": first.get("reason_class"),
+                        }));
+                    }
+                }
                 total_facts += resp.facts.len();
                 let mut cell_json = serde_json::to_value(&resp).unwrap_or(json!({}));
                 enrich_facts_with_metadata(&mut cell_json);
                 enrich_facts_with_cid(&mut cell_json);
+                if req.compact {
+                    if let Some(facts) = cell_json.get_mut("facts").and_then(|f| f.as_array_mut()) {
+                        for f in facts.iter_mut() {
+                            if let Some(m) = f.as_object_mut() {
+                                m.retain(|k, _| COMPACT_FACT_KEYS.contains(&k.as_str()));
+                            }
+                        }
+                    }
+                }
                 by_cell.insert(cell, cell_json);
             }
             Err(ApiError(_status, body)) => {
@@ -16810,6 +16871,11 @@ async fn post_recall_many(
     if !resolved_map.is_empty() {
         if let Some(map) = out.as_object_mut() {
             map.insert("resolved_from".into(), JsonValue::Object(resolved_map));
+        }
+    }
+    if !not_retryable.is_empty() {
+        if let Some(map) = out.as_object_mut() {
+            map.insert("skipped".into(), json!(not_retryable));
         }
     }
     Ok(Json(out))
@@ -16922,6 +16988,7 @@ async fn post_grid(
             bands: Some(req.bands.clone()),
             tslot: req.tslot,
             budget_ms: req.budget_ms,
+            compact: false,
         }),
     )
     .await?;
@@ -17071,6 +17138,9 @@ async fn post_grid(
         "converged": converged,
         "receipt": receipt,
     });
+    if let (Some(map), Some(v)) = (out.as_object_mut(), many.get("skipped")) {
+        map.insert("skipped".into(), v.clone());
+    }
     if !converged {
         if let Some(map) = out.as_object_mut() {
             for k in ["pending", "progress", "retry", "budget_ms"] {
@@ -32353,7 +32423,7 @@ fn openapi_spec() -> JsonValue {
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
-            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
+            "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call. Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry; a band the materializer skipped is in pending[] when retryable and in skipped[] when not. compact:true returns each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}},"budget_ms":{"type":"integer"},"compact":{"type":"boolean","default":false}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
@@ -32715,6 +32785,34 @@ fn rewrite_refs_to_defs(v: &mut JsonValue) {
     }
 }
 
+/// Note kinds other agents publish, named by the hash of their spec text.
+/// emem enforces none of them: a note is data, and binding writes to another
+/// party's format would make this responder depend on it. What emem does is
+/// pin each spec by content, so a reader knows which text a `spec:` line
+/// means, and say which route checks the parts a kind cites. An empty check
+/// means described, not checked. Spec ids: base32(blake3(spec body + "\n")
+/// [0:16]) over ememdemo's emem.eio at 2026-09-24.
+const NOTE_KINDS: &[(&str, &str, &str)] = &[
+        ("r1", "zfvycnaf23e42vziworfhy3dp4", "memory_view view:\"line\" and /v1/inbox return it without the body"),
+        ("pointer.v1", "mlxrdcys43hao7cz554s46bp7a", "GET /v1/tree/{file_cid} rebuilds the root from the table and proves a row; POST /v1/range_hash re-reads one chunk at its source"),
+        ("directory.v1", "n7ru5f4chhdzs4auqwjaes2dru", "GET /v1/tree/{file_cid} rebuilds the root and proves a row"),
+        ("world.v1", "alwayt3sakc77bbqlt46qnvm4y", "every token inside resolves via /v1/memory_token/resolve"),
+        ("grid.v1", "4rfibs74i7ma3tezrn7bcdgidm", "POST /v1/grid serves the same table with one receipt"),
+        ("timelapse.v1", "eq3rondjfbzv7qpkwfyqijoid4", "emem:cube and emem:rasterset tokens inside resolve and rebuild"),
+        ("camera.v1", "an5nnuvuvu23xlchntfeul5zby", ""),
+        ("track.v1", "b5lmdatbymxjtttsobn2p7qshy", ""),
+        ("compare.v1", "lkmzfmx6h6k35ucblwm7q5crzq", ""),
+        ("witness.v1", "venbqbe5rsbbhjzc6j4xwrui7y", ""),
+        ("request.v1", "exzo2hqv2cpcjdjfkjobhvdjf4", "/v1/inbox?in_reply_to=<request file_cid>&from= threads it"),
+        ("claim.v1", "plnwkss3ud5wpuz2sgf6wvvc3q", "/v1/inbox?in_reply_to= threads it"),
+        ("deliver.v1", "ribj5rbghx3ap3wbpaljfroo5q", "/v1/inbox?in_reply_to= threads it; the result token resolves"),
+        ("verify.v1", "f3iyosskppxs37yyanuickfy34", "/v1/inbox?in_reply_to= threads it"),
+        ("grant.v1", "oepay4mucuvv37itotpf55noiu", ""),
+        ("drift.v1", "hc4zwfwlgeia4bvpmfmbtbjxkm", ""),
+        ("sealed.v1", "5c7q2lumilniezwjcferedq7ii", ""),
+        ("thumb.v1", "n3ofktg7nze7gbu3qjhuoek37y", ""),
+];
+
 async fn schemas_index() -> Json<JsonValue> {
     let spec = openapi_spec();
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
@@ -32732,6 +32830,14 @@ async fn schemas_index() -> Json<JsonValue> {
             "url": format!("{origin}/v1/schemas/{n}"),
         })).collect::<Vec<_>>(),
         "_means": "each URL serves one response or request body as a self-contained draft-2020-12 JSON Schema, every $ref resolved into $defs. A peer that proxies one of our routes can declare that document as its MCP outputSchema verbatim: MCP requires a server to keep the shape it publishes, and a proxy cannot promise a shape it does not own unless the owner publishes it.",
+        "note_kinds": NOTE_KINDS.iter().map(|(kind, spec, check)| json!({
+            "kind": kind,
+            "spec_cid": spec,
+            "published_by": "ememdemo (ddzmyzhn)",
+            "enforced": false,
+            "checked_by": if check.is_empty() { JsonValue::Null } else { json!(check) },
+        })).collect::<Vec<_>>(),
+        "note_kinds_means": "note formats other agents publish, pinned by the hash of their spec text; emem enforces none at write time (a note is data) and names the route that checks what each kind cites; checked_by null means described, not checked",
     }))
 }
 
@@ -50499,11 +50605,31 @@ pub(crate) async fn s2_pick_clear_scene(
             }
         }
     };
-    slot.get_or_try_init(|| {
-        s2_pick_clear_scene_uncached(cli, lng, lat, target_unix, now_unix, at_or_before)
-    })
-    .await
-    .cloned()
+    let mut chosen = slot
+        .get_or_try_init(|| {
+            s2_pick_clear_scene_uncached(cli, lng, lat, target_unix, now_unix, at_or_before)
+        })
+        .await
+        .cloned()?;
+    if chosen.search_url == emem_fetch::stac::STAC_MPC_V1 {
+        chosen.item = s2_resign(cli, chosen.item).await?;
+    }
+    Ok(chosen)
+}
+
+/// The item's asset urls with the current SAS token. A memoised scene can
+/// outlive the token it was signed with (tokens are served with as little
+/// as 5 minutes left), and an expired signature reads as a 403 that the SCL
+/// probe would take for "no class" and the value read for a failure.
+async fn s2_resign(
+    cli: &reqwest::Client,
+    mut item: emem_fetch::stac::StacItem,
+) -> Result<emem_fetch::stac::StacItem, String> {
+    for href in item.assets.values_mut() {
+        let bare = s2_url_for_record(href).len();
+        href.truncate(bare);
+    }
+    Ok(s2_sign_mpc_items(cli, vec![item]).await?.remove(0))
 }
 
 async fn s2_pick_clear_scene_uncached(
@@ -50695,10 +50821,14 @@ fn s2_area_for_cells(cells: &[String]) -> Option<S2Area> {
     if b[2] - b[0] > 1.0 || b[3] - b[1] > 1.0 {
         return None;
     }
+    // Rounded up to the hour so an identical retry, seconds later, builds
+    // the same windows and reuses the same area pages. A window ending in
+    // the future loses nothing: no scene is acquired after now.
     let now_unix = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs() as i64)
         .unwrap_or(0);
+    let now_unix = (now_unix.div_euclid(3600) + 1) * 3600;
     Some(S2Area { bbox: b, now_unix })
 }
 
@@ -50754,27 +50884,55 @@ async fn s2_area_page(
     datetime: &str,
     cloud: f64,
 ) -> Result<S2AreaPage, String> {
+    // A failed area search is remembered for 30 s: without it every cell
+    // waiting on the slot re-ran the 250-item search, in turn, against the
+    // host that had just refused it.
+    type Fails = std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, String)>>;
+    static FAILS: std::sync::OnceLock<Fails> = std::sync::OnceLock::new();
+    let fkey = format!("{host}|{:?}|{datetime}|{cloud}", area.bbox);
+    if let Some((at, e)) = FAILS
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&fkey)
+    {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return Err(e.clone());
+        }
+    }
     let slot = s2_area_slot(host, area, datetime, cloud);
-    slot.get_or_try_init(|| async {
-        let (items, complete) = emem_fetch::stac::search_bbox_at(
-            cli,
-            host,
-            "sentinel-2-l2a",
-            area.bbox,
-            datetime,
-            Some(cloud),
-            250,
-        )
-        .await?;
-        let items = if host == emem_fetch::stac::STAC_MPC_V1 {
-            s2_sign_mpc_items(cli, items).await?
-        } else {
-            items
-        };
-        Ok::<_, String>(std::sync::Arc::new((items, complete)))
-    })
-    .await
-    .cloned()
+    let got = slot
+        .get_or_try_init(|| async {
+            let (items, complete) = emem_fetch::stac::search_bbox_at(
+                cli,
+                host,
+                "sentinel-2-l2a",
+                area.bbox,
+                datetime,
+                Some(cloud),
+                250,
+            )
+            .await?;
+            let items = if host == emem_fetch::stac::STAC_MPC_V1 {
+                s2_sign_mpc_items(cli, items).await?
+            } else {
+                items
+            };
+            Ok::<_, String>(std::sync::Arc::new((items, complete)))
+        })
+        .await
+        .cloned();
+    if let Err(e) = &got {
+        let mut f = FAILS
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if f.len() > 256 {
+            f.clear();
+        }
+        f.insert(fkey, (std::time::Instant::now(), e.clone()));
+    }
+    got
 }
 
 /// Up to `max_scenes` candidate scenes at the point from one catalogue,
@@ -50795,12 +50953,20 @@ async fn s2_candidates(
         let page = s2_area_page(cli, host, area, datetime, cloud).await?;
         let (items, complete) = (&page.0, page.1);
         if complete && items.iter().all(|i| !i.footprint.is_empty()) {
-            return Ok(items
+            let hits: Vec<_> = items
                 .iter()
                 .filter(|i| i.footprint_contains(lng, lat) == Some(true))
                 .take(max_scenes)
                 .cloned()
-                .collect());
+                .collect();
+            if host == emem_fetch::stac::STAC_MPC_V1 {
+                let mut out = Vec::with_capacity(hits.len());
+                for it in hits {
+                    out.push(s2_resign(cli, it).await?);
+                }
+                return Ok(out);
+            }
+            return Ok(hits);
         }
     }
     let items = emem_fetch::stac::search_many_at(
@@ -50902,10 +51068,13 @@ async fn materialize_sentinel2_band(
 /// `s2.*` raw-reflectance band and every `indices.*` derived index from the
 /// same one-scene path:
 ///
-/// 1. STAC search [`s2_catalogues`] → latest scene <40% cloud that *contains*
-///    the point (intersects: Point, never bbox).
+/// 1. Scene pick [`s2_pick_clear_scene`]: the newest scene whose pixel SCL is
+///    clear, shared by every band of the cell. A single cell asks the
+///    catalogue for its point; a batch asks once for its area and keeps the
+///    items whose footprint holds the point.
 /// 2. For each STAC asset the band needs (1..4 of them), open the COG profile
-///    via HTTP range read and sample one pixel.
+///    via HTTP range read and sample one pixel; a pixel no scene showed clear
+///    is signed as an Absence before any value read.
 /// 3. Compute the band value (DN → reflectance, SCL category, or a
 ///    deterministic index formula).
 /// 4. Sign one Primary fact under the responder identity. The
@@ -50916,8 +51085,8 @@ async fn materialize_sentinel2_band(
 /// chosen per scene by [`s2_dn_offset`] from the catalogue it came from and
 /// its processing baseline; a scene whose offset cannot be known is refused.
 ///
-/// One STAC search per call, so per-band cost is dominated by the per-asset
-/// COG reads (~600 KB each: IFD head + 1 tile).
+/// Per band, the cost is the per-asset COG reads (~600 KB each: IFD head +
+/// 1 tile), shared across cells of one tile through the tile cache.
 async fn materialize_sentinel2_band_inner(
     cell64: &str,
     s: &AppState,
@@ -51051,10 +51220,7 @@ async fn s2_backfill_by_pass(
             steps.push(json!({"tslot": tslot, "target_unix": at, "scene": item.id, "status": "cached", "fact_cid": cid.as_str()}));
             continue;
         }
-        // Where two tiles overlap, one acquisition is one observation.
-        if seen.insert(tslot) {
-            todo.push((tslot, at, item));
-        }
+        todo.push((tslot, at, item));
     }
     let mut probes = futures_util::stream::iter(todo.into_iter().map(|(tslot, at, item)| {
         let cli = cli.clone();
@@ -51066,9 +51232,15 @@ async fn s2_backfill_by_pass(
     .buffered(s2_scl_probe_concurrency());
     let secs = materializer_timeout_secs();
     while let Some((tslot, at, item, scl)) = probes.next().await {
+        // Where two tiles overlap, one acquisition is one observation: the
+        // first tile that yields a fact wins, and a tile that is no-data or
+        // cloud at the pixel leaves the other still to try.
+        if seen.contains(&tslot) {
+            continue;
+        }
         if materialized + cached >= max_facts {
             notes.push(format!(
-                "max_facts={max_facts} reached; call again with start_unix > {at} to continue"
+                "max_facts={max_facts} reached; call again with start_unix >= {at} to continue"
             ));
             break;
         }
@@ -51099,6 +51271,7 @@ async fn s2_backfill_by_pass(
         match r {
             Ok(cid) => {
                 materialized += 1;
+                seen.insert(tslot);
                 steps.push(json!({"tslot": tslot, "target_unix": at, "scene": id, "status": "materialized", "fact_cid": cid.as_str()}));
             }
             Err(e) => {
@@ -51166,26 +51339,76 @@ async fn materialize_sentinel2_from_scene(
         }
     }
 
-    // Resolve each asset alias chain to a URL, open the profile, sample.
-    let mut samples = Vec::with_capacity(asset_lists.len());
+    // Resolve each asset alias chain to a URL; nothing is read yet.
     let mut asset_urls: Vec<String> = Vec::with_capacity(asset_lists.len());
     for aliases in &asset_lists {
-        let mut url: Option<String> = None;
-        for alias in *aliases {
-            if let Some(u) = item.assets.get(*alias) {
-                url = Some(u.clone());
-                break;
+        let url = aliases
+            .iter()
+            .find_map(|a| item.assets.get(*a).cloned())
+            .ok_or_else(|| format!("stac item missing any of {:?}", aliases))?;
+        asset_urls.push(url);
+    }
+
+    // A pixel every scene showed as cloud is an Absence, signed before any
+    // value COG is read: the reads could only fail or be discarded.
+    //
+    // Pixel-level Scene Classification Layer (SCL). Already sampled by
+    // `s2_pick_clear_scene` while choosing the scene, so we REUSE it here
+    // rather than re-reading the 20 m SCL COG. SCL is a tighter quality
+    // signal than scene-level `eo:cloud_cover`: a clear pixel inside a
+    // 40 %-cloudy scene used to carry the same confidence as a cloudy one in
+    // the same scene. SCL classes (Sen2Cor v2.10):
+    //   0 no_data, 1 saturated/defective, 2 cast shadows,
+    //   3 cloud shadows, 4 vegetation, 5 bare soil, 6 water,
+    //   7 cloud (low prob), 8 cloud (medium), 9 cloud (high),
+    //   10 thin cirrus, 11 snow/ice.
+    // When SCL itself is the requested band, the value IS the SCL so the
+    // gate is moot.
+    let scl_value: Option<u8> = if kind == "scl_categorical" {
+        None
+    } else {
+        chosen.scl
+    };
+    // Hard-reject only when EVERY candidate scene the picker tried was cloudy
+    // at this pixel (`chosen.clear == false`). A clear scene was already
+    // preferred, so this Absence is honest: it means no usable optical
+    // observation exists in the lookback window, not that we gave up on the
+    // first cloudy frame. The reason names the SCL class + how many scenes
+    // were probed so an agent can widen the window or accept the Absence.
+    if !chosen.clear {
+        if let Some(class) = scl_value {
+            if let Some(label) = s2_scl_reject_label(class) {
+                let signed_at = chrono_iso8601_utc();
+                return sign_band_absence(
+                    cell64,
+                    s,
+                    band,
+                    tslot,
+                    "sentinel_s2_l2a",
+                    &asset_urls
+                        .iter()
+                        .map(|u| s2_url_for_record(u))
+                        .collect::<Vec<_>>()
+                        .join(" ; "),
+                    &signed_at,
+                    &format!(
+                        "s2_scl_pixel_unusable: every one of {} candidate scene(s) in the ±{}d / {}%-cloud window was unusable at this pixel (newest: SCL={class} ({label}) at scene {} ({})); this Absence stands until a newer scene can exist: recall again after EMEM_ABSENCE_RECHECK_SECS, or ask a dated window with /v1/backfill",
+                        chosen.scenes_tried, used_days, used_cloud, item.id, item.datetime
+                    ),
+                )
+                .await;
             }
         }
-        let url = url.ok_or_else(|| format!("stac item missing any of {:?}", aliases))?;
-        let prof = emem_fetch::cog::open_profile(cli, &url)
+    }
+    let mut samples = Vec::with_capacity(asset_urls.len());
+    for url in &asset_urls {
+        let prof = emem_fetch::cog::open_profile(cli, url)
             .await
             .map_err(|e| format!("open COG {url}: {e}"))?;
-        let v = emem_fetch::cog::sample_pixel(cli, &url, &prof, utm.easting, utm.northing)
+        let v = emem_fetch::cog::sample_pixel(cli, url, &prof, utm.easting, utm.northing)
             .await
             .map_err(|e| format!("sample {url}: {e}"))?;
         samples.push(v);
-        asset_urls.push(url);
     }
 
     // Every arm below turns DNs into reflectance with a bare 1e-4 scale and
@@ -51429,54 +51652,6 @@ async fn materialize_sentinel2_from_scene(
 
     let signed_at = chrono_iso8601_utc();
     let fn_key = format!("sentinel2_l2a_{}@1", band.replace('.', "_"));
-    // Pixel-level Scene Classification Layer (SCL). Already sampled by
-    // `s2_pick_clear_scene` while choosing the scene, so we REUSE it here
-    // rather than re-reading the 20 m SCL COG. SCL is a tighter quality
-    // signal than scene-level `eo:cloud_cover`: a clear pixel inside a
-    // 40 %-cloudy scene used to carry the same confidence as a cloudy one in
-    // the same scene. SCL classes (Sen2Cor v2.10):
-    //   0 no_data, 1 saturated/defective, 2 cast shadows,
-    //   3 cloud shadows, 4 vegetation, 5 bare soil, 6 water,
-    //   7 cloud (low prob), 8 cloud (medium), 9 cloud (high),
-    //   10 thin cirrus, 11 snow/ice.
-    // When SCL itself is the requested band, the value IS the SCL so the
-    // gate is moot.
-    let scl_value: Option<u8> = if kind == "scl_categorical" {
-        None
-    } else {
-        chosen.scl
-    };
-    // Hard-reject only when EVERY candidate scene the picker tried was cloudy
-    // at this pixel (`chosen.clear == false`). A clear scene was already
-    // preferred, so this Absence is honest: it means no usable optical
-    // observation exists in the lookback window, not that we gave up on the
-    // first cloudy frame. The reason names the SCL class + how many scenes
-    // were probed so an agent can widen the window or accept the Absence.
-    if !chosen.clear {
-        if let Some(class) = scl_value {
-            if let Some(label) = s2_scl_reject_label(class) {
-                let signed_at = chrono_iso8601_utc();
-                return sign_band_absence(
-                    cell64,
-                    s,
-                    band,
-                    tslot,
-                    "sentinel_s2_l2a",
-                    &asset_urls
-                        .iter()
-                        .map(|u| s2_url_for_record(u))
-                        .collect::<Vec<_>>()
-                        .join(" ; "),
-                    &signed_at,
-                    &format!(
-                        "s2_scl_pixel_unusable: every one of {} candidate scene(s) in the ±{}d / {}%-cloud window was unusable at this pixel (newest: SCL={class} ({label}) at scene {} ({})); widen the window via EMEM_S2_LOOKBACK_DAYS / EMEM_S2_MAX_CLOUD, raise EMEM_S2_MAX_SCENES, or accept the Absence as authoritative",
-                        chosen.scenes_tried, used_days, used_cloud, item.id, item.datetime
-                    ),
-                )
-                .await;
-            }
-        }
-    }
     // Confidence: SCL-derived when the pixel-level class is known
     // (always more accurate than scene-level cloud_cover); falls back
     // to scene-cloud_cover when SCL is unavailable; finally to 0.50
@@ -57028,12 +57203,17 @@ async fn existing_same_acquisition(
         .into_iter()
         .next()
         .flatten()?;
+    // Compared as instants: the catalogues print fractional seconds
+    // differently (".024Z" and ".024000Z" are one acquisition).
+    let want = parse_iso8601_unix(captured_at);
     match fact {
         Fact::Primary(p)
             if p.signer == s.identity.pubkey
-                && p.sources
-                    .iter()
-                    .any(|src| src.captured_at.as_deref() == Some(captured_at)) =>
+                && p.sources.iter().any(|src| {
+                    src.captured_at.as_deref() == Some(captured_at)
+                        || (want.is_some()
+                            && src.captured_at.as_deref().and_then(parse_iso8601_unix) == want)
+                }) =>
         {
             Some(cid)
         }
@@ -57487,8 +57667,11 @@ async fn try_materialize_bands(
             // permit + a hard dispatch-level timeout (below), so no single
             // band, however slow its upstream, can hold the request past the
             // budget or pile up and starve the accept loop.
-            let work = async {
+            // The permit is taken before the timer starts: waiting behind
+            // other materializations here is local contention, and timing it
+            // reported it as "upstream too slow".
             let _mat_permit = materialize_global_permit().await;
+            let work = async {
             let mut out: Vec<MaterializeOutcome> = Vec::with_capacity(1);
             match b.as_str() {
             "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
@@ -62677,6 +62860,17 @@ fn enrich_facts_with_cid(v: &mut JsonValue) {
                 .map(|s| s.to_string())
                 .or_else(|| cell_for_token.clone());
             map.insert("fact_cid".into(), JsonValue::String(cid.clone()));
+            // When the thing was observed, beside the fact rather than in
+            // it: the capture time is already signed inside `sources`, and a
+            // new top-level field would change every new fact's cid.
+            let observed = map
+                .get("sources")
+                .and_then(|v| v.as_array())
+                .and_then(|a| a.iter().find_map(|s| s.get("captured_at")?.as_str()))
+                .map(|t| JsonValue::String(t.to_string()));
+            if let Some(t) = observed {
+                map.entry("observed_at").or_insert(t);
+            }
             map.insert(
                 "cid_v1".into(),
                 cid_v1_from_b32(&cid)
@@ -78029,9 +78223,16 @@ mod s2_dn_offset_invariant {
             .iter()
             .map(|x| x["target_unix"].as_i64().unwrap())
             .collect();
+        // Neither tile of day 20 yields a fact here (no assets to read), so
+        // both are tried; a tile that did would have ended the day.
         assert_eq!(
             at,
-            [start + 5 * 86_400, start + 20 * 86_400, start + 30 * 86_400]
+            [
+                start + 5 * 86_400,
+                start + 20 * 86_400,
+                start + 20 * 86_400,
+                start + 30 * 86_400
+            ]
         );
         assert_eq!(cached, 1);
         assert_eq!(steps[0]["fact_cid"], "heldalready");
@@ -86831,11 +87032,12 @@ mod tests {
         let mut want = Vec::new();
         // Three squares measured, the fourth a signed Absence (cloud in every
         // scene tried): an answer, cited, and never shown as a value.
+        let today = (now_unix_s() / 86_400) as u64;
         let absence = sign_band_absence(
             &cells[3],
             &s,
             "indices.ndvi",
-            20000,
+            today,
             "sentinel_s2_l2a",
             "https://example.org/SCL.tif",
             &chrono_iso8601_utc(),
