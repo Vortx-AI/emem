@@ -586,7 +586,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/recall` | `{cell, bands?, tslot?}` |
 | POST | `/v1/recall_many` | `{cells:[...], bands?}` (max 256) |
 | POST | `/v1/recall_polygon` | `{place?, polygon_bbox?, bands?, max_cells?, include?:["ftw_fields"]}` |
-| POST | `/v1/grid` | `{center, bands, n?:12, half_km?:3, budget_ms?}` → cells row-major + per band `values`, `fact_cids`, `captured_at`, one `bundle_token`; one receipt |
+| POST | `/v1/grid` | `{center, bands, n?:12, half_km?:3, budget_ms?}` → cells row-major + per band `values`, `states` (value/absent/missing), `fact_cids`, `absence_cids`, `captured_at`, one `bundle_token`; one receipt; `pending`/`skipped` when not converged |
 | POST | `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` |
 | GET | `/v1/cells/:cell64` | One-shot recall, all bands |
 | POST | `/v1/query_region` | `{geometry, bands?, agg?, max_cells?}` |
@@ -672,9 +672,12 @@ and returns one or a few facts plus a receipt. Same data flows through
 |---|---|---|
 | POST | `/v1/backfill` | `{cell, band, start_unix?, end_unix?, max_facts?}` |
 
-Iterates the per-tslot upstream materializer over a window. Bands
-without historical fetch return `status: "present_only"`; check
-`/v1/data_availability` before picking a window.
+Sentinel-2 bands walk the window by pass: one catalogue search lists
+every acquisition over the cell, each is screened by its own pixel SCL and
+signed once, oldest first (`materialized`, `cached`, `unusable_at_pixel`).
+Other bands iterate the per-tslot materializer. Bands without historical
+fetch return `status: "present_only"`; check `/v1/data_availability`
+before picking a window.
 
    ### MCP tools
 
@@ -852,9 +855,9 @@ reason:
 
 | Reason | Meaning |
 |---|---|
-| `unavailable_capability` | Sidecar extension missing (GPU off, encoder offline) |
+| `unavailable_capability` | The upstream is reachable but does not publish the requested layer |
 | `outside_coverage` | Cell falls outside the upstream product footprint |
-| `gpu_unavailable` | Required GPU model is loaded but not serving |
+| `gpu_unavailable` | Registered, not produced here: this responder runs no GPU tier |
 | `archetype_seed_unavailable` | Climate/place archetype centroids not loaded |
 | `no_auto_materializer_registered` | Band reserved in cube but no connector wired |
 | `present_only` | Band is now-only (e.g. met.no nowcast); past tslots return absence |

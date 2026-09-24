@@ -14,7 +14,7 @@ npm install n8n-nodes-emem
 
 ## What it does
 
-This node calls emem's MCP tools via its public Streamable HTTP endpoint (`emem.dev/mcp/full`). 108 tools available, no API key or account required for reads. Every fact returned carries an ed25519 receipt you can verify offline against the responder's published key.
+This node calls emem's MCP tools via its public Streamable HTTP endpoint (`emem.dev/mcp/full`). 114 tools available, no API key or account required for reads. Every fact returned carries an ed25519 receipt you can verify offline against the responder's published key.
 
 See the full documentation at [emem.dev/agents.md](https://emem.dev/agents.md) and the [GitHub repository](https://github.com/Vortx-AI/emem).
 

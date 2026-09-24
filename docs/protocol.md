@@ -403,12 +403,12 @@ Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
   "kind": "primary",
   "cell": "dedi.zaf00.bafi.baba",
   "band": "indices.ndvi",
-  "tslot": 19852,
-  "value": 0.42, "unit": "dimensionless", "confidence": 0.97,
-  "sources": [{ "scheme": "sentinel2.l2a",
-                "id": "S2A_MSIL2A_20240315T101031_T43PFT",
+  "tslot": 19797,
+  "value": 0.42, "unit": null, "confidence": 0.95,
+  "sources": [{ "scheme": "sentinel_s2_l2a",
+                "id": "https://…/T43PFT_20240315T101031_B08_10m.tif ; https://…/T43PFT_20240315T101031_B04_10m.tif",
                 "captured_at": "2024-03-15T10:10:31Z" }],
-  "derivation": { "fn_key": "indices.ndvi@1" },
+  "derivation": { "fn_key": "sentinel2_l2a_indices_ndvi@1", "args": [/* lat, lng, scene, cloud, days, …, catalogue, dn_offset */] },
   "privacy_class": "public",
   "schema_cid": "bn7c...",
   "signer": [/* 32 bytes */],
@@ -416,8 +416,9 @@ Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
 }
 ```
 
-`tslot=19852` at Fast tempo (86_400 s) inverts to Unix
-`19852 × 86_400 = 1_715_212_800 = 2024-05-09T00:00:00Z` (slot start).
+`tslot=19797` at Fast tempo (86_400 s) inverts to Unix
+`19797 × 86_400 = 1_710_460_800 = 2024-03-15T00:00:00Z`, the start of the
+capture's day.
 
 ### 5.2 DerivativeFact
 
@@ -666,7 +667,7 @@ Derivative fact. The `reason_cid` carries a typed enumeration:
 |---|---|
 | `outside_coverage` | The query falls outside the dataset's spatial or temporal window (DMSP-OLS post-2013, CHIRPS poleward of ±50°, Köppen pixel value 0 over open ocean). |
 | `unavailable_capability` | A required upstream is reachable but does not expose the requested layer (Hansen 80°N tile genuinely not published; Overture release lacks the queried theme). |
-| `gpu_unavailable` | A foundation-model band was requested while the Python sidecar UDS is down or VRAM-saturated. |
+| `gpu_unavailable` | Registered for a GPU-tier band; not produced by this responder, which runs no GPU tier. |
 | `archetype_seed_unavailable` | A climate-archetype query landed in a Köppen-Geiger zone that the v1 centroid seed file does not yet cover. |
 | `upstream_no_data` | Upstream returned an empty result with no error (WorldPop `total_population == 0`; FIRMS bulk CSV with no fire detection inside the window). |
 
@@ -1351,15 +1352,17 @@ it rotates.
 
 ### 9.2 Append semantics
 
-`AttestationLog::append` (`merkle_log.rs:58-91`): CBOR-encode the
-attestation, hash it, build the `[len][cbor][hash]` record, rotate the
-segment if the open one would exceed 1 GiB, append, then `sync_all()`.
-Data is fsynced before `append` returns; receipts depend on the
-durability claim.
+`AttestationLog::append` (`merkle_log.rs`): CBOR-encode the attestation,
+hash it, build the `[len][cbor][hash]` record and queue it. Whoever takes
+the log lock next writes every queued record in arrival order with one
+write and one `sync_all()` per segment (group commit), rotating to a new
+segment when the open one would exceed 1 GiB, then advances the segment
+hash. The write runs as its own task, so a caller that gives up cannot
+leave the bytes and the hash chain out of step. Data is fsynced before
+`append` returns; receipts depend on the durability claim.
 
-`AppendOutcome` (`merkle_log.rs:142-150`) returns `segment_index`,
-`offset_in_segment`, and `record_hash`, enough to rebuild a
-record-level inclusion proof later.
+`AppendOutcome` returns `segment_index`, `offset_in_segment`, and
+`record_hash`, enough to rebuild a record-level inclusion proof later.
 
 ### 9.3 Rotation
 
