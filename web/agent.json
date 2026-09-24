@@ -3,7 +3,7 @@
   "version": "2.4.0",
   "protocol": "emem-earth-memory",
   "tagline": "emem is shared memory for AI agents working together in the real world. One agent writes down what it observed. Another agent reads the same bytes, not a summary of them. Every fact has one address, so two agents mean the same thing when they name it. Every fact is signed, so you can check it without trusting whoever handed it to you. Every fact says how it was produced, so you know what it is worth. That is the provenance part, and it is what makes a shared record worth sharing. Reads need no key and no account.",
-  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns: six Anthropic memory-tool verbs (emem_memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 115 MCP tools (18 core, 97 extended), 20 static MCP resources + 9 URI templates, 168 algorithms in a content-addressed registry, 125 materializer-wired band names across 43 cube slots, 46 source schemes, 4 foundation encoders (Clay v1.5, Prithvi-EO-2.0-300M-TL, Tessera, Galileo), three GPU-pinned and Tessera streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
+  "description": "Verifiable memory substrate for AI agents. Two layers, one trust surface. Earth-scale spatial fact store: every patch of ground gets a 64-bit address (cell64, about 9.55 m), and every measurement at that cell is a signed fact keyed by (cell, band, tslot), ed25519-signed by the responder over the blake3 of its canonical CBOR. Agent memory: above the fact store sits the writable scratchpad the agent owns: six Anthropic memory-tool verbs (emem_memory_view/create/str_replace/insert/delete/rename), CoALA-typed files (episodic/semantic/procedural/resource), capability-bound writes under /memories/by_attester/, BGE-768 semantic search over notes, multi-attester contradiction scoring per band kind, signed bundles (emem:bundle:<bundle_cid>) and object identities (emem:entity:<entity_cid>), and bi-temporal recall (as_of_tslot for valid time, as_of_signed_at for transaction time, both threaded through every read). 113 MCP tools (18 core, 95 extended), 20 static MCP resources + 9 URI templates, 168 algorithms in a content-addressed registry, 125 materializer-wired band names across 43 cube slots, 46 source schemes, the Tessera foundation embedding streamed from Cloud-Optimized GeoTIFF on CPU, behind a 1792-D state cube. Every response carries an ed25519 receipt verifiable offline at /verify. No API keys.",
   "homepage": "https://emem.dev",
   "code": "https://github.com/Vortx-AI/emem",
   "license": "Apache-2.0",
@@ -96,7 +96,6 @@
     "emem_heat_solve",
     "emem_wave_solve",
     "emem_jepa_predict",
-    "emem_jepa_predict_v2",
     "emem_verify",
     "emem_verify_receipt",
     "emem_at",
@@ -144,12 +143,12 @@
     "emem_eudr_dds"
   ],
   "_primitives_note": "curated subset of the tool surface; the MCP tools/list call and /v1/agent_card enumerate the full set",
-  "primitive_count": 115,
+  "primitive_count": 113,
   "algorithm_count": 168,
   "band_cube_slot_count": 43,
   "materializer_wired_band_names": 125,
-  "rest_paths_in_openapi": 184,
-  "rest_paths_v1_in_openapi": 173,
+  "rest_paths_in_openapi": 182,
+  "rest_paths_v1_in_openapi": 171,
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {
@@ -165,139 +164,13 @@
     "verify_path": "in-browser via /verify or /verify/{fact_cid} using @noble/curves + @noble/hashes; no callback to issuer"
   },
   "foundation_encoders": {
-    "_purpose": "Four foundation encoders: three GPU-pinned and co-resident on a 20 GB VRAM budget, Tessera streamed from Cloud-Optimized GeoTIFF on CPU. Surfaced as their own bands and woven into algorithm consensus voting.",
-    "clay_v1.5": {
-      "band": "clay_v1",
-      "dim": 1024,
-      "input": "Sentinel-2 L2A, 10 bands @ 10 m, 256×256 chip",
-      "warm_latency_ms": 12,
-      "receipt_warning": "frozen_pretrained_encoder",
-      "source": "https://clay-foundation.github.io/model/"
-    },
-    "prithvi_eo2.4.0m_tl": {
-      "band": "prithvi_eo2",
-      "dim": 1024,
-      "input": "HLS V2 6-band @ 30 m, 224×224 chip",
-      "warm_latency_ms": 13,
-      "receipt_warning": "frozen_pretrained_encoder",
-      "source": "https://research.ibm.com/blog/prithvi2-geospatial"
-    },
-    "galileo": {
-      "band": "galileo",
-      "deployed_variant": "base",
-      "selectable_via": "EMEM_GALILEO_VARIANT (tiny | base | nano)",
-      "advertised_extension": "galileo-base",
-      "input": "Sentinel-2 only modality wired today (multimodal scaffold present)",
-      "warm_latency_ms": 14,
-      "receipt_warning": "frozen_pretrained_encoder",
-      "source": "https://arxiv.org/abs/2502.09356"
-    },
-    "jepa_v2_dynamics": {
-      "band": "jepa_v2 (synthesized output)",
-      "status": "untrained_baseline",
-      "honest_behaviour": "returns last_attested_vintage; receipt carries `via: short_circuit_untrained` and `untrained_baseline` warning",
-      "trained_at": null
-    }
+    "_purpose": "No foundation encoder runs on this responder. Earlier versions ran Clay v1.5, Prithvi-EO-2.0 and Galileo on a GPU sidecar; facts they signed still recall and verify. Tessera is read from upstream as a stored fact."
   },
-  "consensus_algorithms": [
-    {
-      "key": "clay_prithvi_tessera_triple_consensus@1",
-      "purpose": "Year-on-year change detection via cosine distance per encoder, ensemble L2-mean, agreement classifier at gate=0.15 (tunable via parameters block).",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "geotessera.multi_year"
-      ]
-    },
-    {
-      "key": "deforestation_triple@1",
-      "purpose": "Forest-loss-tuned consensus with Hansen GFC mask uplift to `hansen_confirmed` verdict at gate=0.20.",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "geotessera.multi_year",
-        "forest_change.lossyear"
-      ]
-    },
-    {
-      "key": "wetland_change_triple@1",
-      "purpose": "Wetland-tuned consensus, Tessera leg substituted by JRC GSW recurrence delta at gate=0.10.",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "surface_water.recurrence"
-      ]
-    },
-    {
-      "key": "urban_expansion_triple@1",
-      "purpose": "New-construction consensus with Overture buildings delta + S2 B11 SWIR corroboration at gate=0.20.",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "overture.buildings.count",
-        "s2.B11"
-      ]
-    },
-    {
-      "key": "disaster_anomaly_triple@1",
-      "purpose": "Spatial-anomaly consensus: cell vs 8-neighbour mean per encoder, adaptive z-score gate (2-σ over neighbour distribution).",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "geotessera.multi_year"
-      ]
-    },
-    {
-      "key": "climate_archetype_triple@1",
-      "purpose": "12-class Köppen-Geiger classifier with per-encoder centroids seeded from Beck et al. 2018 type localities.",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "geotessera.multi_year"
-      ]
-    },
-    {
-      "key": "coastal_erosion_triple@1",
-      "purpose": "Coastline-clamped consensus: bathymetry clamp restricts execution to active-coastline cells (-5 m ≤ depth ≤ +5 m).",
-      "encoders": [
-        "clay_v1",
-        "prithvi_eo2",
-        "geotessera.multi_year",
-        "gmrt.topobathy_mean"
-      ]
-    }
-  ],
-  "ask_intents": {
-    "_purpose": "When /v1/ask classifies the question as Similarity or Change, the response carries a `foundation_embeddings` envelope with per-encoder neighbour lists and cross-encoder consensus voting. Additive: non-matching questions keep the topic-router scalar response.",
-    "similarity": [
-      "find places like",
-      "places like",
-      "similar to",
-      "looks like",
-      "where else",
-      "analog of",
-      "look-alike",
-      "comparable to"
-    ],
-    "change": [
-      "what changed",
-      "year over year",
-      "since last year",
-      "deforestation",
-      "forest loss",
-      "new construction",
-      "urban expansion",
-      "wetland change",
-      "coastline change",
-      "coastal erosion",
-      "anomaly"
-    ]
-  },
+  "consensus_algorithms": [],
   "honest_limits": [
     "No commercial sub-meter imagery: Sentinel-2 (10 m) is the finest native pitch wired today.",
     "No edge / onboard inference.",
     "Single-host deployment: no federation, no global routing, no SOC 2.",
-    "JEPA v2 dynamics is untrained; the endpoint short-circuits to the last attested vintage and signs the receipt with `untrained_baseline`.",
     "Tessera multi-vintage coverage is upstream-rate-limited; only 2024 reliably serves today.",
     "Some declared bands have no registered materializer at this responder and appear under `declared_but_no_materializer_at_this_responder`."
   ],
@@ -321,8 +194,8 @@
   },
   "mcp_tools": {
     "core": 18,
-    "extended": 97,
-    "total": 115
+    "extended": 95,
+    "total": 113
   },
   "mcp_resources": {
     "static": 20,

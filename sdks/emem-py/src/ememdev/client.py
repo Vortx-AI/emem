@@ -290,11 +290,6 @@ class Client:
             _jepa_predict_body(cell, band, lookback_months, forecast_horizon_months),
         )
 
-    def jepa_predict_v2(self, cell: str, *, band: str = "indices.ndvi", k_history: int = 5) -> Any:
-        return self._post(
-            "/v1/jepa_predict_v2", _jepa_predict_v2_body(cell, band, k_history)
-        )
-
     # ── Boring lat/lng shortcuts ───────────────────────────────────────
     def _boring_get(self, path: str, *, lat: float | None, lng: float | None, place: str | None) -> Any:
         return self._get(path, _boring_get_params(lat, lng, place))
@@ -764,10 +759,6 @@ def _jepa_predict_body(
     }
 
 
-def _jepa_predict_v2_body(cell: str, band: str, k_history: int) -> dict[str, Any]:
-    return {"cell": cell, "band": band, "k_history": k_history}
-
-
 def _boring_get_params(
     lat: float | None, lng: float | None, place: str | None
 ) -> dict[str, Any]:
@@ -1116,13 +1107,6 @@ class AsyncClient:
         return await self._post(
             "/v1/jepa_predict",
             _jepa_predict_body(cell, band, lookback_months, forecast_horizon_months),
-        )
-
-    async def jepa_predict_v2(
-        self, cell: str, *, band: str = "indices.ndvi", k_history: int = 5
-    ) -> Any:
-        return await self._post(
-            "/v1/jepa_predict_v2", _jepa_predict_v2_body(cell, band, k_history)
         )
 
     # ── Boring lat/lng shortcuts ───────────────────────────────────────

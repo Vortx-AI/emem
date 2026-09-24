@@ -275,9 +275,9 @@ new attestations land:
   walkthrough: [examples/connect-and-evolve.md](../examples/connect-and-evolve.md).
 
 The hosted responder is at `https://emem.dev`; local self-host runs on
-port 5051. The live surface documents 173 paths under
-`/v1/*` (184 total in `/openapi.json`), 115 MCP tools (18 core, 97 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 115), 20 static MCP
+port 5051. The live surface documents 171 paths under
+`/v1/*` (182 total in `/openapi.json`), 113 MCP tools (18 core, 95 extended, with
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 113), 20 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), and 27 data
@@ -300,8 +300,8 @@ Four discovery URLs for agent onboarding:
 
 | Resource | Live count |
 |---|---|
-| REST paths (OpenAPI) | 184 documented, 173 under `/v1/*` |
-| MCP tools | 107 (16 core / 97 extended) |
+| REST paths (OpenAPI) | 182 documented, 171 under `/v1/*` |
+| MCP tools | 113 (18 core / 95 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
 | MCP resources | 20 static + 9 URI templates |
@@ -577,7 +577,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | `/v1/errors` | Stable error code catalog |
 | `/v1/tools` | MCP tool descriptors over plain HTTP |
 | `/v1/schema` | CDDL/JSON schema bundle |
-| `/v1/capabilities` | Sidecar extensions snapshot |
+| `/v1/capabilities` | Capability snapshot; no GPU sidecar runs, so `extensions` is empty |
 
    #### Read primitives
 
@@ -614,22 +614,14 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/heat_solve` | `{cell, hours_ahead?, diffusivity_m2_per_s?}` |
 | POST | `/v1/wave_solve` | `{coastal_cell, offshore_height_m, period_s, n_offshore_cells?}` |
 | POST | `/v1/jepa_predict` | `{cell, band?, lookback_months?, forecast_horizon_months?}` |
-| POST | `/v1/jepa_predict_v2` | `{cell, target_month?}` |
 
 `heat_solve` and `wave_solve` are explicit-FD solvers (CFL-stable).
-`jepa_predict` is a closed-form AR(2) NDVI predictor with fixed
-coefficients. `jepa_predict_v2` is **trained, and measurably worse than
-persistence**: the receipt carries `NEGATIVE_SKILL`
-(skill_vs_persistence -0.0638) and every band is served
-`via: persistence_fallback_negative_skill`, so the value you get back is
-the last observed one. `untrained_baseline` is a different warning, for
-the zero-init sentinel, and does not fire while the head is trained.
-Read `model.honesty_warnings` from the response before relying on the
-output.
+`jepa_predict` is a closed-form AR(2) seasonal NDVI predictor with fixed
+coefficients. It is arithmetic, not a learned model.
 
    #### Runtime algorithm endpoints
 
-Five algorithms the registry carries as `documentation_only` (their
+Four algorithms the registry carries as `documentation_only` (their
 formula needs a multi-year series or a two-scene pair the scalar
 evaluation-AST can't express) have runnable surfaces here. Each signs
 its result and returns `verdict: "inconclusive"` (with no fabricated
@@ -640,7 +632,6 @@ endpoint.
 | Method | Path | Body shape | Algorithm + citation |
 |---|---|---|---|
 | POST | `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`; each half degrades independently |
-| POST | `/v1/triple_consensus` | `{cell, consensus_threshold?}` | `clay_prithvi_tessera` change-ensemble; degrades to inconclusive without the GPU sidecar or two distinct vintages |
 | POST | `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
 | POST | `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | dNBR burn severity (Key & Benson 2006) |
 | POST | `/v1/rice_ch4` | `{cell, cultivation_period_days, efc_kg_ch4_ha_day, ndwi_series?, sfp?, sfo?, t_paddy_c?}` | Rice-cultivation CH4 (IPCC 2019 Tier 2, Eq 5.1) |
@@ -690,7 +681,7 @@ without historical fetch return `status: "present_only"`; check
 The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
 
 `tools/list` at `/mcp` advertises the 18 tools of the loop in one page (about
-75 KB of descriptors); `/mcp/full` advertises all 115 (about 324 KB over 8
+75 KB of descriptors); `/mcp/full` advertises all 113 (about 324 KB over 8
 pages), and
 `{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
 `tools/call` dispatches every tool by name at both endpoints regardless of
@@ -753,8 +744,7 @@ Domain shortcuts (9, one-shot locate→recall→aggregate):
 | `emem_weather` | Now-only met.no nowcast |
 | `emem_elevation` | Cop-DEM 30 m elevation |
 
-Physics (4): `emem_heat_solve`, `emem_wave_solve`, `emem_jepa_predict`,
-`emem_jepa_predict_v2`.
+Physics (3): `emem_heat_solve`, `emem_wave_solve`, `emem_jepa_predict`.
 
 Verify (2): `emem_verify`, `emem_verify_receipt`.
 
@@ -774,121 +764,25 @@ in `docs/ATTESTING.md`; the schema is in `/openapi.json`.
 
 ---
 
-## Algorithms: triple-encoder consensus
+## Algorithms
 
-The 160-entry algorithm registry includes the standard agronomic and
-hydrological indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE).
-The intended differentiator is the **triple-encoder consensus pattern**:
-when three independent foundation encoders flag the same cell, the answer
-ships with `agreement: all_three`, `two_of_three`, or `one_or_none`.
-`independent_receptive_field_agreement` is the mathematical claim behind
-it. Clay, Prithvi, and Tessera see different inputs (10-band S2 256×256
-vs. 6-band HLS 224×224 vs. annual learned embedding) and were trained on
-different corpora, so joint agreement at a cell should be unlikely under
-noise.
+The algorithm registry includes the standard agronomic and hydrological
+indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE). Each tuned
+threshold carries a `learned_from` citation, and the `parameters` block on
+every `AlgorithmSpec` is typed and accessor-driven
+(`Algorithm::param_f64("consensus_threshold")`). Pass an algorithm key to
+`POST /v1/algorithms/:key` for the formula body, then call `/v1/recall` for
+the input bands and replay the math locally.
 
-**The pattern does not currently deliver that claim, and `all_three`
-cannot occur.** The 0.15 gate is Healey et al. 2018's threshold for
-*spectral* change, applied unchanged to cosine distances in three
-embedding spaces that do not share a scale. Measured over 8 maximally
-dissimilar chips, Clay's cosine spans 0.11 to 0.95 (sd 0.204) so its
-change score clears the gate readily, while the deployed Prithvi
-checkpoint spans 0.88 to 0.99 (sd 0.030) and its score tops out near
-0.1155. Prithvi never crosses 0.15, so it is a permanent no-change vote:
-`agreement: all_three` is arithmetically unreachable and `two_of_three`
-means Clay plus Tessera. The response declares this in `gate_calibration`.
-Read `encoders_used[].change` per encoder rather than trusting the vote.
-Calibrating a per-encoder gate needs a labelled change corpus this
-responder does not have, so the limit is declared rather than papered over
-with an invented threshold.
-
-Each tuned threshold carries a `learned_from` citation; the
-`parameters` block on every `AlgorithmSpec` is typed and accessor-driven
-(`Algorithm::param_f64("consensus_threshold")`).
-
-| Algorithm | Recipe | Gate | Notes |
-|---|---|---|---|
-| `clay_prithvi_tessera_triple_consensus@1` | Year-on-year change vector from all three encoders | 0.15 | Base recipe; tunable via `parameters.consensus_threshold`. Gate is uncalibrated across encoders: Prithvi's score caps near 0.1155, so `all_three` cannot occur. See `gate_calibration` |
-| `deforestation_triple@1` | Triple consensus + Hansen GFC mask uplift | 0.20 | Verdict `hansen_confirmed` when GFC agrees |
-| `wetland_change_triple@1` | JRC GSW recurrence delta substitutes the Tessera leg | 0.10 | For monsoon / coastal wetland flux |
-| `urban_expansion_triple@1` | Overture buildings delta + S2 B11 SWIR corroboration | 0.20 | Co-registered building footprint truth |
-| `disaster_anomaly_triple@1` | Spatial only (no temporal leg) | 2-σ neighbour z-score | Adaptive gate, no fixed threshold |
-| `climate_archetype_triple@1` | 12-class Köppen-Geiger classifier with type-locality centroids | n/a | Seeded from `climate_archetype_centroids_v1.json` (Beck et al. 2018) |
-| `coastal_erosion_triple@1` | Same as base + bathymetry clamp `[-5 m, +5 m]` | 0.12 | Restricts evaluation to active-coastline cells |
-
-Every gate threshold traces back through `learned_from` to a referee
-paper or operational test. Re-executable: pass the algorithm key to
-`POST /v1/algorithms/:key` for the formula body, then call `/v1/recall`
-for the input bands and replay the math locally.
-
-   ### Foundation embeddings, sidecar-resident
-
-Four GPU encoders co-reside in a 20 GB VRAM budget at the live
-responder.
-
-| Band | Encoder | Output | Input shape | Latency |
-|---|---|---|---|---|
-| `clay_v1` | Clay v1.5 | 1024-D CLS | Sentinel-2 L2A 10-band 256×256 | ~12 ms warm |
-| `prithvi_eo2` | IBM-NASA Prithvi-EO-2.0-300M-TL | 1024-D CLS | HLS V2 6-band 224×224 | ~13 ms warm |
-| `galileo` | Galileo (variant via `EMEM_GALILEO_VARIANT`, default `base`) | variant-dependent | Sentinel-2 only wired | warm |
-| (none) | JEPA v2 dynamics | UNTRAINED | n/a | short-circuits |
-
-The Clay encoder ships its DINOv2 teacher
-(`vit_large_patch14_reg4_dinov2.lvd142m`) pre-staged at boot so
-`HF_HUB_OFFLINE=1` holds. Galileo's multimodal scaffold (S1, ERA5, TC,
-VIIRS, SRTM, DW, WC, LandScan, location) is present but **only the S2
-modality is wired** today; the rest are zero-masked. Do not claim full
-multimodal coverage.
-
-The JEPA v2 dynamics head is trained and does not beat persistence.
-The receipt carries `NEGATIVE_SKILL` (skill_vs_persistence -0.0638)
-and every band returns `via: persistence_fallback_negative_skill`, the
-last attested vintage. The `is_trained()` short-circuit, whose receipt
-carries `via: short_circuit_untrained` and `untrained_baseline`, only
-fires if the head is rolled back to the zero-init sentinel. Treat
-the output as a no-op.
+The registry still declares the triple-encoder consensus family
+(`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
+versions ran Clay, Prithvi and Galileo on a GPU sidecar; those encoders are
+retired, so none of that family runs here. Facts they signed still recall
+and verify.
 
 Tessera (`geotessera`, 128-D annual) is consumed as an upstream
 foundation fact, not run in-process. Today 2024 is the reliably-served
 vintage; historical backfill is partial. Source: `dl2.geotessera.org`.
-
----
-
-## Foundation-embedding fan-out from `/v1/ask`
-
-`/v1/ask` dispatches to `clay_v1`, `prithvi_eo2`, and `geotessera` in
-parallel when the question matches either intent:
-
-- **Similarity**: "find places like X", "similar to", "look-alike",
-  "where else does this pattern appear".
-- **Change**: "what changed", "year over year", "deforestation",
-  "anomaly", "before-after".
-
-The response carries a top-level `foundation_embeddings` envelope:
-
-```json
-{
-  "foundation_embeddings": {
-    "per_encoder": {
-      "clay_v1": {"neighbors": [{"cell": "...", "score": 0.91}, "..."]},
-      "prithvi_eo2": {"neighbors": ["..."]},
-      "geotessera": {"neighbors": ["..."]}
-    },
-    "consensus": {
-      "all_three": ["defi.zb493.xuqA.zcb5f", "..."],
-      "two_of_three": ["..."],
-      "one_or_none": ["..."]
-    },
-    "budget_ms": 4000,
-    "degraded_reason": null
-  }
-}
-```
-
-The 4 s budget is read from
-`clay_prithvi_tessera_triple_consensus@1.parameters.ask_timeout_ms`. On
-timeout, `degraded_reason: "foundation_embedding_timeout"`; the rest of
-the answer still ships with its receipt.
 
 ---
 

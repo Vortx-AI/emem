@@ -30,11 +30,10 @@ for row in "${PATCHES[@]}"; do
   cell=$(curl -s --max-time 30 -X POST "$BASE/v1/locate" -H 'content-type: application/json' -d "{\"lat\":$lat,\"lng\":$lng}" | python3 -c "import sys,json;print(json.load(sys.stdin).get('cell64',''))" 2>/dev/null)
   [ -z "$cell" ] && { echo "  $name: locate failed"; continue; }
   sm=$(post "v1/state_multi" "{\"cell\":\"$cell\",\"vectors\":true}")
-  tc=$(post "v1/triple_consensus" "{\"cell\":\"$cell\"}")
   rc=$(post "v1/recall" "{\"lat\":$lat,\"lng\":$lng,\"bands\":$BANDS}")
   fs=$(post "v1/find_similar" "{\"key\":\"$cell\",\"k\":4}")
   curl -s -o /dev/null --max-time 60 "$BASE/v1/cells/$cell/scene.png" &
-  echo "  $name $cell: state_multi=$sm consensus=$tc recall=$rc similar=$fs in $(( $(date +%s)-t0 ))s"
+  echo "  $name $cell: state_multi=$sm recall=$rc similar=$fs in $(( $(date +%s)-t0 ))s"
 done
 wait
 echo "prewarm-consumer done"

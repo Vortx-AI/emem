@@ -1,13 +1,5 @@
 [Unit]
 Description=emem.dev — Earth memory protocol HTTP/MCP server
-# The jepa_v2 sidecar is deliberately NOT pulled in here any more. It holds
-# 6-13 GB of a card shared with the reasoning tier, which is live on the A2A
-# path and refuses to load a base without 12 GB free, and jepa_predict_v2
-# returns persistence_fallback_negative_skill with synthetic_fraction_train
-# 1.0, so it is the tenant we least want resident. `Wants=` resurrected it on
-# every redeploy even while the unit was disabled (restart counter hit 87).
-# The server already degrades gracefully when the socket is absent: see
-# EMEM_SIDECAR_SOCK below. Start it by hand if a jepa_v2 route is needed.
 After=network-online.target
 Wants=network-online.target
 
@@ -74,12 +66,6 @@ Environment=LD_LIBRARY_PATH=/opt/onnxruntime-1.22.0-cuda12/lib:/usr/lib/x86_64-l
 # cannot silently regress to open writes on a future default change. Set
 # EMEM_MEMORY_OPEN=1 to re-open for unattested Anthropic memory-tool clients.
 Environment=EMEM_MEMORY_REQUIRE_ATTESTER=1
-# GPU sidecar — Python process that holds CUDA-resident jepa_v2 (and
-# Phase 3+ V-JEPA 2 / Prithvi). Same %t (XDG_RUNTIME_DIR) socket the
-# sidecar's systemd unit binds. When unreachable, /v1/jepa_predict_v2
-# transparently falls back to the in-process CPU path.
-Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
-Environment=EMEM_SIDECAR_TIMEOUT_MS=10000
 # Google Analytics 4 measurement ID. The repo's web/index.html has a
 # `__EMEM_GA_ID__` placeholder; the responder substitutes this value
 # at startup. Unset to disable GA entirely (the GA <script> blocks

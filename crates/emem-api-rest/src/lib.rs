@@ -47,23 +47,18 @@ use std::sync::{Arc, LazyLock};
 mod ask_foundation;
 mod band_raster;
 mod change_attribution;
-mod clay_chip;
 mod decide;
+mod deforestation_alert;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
-mod galileo_chip;
-mod gpu_sidecar;
 mod intents;
-mod jepa_v2;
 mod physics;
-mod prithvi_chip;
 mod range_hash;
 mod reader;
 mod terrain;
 pub mod topic_router;
 mod tree;
-mod triple_consensus;
 mod vault;
 
 use axum::body::Bytes;
@@ -560,62 +555,28 @@ const EXAMPLE_OPENAI: &str = include_str!("../../../examples/openai-gpt-action.j
 const EXAMPLE_LANGCHAIN: &str = include_str!("../../../examples/langchain.py");
 const EXAMPLE_LLAMAINDEX: &str = include_str!("../../../examples/llamaindex.py");
 
-/// Build the full HTTP router.
-/// Cached capability snapshot. The router spawns a background poller
-/// at startup (`spawn_capability_cache_poller`) that calls
-/// `gpu_sidecar::health()` on a 30 s cadence and updates this cell.
-/// Filter callers (`/v1/topics`, `/v1/explain_algorithm`, the topic
-/// router) read it cheaply without re-hitting the sidecar per request,
-/// so a 50-algorithm topics page costs zero sidecar round-trips.
-static CAPABILITY_CACHE: std::sync::OnceLock<std::sync::RwLock<CapabilityState>> =
-    std::sync::OnceLock::new();
-
-/// Snapshot of upstream capabilities. `extensions` mirrors the sidecar
-/// `/health` response's `extensions[]`; `models_loaded` is informational
-/// and surfaces in `/v1/capabilities`.
+/// Snapshot of optional compute extensions, served at `/v1/capabilities`.
+///
+/// No GPU extension runs at this responder any more, so the snapshot is
+/// always the empty default. The shape stays because algorithms declare
+/// `inference.required_extension` in the registry and agents filter on it.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CapabilityState {
-    /// Extensions the upstream sidecar advertises (e.g. `["gpu",
-    /// "vjepa2", "prithvi", "clay"]`). Empty when the sidecar is
-    /// unreachable or hasn't been polled yet.
     pub extensions: Vec<String>,
-    /// `models_loaded[]` from the sidecar, informational only.
     pub models_loaded: Vec<String>,
-    /// Whether the sidecar's last poll declared CUDA available.
     pub cuda_available: bool,
-    /// True after a successful poll; false on transport failure.
     pub healthy: bool,
-    /// Unix-time the cache was last refreshed. Zero when never polled.
     pub last_polled_unix_s: i64,
 }
 
-fn capability_cache() -> &'static std::sync::RwLock<CapabilityState> {
-    CAPABILITY_CACHE.get_or_init(|| std::sync::RwLock::new(CapabilityState::default()))
-}
-
-/// Read-only view of the capability cache for downstream callers.
-/// Returns an `extensions: []` snapshot when the cache hasn't been
-/// populated yet, so callers don't have to special-case startup.
 pub fn cached_capabilities() -> CapabilityState {
-    capability_cache()
-        .read()
-        .map(|g| g.clone())
-        .unwrap_or_default()
-}
-
-/// True when the cache says `gpu` is in `extensions[]`. Used by
-/// algorithm-list filters and the `/v1/explain_algorithm` UX so an
-/// agent can tell at planning time whether a GPU-required algorithm
-/// will run or surface honest Absence at materialize time.
-pub fn cached_gpu_available() -> bool {
-    let c = cached_capabilities();
-    c.cuda_available && c.extensions.iter().any(|e| e == "gpu")
+    CapabilityState::default()
 }
 
 /// True when the named extension (`required_extension` from
 /// `InferenceTier`) is currently advertised. Falls back to true for
 /// algorithms that declare no required_extension, they don't depend
-/// on a GPU/sidecar capability and run on the CPU/scalar tier.
+/// on a GPU capability and run on the CPU/scalar tier.
 pub fn cached_extension_available(required: Option<&str>) -> bool {
     match required {
         None => true,
@@ -623,85 +584,9 @@ pub fn cached_extension_available(required: Option<&str>) -> bool {
     }
 }
 
-/// Spawn the background poller that refreshes [`CAPABILITY_CACHE`]
-/// every 30 s. Only one poller runs per process: subsequent calls are
-/// no-ops (`OnceLock` semantics on `POLLER_STARTED`). The first poll
-/// happens immediately so warm-start latency for capability-aware
-/// callers is one tokio tick, not 30 s.
-fn spawn_capability_cache_poller() {
-    static POLLER_STARTED: std::sync::OnceLock<()> = std::sync::OnceLock::new();
-    if POLLER_STARTED.set(()).is_err() {
-        return;
-    }
-    tokio::spawn(async {
-        // 30 s is a balance between freshness and sidecar load. The
-        // sidecar's /health is cheap (no model fwd pass) so we could
-        // poll faster, but algorithms_for_topic decisions don't change
-        // sub-minute in practice, a model load takes longer than the
-        // refresh cadence.
-        let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
-        // Skip the missed-tick burst that interval() would otherwise
-        // emit if the runtime stalls under load.
-        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-        loop {
-            tick.tick().await;
-            let snap = match gpu_sidecar::health().await {
-                Ok(h) => CapabilityState {
-                    extensions: h.extensions,
-                    models_loaded: h.models_loaded,
-                    cuda_available: h.cuda_available,
-                    healthy: h.live && h.ready,
-                    last_polled_unix_s: now_unix_s(),
-                },
-                Err(_) => CapabilityState {
-                    extensions: Vec::new(),
-                    models_loaded: Vec::new(),
-                    cuda_available: false,
-                    healthy: false,
-                    last_polled_unix_s: now_unix_s(),
-                },
-            };
-            if let Ok(mut g) = capability_cache().write() {
-                *g = snap;
-            }
-        }
-    });
-}
-
-/// Per-endpoint discovery flags that a sidecar-extension list cannot express.
-///
-/// Today this surfaces the *trained* state of the local JEPA-v2 dynamics model:
-/// `/v1/jepa_predict_v2` short-circuits to a zero-confidence climatological
-/// baseline whenever its on-disk artifact is the untrained sentinel
-/// (`jepa_v2::is_trained() == false`). The flag is driven live from
-/// `is_trained()`, never hardcoded, so it self-corrects the moment a trained
-/// `dynamics_v2.metadata.json` ships, and can never advertise `trained:true`
-/// while the handler is silently returning a baseline.
-fn capability_endpoints() -> JsonValue {
-    let jepa_v2_trained = crate::jepa_v2::is_trained();
-    let note = if jepa_v2_trained {
-        "Learned dynamics head loaded; /v1/jepa_predict_v2 serves model inference."
-    } else {
-        "Untrained zero-init sentinel: /v1/jepa_predict_v2 short-circuits to band \
-         climatological means at confidence 0.0 (via=short_circuit_untrained), not a \
-         learned forecast. Treat as experimental until `trained` flips to true."
-    };
-    json!({
-        "jepa_predict_v2": {
-            "trained":      jepa_v2_trained,
-            "experimental": !jepa_v2_trained,
-            "note":         note,
-        }
-    })
-}
-
-/// `GET`/`POST /v1/capabilities`, exposes the cached `CapabilityState` so
-/// agents can tell which extensions are live without each making
-/// their own sidecar /health call. Receipts elsewhere carry
-/// `served_via.tier`; this endpoint is the negotiated discovery
-/// surface that complements the per-fact provenance. Bound to both GET
-/// and POST: it is a parameterless, idempotent read, and most sibling
-/// `/v1/*` routes are POST, accepting both avoids a 405 papercut.
+/// `GET`/`POST /v1/capabilities`. Bound to both GET and POST: it is a
+/// parameterless, idempotent read, and most sibling `/v1/*` routes are
+/// POST, accepting both avoids a 405 papercut.
 async fn get_capabilities() -> Json<JsonValue> {
     let c = cached_capabilities();
     Json(json!({
@@ -711,14 +596,8 @@ async fn get_capabilities() -> Json<JsonValue> {
         "cuda_available":  c.cuda_available,
         "healthy":         c.healthy,
         "last_polled_unix_s": c.last_polled_unix_s,
-        "endpoints":       capability_endpoints(),
-        "agent_hint": "Cached capability snapshot from the GPU sidecar, refreshed every 30 s. \
-                       Agents that want a strict 'will this algorithm run?' check should look up \
-                       its `inference.required_extension` in /v1/explain_algorithm and confirm \
-                       the value is present in `extensions[]` here. When `extensions[]` is empty \
-                       the sidecar is unreachable; only CPU / scalar / cached tiers are live. \
-                       `endpoints[].experimental` flags handlers (e.g. jepa_predict_v2) that are \
-                       advertised but not yet serving learned inference.",
+        "endpoints":       {},
+        "agent_hint": "This responder runs no GPU extension, so extensions[] is empty and every algorithm whose inference.required_extension is set will not run here. Algorithms with no required_extension run on the CPU / scalar tier.",
         "next": [
             "GET /v1/topics, algorithm list per topic (each algorithm now carries `available_now`)",
             "GET /v1/explain_algorithm/{key}, full inference-tier metadata",
@@ -754,12 +633,6 @@ pub fn router(state: AppState) -> Router {
     // priority list. Off unless the operator sets an interval; see
     // spawn_warm_priority_loop for the file format.
     spawn_warm_priority_loop(state.clone());
-
-    // Start the capability cache poller. It refreshes every 30 s and
-    // backs `cached_gpu_available()` / `cached_extension_available()`
-    // so per-request handlers (topics, explain_algorithm) don't have
-    // to round-trip the sidecar to filter GPU-only algorithms.
-    spawn_capability_cache_poller();
 
     // Warm the GeoNames cities5000 index on a worker thread so the first
     // find_similar / locate / reverse-geocode call doesn't pay the ~150 ms
@@ -1437,16 +1310,6 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/stream", get(get_stream_sse))
         .route("/v1/benchmark", get(get_benchmark))
         .route("/v1/benchmark/grade", post(post_benchmark_grade))
-        // Physics primitives, explicit-FD heat / wave PDE solvers and a
-        // constrained JEPA-pattern NDVI predictor. See crates/emem-api-rest/src/physics.rs.
-        // Triple-consensus + deforestation-alert dispatcher arms: the
-        // runnable surface for two combined algorithms whose documented
-        // formula needs a multi-vintage embedding cosine the scalar AST
-        // cannot express. See crates/emem-api-rest/src/triple_consensus.rs.
-        .route(
-            "/v1/triple_consensus",
-            post(triple_consensus::post_triple_consensus),
-        )
         // The attribution ledger: per-term evidence for a readout change,
         // no numeric split. See crates/emem-api-rest/src/change_attribution.rs.
         .route(
@@ -1480,7 +1343,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/cube/resolve", post(band_raster::post_cube_resolve))
         .route(
             "/v1/deforestation_alert",
-            post(triple_consensus::post_deforestation_alert),
+            post(deforestation_alert::post_deforestation_alert),
         )
         // SPI drought / ΔNBR burn severity / IPCC-2019 rice CH4: runnable
         // surface for three documented algorithms whose formulas need a
@@ -1519,7 +1382,6 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/heat_solve", post(physics::post_heat_solve))
         .route("/v1/wave_solve", post(physics::post_wave_solve))
         .route("/v1/jepa_predict", post(physics::post_jepa_predict))
-        .route("/v1/jepa_predict_v2", post(physics::post_jepa_predict_v2))
         .route("/v1/schema", get(get_schema))
         .route("/v1/schemas/eudr_dds.json", get(get_eudr_dds_schema))
         .route("/v1/verify", post(post_verify))
@@ -5012,7 +4874,7 @@ async fn serve_arcade() -> Response {
 }
 
 /// `/demos/state-cube`, interactive walk of `/v1/state` view=encoder,
-/// view=cube (with `extras[]` preserving Clay/Prithvi fidelity), and
+/// view=cube (with `extras[]` preserving full-width legacy vectors), and
 /// `/v1/state_multi`.  Live-against-the-responder.
 async fn serve_demos_state_cube() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_STATE_CUBE_HTML)
@@ -11389,12 +11251,10 @@ fn topics_payload() -> JsonValue {
     let mut live_bands_by_topic = serde_json::Map::new();
     let mut algorithms_for_topic = serde_json::Map::new();
     // Capability overlay: for every algorithm key referenced by any
-    // topic, declare whether it can run *right now* given the cached
-    // sidecar capabilities. Uses the `inference.required_extension`
-    // field on each algorithm, `None` means scalar/CPU and runs
-    // unconditionally; `Some("gpu")` requires the sidecar to advertise
-    // `gpu` in `extensions[]`. Surface as a map so agents can filter
-    // their candidate list at planning time without hitting /health.
+    // topic, declare whether it can run here. Uses the
+    // `inference.required_extension` field on each algorithm: `None`
+    // means scalar/CPU and runs unconditionally; `Some(ext)` needs `ext`
+    // in the capability snapshot's `extensions[]`.
     let mut algorithm_availability = serde_json::Map::new();
     for t in &topic_reg.topics {
         let live_only: Vec<JsonValue> = t
@@ -11453,12 +11313,7 @@ fn topics_payload() -> JsonValue {
         "live_bands_by_topic": live_bands_by_topic,
         "algorithms_for_topic": algorithms_for_topic,
         "algorithm_availability": algorithm_availability,
-        "_capabilities_hint": "GET /v1/capabilities for the live extensions[] snapshot. \
-                                `algorithm_availability[<key>].available_now == false` means \
-                                the algorithm's `inference.required_extension` is not in the \
-                                sidecar's current extensions[] (typically GPU off / sidecar down). \
-                                Use a CPU/scalar alternative for the same topic, or surface an \
-                                honest `gpu_unavailable` to the user.",
+        "_capabilities_hint": "`algorithm_availability[<key>].available_now == false` means the algorithm needs an inference extension this responder does not run (GET /v1/capabilities). Use a CPU/scalar alternative for the same topic.",
         "visual_surfaces": {
             "rgb_scene_png": "GET /v1/cells/{cell64}/scene.png?max_cloud=20  (or MCP `emem_cell_scene_rgb`), true-colour Sentinel-2 L2A 256×256 thumbnail",
             "cell_geojson":  "GET /v1/cells/{cell64}/geojson, polygon hexagon for any GIS / map renderer",
@@ -11468,7 +11323,7 @@ fn topics_payload() -> JsonValue {
             "_meaning": "Bands reserved in the cube manifest but with no live connector at this responder. Recall returns empty (existing attestations only, no upstream fetch).",
             "_authoritative_list": "GET /v1/bands, every band entry now carries a `materializer:{kind:'live'|'declared_no_connector', ...}` field. Filter on kind=='declared_no_connector' for the canonical, code-derived set.",
             "_note_on_cube_family_roots": "Most unwired keys are cube FAMILY-ROOT slots whose SCALAR children are wired (e.g. `koppen` root unwired but `koppen.major_class` live; `surface_water` cube key reserved but `surface_water.recurrence` answers the flood-history question). Use /v1/materializers for the per-scalar wired list.",
-            "_note_on_foundation_models_at_this_responder": "Four foundation embeddings are wired at this responder. `geotessera` (Tessera v1, 128-D, 10 m grid, annual) is the default similarity surface. `prithvi_eo2` (IBM-NASA Prithvi-EO-2.0-300M-TL, 1024-D fact value carried in the 384-D cube slot at offset 894, 30 m chip / 6.7 km receptive field, scene-aware) anchors algorithms that need a learned ViT representation rather than a contrastive embedding. `clay_v1` (Made With Clay v1.5, 1024-D fact value in the 384-D cube slot at offset 199, 10 m chip / 2.56 km receptive field, wavelength-conditioned) is the finer-resolution sibling. `galileo` (NASA Harvest Galileo Base / Tiny, 768-D or 192-D pooled embedding, 30 m × 8×8 chip / 240 m receptive field; variant set by EMEM_GALILEO_VARIANT) is the small-footprint multi-modal foundation surfaced via the sidecar's /predict/galileo_embed. All three GPU-only foundation bands sign honest Absence with reason=gpu_unavailable when the sidecar is unreachable, no CPU fallback because the embedding's kernel-order accumulation would differ.",
+            "_note_on_foundation_models_at_this_responder": "The Clay (`clay_v1`), Prithvi (`prithvi_eo2`) and Galileo (`galileo`) encoders are retired here. Their bands stay in the manifest so facts signed earlier still recall and verify; nothing new is materialized for them.",
         },
         "how_to_use": "Pick the topic that matches the user's question. (1) If the user wants ONE band's value, look up `live_bands_by_topic` and call `emem_recall` with those bands, they auto-fetch on miss. (2) If the user wants a COMPOSITE answer (flood risk, walkability, climate exposure, similarity, change), look up `algorithms_for_topic` and call `emem_algorithms` for the recipe, apply its `formula` over a single `emem_recall` body that fetches every input band, then cite the algorithm key + algorithms_cid alongside the input fact_cids. (3) For a VISUAL answer, hit `visual_surfaces.rgb_scene_png` (or MCP `emem_cell_scene_rgb`). (4) If the topic only appears under `declared_but_no_materializer_at_this_responder`, tell the user this responder has the slot reserved but no live connector (don't claim emem has no flood/water/etc. data, be precise). Topics not listed at all (e.g. real-time air quality, traffic) are genuinely out of scope for this protocol today.",
         "for_temporal_questions": "For 'last N years' questions, materializers return one fact at the latest available tslot. To get a series, call `emem_recall` repeatedly for past tslots only if the band's tempo is `slow`/`static` (which means one fact covers the period). For `fast`/`medium` tempo bands, history requires the responder to have already seeded past tslots, call `emem_trajectory` to enumerate what's there, do NOT assume historical lookback materializes on demand.",
@@ -11791,7 +11646,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
         // saying "I don't know".
         "anti_trigger_phrases": [
             { "pattern": "is it raining right now in <place>",      "reason": "real-time / sub-daily weather is out of scope; use met.no, NOAA, or Open-Meteo directly." },
-            { "pattern": "what's the forecast for <place> in 6 months", "reason": "there is no forecast horizon to ask for: jepa_predict_v2 takes `target_month` (a month of the year, 1-12), not a number of days out, so a 6-month-horizon question has no parameter to land in. More to the point, measured on this responder the head does not beat persistence: the receipt carries NEGATIVE_SKILL (skill_vs_persistence -0.0638) and every band is served `via: persistence_fallback_negative_skill`, i.e. last observed value. Treat it as a research surface, not a forecast." },
+            { "pattern": "what's the forecast for <place> in 6 months", "reason": "there is no forecast horizon to ask for: jepa_predict forecasts NDVI one month ahead and nothing further." },
             { "pattern": "show me the sub-metre building footprint",  "reason": "imagery resolution is 10 m native (Sentinel-2 / Landsat). Sub-metre commercial imagery (Planet Pelican, Maxar) needs a different connector." },
             { "pattern": "what's the price of land at <place>",       "reason": "market / economic data is out of scope. emem signs Earth observation facts, not commercial valuations." },
             { "pattern": "live air quality reading at <place>",        "reason": "real-time air quality is out of scope; cams.* bands carry global model output, not sensor-grade now-casts. For PurpleAir / OpenAQ ground truth, call those services directly." },
@@ -11922,7 +11777,6 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // algorithms made computable; each signs its result and
             // returns an honest `inconclusive` when inputs aren't
             // materializable.
-            "triple_consensus": "/v1/triple_consensus",
             "change_attribution": "/v1/change_attribution",
             "band_raster": "/v1/band_raster",
             "band_cube": "/v1/band_cube",
@@ -13901,8 +13755,8 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
 /// array as well as bare arrays of facts. Non-fact JSON is left alone.
 /// Say `signed_model_checkpoint` only when a checkpoint is actually bound.
 ///
-/// The claim is meaningful because `checkpoint_hash_or_refuse` folds the
-/// checkpoint's blake2b into `sources[].id` (as `<model-id>@<hex>`), which is
+/// The claim is meaningful because the (now retired) encoder materializers
+/// folded the checkpoint's blake2b into `sources[].id` (as `<model-id>@<hex>`), which is
 /// inside the canonical CBOR the fact_cid hashes. A reader can therefore see
 /// WHICH weights produced the value and know the responder signed that
 /// statement. When no such hash is present, none of that is true, and the
@@ -13932,8 +13786,8 @@ fn downgrade_unbacked_checkpoint_claim(
             "this band's class declares signed_model_checkpoint, but THIS fact carries no \
              checkpoint hash: it came from an upstream product rather than an encoder this \
              responder ran. You are trusting the signer and the cited source, which is what \
-             attester_only means. Facts from our own encoders do carry the checkpoint hash \
-             inside sources[].id, and keep the stronger claim."
+             attester_only means. Facts signed by an encoder this responder ran carry the \
+             checkpoint hash inside sources[].id, and keep the stronger claim."
         ),
     );
 }
@@ -14037,11 +13891,10 @@ fn enrich_facts_inner(value: &mut JsonValue, with_band_metadata: bool) {
             // TAMPER EVIDENCE IS A PROPERTY OF THIS FACT, NOT OF ITS CLASS.
             //
             // `ProvenanceClass::ModelOutput` declares `signed_model_checkpoint`,
-            // and for the paths that run our own encoders that is exactly true:
-            // `checkpoint_hash_or_refuse` will not sign a model_output fact
-            // without a checkpoint hash, and folds it into `sources[].id` so it
-            // sits inside the signed CBOR. Three call sites do that. The class
-            // covers twenty-three bands.
+            // and for facts our retired encoders signed that is exactly true:
+            // they refused to sign a model_output fact without a checkpoint
+            // hash and folded it into `sources[].id`, inside the signed CBOR.
+            // The class covers twenty-three bands.
             //
             // So `cams.pm25` -- a reanalysis product fetched from an upstream
             // API, `served_via: null`, sources naming a URL -- was telling every
@@ -16621,7 +16474,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             { "intent": "knn_similar",         "method": "POST", "path": "/v1/find_similar",   "use_when": "'find places like X', k-NN over geotessera or any vector band" },
             { "intent": "place_to_cell64",     "method": "POST", "path": "/v1/locate",         "use_when": "you only have a place name or lat/lng and need cell64" },
             { "intent": "state_vector",        "method": "POST", "path": "/v1/state",          "use_when": "want a single dense per-place embedding to drop into LLM context or feed to find_similar, view=encoder (128-D default) or view=cube (1792-D)" },
-            { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want geotessera + clay_v1 + prithvi_eo2 + galileo in one call to check cross-encoder agreement" },
+            { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want every foundation embedding this responder serves at one cell in one call" },
             { "intent": "state_delta",         "method": "POST", "path": "/v1/state_diff",     "use_when": "compare the same cell across two vintages (residual + L2 + cosine)" },
             { "intent": "compose_citation",    "method": "POST", "path": "/v1/memory_token",   "use_when": "wrap a (cell, fact_cid) pair as a single emem:fact: handle to paste across agents" },
             { "intent": "resolve_citation",    "method": "POST", "path": "/v1/memory_token/resolve", "use_when": "receive an emem:fact: handle from another agent and want the signed fact body in one trip" },
@@ -30834,9 +30687,10 @@ async fn mcp_tool_call_inner(
             }
         }
         "emem_deforestation_alert" => {
-            let req: triple_consensus::DeforestationAlertReq =
+            let req: deforestation_alert::DeforestationAlertReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match triple_consensus::post_deforestation_alert(State(s.clone()), EmemJson(req)).await
+            match deforestation_alert::post_deforestation_alert(State(s.clone()), EmemJson(req))
+                .await
             {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
@@ -30958,14 +30812,6 @@ async fn mcp_tool_call_inner(
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match change_attribution::post_change_attribution(State(s.clone()), EmemJson(req)).await
             {
-                Ok(Json(v)) => Ok(v),
-                Err(e) => Err((-(e.1.code as i64), e.1.message)),
-            }
-        }
-        "emem_triple_consensus" => {
-            let req: triple_consensus::TripleConsensusReq =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match triple_consensus::post_triple_consensus(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -31847,7 +31693,7 @@ async fn mcp_tool_call_inner(
                 "cuda_available":     c.cuda_available,
                 "healthy":            c.healthy,
                 "last_polled_unix_s": c.last_polled_unix_s,
-                "endpoints":          capability_endpoints(),
+                "endpoints":          {},
             }))
         }
         "emem_errors" => Ok(errors_payload()),
@@ -31938,11 +31784,6 @@ async fn mcp_tool_call_inner(
             let req: physics::JepaPredictReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             physics::jepa_predict(req, s).await.map_err(mcp_err)
-        }
-        "emem_jepa_predict_v2" => {
-            let req: physics::JepaPredictV2Req =
-                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            physics::jepa_predict_v2(req, s).await.map_err(mcp_err)
         }
         // An unknown tool name is a PROTOCOL error. The spec lists it first
         // under "Protocol Errors" and prints it as `-32602`, and the wrapper
@@ -32285,7 +32126,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/quickstart":        {"get":{"summary":"6-step playbook","operationId":"emem_quickstart","responses":{"200":json_ok}}},
             "/v1/manifests":         {"get":{"summary":"active manifest CIDs","operationId":"emem_manifests","responses":{"200":json_ok}}},
-            "/v1/capabilities":      {"get":{"summary":"cached upstream capability snapshot (extensions[], cuda_available, models_loaded, endpoints[].trained/experimental). 30 s background poll; agents read this to filter algorithms whose inference.required_extension is missing instead of hitting /health per request.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","requestBody":{"required":false,"description":"No parameters. POST is accepted only so callers that POST every /v1/* endpoint do not 405; the body is ignored and the answer is identical to GET.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok}}},
+            "/v1/capabilities":      {"get":{"summary":"compute-extension capability snapshot (extensions[], cuda_available, models_loaded). This responder runs no extension, so extensions[] is empty; agents read it to filter out algorithms whose inference.required_extension cannot run here.","operationId":"emem_capabilities","responses":{"200":json_ok}},"post":{"summary":"identical idempotent capability snapshot (accepts POST so callers that POST every /v1/* endpoint don't 405)","operationId":"emem_capabilities_post","requestBody":{"required":false,"description":"No parameters. POST is accepted only so callers that POST every /v1/* endpoint do not 405; the body is ignored and the answer is identical to GET.","content":{"application/json":{"schema":{"type":"object","additionalProperties":false}}}},"responses":{"200":json_ok}}},
             "/v1/bands":             {"get":{"summary":"band ontology","operationId":"emem_bands","responses":{"200":json_ok}}},
             "/v1/materializers":     {"get":{"summary":"per-band auto-fetch registry (which bands the responder will materialize on a recall miss)","operationId":"emem_materializers","responses":{"200":json_ok}}},
             "/v1/data_availability": {"get":{"summary":"per-band temporal coverage catalog (window + tempo + kind + upstream wire path)","operationId":"emem_data_availability","responses":{"200":json_ok}}},
@@ -32314,8 +32155,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/backfill":          {"post":{"summary":"materialize history in a window The preparer form: pass cells (up to 64) instead of cell to warm an area across the window under the partial-results contract (budget_ms, typed pending[], converged); the densification warmer loops exactly this on a schedule when the operator declares warm_priority.json and EMEM_WARM_INTERVAL_SECS.","operationId":"emem_backfill","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/BackfillReq"}}}},"responses":{"200":json_ok}}},
             "/v1/heat_solve":        {"post":{"summary":"2-D explicit-FD heat-equation solver (forecast LST N hours ahead from a 3×3 cell stencil)","operationId":"emem_heat_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HeatSolveReq"}}}},"responses":{"200":json_ok}}},
             "/v1/wave_solve":        {"post":{"summary":"1-D explicit-FD shallow-water wave-equation solver (propagate offshore swell to the coast along a bathymetric profile)","operationId":"emem_wave_solve","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/WaveSolveReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/jepa_predict":      {"post":{"summary":"constrained JEPA-pattern AR(2) seasonal NDVI predictor (closed-form coefficients, NOT a learned MLP)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/jepa_predict_v2":   {"post":{"summary":"learned multi-band-scalar dynamics head: predicts the next-step value of 4 scalars (indices.ndvi, modis.lst_day_8day, modis.lst_night_8day, cams.pm25) from up to K=6 most-recent attested lags per band. Receipt carries model_cid + training/validation provenance + a skill_vs_persistence block; honesty_warnings flags `untrained_baseline` (zero-init sentinel) and `NEGATIVE_SKILL` (worse than persistence). On negative skill, bands with a real lag are served from persistence (via=persistence_fallback_negative_skill); see each band's `via`.","operationId":"emem_jepa_predict_v2","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"target_month":{"type":"integer","minimum":1,"maximum":12,"description":"Month-of-year to forecast (1-12); defaults to the month after now."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/jepa_predict":      {"post":{"summary":"closed-form AR(2) seasonal NDVI predictor (fixed coefficients, not a learned model)","operationId":"emem_jepa_predict","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/JepaPredictReq"}}}},"responses":{"200":json_ok}}},
             // Runtime algorithm endpoints: make five documentation-only
             // registry algorithms actually computable. Each signs its
             // result and returns an honest `inconclusive` verdict (no
@@ -32335,7 +32175,6 @@ fn openapi_spec() -> JsonValue {
             "/v1/raster_bundle": {"post":{"summary":"bind 2..64 already-minted emem:raster: field tokens (band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE signed manifest, named by an emem:rasterset: token (raster_bundle@1). The composition primitive a world or a DDS cites when it needs one token pointing at every signed layer (ground + geometry + embedding). Mints no new pixels: each member resolves and re-derives on its own. bundle_cid=blake3(ordered member derivation_cids + purpose); a member that is not a live raster-shaped derivation fails the mint by name. Signs and persists the manifest.","operationId":"emem_raster_bundle","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64},"purpose":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle/resolve": {"post":{"summary":"dereference an emem:rasterset:<bundle_cid>:<derivation_cid> token. Fail-closed: the cid must be a raster_bundle@1 derivation, bundle_cid is recomputed from the record's ordered members and matched against both the token and the record (mismatch = 409, refusing an altered set), and every member emem:raster: token is re-verified as a live raster derivation. Returns the members with a per-member resolves flag.","operationId":"emem_raster_bundle_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/artifacts/{cid}": {"get":{"summary":"raw canonical grid bytes by artifact cid, Cache-Control immutable (content-addressed bytes never change). A 404 is typed and says how to rebuild: eviction is a design property (the derivation record persists and pins the scene, recipe, and geometry), never data loss.","operationId":"emem_artifact_bytes","responses":{"200":{"description":"application/x.emem-grid-f32.v1 bytes"},"404":{"description":"evicted or unknown; the derivation record pins the rebuild"}}}},
-            "/v1/triple_consensus":  {"post":{"summary":"clay_prithvi_tessera change-ensemble: cosine change across the two most-recent distinct vintages for Clay, Prithvi, and Tessera embeddings, voted against `consensus_threshold`. The gate is not calibrated per encoder and the encoders do not share a cosine scale: the deployed Prithvi checkpoint's change caps near 0.1155 under a 0.15 gate, so it never votes and `all_three` cannot occur. Read `encoders_used[].change` rather than `agreement`; every response carries a `gate_calibration` string saying so. Materializes a missing prior vintage, so this signs and persists facts. Degrades to a signed `inconclusive` when the GPU sidecar is down or a cell lacks two distinct vintages.","operationId":"emem_triple_consensus","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"consensus_threshold":{"type":"number","description":"Override the registry gate (default 0.15), clamped to (0,1)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/deforestation_alert":{"post":{"summary":"carbon.deforestation_alert_proxy: alert_score = 0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20). Each half degrades independently, a missing band drops its half and renames the output so a half-score can't be mistaken for the full composite; if neither half is computable the response is a signed `inconclusive`.","operationId":"emem_deforestation_alert","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"}}}}}},"responses":{"200":json_ok}}},
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
@@ -32479,7 +32318,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/demos":             {"get":{"summary":"index of pre-recorded demo runs (live signed receipts)","operationId":"emem_demos","responses":{"200":json_ok}}},
             "/v1/worlds":            {"get":{"summary":"baked 3-D gaussian splat worlds: per-preset counts, artifact sizes + sha256; artifacts at /v1/worlds/{preset}/{file} (world.ply, world.splat, world.scene.json, world.provenance.json, meta.json); viewer at /worlds","operationId":"emem_worlds","responses":{"200":json_ok}}},
             "/v1/state":             {"post":{"summary":"dense state vector for a cell or place. view=encoder (default, 128-D single foundation embedding) or view=cube (1792-D concatenated cube). Returns {cell, view, encoder, dim, vector, l2_norm, fact_cid, memory_token, receipt}.","operationId":"emem_state","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"encoder":{"type":"string","default":"geotessera","description":"foundation embedding band (geotessera, clay_v1, prithvi_eo2, galileo)"},"view":{"type":"string","enum":["encoder","cube"],"default":"encoder"},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/state_multi":       {"post":{"summary":"fan-out across every wired foundation-embedding encoder (geotessera, clay_v1, prithvi_eo2, galileo). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/state_multi":       {"post":{"summary":"fan-out across every foundation-embedding encoder this responder serves (today geotessera). Returns per-encoder dense vectors plus a typed `missing[]` list for encoders unwired at this responder.","operationId":"emem_state_multi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string"},"encoders":{"type":"array","items":{"type":"string"}},"tslot":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/state_diff":        {"post":{"summary":"vintage delta of one cell between two tslots. Returns the per-element residual, its L2 norm (scalar change magnitude), the cosine between the two source vectors (orientation drift), and both source fact_cids as evidence.","operationId":"emem_state_diff","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","tslot_a","tslot_b"],"properties":{"cell":{"type":"string"},"encoder":{"type":"string","default":"geotessera"},"tslot_a":{"type":"integer"},"tslot_b":{"type":"integer"}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token":      {"post":{"summary":"compose an emem:fact:<cell64>:<fact_cid> citation handle. Pure composer; validates shape (non-empty inputs, no ':' contamination) and returns the token, the bare-place emem:cell:<cell64> handle, plus a docs link. Pass the optional `band` to get the band's tamper-provenance block in the RESPONSE (not embedded in the token; the token is only cell + fact_cid, and provenance is attached by whichever responder later resolves it, from that responder's own band registry). Pass `band` AND `observed_on` to additionally get `descriptor_token`, the self-describing anchor emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>, which resolves to the identical fact. PREFER descriptor_token when handing a citation to a model: across 200 real facts, Qwen and gemma-4 segment a cell64 anchor identically 0.0% of the time (jaccard 0.6477) versus 100.0% (jaccard 1.0000) for the same cell written as 5dp coordinates, and a cell64 is a string no model has seen while 36.12010,-112.30206 is the Grand Canyon in every model's training data. Nothing is trusted: this mint never reads storage, and /v1/memory_token/resolve binds the place, band and date to the signed fact, so a descriptor minted with a wrong date yields a token that cannot resolve rather than one that misleads.","operationId":"emem_memory_token","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","fact_cid"],"properties":{"cell":{"type":"string"},"fact_cid":{"type":"string"},"band":{"type":"string","description":"Optional band key; when set the response (not the token string) carries the band's provenance block (class, deterministic, tamper_evidence, trust_rank). Required (with observed_on) to mint descriptor_token."},"observed_on":{"type":"string","description":"Optional source capture date YYYY-MM-DD, as returned by /v1/recall in sources[].captured_at. With `band`, mints descriptor_token. This is valid time (when the sensor observed), never signed_at."}}}}}},"responses":{"200":json_ok}}},
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
@@ -32582,7 +32421,7 @@ fn openapi_spec() -> JsonValue {
                 "BackfillReq":     {"type":"object","required":["cell","band"],"properties":{"cell":{"type":"string","description":"cell64 string (or place name; resolved through the same geocoder as /v1/locate)"},"band":{"type":"string","description":"band key to backfill, e.g. 'open_meteo.t2m'"},"start_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window start. Default: 30 days ago for fast bands, 365 days ago for slow."},"end_unix":{"type":"integer","description":"Unix epoch seconds (UTC) for window end. Default: now."},"max_facts":{"type":"integer","minimum":1,"maximum":1024,"default":16,"description":"Cap on facts materialized in one call. Default 16, fits inside a 60s tool-call window for any LLM host. Raise for explicit wide backfills (cap 1024)."},"refresh":{"type":"boolean","default":false,"description":"Force re-materialization even where a fact already exists, superseding it (the old fact stays resolvable by cid and as_of_signed_at). Use to pick up a materializer change on already-warmed cells, e.g. re-running foundation-model embedding enrichment after the per-pixel-SCL chip selection landed."}}},
                 "HeatSolveReq":    {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 string. The solver evaluates LST evolution at this cell's centre."},"hours_ahead":{"type":"number","default":6,"description":"Forecast horizon in hours. Capped at 168 (one week)."},"diffusivity_m2_per_s":{"type":"number","default":1.0e-6,"description":"Thermal diffusivity α (m²/s). Default 1e-6 matches urban surfaces (Oke 2017 §2.3 Table 2.4); use ~5e-7 for vegetation, ~1.4e-7 for water."}}},
                 "WaveSolveReq":    {"type":"object","required":["coastal_cell","offshore_height_m","period_s"],"properties":{"coastal_cell":{"type":"string","description":"cell64 of the coastal destination."},"offshore_height_m":{"type":"number","minimum":0,"maximum":30,"description":"Offshore significant wave height H_s (m)."},"period_s":{"type":"number","minimum":2,"maximum":30,"description":"Wave period (s); 6–18 s is the typical wind-wave + swell envelope."},"n_offshore_cells":{"type":"integer","minimum":1,"maximum":64,"default":8,"description":"Number of seaward cells to sample for the bathymetric profile."}}},
-                "JepaPredictReq":  {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 to forecast at."},"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1; multi-step rollout lands in @2."}}},
+                "JepaPredictReq":  {"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 to forecast at."},"band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},"lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. Only 1 is supported."}}},
                 "ElevationPostReq":{"type":"object","description":"Body for POST /v1/elevation. Supply `place` OR `lat`+`lng` (`lon` accepted as an alias) OR `cell64`. Deliberately NOT BoringPostReq: this route reads a narrower type and hardcodes band / bands / tslot / n_cells to None, so those four knobs are not offered here.","properties":{"place":{"type":"string"},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"cell64":{"type":"string"},"cell":{"type":"string","description":"Alias for `cell64`."}}},
                 "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400, heavy queries belong on POST /v1/recall_polygon."}}},
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}},
@@ -32596,7 +32435,7 @@ fn openapi_spec() -> JsonValue {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`/`capability_unavailable`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer","capability_unavailable"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -32624,7 +32463,7 @@ fn openapi_spec() -> JsonValue {
                     "offline_verify_at":{"type":"string","description":"Where to re-check the receipt without trusting this responder."},
                     "degraded":{"type":"boolean","description":"True when a BARE fact_cid was accepted, i.e. the `emem:fact:<descriptor>:` head was missing or the cid was recovered from surrounding text. The bytes and the receipt are as authoritative as any resolve; only the citation was lossy, and a bare cid is responder-scoped so it is ambiguous elsewhere. Re-cite `canonical_token`."},
                     "degraded_reason":{"type":"string","description":"Present only when `degraded`. Names the recovery class and what to do about it."}}},
-                "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"foundation_embeddings":{"type":"object","description":"Per-encoder neighbour lists and consensus voting. Populated when the intent matches `find places like` / `what changed`."},"answer":{"type":"string","description":"Short natural-language summary of what the responder found, synthesised deterministically from the structured fields (every cited value traces to a fact_cid in the receipt). On a cold cell whose bands are not yet materialized it states that plainly and points at `next_steps`; never an LLM call."},"answer_md":{"type":"string","description":"Markdown variant of `answer`."},"next_steps":{"type":"array","description":"Present when the routed algorithms could not evaluate because their input bands are not materialized at this cell. Each item is a literal follow-up call (e.g. POST /v1/recall with the exact missing bands) the agent can issue, then re-ask.","items":{"type":"object","properties":{"action":{"type":"string"},"why":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"url":{"type":"string"},"body":{"type":"object"}}}},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
+                "AskResp":         {"type":"object","description":"Response of /v1/ask. Single envelope combining (a) place resolution, (b) topic-router classification, (c) recalled facts under those topics, (d) applicable algorithm recipes that compose those bands into named scores, (e) optional Sentinel-2 RGB thumbnail URL, and (f) caveats. All facts are signed and content-addressed.","required":["topic_routing","facts","receipt"],"properties":{"place_resolved":{"$ref":"#/components/schemas/LocateResp"},"topic_routing":{"type":"object","properties":{"matched_topics":{"type":"array","items":{"type":"string"}},"matched_keywords":{"type":"array","items":{"type":"object"}},"out_of_scope":{"type":"boolean"},"routing":{"type":"object"}}},"facts":{"type":"object","properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"}}}},"algorithms_for_question":{"type":"array","items":{"type":"object","properties":{"key":{"type":"string"},"topic":{"type":"string"},"formula":{"type":"string"}}}},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"answer":{"type":"string","description":"Short natural-language summary of what the responder found, synthesised deterministically from the structured fields (every cited value traces to a fact_cid in the receipt). On a cold cell whose bands are not yet materialized it states that plainly and points at `next_steps`; never an LLM call."},"answer_md":{"type":"string","description":"Markdown variant of `answer`."},"next_steps":{"type":"array","description":"Present when the routed algorithms could not evaluate because their input bands are not materialized at this cell. Each item is a literal follow-up call (e.g. POST /v1/recall with the exact missing bands) the agent can issue, then re-ask.","items":{"type":"object","properties":{"action":{"type":"string"},"why":{"type":"string"},"method":{"type":"string"},"path":{"type":"string"},"url":{"type":"string"},"body":{"type":"object"}}}},"caveats":{"type":"array","items":{"type":"string"}},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "FieldBoundariesResp":{"type":"object","description":"Response of /v1/field_boundaries. `fields` is an array of per-field GeoJSON-Polygon features from Fields of The World (CC-BY-4.0). `attribution` and `license` must be surfaced with any rendered map.","required":["fields","license","attribution"],"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"geometry":{"type":"object","description":"GeoJSON Polygon."},"area_ha":{"type":"number"},"country":{"type":"string"},"confidence":{"type":"number"}}}},"license":{"type":"string","example":"CC-BY-4.0"},"attribution":{"type":"string","example":"Fields of The World / Taylor Geospatial Institute"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "Error":           {"type":"object","required":["code","message"],"properties":{"code":{"type":"string","example":"invalid_argument"},"message":{"type":"string"},"details":{"type":"object"}}},
                 "ErrorEnvelope":   {"type":"object","description":"The `emem.error.v1` failure envelope returned by every endpoint on a 4xx/5xx. Branch on the stable `code` (not the human `message`). See GET /v1/errors for the full code catalog.","required":["code","message","schema"],"properties":{"code":{"type":"string","example":"invalid_argument","description":"Stable machine-readable error code. One of the codes in GET /v1/errors."},"message":{"type":"string","description":"Human-readable detail. For invalid_argument this names the offending field (e.g. \"missing field `q`\")."},"path":{"type":"string","description":"Request path that produced the error.","example":"/v1/ask"},"schema":{"type":"string","const":"emem.error.v1"},"details":{"type":"object","description":"Optional structured recovery hints; present on errors that ship machine-readable next-steps."}}}
@@ -35040,7 +34879,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         ErrorBody {
             code: ErrorCode::InvalidArgument,
             message: format!(
-                "/v1/state view=encoder: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera, clay_v1, prithvi_eo2, galileo).",
+                "/v1/state view=encoder: band `{}` does not return a vector value. Pass an encoder band whose value is an array of floats (e.g. geotessera).",
                 encoder
             ),
             details: None,
@@ -35104,10 +34943,10 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
 // produce a vector at this cell, surface under `missing` with a typed
 // reason rather than killing the request.
 //
-// Use cases: cross-encoder consensus (do Tessera, Clay, and Prithvi
-// agree this is the same archetype?), redundancy-aware reasoning
-// (which encoder's state is freshest at this cell?), and concatenated
-// state for downstream linear probes.
+// Use cases: redundancy-aware reasoning (which encoder's state is
+// freshest at this cell?) and concatenated state for downstream linear
+// probes. A retired encoder named explicitly returns only facts signed
+// before it was retired.
 
 /// Encoders `/v1/state_multi` fans out to: the foundation bands the registry
 /// still offers, never a typed list.
@@ -35137,8 +34976,8 @@ fn foundation_encoders() -> Vec<&'static str> {
         .collect()
 }
 
-/// Bands this DEPLOYMENT no longer offers, from `EMEM_RETIRED_BANDS`
-/// (comma-separated). Empty by default.
+/// Bands this responder no longer offers: [`RETIRED_ENCODER_BANDS`] plus
+/// `EMEM_RETIRED_BANDS` (comma-separated) for a deployment's own additions.
 ///
 /// Deliberately not in the band manifest. `manifest_cid` is
 /// `blake3(canonical_cbor(registry data))` and every receipt commits to it, so
@@ -35152,21 +34991,30 @@ fn retired_bands() -> &'static std::collections::BTreeSet<String> {
     static RETIRED: std::sync::OnceLock<std::collections::BTreeSet<String>> =
         std::sync::OnceLock::new();
     RETIRED.get_or_init(|| {
-        std::env::var("EMEM_RETIRED_BANDS")
-            .unwrap_or_default()
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
+        let mut set: std::collections::BTreeSet<String> = RETIRED_ENCODER_BANDS
+            .iter()
+            .map(|b| (*b).to_string())
+            .collect();
+        set.extend(
+            std::env::var("EMEM_RETIRED_BANDS")
+                .unwrap_or_default()
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty()),
+        );
+        set
     })
 }
+
+/// Encoder bands whose producer was removed from the code. The manifest
+/// still declares them, so facts signed under them keep recalling and
+/// verifying; nothing here can materialize a new one.
+const RETIRED_ENCODER_BANDS: &[&str] = &["clay_v1", "prithvi_eo2", "galileo"];
 
 #[derive(Debug, Deserialize)]
 struct StateMultiReq {
     cell: String,
-    /// Optional explicit encoder list; defaults to every wired
-    /// foundation-embedding band (`geotessera`, `clay_v1`, `prithvi_eo2`,
-    /// `galileo`).
+    /// Optional explicit encoder list; defaults to [`foundation_encoders`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encoders: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -35184,8 +35032,8 @@ struct StateMultiReq {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scope: Option<emem_fact::Scope>,
     /// Opt-in: inline the raw per-encoder embedding vectors. Default
-    /// `false`, the four foundation vectors are 128–1024 floats each
-    /// (~13 KB combined) and breach the MCP wire cap, yet a caller almost
+    /// `false`: foundation vectors are 128 to 1024 floats each and several
+    /// of them breach the MCP wire cap, yet a caller almost
     /// never reasons over the floats directly (they drive server-side
     /// similarity via find_similar / compare). The slim default returns
     /// each encoder's `dim`, `l2_norm`, `fact_cid`, `memory_token` and
@@ -35256,20 +35104,10 @@ async fn post_state_multi(
 
     let mut hits: Vec<EncoderState> = Vec::with_capacity(encoders.len());
     let mut missing: Vec<EncoderMissing> = Vec::new();
-    // Materialise every encoder CONCURRENTLY. The previous serial loop forced
-    // four cold materializations back-to-back, and on a cold cell each one
-    // does its own STAC search + COG range reads + GPU embed, so the wall time
-    // was the SUM (~16 s for the 4 foundation encoders, galileo dominating
-    // with its extra S1+DEM modalities). Running them concurrently lets the
-    // wall time collapse toward the SLOWEST single encoder, and, because the
-    // three Sentinel-2 chip encoders (clay/prithvi/galileo) read the SAME
-    // scene's COG tiles, the per-tile `cog::TILE_CACHE`/`PROFILE_CACHE`
-    // single-flight (per-slot OnceCell) coalesces their overlapping reads into
-    // ONE upstream fetch instead of three sequential ones. The
-    // EMEM_MATERIALIZE_CONCURRENCY semaphore inside `try_materialize_bands`
-    // still bounds total upstream parallelism, and AppState is Arc-cheap to
-    // clone. Results are folded back in the original encoder order so the
-    // response shape is byte-identical to the serial path.
+    // Recall every encoder concurrently so wall time tracks the slowest one,
+    // not the sum. The EMEM_MATERIALIZE_CONCURRENCY semaphore inside
+    // `try_materialize_bands` still bounds upstream parallelism. Results are
+    // folded back in the original encoder order.
     let recall_futs = encoders.iter().map(|encoder| {
         let encoder = encoder.clone();
         let cell = cell.clone();
@@ -47350,758 +47188,6 @@ async fn materialize_geotessera_multi_year(
     sign_and_persist(s, fact, &signed_at).await
 }
 
-/// Phase 3b, Prithvi-EO-2.0-300M-TL per-cell foundation embedding.
-///
-/// Pulls a Sentinel-2 L2A 6-band chip via `prithvi_chip::fetch_prithvi_chip`
-/// (672×672 at 10 m for B02/B03/B04 → 3:1 mean-pool → 224 at 30 m;
-/// 336×336 at 20 m for B8A/B11/B12 → 1.5:1 bilinear → 224 at 30 m),
-/// hands it to the GPU sidecar at `/predict/prithvi_eo2_embed`, and
-/// signs the returned 1024-D embedding under the `prithvi_eo2` band.
-///
-/// When the sidecar is unreachable or the upstream returns no clean
-/// scene, this returns an Err string, callers surface as 5xx via
-/// `ApiError`. We do NOT fall back to a different model or a degraded
-/// chip; the no-stub policy says "ship the real thing or surface the
-/// gap honestly".
-/// Build a [`ServedVia`] descriptor from a sidecar response. Used by
-/// every foundation-model materializer (Clay, Prithvi, Galileo) so
-/// the signed receipt declares which compute tier produced the value
-/// and which checkpoint hash an offline verifier needs to reproduce
-/// it. `tier` is hardcoded to `"gpu"` because the sidecar will not
-/// return on CPU paths, the materializer surfaces a 5xx and the
-/// recall layer signs an Absence with `gpu_unavailable` reason.
-fn served_via_from_sidecar(
-    model_id: &str,
-    device: &str,
-    model_blake2b_hex: &str,
-) -> emem_fact::ServedVia {
-    emem_fact::ServedVia {
-        tier: "gpu".into(),
-        model: model_id.to_string(),
-        device: device.to_string(),
-        fallback_reason: None,
-        model_blake2b_hex: if model_blake2b_hex.is_empty() {
-            None
-        } else {
-            Some(model_blake2b_hex.to_string())
-        },
-    }
-}
-
-/// Pull the sidecar's self-reported checkpoint hash, or refuse to sign.
-///
-/// Every foundation-model band is [`emem_core::bands::ProvenanceClass::ModelOutput`],
-/// whose `tamper_evidence()` is `signed_model_checkpoint`: the receipt's
-/// whole trust basis is that a verifier can name the checkpoint that
-/// produced the value. This used to `unwrap_or("")`, which signed a
-/// `Source` id ending in a bare `@` and a `ServedVia` carrying no hash,
-/// while the receipt still declared `signed_model_checkpoint`. A missing
-/// checkpoint is the one gap this class cannot absorb, because it leaves
-/// nothing at all behind the claim, so it is an error now rather than an
-/// empty string. The hash is still self-reported by the sidecar: this
-/// makes its absence loud, not its presence trustworthy.
-fn checkpoint_hash_or_refuse(model: &JsonValue) -> Result<String, String> {
-    model
-        .get("blake2b_hex")
-        .and_then(|v| v.as_str())
-        .filter(|h| !h.is_empty())
-        .map(str::to_string)
-        .ok_or_else(|| {
-            let id = model
-                .get("id")
-                .and_then(|v| v.as_str())
-                .unwrap_or("<unidentified model>");
-            format!(
-                "sidecar reported no model.blake2b_hex for {id}: refusing to sign a \
-                 model_output fact whose declared tamper-evidence is \
-                 signed_model_checkpoint with no checkpoint to name"
-            )
-        })
-}
-
-/// Pull the sidecar's self-declared `model.honesty_warnings` (a JSON
-/// array of strings) into a `Vec<String>`. Generic, picks up whatever
-/// the sidecar emits (`single_timestep_of_4`, `frozen_pretrained_encoder`,
-/// `time_defaulted`, modality-subset, `NEGATIVE_SKILL`, …) so new warnings
-/// flow through without a code change. Returns an empty vec when absent.
-fn sidecar_honesty_warnings(model: &JsonValue) -> Vec<String> {
-    model
-        .get("honesty_warnings")
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|x| x.as_str().map(|s| s.to_string()))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
-/// Fold `honesty_warnings` into a fact's `derivation.args` *only when
-/// non-empty*. The positional args array is preserved verbatim under an
-/// `"args"` key and the warnings land under `"honesty_warnings"`, so the
-/// signed receipt discloses model degradation. When there are no
-/// warnings the original positional `args` array is returned unchanged -
-/// byte-identical CBOR to before this change (back-compat: legacy facts
-/// re-derive to the same CID).
-fn args_with_honesty(
-    positional: Vec<ciborium::Value>,
-    mut warnings: Vec<String>,
-) -> ciborium::Value {
-    if warnings.is_empty() {
-        return ciborium::Value::Array(positional);
-    }
-    // Deterministic order so the same warning set always yields the same
-    // CBOR (and thus the same fact CID).
-    warnings.sort();
-    warnings.dedup();
-    ciborium::Value::Map(vec![
-        (
-            ciborium::Value::Text("args".into()),
-            ciborium::Value::Array(positional),
-        ),
-        (
-            ciborium::Value::Text("honesty_warnings".into()),
-            ciborium::Value::Array(warnings.into_iter().map(ciborium::Value::Text).collect()),
-        ),
-    ])
-}
-
-async fn materialize_prithvi_eo2(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
-    materialize_prithvi_eo2_at(cell64, s, None).await
-}
-
-/// Prithvi-EO-2.0 embedding at an optional target time. `target_unix =
-/// None` materializes the latest scene; `Some(t)` materializes the scene
-/// nearest `t` so triple_consensus can recall a PRIOR vintage on demand and
-/// compute a real year-over-year change (rather than degrading to
-/// inconclusive). The Slow tslot derived from the chosen scene keys each
-/// vintage distinctly (so two materializations don't collide at tslot=0).
-async fn materialize_prithvi_eo2_at(
-    cell64: &str,
-    s: &AppState,
-    target_unix: Option<i64>,
-) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
-    let lat = info.lat_deg;
-    let lng = info.lng_deg;
-
-    // Fetch the 6×224×224 chip at 30 m equivalent. Up to ~5 MB of COG
-    // tile range reads spread across 6 assets; ~3-6 s on a fresh cell.
-    let chip = prithvi_chip::fetch_prithvi_chip(cell64, s, target_unix).await?;
-
-    // Year + julian_day from the scene capture time engages the
-    // model's temporal-encoder branch. ISO unix → DOY 1..366.
-    let scene_unix = if chip.scene_unix > 0 {
-        chip.scene_unix
-    } else {
-        0
-    };
-    let (year, julian_day) = unix_to_year_doy(scene_unix);
-
-    let req = gpu_sidecar::PrithviRequest {
-        chip: chip.as_3d(),
-        year: Some(year),
-        julian_day: Some(julian_day),
-        lng: Some(lng),
-        lat: Some(lat),
-    };
-    let resp = gpu_sidecar::predict_prithvi_eo2_embed(&req)
-        .await
-        .map_err(|e| format!("prithvi sidecar: {e}"))?;
-    if resp.embedding.len() != 1024 {
-        return Err(format!(
-            "prithvi sidecar returned dim={} (want 1024)",
-            resp.embedding.len()
-        ));
-    }
-
-    let signed_at = chrono_iso8601_utc();
-    let value = ciborium::Value::Array(
-        resp.embedding
-            .iter()
-            .map(|v| ciborium::Value::Float(*v as f64))
-            .collect(),
-    );
-
-    // Receipt-shape input provenance: every asset URL the chip was
-    // sourced from + the scene id + the model checkpoint hash. A
-    // verifier with the same inputs, the same checkpoint and the same
-    // batch shape reproduces the embedding. Measured bit-identical
-    // across repeats, concurrency and a 15-minute gap, but that is an
-    // observed property of this single-chip path rather than an enforced
-    // one: the sidecar never calls torch.use_deterministic_algorithms,
-    // and embedding the same chip inside a batch already moves the
-    // result (~3e-5, ~3e-2 with TF32 enabled). This holds today because
-    // EMEM_SIDECAR_MAX_BATCH is unset.
-    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
-    for url in &chip.asset_urls {
-        sources.push(Source {
-            scheme: "sentinel-2-l2a.cog".into(),
-            id: url.clone(),
-            cid: None,
-            hash: None,
-            captured_at: Some(chip.scene_iso.clone()),
-            url: Some(url.clone()),
-        });
-    }
-    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
-    sources.push(Source {
-        scheme: "model.prithvi_eo2_300m_tl".into(),
-        id: format!("ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL@{model_blake2b}"),
-        cid: None,
-        // Source.hash is Option<[u8; 32]>; we keep the hex form in `id`
-        // for round-trip readability and decode it lossily if a
-        // verifier later wants the raw 32-byte slice.
-        hash: None,
-        // IBM-NASA Prithvi-EO-2.0-300M-TL release date
-        captured_at: Some("2024-10-01T00:00:00Z".to_string()),
-        url: Some("https://huggingface.co/ibm-nasa-geospatial/Prithvi-EO-2.0-300M-TL".into()),
-    });
-
-    let prithvi_model_id = resp
-        .model
-        .get("model_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("prithvi_eo_v2_300m_tl")
-        .to_string();
-    // Honesty: whatever the sidecar self-declared PLUS the two Rust-side
-    // degradations the Prithvi chip-fetcher always incurs but the sidecar
-    // can't see, we feed S2 L2A in place of the HLS V2 the model was
-    // trained on, and we hand it a single timestep where the temporal
-    // branch expects 4. `args_with_honesty` only changes the CBOR when the
-    // set is non-empty.
-    let mut prithvi_warnings = sidecar_honesty_warnings(&resp.model);
-    prithvi_warnings.push("s2_l2a_substitute_for_hls_v2".into());
-    prithvi_warnings.push("single_timestep_of_4".into());
-    let fact = Fact::Primary(PrimaryFact {
-        cell: cell64.to_string(),
-        band: "prithvi_eo2".into(),
-        // Annual-cadence storage key, without this, every vintage at the
-        // same cell collides on (cell, band, tslot=0) and the later write
-        // overwrites the earlier one (sled_hot.rs:153-160).
-        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
-        value,
-        unit: None,
-        confidence: 0.85,
-        uncertainty: None,
-        sources,
-        derivation: Derivation {
-            // @2: the chip scene is now selected by per-pixel SCL clarity
-            // (s2_pick_clear_scene), the same gate the scalar path uses, not
-            // scene-level cloud only. The bumped key keeps @1 embeddings
-            // resolvable and audit-distinct from the SCL-selected ones.
-            fn_key: "prithvi_eo2_300m_tl_embed@2".into(),
-            args: Some(args_with_honesty(
-                vec![
-                    ciborium::Value::Float(lat),
-                    ciborium::Value::Float(lng),
-                    ciborium::Value::Text(chip.scene_id.clone()),
-                    ciborium::Value::Integer((scene_unix).into()),
-                    ciborium::Value::Text(model_blake2b.clone()),
-                    ciborium::Value::Text(format!(
-                        "scl:{}",
-                        chip.scl
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "na".into())
-                    )),
-                    ciborium::Value::Bool(chip.clear),
-                ],
-                prithvi_warnings,
-            )),
-        },
-        privacy_class: "public".into(),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
-        served_via: Some(served_via_from_sidecar(
-            &prithvi_model_id,
-            &resp.device,
-            &model_blake2b,
-        )),
-    });
-    sign_and_persist(s, fact, &signed_at).await
-}
-
-/// Phase 5, Clay Foundation Model v1.5 per-cell foundation embedding.
-///
-/// Pulls a 10-band 256×256 S2 L2A chip via `clay_chip::fetch_clay_chip`,
-/// posts to the GPU sidecar at `/predict/clay_embed`, signs the
-/// returned 1024-D CLS embedding under the `clay_v1` band. The
-/// receipt cites:
-///   * each S2 L2A asset URL the chip drew from (one Source per band),
-///   * the Clay v1.5 checkpoint blake2b (embedded in `derivation.args`)
-///     so a verifier with the same chip + same model produces the
-///     same embedding.
-///
-/// On `SidecarError::Unavailable` (no GPU / sidecar down) the
-/// materializer surfaces the error verbatim, there is no in-process
-/// CPU fallback because a CPU pass through Clay's ViT-L/8 takes
-/// 3-8 s per chip and would change the embedding's distribution
-/// (different kernel-order accumulation). The recall path catches
-/// this and signs an Absence with `gpu_unavailable` reason.
-async fn materialize_clay_v1(cell64: &str, s: &AppState) -> Result<emem_fact::FactCid, String> {
-    materialize_clay_v1_at(cell64, s, None).await
-}
-
-/// Clay v1.5 embedding at an optional target time. `None` = latest scene;
-/// `Some(t)` = scene nearest `t`, so triple_consensus can recall a PRIOR
-/// vintage on demand (see `materialize_prithvi_eo2_at`). The Slow tslot
-/// from the chosen scene keys each vintage distinctly.
-async fn materialize_clay_v1_at(
-    cell64: &str,
-    s: &AppState,
-    target_unix: Option<i64>,
-) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
-    let lat = info.lat_deg;
-    let lng = info.lng_deg;
-
-    let chip = clay_chip::fetch_clay_chip(cell64, s, target_unix).await?;
-    let scene_unix = if chip.scene_unix > 0 {
-        chip.scene_unix
-    } else {
-        0
-    };
-    // Decompose scene_unix → (year, month, day) without pulling chrono;
-    // civil_from_days is the Hinnant civil-date helper we use elsewhere.
-    let (year, month, day) = if scene_unix > 0 {
-        civil_from_days(scene_unix.div_euclid(86_400))
-    } else {
-        (2024, 7, 15)
-    };
-
-    let req = gpu_sidecar::ClayRequest {
-        chip: chip.as_3d(),
-        year: Some(year),
-        month: Some(month as u8),
-        day: Some(day as u8),
-        lng: Some(lng),
-        lat: Some(lat),
-    };
-    let resp = gpu_sidecar::predict_clay_embed(&req)
-        .await
-        .map_err(|e| format!("clay sidecar: {e}"))?;
-    if resp.embedding.len() != 1024 {
-        return Err(format!(
-            "clay sidecar returned dim={} (want 1024)",
-            resp.embedding.len()
-        ));
-    }
-
-    let signed_at = chrono_iso8601_utc();
-    let value = ciborium::Value::Array(
-        resp.embedding
-            .iter()
-            .map(|v| ciborium::Value::Float(*v as f64))
-            .collect(),
-    );
-
-    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 1);
-    for url in &chip.asset_urls {
-        sources.push(Source {
-            scheme: "sentinel-2-l2a.cog".into(),
-            id: url.clone(),
-            cid: None,
-            hash: None,
-            captured_at: Some(chip.scene_iso.clone()),
-            url: Some(url.clone()),
-        });
-    }
-    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
-    sources.push(Source {
-        scheme: "model.clay_v1_5".into(),
-        id: format!("made-with-clay/Clay@{model_blake2b}"),
-        cid: None,
-        hash: None,
-        // Made With Clay v1.5 release date
-        captured_at: Some("2025-03-15T00:00:00Z".to_string()),
-        url: Some("https://huggingface.co/made-with-clay/Clay/tree/main/v1.5".into()),
-    });
-
-    let clay_model_id = resp
-        .model
-        .get("model_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("clay_v1_5")
-        .to_string();
-    let fact = Fact::Primary(PrimaryFact {
-        cell: cell64.to_string(),
-        band: "clay_v1".into(),
-        // Annual-cadence storage key, see prithvi_eo2 site above.
-        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
-        value,
-        unit: None,
-        confidence: 0.85,
-        uncertainty: None,
-        sources,
-        derivation: Derivation {
-            // @2: chip scene selected by per-pixel SCL (s2_pick_clear_scene),
-            // the scalar path's gate, not scene-level cloud only. @1 stays
-            // resolvable and audit-distinct.
-            fn_key: "clay_v1_5_embed@2".into(),
-            args: Some(args_with_honesty(
-                vec![
-                    ciborium::Value::Float(lat),
-                    ciborium::Value::Float(lng),
-                    ciborium::Value::Text(chip.scene_id.clone()),
-                    ciborium::Value::Integer(scene_unix.into()),
-                    ciborium::Value::Text(model_blake2b.clone()),
-                    ciborium::Value::Text(format!(
-                        "scl:{}",
-                        chip.scl
-                            .map(|c| c.to_string())
-                            .unwrap_or_else(|| "na".into())
-                    )),
-                    ciborium::Value::Bool(chip.clear),
-                ],
-                // Clay's `time_defaulted` / `location_defaulted` warnings are
-                // sidecar-declared (it knows whether year/month/lat/lng were
-                // present); pass them through generically.
-                sidecar_honesty_warnings(&resp.model),
-            )),
-        },
-        privacy_class: "l2_only_with_model_cid".into(),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
-        served_via: Some(served_via_from_sidecar(
-            &clay_model_id,
-            &resp.device,
-            &model_blake2b,
-        )),
-    });
-    sign_and_persist(s, fact, &signed_at).await
-}
-
-/// Phase 4, Galileo per-cell foundation embedding (multimodal).
-///
-/// Galileo is a multimodal model (arXiv:2502.09356). We feed it the three
-/// modalities emem already ships co-registered at the same cell+time:
-///   * **S2**, 10-band L2A chip (8×8 @ 30 m) in the space-time tensor.
-///   * **S1**, Sentinel-1 RTC VV+VH γ0 dB (8×8 @ 30 m) in space-time.
-///   * **DEM**, Copernicus-DEM elevation + finite-difference slope (deg)
-///     (8×8 @ 30 m) in the SRTM space-group.
-///
-/// The chip assembly mirrors the eudr_dds parallel S2+S1 fetch pattern:
-/// S1 and DEM are fetched concurrently with the (already-resolved) S2
-/// scene. When S1 or DEM cannot be fetched at the cell, we DEGRADE
-/// HONESTLY, drop that modality, mask it absent in the sidecar, and sign
-/// under the S2-only fn_key (`galileo_v1_s2_embed@2`) rather than zero-fill
-/// and claim multimodal. The full S2+S1+DEM embedding is a DIFFERENT
-/// computation and signs under `galileo_v1_s2s1dem_embed@1`. The
-/// `modality_subset` honesty warning records exactly which were present.
-///
-/// Embedding dim is read from the sidecar response, the band key is
-/// variant-agnostic so a deployment switching `EMEM_GALILEO_VARIANT`
-/// from Base to Tiny doesn't need to rewrite agent recall calls.
-async fn materialize_galileo_base(
-    cell64: &str,
-    s: &AppState,
-) -> Result<emem_fact::FactCid, String> {
-    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
-    let lat = info.lat_deg;
-    let lng = info.lng_deg;
-
-    // DEM is the one modality that does NOT depend on the S2 scene time
-    // (Cop-DEM is static), so start it concurrently with the S2 chip fetch
-    // instead of awaiting it after. On a cold cell the galileo materialize
-    // is the slowest foundation encoder (it fetches S2 + S1 + DEM + TC) and
-    // bounds the parallel state_multi fan-out; overlapping the DEM range-read
-    // with the S2 STAC search + COG reads takes it off the critical path.
-    // S1 and TerraClimate genuinely need `scene_unix`/`month` from S2 (S1
-    // co-registers to the S2 acquisition time), so they stay in the post-S2
-    // join below.
-    let dem_fut = galileo_chip::fetch_galileo_dem_chip(cell64);
-    tokio::pin!(dem_fut);
-
-    let chip = galileo_chip::fetch_galileo_chip(cell64, s, None).await?;
-    let scene_unix = if chip.scene_unix > 0 {
-        chip.scene_unix
-    } else {
-        0
-    };
-    let (_year, doy) = unix_to_year_doy(scene_unix);
-    // Galileo wants month-of-year (1..12) for its seasonal positional
-    // encoding. Convert DOY → month via civil-from-days math.
-    let month = if scene_unix > 0 {
-        let z = scene_unix.div_euclid(86_400);
-        let (_y, m, _d) = civil_from_days(z);
-        m as u8
-    } else {
-        7
-    };
-
-    // Fetch S1 (near the S2 scene time) and DEM concurrently, same
-    // join_all pattern eudr_dds uses for parallel S2+S1. Each is
-    // best-effort: a failure degrades the embedding honestly rather than
-    // failing the whole materialization. S1 is anchored to the S2 scene
-    // time so the two co-register temporally.
-    let s1_target = if scene_unix > 0 {
-        Some(scene_unix)
-    } else {
-        None
-    };
-    // TerraClimate (def/soil/aet) is Galileo's TIME modality. It's a
-    // climatological monthly value, so it co-registers with the S2 scene's
-    // `month` rather than the exact scene time. Fetch concurrently with S1
-    // + DEM; best-effort like the others.
-    let tc_timeout = std::time::Duration::from_secs(materializer_timeout_secs());
-    // S1 + TC need the resolved scene time/month; join them with the DEM
-    // future that has been running concurrently since before the S2 fetch.
-    let (s1_res, tc_res, dem_res) = tokio::join!(
-        galileo_chip::fetch_galileo_s1_chip(cell64, s1_target),
-        galileo_chip::fetch_galileo_tc_chip(cell64, month, tc_timeout),
-        &mut dem_fut,
-    );
-    let s1 = s1_res
-        .map_err(|e| {
-            tracing::debug!("galileo S1 modality unavailable at {cell64}: {e}");
-            e
-        })
-        .ok();
-    let dem = dem_res
-        .map_err(|e| {
-            tracing::debug!("galileo DEM modality unavailable at {cell64}: {e}");
-            e
-        })
-        .ok();
-    let tc = tc_res
-        .map_err(|e| {
-            tracing::debug!("galileo TerraClimate modality unavailable at {cell64}: {e}");
-            e
-        })
-        .ok();
-
-    // modality_subset is the honest list of what we actually fed.
-    let mut modality_subset: Vec<&'static str> = vec!["s2"];
-    if s1.is_some() {
-        modality_subset.push("s1");
-    }
-    if dem.is_some() {
-        modality_subset.push("srtm");
-    }
-    if tc.is_some() {
-        modality_subset.push("tc");
-    }
-    let multimodal = s1.is_some() || dem.is_some() || tc.is_some();
-
-    let req = gpu_sidecar::GalileoRequest {
-        s2_chip: chip.as_4d(),
-        s1_chip: s1.as_ref().map(|c| c.as_4d()),
-        srtm_chip: dem.as_ref().map(|c| c.as_3d()),
-        tc_chip: tc.as_ref().map(|c| c.as_time_2d()),
-        month: Some(month),
-        lng: Some(lng),
-        lat: Some(lat),
-    };
-    let resp = gpu_sidecar::predict_galileo_embed(&req)
-        .await
-        .map_err(|e| format!("galileo sidecar: {e}"))?;
-    if resp.embedding.is_empty() {
-        return Err("galileo sidecar returned empty embedding".to_string());
-    }
-
-    let signed_at = chrono_iso8601_utc();
-    let value = ciborium::Value::Array(
-        resp.embedding
-            .iter()
-            .map(|v| ciborium::Value::Float(*v as f64))
-            .collect(),
-    );
-
-    let mut sources: Vec<Source> = Vec::with_capacity(chip.asset_urls.len() + 4);
-    for url in &chip.asset_urls {
-        sources.push(Source {
-            scheme: "sentinel-2-l2a.cog".into(),
-            id: url.clone(),
-            cid: None,
-            hash: None,
-            captured_at: Some(chip.scene_iso.clone()),
-            url: Some(url.clone()),
-        });
-    }
-    if let Some(s1c) = &s1 {
-        for url in &s1c.asset_urls {
-            sources.push(Source {
-                scheme: "sentinel-1-rtc.cog".into(),
-                id: url.clone(),
-                cid: None,
-                hash: None,
-                captured_at: Some(s1c.scene_iso.clone()),
-                url: Some(url.clone()),
-            });
-        }
-    }
-    if let Some(demc) = &dem {
-        sources.push(Source {
-            scheme: "copernicus-dem-glo30.cog".into(),
-            id: demc.asset_url.clone(),
-            cid: None,
-            hash: None,
-            captured_at: Some(emem_fetch::copernicus_dem::COPDEM_VERSION_TAG.to_string()),
-            url: Some(demc.asset_url.clone()),
-        });
-    }
-    if let Some(tcc) = &tc {
-        for url in &tcc.asset_urls {
-            sources.push(Source {
-                scheme: "terraclimate_ncss".into(),
-                id: url.clone(),
-                cid: None,
-                hash: None,
-                captured_at: static_release_date("terraclimate.aet_normal_mm").map(str::to_string),
-                url: Some(url.clone()),
-            });
-        }
-    }
-    let model_blake2b = checkpoint_hash_or_refuse(&resp.model)?;
-    sources.push(Source {
-        scheme: "model.galileo_v1".into(),
-        id: format!("nasaharvest/galileo@{model_blake2b}"),
-        cid: None,
-        hash: None,
-        // Galileo by Earth-Net release date
-        captured_at: Some("2024-09-01T00:00:00Z".to_string()),
-        url: Some("https://huggingface.co/nasaharvest/galileo".into()),
-    });
-
-    let galileo_model_id = resp
-        .model
-        .get("model_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or("galileo_v1")
-        .to_string();
-
-    // The multimodal embedding is a DIFFERENT computation than the S2-only
-    // one, so it carries a distinct fn_key, and a verifier can tell from the
-    // fn_key alone exactly which modalities were fed. Every variant bumps one
-    // version here because the S2 scene is now selected by per-pixel SCL
-    // (s2_pick_clear_scene), the scalar path's gate, not scene-level cloud
-    // only, a different (better) input to every Galileo embedding. Prior
-    // facts stay resolvable and audit-distinct under their older keys:
-    // s2s1demtc/s2tc/s2s1dem @1 -> @2, and the S2-only key @2 -> @3.
-    let fn_key = match (s1.is_some() || dem.is_some(), tc.is_some()) {
-        (true, true) => "galileo_v1_s2s1demtc_embed@2",
-        (false, true) => "galileo_v1_s2tc_embed@2",
-        (true, false) => "galileo_v1_s2s1dem_embed@2",
-        (false, false) => "galileo_v1_s2_embed@3",
-    };
-
-    // Honesty warnings: sidecar-declared + Rust-side truth about which
-    // modalities were actually fed vs masked-absent.
-    let mut warnings = sidecar_honesty_warnings(&resp.model);
-    warnings.push(format!("modality_subset: [{}]", modality_subset.join(",")));
-    // When the scene acquisition time couldn't be resolved we fall back to
-    // month=July (7) for Galileo's seasonal positional encoding and tslot=0.
-    // Surface that honestly rather than silently baking a fake season -
-    // mirrors Clay's sidecar-declared `time_defaulted` (the Galileo month is
-    // derived Rust-side, so we emit the warning here).
-    if scene_unix <= 0 {
-        warnings.push(format!(
-            "time_defaulted: scene acquisition time could not be resolved at this cell; month defaulted to {month} (July) for the seasonal positional encoding and tslot pinned to 0, the embedding's season is a placeholder, not the observed scene's"
-        ));
-    }
-    if multimodal {
-        let mut absent: Vec<&str> = Vec::new();
-        if s1.is_none() {
-            absent.push("s1");
-        }
-        if dem.is_none() {
-            absent.push("srtm");
-        }
-        if tc.is_none() {
-            absent.push("tc");
-        }
-        if !absent.is_empty() {
-            warnings.push(format!(
-                "partial_multimodal: [{}] fetched, [{}] unavailable at this cell and masked-absent (not zero-filled)",
-                modality_subset.join(","),
-                absent.join(",")
-            ));
-        }
-    } else {
-        warnings.push(
-            "s2_only_modalities_zero_masked: S1 + DEM could not be fetched at this cell; signed under the S2-only fn_key, every other Galileo modality masked-absent".into(),
-        );
-    }
-
-    // Tslot at scene-acquisition tempo so successive vintages of the
-    // same cell don't collide at tslot=0, mirror the prithvi_eo2
-    // / clay_v1 pattern (Tempo::Slow keys to annual cadence).
-    let mut args = vec![
-        ciborium::Value::Float(lat),
-        ciborium::Value::Float(lng),
-        ciborium::Value::Text(chip.scene_id.clone()),
-        ciborium::Value::Integer((scene_unix).into()),
-        ciborium::Value::Integer((doy as i64).into()),
-        ciborium::Value::Text(model_blake2b.clone()),
-        ciborium::Value::Text(format!(
-            "scl:{}",
-            chip.scl
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "na".into())
-        )),
-        ciborium::Value::Bool(chip.clear),
-    ];
-    // Record the S1 scene id when present so a verifier can re-fetch the
-    // exact SAR scene the multimodal embedding was conditioned on.
-    if let Some(s1c) = &s1 {
-        args.push(ciborium::Value::Text(format!("s1:{}", s1c.scene_id)));
-    }
-    if let Some(demc) = &dem {
-        args.push(ciborium::Value::Text(format!("dem:{}", demc.asset_url)));
-    }
-    // Pin the TerraClimate climatology month + the three DN values so a
-    // verifier can re-run the exact TIME-modality contribution. The
-    // 1991–2020 normal window is fixed by `terraclimate::NORMAL_WINDOW`.
-    if let Some(tcc) = &tc {
-        args.push(ciborium::Value::Text(format!(
-            "tc:def_soil_aet_dn@m{}={:.1},{:.1},{:.1}",
-            tcc.month, tcc.def_soil_aet[0], tcc.def_soil_aet[1], tcc.def_soil_aet[2]
-        )));
-    }
-    let fact = Fact::Primary(PrimaryFact {
-        cell: cell64.to_string(),
-        band: "galileo".into(),
-        tslot: emem_core::tslot::Tslot::from_unix(scene_unix, emem_core::tslot::Tempo::Slow).0,
-        value,
-        unit: None,
-        confidence: 0.85,
-        uncertainty: None,
-        sources,
-        derivation: Derivation {
-            fn_key: fn_key.into(),
-            args: Some(args_with_honesty(args, warnings)),
-        },
-        privacy_class: "public".into(),
-        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
-        signer: s.identity.pubkey,
-        signed_at: signed_at.clone(),
-        served_via: Some(served_via_from_sidecar(
-            &galileo_model_id,
-            &resp.device,
-            &model_blake2b,
-        )),
-    });
-    sign_and_persist(s, fact, &signed_at).await
-}
-
-/// ISO unix → (year, day_of_year). Used for Prithvi's temporal_coords
-/// metadata input. Returns (2024, 200) for stale/missing scene_unix.
-///
-/// Built on `days_from_civil` / `civil_from_days` (Hinnant civil-date)
-/// so we don't pull `chrono` just for two integer conversions.
-fn unix_to_year_doy(unix: i64) -> (i32, i32) {
-    if unix <= 0 {
-        return (2024, 200);
-    }
-    let z = unix.div_euclid(86_400);
-    let (y, _m, _d) = civil_from_days(z);
-    let jan1 = days_from_civil(y, 1, 1);
-    let day_of_year = (z - jan1 + 1) as i32; // 1..=366
-    (y, day_of_year)
-}
-
 /// Map a WGS84 (lat, lng) to the `(row, col)` of the GeoTessera tile
 /// array, which is stored in the tile's **per-tile UTM** CRS, NOT in
 /// degrees. The earlier linear-degree mapping (row ∝ fraction of the
@@ -51198,10 +50284,7 @@ fn s2_url_for_record(url: &str) -> &str {
 }
 
 /// The scene chosen by [`s2_pick_clear_scene`], plus the audit fields the
-/// materializer surfaces in the fact's derivation args. `pub(crate)` so the
-/// foundation-model chip paths (clay/prithvi/galileo) select a scene by the
-/// same per-pixel SCL discipline the scalar value path uses, instead of the
-/// scene-level cloud filter in `s2_search_with_fallback`.
+/// materializer surfaces in the fact's derivation args.
 #[derive(Clone)]
 pub(crate) struct S2ChosenScene {
     pub(crate) item: emem_fetch::stac::StacItem,
@@ -56362,15 +55445,6 @@ fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
         || reason.contains("no materializer")
     {
         ("no_materializer", false)
-    } else if reason.contains("does not run the GPU inference sidecar") {
-        // A materializer IS registered; the optional accelerator it needs is
-        // not installed on this node. That fell through to `upstream_error`
-        // with `retryable: true`, which sent an agent back to a band that
-        // cannot answer here however many times it asks. It is structural at
-        // this responder and it has its own vocabulary already:
-        // /v1/capabilities lists the extensions, and `algorithm_availability`
-        // says which algorithms they make runnable.
-        ("capability_unavailable", false)
     } else if reason.contains("hard cap")
         || reason.contains("dispatch-level timeout")
         || reason.contains("timed out")
@@ -56938,48 +56012,6 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             wire_path:
                 "data.chc.ucsb.edu CHIRPS-2.0/global_daily/cogs/p05 (anonymous Float32 COG, HTTPS-Range)",
         },
-        "prithvi_eo2" => MaterializerMeta {
-            // Prithvi-EO-2.0-300M-TL ViT-L. Per-cell foundation embedding
-            // computed on the GPU sidecar over a 6-band S2 L2A chip resampled
-            // to 224×224 at 30 m. Tempo follows S2 (medium cadence; the
-            // chip is one acquisition, not a stack). History tracks S2 L2A.
-            tempo: Tempo::Medium,
-            kind: BandKind::TimeSeries,
-            history_from_unix: Some(s2_l2a_start),
-            history_to_unix: None,
-            wire_path:
-                "Element84/MPC Sentinel-2 L2A 6-band chip (B02/B03/B04/B8A/B11/B12, 224×224 @ 30m equiv) → emem-jepa-sidecar /predict/prithvi_eo2_embed (CUDA, ViT-L 1024-D CLS)",
-        },
-        "clay_v1" => MaterializerMeta {
-            // Clay Foundation Model v1.5 ViT-L/8 MAE + DINOv2 teacher.
-            // 10-band S2 L2A chip resampled to 256×256 at 10 m equiv,
-            // wavelength-conditioned encoder, 1024-D CLS token. GPU-only:
-            // SidecarError::Unavailable surfaces as Absence with
-            // gpu_unavailable reason, the CPU pass is too slow and
-            // would change the embedding distribution. Tempo follows S2.
-            tempo: Tempo::Medium,
-            kind: BandKind::TimeSeries,
-            history_from_unix: Some(s2_l2a_start),
-            history_to_unix: None,
-            wire_path:
-                "Element84/MPC Sentinel-2 L2A 10-band chip (B02/B03/B04/B05/B06/B07/B08/B8A/B11/B12, 256×256 @ 10m equiv) → emem-jepa-sidecar /predict/clay_embed (CUDA, ViT-L/8 1024-D CLS)",
-        },
-        "galileo" => MaterializerMeta {
-            // Galileo (NASA Harvest, MIT), Base variant by default
-            // (86.5 M params, 768-D embedding) / Tiny (~22 MB, 192-D)
-            // selected by the sidecar's `EMEM_GALILEO_VARIANT`. Multimodal:
-            // S2 (10-band, always) + S1 RTC (VV,VH γ0 dB, when fetchable) +
-            // Cop-DEM (elevation, slope, when fetchable), all 8×8 @ 30 m
-            // co-registered. Multimodal signs galileo_v1_s2s1dem_embed@1;
-            // S2-only fallback signs galileo_v1_s2_embed@2. Tempo + history
-            // mirror S2.
-            tempo: Tempo::Medium,
-            kind: BandKind::TimeSeries,
-            history_from_unix: Some(s2_l2a_start),
-            history_to_unix: None,
-            wire_path:
-                "Element84/MPC S2 L2A 10-band + S1 RTC VV/VH + Cop-DEM elevation/slope (8×8 @ 30m equiv, co-registered) → emem-jepa-sidecar /predict/galileo_embed (CUDA, variant-agnostic, Base = 768-D / Tiny = 192-D avg-pooled tokens; S1/DEM masked-absent + S2-only fn_key when either can't be fetched)",
-        },
         _ => return None,
     };
     Some(m)
@@ -57071,16 +56103,6 @@ fn all_materializable_bands() -> Vec<String> {
         // via TurboQuant rotation + sign-bit packing. Feeds find_similar
         // mode=hamming/hamming_then_rerank.
         "geotessera.bin128".into(),
-        // Foundation-model embeddings served from the GPU sidecar.
-        // recall(band=X) on a cold cell fetches a Sentinel-2 L2A chip,
-        // hands it to the sidecar, signs the returned embedding as a
-        // Primary fact. When the sidecar is unreachable the recall
-        // path signs an honest Absence with reason=gpu_unavailable.
-        // Listed here so /v1/materializers + /v1/data_availability +
-        // /v1/coverage_matrix all surface them as live-wired bands.
-        "prithvi_eo2".into(),
-        "clay_v1".into(),
-        "galileo".into(),
     ];
     for y in TESSERA_YEARS_RANGE_PUBLIC.clone() {
         out.push(format!("geotessera.{y}"));
@@ -57382,23 +56404,6 @@ async fn materialize_band_at(
             };
         }
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
-        // Phase 3b, Prithvi-EO-2.0-300M-TL embedding. Pulls a 6-band
-        // S2 L2A chip resampled to a uniform 30 m × 224×224 grid, sends
-        // it to the GPU sidecar, and signs the returned 1024-D CLS
-        // embedding under the `prithvi_eo2` band.
-        "prithvi_eo2" => return materialize_prithvi_eo2(cell64, s).await,
-        // Phase 5, Clay v1.5 Foundation Model embedding. Pulls a
-        // 10-band S2 chip at 10 m × 256², sends to the GPU sidecar,
-        // signs the returned 1024-D CLS under the `clay_v1` band.
-        // Returns SidecarError::Unavailable when the GPU is missing;
-        // the recall path catches that and signs an honest Absence.
-        "clay_v1" => return materialize_clay_v1(cell64, s).await,
-        // Phase 4, Galileo S2-only embedding. Pulls a 10-band
-        // 8×8 chip at 30 m equiv, sends to the GPU sidecar, signs the
-        // returned average-pooled embedding (768-D Base / 192-D Tiny,
-        // dim chosen by sidecar's EMEM_GALILEO_VARIANT) under
-        // `galileo`.
-        "galileo" => return materialize_galileo_base(cell64, s).await,
         // Beck Köppen-Geiger 1-km, static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop, slow-tempo annual people/km² via Stats REST.
@@ -58569,109 +57574,6 @@ async fn try_materialize_bands(
                     }
                 }
             }
-            // Galileo S2-only embedding. Fetches a 10-band 8×8
-            // chip at 30 m equiv, sends to GPU sidecar, signs the
-            // returned embedding (768-D Base / 192-D Tiny). Mid-size
-            // (Base = 86.5M params vs Prithvi's 330M), cold start ~5 s,
-            // warm ~25 ms. Variant chosen via EMEM_GALILEO_VARIANT.
-            "galileo" => match materialize_galileo_base(cell64, s).await {
-                Ok(cid) => {
-                    tracing::info!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_fact_cid = %cid.as_str(),
-                        materialize_kind = "primary",
-                        "materialize_ok"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: Some(cid.as_str().to_string()),
-                        skip_reason: None,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_error = %e,
-                        "materialize_failed"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: None,
-                        skip_reason: Some(e),
-                    });
-                }
-            },
-            // Prithvi-EO-2.0-300M-TL, fetches a 6-band S2 L2A chip,
-            // resamples to 30 m × 224×224, sends to GPU sidecar, signs
-            // the returned 1024-D embedding. Cold call ~10-30 s
-            // (chip range-reads + sidecar inference); warm cache hits
-            // are under 1 s.
-            // Clay v1.5 Foundation Model, fetches a 10-band S2 L2A
-            // chip, resamples to 10 m × 256², sends to GPU sidecar,
-            // signs the returned 1024-D CLS under `clay_v1`. GPU-only
-            // by design (CPU pass would change the embedding's
-            // distribution); SidecarError::Unavailable surfaces as a
-            // skip_reason so the recall path can sign honest Absence.
-            "clay_v1" => match materialize_clay_v1(cell64, s).await {
-                Ok(cid) => {
-                    tracing::info!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_fact_cid = %cid.as_str(),
-                        materialize_kind = "primary",
-                        "clay_v1 materialised via GPU sidecar"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: Some(cid.as_str().to_string()),
-                        skip_reason: None,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_error = %e,
-                        "clay_v1 materialise failed (likely no GPU); honest Absence will be signed"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: None,
-                        skip_reason: Some(e),
-                    });
-                }
-            },
-            "prithvi_eo2" => match materialize_prithvi_eo2(cell64, s).await {
-                Ok(cid) => {
-                    tracing::info!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_fact_cid = %cid.as_str(),
-                        materialize_kind = "primary",
-                        "materialize_ok"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: Some(cid.as_str().to_string()),
-                        skip_reason: None,
-                    });
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        target: "emem::materialize",
-                        materialize_cell = %cell64, materialize_band = %b,
-                        materialize_error = %e,
-                        "materialize_failed"
-                    );
-                    out.push(MaterializeOutcome {
-                        band: b.clone(),
-                        fact_cid: None,
-                        skip_reason: Some(e),
-                    });
-                }
-            },
             // WorldPop wpgppop, slow-tempo annual people/km² via Stats REST.
             // Returns Primary for populated cells, Absence for ocean /
             // polar / genuinely uninhabited terrain (the API's documented
@@ -60622,8 +59524,7 @@ struct AskReq {
     /// slim (~5 KB): answer + algorithm key + fact_cids + caveats.
     /// Pass one or more tokens to include specific sections:
     /// `"band_observations"`, `"algorithm_outcomes"`, `"facts_full"`,
-    /// `"temporal_composition"`, `"foundation_embeddings"`, `"scene"`,
-    /// `"inventory"`. Ignored when `verbose: true`.
+    /// `"temporal_composition"`, `"scene"`, `"inventory"`. Ignored when `verbose: true`.
     #[serde(default)]
     include: Option<Vec<String>>,
 }
@@ -60861,7 +59762,6 @@ async fn get_limits() -> Json<JsonValue> {
             "slowest_observed_ms": {
                 "emem_state_multi": 14021,
                 "emem_memory_contradictions": 8063,
-                "emem_triple_consensus": 6944,
                 "emem_deforestation_alert": 6001,
                 "guidance": "max observed, not p99. An agent budgeting per call should \
                              allow 15 s for state_multi rather than a default 5 s timeout.",
@@ -63888,7 +62788,7 @@ fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
             primary_band: "indices.nbr",
             gate: None,
             higher_is_hotter: false,
-            interpretation: "lower NBR = more burn (Key & Benson 2006). The full algorithm fuses dNBR class with Prithvi linear-probe.",
+            interpretation: "lower NBR = more burn (Key & Benson 2006). The registry algorithm also fuses a dNBR class with a Prithvi linear probe, which this responder no longer runs.",
         },
         K::UrbanHeatIsland => RankingSpec {
             primary_band: "modis.lst_day_8day",
@@ -63939,13 +62839,7 @@ fn ranking_spec_for(kind: ask_foundation::HunterKind) -> Option<RankingSpec> {
 /// 16-permit concurrency. Operators can override with the env var
 /// `EMEM_HUNTER_SLOW_BAND_CAP` at startup.
 fn slow_band_cells_cap(primary_band: &str) -> Option<usize> {
-    const SLOW_BANDS: &[&str] = &[
-        "modis.lst_day_8day",
-        "modis.lst_night_8day",
-        "prithvi_eo2",
-        "clay_v1",
-        "galileo",
-    ];
+    const SLOW_BANDS: &[&str] = &["modis.lst_day_8day", "modis.lst_night_8day"];
     if !SLOW_BANDS.contains(&primary_band) {
         return None;
     }
@@ -64154,10 +63048,7 @@ fn build_hotspot_blob(
 /// *coherent* hotspots first.
 ///
 /// Tessera is the only foundation encoder with a live materializer at
-/// this responder (Clay v1 and Prithvi-EO-2 are seeded but not
-/// auto-materialised; see /v1/coverage_matrix). Using it alone keeps
-/// the rerank honest, we promise embedding intelligence and deliver
-/// the embedding intelligence we can actually run.
+/// this responder, so the rerank uses it alone.
 ///
 /// Inputs:
 /// - `top_k`: how many of the primary-scalar leaders to consider
@@ -64694,17 +63585,13 @@ async fn hunter_response(
 }
 
 /// Honest disclosure of which input bands have a live materializer at
-/// this responder versus only being seeded. Per /v1/coverage_matrix
-/// today: `geotessera` has a wired materializer; Clay v1 and
-/// Prithvi-EO-2 carry seed facts but no auto-materialise path. Agents
-/// reading the hunter envelope should treat `seed_only` bands as
-/// "might miss", the recall will return what's been signed before,
-/// not a fresh fetch.
+/// this responder versus only held from earlier signing. Agents reading
+/// the hunter envelope should treat `has_live_materializer: false` bands
+/// as "might miss": the recall returns what was signed before, not a
+/// fresh fetch.
 ///
 /// The list is kept short and explicit rather than auto-derived from
-/// the bands registry so it can be reviewed in one place. When a new
-/// materializer comes online (e.g. Clay v1.5 sidecar), the entry
-/// flips here and the envelope updates without a registry rebuild.
+/// the bands registry so it can be reviewed in one place.
 fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
     let mut out = Vec::with_capacity(input_bands.len());
     for band in input_bands {
@@ -64741,22 +63628,9 @@ fn materializer_status_for(input_bands: &[&'static str]) -> JsonValue {
                 true,
                 "MODIS land-surface temperature 8-day via NASA/ORNL REST API. SLOW: rate-limited and ~30 s per cell, hunter mode caps fan-out to 8 cells for this band.",
             ),
-            // Foundation-model embeddings, all live via GPU sidecar.
-            // When the sidecar is unreachable the materializer surfaces
-            // SidecarError::Unavailable and the recall path signs an
-            // honest Absence with reason=gpu_unavailable. No CPU
-            // fallback (would change the embedding's distribution).
-            "clay_v1" => (
-                true,
-                "Clay v1.5 Foundation Model, 1024-D CLS embedding from a 10-band 256×256 S2 L2A chip at 10 m. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
-            ),
-            "prithvi_eo2" => (
-                true,
-                "Prithvi-EO-2.0-300M-TL, 1024-D CLS embedding from a 6-band 224×224 S2 L2A chip at 30 m equiv. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
-            ),
-            "galileo" => (
-                true,
-                "Galileo (NASA Harvest), 768-D Base / 192-D Tiny avg-pooled embedding from a 10-band 8×8 S2 L2A chip at 30 m equiv. Variant set by EMEM_GALILEO_VARIANT. Auto-materialises on miss via the GPU sidecar; honest Absence on GPU unavailable.",
+            b if RETIRED_ENCODER_BANDS.contains(&b) => (
+                false,
+                "retired encoder: recall returns facts signed earlier, nothing new is materialized",
             ),
             // Fallback for bands not enumerated above.
             _ => (
@@ -70920,14 +69794,6 @@ async fn ask_inner_traced(
     enrich_recall_signer_b32(&mut facts_json);
     enrich_facts_with_cid(&mut facts_json);
 
-    // Foundation-embedding fan-out. When the question is shaped like
-    // "find places like X" or "what changed here", route through the
-    // Clay/Prithvi/Tessera triple instead of (or alongside) the
-    // topic-router scalar bands. Always additive: if the keyword
-    // classifier doesn't match the question, this is a no-op and the
-    // response keeps its previous shape byte-for-byte.
-    let foundation_embeddings = ask_foundation::foundation_fanout(&req.q, &cell, &s).await;
-
     // Build the include set. verbose=true is a blanket "include everything";
     // otherwise the caller opts in to specific heavy sections via `include`.
     // Default (no include, no verbose) → slim ~5 KB envelope.
@@ -70938,7 +69804,6 @@ async fn ask_inner_traced(
             "algorithm_outcomes",
             "facts_full",
             "temporal_composition",
-            "foundation_embeddings",
             "scene",
             "inventory",
         ]
@@ -71138,14 +70003,6 @@ async fn ask_inner_traced(
         }
     }
 
-    // Merge in the foundation-embedding fan-out envelope, if it fired.
-    if let Some(fe) = foundation_embeddings {
-        if has("foundation_embeddings") {
-            if let Some(map) = body.as_object_mut() {
-                map.insert("foundation_embeddings".into(), fe);
-            }
-        }
-    }
     if imagery_intent && (include_all || has("scene")) {
         if let Some(map) = body.as_object_mut() {
             map.insert(
@@ -78023,7 +76880,7 @@ async fn temporal_route_inner(
                 "wave_seasonal":    "Q = max(0, 0.5 + 0.5·cos(2π·Δt/T)); ∂²u/∂t² = c²∇²u; T ≈ Sentinel-2 revisit",
                 "advection_linear": "Q = max(0, 1 - Δt/horizon); ∂u/∂t + v·∇u = 0; horizon ≈ 6 slots",
             },
-            "reference": "Physics-informed PDE operators per band class, one Temporal Dynamics Module per class. ReJEPA / V-JEPA (arxiv.org/abs/2504.03169, arxiv.org/abs/2301.08243) provide the embedding-prediction extension once we add a learned predictor for missing (cell, time) pairs.",
+            "reference": "Physics-informed PDE operators per band class, one Temporal Dynamics Module per class.",
             "intent_affinity_disclaimer": "intent_affinity is a heuristic family-match multiplier, NOT part of the PDE math. Strip it (use score_math) for protocol-level reasoning.",
         }
     })))
@@ -79707,8 +78564,8 @@ mod tests {
             "and must say why it was downgraded"
         );
 
-        // WITH a checkpoint folded into the source id, as
-        // checkpoint_hash_or_refuse writes it.
+        // WITH a checkpoint folded into the source id, as the retired
+        // encoder materializers wrote it.
         let backed = json!({
             "band": "clay_v1",
             "served_via": null,
@@ -85505,40 +84362,24 @@ mod tests {
         assert_eq!(capped.total_sampled_cells, 5);
     }
 
-    /// The three GPU-sidecar foundation embeddings (`prithvi_eo2`,
-    /// `clay_v1`, `galileo`) must all be reachable through the same
-    /// materializer registry path that `recall_with_auto_materialize`
-    /// uses to fan out: `band_materializer_meta(band).is_some()` AND
-    /// the band is enumerated in `all_materializable_bands()`. If
-    /// either side regresses, agents calling
-    /// `recall(band=clay_v1)` on a fresh cell silently get empty
-    /// instead of an embedding (the materializer dispatch never fires)
-    ///, exactly the bug this PR is fixing.
+    /// The retired encoder bands stay declared in the manifest, because facts
+    /// signed under them must keep recalling and verifying, but nothing may
+    /// offer or materialize them: they are in the retired set, absent from
+    /// the wired list, and have no materializer meta.
     #[test]
-    fn foundation_bands_appear_in_materializer_registry() {
+    fn retired_encoder_bands_are_declared_but_not_materialisable() {
         let listed: std::collections::HashSet<String> =
             all_materializable_bands().into_iter().collect();
-        for band in ["prithvi_eo2", "clay_v1", "galileo"] {
+        for band in RETIRED_ENCODER_BANDS {
             assert!(
-                listed.contains(band),
-                "all_materializable_bands() is missing `{band}`, recall_with_auto_materialize \
-                 won't surface it under /v1/materializers"
+                emem_core::bands::DEFAULT.lookup(band).is_some(),
+                "`{band}` must stay in bands-v0.json: removing it moves bands_cid"
             );
+            assert!(retired_bands().contains(*band), "`{band}` is not retired");
+            assert!(!listed.contains(*band), "`{band}` is still listed as wired");
             assert!(
-                band_materializer_meta(band).is_some(),
-                "band_materializer_meta(\"{band}\") returned None, the materializer is \
-                 not wired into the dispatch table; recall on a fresh cell will silently \
-                 return empty instead of auto-materialising"
-            );
-            // Every foundation embedding must declare its upstream wire
-            // path so /v1/materializers + /v1/coverage_matrix surface
-            // the chip-fetcher + sidecar route a verifier can reproduce.
-            let meta = band_materializer_meta(band).unwrap();
-            assert!(
-                meta.wire_path.contains("emem-jepa-sidecar"),
-                "{band}.wire_path = {:?} must mention emem-jepa-sidecar so agents know which \
-                 compute tier produced the embedding",
-                meta.wire_path
+                band_materializer_meta(band).is_none(),
+                "`{band}` still has materializer meta"
             );
         }
     }
@@ -90815,103 +89656,6 @@ mod tests {
         let (shape, dtype, _off) = parse_npy_header(&buf2).expect("C-order parses");
         assert_eq!(shape, vec![3, 4, 128]);
         assert_eq!(dtype, "|i1");
-    }
-
-    /// `args_with_honesty`: no warnings → byte-identical to the plain
-    /// positional args array (back-compat: legacy facts re-derive to the
-    /// same CID). With warnings → a map carrying both, deterministically
-    /// ordered.
-    #[test]
-    fn args_with_honesty_empty_is_byte_identical() {
-        let positional = vec![
-            ciborium::Value::Float(1.0),
-            ciborium::Value::Text("scene".into()),
-        ];
-        let plain = ciborium::Value::Array(positional.clone());
-        let mut want = Vec::new();
-        ciborium::into_writer(&plain, &mut want).unwrap();
-
-        let got_val = args_with_honesty(positional.clone(), vec![]);
-        let mut got = Vec::new();
-        ciborium::into_writer(&got_val, &mut got).unwrap();
-        assert_eq!(got, want, "no-warning args must be byte-identical CBOR");
-
-        // With warnings → a map (different shape), warnings sorted+deduped.
-        let with = args_with_honesty(
-            positional,
-            vec![
-                "single_timestep_of_4".into(),
-                "s2_l2a_substitute_for_hls_v2".into(),
-                "single_timestep_of_4".into(),
-            ],
-        );
-        let ciborium::Value::Map(entries) = &with else {
-            panic!("expected a map when warnings present");
-        };
-        let (_k, hw) = entries
-            .iter()
-            .find(|(k, _)| matches!(k, ciborium::Value::Text(t) if t == "honesty_warnings"))
-            .expect("honesty_warnings key present");
-        let ciborium::Value::Array(ws) = hw else {
-            panic!("warnings must be an array");
-        };
-        assert_eq!(ws.len(), 2, "deduped to 2");
-        assert!(
-            matches!(&ws[0], ciborium::Value::Text(t) if t == "s2_l2a_substitute_for_hls_v2"),
-            "sorted: s2... before single..."
-        );
-    }
-
-    /// The generic sidecar honesty-warning extractor pulls a string array
-    /// A model_output fact declares `signed_model_checkpoint` as its
-    /// tamper-evidence, so signing one without a checkpoint to name leaves
-    /// nothing behind the claim. This used to `unwrap_or("")` and sign a
-    /// `Source` id ending in a bare `@`. Absence must be an error.
-    #[test]
-    fn checkpoint_hash_refused_when_absent_or_empty() {
-        let good = serde_json::json!({"id": "clay_v1_5", "blake2b_hex": "deadbeef"});
-        assert_eq!(checkpoint_hash_or_refuse(&good).unwrap(), "deadbeef");
-
-        // Absent, empty, and wrong-typed all refuse rather than degrade to "".
-        for bad in [
-            serde_json::json!({"id": "clay_v1_5"}),
-            serde_json::json!({"id": "clay_v1_5", "blake2b_hex": ""}),
-            serde_json::json!({"id": "clay_v1_5", "blake2b_hex": 42}),
-            serde_json::json!({}),
-        ] {
-            let err = checkpoint_hash_or_refuse(&bad)
-                .expect_err("must refuse to sign without a checkpoint hash");
-            assert!(err.contains("refusing to sign"), "unhelpful error: {err}");
-        }
-
-        // The refusal names the model when it can, so an operator can tell
-        // which sidecar went quiet.
-        let err =
-            checkpoint_hash_or_refuse(&serde_json::json!({"id": "galileo_base_v1"})).unwrap_err();
-        assert!(
-            err.contains("galileo_base_v1"),
-            "error should name it: {err}"
-        );
-    }
-
-    /// out of `model.honesty_warnings` and tolerates absence / wrong type.
-    #[test]
-    fn sidecar_honesty_warnings_extraction() {
-        let model = serde_json::json!({
-            "model_id": "clay_v1_5",
-            "honesty_warnings": ["time_defaulted", "location_defaulted"]
-        });
-        assert_eq!(
-            sidecar_honesty_warnings(&model),
-            vec![
-                "time_defaulted".to_string(),
-                "location_defaulted".to_string()
-            ]
-        );
-        // Absent → empty.
-        assert!(sidecar_honesty_warnings(&serde_json::json!({})).is_empty());
-        // Wrong type → empty (defensive).
-        assert!(sidecar_honesty_warnings(&serde_json::json!({"honesty_warnings": 5})).is_empty());
     }
 
     /// The shared `EmemJson<T>` extractor returns the structured

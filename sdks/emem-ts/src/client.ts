@@ -21,7 +21,6 @@
  *   POST /v1/heat_solve        → Client.heatSolve
  *   POST /v1/wave_solve        → Client.waveSolve
  *   POST /v1/jepa_predict      → Client.jepaPredict
- *   POST /v1/jepa_predict_v2   → Client.jepaPredictV2
  *   GET  /v1/bands             → Client.bands
  *   GET  /v1/algorithms        → Client.algorithms
  *   GET  /v1/sources           → Client.sources
@@ -52,7 +51,6 @@ import type {
   HeatSolveRequest,
   IntentRequest,
   JepaPredictRequest,
-  JepaPredictV2Request,
   Json,
   LocateRequest,
   QueryRegionRequest,
@@ -269,10 +267,6 @@ export class Client {
 
   jepaPredict(req: JepaPredictRequest): Promise<Json> {
     return this.post("/v1/jepa_predict", { ...req });
-  }
-
-  jepaPredictV2(req: JepaPredictV2Request): Promise<Json> {
-    return this.post("/v1/jepa_predict_v2", { ...req });
   }
 
   // ── Boring lat/lng shortcuts ───────────────────────────────────────

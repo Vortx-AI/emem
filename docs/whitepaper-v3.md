@@ -369,7 +369,7 @@ with `emem_tools` to find the rest.
 `message/send` over JSON-RPC at `/a2a/tasks` and a poll-shaped task surface for
 clients that would rather not hold a connection open.
 
-**REST.** 173 documented `/v1` paths, `/openapi.json` for the shapes.
+**REST.** 171 documented `/v1` paths, `/openapi.json` for the shapes.
 
 Reads are anonymous and free at every tier. There is no account, no bearer token
 that grants anything, and no payment anywhere in the ladder. Writes are tiered by

@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 115 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
+<meta name=description content="All 113 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -91,7 +91,7 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>
 <h1>Every tool, generated from the registry</h1>
-<p class="lede">All 115 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<p class="lede">All 113 MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
 <h2>The core loop (18 tools)</h2>
 <p class="sub">What /mcp advertises by default: enough to name, ground, read, cite, and verify.</p>
 
@@ -213,7 +213,7 @@ ask              | description                  | place/cell/lat+lng  | free-tex
 An unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;type&quot;: &quot;did_change&quot;, &quot;window&quot;: [20245, 20620]}}}&#x27;</code></pre>
 </details>
-<h2>Read the world (61)</h2>
+<h2>Read the world (59)</h2>
 
 <details class="tool" id="emem_air">
   <summary><code>emem_air</code><span class="tt">Air-quality snapshot (CAMS PM2.5 / NO2 / O3)</span><span class="tw">Use when the user names a place and asks about air quality, pollution, or emissions exposure.</span></summary>
@@ -276,7 +276,7 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 </details>
 
 <details class="tool" id="emem_change_attribution">
-  <summary><code>emem_change_attribution</code><span class="tt">Change attribution ledger: why did this place&#x27;s readout move</span><span class="tw">Call when a change surface (emem_diff, emem_state_diff, emem_triple_consensus, did_change) reported that a place&#x27;s readout moved and the question is WHY: world, instrument, pixels, model, or noise.</span></summary>
+  <summary><code>emem_change_attribution</code><span class="tt">Change attribution ledger: why did this place&#x27;s readout move</span><span class="tw">Call when a change surface (emem_diff, emem_state_diff, did_change) reported that a place&#x27;s readout moved and the question is WHY: world, instrument, pixels, model, or noise.</span></summary>
   <p>The first runnable surface of the change decomposition Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε: a per-term evidence LEDGER for the readout change at a cell, with NO numeric split. `observed` carries the Tessera year-over-year embedding change. `terms.env` carries label-free index pairs (NDVI, NBR, NDWI) with raw deltas and both fact cids, evidence a future estimator would read. `terms.sensor` records what each visit was observed through (source scheme and scene id per band) and whether that path changed. `terms.geo` is declared not estimated (no registration-residual surface exists). `terms.encoder` is pinned by construction: both vintages are slices of one signed multi-year fact under one recipe, named by fn_key. `terms.noise` reports the S2 scene-classification class per visit, so a cloud flip is visible. `split` is null and `attribution_note` says why: splitting a delta numerically needs a calibrated cross-encoder, cross-sensor stability model this responder does not have, and inventing magnitudes would fabricate the exact confusion the decomposition exists to prevent. The ledger persists: each run stores itself as a derivative fact (band change_attribution.ledger, parents = every fact read) and the response returns its own emem:fact: token under ledger_fact, so an attribution is cited and dereferenced like any reading. The receipt binds every input fact cid plus the stored ledger cid. Bands read cold may materialize, so this signs and persists facts.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_change_attribution&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
 </details>
@@ -396,15 +396,9 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 </details>
 
 <details class="tool" id="emem_jepa_predict">
-  <summary><code>emem_jepa_predict</code><span class="tt">Constrained JEPA-pattern next-month NDVI predictor</span><span class="tw">Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation).</span></summary>
-  <p>Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI&#x27;s physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they&#x27;re fixed from the agricultural-NDVI literature. For the learned multi-band dynamics head, see `emem_jepa_predict_v2` (jepa_temporal_predictor@2).</p>
+  <summary><code>emem_jepa_predict</code><span class="tt">Closed-form next-month NDVI predictor</span><span class="tw">Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation).</span></summary>
+  <p>Predict next-month NDVI at a cell using a closed-form AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI&#x27;s physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they&#x27;re fixed from the agricultural-NDVI literature.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_jepa_predict&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;lookback_months&quot;: 6}}}&#x27;</code></pre>
-</details>
-
-<details class="tool" id="emem_jepa_predict_v2">
-  <summary><code>emem_jepa_predict_v2</code><span class="tt">Learned multi-band-scalar dynamics head (jepa_temporal_predictor@2)</span><span class="tw">Use when you want a short-horizon forecast of NDVI / land-surface temperature / PM2.5 at a cell grounded in its attested history.</span></summary>
-  <p>Predict the next-step value of 4 environmental scalars at a cell (`indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25`) using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt&#x27;s `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings`, flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.</p>
-  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_jepa_predict_v2&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_lst">
@@ -529,7 +523,7 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 
 <details class="tool" id="emem_state">
   <summary><code>emem_state</code><span class="tt">Read the place&#x27;s state vector (single encoder OR full 1792-D cube)</span><span class="tw">Call this when the user wants a machine-usable summary of a place rather than individual band readings, e.g.</span></summary>
-  <p>Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera, 1024-D Clay, 1024-D Prithvi); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.</p>
+  <p>Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_state&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;view&quot;: &quot;cube&quot;}}}&#x27;</code></pre>
 </details>
 
@@ -540,8 +534,8 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 </details>
 
 <details class="tool" id="emem_state_multi">
-  <summary><code>emem_state_multi</code><span class="tt">Multi-encoder state at one cell (foundation fan-out)</span><span class="tw">Call this when the user wants a second (or third) opinion on what a place looks like, &#x27;do the different models agree this is forest / urban / water?&#x27;, &#x27;which model has the freshest read here?&#x27;, or when you want all the embeddings concatenated for a stronger downstream classifier.</span></summary>
-  <p>Get the place&#x27;s fingerprint from several AI models at once (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`) in one call, returned as a per-model map. Each model is tried independently; any that can&#x27;t produce a vector here show up under `missing` with a reason instead of failing the whole request.</p>
+  <summary><code>emem_state_multi</code><span class="tt">Multi-encoder state at one cell</span><span class="tw">Call this when the user wants a second (or third) opinion on what a place looks like, &#x27;do the different models agree this is forest / urban / water?&#x27;, &#x27;which model has the freshest read here?&#x27;, or when you want all the embeddings concatenated for a stronger downstream classifier.</span></summary>
+  <p>Get the place&#x27;s fingerprint from every foundation encoder this responder serves (today `geotessera`) in one call, returned as a per-model map. Each model is tried independently; any that can&#x27;t produce a vector here show up under `missing` with a reason instead of failing the whole request.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_state_multi&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
 </details>
 
@@ -555,12 +549,6 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <summary><code>emem_trajectory</code><span class="tt">Time series for one (cell, band)</span><span class="tw">Call when the user asks &#x27;how did X change over time&#x27; for a band that already has multiple historical tslots seeded.</span></summary>
   <p>Time series for one (cell, band) over an inclusive [start, end] tslot window. Returns only what&#x27;s already attested; it does NOT trigger materialization. For historical backfill use `emem_backfill`.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_trajectory&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;window&quot;: [0, 12]}}}&#x27;</code></pre>
-</details>
-
-<details class="tool" id="emem_triple_consensus">
-  <summary><code>emem_triple_consensus</code><span class="tt">Clay+Prithvi+Tessera change-consensus ensemble</span><span class="tw">Call when the user wants a robust, model-agnostic &#x27;did this place change&#x27; answer backed by three independent foundation encoders rather than one, e.g.</span></summary>
-  <p>Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder&#x27;s change against `consensus_threshold` (registry default 0.15). Returns each encoder&#x27;s change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Two caveats ride every response. First, the gate is NOT calibrated per encoder: 0.15 is a threshold for spectral change, applied unchanged to cosine distances in three embedding spaces with different scales, and the deployed Prithvi checkpoint&#x27;s change tops out near 0.1155, under the gate. Prithvi therefore never votes, `all_three` is arithmetically unreachable, and `two_of_three` means Clay plus Tessera; read `encoders_used[].change` per encoder instead of the vote, and see the `gate_calibration` field. Second, this tool MATERIALIZES a missing prior vintage, so despite its Read category it signs and persists facts and spends GPU time. Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders. The response carries a machine-readable `degraded` boolean, a `degraded_reason` (closed set: `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`, `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`, `insufficient_encoders`), and `degraded_message`; each `encoders_absent[]` entry also carries its own `reason_code`. A 2-of-3 result reports `degraded:true` even though it still carries a real ensemble number. This is an experiment over model outputs: each leg carries a `model_output` caution (learned representation, not a measurement), so corroborate with a deterministic band before load-bearing use.</p>
-  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_triple_consensus&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;consensus_threshold&quot;: 0.15}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_water">
@@ -687,8 +675,8 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 </details>
 
 <details class="tool" id="emem_capabilities">
-  <summary><code>emem_capabilities</code><span class="tt">Cached upstream capability snapshot</span><span class="tw">Call before scheduling a GPU-heavy plan (Clay / Prithvi / Galileo embeddings, foundation-anchored algorithms) so the agent knows whether the GPU tier is up *right now* without per-request /health round-trips.</span></summary>
-  <p>Live capability snapshot of the responder&#x27;s GPU sidecar, extensions[] (e.g. gpu, clay-v1.5, prithvi-eo2), cuda_available, models_loaded[], healthy, last_polled_unix_s. Refreshed every 30 s by a background poller; reads are constant-time.</p>
+  <summary><code>emem_capabilities</code><span class="tt">Compute-extension capability snapshot</span><span class="tw">Call to confirm which algorithms can run here: an algorithm whose `inference.required_extension` (see `emem_explain_algorithm`) is not in extensions[] will not run.</span></summary>
+  <p>Capability snapshot of optional compute extensions. This responder runs none, so extensions[] is empty and cuda_available is false.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_capabilities&quot;, &quot;arguments&quot;: {}}}&#x27;</code></pre>
 </details>
 

@@ -147,7 +147,7 @@ The paper's contributions, stated once:
   method stated per number, typed failure modes, and the limits
   restated as an adversary model (§14, §15, §16).
 
-![emem architecture: one Rust binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+![emem architecture: one Rust binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
 *Figure 1: one binary, signed end to end. The same handlers answer MCP
 and REST, reads need no auth, and every write is logged.*
 
@@ -1161,9 +1161,9 @@ already full of the drift the protocol exists to stop.
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **125 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
-and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings (Tessera, Clay v1.5, Prithvi-EO-2.0, and
-Galileo; references at the end). **168 algorithms** and **27 topics**
+and NDVI through weather, forest change, surface water, and the Tessera
+foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
+facts they signed still verify. **168 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
@@ -1227,9 +1227,7 @@ one band, two tslots, and ask why the value moved.
 
 What ships as change surfaces today, stated plainly: `emem_diff` returns
 a raw delta (`nd.delta@1`); `state_diff` returns residual, L2, and cosine
-between two vintages of one encoder; `triple_consensus` reports
-year-over-year agreement across three encoders behind a gate its own
-output documents as uncalibrated. None of them attributes.
+between two vintages of one encoder. Neither attributes.
 
 What ships as of 2026-07-16 is the LEDGER: `POST /v1/change_attribution`
 (tool `emem_change_attribution`, registry key `change_attribution@1`)
@@ -1315,8 +1313,8 @@ them attributes a change, which is exactly the §10.3 gap.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **173 documented REST paths under `/v1/*`** (184 total
-in OpenAPI) and **115 MCP tools (16 core, 97 extended)**.
+`0.0.0.0:5051`): **171 documented REST paths under `/v1/*`** (182 total
+in OpenAPI) and **113 MCP tools (18 core, 95 extended)**.
 
 Discovery on first contact:
 
@@ -1337,14 +1335,14 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **21 of 115 tools carry
+responder refutes it from its own annotations: **23 of 113 tools carry
 `readOnlyHint: false`**. Five are destructive: `memory_create`,
 `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`;
-and sixteen are non-destructive writes, which is the number a reader is
+and eighteen are non-destructive writes, which is the number a reader is
 most likely to find surprising: alongside the obvious `emem_entity`,
 `emem_entity_link`, `emem_derive`, `emem_memory_bundle` and
 `emem_memory_supersede`, it includes `emem_ask`, `emem_recall`,
-`emem_backfill`, `emem_intent`, `emem_hunt`, `emem_triple_consensus`,
+`emem_backfill`, `emem_intent`, `emem_hunt`,
 `emem_change_attribution` and the four raster/cube builders. Those answer
 a question and PERSIST what they materialised to answer it, so asking is
 a write here even though nothing was asked to be stored. An agent can
@@ -1358,15 +1356,15 @@ a factor of two and a half while making an argument about trust.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 115 cost about 324 KB of every conversation whether or not it
+connect. All 113 cost about 324 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 18 tools of
 the core loop in a single page, about 75 KB, and `POST /mcp/full`
-advertises all 115. Both byte figures were measured on the wire on
+advertises all 113. Both byte figures were measured on the wire on
 2026-08-11 and move whenever a tool description is edited; re-measure
 rather than quote.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-115 by name at either endpoint**, and an explicit
+113 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
@@ -1494,25 +1492,15 @@ read path, is tracked in the roadmap.
 
 ### 14.3 The change ensemble on a live sample
 
-The 15 named places used by the site's own demos, run through the
-triple-encoder ensemble against the production responder on
-2026-07-11: 9 computed with all three encoders, 5 degraded to 2-of-3
-with a typed reason, 1 failed at the geocoder. Ensemble change indices
-ranged 0.047 to 0.579, and no place cleared the all-legs agreement
-rule, the expected null result for stable landmarks compared year over
-year. The two highest means came from single encoders firing without
-corroboration, which is the case the agreement rule exists to hold
-back. What this sample does not show, and a real evaluation still
-needs, is a change-rich sample (burn scars, clearings, construction)
-scored against ground truth.
+An earlier version ran a three-encoder change ensemble over 15 demo places
+on 2026-07-11; no place cleared its agreement rule. The encoders behind it
+are retired.
 
 ### 14.4 Failure modes, typed
 
 Failure surfaces are enumerated closed sets on the wire rather than
 prose: absence reasons (`outside_coverage`, `gpu_unavailable`,
-`no_auto_materializer_registered`, and kin), ensemble degradation
-reasons (`partial_consensus_2_of_3`, `single_vintage`,
-`gpu_sidecar_unavailable`), and typed request errors that teach the
+`no_auto_materializer_registered`, and kin) and typed request errors that teach the
 accepted vocabulary in the message. A missing value is a signed
 absence, never a bare 404, so the failure modes are themselves
 testable claims.
@@ -1653,24 +1641,14 @@ because the signature speaks to none of them.
 - **Declared is not wired.** 46 declared source schemes is a catalog
   count, not a capability count, and several schemes remain
   declared-but-unwired.
-- **JEPA v2 is trained, and does not beat persistence on real data.** This
-  entry previously said the artefact was an untrained residual-zero
-  identity baseline. That is false and `/v1/capabilities` refutes it:
-  `jepa_predict_v2` reports `trained: true`. The deployed artefact carries
-  `trained_at 2026-05-28` and 28,328 parameters. It was fitted on 12,000
-  wholly synthetic sequences from a seasonality generator and validated on
-  2,000 more, also synthetic (`synthetic_fraction_train: 1.0`), where it
-  beats a Markov-1 "predict the last lag" baseline by 62.7% on NDVI MSE.
-  On the 34 real NDVI pairs held for evaluation it does not beat that
-  baseline: MSE 0.021124 against the baseline's 0.019858, a skill score of
-  -0.064. The artefact's own `honesty_caveats` state the real corpus is
-  too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
-  surface, not a forecast.
+- **The learned dynamics head is retired.** Earlier versions served
+  `jepa_predict_v2`, a head trained on synthetic sequences that did not beat
+  persistence on real NDVI (skill -0.064). The route is gone; receipts it
+  signed still verify.
 - **The change-attribution split does not exist.** The ledger ships
   (§10.3): per-term evidence with fact cids under a signed receipt. But
-  `emem_diff` and `state_diff` still return raw deltas,
-  `triple_consensus`'s agreement gate is uncalibrated with its strongest
-  verdict unreachable, and nothing decomposes a delta numerically into
+  `emem_diff` and `state_diff` still return raw deltas, and nothing
+  decomposes a delta numerically into
   environment, sensor, geometry, and encoder terms.
 
 ### 16.6 Specification
@@ -1723,7 +1701,8 @@ similarity over arbitrary prose, which those systems do well;
 
 **Earth-observation foundation models (TESSERA, Clay, Prithvi-EO,
 Galileo, AlphaEarth).** These are the representation layer, not rivals:
-emem freezes four of them and signs what they emit (§10). AlphaEarth
+emem signs what Tessera emits (§10), and earlier versions also ran Clay,
+Prithvi and Galileo. AlphaEarth
 Foundations is the strongest statement of the adjacent idea, a global
 annual embedding field; like the others it ships unsigned artifacts
 with no per-place identity that returns a checkable record and no
@@ -1766,7 +1745,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **21 of 115 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §17: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **23 of 113 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §17: 93 documented REST paths under `/v1/*` (96 total), 81 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 18.2 Claims in v1's supporting material this document withdraws
@@ -1800,7 +1779,7 @@ entries below record what was claimed, not what is still claimed.
   capability count. Declared is a catalog count and several schemes remain
   unwired (§16.5); the README now scopes the two numbers apart.
 - The homepage FAQ listing three foundation-model embeddings where the
-  substrate wires four (Clay was omitted). The page is compiled into the
+  substrate then wired four (Clay was omitted). The page is compiled into the
   binary, so that correction lands with the next server deploy rather
   than with this document.
 - "base-1024 bigrams", which appeared in 14 places including the OpenAPI

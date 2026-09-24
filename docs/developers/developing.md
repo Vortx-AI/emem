@@ -34,7 +34,7 @@ permanently unavailable for emem; do not try to switch defaults to 5050.
 
 ## Workspace tour
 
-The workspace is 16 Rust crates plus a Python sidecar. One-line role for
+The workspace is 16 Rust crates. One-line role for
 each:
 
 | Crate | Role |
@@ -51,7 +51,7 @@ each:
 | `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
 | `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
 | `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, 173 `.route()` registrations (mapping to 106 OpenAPI-documented REST paths in `openapi.json`, 103 of them under `/v1/*`) + 115 MCP tools (16 core, 92 extended), all inline materializers |
+| `emem-api-rest` | HTTP/MCP router, 173 `.route()` registrations (mapping to 106 OpenAPI-documented REST paths in `openapi.json`, 103 of them under `/v1/*`) + 113 MCP tools (18 core, 95 extended), all inline materializers |
 | `emem-cli` | 7 binaries (see below) |
 | `emem-sleep-agent` | sleep-time consolidation agent: background edge + refinement formation over the corpus |
 | `emem-scorecard` | memory-surface benchmark harness (MemoryAgentBench-style recall/edges runs) |
@@ -68,9 +68,6 @@ one of `fetch`, `primitives`, or `core`.
 
 Out of the workspace:
 
-- `python/jepa_v2_sidecar/` — FastAPI over UDS for Prithvi-EO-2.0,
-  Galileo, and JEPA-v2 dynamics inference on GPU.
-- `python/jepa_v2/` — training scripts (assemble_data, train, export_baseline).
 - `web/` — static SSR HTML landing page (no React/Vue, no API calls).
 - `sdks/emem-py`, `sdks/emem-ts` — empty placeholders today; integrate
   via REST or MCP.
@@ -203,45 +200,6 @@ contract tests:
 When you add a primitive, write a test that locks at least one of
 those failure modes. Empty results with no shape information will be
 caught in review.
-
-### Working with the GPU sidecar
-
-The sidecar is Python (FastAPI over a Unix Domain Socket). It runs
-Prithvi-EO-2.0-300M-TL, Galileo, and the JEPA-v2 dynamics network on
-CUDA. Cold start on first `/predict` call.
-
-Bring it up manually:
-
-```
-cd python/jepa_v2_sidecar
-uv venv
-uv pip install -r requirements.txt
-EMEM_SIDECAR_SOCK=/tmp/emem-sidecar.sock \
-  python -m uvicorn server:app --uds /tmp/emem-sidecar.sock
-```
-
-Or via systemd, the unit ships at
-`python/jepa_v2_sidecar/emem-jepa-sidecar.service`:
-
-```
-systemctl --user start emem-jepa-sidecar.service
-```
-
-The Rust server reads `EMEM_SIDECAR_SOCK` (default
-`/run/user/<UID>/emem/jepa_sidecar.sock`),
-`EMEM_SIDECAR_TIMEOUT_MS` (default 5000 ms), and
-`EMEM_SIDECAR_VRAM_BUDGET_GB` (binary default 10; the deployed user
-unit overrides to 20 to seat all four encoders co-resident) for fan-out.
-JEPA v2 is trained and loses to persistence: the receipt carries
-`NEGATIVE_SKILL` (skill_vs_persistence -0.0638) and every band is
-served `via: persistence_fallback_negative_skill`, so the value is the
-last observed one. There is no silent in-process fallback. The
-`short_circuit_untrained` / `untrained_baseline` pair belongs to the
-zero-init sentinel and does not fire while the head is trained. Galileo (variant selectable via
-`EMEM_GALILEO_VARIANT`, default `base`) is wired for the S2 modality
-only — S1, ERA5, TC, VIIRS, SRTM, Dynamic World, WorldCover, LandScan,
-and location channels are zero-masked at inference. Sidecar
-unavailable → `/v1/jepa_predict_v2` returns 503.
 
 ### Round-trip a receipt
 
@@ -386,7 +344,6 @@ question and what the router chose instead.
 | Receipt preimage builder (v1, canonical) | `crates/emem-attest/src/lib.rs` (`receipt_preimage_v1`); signer wiring in `crates/emem-storage/src/server.rs` (`sign_receipt_v1_inner`) |
 | Merkle root + path verification | `crates/emem-attest/src/lib.rs` |
 | Lazy materialization plumbing | `crates/emem-storage/src/lib.rs` (`MaterializingStorage::materialize_many`) |
-| Sidecar protocol | `python/jepa_v2_sidecar/server.py` |
 | Physics solvers (heat, wave, AR(2)) | `crates/emem-api-rest/src/physics.rs` |
 | Topic router (ort + tokenizers BERT) | `crates/emem-api-rest/src/topic_router.rs` |
 | Geocoder layering (embedded → cache → Photon → Nominatim) | `crates/emem-api-rest/src/lib.rs` near `EMEM_NOMINATIM_BASE` |
@@ -399,9 +356,6 @@ GitHub issues at `github.com/Vortx-AI/emem/issues`. Include:
 - Output of `curl -s http://127.0.0.1:5051/v1/manifests` so the active
   manifest CIDs are pinned in the report.
 - Reproducer: the curl command, expected response, actual response.
-- For sidecar issues: `nvidia-smi` snapshot and the line from
-  `journalctl --user -u emem-jepa-sidecar` that names the failing
-  model.
 
 ## Security disclosures
 

@@ -380,22 +380,6 @@ const Q=[
        citations: ns.map(n=>({kind:'cell',text:n.cell})).slice(0,3)
      };
    }},
-  {title:"Do Clay, Prithvi and Tessera agree about Bengaluru?", endpoint:"/v1/triple_consensus", method:"POST",
-   payload:{cell:"Bengaluru"},
-   render(d){
-     // The multi-encoder consensus showcase. Verified fields: agreement,
-     // ensemble, consensus_threshold, n_encoders_used, encoders_used[{encoder,
-     // change, over_gate}], receipt.responder_pubkey_b32.
-     const encs=(d.encoders_used||[]).map(e=>`${escapeHTML(e.encoder)} <span class=u>Δ ${(e.change??0).toFixed(3)}${e.over_gate?' ✓':''}</span>`).join(' · ');
-     return {
-       answer:`Agreement: <span class=v>${escapeHTML(d.agreement||'n/a')}</span> across <span class=v>${d.n_encoders_used||0}</span> encoders · ensemble change <span class=v>${(d.ensemble??0).toFixed(4)}</span> (gate ≥ ${d.consensus_threshold??0.15}). ${encs}`,
-       citations:[
-         {kind:'src',text:'d_e = 1 - cos(now, prev) per encoder; ensemble = rms'},
-         d.responder_pubkey_b32?{kind:'cid',text:'signer '+shortCid(d.responder_pubkey_b32)}:null,
-         (d.receipt?.fact_cids||[])[0]?{kind:'cid',text:'fact_cid '+shortCid(d.receipt.fact_cids[0])}:null,
-       ].filter(Boolean)
-     };
-   }},
   {title:"Hotspots of vegetation loss near Bengaluru", endpoint:"/v1/hunt", method:"POST",
    payload:{event:"deforestation",region:"Bengaluru"},
    render(d){

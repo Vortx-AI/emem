@@ -452,12 +452,12 @@ const OUT_MANIFESTS: &str = r#"{"type":"object","required":["registry_cid","sche
 
 const OUT_CAPABILITIES: &str = r#"{"type":"object","required":["schema","healthy"],"properties":{
 "schema":{"type":"string"},
-"healthy":{"type":"boolean","description":"Whether the upstream capability poll succeeded."},
-"cuda_available":{"type":"boolean","description":"GPU present for the foundation-encoder sidecars. When false, those bands sign Absence with a gpu_unavailable reason rather than failing."},
+"healthy":{"type":"boolean","description":"Whether an optional compute extension is up. False here: none runs."},
+"cuda_available":{"type":"boolean","description":"Always false: this responder runs no GPU extension."},
 "extensions":{"type":"array","items":{"type":"string"}},
 "models_loaded":{"type":"array","items":{"type":"string"}},
 "endpoints":{"type":"object"},
-"last_polled_unix_s":{"type":"integer","description":"When this snapshot was taken; it is a 30 s background poll, not a live probe."}}}"#;
+"last_polled_unix_s":{"type":"integer","description":"Zero: there is no extension to poll."}}}"#;
 
 const OUT_LOG_STH: &str = r#"{"type":"object","required":["sth"],"properties":{
 "sth":{"type":"object","description":"Signed tree head: tree_size, root hash, and the responder signature over them."},
@@ -591,12 +591,12 @@ const SCHEMA_STATE_FULL: &str = r#"{"type":"object","required":["cell"],"propert
 
 const SCHEMA_STATE_MULTI: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or free-text place name."},
-"encoders":{"type":"array","items":{"type":"string","enum":["geotessera","clay_v1","prithvi_eo2","galileo"]},"description":"Optional explicit list; defaults to all wired foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`)."},
+"encoders":{"type":"array","items":{"type":"string"},"description":"Optional explicit list of foundation bands; defaults to every one this responder still materializes (`geotessera`). A retired band returns only facts signed before it was retired."},
 "tslot":{"type":"integer","description":"Valid-time slot to read at, band-tempo-relative from the emem epoch (not unix seconds). Omit for the latest."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound, forwarded to every per-encoder recall."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339)."},
 "scope":{"type":"object","description":"Multi-tenant scope `{user_id, agent_id, run_id, org_id}`. Restricts the read to facts written under the same four-tuple and binds the scope into the receipt."},
-"vectors":{"type":"boolean","description":"Inline the raw per-encoder floats. Default false: the four foundation vectors are ~13 KB combined and breach the MCP wire budget, while the slim default still carries each encoder's `dim`, `l2_norm`, `fact_cid` and `memory_token`, which is enough to verify and to chain into similarity calls."},
+"vectors":{"type":"boolean","description":"Inline the raw per-encoder floats. Default false: several foundation vectors breach the MCP wire budget, while the slim default still carries each encoder's `dim`, `l2_norm`, `fact_cid` and `memory_token`, which is enough to verify and to chain into similarity calls."},
 "include":{"type":"array","description":"Array form of the same opt-ins: `include:[\"vectors\"]` is equivalent to `vectors:true`."}
 }}"#;
 
@@ -988,18 +988,13 @@ const SCHEMA_SAR_FOREST_DISTURBANCE: &str = r#"{"type":"object","required":["cel
 "baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020, the EUDR cut-off year). Baseline VV is sampled at a July-1 anchor of this year; the recent VV is the latest scene."}
 }}"#;
 
-const SCHEMA_TRIPLE_CONSENSUS: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 or place name."},
-"consensus_threshold":{"type":"number","description":"Override the registry consensus gate (default 0.15); clamped to (0,1)."}
-}}"#;
-
 const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name."}
 }}"#;
 
 const SCHEMA_BAND_RASTER: &str = r#"{"type":"object","required":["bbox","band"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
-"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12 (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; OR an encoder band (geotessera, geotessera.multi_year, clay_v1, prithvi_eo2, galileo) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step)."},
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12 (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; OR an encoder band (geotessera, geotessera.multi_year) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step)."},
 "observed_on":{"type":"string","description":"Optional target capture date YYYY-MM-DD (Sentinel-2 only; ignored for the static DEM band); the scene actually chosen is pinned in the derivation record either way."}
 }}"#;
 
@@ -1152,14 +1147,8 @@ const SCHEMA_JEPA_PREDICT: &str = r#"{"type":"object","required":["cell"],"prope
 "cell":{"type":"string","description":"cell64 to forecast at.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","default":"indices.ndvi","description":"Band to forecast. v1 supports 'indices.ndvi' only."},
 "lookback_months":{"type":"integer","minimum":1,"maximum":24,"default":6,"description":"How many past months of history to read."},
-"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. v1 supports 1 only."},
+"forecast_horizon_months":{"type":"integer","minimum":1,"maximum":1,"default":1,"description":"Horizon in months ahead. Only 1 is supported."},
 "place":{"type":"string","description":"Alias for `cell`, which already accepts a place name."}
-}}"#;
-
-const SCHEMA_JEPA_PREDICT_V2: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 to forecast at, or a free-text place name (auto-resolved via /v1/locate)."},
-"place":{"type":"string","description":"Alias for `cell`, which already accepts a place name."},
-"target_month":{"type":"integer","description":"Month-of-year to forecast, 1..=12. Absent means the current UTC month, i.e. 'next month from now'; set it to ask about a month without shifting the clock."}
 }}"#;
 
 // Shared schema for the 8 boring lat/lng shortcuts (emem_at, emem_ndvi,
@@ -1408,22 +1397,10 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
-        name: "emem_triple_consensus",
-        title: "Clay+Prithvi+Tessera change-consensus ensemble",
-        description: "Three-encoder change ensemble: compute the cosine change between the two most-recent DISTINCT vintages for each of the Clay, Prithvi, and Tessera embeddings at the cell, then vote each encoder's change against `consensus_threshold` (registry default 0.15). Returns each encoder's change magnitude, its vote, and the consensus verdict (how many of the three agree change happened). Two caveats ride every response. First, the gate is NOT calibrated per encoder: 0.15 is a threshold for spectral change, applied unchanged to cosine distances in three embedding spaces with different scales, and the deployed Prithvi checkpoint's change tops out near 0.1155, under the gate. Prithvi therefore never votes, `all_three` is arithmetically unreachable, and `two_of_three` means Clay plus Tessera; read `encoders_used[].change` per encoder instead of the vote, and see the `gate_calibration` field. Second, this tool MATERIALIZES a missing prior vintage, so despite its Read category it signs and persists facts and spends GPU time. Degrades to a signed `inconclusive` when the GPU sidecar is unreachable or a cell lacks two distinct vintages for the encoders. The response carries a machine-readable `degraded` boolean, a `degraded_reason` (closed set: `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`, `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`, `insufficient_encoders`), and `degraded_message`; each `encoders_absent[]` entry also carries its own `reason_code`. A 2-of-3 result reports `degraded:true` even though it still carries a real ensemble number. This is an experiment over model outputs: each leg carries a `model_output` caution (learned representation, not a measurement), so corroborate with a deterministic band before load-bearing use.",
-        when_to_use: "Call when the user wants a robust, model-agnostic 'did this place change' answer backed by three independent foundation encoders rather than one, e.g. cross-checking a single-encoder alert, or auditing change with consensus voting. Gate on `degraded`/`degraded_reason`, a `degraded:true` partial consensus is lower-confidence than a full triple. Surface the per-encoder change + the vote count. When only one encoder has two vintages the verdict is honest about the thin evidence. For a single-encoder vector delta use `emem_state_diff`; for the NDVI+embedding proxy use `emem_deforestation_alert`.",
-        input_schema: SCHEMA_TRIPLE_CONSENSUS,
-        output_schema: None,
-        example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","consensus_threshold":0.15}"#,
-        level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-        tier: "extended",
-    },
-    ToolDescriptor {
         name: "emem_change_attribution",
         title: "Change attribution ledger: why did this place's readout move",
         description: "The first runnable surface of the change decomposition Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε: a per-term evidence LEDGER for the readout change at a cell, with NO numeric split. `observed` carries the Tessera year-over-year embedding change. `terms.env` carries label-free index pairs (NDVI, NBR, NDWI) with raw deltas and both fact cids, evidence a future estimator would read. `terms.sensor` records what each visit was observed through (source scheme and scene id per band) and whether that path changed. `terms.geo` is declared not estimated (no registration-residual surface exists). `terms.encoder` is pinned by construction: both vintages are slices of one signed multi-year fact under one recipe, named by fn_key. `terms.noise` reports the S2 scene-classification class per visit, so a cloud flip is visible. `split` is null and `attribution_note` says why: splitting a delta numerically needs a calibrated cross-encoder, cross-sensor stability model this responder does not have, and inventing magnitudes would fabricate the exact confusion the decomposition exists to prevent. The ledger persists: each run stores itself as a derivative fact (band change_attribution.ledger, parents = every fact read) and the response returns its own emem:fact: token under ledger_fact, so an attribution is cited and dereferenced like any reading. The receipt binds every input fact cid plus the stored ledger cid. Bands read cold may materialize, so this signs and persists facts.",
-        when_to_use: "Call when a change surface (emem_diff, emem_state_diff, emem_triple_consensus, did_change) reported that a place's readout moved and the question is WHY: world, instrument, pixels, model, or noise. Read the per-term evidence and cite its fact cids; do not expect a numeric split (`split` is null by design, see `attribution_note`). Bands with fewer than two distinct tslots at the cell appear under evidence_absent with a typed reason rather than a fabricated pair. For the raw delta itself use emem_diff; for the multi-encoder change vote use emem_triple_consensus.",
+        when_to_use: "Call when a change surface (emem_diff, emem_state_diff, did_change) reported that a place's readout moved and the question is WHY: world, instrument, pixels, model, or noise. Read the per-term evidence and cite its fact cids; do not expect a numeric split (`split` is null by design, see `attribution_note`). Bands with fewer than two distinct tslots at the cell appear under evidence_absent with a typed reason rather than a fabricated pair. For the raw delta itself use emem_diff; for the multi-encoder change vote use emem_triple_consensus.",
         input_schema: SCHEMA_CHANGE_ATTRIBUTION,
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
@@ -1639,7 +1616,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_state",
         title: "Read the place's state vector (single encoder OR full 1792-D cube)",
-        description: "Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera, 1024-D Clay, 1024-D Prithvi); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.",
+        description: "Get one dense numeric fingerprint that summarises everything known about a place, ready to feed into similarity search, a classifier, or clustering. Two views: `encoder` returns a single AI-model embedding (128-D Tessera); `cube` returns the full 1792-D vector concatenated across every band, with a per-band coverage manifest.",
         when_to_use: "Call this when the user wants a machine-usable summary of a place rather than individual band readings, e.g. 'give me a feature vector for this location', 'how do I represent this place for ML', or before running similarity / linear-probe / clustering downstream. Also use it to get one rebindable handle (`memory_token` / `state_cid`) that cites the whole place. Default `view=encoder` is the cheap single-recall path; pass `view=cube` for the full attested view (its `coverage[]` lets you tell signed-zero from not-yet-materialised). Then hand the vector to `emem_find_similar` (k-NN), `emem_compare` (two-place cosine), or `emem_verify_receipt` (audit the signature).",
         input_schema: SCHEMA_STATE_FULL,
         output_schema: None,
@@ -1650,8 +1627,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "emem_state_multi",
-        title: "Multi-encoder state at one cell (foundation fan-out)",
-        description: "Get the place's fingerprint from several AI models at once (`geotessera`, `clay_v1`, `prithvi_eo2`, `galileo`) in one call, returned as a per-model map. Each model is tried independently; any that can't produce a vector here show up under `missing` with a reason instead of failing the whole request.",
+        title: "Multi-encoder state at one cell",
+        description: "Get the place's fingerprint from every foundation encoder this responder serves (today `geotessera`) in one call, returned as a per-model map. Each model is tried independently; any that can't produce a vector here show up under `missing` with a reason instead of failing the whole request.",
         when_to_use: "Call this when the user wants a second (or third) opinion on what a place looks like, 'do the different models agree this is forest / urban / water?', 'which model has the freshest read here?', or when you want all the embeddings concatenated for a stronger downstream classifier. Use the single-model `emem_state` instead when one embedding is enough. Pass `encoders: [...]` to narrow the set.",
         input_schema: SCHEMA_STATE_MULTI,
         output_schema: None,
@@ -1727,7 +1704,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         // Measuring it says no. Lifting `value` to the top level duplicates
         // the reading, which is free for a scalar (a real NDVI resolve grows
         // 2875 -> 2951 bytes) and is not free for a foundation embedding: the
-        // widest bands are 384-D (clay_v1, prithvi_eo2), and a real 128-D
+        // widest cube slots are 384-D, and a real 128-D
         // geotessera body widened to 384 floats measures 17,767 bytes, so the
         // two-copy text+structuredContent envelope is 35,630 against a 24,000
         // budget. That is exactly the condition documented on `output_schema`
@@ -2178,7 +2155,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     tier: "extended",
     },
 
-    // ── Physics primitives, explicit-FD PDE solvers + JEPA-pattern predictor ──
+    // ── Physics primitives, explicit-FD PDE solvers + closed-form NDVI predictor ──
     ToolDescriptor {
         name: "emem_heat_solve",
         title: "2-D heat-equation forecast (urban LST evolution)",
@@ -2205,24 +2182,12 @@ pub const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "emem_jepa_predict",
-        title: "Constrained JEPA-pattern next-month NDVI predictor",
-        description: "Predict next-month NDVI at a cell using a constrained JEPA-pattern AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI's physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they're fixed from the agricultural-NDVI literature. For the learned multi-band dynamics head, see `emem_jepa_predict_v2` (jepa_temporal_predictor@2).",
+        title: "Closed-form next-month NDVI predictor",
+        description: "Predict next-month NDVI at a cell using a closed-form AR(2) seasonal predictor. Reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 NDVI or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to NDVI's physical range. Coefficients (α=0.6, β=0.3, γ=0.1) are NOT learned, they're fixed from the agricultural-NDVI literature.",
         when_to_use: "Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation). Lookback defaults to 6 months; if fewer monthly tslots are attested at this cell, the predictor uses what's there and surfaces the count in `lookback_months_used`. Returns 422 if no NDVI history exists at the cell, chain to `emem_backfill` first to seed history. Receipt cites every input NDVI fact CID.",
         input_schema: SCHEMA_JEPA_PREDICT,
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
-        level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
-    tier: "extended",
-    },
-    ToolDescriptor {
-        name: "emem_jepa_predict_v2",
-        title: "Learned multi-band-scalar dynamics head (jepa_temporal_predictor@2)",
-        description: "Predict the next-step value of 4 environmental scalars at a cell (`indices.ndvi`, `modis.lst_day_8day`, `modis.lst_night_8day`, `cams.pm25`) using a small learned dynamics MLP. Reads up to K=6 most-recent attested lags per band, runs them through an ONNX dynamics head (~200k params, CPU-fast), and returns a per-band {value, confidence, n_real_lags, via}. The receipt's `model` block carries `model_id`, `version`, `blake2b_hex` (model_cid), training/validation provenance, a top-level `skill_vs_persistence` block, and `honesty_warnings`, flagging `untrained_baseline` when the artifact is the zero-init sentinel and `NEGATIVE_SKILL` when the learned model is worse than persistence on real held-out NDVI. When the model does not beat persistence, bands with a real lag are returned from that lag tagged `via:persistence_fallback_negative_skill` (bands with no real lag fall back to labelled climatology). Distinct from v1 (`emem_jepa_predict`) which returns a single NDVI scalar via closed-form coefficients.",
-        when_to_use: "Use when you want a short-horizon forecast of NDVI / land-surface temperature / PM2.5 at a cell grounded in its attested history. Returns 422 with a `/v1/backfill` hint when the cell lacks enough cached lags. Always read the receipt's `model.honesty_warnings`, `untrained_baseline` means the trivial 'predict last vintage' baseline (treat as no-op), and `NEGATIVE_SKILL` means the served values are the persistence fallback, not a learned improvement. Check each band's `via` field to see whether its value came from the learned model, persistence, or climatology.",
-        input_schema: SCHEMA_JEPA_PREDICT_V2,
-        output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2326,9 +2291,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
     },
     ToolDescriptor {
         name: "emem_capabilities",
-        title: "Cached upstream capability snapshot",
-        description: "Live capability snapshot of the responder's GPU sidecar, extensions[] (e.g. gpu, clay-v1.5, prithvi-eo2), cuda_available, models_loaded[], healthy, last_polled_unix_s. Refreshed every 30 s by a background poller; reads are constant-time.",
-        when_to_use: "Call before scheduling a GPU-heavy plan (Clay / Prithvi / Galileo embeddings, foundation-anchored algorithms) so the agent knows whether the GPU tier is up *right now* without per-request /health round-trips. Pair with `emem_topics` (its `algorithm_availability` map says which algorithm keys can run given the current capabilities) and `emem_explain_algorithm` (full inference-tier metadata per algorithm). When `extensions[]` is empty the sidecar is unreachable, only CPU/scalar/cached tiers will produce facts; foundation-anchored materializers will sign Absence with `gpu_unavailable` reason.",
+        title: "Compute-extension capability snapshot",
+        description: "Capability snapshot of optional compute extensions. This responder runs none, so extensions[] is empty and cuda_available is false.",
+        when_to_use: "Call to confirm which algorithms can run here: an algorithm whose `inference.required_extension` (see `emem_explain_algorithm`) is not in extensions[] will not run. Pair with `emem_topics`, whose `algorithm_availability` map applies the same check.",
         input_schema: SCHEMA_NONE,
         output_schema: Some(OUT_CAPABILITIES),
         example_args: r#"{}"#,
@@ -3052,7 +3017,6 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
         &[
             "emem_range_hash", "emem_tree",
             "emem_verify",
-            "emem_triple_consensus",
             "emem_echo_verify",
             "emem_trace_verify",
             // Checks the citations in a draft before it is sent, which is the
@@ -3123,10 +3087,9 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
     ),
     (
         "embeddings_and_models",
-        "Foundation-model representations and learned dynamics. Everything here is provenance class model_output: it is a prediction, not a measurement.",
+        "Embeddings, a closed-form NDVI predictor, and physics solvers. The embeddings and the predictor are provenance class model_output: a prediction, not a measurement.",
         &[
             "emem_jepa_predict",
-            "emem_jepa_predict_v2",
             "emem_embedding_centroid",
             "emem_embedding_diversity",
             "emem_find_similar",
@@ -3297,7 +3260,6 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_find_similar", "emem_embedding_centroid", "emem_embedding_diversity",
             "emem_region_similarity", "emem_neighborhood_consistency", "emem_jepa_predict",
-            "emem_jepa_predict_v2", "emem_triple_consensus",
         ],
     ),
     (
@@ -3403,7 +3365,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_verify_receipt", "emem_verify", "emem_memory_contradictions",
             "emem_log_sth", "emem_log_inclusion", "emem_log_consistency",
-            "emem_log_witnesses", "emem_triple_consensus",
+            "emem_log_witnesses",
             // The last-mile check: does the number you are about to publish
             // still match the fact you cited. Belongs with verification rather
             // than tokenisation because it produces a verdict, not a handle.
@@ -4348,7 +4310,6 @@ mod tests {
             "emem_log_witnesses",
             "emem_substrates",
             "emem_locate",
-            "emem_jepa_predict_v2",
             // "mint only if nothing matches" instructs the CALLER to reach
             // for emem_entity next. This tool searches the index or
             // dereferences a token, and says "Read-only" in its description.
@@ -4749,7 +4710,6 @@ mod tests {
             "emem_log_witnesses",
             "emem_substrates",
             "emem_locate",
-            "emem_jepa_predict_v2",
             "emem_entity_resolve",
             "emem_memory_token",
         ] {

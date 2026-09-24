@@ -1,5 +1,5 @@
-//! Real physics primitives — explicit finite-difference solvers and a
-//! constrained JEPA-pattern predictor.
+//! Real physics primitives: explicit finite-difference solvers and a
+//! closed-form seasonal NDVI predictor.
 //!
 //! These are NOT decay-scoring heuristics: every step is an actual PDE
 //! discretisation with a CFL stability check, every input is a signed
@@ -25,9 +25,8 @@
 //!    month using closed-form coefficients α=0.6 (year-over-year
 //!    carryover; falls back to recent mean when 12-mo lag is unavailable
 //!    in the lookback window), β=0.3 (recent-trend slope), γ=0.1
-//!    (long-term mean reversion). NOT a learned MLP — that needs
-//!    training data + GPU + a separate effort, and faking it would
-//!    violate the no-stub policy.
+//!    (long-term mean reversion). Not a learned model. The route keeps
+//!    its historical `jepa_predict` name.
 //!
 //! Each REST handler returns the math result plus the cited input
 //! `fact_cids` and a Receipt signed by `state.identity.signing`.
@@ -104,10 +103,10 @@ fn invalid_field(
 // comparison and the `allowed` payload of `invalid_field`, so the wire range
 // can never drift from the enforced range. These mirror the ranges the MCP
 // tool schemas in emem-mcp advertise.
-const JEPA_LOOKBACK_MIN_MONTHS: u32 = 1;
-const JEPA_LOOKBACK_MAX_MONTHS: u32 = 24;
-const JEPA_FORECAST_HORIZON_MONTHS: u32 = 1;
-const JEPA_SUPPORTED_BAND: &str = "indices.ndvi";
+const AR2_LOOKBACK_MIN_MONTHS: u32 = 1;
+const AR2_LOOKBACK_MAX_MONTHS: u32 = 24;
+const AR2_FORECAST_HORIZON_MONTHS: u32 = 1;
+const AR2_SUPPORTED_BAND: &str = "indices.ndvi";
 const WAVE_OFFSHORE_HEIGHT_MAX_M: f64 = 30.0;
 const WAVE_PERIOD_MIN_S: f64 = 2.0;
 const WAVE_PERIOD_MAX_S: f64 = 30.0;
@@ -1241,7 +1240,7 @@ pub async fn wave_solve(mut req: WaveSolveReq, state: &AppState) -> Result<JsonV
     }))
 }
 
-// ── JEPA-pattern temporal predictor ───────────────────────────────────────
+// ── Closed-form seasonal NDVI predictor ───────────────────────────────────────
 
 /// `POST /v1/jepa_predict` request body.
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -1253,7 +1252,7 @@ pub struct JepaPredictReq {
     pub cell: String,
     /// Band to forecast. v1 supports `indices.ndvi` only; future
     /// versions will broaden the predictor's training surface.
-    #[serde(default = "default_jepa_band")]
+    #[serde(default = "default_ar2_band")]
     pub band: String,
     /// Number of past months to read. Capped at 24 (two annual cycles)
     /// so the AR(2) seasonal model has at least one full carryover lag.
@@ -1265,7 +1264,7 @@ pub struct JepaPredictReq {
     pub forecast_horizon_months: u32,
 }
 
-fn default_jepa_band() -> String {
+fn default_ar2_band() -> String {
     "indices.ndvi".to_string()
 }
 
@@ -1279,9 +1278,9 @@ const fn default_forecast_horizon() -> u32 {
 
 /// Closed-form coefficients for the AR(2) seasonal predictor. Documented
 /// inline so an agent can read the math without leaving the response.
-pub const JEPA_ALPHA: f64 = 0.6; // year-over-year carryover (lag-12)
-pub const JEPA_BETA: f64 = 0.3; // recent slope from the last `lookback` months
-pub const JEPA_GAMMA: f64 = 0.1; // long-term mean reversion
+pub const AR2_ALPHA: f64 = 0.6; // year-over-year carryover (lag-12)
+pub const AR2_BETA: f64 = 0.3; // recent slope from the last `lookback` months
+pub const AR2_GAMMA: f64 = 0.1; // long-term mean reversion
 
 /// Pure predictor — no I/O. Given a vector of monthly NDVI values
 /// (oldest first) plus the optional 12-month-ago value (lag-12), return
@@ -1293,7 +1292,7 @@ pub const JEPA_GAMMA: f64 = 0.1; // long-term mean reversion
 /// keeps the predictor well-defined for any non-empty history.
 ///
 /// Returned NDVI is clamped to `[-1.0, 1.0]` (NDVI's physical range).
-pub fn jepa_predict_ar2_seasonal(history: &[f64], lag_12_value: Option<f64>) -> Option<f64> {
+pub fn ar2_seasonal_predict(history: &[f64], lag_12_value: Option<f64>) -> Option<f64> {
     if history.is_empty() {
         return None;
     }
@@ -1327,11 +1326,11 @@ pub fn jepa_predict_ar2_seasonal(history: &[f64], lag_12_value: Option<f64>) -> 
     // The γ term anchors the prediction at the lookback mean so a noisy
     // local trend can't run away.
     let gamma_term = recent_mean;
-    let pred = JEPA_ALPHA * alpha_term + JEPA_BETA * beta_term + JEPA_GAMMA * gamma_term;
+    let pred = AR2_ALPHA * alpha_term + AR2_BETA * beta_term + AR2_GAMMA * gamma_term;
     Some(pred.clamp(-1.0, 1.0))
 }
 
-/// Run the JEPA-pattern predictor primitive.
+/// Run the closed-form seasonal NDVI predictor.
 pub async fn jepa_predict(
     mut req: JepaPredictReq,
     state: &AppState,
@@ -1340,38 +1339,38 @@ pub async fn jepa_predict(
     // Resolve a place name to cell64 if needed before the recall fan-out.
     let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
     req.cell = resolved_cell;
-    if req.lookback_months < JEPA_LOOKBACK_MIN_MONTHS
-        || req.lookback_months > JEPA_LOOKBACK_MAX_MONTHS
+    if req.lookback_months < AR2_LOOKBACK_MIN_MONTHS
+        || req.lookback_months > AR2_LOOKBACK_MAX_MONTHS
     {
         return Err(invalid_field(
             "lookback_months",
             format!(
-                "lookback_months must be in {JEPA_LOOKBACK_MIN_MONTHS}..={JEPA_LOOKBACK_MAX_MONTHS}; got {}",
+                "lookback_months must be in {AR2_LOOKBACK_MIN_MONTHS}..={AR2_LOOKBACK_MAX_MONTHS}; got {}",
                 req.lookback_months
             ),
-            json!({ "min": JEPA_LOOKBACK_MIN_MONTHS, "max": JEPA_LOOKBACK_MAX_MONTHS }),
+            json!({ "min": AR2_LOOKBACK_MIN_MONTHS, "max": AR2_LOOKBACK_MAX_MONTHS }),
             json!(req.lookback_months),
         ));
     }
-    if req.forecast_horizon_months != JEPA_FORECAST_HORIZON_MONTHS {
+    if req.forecast_horizon_months != AR2_FORECAST_HORIZON_MONTHS {
         return Err(invalid_field(
             "forecast_horizon_months",
             format!(
-                "forecast_horizon_months must be {JEPA_FORECAST_HORIZON_MONTHS} in v1 (multi-step rollout lands in @2); got {}",
+                "forecast_horizon_months must be {AR2_FORECAST_HORIZON_MONTHS}: the predictor forecasts one month ahead only; got {}",
                 req.forecast_horizon_months
             ),
-            json!({ "min": JEPA_FORECAST_HORIZON_MONTHS, "max": JEPA_FORECAST_HORIZON_MONTHS }),
+            json!({ "min": AR2_FORECAST_HORIZON_MONTHS, "max": AR2_FORECAST_HORIZON_MONTHS }),
             json!(req.forecast_horizon_months),
         ));
     }
-    if req.band != JEPA_SUPPORTED_BAND {
+    if req.band != AR2_SUPPORTED_BAND {
         return Err(invalid_field(
             "band",
             format!(
-                "v1 supports band='{JEPA_SUPPORTED_BAND}' only (closed-form coefficients are agriculture-NDVI calibrated); got '{}'",
+                "v1 supports band='{AR2_SUPPORTED_BAND}' only (closed-form coefficients are agriculture-NDVI calibrated); got '{}'",
                 req.band
             ),
-            json!({ "enum": [JEPA_SUPPORTED_BAND] }),
+            json!({ "enum": [AR2_SUPPORTED_BAND] }),
             json!(req.band),
         ));
     }
@@ -1433,7 +1432,7 @@ pub async fn jepa_predict(
     let history_tslots: Vec<u64> = history.iter().map(|(t, _, _)| *t).collect();
     let history_cids: Vec<String> = history.iter().map(|(_, _, c)| c.clone()).collect();
 
-    let prediction = jepa_predict_ar2_seasonal(&history_values, lag_12_value).ok_or_else(|| {
+    let prediction = ar2_seasonal_predict(&history_values, lag_12_value).ok_or_else(|| {
         unprocessable("predictor returned None (history was empty after filtering)")
     })?;
     let forecast_tslot = latest_tslot + 1;
@@ -1467,19 +1466,19 @@ pub async fn jepa_predict(
         "lag_12_used": lag_12_value.is_some(),
         "lag_12_fallback_to_recent_mean": lag_12_value.is_none(),
         "predictor_coefficients": {
-            "alpha_year_over_year": JEPA_ALPHA,
-            "beta_recent_trend":    JEPA_BETA,
-            "gamma_long_term_mean": JEPA_GAMMA,
+            "alpha_year_over_year": AR2_ALPHA,
+            "beta_recent_trend":    AR2_BETA,
+            "gamma_long_term_mean": AR2_GAMMA,
         },
         "predictor_form": "y_{t+1} = α · (lag-12 NDVI or recent mean) + β · (last + slope) + γ · recent_mean, clamped to [-1, 1]",
         "forecast_value": prediction,
         "forecast_tslot": forecast_tslot,
         "forecast_horizon_months": req.forecast_horizon_months,
         "forecast_unit": "ndvi",
-        "scheme": "constrained JEPA-pattern AR(2) seasonal predictor (closed-form, NOT a learned MLP).",
+        "scheme": "closed-form AR(2) seasonal NDVI predictor (not a learned model).",
         "algorithm_key": "jepa_temporal_predictor@1",
-        "algorithm_citation": "Assran et al. 2023 (JEPA pattern); Pettorelli et al. 2005 (NDVI seasonal modelling); Tucker 1979 (NDVI's place in the agricultural-monitoring literature).",
-        "honesty_note": "v1 ships closed-form coefficients (α=0.6, β=0.3, γ=0.1) calibrated from the agricultural-NDVI literature — NOT learned. Future versions (jepa_temporal_predictor@2) will train an actual encoder + predictor on the geotessera embedding pool.",
+        "algorithm_citation": "Pettorelli et al. 2005 (NDVI seasonal modelling); Tucker 1979 (NDVI's place in the agricultural-monitoring literature).",
+        "honesty_note": "Closed-form coefficients (α=0.6, β=0.3, γ=0.1) taken from the agricultural-NDVI literature, not learned.",
         "algorithms_cid": crate::ALGORITHMS_CID.clone(),
         "bands_cid":      state.manifests.bands_cid.clone(),
         "responder_pubkey_b32": pubkey,
@@ -1516,495 +1515,10 @@ pub async fn post_jepa_predict(
     Ok(Json(jepa_predict(req, &state).await?))
 }
 
-// ── jepa_temporal_predictor@2 — learned multi-band scalar dynamics ───────
-//
-// v0.0.1 pivots off the K=3 Tessera-vintage shape: the upstream
-// dl2.geotessera.org bucket only serves 2024 reliably, so the lag
-// window collapsed and the receipt always carried
-// `upstream_geotessera_single_vintage`. The new shape predicts one
-// step ahead of a 4-band scalar state `{indices.ndvi,
-// modis.lst_day_8day, modis.lst_night_8day, cams.pm25}` from K=6
-// monthly lags + (cell_lat, cell_lng, month) context. See
-// `python/jepa_v2_sidecar/training_data_report.md` for the audit that
-// motivated the pivot and `python/jepa_v2_sidecar/train_dynamics_v2.py`
-// for the trained model.
-
-/// Choose the inference backend for jepa_v2: prefer the GPU sidecar,
-/// fall back to the in-process CPU ONNX path. Both paths run on the
-/// same .onnx artifact, just routed differently.
-async fn predict_via_sidecar_or_local(
-    lags_normalised: &[f32],
-    context: &[f32],
-) -> Result<(crate::jepa_v2::DynamicsOutput, JsonValue), ApiError> {
-    let req = crate::gpu_sidecar::DynamicsRequest {
-        lags_normalised: lags_normalised.to_vec(),
-        context: context.to_vec(),
-    };
-    match crate::gpu_sidecar::predict_dynamics_v2(&req).await {
-        Ok(resp) => {
-            // The sidecar already denormalised + clamped predictions;
-            // wrap into the shared DynamicsOutput shape so the caller
-            // doesn't care which backend served the call.
-            let out = crate::jepa_v2::DynamicsOutput {
-                predictions: resp.predictions,
-                confidence: resp.confidence,
-                low_confidence_bands: resp.low_confidence_bands,
-                band_keys: resp.band_keys,
-            };
-            Ok((out, resp.model))
-        }
-        Err(crate::gpu_sidecar::SidecarError::Upstream { status, body }) => Err(ApiError(
-            StatusCode::BAD_GATEWAY,
-            ErrorBody {
-                code: ErrorCode::SourceFetchFailed,
-                message: format!("jepa_v2 sidecar rejected request: status={status}, body={body}"),
-                details: None,
-            },
-        )),
-        Err(reason) => {
-            tracing::info!(
-                ?reason,
-                "jepa_v2 sidecar unavailable; falling back to in-process CPU"
-            );
-            let (out, metadata) = crate::jepa_v2::predict_next_step(lags_normalised, context)
-                .map_err(crate::jepa_v2::into_api_error)?;
-            let mut block = crate::jepa_v2::receipt_block(&metadata, Some(&out));
-            if let Some(obj) = block.as_object_mut() {
-                obj.insert("via".into(), JsonValue::String("in_process_cpu".into()));
-                obj.insert(
-                    "fallback_reason".into(),
-                    JsonValue::String(reason.to_string()),
-                );
-            }
-            Ok((out, block))
-        }
-    }
-}
-
-/// `POST /v1/jepa_predict_v2` request body.
-///
-/// Predicts the next monthly value of four scalar bands at a cell.
-/// See `crate::jepa_v2::BAND_KEYS` for the canonical band ordering.
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct JepaPredictV2Req {
-    /// Cell to forecast at. Accepts cell64 or a free-text place name
-    /// (resolved via /v1/locate). Aliased to `place`.
-    #[serde(alias = "place")]
-    pub cell: String,
-    /// Optional override for the target month-of-year (1..=12). When
-    /// absent we read the current UTC month so the prediction is
-    /// "next month from now". Surfaced so an agent can ask "what will
-    /// NDVI look like in this cell in July of any year" without
-    /// shifting the system clock.
-    #[serde(default)]
-    pub target_month: Option<u32>,
-}
-
-/// Pull the most-recent K_LAGS observations for `band` at `cell`. When
-/// `K_LAGS` cannot be filled from history alone, the gap is back-filled
-/// with the band's climatological mean (from the trained model's
-/// metadata) so the predictor receives a coherent input. The
-/// `contributed_cids` list tracks which real fact CIDs grounded the
-/// prediction; the receipt cites them and an `n_real_lags_per_band`
-/// counter so verifiers can see how synthetic the input was.
-async fn collect_lags_for_band(
-    cell: &str,
-    band: &str,
-    k: usize,
-    fallback: f32,
-    state: &AppState,
-) -> (Vec<f32>, usize, Vec<String>) {
-    let req = RecallReq {
-        cell: cell.to_string(),
-        bands: Some(vec![band.to_string()]),
-        tslot: None,
-        ..Default::default()
-    };
-    let mut history: Vec<(u64, f32, String)> = Vec::new();
-    if let Ok((resp, _notes)) = recall_with_auto_materialize(&req, state).await {
-        for (idx, f) in resp.facts.iter().enumerate() {
-            if let Fact::Primary(p) = f {
-                if p.band == band {
-                    if let ciborium::Value::Float(v) = p.value {
-                        if v.is_finite() {
-                            let cid = resp
-                                .receipt
-                                .fact_cids
-                                .get(idx)
-                                .map(|c| c.0.clone())
-                                .unwrap_or_default();
-                            history.push((p.tslot, v as f32, cid));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    history.sort_by_key(|(t, _, _)| *t);
-    let n_real = history.len().min(k);
-    let cids: Vec<String> = history
-        .iter()
-        .rev()
-        .take(k)
-        .filter_map(|(_, _, c)| if c.is_empty() { None } else { Some(c.clone()) })
-        .collect();
-    let mut out = vec![fallback; k];
-    // Place real observations at the END of the lag window so the
-    // most-recent value lands at position k-1 (Markov-friendliest).
-    let take = history.len().min(k);
-    for (i, (_, v, _)) in history.iter().rev().take(take).enumerate() {
-        out[k - 1 - i] = *v;
-    }
-    (out, n_real, cids)
-}
-
-/// Negative-skill persistence fallback (pure). When `fallback_active`
-/// (model is trained but does NOT beat persistence on real held-out
-/// NDVI), every band that has a real lag has its prediction OVERWRITTEN
-/// with that most-recent real lag — the persistence baseline is strictly
-/// better than a negative-skill learned forecast — tagged
-/// `persistence_fallback_negative_skill`. Bands with no real lag keep
-/// their (climatology) prediction, labelled `climatology`. When the
-/// fallback is not active, every band is labelled `learned_model` and
-/// predictions are left untouched. Returns the per-band `via` map.
-fn apply_persistence_fallback(
-    fallback_active: bool,
-    predictions: &mut [f32],
-    last_real_lag_per_band: &[Option<f32>],
-) -> serde_json::Map<String, JsonValue> {
-    use crate::jepa_v2::BAND_KEYS;
-    let mut per_band_via = serde_json::Map::new();
-    for (i, band) in BAND_KEYS.iter().enumerate() {
-        let via = if !fallback_active {
-            "learned_model"
-        } else if let Some(real) = last_real_lag_per_band.get(i).copied().flatten() {
-            predictions[i] = real;
-            "persistence_fallback_negative_skill"
-        } else {
-            "climatology"
-        };
-        per_band_via.insert((*band).to_string(), JsonValue::String(via.into()));
-    }
-    per_band_via
-}
-
-/// Run the learned multi-band-scalar dynamics predictor.
-pub async fn jepa_predict_v2(
-    mut req: JepaPredictV2Req,
-    state: &AppState,
-) -> Result<JsonValue, ApiError> {
-    use crate::jepa_v2::{BAND_KEYS, K_LAGS, N_BANDS, N_CONTEXT};
-
-    let started = Instant::now();
-    let (resolved_cell, resolved_ref) = crate::resolve_cell_field(&req.cell).await?;
-    req.cell = resolved_cell.clone();
-
-    // Resolve the cell's lat/lng for the context vector. The model was
-    // trained to read `lat_norm` + sin/cos(lng) so a cell that can't be
-    // decoded geographically can't be served — we surface that as a
-    // 422 with the exact decode error.
-    let info = emem_codec::latlng_from_cell64(&req.cell).map_err(|e| {
-        unprocessable(format!(
-            "cell decode failed for {}: {e}. jepa_v2 needs a geo cell to \
-             build the spatial-context vector.",
-            req.cell
-        ))
-    })?;
-    let lat_deg = info.lat_deg as f32;
-    let lng_deg = info.lng_deg as f32;
-
-    // Ensure metadata is loadable so we can fail early with a clean
-    // error and so the receipt has the model's blake2b regardless of
-    // whether inference runs.
-    let metadata = crate::jepa_v2::ensure_metadata().map_err(crate::jepa_v2::into_api_error)?;
-
-    // Pull the K_LAGS most-recent observations per band, filling gaps
-    // with the band's climatological mean (= metadata.normalisation.band_norm[band].mean).
-    let mut all_lags_phys: Vec<Vec<f32>> = Vec::with_capacity(N_BANDS);
-    let mut n_real_per_band: Vec<usize> = Vec::with_capacity(N_BANDS);
-    // Most-recent REAL lag per band (None when the whole window was
-    // climatology-filled). `collect_lags_for_band` places real obs at the
-    // tail, so when n_real >= 1 the most-recent real value is at lag k-1.
-    // Used for the persistence fallback when the model has negative skill.
-    let mut last_real_lag_per_band: Vec<Option<f32>> = Vec::with_capacity(N_BANDS);
-    let mut input_cids: Vec<String> = Vec::new();
-    let mut per_band_cids: serde_json::Map<String, JsonValue> = serde_json::Map::new();
-    for band in BAND_KEYS.iter() {
-        let (mean, _std) = metadata.band_norm(band);
-        let (lags, n_real, cids) =
-            collect_lags_for_band(&req.cell, band, K_LAGS, mean, state).await;
-        n_real_per_band.push(n_real);
-        last_real_lag_per_band.push(if n_real >= 1 {
-            lags.last().copied()
-        } else {
-            None
-        });
-        per_band_cids.insert(
-            (*band).to_string(),
-            JsonValue::Array(cids.iter().cloned().map(JsonValue::String).collect()),
-        );
-        for c in &cids {
-            if !input_cids.contains(c) {
-                input_cids.push(c.clone());
-            }
-        }
-        all_lags_phys.push(lags);
-    }
-
-    // Normalise lags into row-major (lag, band) layout.
-    let mut lags_normalised: Vec<f32> = Vec::with_capacity(K_LAGS * N_BANDS);
-    #[allow(clippy::needless_range_loop)]
-    // lag_idx is used as inner index into all_lags_phys[band_idx]
-    for lag_idx in 0..K_LAGS {
-        for (band_idx, band) in BAND_KEYS.iter().enumerate() {
-            let (mean, std) = metadata.band_norm(band);
-            let phys = all_lags_phys[band_idx][lag_idx];
-            lags_normalised.push((phys - mean) / std);
-        }
-    }
-
-    // Build context vector.
-    let target_month = req.target_month.unwrap_or_else(|| {
-        // Default: month-after-now (next-step prediction at the current
-        // wall clock). Use chrono via std::time. We don't depend on
-        // chrono here to avoid pulling a new crate; the formula is the
-        // standard Howard 1582 algorithm applied to Unix seconds.
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        // Days since 1970-01-01.
-        let days = secs.div_euclid(86_400);
-        // 1970-01-01 was day 0 of month 1. Cheap approximation: this
-        // is the "Howard" algorithm.
-        let z = days + 719_468;
-        let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-        let doe = z - era * 146_097;
-        let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let m = if mp < 10 { mp + 3 } else { mp - 9 };
-        // Next-month-of-year (1..12).
-
-        ((m as u32) % 12) + 1
-    });
-    let target_month = target_month.clamp(1, 12);
-    let lat_norm = lat_deg / 90.0;
-    let lng_rad = lng_deg.to_radians();
-    let lng_sin = lng_rad.sin();
-    let lng_cos = lng_rad.cos();
-    let m_rad = std::f32::consts::TAU * (target_month as f32 - 1.0) / 12.0;
-    let month_sin = m_rad.sin();
-    let month_cos = m_rad.cos();
-    let context: Vec<f32> = vec![lat_norm, lng_sin, lng_cos, month_sin, month_cos];
-    debug_assert_eq!(context.len(), N_CONTEXT);
-
-    // Short-circuit on the untrained-baseline sentinel. When
-    // `training.trained == false` the loaded head is zero-init and
-    // running inference would just emit the climatological mean — not
-    // wrong but wasteful of an UDS round-trip and surfaces no
-    // confidence information. Return the climatological means
-    // directly with all-zero confidence (= caller MUST treat as
-    // baseline) and tag the receipt with `via:
-    // short_circuit_untrained`.
-    let (mut output, mut model_block) = if !crate::jepa_v2::is_trained() {
-        let mut preds = Vec::with_capacity(N_BANDS);
-        let mut conf = Vec::with_capacity(N_BANDS);
-        let mut low_conf = Vec::with_capacity(N_BANDS);
-        for band in BAND_KEYS.iter() {
-            let (mean, _std) = metadata.band_norm(band);
-            let (lo, hi) = metadata.physical_range(band);
-            preds.push(mean.clamp(lo, hi));
-            conf.push(0.0);
-            low_conf.push((*band).to_string());
-        }
-        let out = crate::jepa_v2::DynamicsOutput {
-            predictions: preds,
-            confidence: conf,
-            low_confidence_bands: low_conf,
-            band_keys: BAND_KEYS.iter().map(|s| s.to_string()).collect(),
-        };
-        let mut block = crate::jepa_v2::receipt_block(&metadata, Some(&out));
-        if let Some(obj) = block.as_object_mut() {
-            obj.insert(
-                "via".into(),
-                JsonValue::String("short_circuit_untrained".into()),
-            );
-            obj.insert(
-                "short_circuit_reason".into(),
-                JsonValue::String(
-                    "metadata.training.trained == false; returning band \
-                     climatological means with zero confidence so the \
-                     receipt isn't a lie. Re-train with \
-                     python/jepa_v2_sidecar/train_dynamics_v2.py."
-                        .into(),
-                ),
-            );
-        }
-        (out, block)
-    } else {
-        predict_via_sidecar_or_local(&lags_normalised, &context).await?
-    };
-
-    // Negative-skill persistence fallback. When the model does NOT beat
-    // persistence on real held-out NDVI, the learned forecast is worse
-    // than just predicting the last observed value — so for every band
-    // that has a real lag, override the learned prediction with that
-    // most-recent real lag (the persistence baseline) and tag the band
-    // `via: persistence_fallback_negative_skill`. Bands with no real lag
-    // keep their climatology prediction, labelled `via: climatology` so
-    // the agent knows it wasn't grounded in an observation. This only
-    // engages for trained models (the untrained short-circuit already
-    // returns climatology); a trained-but-negative-skill model is the
-    // case this guards against.
-    let fallback_active = crate::jepa_v2::is_trained() && !metadata.beats_persistence();
-    let per_band_via = apply_persistence_fallback(
-        fallback_active,
-        &mut output.predictions,
-        &last_real_lag_per_band,
-    );
-
-    // Patch in the band-keys + per-band fact-cid attribution so the
-    // receipt is self-describing.
-    if let Some(obj) = model_block.as_object_mut() {
-        obj.insert(
-            "band_keys".into(),
-            JsonValue::Array(
-                BAND_KEYS
-                    .iter()
-                    .map(|s| JsonValue::String((*s).to_string()))
-                    .collect(),
-            ),
-        );
-        obj.insert(
-            "n_real_lags_per_band".into(),
-            JsonValue::Object(
-                BAND_KEYS
-                    .iter()
-                    .zip(n_real_per_band.iter())
-                    .map(|(b, n)| ((*b).to_string(), JsonValue::Number((*n).into())))
-                    .collect(),
-            ),
-        );
-        obj.insert(
-            "per_band_input_fact_cids".into(),
-            JsonValue::Object(per_band_cids.clone()),
-        );
-    }
-
-    // Sign receipt over real input CIDs only — synthetic-filled lags
-    // (no fact CID) don't enter the receipt's `cited_fact_cids` because
-    // they have nothing to dereference back to.
-    let pubkey = pubkey_b32(state);
-    let receipt = state.sign_receipt(
-        "emem.jepa_predict_v2",
-        vec![req.cell.clone()],
-        input_cids
-            .iter()
-            .filter(|c| !c.is_empty())
-            .cloned()
-            .map(FactCid::new)
-            .collect(),
-        false,
-        started,
-        None,
-    );
-
-    let predictions_map: serde_json::Map<String, JsonValue> = BAND_KEYS
-        .iter()
-        .enumerate()
-        .map(|(i, b)| {
-            (
-                (*b).to_string(),
-                json!({
-                    "value": output.predictions[i],
-                    "confidence": output.confidence[i],
-                    "n_real_lags": n_real_per_band[i],
-                    "via": per_band_via.get(*b).cloned().unwrap_or(JsonValue::Null),
-                }),
-            )
-        })
-        .collect();
-
-    Ok(json!({
-        "schema": "emem.jepa_predict_v2.v2",
-        "cell": req.cell,
-        "resolved_from": resolved_ref,
-        "cell_lat_deg": lat_deg,
-        "cell_lng_deg": lng_deg,
-        "target_month": target_month,
-        "band_keys": BAND_KEYS,
-        "predictions": predictions_map,
-        "per_band_via": per_band_via,
-        "predictions_array": output.predictions,
-        "confidence_array": output.confidence,
-        "low_confidence_bands": output.low_confidence_bands,
-        "n_real_lags_per_band": n_real_per_band,
-        "input_fact_cids": input_cids,
-        "per_band_input_fact_cids": per_band_cids,
-        "model": model_block,
-        "responder_pubkey_b32": pubkey,
-        "receipt": receipt,
-        "next": {
-            "verify_offline":   "POST /v1/verify_receipt {receipt}",
-            "v1_fallback":      format!("POST /v1/jepa_predict {{cell:'{}'}} for the closed-form NDVI-scalar predictor", req.cell),
-            "densify_corpus":   format!("POST /v1/backfill {{cell:'{}', band:'<band>', start_unix:..., end_unix:...}} to raise n_real_lags_per_band", req.cell),
-        },
-    }))
-}
-
-pub async fn post_jepa_predict_v2(
-    State(state): State<AppState>,
-    EmemJson(req): EmemJson<JepaPredictV2Req>,
-) -> Result<Json<JsonValue>, ApiError> {
-    Ok(Json(jepa_predict_v2(req, &state).await?))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Negative-skill persistence fallback: when active, a band with a
-    /// real lag has its prediction REPLACED by that lag (so the served
-    /// value equals the last real observation), while a band with no real
-    /// lag keeps its climatology prediction. When inactive, predictions
-    /// are untouched and every band is `learned_model`.
-    #[test]
-    fn persistence_fallback_returns_last_real_lag() {
-        use crate::jepa_v2::{BAND_KEYS, N_BANDS};
-        // Learned predictions (deliberately different from the lags).
-        let mut preds = vec![0.10_f32, 305.0, 295.0, 40.0];
-        assert_eq!(preds.len(), N_BANDS);
-        // Real lags exist for bands 0,1,3; band 2 had no real lag.
-        let last = vec![Some(0.42_f32), Some(290.0), None, Some(12.0)];
-
-        let via = apply_persistence_fallback(true, &mut preds, &last);
-        // Bands with a real lag → prediction == that lag, tagged persistence.
-        assert_eq!(
-            preds[0], 0.42,
-            "ndvi prediction should equal the last real lag"
-        );
-        assert_eq!(preds[1], 290.0);
-        assert_eq!(preds[3], 12.0);
-        assert_eq!(
-            via[BAND_KEYS[0]].as_str(),
-            Some("persistence_fallback_negative_skill")
-        );
-        // Band 2 had no real lag → untouched climatology, labelled.
-        assert_eq!(preds[2], 295.0, "no real lag → climatology kept");
-        assert_eq!(via[BAND_KEYS[2]].as_str(), Some("climatology"));
-
-        // Inactive → predictions untouched, all learned_model.
-        let mut preds2 = vec![1.0_f32, 2.0, 3.0, 4.0];
-        let via2 = apply_persistence_fallback(false, &mut preds2, &last);
-        assert_eq!(preds2, vec![1.0, 2.0, 3.0, 4.0]);
-        assert_eq!(via2[BAND_KEYS[0]].as_str(), Some("learned_model"));
-    }
-
-    /// CFL choice: at α=1e-6 m²/s and Δx=10 m the dt_max is 0.20 ·
-    /// 100 / 1e-6 = 2.0e7 s ≈ 231 days — so a one-week horizon needs
-    /// only one step. Spot-check the edge case (very short horizon)
-    /// and the cap-busting one (very long horizon at very large α).
     #[test]
     fn heat_choose_timestep_satisfies_cfl() {
         let (n, dt) = heat_choose_timestep(1.0e-6, 6.0).expect("should succeed");
@@ -2135,25 +1649,25 @@ mod tests {
         assert!(c_max * dt_s / dx_m >= 0.4, "way under-using the timestep");
     }
 
-    /// JEPA: a perfectly-flat history → the prediction equals that
+    /// AR(2): a perfectly-flat history → the prediction equals that
     /// constant. Sanity check on coefficient sums.
     #[test]
-    fn jepa_flat_history_is_stable() {
+    fn ar2_flat_history_is_stable() {
         let history = vec![0.4_f64; 6];
-        let pred = jepa_predict_ar2_seasonal(&history, Some(0.4)).expect("should predict");
+        let pred = ar2_seasonal_predict(&history, Some(0.4)).expect("should predict");
         assert!((pred - 0.4).abs() < 1e-9, "flat history drifted to {pred}");
         // Coefficients sum to 1.0 by design — the documented invariant.
-        assert!((JEPA_ALPHA + JEPA_BETA + JEPA_GAMMA - 1.0).abs() < 1e-12);
+        assert!((AR2_ALPHA + AR2_BETA + AR2_GAMMA - 1.0).abs() < 1e-12);
     }
 
-    /// JEPA: a monotone-increasing history → the next prediction must
+    /// AR(2): a monotone-increasing history → the next prediction must
     /// be > the most recent value (positive trend).
     #[test]
-    fn jepa_monotone_history_extrapolates_up() {
+    fn ar2_monotone_history_extrapolates_up() {
         let history = vec![0.20, 0.25, 0.30, 0.35, 0.40, 0.45];
         // Use lag-12 = 0.45 (no carryover signal beyond "stay where we
         // are") so the answer is dominated by the trend term.
-        let pred = jepa_predict_ar2_seasonal(&history, Some(0.45)).expect("should predict");
+        let pred = ar2_seasonal_predict(&history, Some(0.45)).expect("should predict");
         assert!(
             pred > 0.45,
             "prediction {pred} should exceed last history value 0.45 under positive trend"
@@ -2162,24 +1676,24 @@ mod tests {
         assert!((-1.0..=1.0).contains(&pred));
     }
 
-    /// JEPA: the predictor must clamp to NDVI's physical range even if
+    /// AR(2): the predictor must clamp to NDVI's physical range even if
     /// the inputs would project to a value outside [-1, 1].
     #[test]
-    fn jepa_clamps_to_ndvi_range() {
+    fn ar2_clamps_to_ndvi_range() {
         // Steep upward trend that would project past +1.0.
         let history = vec![0.5, 0.7, 0.9, 1.0, 1.0, 1.0];
-        let pred = jepa_predict_ar2_seasonal(&history, Some(1.0)).expect("should predict");
+        let pred = ar2_seasonal_predict(&history, Some(1.0)).expect("should predict");
         assert!(pred <= 1.0, "predictor failed to clamp upper bound");
         // And the lower bound symmetrically.
         let history = vec![-0.5, -0.7, -0.9, -1.0, -1.0, -1.0];
-        let pred = jepa_predict_ar2_seasonal(&history, Some(-1.0)).expect("should predict");
+        let pred = ar2_seasonal_predict(&history, Some(-1.0)).expect("should predict");
         assert!(pred >= -1.0, "predictor failed to clamp lower bound");
     }
 
-    /// JEPA: empty history must surface as `None`, not panic.
+    /// AR(2): empty history must surface as `None`, not panic.
     #[test]
-    fn jepa_empty_history_is_none() {
-        assert!(jepa_predict_ar2_seasonal(&[], None).is_none());
+    fn ar2_empty_history_is_none() {
+        assert!(ar2_seasonal_predict(&[], None).is_none());
     }
 
     /// Stencil diagnostic — uniform case. All 9 cells at exactly 300 K

@@ -76,7 +76,6 @@ warm. First build ~5 min; incremental ~30 s.
 | `EMEM_SLED_CACHE_BYTES` | `8g`               | sled pagecache for the hot store (`cache.sled`); `256m`..`64g`. sled's own default is 1 GiB, which wedged a 58 GB store |
 | `EMEM_SLED_FLUSH_MS`    | `200`              | how often sled makes its log stable; 50..5000. Reads of pages written inside this window wait for it |
 | `EMEM_TOPIC_BACKEND`    | `ort`              | or `model2vec` (pure-Rust fallback) |
-| `EMEM_GALILEO_VARIANT`  | `base`             | Galileo encoder variant |
 | `EMEM_HUNT_CONCURRENCY` | `32`               | parallel cell sweeps for `/v1/hunt` |
 
 ### Memory substrate
@@ -241,6 +240,6 @@ HF account. Useful for small evaluations without operating a VM.
 
 ## Operational reference
 
-For the long version (process model, backup/restore, sled tuning, jepa
-sidecar, geocoder warmup, all the things that bit us in production), see
+For the long version (process model, backup/restore, sled tuning,
+geocoder warmup, all the things that bit us in production), see
 [Operators / Operating](./operators/operating.md).

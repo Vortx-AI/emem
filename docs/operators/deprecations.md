@@ -28,6 +28,8 @@ resolvable for offline verification.
 | Hardcoded 0.15 consensus gate in `clay_prithvi_tessera_triple_consensus@1` formula | 0.0.6 | `parameters.consensus_threshold` (typed, tunable, citation-anchored) |
 | Hardcoded `max_cells: 256` default in `/v1/query_region` | 0.0.6 | Bbox-area-derived default (target ~1 cell per (10 km)², clamped to [64, 1024]) |
 | Hardcoded `4×` triage oversampling in `find_similar` mode `hamming_then_rerank` | 0.0.6 | EWMA-adaptive factor `ceil(1/recall)` clamped to [4, 16] |
+| `POST /v1/jepa_predict_v2`, MCP `emem_jepa_predict_v2` (learned dynamics head on the GPU sidecar) | unreleased | none; `/v1/jepa_predict` is the closed-form NDVI AR(2). Old receipts still verify |
+| `POST /v1/triple_consensus`, MCP `emem_triple_consensus` (Clay + Prithvi + Tessera change ensemble) | unreleased | none; `/v1/state_diff` for one encoder, `/v1/change_attribution` for the evidence ledger |
 
 ## Stability contract
 

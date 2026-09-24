@@ -33,12 +33,10 @@ pub enum ConnectorKind {
     /// Parquet bulk read over anonymous S3 / GCS / R2 (used for
     /// Overture Maps Foundation per-cell aggregates).
     ParquetS3,
-    /// Python GPU sidecar — HTTP/1 over a Unix-domain socket. The
-    /// `url_template` is `uds:<sock_path>/<route>`; emem-api-rest's
-    /// `gpu_sidecar` client maps that to a UDS write + EOF read.
-    /// Used by the foundation-model schemes (Prithvi-EO-2.0, Clay
-    /// v1.5, Galileo) that hand a Sentinel-2 chip to the sidecar and
-    /// receive a signed embedding back.
+    /// Python GPU sidecar over a Unix-domain socket
+    /// (`uds:<sock_path>/<route>`). Only the retired foundation-model
+    /// schemes declare it; the variant stays so the sources registry
+    /// still parses. No client for it ships.
     GpuSidecar,
 }
 

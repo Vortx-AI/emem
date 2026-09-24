@@ -8,9 +8,8 @@ contribution workflows see `docs/developers/developing.md`.
 ## What you're running
 
 A single Rust binary `emem-server` listening on one port for HTTP plus
-the MCP JSON-RPC endpoint at `/mcp`. Optional Python sidecar over a
-Unix Domain Socket for GPU inference (Prithvi-EO-2.0, Galileo,
-JEPA-v2 dynamics). Local sled DB for the hot cache; an append-only
+the MCP JSON-RPC endpoint at `/mcp`. No GPU or model sidecar is
+needed. Local sled DB for the hot cache; an append-only
 Merkle log under `<EMEM_DATA>/log/`. ed25519 responder identity
 persisted at `<EMEM_DATA>/identity.secret.b32` with mode 0600.
 
@@ -190,12 +189,6 @@ when the variable is unset.
 | `EMEM_WORLDS_DIR` | `var/worlds`, relative to the working directory | baked splat worlds served at `/v1/worlds`; set an absolute path when the process does not start in the checkout (the container image starts in `/`). The listing reports `root_exists` |
 | `EMEM_PUBLIC_URL` | derived from `EMEM_TLS_DOMAINS` | canonical origin for `/.well-known/emem.json` and User-Agent |
 | `EMEM_SECURITY_POLICY_URL` | unset | `Policy:` line in `/.well-known/security.txt` |
-| `EMEM_SIDECAR_SOCK` | `%t/emem/jepa_sidecar.sock` | UDS path the Rust server dials |
-| `EMEM_SIDECAR_TIMEOUT_MS` | 5000 | sidecar request timeout |
-| `EMEM_SIDECAR_VRAM_BUDGET_GB` | binary default 10; the deployed `emem-jepa-sidecar.service` overrides to 20 | sidecar's per-process VRAM cap; 20 GB seats the four co-resident encoders (Prithvi-EO-2.0, Galileo, JEPA-v2 dynamics, the topic-router warmup buffer) |
-| `EMEM_GALILEO_VARIANT` | `base` | Galileo variant — one of `tiny`, `base`, `nano`. The advertised capability becomes `galileo-<variant>` in `/v1/capabilities.extensions[]`. Production deploys default to `base`. |
-| `EMEM_GALILEO_SNAPSHOT` | unset | pin a Galileo checkpoint snapshot |
-| `EMEM_PRITHVI_SNAPSHOT` | unset | pin a Prithvi-EO checkpoint snapshot |
 | `EMEM_OVERTURE_RELEASE` | (auto-discover newest) | pin Overture monthly release |
 | `EMEM_OVERTURE_PARALLEL` | per-host default | parallel range reads against the Overture S3 bucket |
 | `EMEM_SCAN_CELL_LIMIT` | 10000 | sled scan-row cap |
@@ -226,12 +219,9 @@ when the variable is unset.
 ├── log/
 │   └── merkle.log.{0,1,...}     append-only segments, ~1 GiB rotation
 ├── geocoder.sled/               /v1/locate cache (separate sled DB)
-├── hf_cache/                    HuggingFace model snapshots (Prithvi, Galileo if downloaded server-side)
+├── hf_cache/                    HuggingFace model snapshots
 ├── models/
 │   └── bge-base-en-v1.5/        topic-router ONNX (~435 MB) + tokenizer.json
-├── jepa_v2/
-│   ├── dynamics_v2.onnx         baseline (residual-zero-init, 8 KB)
-│   └── dynamics_v2.metadata.json
 ├── acme.cache/                  Let's Encrypt cert cache
 └── demos/                       livedemo / realdemo output (override with EMEM_DEMOS_DIR)
 ```
@@ -335,37 +325,12 @@ directly.
   and `EMEM_TOPIC_USE_GPU=1`. Operationally the CPU path is fine for
   the 27-topic registry — ~110 ms warm end-to-end.
 
-### Sidecar (jepa_v2)
+### Retired GPU sidecar
 
-- Cold-start cost is one-time per process; warm cache after the
-  first `/predict` call on each model.
-- The deployed `emem-jepa-sidecar.service` user unit sets
-  `EMEM_SIDECAR_VRAM_BUDGET_GB=20` so all four encoders (Prithvi-EO-2.0,
-  Galileo, JEPA-v2 dynamics, and the topic-router warmup buffer) sit
-  co-resident on the GPU. The binary default is 10 if the variable is
-  unset. Lower it if the GPU is shared; the sidecar refuses requests
-  that would exceed the budget and the Rust server returns 503. There
-  is no silent fallback to CPU inference.
-- The unit at `python/jepa_v2_sidecar/emem-jepa-sidecar.service` is a
-  user systemd unit; the Rust server reads `EMEM_SIDECAR_SOCK` (default
-  `%t/emem/jepa_sidecar.sock` ⇒
-  `/run/user/<UID>/emem/jepa_sidecar.sock`).
-- JEPA v2 is trained, and does not beat persistence. The
-  `is_trained()` short-circuit described below no longer fires; what
-  fires instead is `NEGATIVE_SKILL` (skill_vs_persistence -0.0638),
-  and every band comes back `via: persistence_fallback_negative_skill`,
-  i.e. the last observed value. The receipt also carries
-  `training_synthetic_fraction=1.00`, because the head was fit on
-  synthesised seasonality: this responder has too little multi-tslot
-  history to train end-to-end. Still do not describe
-  `/v1/jepa_predict_v2` as a working dynamics head. If the model is
-  ever rolled back to the zero-init sentinel, the receipt reverts to
-  `via: short_circuit_untrained` with `untrained_baseline: true`.
-- Galileo (variant selectable via `EMEM_GALILEO_VARIANT`, default `base`) has only the S2 modality wired today; S1, ERA5, TC,
-  VIIRS, SRTM, Dynamic World, WorldCover, LandScan, and the location
-  channels are zero-masked at inference. The multimodal scaffold is
-  present and the embeddings are honest, but the missing modalities
-  show up as zeros in the input tensor, not as a structured Absence.
+Earlier versions ran Clay, Prithvi, Galileo and a JEPA-v2 dynamics head
+on a Python GPU sidecar. It is gone, and so are its `EMEM_SIDECAR_*`,
+`EMEM_GALILEO_*` and `EMEM_PRITHVI_*` variables. Facts it signed still
+recall and verify.
 
 ## Fail-over and HA
 
@@ -412,7 +377,6 @@ hit rate.
 | DMSP-OLS frozen at 2013 | `/v1/data_availability` reports `history_available_to_unix=2013-12-31` honestly | dataset is genuinely complete; no fix needed |
 | HF Space dependency on `:latest` | pinned to an immutable digest in `huggingface-space/Dockerfile` (the `:0.0` tag this row once named no longer exists) | bump the digest deliberately on each release |
 | sled lock contention | `emem-purge-fnkey` requires server stopped; documented | none planned |
-| Sidecar OOM | 503 on `/v1/jepa_predict_v2`; no silent CPU fallback | accept; tune `EMEM_SIDECAR_VRAM_BUDGET_GB` |
 | Topic router cold load >90 s | server starts anyway; keyword backend handles `/v1/ask` until ort thread returns | pre-warm with `scripts/install-topic-model.sh` |
 | Empty SDK directories (`sdks/emem-{py,ts}`) | integrate via REST or MCP — see `docs/developers/developing.md` | populate when API surface stabilises |
 
@@ -452,15 +416,6 @@ Either no materializer is wired for that band, or
 | select(.band=="<your_band>")'`. If `has_materializer:false` the
 band needs a third-party Attestation; if `true`, set
 `EMEM_AUTO_MATERIALIZE=1` and retry.
-
-**Sidecar 503 on `/v1/jepa_predict_v2`.**
-`systemctl --user status emem-jepa-sidecar` first. If running, hit
-`nvidia-smi`; if VRAM is exhausted, lower
-`EMEM_SIDECAR_VRAM_BUDGET_GB`. If the sidecar shows a torch
-`load_state_dict` error with `strict=true`, the checkpoint and the
-in-process architecture have drifted — one or the other has been
-upgraded without the matching update; pin both via
-`EMEM_PRITHVI_SNAPSHOT` / `EMEM_GALILEO_SNAPSHOT`.
 
 **Attestation rejected.**
 `journalctl --user -u emem-server | grep AttestationInvalid` for
