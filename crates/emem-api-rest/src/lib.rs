@@ -50789,18 +50789,56 @@ async fn materialize_sentinel2_band(
     target_unix: Option<i64>,
     at_or_before: bool,
 ) -> Result<emem_fact::FactCid, String> {
+    // One materialization per (cell, band, day, bound) at a time. A retry
+    // that lands while a detached call is still working on the same square
+    // waits for it instead of reading the same pixels and signing a second
+    // copy. Failures are not kept; a success is kept two minutes, long
+    // enough to cover a partial-results retry loop.
+    type Slot = std::sync::Arc<tokio::sync::OnceCell<emem_fact::FactCid>>;
+    type Key = (String, String, Option<i64>, bool);
+    type Memo = std::sync::Mutex<std::collections::HashMap<Key, (std::time::Instant, Slot)>>;
+    static INFLIGHT: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
+    const KEEP: std::time::Duration = std::time::Duration::from_secs(120);
+    let key = (
+        cell64.to_string(),
+        band.to_string(),
+        target_unix.map(|t| t.div_euclid(86_400)),
+        at_or_before,
+    );
+    let slot: Slot = if force_resign() {
+        Default::default()
+    } else {
+        let mut m = INFLIGHT
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if m.len() > 8192 {
+            m.retain(|_, (at, _)| at.elapsed() < KEEP);
+        }
+        match m.get(&key) {
+            Some((at, slot)) if at.elapsed() < KEEP => slot.clone(),
+            _ => {
+                let slot: Slot = Default::default();
+                m.insert(key, (std::time::Instant::now(), slot.clone()));
+                slot
+            }
+        }
+    };
     let secs = materializer_timeout_secs();
     match tokio::time::timeout(
         std::time::Duration::from_secs(secs),
-        materialize_sentinel2_band_inner(cell64, s, band, target_unix, at_or_before),
+        slot.get_or_try_init(|| {
+            materialize_sentinel2_band_inner(cell64, s, band, target_unix, at_or_before)
+        }),
     )
     .await
     {
-        Ok(r) => r,
+        Ok(r) => r.cloned(),
         Err(_) => Err(format!(
-            "sentinel-2 materializer exceeded the {secs}s budget for {band} at {cell64}: the \
-             upstream STAC search or COG range reads were too slow on this call. Retry to hit \
-             the warmed profile/tile caches, or raise EMEM_MATERIALIZER_TIMEOUT_SECS."
+            "sentinel-2 materializer exceeded the {secs}s budget for {band} at {cell64}: the scene \
+             search, the pixel reads or the signed write did not finish on this call. Work \
+             already done is kept, so the identical retry resumes from it; \
+             EMEM_MATERIALIZER_TIMEOUT_SECS raises the budget."
         )),
     }
 }
