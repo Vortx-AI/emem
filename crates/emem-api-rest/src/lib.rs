@@ -12144,11 +12144,25 @@ async fn recall_with_auto_materialize_capped(
     //     fetch on every recall.
     let mut candidates: Vec<String> = match req.bands.as_ref() {
         Some(req_bands) if !req_bands.is_empty() => {
+            // Our own recent Absence is an answer, not a gap: the pixel was
+            // unusable in every scene tried, and asking again before a new
+            // scene can exist re-runs the same search and probes and signs
+            // the same Absence again, once per recall of a cloudy area.
+            let recheck = absence_recheck_secs();
+            let fresh_after =
+                iso8601_utc(now_unix_s().saturating_sub(recheck as i64).max(0) as u64);
             let present: HashSet<&str> = resp
                 .facts
                 .iter()
                 .filter_map(|f| match f {
                     emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+                    emem_fact::Fact::Absence(a)
+                        if recheck > 0
+                            && a.signer == s.identity.pubkey
+                            && a.signed_at.as_str() >= fresh_after.as_str() =>
+                    {
+                        Some(a.band.as_str())
+                    }
                     _ => None,
                 })
                 .collect();
@@ -16867,14 +16881,31 @@ async fn post_grid(
             .find(|f| f.get("fact_cid").and_then(|v| v.as_str()) == Some(cid))
     };
 
+    // A signed Absence is an answer too: the pixel was unusable in every
+    // scene tried. It is shown as `absent`, cited, and never as a value.
+    let absent = |cell: &str, band: &str| -> Option<String> {
+        by_cell?
+            .get(cell)?
+            .get("facts")?
+            .as_array()?
+            .iter()
+            .rev()
+            .find(|f| {
+                f.get("kind").and_then(|k| k.as_str()) == Some("absence")
+                    && f.get("band").and_then(|b| b.as_str()) == Some(band)
+            })?
+            .get("fact_cid")?
+            .as_str()
+            .map(str::to_string)
+    };
     let mut bands_out = serde_json::Map::new();
     let mut cited: Vec<emem_fact::FactCid> = Vec::new();
-    let mut ready_cells = 0usize;
-    for cell in &cells {
-        if req.bands.iter().any(|b| current(cell, b).is_some()) {
-            ready_cells += 1;
-        }
-    }
+    let answered = |cell: &str| {
+        req.bands
+            .iter()
+            .all(|b| current(cell, b).is_some() || absent(cell, b).is_some())
+    };
+    let ready_cells = cells.iter().filter(|c| answered(c)).count();
     let units = many.get("units_by_band").cloned().unwrap_or(json!({}));
     let mut bundles_made = 0usize;
     for band in &req.bands {
@@ -16898,10 +16929,32 @@ async fn post_grid(
                     .unwrap_or(JsonValue::Null)
             })
             .collect();
+        let absences: Vec<Option<String>> = cells
+            .iter()
+            .zip(&cids)
+            .map(|(c, v)| if v.is_some() { None } else { absent(c, band) })
+            .collect();
+        let states: Vec<&str> = cids
+            .iter()
+            .zip(&absences)
+            .map(|(v, a)| match (v, a) {
+                (Some(_), _) => "value",
+                (None, Some(_)) => "absent",
+                (None, None) => "missing",
+            })
+            .collect();
         let mut distinct: Vec<String> = cids.iter().flatten().cloned().collect();
         distinct.sort();
         distinct.dedup();
         cited.extend(distinct.iter().map(|c| emem_fact::FactCid::new(c.clone())));
+        let mut absent_distinct: Vec<String> = absences.iter().flatten().cloned().collect();
+        absent_distinct.sort();
+        absent_distinct.dedup();
+        cited.extend(
+            absent_distinct
+                .iter()
+                .map(|c| emem_fact::FactCid::new(c.clone())),
+        );
         let bundle_token = if req.bundle.unwrap_or(true) && !distinct.is_empty() {
             let purpose = format!(
                 "grid {n}x{n} half_km={half_km} {band} at {}",
@@ -16924,13 +16977,17 @@ async fn post_grid(
         };
         bundles_made += usize::from(bundle_token.is_some());
         let present = values.iter().filter(|v| !v.is_null()).count();
+        let absent_n = states.iter().filter(|s| **s == "absent").count();
         bands_out.insert(
             band.clone(),
             json!({
                 "unit": units.get(band).cloned().unwrap_or(JsonValue::Null),
                 "present": present,
+                "absent": absent_n,
                 "values": values,
+                "states": states,
                 "fact_cids": cids,
+                "absence_cids": absences,
                 "captured_at": captured,
                 "bundle_token": bundle_token,
             }),
@@ -57148,6 +57205,17 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
     }))
 }
 
+/// How long our own Absence stands as the answer before a recall asks
+/// upstream again. Six hours is well inside Sentinel-2's 2-5 day revisit, so
+/// no new scene is missed, and it turns a repeated recall of a cloudy area
+/// into cache hits. `EMEM_ABSENCE_RECHECK_SECS=0` re-asks every time.
+fn absence_recheck_secs() -> u64 {
+    std::env::var("EMEM_ABSENCE_RECHECK_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(21_600)
+}
+
 /// Global cap on concurrent band materialisations across the WHOLE process.
 /// Heavy upstream fetch + decode (JRC GFC2020's ~110 MB COG, SoilGrids
 /// per-point JSON, Hansen/MODIS tiles) otherwise piles up and starves the
@@ -86668,7 +86736,21 @@ mod tests {
         let south = emem_codec::latlng_from_cell64(&cells[2]).unwrap().lat_deg;
         assert!(north > south, "north row first");
         let mut want = Vec::new();
-        for (i, cell) in cells.iter().enumerate() {
+        // Three squares measured, the fourth a signed Absence (cloud in every
+        // scene tried): an answer, cited, and never shown as a value.
+        let absence = sign_band_absence(
+            &cells[3],
+            &s,
+            "indices.ndvi",
+            20000,
+            "sentinel_s2_l2a",
+            "https://example.org/SCL.tif",
+            &chrono_iso8601_utc(),
+            "s2_scl_pixel_unusable: test",
+        )
+        .await
+        .expect("absence");
+        for (i, cell) in cells.iter().enumerate().take(3) {
             let v = 0.1 * (i + 1) as f64;
             let fact = Fact::Primary(PrimaryFact {
                 cell: cell.clone(),
@@ -86717,7 +86799,11 @@ mod tests {
         .expect("grid");
         assert_eq!(g["cells"], json!(cells));
         let b = &g["bands"]["indices.ndvi"];
-        assert_eq!(b["present"], 4);
+        assert_eq!(b["present"], 3);
+        assert_eq!(b["absent"], 1);
+        assert_eq!(b["states"], json!(["value", "value", "value", "absent"]));
+        assert_eq!(b["values"][3], JsonValue::Null);
+        assert_eq!(b["absence_cids"][3], json!(absence.as_str()));
         for (i, (v, cid)) in want.iter().enumerate() {
             assert_eq!(b["values"][i].as_f64(), Some(*v));
             assert_eq!(b["fact_cids"][i], json!(cid));
