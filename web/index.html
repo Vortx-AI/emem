@@ -908,11 +908,35 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .cz-heat rect.absent{ fill:var(--rule-strong); fill-opacity:.35; }
 .cz-heat rect.cur{ fill:none; stroke:var(--ink); stroke-width:2.5; animation:none; }
 .cz-fig text{ font-family:var(--mono); font-size:var(--t-3xs); fill:currentColor; }
+.cz-fig .band{ fill:var(--paper); fill-opacity:.88; }
+.cz-fig rect.scanband{ fill:none; stroke:#7fd3ff; stroke-width:1.4; }
+.cz-fig path.c0{ stroke:#f2b35e; }
+.cz-fig path.c1{ stroke:#7fd3ff; }
+.cz-fig path.now{ stroke-width:2.6; }
+/* a small locator map in the picture's corner */
+.cz-vis > svg.cz-inset{ inset:auto; right:var(--s-2); bottom:var(--s-2); width:64px; height:64px; }
+.cz-vis > svg.cz-inset.wide{ width:96px; height:48px; }
+.cz-inset .frame{ fill:var(--paper); fill-opacity:.9; stroke:var(--rule-strong); }
+.cz-inset .grat{ stroke:var(--ink-2); stroke-opacity:.3; }
+.cz-inset circle.tile{ fill:var(--ink-2); fill-opacity:.45; }
+.cz-inset circle.pin{ fill:var(--accent); }
+.cz-inset circle.ring{ fill:none; stroke:var(--accent); stroke-width:1.4; transform-box:fill-box; transform-origin:center; }
+/* a scanned page, read one line at a time */
+.cz-doc{ position:absolute; inset:0 10%; background:var(--paper); border-left:1px solid var(--rule-strong);
+  border-right:1px solid var(--rule-strong); overflow:hidden; padding:2.6rem var(--s-3) 3.6rem; }
+.cz-doc ol{ list-style:none; margin:0; padding:0; transition:transform .4s ease; }
+.cz-doc li{ font-family:var(--mono); font-size:var(--t-3xs); line-height:1.6; color:var(--mute);
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding:0 4px; border-radius:2px; min-height:1.6em; }
+.cz-doc li.done{ color:var(--ink); }
+.cz-doc li.now{ color:var(--ink); background:var(--accent-bg); box-shadow:inset 3px 0 0 var(--accent); }
+.cz-doc li b{ color:var(--accent); font-weight:600; }
 /* motion, only while a slide runs and only when motion is wanted */
 .cz-slide.cz-on .kb{ animation:czkb 16s ease-in-out infinite alternate; }
 @keyframes czkb{ from{ transform:scale(1.02) translate(0, 0); } to{ transform:scale(1.22) translate(-5%, 3%); } }
 .cz-slide.cz-on .cz-heat rect{ animation:czin .5s ease both; }
 @keyframes czin{ from{ opacity:0; } to{ opacity:1; } }
+.cz-slide.cz-on .cz-inset circle.ring{ animation:czring 1.8s ease-out infinite; }
+@keyframes czring{ from{ transform:scale(.4); opacity:1; } to{ transform:scale(2.4); opacity:0; } }
 @media (max-width:640px){
   .cz-slide{ grid-template-columns:1fr; }
   .cz-vis{ min-height:0; aspect-ratio:16/10; border-right:0; border-bottom:1px solid var(--rule); }
@@ -924,7 +948,8 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 }
 @media (prefers-reduced-motion: reduce){
   .cz-track{ scroll-behavior:auto; }
-  .cz-slide.cz-on .kb, .cz-slide.cz-on .cz-heat rect{ animation:none; }
+  .cz-slide.cz-on .kb, .cz-slide.cz-on .cz-heat rect, .cz-slide.cz-on .cz-inset circle.ring{ animation:none; }
+  .cz-doc ol{ transition:none; }
 }
 
 /* ── The tokeniser: one low strip under the reel ────────────────────────── */
@@ -1067,7 +1092,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   <section class="cz" id="reel" aria-roledescription="carousel" aria-label="What emem carries">
     <div class="cz-track" id="czTrack" tabindex="0" aria-label="Slides; swipe or use the arrow keys">
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="1 of 13: space" data-kind="note" data-note="wkxa7tcmw2orf7ujjf5yi66dhe" data-thumb="cewrfxewtujjvuibt35yhk6hwi" data-draw="strips">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="1 of 19: space" data-kind="note" data-note="wkxa7tcmw2orf7ujjf5yi66dhe" data-thumb="cewrfxewtujjvuibt35yhk6hwi" data-draw="strips">
         <figure class="cz-vis dark"><canvas class="kb" width="320" height="200" role="img" aria-label="The Cosmic Cliffs in Carina, from Webb, drawn from strips whose bytes were hashed"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
           <ul class="cz-tags"><li>space</li><li>Webb</li><li class="tt">emem:tree</li></ul>
           <p class="cz-size" data-size><b>143.7 MB</b><i>&rarr;</i><b>15.3 kB</b><span>the TIFF at esawebb.org &rarr; what an agent reads</span></p></figure>
@@ -1080,7 +1105,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="2 of 13: robotics" data-kind="note" data-note="qcoylkllqzfqnsinn4af5i2mi4" data-thumb="n4ggrilp564puezzmriopxssse" data-draw="keyframes">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="2 of 19: robotics" data-kind="note" data-note="qcoylkllqzfqnsinn4af5i2mi4" data-thumb="n4ggrilp564puezzmriopxssse" data-draw="keyframes">
         <figure class="cz-vis dark"><canvas width="320" height="200" role="img" aria-label="An ALOHA robot making coffee: 12 keyframes decoded from hashed bytes"></canvas>
           <ul class="cz-tags"><li>robotics</li><li>MP4</li><li class="tt">emem:tree</li></ul>
           <p class="cz-size" data-size><b>502.5 MB</b><i>&rarr;</i><b>3.2 kB</b><span>the episode on Hugging Face &rarr; what an agent reads</span></p></figure>
@@ -1093,7 +1118,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="3 of 13: earth" data-kind="note" data-note="gkc2jap4r47zgs4t2sja4qderu" data-thumb="nvps75wnuzshrb7moubmggfzom" data-draw="timelapse" data-entity="5pitnkcnle3cq6yldbffj52zja">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="3 of 19: earth" data-kind="note" data-note="gkc2jap4r47zgs4t2sja4qderu" data-thumb="nvps75wnuzshrb7moubmggfzom" data-draw="timelapse" data-entity="5pitnkcnle3cq6yldbffj52zja">
         <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="The Amazon frontier in Rond&ocirc;nia, true colour, 2017 to 2025"></canvas>
           <ul class="cz-tags"><li>earth</li><li>timelapse</li><li class="tt">emem:rasterset</li><li class="tt">emem:cube</li><li class="tt">emem:entity</li></ul>
           <p class="cz-size" data-size><b>15 rasters</b><i>&rarr;</i><b>120 B</b><span>signed Sentinel-2 rasters &rarr; one token</span></p></figure>
@@ -1106,7 +1131,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="4 of 13: AI model" data-kind="note" data-note="amii4tnpkfoofsyzrbbs2vxsj4" data-draw="tensors">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="4 of 19: AI model" data-kind="note" data-note="amii4tnpkfoofsyzrbbs2vxsj4" data-draw="tensors">
         <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="GPT-2&rsquo;s 160 tensors, one square each, lit as their bytes are hashed"></svg>
           <ul class="cz-tags"><li>AI model</li><li>safetensors</li><li class="tt">emem:tree</li></ul>
           <p class="cz-size" data-size><b>548.1 MB</b><i>&rarr;</i><b>19.7 kB</b><span>GPT-2 weights on Hugging Face &rarr; what an agent reads</span></p></figure>
@@ -1119,7 +1144,20 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="5 of 13: 3D splats" data-kind="splat" data-world="world_lahaul">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="5 of 19: maps" data-kind="note" data-note="ppdqanaf7ufpxedvwdrwuqhf5u" data-thumb="nurixabv76sxwnyxfmmfl62sra" data-draw="tiles">
+        <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Elevation tiles from a 30.5 GB map of the whole Earth, each drawn from bytes checked against its name"></canvas><svg class="cz-fig cz-inset" viewBox="0 0 100 100" aria-hidden="true"></svg>
+          <ul class="cz-tags"><li>maps</li><li>PMTiles</li><li class="tt">emem:tree</li></ul>
+          <p class="cz-size" data-size><b>30.54 GB</b><i>&rarr;</i><b>2.4 kB</b><span>the whole-Earth terrain map &rarr; what an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; maps</p>
+          <h3 class="cz-noun">The whole Earth&rsquo;s terrain, 349,525 tiles</h3>
+          <ul class="cz-verbs"><li>read directory</li><li>hash<i>&times;12</i></li><li>place</li><li>prove a row</li></ul>
+          <p class="cz-read" data-read>emem:tree:ppdqanaf7ufpxedvwdrwuqhf5u</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fppdqanaf7ufpxedvwdrwuqhf5u.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="6 of 19: 3D splats" data-kind="splat" data-world="world_lahaul">
         <figure class="cz-vis dark"><canvas width="560" height="440" role="img" aria-label="A hillside above Keylong, Lahaul, as 66,560 Gaussian splats turning"></canvas>
           <ul class="cz-tags"><li>3D splats</li><li>.splat</li><li class="tt">emem:raster</li><li class="tt">emem:bundle</li></ul>
           <p class="cz-size" data-size><b>3.2 MB</b><i>&rarr;</i><b>139 B</b><span>the splat file &rarr; the signed field it grew from</span></p></figure>
@@ -1132,7 +1170,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="6 of 13: video" data-kind="note" data-note="t7ebh6s6imxrwdmizebnw52nwe" data-drawn="o7rm7ykhf2zl2tizeo42efc57e" data-draw="clips">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="7 of 19: video" data-kind="note" data-note="t7ebh6s6imxrwdmizebnw52nwe" data-drawn="o7rm7ykhf2zl2tizeo42efc57e" data-draw="clips">
         <figure class="cz-vis dark"><video muted playsinline preload="auto" aria-label="London traffic camera clips, each checked against its sha256"></video>
           <ul class="cz-tags"><li>video</li><li>CCTV</li><li class="tt">note cid</li></ul>
           <p class="cz-size" data-size><b>12 clips</b><i>&rarr;</i><b>6.2 kB</b><span>12 camera clips &rarr; what an agent reads</span></p></figure>
@@ -1145,7 +1183,20 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="7 of 13: medical" data-kind="note" data-note="elk3oajsbjlws4ad4up7ha7rey" data-thumb="cmqw3ycfppltxw6hsoavs7bh4m" data-draw="scan">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="8 of 19: climate" data-kind="note" data-note="o2iyw5aexedv7sneir7sgng4fm" data-thumb="5tzuj4g3ed4cwudrzgk3ym5pri" data-draw="records">
+        <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Ozone from a GISS climate model run, 1950 to 1990, drawn from hashed records"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+          <ul class="cz-tags"><li>climate</li><li>NetCDF</li><li class="tt">emem:tree</li></ul>
+          <p class="cz-size" data-size><b>1.05 GB</b><i>&rarr;</i><b>4.8 kB</b><span>41 years of a climate model &rarr; what an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; climate</p>
+          <h3 class="cz-noun">Ozone, 41 years of a climate model</h3>
+          <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;22</i></li><li>stat</li><li>prove a row</li></ul>
+          <p class="cz-read" data-read>emem:tree:o2iyw5aexedv7sneir7sgng4fm</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fo2iyw5aexedv7sneir7sgng4fm.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="9 of 19: medical" data-kind="note" data-note="elk3oajsbjlws4ad4up7ha7rey" data-thumb="cmqw3ycfppltxw6hsoavs7bh4m" data-draw="scan">
         <figure class="cz-vis dark"><canvas width="320" height="200" role="img" aria-label="A CT slice through a vertebra, drawn from hashed pixel blocks"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
           <ul class="cz-tags"><li>medical</li><li>DICOM</li><li class="tt">emem:tree</li></ul>
           <p class="cz-size" data-size><b>39.2 kB</b><i>&rarr;</i><b>1.3 kB</b><span>the DICOM file &rarr; what an agent reads</span></p></figure>
@@ -1158,7 +1209,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="8 of 13: code" data-kind="note" data-note="5otn33skohjocfbhychddlovme" data-draw="sections">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="10 of 19: code" data-kind="note" data-note="5otn33skohjocfbhychddlovme" data-draw="sections">
         <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="express v5.2.1 as 45 sections, each block sized by its tokens"></svg>
           <ul class="cz-tags"><li>code</li><li>git repo</li><li class="tt">note cid</li></ul>
           <p class="cz-size" data-size><b>~182k tok</b><i>&rarr;</i><b>20.8 kB</b><span>178 files of express &rarr; the index an agent reads</span></p></figure>
@@ -1171,7 +1222,20 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="9 of 13: earth" data-kind="fact" data-cell="defi.zb521.jawI.gOze" data-note="gpnxkvkwz22ug4jeqexggiy63q" data-thumb="spx3yyqmt77lpp4nv4movoj434">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="11 of 19: photo" data-kind="note" data-note="rcv34ptfbsoynlzs6yjxtchpwe" data-thumb="n7c42b47aadn4dujjjk7owz47e" data-draw="photo">
+        <figure class="cz-vis"><canvas class="kb" width="320" height="200" role="img" aria-label="A holiday photo from Tuscany, 2008, placed by its own EXIF"></canvas><svg class="cz-fig cz-inset wide" viewBox="0 0 200 100" aria-hidden="true"></svg>
+          <ul class="cz-tags"><li>photo</li><li>JPEG &middot; EXIF</li><li class="tt">emem:tree</li><li class="tt">emem:fact</li><li class="tt">emem:cell</li></ul>
+          <p class="cz-size" data-size><b>161.7 kB</b><i>&rarr;</i><b>1.7 kB</b><span>the photo &rarr; what an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; photo</p>
+          <h3 class="cz-noun">A holiday photo, placed by its EXIF</h3>
+          <ul class="cz-verbs"><li>read EXIF</li><li>hash</li><li>place</li><li>verify<i>&times;3 facts</i></li></ul>
+          <p class="cz-read" data-read>emem:tree:rcv34ptfbsoynlzs6yjxtchpwe</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Frcv34ptfbsoynlzs6yjxtchpwe.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="12 of 19: earth" data-kind="fact" data-cell="defi.zb521.jawI.gOze" data-note="gpnxkvkwz22ug4jeqexggiy63q" data-thumb="spx3yyqmt77lpp4nv4movoj434">
         <figure class="cz-vis"><canvas width="320" height="200" role="img" aria-label="Lusail, Qatar, rising from sand, 2017 to 2025"></canvas>
           <ul class="cz-tags"><li>earth</li><li>timelapse</li><li class="tt">emem:fact</li><li class="tt">emem:cell</li></ul>
           <p class="cz-size" data-size><b>1 reading</b><i>&rarr;</i><b>~72 B</b><span>a signed elevation &rarr; its token</span></p></figure>
@@ -1184,7 +1248,20 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="10 of 13: lidar" data-kind="note" data-note="jjyznjvil64vzygbs6mxceszbu" data-draw="octree">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="13 of 19: microscopy" data-kind="note" data-note="54t6krywa6eeklzpapklpuhqau" data-draw="zstack">
+        <figure class="cz-vis dark"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="A microscope volume from the Image Data Resource: the z-slices whose chunks were hashed, turning"></svg>
+          <ul class="cz-tags"><li>microscopy</li><li>OME-Zarr</li><li class="tt">emem:tree</li></ul>
+          <p class="cz-size" data-size><b>~28.5 MB</b><i>&rarr;</i><b>11.5 kB</b><span>a 3D microscope image at EMBL-EBI &rarr; what an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; microscopy</p>
+          <h3 class="cz-noun">A cell volume, 236 slices deep</h3>
+          <ul class="cz-verbs"><li>read .zattrs</li><li>hash<i>&times;60</i></li><li>stack</li><li>prove a row</li></ul>
+          <p class="cz-read" data-read>emem:tree:54t6krywa6eeklzpapklpuhqau</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2F54t6krywa6eeklzpapklpuhqau.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="14 of 19: lidar" data-kind="note" data-note="jjyznjvil64vzygbs6mxceszbu" data-draw="octree">
         <figure class="cz-vis dark"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="The Autzen lidar octree: the nodes whose bytes were hashed, turning"></svg>
           <ul class="cz-tags"><li>lidar</li><li>COPC</li><li class="tt">emem:tree</li></ul>
           <p class="cz-size" data-size><b>81.1 MB</b><i>&rarr;</i><b>2.2 kB</b><span>10.6 million points on S3 &rarr; what an agent reads</span></p></figure>
@@ -1197,7 +1274,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="11 of 13: research" data-kind="note" data-note="5k4rsdbh3oe3zudjanr42mh6wy" data-draw="pages">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="15 of 19: research" data-kind="note" data-note="5k4rsdbh3oe3zudjanr42mh6wy" data-draw="pages">
         <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="Attention Is All You Need: 15 pages in 3 named sections"></svg>
           <ul class="cz-tags"><li>research</li><li>PDF</li><li class="tt">note cid</li></ul>
           <p class="cz-size" data-size><b>~9.5k tok</b><i>&rarr;</i><b>1.4 kB</b><span>a 15-page paper &rarr; the index an agent reads</span></p></figure>
@@ -1210,7 +1287,33 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="12 of 13: earth" data-kind="grid" data-center="12.9763,77.5929">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="16 of 19: planets" data-kind="note" data-note="fi67bt4rxkic3ssuag2v2hskly" data-thumb="2wxof63h5p3hrmzatw7mam2mom" data-draw="swatches">
+        <figure class="cz-vis dark"><canvas class="kb" width="320" height="200" role="img" aria-label="Mars from Hubble, 28 and 29 December 2024, drawn from strips whose bytes were hashed"></canvas><svg class="cz-fig" viewBox="0 0 320 200" preserveAspectRatio="xMidYMid slice" aria-hidden="true"></svg>
+          <ul class="cz-tags"><li>planets</li><li>Hubble</li><li class="tt">emem:tree</li></ul>
+          <p class="cz-size" data-size><b>2.0 MB</b><i>&rarr;</i><b>6.0 kB</b><span>the TIFF at esahubble.org &rarr; what an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; planets</p>
+          <h3 class="cz-noun">Mars, two nights in December 2024</h3>
+          <ul class="cz-verbs"><li>read header</li><li>hash<i>&times;35</i></li><li>colour</li><li>prove a row</li></ul>
+          <p class="cz-read" data-read>emem:tree:fi67bt4rxkic3ssuag2v2hskly</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Ffi67bt4rxkic3ssuag2v2hskly.md" data-go target="_blank" rel="noopener noreferrer">open the pointer</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="17 of 19: documents" data-kind="note" data-note="g6u3kpc4varj6epnzcbxkqmpyi" data-draw="ocr">
+        <figure class="cz-vis"><div class="cz-doc" role="img" aria-label="A scanned sample invoice, its OCR text read one line at a time"><ol></ol></div>
+          <ul class="cz-tags"><li>documents</li><li>OCR</li><li class="tt">note cid</li></ul>
+          <p class="cz-size" data-size><b>1 scanned page</b><i>&rarr;</i><b>468 B</b><span>a sample invoice scan &rarr; the text an agent reads</span></p></figure>
+        <div class="cz-txt">
+          <p class="cz-kind" data-state><span class="live">live</span> &middot; documents</p>
+          <h3 class="cz-noun">A scanned invoice, read and added up</h3>
+          <ul class="cz-verbs"><li>OCR</li><li>hash</li><li>add up<i>here</i></li><li>flag</li></ul>
+          <p class="cz-read" data-read>note g6u3kpc4varj6epnzcbxkqmpyi</p>
+          <div class="cz-acts"><button type="button" class="cz-copy" data-agent>copy for agents</button><a class="cz-go" href="https://vortx-ai.github.io/ememdemo/?s=https%3A%2F%2Femem.dev%2Fmemories%2Fby_attester%2Fddzmyzhn%2Fg6u3kpc4varj6epnzcbxkqmpyi.md" data-go target="_blank" rel="noopener noreferrer">open the text</a></div>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="18 of 19: earth" data-kind="grid" data-center="12.9763,77.5929">
         <figure class="cz-vis"><svg class="cz-heat" viewBox="0 0 256 256" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Vegetation over central Bengaluru as 144 signed squares"></svg>
           <ul class="cz-tags"><li>earth</li><li>grid</li><li class="tt">emem:bundle</li></ul>
           <p class="cz-size" data-size><b>144 squares</b><i>&rarr;</i><b>38 B</b><span>signed NDVI squares &rarr; one bundle token</span></p></figure>
@@ -1223,7 +1326,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="13 of 13: devices" data-kind="trace" data-token="emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="19 of 19: devices" data-kind="trace" data-token="emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a">
         <figure class="cz-vis"><svg class="cz-fig" viewBox="0 0 320 200" role="img" aria-label="A Linux host&rsquo;s kernel trace in four chained layers"></svg>
           <ul class="cz-tags"><li>devices</li><li>ftrace</li><li class="tt">emem:trace</li></ul>
           <p class="cz-size" data-size><b>13,870 events</b><i>&rarr;</i><b>63 B</b><span>a machine&rsquo;s kernel trace &rarr; one token</span></p></figure>
@@ -2178,7 +2281,8 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
     var O = location.origin;
     function agentNote(n, what){
       var h = n.head, L = ['emem note ' + n.cid + (what ? ' · ' + what : '')];
-      if(h.source) L.push('source: ' + h.source + (h.bytes ? ' (' + (+h.bytes).toLocaleString('en') + ' bytes)' : ''));
+      var nb = +h.bytes, ab = /^about (\d+)/.exec(h.bytes || '');
+      if(h.source) L.push('source: ' + h.source + (nb ? ' (' + nb.toLocaleString('en') + ' bytes)' : ab ? ' (about ' + (+ab[1]).toLocaleString('en') + ' bytes)' : ''));
       L.push('read: GET ' + O + noteUrl(n.cid) + '  check base32(blake3(bytes))[0:26] == ' + n.cid);
       if(h.emem === 'pointer.v1'){
         L.push('proof: GET ' + O + '/v1/tree/' + n.cid + '?row=<i>  token emem:tree:' + n.cid + '#row=<i>');
@@ -2226,6 +2330,39 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         hold = 0; t.show(t.i + 1); if(onShow) onShow(t.i);
       });
     }
+
+    /* One row of a pointer, proved in this tab: rebuild its leaf from the
+       note's own table, fold the audit path from /v1/tree, compare with the
+       root the note states. Cached per row, so a slide that comes round again
+       asks nothing twice. */
+    var proofC = {};
+    function proveRow(n, all, ri){
+      var key = n.cid + '#' + ri;
+      if(proofC[key]) return proofC[key];
+      var p = Promise.all([core(), fetch('/v1/tree/' + n.cid + '?row=' + ri).then(json)]).then(function(x){
+        var I = x[0], t = x[1], r = all[ri];
+        var leaf = I.blake3(cat(enc.encode(r[1] === '·' ? '' : r[1]), be(+r[2], 8), be(+r[3], 8), I.b32decode(r[4])));
+        var h = leaf;
+        (t.path || []).forEach(function(st){ var q = I.b32decode(st.hash_b32); h = st.side === 'left' ? I.blake3(cat(q, h)) : I.blake3(cat(h, q)); });
+        return b32(leaf) === t.leaf_b32 && b32(h) === n.head.root && t.root_b32 === n.head.root;
+      });
+      proofC[key] = p;
+      p.catch(function(){ delete proofC[key]; });
+      return p;
+    }
+    function proofHtml(ri, ok){
+      return '<br>' + (ok ? '<span class="ok">&#10003; row ' + ri + ' proved to the root in this tab</span>' : '<span class="no">&#10007; row ' + ri + ' did not prove to the root</span>');
+    }
+    /* say(i) redraws the text for item i, then again once its row is proved */
+    function sayProved(s, n, all, head){
+      return function(q, line){
+        var base = head() + '<br>' + line;
+        read(s, base);
+        proveRow(n, all, q.row).then(function(ok){ if(s._cur === q) read(s, base + proofHtml(q.row, ok)); }).catch(function(){});
+        s._cur = q;
+      };
+    }
+    function ll(lat, lon){ return Math.abs(lat).toFixed(2) + '&deg;' + (lat < 0 ? 'S' : 'N') + ' ' + Math.abs(lon).toFixed(2) + '&deg;' + (lon < 0 ? 'W' : 'E'); }
 
     var draws = {
       /* Webb: the strips the pointer hashed, lit where they sit in the image */
@@ -2297,14 +2434,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         /* one row, proved in this tab: rebuild its leaf from the note's own
            table, fold the audit path from /v1/tree, compare with the root */
         var pick = hashed[4] || hashed[0];
-        if(pick) Promise.all([core(), fetch('/v1/tree/' + n.cid + '?row=' + pick.row).then(json)]).then(function(x){
-          var I = x[0], p = x[1], r = all[pick.row];
-          var leaf = I.blake3(cat(enc.encode(r[1] === '·' ? '' : r[1]), be(+r[2], 8), be(+r[3], 8), I.b32decode(r[4])));
-          var h = leaf;
-          (p.path || []).forEach(function(st){ var q = I.b32decode(st.hash_b32); h = st.side === 'left' ? I.blake3(cat(q, h)) : I.blake3(cat(h, q)); });
-          var ok = b32(leaf) === p.leaf_b32 && b32(h) === n.head.root && p.root_b32 === n.head.root;
-          s._proof = '<br>' + (ok ? '<span class="ok">&#10003; row ' + pick.row + ' proved to the root in this tab</span>' : '<span class="no">&#10007; row ' + pick.row + ' did not prove to the root</span>');
-        }).catch(function(){});
+        if(pick) proveRow(n, all, pick.row).then(function(ok){ s._proof = proofHtml(pick.row, ok); }).catch(function(){});
       },
       /* the CT slice: a sweep across the hashed pixel blocks */
       scan:function(s, n){
@@ -2420,6 +2550,203 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         show(0);
         anim(s, function(){ if(v.src && !drawn) v.play().catch(function(){}); }, function(){ v.pause(); });
         every(s, 3600, function(){ i++; show(i); });
+      },
+      /* the Earth's terrain: the tiles the pointer hashed, one frame each,
+         and where each tile sits on the map */
+      tiles:function(s, n, t){
+        var all = rows(n.text), tl = [], ins = s.querySelector('svg.cz-inset');
+        all.forEach(function(r, ri){ var m = r[0].match(/^tile (\d+)\/(\d+)\/(\d+)$/); if(m) tl.push({ z:+m[1], x:+m[2], y:+m[3], row:ri, r:r }); });
+        if(!tl.length) return;
+        el('rect', { x:.5, y:.5, width:99, height:99, 'class':'frame' }, ins);
+        el('path', { d:'M0,50H100M25,0V100M50,0V100M75,0V100', 'class':'grat' }, ins);
+        tl.forEach(function(q){ var k = Math.pow(2, q.z); el('circle', { cx:((q.x + .5) / k * 100).toFixed(1), cy:((q.y + .5) / k * 100).toFixed(1), r:2.5, 'class':'tile' }, ins); });
+        var box = el('rect', { 'class':'lit' }, ins), ring = el('circle', { r:9, 'class':'ring' }, ins);
+        var tot = (n.text.match(/([\d,]+) distinct tiles/) || [])[1] || '';
+        var say = sayProved(s, n, all, function(){ return 'emem:tree:' + n.cid + (tot ? ' &middot; ' + tot + ' tiles, zoom 0&ndash;9' : ''); });
+        function show(i){
+          var q = tl[i % tl.length], k = Math.pow(2, q.z), w = Math.max(7, 100 / k);
+          box.setAttribute('x', ((q.x + .5) / k * 100 - w / 2).toFixed(1)); box.setAttribute('y', ((q.y + .5) / k * 100 - w / 2).toFixed(1));
+          box.setAttribute('width', w.toFixed(1)); box.setAttribute('height', w.toFixed(1));
+          ring.setAttribute('cx', ((q.x + .5) / k * 100).toFixed(1)); ring.setAttribute('cy', ((q.y + .5) / k * 100).toFixed(1));
+          var lon = (q.x + .5) / k * 360 - 180, lat = Math.atan(Math.sinh(Math.PI * (1 - 2 * (q.y + .5) / k))) * 180 / Math.PI;
+          say(q, 'tile <b>' + q.z + '/' + q.x + '/' + q.y + '</b> &middot; ' + ll(lat, lon) + ' &middot; ' + mb(+q.r[3]));
+        }
+        show(0);
+        if(t && t.k === tl.length) flip(s, t, 1100, show);
+        else { var i = 0; every(s, 1100, function(){ show(++i); }); }
+      },
+      /* the ozone run: every monthly record on one line, the hashed ones lit,
+         and a cursor sweeping the 41 years */
+      records:function(s, n){
+        var svg = s.querySelector('svg.cz-fig'), all = rows(n.text), rec = [];
+        all.forEach(function(r, ri){
+          var m = r[0].match(/^variable (\S+) float\[[^\]]+\] record (\d+)$/);
+          if(m) rec.push({ v:m[1], k:+m[2], row:ri, r:r, mean:+((r[5] || '').match(/mean ([-\d.e]+)/) || [])[1] });
+        });
+        var N = +((n.text.match(/time (\d+) \(records\)/) || [])[1] || 0), y0 = +((n.text.match(/_(\d{4})\d\d-\d{6}\.nc/) || [])[1] || 0);
+        if(!N || !rec.length) return;
+        rec.sort(function(a, b){ return a.k - b.k; });
+        var X0 = 60, W = 200, Y = 150;
+        el('rect', { x:X0 - 8, y:Y - 14, width:W + 16, height:28, rx:3, 'class':'band' }, svg);
+        el('rect', { x:X0, y:Y - 2, width:W, height:4, rx:1, 'class':'lane' }, svg);
+        for(var yr = 0; yr * 12 <= N; yr += 10) el('rect', { x:X0 + yr * 12 / N * W - .5, y:Y - 5, width:1, height:10, 'class':'lane' }, svg);
+        rec.forEach(function(q){ q.mark = el('rect', { x:X0 + (q.k + .5) / N * W - 1.5, y:Y - 8, width:3, height:16, rx:1, 'class':'lit' }, svg); });
+        var cur = el('line', { x1:X0, x2:X0, y1:Y - 12, y2:Y + 12, 'class':'scan' }, svg);
+        var mol = n.text.indexOf(rec[0].v + ' (mol mol-1)') >= 0;
+        function when(k){ return y0 ? (y0 + Math.floor(k / 12)) + '-' + ('0' + (k % 12 + 1)).slice(-2) : 'month ' + k; }
+        var say = sayProved(s, n, all, function(){ return 'emem:tree:' + n.cid + '<br>' + N + ' monthly records' + (y0 ? ', ' + y0 + '&ndash;' + (y0 + Math.ceil(N / 12) - 1) : '') + ' &middot; ' + rec.length + ' hashed'; });
+        var on = null;
+        function pick(q){
+          if(q === on) return;
+          if(on) on.mark.setAttribute('class', 'lit');
+          on = q; q.mark.setAttribute('class', 'lit now');
+          say(q, 'record <b>' + q.k + '</b> &middot; ' + when(q.k) + ' &middot; ' + esc(q.v) + ' mean <b>' +
+            (mol && isFinite(q.mean) ? (q.mean * 1e6).toFixed(3) + ' ppm' : esc(q.r[5] || '')) + '</b>');
+        }
+        var m = RM.matches ? rec[0].k : 0;
+        function at(){
+          cur.setAttribute('x1', X0 + Math.min(m, N) / N * W); cur.setAttribute('x2', X0 + Math.min(m, N) / N * W);
+          var q = null; rec.forEach(function(r){ if(r.k <= m) q = r; });
+          pick(q || rec[0]);
+        }
+        at();
+        frame(s, function(){ m = (m + 1.4) % (N + 40); at(); });
+      },
+      /* the photo: placed by its own EXIF, and the signed facts at that
+         place, each receipt checked in this tab */
+      photo:function(s, n){
+        var ins = s.querySelector('svg.cz-inset');
+        var p = n.text.match(/^- at ([-\d.]+), ([-\d.]+) \(from its EXIF\)$/m);
+        var bl = n.text.match(/^- .+$/mg) || [], cam = bl.length ? bl[0].slice(2) : '';
+        var taken = (n.text.match(/^- taken (.+)$/m) || [])[1] || '';
+        var F = [];
+        n.text.split('\n').forEach(function(l){ var m = l.match(/^- (\S+) (.+?): (emem:fact:([^:\s]+):([a-z2-7]{52}))$/); if(m) F.push({ band:m[1], shown:m[2], tok:m[3], cell:m[4], cid:m[5] }); });
+        if(!p || !F.length) return;
+        var lat = +p[1], lon = +p[2], px = (lon + 180) / 360 * 200, py = (90 - lat) / 180 * 100;
+        el('rect', { x:.5, y:.5, width:199, height:99, 'class':'frame' }, ins);
+        el('path', { d:'M0,50H200M0,25H200M0,75H200M50,0V100M100,0V100M150,0V100', 'class':'grat' }, ins);
+        el('circle', { cx:px, cy:py, r:9, 'class':'ring' }, ins);
+        el('circle', { cx:px, cy:py, r:6, 'class':'pin' }, ins);
+        var head = esc(cam) + (taken ? ' &middot; ' + esc(taken) : '') + '<br>' + ll(lat, lon) + ' &middot; emem:cell:' + esc(F[0].cell);
+        F.forEach(function(f){
+          f.st = 'checking the signature&hellip;';
+          f.p = Promise.all([core(), pin(), fetch('/v1/memory_token/resolve', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ token:f.tok }) }).then(json)])
+            .then(function(x){
+              var d = x[2], rc = d.receipt, r = rc && globalThis.ememVerify.verifyReceipt(rc);
+              var dec = (f.shown.match(/\.(\d+)/) || ['', ''])[1].length, v = parseFloat(f.shown);
+              var same = typeof d.value === 'number' && Math.abs(d.value - v) <= 0.5 * Math.pow(10, -dec) + 1e-9;
+              var ok = r && r.ok && rc.responder_pubkey_b32 === x[1] && (rc.fact_cids || []).indexOf(f.cid) >= 0 && d.cell === f.cell && same;
+              f.st = ok ? '<span class="ok">&#10003; signature and value checked in this tab</span>'
+                : '<span class="no">&#10007; did not verify: ' + esc((r && !r.ok && r.state) || (same ? 'receipt does not bind this fact' : 'value differs from the note')) + '</span>';
+            })
+            .catch(function(e){ f.st = '<span class="no">' + esc(e.message || 'the fact did not resolve') + '</span>'; });
+        });
+        var i = 0;
+        function show(){
+          var f = F[i % F.length];
+          read(s, head + '<br><b>' + esc(f.band) + ' ' + esc(f.shown) + '</b> &middot; ' + f.st);
+        }
+        show();
+        F[0].p.then(show);
+        every(s, 2600, function(){ i++; show(); });
+        s._agent += '\nplaced at ' + lat + ', ' + lon + ' (from its EXIF), cell emem:cell:' + F[0].cell +
+          '\nsigned facts at that place:\n' + F.map(function(f){ return '  ' + f.band + ' ' + f.shown + '  ' + f.tok; }).join('\n') +
+          '\nresolve a fact: POST ' + O + '/v1/memory_token/resolve {"token":"<fact>"}';
+      },
+      /* the microscope volume: each hashed chunk is one z-slice at its depth,
+         smaller at each coarser level, and the stack turns */
+      zstack:function(s, n){
+        var svg = s.querySelector('svg.cz-fig'), all = rows(n.text), pl = [];
+        var d = ((n.text.match(/^- (\d+)×(\d+)×(\d+)×(\d+) \(c, z, y, x\)/m) || []).slice(1)).map(Number);
+        all.forEach(function(r, ri){ var m = r[0].match(/^level (\d+) chunk (\d+),(\d+),(\d+),(\d+)$/); if(m) pl.push({ L:+m[1], c:+m[2], z:+m[3], row:ri, r:r }); });
+        if(d.length < 4 || !pl.length) return;
+        var M = Math.max(d[1], d[2], d[3]), bx = d[3] / M, by = d[2] / M, bz = d[1] / M;
+        var E = [[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+        var box = el('path', {}, svg);
+        pl.forEach(function(q){ q.p = el('path', { 'class':q.c ? 'c1' : 'c0' }, svg); });
+        var a = 0.6, j = RM.matches ? pl.length - 1 : 0;
+        function draw(){
+          var ca = Math.cos(a), sa = Math.sin(a), ce = Math.cos(0.5), se = Math.sin(0.5);
+          function P(X, Y, Z){ var xr = X * ca - Y * sa, yr = X * sa + Y * ca; return (160 + xr * 118).toFixed(1) + ',' + (104 + (yr * se - Z * ce) * 118 * 0.8).toFixed(1); }
+          var C = [];
+          for(var c = 0; c < 8; c++) C.push(P((c & 1 ? .5 : -.5) * bx, (c & 2 ? .5 : -.5) * by, (c & 4 ? .5 : -.5) * bz));
+          box.setAttribute('d', E.map(function(e){ return 'M' + C[e[0]] + 'L' + C[e[1]]; }).join(''));
+          pl.forEach(function(q){
+            var k = 1 / Math.pow(2, q.L), hx = bx * k / 2, hy = by * k / 2, Z = (q.z / Math.max(1, d[1] - 1) - .5) * bz;
+            q.p.setAttribute('d', 'M' + P(-hx, -hy, Z) + 'L' + P(hx, -hy, Z) + 'L' + P(hx, hy, Z) + 'L' + P(-hx, hy, Z) + 'Z');
+          });
+        }
+        var say = sayProved(s, n, all, function(){ return 'emem:tree:' + n.cid + '<br>' + d.join('&times;') + ' (c, z, y, x) &middot; ' + pl.length + ' chunks hashed'; });
+        function show(){
+          pl.forEach(function(q, k){ q.p.setAttribute('class', (q.c ? 'c1' : 'c0') + (k === j ? ' now' : '')); });
+          var q = pl[j];
+          say(q, 'level <b>' + q.L + '</b> &middot; channel ' + q.c + ' &middot; slice ' + q.z + ' of ' + d[1] + ' &middot; ' + mb(+q.r[3]));
+        }
+        draw(); show();
+        frame(s, function(){ a += 0.01; draw(); });
+        every(s, 900, function(){ j = (j + 1) % pl.length; show(); });
+      },
+      /* Mars: a band walks down the strips the pointer hashed, and each
+         strip's measured mean colour lands in the column between the disks */
+      swatches:function(s, n){
+        var svg = s.querySelector('svg.cz-fig'), all = rows(n.text), st = [];
+        var H = +((n.text.match(/^- \d+×(\d+) px/m) || [])[1] || 0);
+        all.forEach(function(r, ri){
+          var m = r[0].match(/^strip (\d+) rows (\d+)…(\d+)$/), c = (r[5] || '').match(/mean RGB (\d+), (\d+), (\d+)/);
+          if(m && c) st.push({ i:+m[1], a:+m[2], b:+m[3], rgb:c.slice(1).join(', '), row:ri });
+        });
+        if(!H || !st.length) return;
+        st.forEach(function(q){ q.sw = el('rect', { x:152, y:(q.a / H * 200).toFixed(2), width:16, height:Math.max(1, (q.b - q.a + 1) / H * 200).toFixed(2), fill:'rgb(' + q.rgb + ')' }, svg); });
+        var band = el('rect', { x:-2, width:324, 'class':'scanband' }, svg);
+        var j = RM.matches ? st.length - 1 : 0, mid = st[Math.floor(st.length / 2)];
+        function paint(){
+          var q = st[Math.min(j, st.length - 1)];
+          st.forEach(function(r, k){ r.sw.setAttribute('opacity', k <= j ? '1' : '0'); });
+          band.setAttribute('y', q.a / H * 200); band.setAttribute('height', (q.b - q.a + 1) / H * 200);
+          band.setAttribute('opacity', RM.matches || j >= st.length ? '0' : '1');
+          read(s, 'emem:tree:' + n.cid + '<br>strip <b>' + q.i + '</b> &middot; rows ' + q.a + '&ndash;' + q.b + ' &middot; mean RGB ' + esc(q.rgb) + (s._proof || ''));
+        }
+        paint();
+        every(s, 220, function(){ j = j >= st.length + 8 ? 0 : j + 1; paint(); });
+        proveRow(n, all, mid.row).then(function(ok){ s._proof = proofHtml(mid.row, ok); paint(); }).catch(function(){});
+      },
+      /* the invoice: its OCR text line by line, and the arithmetic an agent
+         would do, done here: quantity times price per line, then the sum
+         against the stated total */
+      ocr:function(s, n){
+        var doc = s.querySelector('.cz-doc'), ol = doc.querySelector('ol');
+        var L = n.text.replace(/^---\n[\s\S]*?\n---\n/, '').split('\n').filter(function(l){ return l.trim() && !/^\[page \d+\]$/.test(l); });
+        if(!L.length) return;
+        function cents(t){ return Math.round(parseFloat(t.replace(/,/g, '')) * 100); }
+        function money(c){ return (c / 100).toLocaleString('en', { minimumFractionDigits:2 }); }
+        var sum = 0, items = 0, total = '';
+        var Q = L.map(function(l){
+          var e = document.createElement('li'), m = l.match(/^(.+?) (\S+) ([\d,]+\.\d\d) ([\d,]+\.\d\d)$/), t = l.match(/^Total due: ([\d,]+\.\d\d)/), q = { e:e };
+          e.innerHTML = m ? esc(m[1] + ' ' + m[2] + ' ' + m[3] + ' ') + '<b>' + esc(m[4]) + '</b>' : t ? esc(l).replace(esc(t[1]), '<b>' + esc(t[1]) + '</b>') : esc(l);
+          if(m){
+            var amt = cents(m[4]); sum += amt; items++;
+            q.say = /^\d+$/.test(m[2]) ? m[2] + ' &times; ' + esc(m[3]) + (+m[2] * cents(m[3]) === amt ? ' = ' + esc(m[4]) + ' <span class="ok">&#10003;</span>' : ' &ne; ' + esc(m[4]) + ' <span class="no">&#10007;</span>')
+              : 'quantity read as &ldquo;' + esc(m[2]) + '&rdquo;, so ' + esc(m[3]) + ' &times; quantity cannot be checked';
+          }
+          if(t){
+            total = cents(t[1]) === sum ? items + ' lines sum to ' + money(sum) + ' = the total <span class="ok">&#10003; added up in this tab</span>'
+              : items + ' lines sum to ' + money(sum) + ', the total says ' + esc(t[1]) + ' <span class="no">&#10007;</span>';
+            q.say = total; q.total = true;
+          }
+          ol.appendChild(e);
+          return q;
+        });
+        var fin = Q.map(function(q){ return !!q.total; }).lastIndexOf(true);
+        var j = RM.matches ? (fin >= 0 ? fin : Q.length - 1) : 0, hold = 0;
+        function paint(){
+          Q.forEach(function(q, k){ q.e.className = k < j ? 'done' : k === j ? 'now' : ''; });
+          var e = Q[j].e, win = doc.clientHeight - parseFloat(getComputedStyle(doc).paddingTop) - parseFloat(getComputedStyle(doc).paddingBottom);
+          ol.style.transform = 'translateY(' + (-Math.max(0, e.offsetTop + e.offsetHeight - win)) + 'px)';
+          read(s, 'note ' + n.cid + '<br>line ' + (j + 1) + ' of ' + Q.length + ' &middot; ' + esc(L[j].slice(0, 40)) + (Q[j].say ? '<br>' + Q[j].say : ''));
+        }
+        paint();
+        every(s, 850, function(){ if(j === Q.length - 1 && hold++ < 4) return; hold = 0; j = (j + 1) % Q.length; paint(); });
+        if(total) s._agent += '\nchecked here: ' + total.replace(/<[^>]+>/g, '').replace(/\s*&#10003;\s*/g, ', ').trim();
       }
     };
 
@@ -2430,8 +2757,9 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         note(cid).then(function(n){
           state(s, n.ok, what);
           if(!n.ok) return;
-          var src = +n.head.bytes;
+          var src = +n.head.bytes, ab = /^about (\d+)/.exec(n.head.bytes || '');
           if(src) size(s, mb(src), mb(n.len));
+          else if(ab) size(s, '~' + mb(+ab[1]), mb(n.len));
           else if(s.dataset.draw !== 'timelapse') s.querySelectorAll('[data-size] b')[1].textContent = mb(n.len);
           s._agent = agentNote(n, (n.head.kind || n.head.emem || ''));
           return tp.then(function(t){ if(draws[s.dataset.draw]) draws[s.dataset.draw](s, n, t); });
