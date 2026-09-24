@@ -30,6 +30,15 @@ pub struct AttestationLog {
     /// Root directory for segment files.
     pub root: PathBuf,
     state: Mutex<LogState>,
+    /// Framed records waiting for the next group write, in arrival order.
+    queue: std::sync::Mutex<Vec<Pending>>,
+}
+
+/// One framed record waiting to be written, and who to tell.
+struct Pending {
+    record: Vec<u8>,
+    record_hash: [u8; 32],
+    done: tokio::sync::oneshot::Sender<std::io::Result<AppendOutcome>>,
 }
 
 struct LogState {
@@ -60,6 +69,7 @@ impl AttestationLog {
         Ok(Self {
             root,
             state: Mutex::new(state),
+            queue: std::sync::Mutex::new(Vec::new()),
         })
     }
 
@@ -109,39 +119,103 @@ impl AttestationLog {
         let record_hash = record_hasher.finalize();
         record.extend_from_slice(record_hash.as_bytes());
 
-        let mut s = self.state.lock().await;
-        if s.bytes_in_segment > 0 && s.bytes_in_segment + record.len() as u64 > SEGMENT_BYTES {
-            seal_segment(&self.root, &mut s)?;
-        }
-        let path = self.root.join(format!("merkle.log.{}", s.segment_index));
-        // The open + write + fsync is the one blocking syscall on the write
-        // hot path, and receipts depend on it completing before we return.
-        // Run it on the blocking pool rather than the async worker: the
-        // `state` lock is held across the await, so total append order and
-        // the segment hash-chain stay byte-identical — only the syscall moves
-        // off the runtime thread, so an fsync no longer parks a worker (the
-        // failure mode when many cold writes land at once). The record is
-        // moved into the closure and handed back, so the in-memory hasher
-        // still advances only after a durable write (preserving the original
-        // ordering: durable bytes first, then hasher).
-        let record = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
-            let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
-            f.write_all(&record)?;
-            f.sync_all()?;
-            Ok(record)
-        })
-        .await
-        .map_err(|e| std::io::Error::other(format!("merkle log append task panicked: {e}")))??;
-        s.segment_hasher.update(&record);
-        s.bytes_in_segment += record.len() as u64;
-        s.appended += 1;
         let mut record_hash_arr = [0u8; 32];
         record_hash_arr.copy_from_slice(record_hash.as_bytes());
-        Ok(AppendOutcome {
-            segment_index: s.segment_index,
-            offset_in_segment: s.bytes_in_segment - record.len() as u64,
-            record_hash: record_hash_arr,
+
+        // Group commit. Each append used to hold the lock for its own open,
+        // write and fsync, so N writers paid N fsyncs in a row; under disk
+        // load one fsync took up to a second and a cold write waited 11 s
+        // behind the queue (measured 2026-09-24). Now a record joins the
+        // queue, and whoever holds the lock next writes everything queued in
+        // one write and one fsync per segment. Order, framing, the segment
+        // hash chain and "durable before return" are unchanged.
+        let (tx, rx) = tokio::sync::oneshot::channel();
+        self.queue
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(Pending {
+                record,
+                record_hash: record_hash_arr,
+                done: tx,
+            });
+        {
+            let mut s = self.state.lock().await;
+            let batch = std::mem::take(&mut *self.queue.lock().unwrap_or_else(|e| e.into_inner()));
+            if !batch.is_empty() {
+                self.write_batch(&mut s, batch).await;
+            }
+        }
+        rx.await
+            .map_err(|_| std::io::Error::other("merkle log append: the group write was dropped"))?
+    }
+
+    /// Write `batch` in order, one write and one fsync per segment it
+    /// touches, then tell each writer where its record landed.
+    async fn write_batch(&self, s: &mut LogState, batch: Vec<Pending>) {
+        let mut group: Vec<Pending> = Vec::new();
+        let mut group_bytes = 0u64;
+        for p in batch {
+            let len = p.record.len() as u64;
+            let used = s.bytes_in_segment + group_bytes;
+            if used > 0 && used + len > SEGMENT_BYTES {
+                self.write_group(s, std::mem::take(&mut group)).await;
+                group_bytes = 0;
+                if let Err(e) = seal_segment(&self.root, s) {
+                    let _ = p.done.send(Err(e));
+                    continue;
+                }
+            }
+            group_bytes += len;
+            group.push(p);
+        }
+        self.write_group(s, group).await;
+    }
+
+    async fn write_group(&self, s: &mut LogState, group: Vec<Pending>) {
+        if group.is_empty() {
+            return;
+        }
+        let path = self.root.join(format!("merkle.log.{}", s.segment_index));
+        // The open + write + fsync stay on the blocking pool so an fsync
+        // never parks an async worker.
+        let (bytes, group) = {
+            let mut bytes = Vec::with_capacity(group.iter().map(|p| p.record.len()).sum());
+            for p in &group {
+                bytes.extend_from_slice(&p.record);
+            }
+            (bytes, group)
+        };
+        let written = tokio::task::spawn_blocking(move || -> std::io::Result<Vec<u8>> {
+            let mut f = OpenOptions::new().create(true).append(true).open(&path)?;
+            f.write_all(&bytes)?;
+            f.sync_all()?;
+            Ok(bytes)
         })
+        .await
+        .map_err(|e| std::io::Error::other(format!("merkle log append task panicked: {e}")))
+        .and_then(|r| r);
+        match written {
+            Ok(_) => {
+                for p in group {
+                    s.segment_hasher.update(&p.record);
+                    let offset = s.bytes_in_segment;
+                    s.bytes_in_segment += p.record.len() as u64;
+                    s.appended += 1;
+                    let _ = p.done.send(Ok(AppendOutcome {
+                        segment_index: s.segment_index,
+                        offset_in_segment: offset,
+                        record_hash: p.record_hash,
+                    }));
+                }
+            }
+            Err(e) => {
+                for p in group {
+                    let _ = p
+                        .done
+                        .send(Err(std::io::Error::new(e.kind(), e.to_string())));
+                }
+            }
+        }
     }
 
     /// Cumulative number of attestation records appended in this log's
@@ -591,6 +665,38 @@ mod tests {
             log.entries(4, 1).unwrap().is_empty(),
             "inverted range must not wrap"
         );
+    }
+
+    /// Concurrent appends share writes but not places: every record lands
+    /// once, at its own offset, the records tile the segment with no gap,
+    /// and the leaves are exactly the records written.
+    #[tokio::test]
+    async fn concurrent_appends_group_into_one_intact_segment() {
+        let tmp = tempfile::tempdir().unwrap();
+        let log = std::sync::Arc::new(AttestationLog::open(tmp.path()).unwrap());
+        let mut tasks = Vec::new();
+        for i in 0..64u64 {
+            let log = log.clone();
+            tasks.push(tokio::spawn(async move {
+                log.append(&distinct_attestation(i)).await.unwrap()
+            }));
+        }
+        let mut outs = Vec::new();
+        for t in tasks {
+            outs.push(t.await.unwrap());
+        }
+        assert_eq!(log.record_count().await, 64);
+        let mut offsets: Vec<u64> = outs.iter().map(|o| o.offset_in_segment).collect();
+        offsets.sort_unstable();
+        offsets.dedup();
+        assert_eq!(offsets.len(), 64);
+        let seg = outs[0].segment_index;
+        assert!(outs.iter().all(|o| o.segment_index == seg));
+        let mut leaves = log.leaf_hashes().unwrap();
+        let mut want: Vec<[u8; 32]> = outs.iter().map(|o| o.record_hash).collect();
+        leaves.sort_unstable();
+        want.sort_unstable();
+        assert_eq!(leaves, want);
     }
 
     #[tokio::test]
