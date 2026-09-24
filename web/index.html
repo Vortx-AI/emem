@@ -870,6 +870,8 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   transition:background .25s ease, border-color .25s ease; }
 .cz-grid i.done{ background:var(--accent); border-color:var(--accent); }
 .cz-rel path{ fill:none; stroke:currentColor; stroke-width:1; vector-effect:non-scaling-stroke; }
+.cz-heat rect{ fill:var(--accent); stroke:var(--paper); stroke-width:1; }
+.cz-heat rect.miss{ fill:none; stroke:var(--rule-strong); stroke-dasharray:2 2; }
 .cz-log line{ stroke:var(--rule-strong); stroke-width:1.2; }
 .cz-log circle{ fill:var(--paper); stroke:var(--ink-2); stroke-width:1.2; }
 .cz-log .hot line{ stroke:var(--accent); stroke-width:2; }
@@ -1031,7 +1033,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
   <section class="cz" id="reel" aria-roledescription="carousel" aria-label="Live demos">
     <div class="cz-track" id="czTrack" tabindex="0" aria-label="Slides; swipe or use the arrow keys">
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="1 of 6: a mine" data-kind="scene" data-cell="defi.zb2a1.zdff5.xOdu">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="1 of 7: a mine" data-kind="scene" data-cell="defi.zb2a1.zdff5.xOdu">
         <figure class="cz-vis"><img alt="Sentinel-2 true colour over the Super Pit, Kalgoorlie" width="256" height="256"></figure>
         <div class="cz-txt">
           <p class="cz-kind"><span class="live">live</span> &middot; earth</p>
@@ -1042,7 +1044,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="2 of 6: a signed number" data-kind="fact" data-cell="defi.zb521.jawI.gOze">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="2 of 7: a signed number" data-kind="fact" data-cell="defi.zb521.jawI.gOze">
         <figure class="cz-vis"><img alt="Sentinel-2 true colour over Lusail, Qatar" width="256" height="256">
           <figcaption class="cz-badge" data-badge><b>&nbsp;</b>recalling&hellip;</figcaption></figure>
         <div class="cz-txt">
@@ -1054,7 +1056,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="3 of 6: a world" data-kind="world">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="3 of 7: a world" data-kind="world">
         <figure class="cz-vis"><svg class="cz-rel" viewBox="0 0 256 256" role="img" aria-label="Relief of the Grand Canyon drawn from 1024 signed elevations"></svg></figure>
         <div class="cz-txt">
           <p class="cz-kind"><span class="live">live</span> &middot; world</p>
@@ -1065,7 +1067,18 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="4 of 6: a file" data-kind="file">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="4 of 7: a grid" data-kind="grid" data-center="12.9763,77.5929">
+        <figure class="cz-vis"><svg class="cz-heat" viewBox="0 0 256 256" role="img" aria-label="Vegetation over central Bengaluru as 144 signed squares"></svg></figure>
+        <div class="cz-txt">
+          <p class="cz-kind"><span class="live">live</span> &middot; grid</p>
+          <h3 class="cz-noun">Bengaluru, 144 signed squares</h3>
+          <ul class="cz-verbs"><li>grid<i>&times;1 call</i></li><li>recall<i data-n>&times;144</i></li><li>bundle</li><li>sign</li></ul>
+          <p class="cz-read" data-read>reading the grid&hellip;</p>
+          <a class="cz-go" href="/v1/grid" data-go>the bundle</a>
+        </div>
+      </article>
+
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="5 of 7: a file" data-kind="file">
         <figure class="cz-vis"><div class="cz-grid" aria-hidden="true"></div></figure>
         <div class="cz-txt">
           <p class="cz-kind">in your browser &middot; file</p>
@@ -1076,7 +1089,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="5 of 6: the log" data-kind="log">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="6 of 7: the log" data-kind="log">
         <figure class="cz-vis"><svg class="cz-log" viewBox="0 0 256 256" role="img" aria-label="An append-only Merkle tree; the newest leaf and its path to the root are highlighted"></svg></figure>
         <div class="cz-txt">
           <p class="cz-kind"><span class="live">live</span> &middot; log</p>
@@ -1087,7 +1100,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         </div>
       </article>
 
-      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="6 of 6: a question" data-kind="scene" data-cell="defi.zb4ed.vajO.gAnE">
+      <article class="cz-slide" role="group" aria-roledescription="slide" aria-label="7 of 7: a question" data-kind="scene" data-cell="defi.zb4ed.vajO.gAnE">
         <figure class="cz-vis"><img alt="Sentinel-2 true colour over Lahaina, Maui" width="256" height="256"></figure>
         <div class="cz-txt">
           <p class="cz-kind"><span class="live">live</span> &middot; ask</p>
@@ -2125,6 +2138,35 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
         s._start = function(){ if(!poll){ one(); poll = setInterval(one, 15000); } };
         s._stop = function(){ clearInterval(poll); poll = null; };
       }
+    };
+    /* One POST /v1/grid is the whole slide: 144 squares, one bundle, one
+       receipt. A cold square comes back empty and the identical retry fills
+       it, so the map fills in front of the reader. */
+    loaders.grid = function(s){
+      var svg = s.querySelector('.cz-heat'), NS = 'http://www.w3.org/2000/svg', go = s.querySelector('[data-go]');
+      var body = JSON.stringify({ center:s.dataset.center, bands:['indices.ndvi'], n:12, half_km:3, budget_ms:8000 });
+      function draw(g){
+        var b = g.bands['indices.ndvi'], n = g.n, w = 256 / n;
+        while(svg.firstChild) svg.removeChild(svg.firstChild);
+        b.values.forEach(function(v, k){
+          var r = document.createElementNS(NS, 'rect');
+          r.setAttribute('x', (k % n) * w); r.setAttribute('y', Math.floor(k / n) * w);
+          r.setAttribute('width', w); r.setAttribute('height', w);
+          if(v === null) r.setAttribute('class', 'miss');
+          else r.setAttribute('fill-opacity', Math.max(0.08, Math.min(1, (v + 0.1) / 0.9)).toFixed(2));
+          svg.appendChild(r);
+        });
+        read(s, 'NDVI &middot; <b>' + b.present + '</b> of ' + g.cells.length + ' squares &middot; one receipt' +
+          (b.bundle_token ? '<br>' + esc(b.bundle_token) : ''));
+        if(b.bundle_token) go.href = '/v1/memory_bundle/' + encodeURIComponent(b.bundle_token);
+      }
+      function ask(left){
+        fetch('/v1/grid', { method:'POST', headers:{ 'content-type':'application/json' }, body:body })
+          .then(json)
+          .then(function(g){ draw(g); if(!g.converged && left > 0) setTimeout(function(){ ask(left - 1); }, 4000); })
+          .catch(function(e){ read(s, esc(e.message || 'the grid did not load')); });
+      }
+      ask(2);
     };
     function uniq(a){ var o = []; a.forEach(function(v){ if(o.indexOf(v) < 0) o.push(v); }); return o; }
     function load(s, active){

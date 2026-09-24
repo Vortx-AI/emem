@@ -86378,7 +86378,13 @@ mod tests {
     #[tokio::test]
     async fn a_warm_grid_is_one_table_one_bundle_one_receipt() {
         let s = test_app_state();
-        let cells = grid_cells(12.97, 77.59, 2, 0.5);
+        // The grid centres on the centre of the cell holding the point, so
+        // every point inside one cell asks for the same grid.
+        let c = emem_codec::latlng_from_cell64(&emem_codec::to_cell64(
+            emem_codec::cell_from_latlng(12.97, 77.59),
+        ))
+        .unwrap();
+        let cells = grid_cells(c.lat_deg, c.lng_deg, 2, 0.5);
         assert_eq!(cells.len(), 4);
         let north = emem_codec::latlng_from_cell64(&cells[0]).unwrap().lat_deg;
         let south = emem_codec::latlng_from_cell64(&cells[2]).unwrap().lat_deg;
@@ -86441,7 +86447,10 @@ mod tests {
         assert!(b["bundle_token"]
             .as_str()
             .is_some_and(|t| t.starts_with("emem:bundle:")));
-        assert_eq!(g["receipt"]["fact_cids"].as_array().map(|a| a.len()), Some(4));
+        assert_eq!(
+            g["receipt"]["fact_cids"].as_array().map(|a| a.len()),
+            Some(4)
+        );
         assert!(g["line"].as_str().unwrap().contains("ready=4/4"));
     }
 
