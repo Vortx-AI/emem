@@ -50761,8 +50761,7 @@ async fn materialize_sentinel2_band_inner(
     target_unix: Option<i64>,
     at_or_before: bool,
 ) -> Result<emem_fact::FactCid, String> {
-    let plan = s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
-    let (asset_lists, kind, formula_note) = plan;
+    s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -50789,6 +50788,178 @@ async fn materialize_sentinel2_band_inner(
     // notes. Override base via EMEM_S2_MAX_CLOUD / EMEM_S2_LOOKBACK_DAYS /
     // EMEM_S2_MAX_SCENES.
     let chosen = s2_pick_clear_scene(&cli, lng, lat, target_unix, now_unix, at_or_before).await?;
+    materialize_sentinel2_from_scene(cell64, s, band, &cli, chosen).await
+}
+
+/// Every Sentinel-2 pass over the point in `[start, end]`, newest first, from
+/// the first catalogue that answers, with asset urls ready to read; `true`
+/// when the page filled and older passes in the window were not returned.
+/// The cloud cap is the picker's widest tier: a pass is screened per pixel
+/// by its SCL afterwards, so the scene-level cap only drops what cannot be
+/// clear anywhere.
+async fn s2_passes(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    start: i64,
+    end: i64,
+) -> Result<(Vec<emem_fetch::stac::StacItem>, &'static str, f64, bool), String> {
+    const PAGE: usize = 250;
+    let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| (0.0..=100.0).contains(v))
+        .unwrap_or(40.0);
+    let cloud = (base_cloud * 2.0).min(80.0);
+    let datetime = format!(
+        "{}/{}",
+        iso8601_utc(start.max(0) as u64),
+        iso8601_utc(end.max(start + 86_400) as u64)
+    );
+    let mut failures: Vec<String> = Vec::new();
+    for host in s2_catalogues() {
+        match s2_candidates(cli, host, lng, lat, &datetime, cloud, PAGE).await {
+            Ok(items) => {
+                let truncated = items.len() >= PAGE;
+                return Ok((items, host, cloud, truncated));
+            }
+            Err(e) => failures.push(format!("{host}: {e}")),
+        }
+    }
+    Err(format!(
+        "stac: every Sentinel-2 catalogue failed: {}",
+        failures.join("; ")
+    ))
+}
+
+/// Backfill a Sentinel-2 band by its passes, not by the calendar.
+///
+/// Asking the scene picker once per target day returned the newest clear
+/// scene inside that day's window, so a 40-day backfill resolved 40 days to
+/// a handful of scenes, kept the one nearest the window's end, and could
+/// miss passes between them. One search lists every pass in the window; each
+/// is screened by its own pixel SCL and signed once. Calls: one search, one
+/// SCL read per new pass, and the value reads of the clear ones.
+async fn s2_backfill_by_pass(
+    req: &BackfillReq,
+    s: &AppState,
+    tempo: emem_core::tslot::Tempo,
+    start: i64,
+    end: i64,
+    max_facts: usize,
+    have: std::collections::HashMap<u64, emem_fact::FactCid>,
+) -> (Vec<JsonValue>, usize, usize, usize, Vec<String>) {
+    use futures_util::StreamExt as _;
+    let (mut steps, mut materialized, mut cached, mut skipped) = (Vec::new(), 0, 0, 0);
+    let mut notes = Vec::new();
+    let Ok(info) = emem_codec::latlng_from_cell64(&req.cell) else {
+        notes.push(format!("cell {} does not decode", req.cell));
+        return (steps, 0, 0, 0, notes);
+    };
+    let (lat, lng) = (info.lat_deg, info.lng_deg);
+    let cli = s2_http_client();
+    let (mut passes, host, cloud, truncated) = match s2_passes(&cli, lng, lat, start, end).await {
+        Ok(p) => p,
+        Err(e) => {
+            steps.push(json!({"status": "error", "reason": e}));
+            return (steps, 0, 0, 1, notes);
+        }
+    };
+    passes.reverse();
+    if truncated {
+        if let Some(first) = passes.first() {
+            notes.push(format!(
+                "the window holds more passes than one page; this call starts at {} (the oldest returned). Call again with end_unix before it for the earlier ones",
+                first.datetime
+            ));
+        }
+    }
+    let window_days = ((end - start) / 86_400).max(1);
+    let mut todo = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for item in passes {
+        let Some(at) = parse_iso8601_unix(&item.datetime) else {
+            continue;
+        };
+        let tslot = emem_core::tslot::Tslot::from_unix(at, tempo).0;
+        if let Some(cid) = have.get(&tslot) {
+            cached += 1;
+            steps.push(json!({"tslot": tslot, "target_unix": at, "scene": item.id, "status": "cached", "fact_cid": cid.as_str()}));
+            continue;
+        }
+        // Where two tiles overlap, one acquisition is one observation.
+        if seen.insert(tslot) {
+            todo.push((tslot, at, item));
+        }
+    }
+    let mut probes = futures_util::stream::iter(todo.into_iter().map(|(tslot, at, item)| {
+        let cli = cli.clone();
+        async move {
+            let scl = s2_sample_scl(&cli, &item, lat, lng).await;
+            (tslot, at, item, scl)
+        }
+    }))
+    .buffered(s2_scl_probe_concurrency());
+    let secs = materializer_timeout_secs();
+    while let Some((tslot, at, item, scl)) = probes.next().await {
+        if materialized + cached >= max_facts {
+            notes.push(format!(
+                "max_facts={max_facts} reached; call again with start_unix > {at} to continue"
+            ));
+            break;
+        }
+        if let Some(label) = scl
+            .filter(|c| s2_scl_is_hard_reject(*c))
+            .and_then(s2_scl_reject_label)
+        {
+            skipped += 1;
+            steps.push(json!({"tslot": tslot, "target_unix": at, "scene": item.id, "status": "unusable_at_pixel", "reason": format!("SCL {} ({label})", scl.unwrap_or(0))}));
+            continue;
+        }
+        let id = item.id.clone();
+        let chosen = S2ChosenScene {
+            item,
+            used_cloud: cloud,
+            used_days: window_days,
+            search_url: host,
+            scl,
+            clear: true,
+            scenes_tried: 1,
+        };
+        let r = tokio::time::timeout(
+            std::time::Duration::from_secs(secs),
+            materialize_sentinel2_from_scene(&req.cell, s, &req.band, &cli, chosen),
+        )
+        .await
+        .unwrap_or_else(|_| Err(format!("value read exceeded the {secs}s budget")));
+        match r {
+            Ok(cid) => {
+                materialized += 1;
+                steps.push(json!({"tslot": tslot, "target_unix": at, "scene": id, "status": "materialized", "fact_cid": cid.as_str()}));
+            }
+            Err(e) => {
+                skipped += 1;
+                steps.push(json!({"tslot": tslot, "target_unix": at, "scene": id, "status": "error", "reason": e}));
+            }
+        }
+    }
+    (steps, materialized, cached, skipped, notes)
+}
+
+/// Read, compute and sign one Sentinel-2 band at `cell64` from a scene
+/// already chosen, by the picker or by a pass enumeration.
+async fn materialize_sentinel2_from_scene(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+    cli: &reqwest::Client,
+    chosen: S2ChosenScene,
+) -> Result<emem_fact::FactCid, String> {
+    let (asset_lists, kind, formula_note) =
+        s2_band_plan(band).ok_or_else(|| format!("unknown s2 band {band}"))?;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let lat = info.lat_deg;
+    let lng = info.lng_deg;
     let item = chosen.item.clone();
     let used_cloud = chosen.used_cloud;
     let used_days = chosen.used_days;
@@ -50843,10 +51014,10 @@ async fn materialize_sentinel2_band_inner(
             }
         }
         let url = url.ok_or_else(|| format!("stac item missing any of {:?}", aliases))?;
-        let prof = emem_fetch::cog::open_profile(&cli, &url)
+        let prof = emem_fetch::cog::open_profile(cli, &url)
             .await
             .map_err(|e| format!("open COG {url}: {e}"))?;
-        let v = emem_fetch::cog::sample_pixel(&cli, &url, &prof, utm.easting, utm.northing)
+        let v = emem_fetch::cog::sample_pixel(cli, &url, &prof, utm.easting, utm.northing)
             .await
             .map_err(|e| format!("sample {url}: {e}"))?;
         samples.push(v);
@@ -56831,6 +57002,7 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
         // preload entirely so every tslot re-materializes (superseding).
         let mut have: std::collections::HashMap<u64, emem_fact::FactCid> =
             std::collections::HashMap::new();
+        let by_pass = s2_band_plan(&req.band).is_some();
         if !req.refresh {
             let existing = s.storage.scan_cell(&req.cell, None).await.map_err(|e| {
                 ApiError(
@@ -56849,7 +57021,25 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
                 .collect();
         }
 
-        for t in start_t..=end_t {
+        if by_pass {
+            let (st, m, c, k, n) = s2_backfill_by_pass(
+                &req,
+                s,
+                tempo,
+                start,
+                end.min(now_unix),
+                max_facts,
+                std::mem::take(&mut have),
+            )
+            .await;
+            steps = st;
+            materialized = m;
+            cached = c;
+            skipped = k;
+            notes.extend(n);
+        }
+        let calendar = (!by_pass).then_some(start_t..=end_t);
+        for t in calendar.into_iter().flatten() {
             if steps.len() >= max_facts {
                 notes.push(format!(
                     "max_facts={max_facts} reached at tslot {t}; partial backfill, call again with start_unix > {} to continue",
@@ -77596,6 +77786,80 @@ mod s2_dn_offset_invariant {
 
     fn cell_at(lat: f64, lng: f64) -> String {
         emem_codec::to_cell64(emem_codec::cell_from_latlng(lat, lng))
+    }
+
+    /// A backfill walks passes, not days: each acquisition once, oldest
+    /// first, the ones already held reported as cached, and two tiles of one
+    /// acquisition counted as one observation.
+    #[tokio::test]
+    async fn a_backfill_visits_each_pass_once_in_time_order() {
+        let s = crate::tests::test_app_state();
+        let cell = cell_at(12.97, 77.59);
+        let c = emem_codec::latlng_from_cell64(&cell).unwrap();
+        let (lat, lng) = (c.lat_deg, c.lng_deg);
+        let area = S2Area {
+            bbox: [lng - 0.1, lat - 0.1, lng + 0.1, lat + 0.1],
+            now_unix: 0,
+        };
+        let start: i64 = 1_788_000_000;
+        let end = start + 40 * 86_400;
+        let datetime = format!("{}/{}", iso8601_utc(start as u64), iso8601_utc(end as u64));
+        let ring = json!([[
+            [lng - 1.0, lat - 1.0],
+            [lng + 1.0, lat - 1.0],
+            [lng + 1.0, lat + 1.0],
+            [lng - 1.0, lat + 1.0],
+            [lng - 1.0, lat - 1.0]
+        ]]);
+        let pass = |id: &str, day: i64| -> emem_fetch::stac::StacItem {
+            let mut it: emem_fetch::stac::StacItem = serde_json::from_value(json!({
+                "id": id, "cloud_cover": 1.0,
+                "datetime": iso8601_utc((start + day * 86_400) as u64),
+                "epsg": 32643, "assets": {}, "collection": "sentinel-2-l2a",
+                "processing_baseline": "05.11",
+            }))
+            .unwrap();
+            it.footprint = serde_json::from_value(ring.clone()).unwrap();
+            it
+        };
+        let page = std::sync::Arc::new((
+            vec![
+                pass("p3", 30),
+                pass("p2b", 20),
+                pass("p2a", 20),
+                pass("p1", 5),
+            ],
+            true,
+        ));
+        s2_area_slot(s2_catalogues()[0], area, &datetime, 80.0)
+            .set(page)
+            .unwrap();
+        let tempo = tempo_for_band("indices.ndvi").unwrap();
+        let t1 = emem_core::tslot::Tslot::from_unix(start + 5 * 86_400, tempo).0;
+        let have = std::collections::HashMap::from([(
+            t1,
+            emem_fact::FactCid::new("heldalready".to_string()),
+        )]);
+        let req: BackfillReq = serde_json::from_value(json!({
+            "cell": cell, "band": "indices.ndvi",
+        }))
+        .unwrap();
+        let (steps, _m, cached, _k, _n) = S2_AREA
+            .scope(
+                area,
+                s2_backfill_by_pass(&req, &s, tempo, start, end, 16, have),
+            )
+            .await;
+        let at: Vec<i64> = steps
+            .iter()
+            .map(|x| x["target_unix"].as_i64().unwrap())
+            .collect();
+        assert_eq!(
+            at,
+            [start + 5 * 86_400, start + 20 * 86_400, start + 30 * 86_400]
+        );
+        assert_eq!(cached, 1);
+        assert_eq!(steps[0]["fact_cid"], "heldalready");
     }
 
     #[test]

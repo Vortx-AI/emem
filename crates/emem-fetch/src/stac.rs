@@ -401,7 +401,7 @@ pub async fn search_many_at(
     max_cloud: Option<f64>,
     limit: usize,
 ) -> Result<Vec<StacItem>, String> {
-    let limit = limit.clamp(1, 50);
+    let limit = limit.clamp(1, 500);
     let mut body = json!({
         "intersects": {"type": "Point", "coordinates": [lng, lat]},
         "limit": limit,
