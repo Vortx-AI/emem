@@ -155,6 +155,18 @@ pub struct MemoryTextIndex {
     last_hydrated_at: RwLock<Option<u64>>,
     /// Last-index timestamp (Unix seconds).
     last_indexed_at: RwLock<Option<u64>>,
+    /// The `(path, file_cid)` pairs in the dataset, read once and then kept
+    /// in step with every append and delete this process makes. The index
+    /// has no other writer, so the set stays true without rescanning: a
+    /// full scan per poll and two per indexed note had the disk doing
+    /// ~66k reads each, which starved every fsync on the box (2026-09-24).
+    known: RwLock<Option<std::collections::HashSet<(String, String)>>>,
+    /// Every row, vectors included, kept resident once read. A search was a
+    /// flat `nearest` over the dataset: ~165k disk reads per query for 51k
+    /// rows. The same rows in memory are ~160 MB and a query is a pass over
+    /// them on one core, no disk at all. Kept in step with appends and
+    /// deletes like `known`.
+    resident: RwLock<Option<Arc<Vec<IndexedRow>>>>,
 }
 
 /// Resolve the dataset's filesystem path: same root as the fact-vector
@@ -182,6 +194,8 @@ impl MemoryTextIndex {
             polling_active: RwLock::new(false),
             last_hydrated_at: RwLock::new(None),
             last_indexed_at: RwLock::new(None),
+            known: RwLock::new(None),
+            resident: RwLock::new(None),
         }))
     }
 
@@ -234,6 +248,13 @@ impl MemoryTextIndex {
             .await
             .map_err(|e| IndexerError::Lance(e.to_string()))?;
         *guard = Some(ds);
+        drop(guard);
+        if let Some(known) = self.known.write().await.as_mut() {
+            known.extend(rows.iter().map(|r| (r.path.clone(), r.file_cid.clone())));
+        }
+        if let Some(resident) = self.resident.write().await.as_mut() {
+            Arc::make_mut(resident).extend(rows.iter().cloned());
+        }
         let now = unix_s();
         *self.last_indexed_at.write().await = Some(now);
         Ok(())
@@ -242,6 +263,17 @@ impl MemoryTextIndex {
     /// Return the (path, file_cid) pairs currently in the index. Used
     /// by the polling loop to dedupe against already-indexed files.
     pub async fn existing_pairs(
+        &self,
+    ) -> Result<std::collections::HashSet<(String, String)>, IndexerError> {
+        if let Some(known) = self.known.read().await.as_ref() {
+            return Ok(known.clone());
+        }
+        let scanned = self.scan_pairs().await?;
+        *self.known.write().await = Some(scanned.clone());
+        Ok(scanned)
+    }
+
+    async fn scan_pairs(
         &self,
     ) -> Result<std::collections::HashSet<(String, String)>, IndexerError> {
         let guard = self.dataset().await;
@@ -381,7 +413,23 @@ impl MemoryTextIndex {
         // Drop the cached handle so reads see the new manifest version.
         drop(guard);
         self.reload().await;
+        if let Some(known) = self.known.write().await.as_mut() {
+            known.retain(|(p, _)| p != target);
+        }
+        if let Some(resident) = self.resident.write().await.as_mut() {
+            Arc::make_mut(resident).retain(|r| r.path != target);
+        }
         Ok(())
+    }
+
+    /// The resident rows, read from the dataset on first use.
+    async fn resident_rows(&self) -> Result<Arc<Vec<IndexedRow>>, IndexerError> {
+        if let Some(rows) = self.resident.read().await.as_ref() {
+            return Ok(rows.clone());
+        }
+        let rows = Arc::new(self.read_all().await?);
+        *self.resident.write().await = Some(rows.clone());
+        Ok(rows)
     }
 
     /// Upsert one file. Skips the embed when (path, file_cid) is
@@ -404,8 +452,12 @@ impl MemoryTextIndex {
             // Same path + same CID → identical bytes → nothing to do.
             return Ok(false);
         }
-        // Drop prior rows for the path (the file may have been edited).
-        self.delete_path(path).await?;
+        // Drop prior rows for the path (the file may have been edited). A
+        // path never indexed has nothing to drop, and a Lance delete is a
+        // filtered scan of every fragment, so ask the set first.
+        if existing.iter().any(|(p, _)| p == path) {
+            self.delete_path(path).await?;
+        }
         let vector = embedder.embed_document(text)?;
         let row = IndexedRow {
             path: path.to_string(),
@@ -438,123 +490,26 @@ impl MemoryTextIndex {
         if query.len() != TEXT_EMBED_DIM || k == 0 {
             return Ok(Vec::new());
         }
-        let guard = self.dataset().await;
-        let ds = match guard.as_ref() {
-            Some(ds) => ds,
-            None => return Ok(Vec::new()),
-        };
-        let q = Float32Array::from(query.to_vec());
-        let mut scanner = ds.scan();
-        // Pull more than k to give the post-filter slack; clamp to a
-        // sane upper bound so a high k doesn't pull the whole corpus.
-        let take = k.saturating_mul(oversample.max(1)).max(k);
-        scanner
-            .nearest("vector", &q, take)
-            .map_err(|e| IndexerError::Lance(e.to_string()))?;
-        scanner
-            .project(&[
-                "path",
-                "file_cid",
-                "kind",
-                "signed_at",
-                "attester_pubkey_b32",
-                "size_bytes",
-                "vector",
-            ])
-            .map_err(|e| IndexerError::Lance(e.to_string()))?;
-        let stream = scanner
-            .try_into_stream()
-            .await
-            .map_err(|e| IndexerError::Lance(e.to_string()))?;
-        let batches: Vec<RecordBatch> = stream
-            .try_collect()
-            .await
-            .map_err(|e| IndexerError::Lance(e.to_string()))?;
-        let mut out: Vec<(IndexedRow, f32)> = Vec::new();
-        for b in batches {
-            let path_col = b
-                .column_by_name("path")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing path".into()))?;
-            let cid_col = b
-                .column_by_name("file_cid")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing file_cid".into()))?;
-            let kind_col = b
-                .column_by_name("kind")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing kind".into()))?;
-            let signed_col = b
-                .column_by_name("signed_at")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing signed_at".into()))?;
-            let attester_col = b
-                .column_by_name("attester_pubkey_b32")
-                .and_then(|c| c.as_any().downcast_ref::<StringArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing attester_pubkey_b32".into()))?;
-            let size_col = b
-                .column_by_name("size_bytes")
-                .and_then(|c| c.as_any().downcast_ref::<UInt64Array>())
-                .ok_or_else(|| IndexerError::Arrow("missing size_bytes".into()))?;
-            let vec_col = b
-                .column_by_name("vector")
-                .and_then(|c| c.as_any().downcast_ref::<FixedSizeListArray>())
-                .ok_or_else(|| IndexerError::Arrow("missing vector".into()))?;
-            let dist = b
-                .column_by_name("_distance")
-                .and_then(|c| c.as_any().downcast_ref::<Float32Array>())
-                .ok_or_else(|| IndexerError::Arrow("missing _distance".into()))?;
-            for i in 0..b.num_rows() {
-                let p = path_col.value(i);
-                if let Some(prefix) = path_prefix {
-                    if !p.starts_with(prefix) {
-                        continue;
-                    }
-                }
-                if let Some(want) = kind {
-                    if kind_col.value(i) != want {
-                        continue;
-                    }
-                }
-                let attester_val = if attester_col.is_null(i) {
-                    None
-                } else {
-                    Some(attester_col.value(i).to_string())
-                };
-                if let Some(want) = attester_pubkey_b32 {
-                    if attester_val.as_deref() != Some(want) {
-                        continue;
-                    }
-                }
-                let v_arr = vec_col.value(i);
-                let f32_arr = v_arr
-                    .as_any()
-                    .downcast_ref::<Float32Array>()
-                    .ok_or_else(|| IndexerError::Arrow("vector item not f32".into()))?;
-                let vector: Vec<f32> = (0..f32_arr.len()).map(|j| f32_arr.value(j)).collect();
-                let row = IndexedRow {
-                    path: p.to_string(),
-                    file_cid: cid_col.value(i).to_string(),
-                    kind: kind_col.value(i).to_string(),
-                    signed_at: signed_col.value(i).to_string(),
-                    attester_pubkey_b32: attester_val,
-                    size_bytes: size_col.value(i),
-                    vector,
-                };
-                // Lance cosine distance is `1 - cos`; map back to a
-                // [0, 1]-clamped cosine score. We clamp because numeric
-                // drift around 0 (and identical vectors) can produce
-                // -1e-7 or 1+1e-7.
-                let raw_score = 1.0_f32 - dist.value(i);
-                let score = raw_score.clamp(0.0, 1.0);
-                out.push((row, score));
-            }
-        }
-        out.sort_by(|a, b| b.1.total_cmp(&a.1));
-        if out.len() > k {
-            out.truncate(k);
-        }
-        Ok(out)
+        let rows = self.resident_rows().await?;
+        let q = query.to_vec();
+        let (kind, path_prefix, attester) = (
+            kind.map(str::to_string),
+            path_prefix.map(str::to_string),
+            attester_pubkey_b32.map(str::to_string),
+        );
+        tokio::task::spawn_blocking(move || {
+            nearest_resident(
+                &rows,
+                &q,
+                k,
+                oversample,
+                kind.as_deref(),
+                path_prefix.as_deref(),
+                attester.as_deref(),
+            )
+        })
+        .await
+        .map_err(|e| IndexerError::Lance(format!("knn task: {e}")))
     }
 
     /// Snapshot the index for the stats endpoint.
@@ -661,9 +616,13 @@ pub async fn hydrate_once(
         }
     }
 
-    // Pass 2: embed + write new (path, file_cid) pairs.
+    // Pass 2: embed new (path, file_cid) pairs and append them in batches.
+    // One append per batch, not per file: every append is a new fragment,
+    // and each fragment is another read in every later scan.
+    const BATCH: usize = 256;
     let mut written: usize = 0;
     let mut skipped: usize = 0;
+    let mut pending: Vec<IndexedRow> = Vec::new();
     for s in &summaries {
         if existing.contains(&(s.path.clone(), s.file_cid.clone())) {
             skipped += 1;
@@ -681,34 +640,112 @@ pub async fn hydrate_once(
                 continue;
             }
         };
-        match index
-            .index_one_file(
-                &embedder,
-                &s.path,
-                &s.file_cid,
-                &text,
-                &s.kind,
-                &s.signed_at,
-                s.attester_pubkey_b32.as_deref(),
-                s.size_bytes,
-            )
-            .await
-        {
-            Ok(true) => written += 1,
-            Ok(false) => skipped += 1,
+        let vector = match embedder.embed_document(&text) {
+            Ok(v) => v,
             Err(e) => {
-                tracing::warn!(
-                    target: "emem::memory_search",
-                    path = %s.path,
-                    error = %e,
-                    "embed/index failed; file will be retried on next pass"
-                );
+                tracing::warn!(target: "emem::memory_search", path = %s.path, error = %e, "embed failed; file will be retried on next pass");
                 skipped += 1;
+                continue;
+            }
+        };
+        // An edited file: its old rows go before the new one lands.
+        if existing_paths.contains(&s.path) {
+            if let Err(e) = index.delete_path(&s.path).await {
+                tracing::warn!(target: "emem::memory_search", path = %s.path, error = %e, "delete of the prior version failed; file will be retried on next pass");
+                skipped += 1;
+                continue;
             }
         }
+        pending.push(IndexedRow {
+            path: s.path.clone(),
+            file_cid: s.file_cid.clone(),
+            kind: s.kind.clone(),
+            signed_at: s.signed_at.clone(),
+            attester_pubkey_b32: s.attester_pubkey_b32.clone(),
+            size_bytes: s.size_bytes,
+            vector,
+        });
+        if pending.len() >= BATCH {
+            written += flush_rows(index, &mut pending, &mut skipped).await;
+        }
     }
+    written += flush_rows(index, &mut pending, &mut skipped).await;
     index.mark_hydrated().await;
     Ok((written, skipped, deleted))
+}
+
+/// The search `knn` ran through Lance, over resident rows: the `take`
+/// nearest by squared L2 (Lance's default metric for `nearest`), then the
+/// filters, then `1 - distance` clamped to [0, 1], best first, `k` kept.
+/// Same candidates, same order, same scores as the dataset scan it replaces.
+#[allow(clippy::too_many_arguments)]
+fn nearest_resident(
+    rows: &[IndexedRow],
+    query: &[f32],
+    k: usize,
+    oversample: usize,
+    kind: Option<&str>,
+    path_prefix: Option<&str>,
+    attester_pubkey_b32: Option<&str>,
+) -> Vec<(IndexedRow, f32)> {
+    let take = k.saturating_mul(oversample.max(1)).max(k);
+    let mut scored: Vec<(usize, f32)> = rows
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| r.vector.len() == query.len())
+        .map(|(i, r)| {
+            let d: f32 = r
+                .vector
+                .iter()
+                .zip(query)
+                .map(|(a, b)| (a - b) * (a - b))
+                .sum();
+            (i, d)
+        })
+        .collect();
+    if scored.len() > take {
+        scored.select_nth_unstable_by(take - 1, |a, b| a.1.total_cmp(&b.1));
+        scored.truncate(take);
+    }
+    let mut out: Vec<(IndexedRow, f32)> = scored
+        .into_iter()
+        .filter_map(|(i, d)| {
+            let r = &rows[i];
+            let keep = path_prefix.is_none_or(|p| r.path.starts_with(p))
+                && kind.is_none_or(|want| r.kind == want)
+                && attester_pubkey_b32
+                    .is_none_or(|want| r.attester_pubkey_b32.as_deref() == Some(want));
+            keep.then(|| (r.clone(), (1.0_f32 - d).clamp(0.0, 1.0)))
+        })
+        .collect();
+    out.sort_by(|a, b| b.1.total_cmp(&a.1));
+    out.truncate(k);
+    out
+}
+
+/// Append `pending` in one write and clear it; returns the rows written. A
+/// failed write counts its rows as skipped, and they are retried next pass.
+async fn flush_rows(
+    index: &MemoryTextIndex,
+    pending: &mut Vec<IndexedRow>,
+    skipped: &mut usize,
+) -> usize {
+    if pending.is_empty() {
+        return 0;
+    }
+    let n = pending.len();
+    match index.append_rows(pending).await {
+        Ok(()) => {
+            pending.clear();
+            n
+        }
+        Err(e) => {
+            tracing::warn!(target: "emem::memory_search", rows = n, error = %e, "batch append failed; rows will be retried on next pass");
+            *skipped += n;
+            pending.clear();
+            0
+        }
+    }
 }
 
 /// Spawn the background polling indexer. Runs `hydrate_once` every
@@ -881,6 +918,88 @@ mod tests {
         idx.append_rows(std::slice::from_ref(&a)).await.unwrap();
         let pairs = idx.existing_pairs().await.unwrap();
         assert!(pairs.contains(&("/memories/a.md".into(), "cid-a".into())));
+    }
+
+    /// The resident search returns what Lance's own `nearest` scan does:
+    /// same rows, same order, same scores.
+    #[tokio::test]
+    async fn resident_search_matches_the_lance_scan() {
+        let tmp = TempDir::new().unwrap();
+        let idx = MemoryTextIndex::open(tmp.path()).unwrap();
+        let rows: Vec<IndexedRow> = (0..40)
+            .map(|i| {
+                row(
+                    &format!("/memories/n{i}.md"),
+                    &format!("cid{i}"),
+                    "fact",
+                    i as f32 * 0.013,
+                )
+            })
+            .collect();
+        idx.append_rows(&rows).await.unwrap();
+        let q = row("/q", "q", "fact", 0.21).vector;
+        let ours = idx.knn(&q, 5, None, None, None, 4).await.unwrap();
+        let guard = idx.dataset().await;
+        let ds = guard.as_ref().unwrap();
+        let mut sc = ds.scan();
+        sc.nearest("vector", &Float32Array::from(q.clone()), 20)
+            .unwrap();
+        sc.project(&["path"]).unwrap();
+        let batches: Vec<RecordBatch> = sc
+            .try_into_stream()
+            .await
+            .unwrap()
+            .try_collect()
+            .await
+            .unwrap();
+        let mut lance: Vec<(String, f32)> = Vec::new();
+        for b in &batches {
+            let p = b
+                .column_by_name("path")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<StringArray>()
+                .unwrap();
+            let d = b
+                .column_by_name("_distance")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<Float32Array>()
+                .unwrap();
+            for i in 0..b.num_rows() {
+                lance.push((p.value(i).to_string(), (1.0 - d.value(i)).clamp(0.0, 1.0)));
+            }
+        }
+        lance.sort_by(|a, b| b.1.total_cmp(&a.1));
+        lance.truncate(5);
+        assert_eq!(ours.len(), lance.len());
+        for ((r, s), (p, t)) in ours.iter().zip(&lance) {
+            assert_eq!(&r.path, p);
+            assert!((s - t).abs() < 1e-5, "{s} vs {t}");
+        }
+    }
+
+    /// The kept set answers what a rescan would, through appends and
+    /// deletes, so a poll pass never needs to read the dataset.
+    #[tokio::test]
+    async fn the_kept_pair_set_matches_a_rescan() {
+        let tmp = TempDir::new().unwrap();
+        let idx = MemoryTextIndex::open(tmp.path()).unwrap();
+        idx.append_rows(&[row("/memories/a.md", "cid-a", "fact", 0.0)])
+            .await
+            .unwrap();
+        assert_eq!(idx.existing_pairs().await.unwrap().len(), 1);
+        idx.append_rows(&[
+            row("/memories/b.md", "cid-b", "fact", 0.1),
+            row("/memories/c.md", "cid-c", "fact", 0.2),
+        ])
+        .await
+        .unwrap();
+        idx.delete_path("/memories/b.md").await.unwrap();
+        let kept = idx.existing_pairs().await.unwrap();
+        assert_eq!(kept, idx.scan_pairs().await.unwrap());
+        assert!(kept.contains(&("/memories/c.md".into(), "cid-c".into())));
+        assert!(!kept.iter().any(|(p, _)| p == "/memories/b.md"));
     }
 
     /// kind + path_prefix filters apply in the knn post-pass.
