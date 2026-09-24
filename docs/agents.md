@@ -224,6 +224,7 @@ stack, the mapping below is the rosetta-stone:
 | retrieve by address             | `recall`             | `POST /v1/recall`                 |
 | retrieve by similarity          | `find_similar`       | `POST /v1/find_similar`           |
 | retrieve over a region          | `recall_polygon`     | `POST /v1/recall_polygon`         |
+| retrieve a place as a table     | `grid`               | `POST /v1/grid`                   |
 | retrieve over time              | `trajectory`         | `POST /v1/trajectory`             |
 | address-by-name (place → key)   | `locate`             | `POST /v1/locate`                 |
 | search-by-pattern               | `hunt`               | `POST /v1/hunt`                   |
@@ -585,6 +586,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/recall` | `{cell, bands?, tslot?}` |
 | POST | `/v1/recall_many` | `{cells:[...], bands?}` (max 256) |
 | POST | `/v1/recall_polygon` | `{place?, polygon_bbox?, bands?, max_cells?, include?:["ftw_fields"]}` |
+| POST | `/v1/grid` | `{center, bands, n?:12, half_km?:3, budget_ms?}` → cells row-major + per band `values`, `fact_cids`, `captured_at`, one `bundle_token`; one receipt |
 | POST | `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` |
 | GET | `/v1/cells/:cell64` | One-shot recall, all bands |
 | POST | `/v1/query_region` | `{geometry, bands?, agg?, max_cells?}` |

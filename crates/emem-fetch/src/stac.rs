@@ -84,6 +84,74 @@ pub struct StacItem {
     /// granule rather than noise.
     #[serde(default)]
     pub view_incidence: Option<f64>,
+    /// Outer rings of the item's `geometry` (Polygon or MultiPolygon), as
+    /// `[lng, lat]`. Sentinel-2 catalogues publish the valid-data footprint
+    /// here, which is what a point `intersects` search tests on the server;
+    /// holding it lets one area search answer many point questions without
+    /// asking again. Empty when the item carried no polygon.
+    #[serde(default)]
+    pub footprint: Vec<Vec<[f64; 2]>>,
+}
+
+impl StacItem {
+    /// Does this item's footprint contain the point? `None` when the item
+    /// carried no footprint, so the answer is unknown rather than "no".
+    pub fn footprint_contains(&self, lng: f64, lat: f64) -> Option<bool> {
+        if self.footprint.is_empty() {
+            return None;
+        }
+        Some(
+            self.footprint
+                .iter()
+                .any(|ring| ring_contains(ring, lng, lat)),
+        )
+    }
+}
+
+/// Even-odd ray cast. Holes are not subtracted: Sentinel-2 footprints have
+/// none, and a caller that needs exactness still has the per-pixel SCL.
+fn ring_contains(ring: &[[f64; 2]], lng: f64, lat: f64) -> bool {
+    let mut inside = false;
+    let mut j = ring.len().wrapping_sub(1);
+    for i in 0..ring.len() {
+        let [xi, yi] = ring[i];
+        let [xj, yj] = ring[j];
+        if (yi > lat) != (yj > lat) && lng < (xj - xi) * (lat - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
+}
+
+fn parse_footprint(geometry: Option<&Value>) -> Vec<Vec<[f64; 2]>> {
+    let Some(g) = geometry else {
+        return Vec::new();
+    };
+    let ring = |r: &Value| -> Option<Vec<[f64; 2]>> {
+        r.as_array()?
+            .iter()
+            .map(|p| Some([p.get(0)?.as_f64()?, p.get(1)?.as_f64()?]))
+            .collect()
+    };
+    let coords = g.get("coordinates");
+    match g.get("type").and_then(|t| t.as_str()) {
+        Some("Polygon") => coords
+            .and_then(|c| c.get(0))
+            .and_then(ring)
+            .into_iter()
+            .collect(),
+        Some("MultiPolygon") => coords
+            .and_then(|c| c.as_array())
+            .map(|polys| {
+                polys
+                    .iter()
+                    .filter_map(|p| p.get(0).and_then(ring))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        _ => Vec::new(),
+    }
 }
 
 /// The ESA processing baseline from which Sentinel-2 L2A reflectance
@@ -178,18 +246,7 @@ pub async fn search_one_at(
     if let Some(c) = max_cloud {
         body["query"] = json!({"eo:cloud_cover": {"lt": c}});
     }
-    let resp = client
-        .post(search_url)
-        .header("content-type", "application/json")
-        .header("user-agent", emem_core::outbound::user_agent())
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("stac http: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("stac status {}", resp.status()));
-    }
-    let v: Value = resp.json().await.map_err(|e| format!("stac json: {e}"))?;
+    let v = post_search(client, search_url, &body).await?;
     let feats = match v.get("features").and_then(|f| f.as_array()) {
         Some(a) => a,
         None => return Ok(None),
@@ -199,6 +256,72 @@ pub async fn search_one_at(
         None => return Ok(None),
     };
     Ok(Some(parse_stac_feature(f, collection)))
+}
+
+/// Hosts that answered "rate limited", and until when this process leaves
+/// them alone. Asking again inside the window only lengthens the ban and
+/// spends the caller's budget on a certain refusal.
+static STAC_COOLDOWN: Mutex<Vec<(String, Instant)>> = Mutex::new(Vec::new());
+
+/// How long to leave a host alone after it rate-limits us, when it does not
+/// say (`Retry-After`).
+const STAC_COOLDOWN_DEFAULT: Duration = Duration::from_secs(60);
+
+fn stac_cooling(host: &str) -> Option<Duration> {
+    let now = Instant::now();
+    let mut g = STAC_COOLDOWN.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(_, until)| *until > now);
+    g.iter()
+        .find(|(h, _)| h == host)
+        .map(|(_, until)| *until - now)
+}
+
+fn stac_cool_down(host: &str, for_: Duration) {
+    let mut g = STAC_COOLDOWN.lock().unwrap_or_else(|e| e.into_inner());
+    g.retain(|(h, _)| h != host);
+    g.push((host.to_string(), Instant::now() + for_));
+}
+
+/// Is this refusal a rate limit? 429 always; Planetary Computer answers its
+/// limit with a 403 whose body says so.
+fn is_rate_limit(status: u16, body: &str) -> bool {
+    status == 429 || (status == 403 && body.to_ascii_lowercase().contains("rate limit"))
+}
+
+/// POST one STAC search. A refusal keeps the upstream's own words (the
+/// first 160 bytes of its body) in the error, and a rate limit puts the host
+/// on cooldown so the next caller fails fast instead of asking again.
+async fn post_search(client: &Client, search_url: &str, body: &Value) -> Result<Value, String> {
+    if let Some(left) = stac_cooling(search_url) {
+        return Err(format!(
+            "stac cooling down {}s after a rate limit from this host",
+            left.as_secs().max(1)
+        ));
+    }
+    let resp = client
+        .post(search_url)
+        .header("content-type", "application/json")
+        .header("user-agent", emem_core::outbound::user_agent())
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("stac http: {e}"))?;
+    let status = resp.status();
+    if !status.is_success() {
+        let retry_after = resp
+            .headers()
+            .get("retry-after")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<u64>().ok())
+            .map(|s| Duration::from_secs(s.clamp(1, 900)));
+        let text = resp.text().await.unwrap_or_default();
+        let said: String = text.chars().take(160).collect();
+        if is_rate_limit(status.as_u16(), &text) {
+            stac_cool_down(search_url, retry_after.unwrap_or(STAC_COOLDOWN_DEFAULT));
+        }
+        return Err(format!("stac status {status}: {}", said.trim()));
+    }
+    resp.json().await.map_err(|e| format!("stac json: {e}"))
 }
 
 /// Parse one STAC `feature` object into a [`StacItem`]. Shared by
@@ -254,6 +377,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         sun_elevation,
         view_azimuth,
         view_incidence,
+        footprint: parse_footprint(f.get("geometry")),
     }
 }
 
@@ -288,18 +412,7 @@ pub async fn search_many_at(
     if let Some(c) = max_cloud {
         body["query"] = json!({"eo:cloud_cover": {"lt": c}});
     }
-    let resp = client
-        .post(search_url)
-        .header("content-type", "application/json")
-        .header("user-agent", emem_core::outbound::user_agent())
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("stac http: {e}"))?;
-    if !resp.status().is_success() {
-        return Err(format!("stac status {}", resp.status()));
-    }
-    let v: Value = resp.json().await.map_err(|e| format!("stac json: {e}"))?;
+    let v = post_search(client, search_url, &body).await?;
     let feats = match v.get("features").and_then(|f| f.as_array()) {
         Some(a) => a,
         None => return Ok(Vec::new()),
@@ -308,6 +421,53 @@ pub async fn search_many_at(
         .iter()
         .map(|f| parse_stac_feature(f, collection))
         .collect())
+}
+
+/// Items of `collection` whose footprint intersects `bbox`
+/// (`[min_lng, min_lat, max_lng, max_lat]`), newest first, plus whether the
+/// page is the whole answer. One area search stands in for a point search per
+/// cell; `complete == false` means the page filled `limit`, so a point's
+/// newest items may lie beyond it and the caller must ask for that point.
+#[allow(clippy::too_many_arguments)]
+pub async fn search_bbox_at(
+    client: &Client,
+    search_url: &str,
+    collection: &str,
+    bbox: [f64; 4],
+    datetime: &str,
+    max_cloud: Option<f64>,
+    limit: usize,
+) -> Result<(Vec<StacItem>, bool), String> {
+    let _stage = crate::latency::StageTimer::new(
+        "stac.search_bbox",
+        format!(
+            "{collection} @ {:.3},{:.3}..{:.3},{:.3}",
+            bbox[0], bbox[1], bbox[2], bbox[3]
+        ),
+    );
+    let limit = limit.clamp(1, 500);
+    let mut body = json!({
+        "bbox": bbox,
+        "limit": limit,
+        "collections": [collection],
+        "datetime": datetime,
+        "sortby": [{"field": "properties.datetime", "direction": "desc"}],
+    });
+    if let Some(c) = max_cloud {
+        body["query"] = json!({"eo:cloud_cover": {"lt": c}});
+    }
+    let v = post_search(client, search_url, &body).await?;
+    let items: Vec<StacItem> = v
+        .get("features")
+        .and_then(|f| f.as_array())
+        .map(|a| {
+            a.iter()
+                .map(|f| parse_stac_feature(f, collection))
+                .collect()
+        })
+        .unwrap_or_default();
+    let complete = items.len() < limit;
+    Ok((items, complete))
 }
 
 /// Process-wide cache of MPC SAS tokens, keyed by collection. Microsoft
@@ -544,6 +704,43 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_rate_limit_is_recognised_in_either_dialect() {
+        assert!(is_rate_limit(429, ""));
+        assert!(is_rate_limit(
+            403,
+            "You have exceeded a rate limit. Contact planetarycomputer@microsoft.com"
+        ));
+        assert!(!is_rate_limit(403, "Forbidden"));
+        stac_cool_down("https://stac.invalid/search", Duration::from_secs(30));
+        assert!(stac_cooling("https://stac.invalid/search").is_some());
+        assert!(stac_cooling("https://other.invalid/search").is_none());
+    }
+
+    #[test]
+    fn a_footprint_answers_the_point_question_a_search_would() {
+        let feat = json!({
+            "id": "S2B_43PGQ_20260920_0_L2A",
+            "geometry": {"type": "Polygon", "coordinates": [[
+                [77.0, 12.0], [78.0, 12.0], [78.0, 13.0], [77.4, 13.0], [77.0, 12.0]
+            ]]},
+            "properties": {"datetime": "2026-09-20T05:20:00Z"},
+            "assets": {}
+        });
+        let it = parse_stac_feature(&feat, "sentinel-2-l2a");
+        assert_eq!(it.footprint_contains(77.6, 12.97), Some(true));
+        // Inside the bbox, outside the swath edge: a bbox filter would say yes.
+        assert_eq!(it.footprint_contains(77.05, 12.9), Some(false));
+        let multi = json!({"id": "x", "geometry": {"type": "MultiPolygon", "coordinates": [
+            [[[179.0, 0.0], [180.0, 0.0], [180.0, 1.0], [179.0, 1.0], [179.0, 0.0]]],
+            [[[-180.0, 0.0], [-179.0, 0.0], [-179.0, 1.0], [-180.0, 1.0], [-180.0, 0.0]]]
+        ]}, "properties": {}});
+        let m = parse_stac_feature(&multi, "sentinel-2-l2a");
+        assert_eq!(m.footprint_contains(-179.5, 0.5), Some(true));
+        let bare = parse_stac_feature(&json!({"id": "y", "properties": {}}), "c");
+        assert_eq!(bare.footprint_contains(0.0, 0.0), None);
+    }
 
     #[test]
     fn parses_the_s2_processing_baseline_property() {

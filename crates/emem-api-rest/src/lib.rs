@@ -1280,6 +1280,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/coverage_map.svg", get(coverage_map_svg))
         .route("/v1/coverage", get(coverage_json))
         .route("/v1/recall_many", post(post_recall_many))
+        .route("/v1/grid", post(post_grid))
         .route("/v1/recall_polygon", post(post_recall_polygon))
         .route("/v1/field_boundaries", post(post_field_boundaries))
         .route("/v1/building_footprints", post(post_building_footprints))
@@ -16756,6 +16757,7 @@ async fn post_recall_many(
         Result<emem_primitives::recall::RecallResp, ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallManyOut> = tokio::task::JoinSet::new();
+    let area = s2_area_for_cells(&req.cells);
     for (idx, cell) in req.cells.iter().enumerate() {
         let cell = cell.clone();
         let bands = req.bands.clone();
@@ -16773,7 +16775,7 @@ async fn post_recall_many(
             // Auto-materialize cold cells to honour the contract; drop the
             // per-band notes (the per-cell signed receipt under
             // by_cell.<cell>.receipt is the citation surface for a bulk call).
-            let out = recall_with_auto_materialize(&r, &s_clone)
+            let out = in_s2_area(area, recall_with_auto_materialize(&r, &s_clone))
                 .await
                 .map(|(resp, _notes)| resp);
             (idx, cell, out)
@@ -16886,6 +16888,231 @@ async fn post_recall_many(
     if !resolved_map.is_empty() {
         if let Some(map) = out.as_object_mut() {
             map.insert("resolved_from".into(), JsonValue::Object(resolved_map));
+        }
+    }
+    Ok(Json(out))
+}
+
+#[derive(Deserialize)]
+struct GridReq {
+    /// A place name, a cell64, or "lat,lng".
+    center: String,
+    bands: Vec<String>,
+    /// Squares per side, 2..=16 (default 12).
+    #[serde(default)]
+    n: Option<usize>,
+    /// Half the grid's width in km, 0.05..=25 (default 3).
+    #[serde(default)]
+    half_km: Option<f64>,
+    #[serde(default)]
+    tslot: Option<u64>,
+    #[serde(default)]
+    budget_ms: Option<u64>,
+    /// Bind each band's facts into one `emem:bundle:` (default true).
+    #[serde(default)]
+    bundle: Option<bool>,
+}
+
+/// The n×n cells centred on (lat, lng), `half_km` from the centre to each
+/// edge row, row-major with the north row first.
+fn grid_cells(lat: f64, lng: f64, n: usize, half_km: f64) -> Vec<String> {
+    let dlat = half_km / 111.32;
+    let dlng = dlat / lat.to_radians().cos().max(0.01);
+    let step = |i: usize| 2.0 * i as f64 / (n - 1) as f64 - 1.0;
+    (0..n * n)
+        .map(|k| {
+            let (i, j) = (k / n, k % n);
+            emem_codec::to_cell64(emem_codec::cell_from_latlng(
+                lat - dlat * step(i),
+                lng + dlng * step(j),
+            ))
+        })
+        .collect()
+}
+
+/// `POST /v1/grid`: a place as an n×n table of signed facts, one call.
+///
+/// What a client otherwise assembles from n² locates, repeated recall_many
+/// passes and one memory_bundle per band comes back as columns: the cells
+/// in row-major order (north row first), and per band the values, fact
+/// cids, capture times and one bundle token, under ONE receipt that cites
+/// every fact in the grid. The cold half runs as one area, so a grid's
+/// Sentinel-2 scene search is asked once rather than once per square. A
+/// budget expiry returns what is ready plus `pending`; the identical retry
+/// returns strictly more.
+async fn post_grid(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<GridReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let bad = |m: String| {
+        ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: m,
+                details: None,
+            },
+        )
+    };
+    let n = req.n.unwrap_or(12);
+    if !(2..=16).contains(&n) {
+        return Err(bad(format!("grid: n must be 2..=16 (got {n})")));
+    }
+    let half_km = req.half_km.unwrap_or(3.0);
+    if !(0.05..=25.0).contains(&half_km) {
+        return Err(bad(format!(
+            "grid: half_km must be 0.05..=25 (got {half_km})"
+        )));
+    }
+    if req.bands.is_empty() || req.bands.len() > 8 {
+        return Err(bad(format!(
+            "grid: bands must name 1..=8 bands (got {})",
+            req.bands.len()
+        )));
+    }
+    let started = std::time::Instant::now();
+    let latlng = req.center.split_once(',').and_then(|(a, b)| {
+        let (lat, lng) = (a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?);
+        ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lng)).then_some((lat, lng))
+    });
+    let (center_cell, rref) = match latlng {
+        Some((lat, lng)) => (
+            emem_codec::to_cell64(emem_codec::cell_from_latlng(lat, lng)),
+            ResolvedRef::Cell,
+        ),
+        None => resolve_cell_field(req.center.trim()).await?,
+    };
+    let c = emem_codec::latlng_from_cell64(&center_cell)
+        .map_err(|e| bad(format!("grid: center cell decode: {e}")))?;
+    let label = match &rref {
+        ResolvedRef::Place { label, .. } => label.clone(),
+        _ => None,
+    };
+    let cells = grid_cells(c.lat_deg, c.lng_deg, n, half_km);
+
+    let mut uniq = cells.clone();
+    uniq.sort();
+    uniq.dedup();
+    let Json(many) = post_recall_many(
+        State(s.clone()),
+        EmemJson(RecallManyReq {
+            cells: uniq,
+            bands: Some(req.bands.clone()),
+            tslot: req.tslot,
+            budget_ms: req.budget_ms,
+        }),
+    )
+    .await?;
+    let by_cell = many.get("by_cell").and_then(|v| v.as_object());
+    let current = |cell: &str, band: &str| -> Option<&JsonValue> {
+        let entry = by_cell?.get(cell)?;
+        let cid = entry.get("current_by_band")?.get(band)?.as_str()?;
+        entry
+            .get("facts")?
+            .as_array()?
+            .iter()
+            .find(|f| f.get("fact_cid").and_then(|v| v.as_str()) == Some(cid))
+    };
+
+    let mut bands_out = serde_json::Map::new();
+    let mut cited: Vec<emem_fact::FactCid> = Vec::new();
+    let mut ready_cells = 0usize;
+    for cell in &cells {
+        if req.bands.iter().any(|b| current(cell, b).is_some()) {
+            ready_cells += 1;
+        }
+    }
+    let units = many.get("units_by_band").cloned().unwrap_or(json!({}));
+    let mut bundles_made = 0usize;
+    for band in &req.bands {
+        let facts: Vec<Option<&JsonValue>> = cells.iter().map(|c| current(c, band)).collect();
+        let values: Vec<JsonValue> = facts
+            .iter()
+            .map(|f| {
+                f.and_then(|f| f.get("value"))
+                    .cloned()
+                    .unwrap_or(JsonValue::Null)
+            })
+            .collect();
+        let cids: Vec<Option<String>> = facts
+            .iter()
+            .map(|f| f.and_then(|f| f.get("fact_cid")?.as_str().map(str::to_string)))
+            .collect();
+        let captured: Vec<JsonValue> = facts
+            .iter()
+            .map(|f| {
+                f.and_then(|f| f.get("sources")?.get(0)?.get("captured_at").cloned())
+                    .unwrap_or(JsonValue::Null)
+            })
+            .collect();
+        let mut distinct: Vec<String> = cids.iter().flatten().cloned().collect();
+        distinct.sort();
+        distinct.dedup();
+        cited.extend(distinct.iter().map(|c| emem_fact::FactCid::new(c.clone())));
+        let bundle_token = if req.bundle.unwrap_or(true) && !distinct.is_empty() {
+            let purpose = format!(
+                "grid {n}x{n} half_km={half_km} {band} at {}",
+                label.as_deref().unwrap_or(&center_cell)
+            );
+            post_memory_bundle(
+                State(s.clone()),
+                EmemJson(emem_primitives::memory_bundle::BundleReq {
+                    triples: Vec::new(),
+                    fact_cids: Some(distinct.clone()),
+                    purpose: Some(purpose),
+                    scope: None,
+                }),
+            )
+            .await
+            .ok()
+            .map(|Json(b)| b.bundle_token)
+        } else {
+            None
+        };
+        bundles_made += usize::from(bundle_token.is_some());
+        let present = values.iter().filter(|v| !v.is_null()).count();
+        bands_out.insert(
+            band.clone(),
+            json!({
+                "unit": units.get(band).cloned().unwrap_or(JsonValue::Null),
+                "present": present,
+                "values": values,
+                "fact_cids": cids,
+                "captured_at": captured,
+                "bundle_token": bundle_token,
+            }),
+        );
+    }
+    let converged = many
+        .get("converged")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
+    let line = format!(
+        "grid {} n={n} half_km={half_km} bands={} ready={ready_cells}/{} bundles={bundles_made} converged={converged}",
+        label.as_deref().unwrap_or(&center_cell),
+        req.bands.join(","),
+        cells.len(),
+    );
+    let receipt = s.sign_receipt("emem.grid", cells.clone(), cited, false, started, None);
+    let mut out = json!({
+        "schema": "emem.grid.v1",
+        "line": line,
+        "center": {"cell64": center_cell, "lat": c.lat_deg, "lng": c.lng_deg, "label": label},
+        "n": n,
+        "half_km": half_km,
+        "order": "row-major, north row first, west to east",
+        "cells": cells,
+        "bands": JsonValue::Object(bands_out),
+        "converged": converged,
+        "receipt": receipt,
+    });
+    if !converged {
+        if let Some(map) = out.as_object_mut() {
+            for k in ["pending", "progress", "retry", "budget_ms"] {
+                if let Some(v) = many.get(k) {
+                    map.insert(k.into(), v.clone());
+                }
+            }
         }
     }
     Ok(Json(out))
@@ -17686,6 +17913,7 @@ async fn post_recall_polygon(
         Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallOut> = tokio::task::JoinSet::new();
+    let area = s2_area_for_cells(&cells);
     for (idx, cell) in cells.iter().enumerate() {
         let cell_owned = cell.clone();
         let bands = req.bands.clone();
@@ -17710,7 +17938,7 @@ async fn post_recall_polygon(
             (
                 idx,
                 cell_owned,
-                recall_with_auto_materialize(&r, &s_clone).await,
+                in_s2_area(area, recall_with_auto_materialize(&r, &s_clone)).await,
             )
         });
     }
@@ -32166,6 +32394,7 @@ fn openapi_spec() -> JsonValue {
                 ],"responses":{"200":json_ok}},
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
+            "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}}}}}}},"responses":{"200":json_ok}}},
             "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
@@ -51084,6 +51313,9 @@ async fn s2_pick_clear_scene_uncached(
         .and_then(|v| v.parse::<usize>().ok())
         .filter(|n| (1..=12).contains(n))
         .unwrap_or(4);
+    // Every cell of one batch asks with the batch's clock, so their windows
+    // are the same string and one area search answers all of them.
+    let now_unix = S2_AREA.try_with(|a| a.now_unix).unwrap_or(now_unix);
     let tiers: [(f64, i64); 3] = [
         (base_cloud, base_days),
         ((base_cloud * 1.5).min(60.0), base_days * 2),
@@ -51130,21 +51362,7 @@ async fn s2_pick_clear_scene_uncached(
         let mut found: Option<(&'static str, Vec<emem_fetch::stac::StacItem>)> = None;
         let mut failures: Vec<String> = Vec::new();
         for host in s2_catalogues() {
-            let searched = emem_fetch::stac::search_many_at(
-                cli,
-                host,
-                "sentinel-2-l2a",
-                lng,
-                lat,
-                &datetime,
-                Some(cloud),
-                max_scenes,
-            )
-            .await;
-            let signed = match searched {
-                Ok(v) if host == emem_fetch::stac::STAC_MPC_V1 => s2_sign_mpc_items(cli, v).await,
-                other => other,
-            };
+            let signed = s2_candidates(cli, host, lng, lat, &datetime, cloud, max_scenes).await;
             match signed {
                 Ok(v) => {
                     found = Some((host, v));
@@ -51223,6 +51441,168 @@ async fn s2_pick_clear_scene_uncached(
         });
     }
     Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
+}
+
+/// The area a many-cell read covers, set around each cell's task so the
+/// scene search is asked once per area rather than once per cell.
+#[derive(Clone, Copy, Debug)]
+struct S2Area {
+    /// `[min_lng, min_lat, max_lng, max_lat]` of the cell centres.
+    bbox: [f64; 4],
+    now_unix: i64,
+}
+
+tokio::task_local! {
+    static S2_AREA: S2Area;
+}
+
+/// The area of these cells, or `None` when one area search would not pay:
+/// a single cell, an undecodable one, or a span wide enough (over 1 degree)
+/// that its page would likely fill and fall back to point searches anyway.
+fn s2_area_for_cells(cells: &[String]) -> Option<S2Area> {
+    if cells.len() < 2 {
+        return None;
+    }
+    let mut b = [
+        f64::INFINITY,
+        f64::INFINITY,
+        f64::NEG_INFINITY,
+        f64::NEG_INFINITY,
+    ];
+    for c in cells {
+        let p = emem_codec::latlng_from_cell64(c).ok()?;
+        b[0] = b[0].min(p.lng_deg);
+        b[1] = b[1].min(p.lat_deg);
+        b[2] = b[2].max(p.lng_deg);
+        b[3] = b[3].max(p.lat_deg);
+    }
+    if b[2] - b[0] > 1.0 || b[3] - b[1] > 1.0 {
+        return None;
+    }
+    let now_unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    Some(S2Area { bbox: b, now_unix })
+}
+
+/// Run `fut` with the batch's area in scope, when there is one.
+async fn in_s2_area<F: std::future::Future>(area: Option<S2Area>, fut: F) -> F::Output {
+    match area {
+        Some(a) => S2_AREA.scope(a, fut).await,
+        None => fut.await,
+    }
+}
+
+type S2AreaPage = std::sync::Arc<(Vec<emem_fetch::stac::StacItem>, bool)>;
+type S2AreaSlot = std::sync::Arc<tokio::sync::OnceCell<S2AreaPage>>;
+
+/// The shared slot for one catalogue's page over an area, kept 10 minutes.
+fn s2_area_slot(host: &'static str, area: S2Area, datetime: &str, cloud: f64) -> S2AreaSlot {
+    type Slot = S2AreaSlot;
+    type Key = (&'static str, [u64; 4], String, u64);
+    type Memo = std::sync::Mutex<std::collections::HashMap<Key, (std::time::Instant, Slot)>>;
+    static MEMO: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
+    const TTL: std::time::Duration = std::time::Duration::from_secs(600);
+    let key = (
+        host,
+        area.bbox.map(f64::to_bits),
+        datetime.to_string(),
+        cloud.to_bits(),
+    );
+    {
+        let mut m = MEMO
+            .get_or_init(Default::default)
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if m.len() > 1024 {
+            m.retain(|_, (at, _)| at.elapsed() < TTL);
+        }
+        match m.get(&key) {
+            Some((at, slot)) if at.elapsed() < TTL => slot.clone(),
+            _ => {
+                let slot: Slot = Default::default();
+                m.insert(key, (std::time::Instant::now(), slot.clone()));
+                slot
+            }
+        }
+    }
+}
+
+/// One catalogue's answer for the whole area in scope, asked once: the first
+/// cell searches and the others wait on it.
+async fn s2_area_page(
+    cli: &reqwest::Client,
+    host: &'static str,
+    area: S2Area,
+    datetime: &str,
+    cloud: f64,
+) -> Result<S2AreaPage, String> {
+    let slot = s2_area_slot(host, area, datetime, cloud);
+    slot.get_or_try_init(|| async {
+        let (items, complete) = emem_fetch::stac::search_bbox_at(
+            cli,
+            host,
+            "sentinel-2-l2a",
+            area.bbox,
+            datetime,
+            Some(cloud),
+            250,
+        )
+        .await?;
+        let items = if host == emem_fetch::stac::STAC_MPC_V1 {
+            s2_sign_mpc_items(cli, items).await?
+        } else {
+            items
+        };
+        Ok::<_, String>(std::sync::Arc::new((items, complete)))
+    })
+    .await
+    .cloned()
+}
+
+/// Up to `max_scenes` candidate scenes at the point from one catalogue,
+/// newest first, with asset urls ready to read. Inside a batch this is the
+/// area page filtered by footprint, the same test the catalogue runs for a
+/// point search; the point is asked directly only when the page is
+/// truncated or an item has no footprint to test.
+async fn s2_candidates(
+    cli: &reqwest::Client,
+    host: &'static str,
+    lng: f64,
+    lat: f64,
+    datetime: &str,
+    cloud: f64,
+    max_scenes: usize,
+) -> Result<Vec<emem_fetch::stac::StacItem>, String> {
+    if let Ok(area) = S2_AREA.try_with(|a| *a) {
+        let page = s2_area_page(cli, host, area, datetime, cloud).await?;
+        let (items, complete) = (&page.0, page.1);
+        if complete && items.iter().all(|i| !i.footprint.is_empty()) {
+            return Ok(items
+                .iter()
+                .filter(|i| i.footprint_contains(lng, lat) == Some(true))
+                .take(max_scenes)
+                .cloned()
+                .collect());
+        }
+    }
+    let items = emem_fetch::stac::search_many_at(
+        cli,
+        host,
+        "sentinel-2-l2a",
+        lng,
+        lat,
+        datetime,
+        Some(cloud),
+        max_scenes,
+    )
+    .await?;
+    if host == emem_fetch::stac::STAC_MPC_V1 {
+        s2_sign_mpc_items(cli, items).await
+    } else {
+        Ok(items)
+    }
 }
 
 /// Generic Sentinel-2 L2A point sampler, bounded by
@@ -51327,6 +51707,39 @@ async fn materialize_sentinel2_band_inner(
         .ok_or_else(|| "stac item missing proj:epsg".to_string())?;
     let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
         .ok_or_else(|| format!("epsg {epsg} not a UTM code"))?;
+
+    // tslot from the STAC item's actual acquisition datetime, snapped to
+    // the band's registered tempo bucket. Previously hard-wired to 0,
+    // which collapsed every Sentinel-2 observation onto the static-band
+    // sentinel and silently destroyed all time-series semantics
+    // (/v1/trajectory returned an empty series for every S2-derived
+    // band). The band registry is authoritative for tempo, most S2
+    // bands are `fast` (daily), some indices are `medium` (monthly).
+    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
+        format!(
+            "sentinel-2 item.datetime not parseable as ISO-8601: {:?}",
+            item.datetime
+        )
+    })?;
+    let tempo = band_tempo_for_key(band).ok_or_else(|| {
+        format!("band {band} not in registry (direct key or scalar_keys); cannot pick tempo")
+    })?;
+    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
+
+    // The same acquisition already signed here is the same observation: hand
+    // back its fact before reading a pixel, rather than signing a copy.
+    // Backfill asked for one scene per target DAY, many days resolved to the
+    // same scene, and every one was
+    // re-signed as a new fact with a new cid and a new log entry (160
+    // materializations for 13 observations at one cell). Matching the
+    // acquisition time rather than the scene id also keeps a fact signed from
+    // one catalogue from being replaced by the other catalogue's reprocessed
+    // copy of the same pass. A backfill with `refresh` still re-signs.
+    if !force_resign() {
+        if let Some(cid) = existing_same_acquisition(s, cell64, band, tslot, &item.datetime).await {
+            return Ok(cid);
+        }
+    }
 
     // Resolve each asset alias chain to a URL, open the profile, sample.
     let mut samples = Vec::with_capacity(asset_lists.len());
@@ -51591,38 +52004,6 @@ async fn materialize_sentinel2_band_inner(
 
     let signed_at = chrono_iso8601_utc();
     let fn_key = format!("sentinel2_l2a_{}@1", band.replace('.', "_"));
-    // tslot from the STAC item's actual acquisition datetime, snapped to
-    // the band's registered tempo bucket. Previously hard-wired to 0,
-    // which collapsed every Sentinel-2 observation onto the static-band
-    // sentinel and silently destroyed all time-series semantics
-    // (/v1/trajectory returned an empty series for every S2-derived
-    // band). The band registry is authoritative for tempo, most S2
-    // bands are `fast` (daily), some indices are `medium` (monthly).
-    let captured_unix = parse_iso8601_unix(&item.datetime).ok_or_else(|| {
-        format!(
-            "sentinel-2 item.datetime not parseable as ISO-8601: {:?}",
-            item.datetime
-        )
-    })?;
-    let tempo = band_tempo_for_key(band).ok_or_else(|| {
-        format!("band {band} not in registry (direct key or scalar_keys); cannot pick tempo")
-    })?;
-    let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
-
-    // The same acquisition already signed here is the same observation: hand
-    // back its fact rather than signing a copy. Backfill asked for one scene
-    // per target DAY, many days resolved to the same scene, and every one was
-    // re-signed as a new fact with a new cid and a new log entry (160
-    // materializations for 13 observations at one cell). Matching the
-    // acquisition time rather than the scene id also keeps a fact signed from
-    // one catalogue from being replaced by the other catalogue's reprocessed
-    // copy of the same pass. A backfill with `refresh` still re-signs.
-    if !force_resign() {
-        if let Some(cid) = existing_same_acquisition(s, cell64, band, tslot, &item.datetime).await {
-            return Ok(cid);
-        }
-    }
-
     // Pixel-level Scene Classification Layer (SCL). Already sampled by
     // `s2_pick_clear_scene` while choosing the scene, so we REUSE it here
     // rather than re-reading the 20 m SCL COG. SCL is a tighter quality
@@ -78349,6 +78730,85 @@ fn not_found(msg: &str) -> Response {
 mod s2_dn_offset_invariant {
     use super::*;
 
+    fn cell_at(lat: f64, lng: f64) -> String {
+        emem_codec::to_cell64(emem_codec::cell_from_latlng(lat, lng))
+    }
+
+    #[test]
+    fn a_batch_is_one_area_and_a_single_cell_is_not() {
+        assert!(s2_area_for_cells(&[cell_at(12.97, 77.59)]).is_none());
+        let a = s2_area_for_cells(&[cell_at(12.97, 77.59), cell_at(13.0, 77.62)]).unwrap();
+        assert!(a.bbox[0] <= 77.59 + 1e-3 && a.bbox[2] >= 77.62 - 1e-3);
+        assert!(a.bbox[1] <= 12.97 + 1e-3 && a.bbox[3] >= 13.0 - 1e-3);
+        // Too wide to answer from one page: every cell asks for itself.
+        assert!(s2_area_for_cells(&[cell_at(12.0, 77.0), cell_at(14.0, 77.0)]).is_none());
+    }
+
+    /// The area page must answer a point exactly as a point search would:
+    /// only items whose footprint holds the point, newest first, capped.
+    #[tokio::test]
+    async fn an_area_page_answers_a_point_like_a_point_search() {
+        let item = |id: &str, day: u32, ring: serde_json::Value| -> emem_fetch::stac::StacItem {
+            let mut it: emem_fetch::stac::StacItem = serde_json::from_value(json!({
+                "id": id, "cloud_cover": 1.0, "datetime": format!("2026-09-{day:02}T05:00:00Z"),
+                "epsg": 32643, "assets": {}, "collection": "sentinel-2-l2a",
+            }))
+            .unwrap();
+            it.footprint = serde_json::from_value(json!([ring])).unwrap();
+            it
+        };
+        let west = json!([
+            [77.0, 12.0],
+            [77.5, 12.0],
+            [77.5, 13.5],
+            [77.0, 13.5],
+            [77.0, 12.0]
+        ]);
+        let east = json!([
+            [77.5, 12.0],
+            [78.0, 12.0],
+            [78.0, 13.5],
+            [77.5, 13.5],
+            [77.5, 12.0]
+        ]);
+        let page = std::sync::Arc::new((
+            vec![
+                item("e3", 20, east.clone()),
+                item("w2", 18, west.clone()),
+                item("e1", 15, east),
+                item("w0", 10, west),
+            ],
+            true,
+        ));
+        let area = S2Area {
+            bbox: [77.2, 12.5, 77.8, 13.0],
+            now_unix: 0,
+        };
+        let cli = reqwest::Client::new();
+        // Fill the slot the way a first cell would, then ask as a second:
+        // no network, since the page is already there.
+        s2_area_slot(emem_fetch::stac::STAC_ELEMENT84_V1, area, "w", 1.0)
+            .set(page)
+            .unwrap();
+        let got = S2_AREA
+            .scope(area, async {
+                s2_candidates(
+                    &cli,
+                    emem_fetch::stac::STAC_ELEMENT84_V1,
+                    77.3,
+                    12.8,
+                    "w",
+                    1.0,
+                    4,
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        let ids: Vec<&str> = got.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["w2", "w0"]);
+    }
+
     fn item(baseline: Option<&str>) -> emem_fetch::stac::StacItem {
         serde_json::from_value(json!({
             "id": "S2B_43PGQ_20260512_0_L2A", "cloud_cover": 3.0, "datetime": "2026-05-12T05:20:00Z",
@@ -87065,6 +87525,78 @@ mod tests {
     /// The same acquisition signed by this responder is found, and returned
     /// instead of re-signed; a different pass, another signer, or a forced
     /// refresh is not.
+    /// A warm grid comes back as columns in the order it states, with one
+    /// bundle per band and one receipt citing every fact it shows.
+    #[tokio::test]
+    async fn a_warm_grid_is_one_table_one_bundle_one_receipt() {
+        let s = test_app_state();
+        let cells = grid_cells(12.97, 77.59, 2, 0.5);
+        assert_eq!(cells.len(), 4);
+        let north = emem_codec::latlng_from_cell64(&cells[0]).unwrap().lat_deg;
+        let south = emem_codec::latlng_from_cell64(&cells[2]).unwrap().lat_deg;
+        assert!(north > south, "north row first");
+        let mut want = Vec::new();
+        for (i, cell) in cells.iter().enumerate() {
+            let v = 0.1 * (i + 1) as f64;
+            let fact = Fact::Primary(PrimaryFact {
+                cell: cell.clone(),
+                band: "indices.ndvi".into(),
+                tslot: 20000,
+                value: ciborium::Value::Float(v),
+                unit: None,
+                confidence: 0.95,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "sentinel_s2_l2a".into(),
+                    id: "https://example.org/B08.tif ; https://example.org/B04.tif".into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: Some("2026-09-01T05:20:11Z".into()),
+                    url: None,
+                }],
+                derivation: Derivation {
+                    fn_key: "sentinel2_l2a_indices_ndvi@1".into(),
+                    args: None,
+                },
+                privacy_class: "public".into(),
+                schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: "2026-09-02T00:00:00Z".into(),
+                served_via: None,
+            });
+            let cid = sign_and_persist(&s, fact, "2026-09-02T00:00:00Z")
+                .await
+                .expect("persist");
+            want.push((v, cid.as_str().to_string()));
+        }
+        let Json(g) = post_grid(
+            State(s.clone()),
+            EmemJson(GridReq {
+                center: "12.97,77.59".into(),
+                bands: vec!["indices.ndvi".into()],
+                n: Some(2),
+                half_km: Some(0.5),
+                tslot: None,
+                budget_ms: None,
+                bundle: None,
+            }),
+        )
+        .await
+        .expect("grid");
+        assert_eq!(g["cells"], json!(cells));
+        let b = &g["bands"]["indices.ndvi"];
+        assert_eq!(b["present"], 4);
+        for (i, (v, cid)) in want.iter().enumerate() {
+            assert_eq!(b["values"][i].as_f64(), Some(*v));
+            assert_eq!(b["fact_cids"][i], json!(cid));
+        }
+        assert!(b["bundle_token"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("emem:bundle:")));
+        assert_eq!(g["receipt"]["fact_cids"].as_array().map(|a| a.len()), Some(4));
+        assert!(g["line"].as_str().unwrap().contains("ready=4/4"));
+    }
+
     #[tokio::test]
     async fn the_same_acquisition_is_not_signed_twice() {
         let s = test_app_state();
