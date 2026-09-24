@@ -1022,8 +1022,14 @@ impl Storage for MaterializingStorage {
                 });
             }
         }
+        // Each durable step is timed on the same `emem::latency` target the
+        // fetch stages use, so a slow cold write says which fsync it waited on.
+        let t = std::time::Instant::now();
         let cids = self.cache.put_many(&att.facts).await?;
+        write_stage("storage.put_facts", t);
+        let t = std::time::Instant::now();
         self.log.append(att).await?;
+        write_stage("storage.log_append", t);
         // Persist a per-fact merkle inclusion proof so receipts citing
         // any of these CIDs can ship a verifier-ready proof. Best-effort:
         // a tree-write error never fails the attestation itself.
@@ -1045,6 +1051,7 @@ impl Storage for MaterializingStorage {
             // multi-tenant scope; without one, recall falls back to the
             // global canonical index and stays byte-identical to the
             // pre-v0.0.8 path.
+            let t = std::time::Instant::now();
             let db = hot.db().clone();
             let redb_w = hot.redb().cloned();
             let facts = att.facts.clone();
@@ -1068,6 +1075,8 @@ impl Storage for MaterializingStorage {
             if let Err(e) = idx_writes {
                 tracing::warn!(error=%e, "index-write task join error (ignored)");
             }
+            write_stage("storage.index_rows", t);
+            let t = std::time::Instant::now();
             // One fsync makes the proof + multi-attester + scope rows above
             // durable. sled flushes the whole Db, so the per-helper flushes
             // were three redundant fsyncs per cold write; this single async
@@ -1077,6 +1086,7 @@ impl Storage for MaterializingStorage {
             if let Err(e) = hot.db().flush_async().await {
                 tracing::warn!(error=%e, "index flush error (ignored)");
             }
+            write_stage("storage.sled_flush", t);
         }
         if let Some(reg) = &self.attesters {
             if let Err(e) = reg.record_attestation(&att.attester.0, &att.facts) {
@@ -2169,6 +2179,15 @@ fn hex32(b: &[u8; 32]) -> String {
         s.push_str(&format!("{:02x}", x));
     }
     s
+}
+
+fn write_stage(stage: &'static str, started: std::time::Instant) {
+    tracing::debug!(
+        target: "emem::latency",
+        stage,
+        elapsed_us = started.elapsed().as_micros() as u64,
+        "write stage"
+    );
 }
 
 #[cfg(test)]
