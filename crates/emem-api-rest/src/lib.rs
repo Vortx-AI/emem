@@ -50973,6 +50973,7 @@ fn s2_url_for_record(url: &str) -> &str {
 /// foundation-model chip paths (clay/prithvi/galileo) select a scene by the
 /// same per-pixel SCL discipline the scalar value path uses, instead of the
 /// scene-level cloud filter in `s2_search_with_fallback`.
+#[derive(Clone)]
 pub(crate) struct S2ChosenScene {
     pub(crate) item: emem_fetch::stac::StacItem,
     pub(crate) used_cloud: f64,
@@ -51006,7 +51007,61 @@ pub(crate) struct S2ChosenScene {
 /// Shares the exact tier ladder of [`s2_search_with_fallback`] so the
 /// cloud/lookback semantics (and `EMEM_S2_MAX_CLOUD` / `EMEM_S2_LOOKBACK_DAYS`
 /// overrides) stay identical; only the per-tier candidate count differs.
+/// One scene pick per (pixel, target, bound), shared by every band.
+///
+/// Each band of a cold cell used to run its own catalogue search and SCL
+/// probe for the same pixel, so a 12-index recall at one cell asked the
+/// catalogues the same question 12 times and could, across a tier boundary,
+/// even pick different scenes for NDVI and NBR of one "observation". The
+/// first caller does the work; concurrent callers for the same key wait on it;
+/// the answer is kept 10 minutes. Failures are not kept, so a transient
+/// catalogue error is retried by the next caller.
 pub(crate) async fn s2_pick_clear_scene(
+    cli: &reqwest::Client,
+    lng: f64,
+    lat: f64,
+    target_unix: Option<i64>,
+    now_unix: i64,
+    at_or_before: bool,
+) -> Result<S2ChosenScene, String> {
+    type Slot = std::sync::Arc<tokio::sync::OnceCell<S2ChosenScene>>;
+    type Key = (u64, u64, Option<i64>, bool);
+    type Memo = std::sync::Mutex<std::collections::HashMap<Key, (std::time::Instant, Slot)>>;
+    static MEMO: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
+    const TTL: std::time::Duration = std::time::Duration::from_secs(600);
+    // A target inside the same day is the same question for a daily search.
+    let key = (
+        lat.to_bits(),
+        lng.to_bits(),
+        target_unix.map(|t| t.div_euclid(86_400)),
+        at_or_before,
+    );
+    let slot: Slot = {
+        let memo = MEMO.get_or_init(Default::default);
+        let mut m = memo.lock().unwrap_or_else(|e| e.into_inner());
+        if m.len() > 4096 {
+            m.retain(|_, (at, _)| at.elapsed() < TTL);
+            if m.len() > 4096 {
+                m.clear();
+            }
+        }
+        match m.get(&key) {
+            Some((at, slot)) if at.elapsed() < TTL => slot.clone(),
+            _ => {
+                let slot: Slot = Default::default();
+                m.insert(key, (std::time::Instant::now(), slot.clone()));
+                slot
+            }
+        }
+    };
+    slot.get_or_try_init(|| {
+        s2_pick_clear_scene_uncached(cli, lng, lat, target_unix, now_unix, at_or_before)
+    })
+    .await
+    .cloned()
+}
+
+async fn s2_pick_clear_scene_uncached(
     cli: &reqwest::Client,
     lng: f64,
     lat: f64,
@@ -51553,6 +51608,20 @@ async fn materialize_sentinel2_band_inner(
         format!("band {band} not in registry (direct key or scalar_keys); cannot pick tempo")
     })?;
     let tslot = emem_core::tslot::Tslot::from_unix(captured_unix, tempo).0;
+
+    // The same acquisition already signed here is the same observation: hand
+    // back its fact rather than signing a copy. Backfill asked for one scene
+    // per target DAY, many days resolved to the same scene, and every one was
+    // re-signed as a new fact with a new cid and a new log entry (160
+    // materializations for 13 observations at one cell). Matching the
+    // acquisition time rather than the scene id also keeps a fact signed from
+    // one catalogue from being replaced by the other catalogue's reprocessed
+    // copy of the same pass. A backfill with `refresh` still re-signs.
+    if !force_resign() {
+        if let Some(cid) = existing_same_acquisition(s, cell64, band, tslot, &item.datetime).await {
+            return Ok(cid);
+        }
+    }
 
     // Pixel-level Scene Classification Layer (SCL). Already sampled by
     // `s2_pick_clear_scene` while choosing the scene, so we REUSE it here
@@ -57192,9 +57261,70 @@ async fn materialize_band_at(
     ))
 }
 
+tokio::task_local! {
+    /// Set by a backfill with `refresh`: materializers re-sign even when the
+    /// same acquisition is already on file.
+    static FORCE_RESIGN: bool;
+}
+
+fn force_resign() -> bool {
+    FORCE_RESIGN.try_with(|v| *v).unwrap_or(false)
+}
+
+/// Our own fact already on file at (cell, band, tslot) for this acquisition.
+async fn existing_same_acquisition(
+    s: &AppState,
+    cell64: &str,
+    band: &str,
+    tslot: u64,
+    captured_at: &str,
+) -> Option<emem_fact::FactCid> {
+    let key = emem_cache::CanonicalKey {
+        cell: cell64.to_string(),
+        band: band.to_string(),
+        tslot,
+    };
+    let cid = s
+        .storage
+        .lookup_canonical_many(std::slice::from_ref(&key))
+        .await
+        .ok()?
+        .into_iter()
+        .next()
+        .flatten()?;
+    let fact = s
+        .storage
+        .get_facts_many(std::slice::from_ref(&cid))
+        .await
+        .ok()?
+        .into_iter()
+        .next()
+        .flatten()?;
+    match fact {
+        Fact::Primary(p)
+            if p.signer == s.identity.pubkey
+                && p.sources
+                    .iter()
+                    .any(|src| src.captured_at.as_deref() == Some(captured_at)) =>
+        {
+            Some(cid)
+        }
+        _ => None,
+    }
+}
+
 /// Result of a `POST /v1/backfill` call. Symmetrical with the MCP
 /// `emem_backfill` response shape.
 async fn backfill_inner(req: BackfillReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    if req.refresh {
+        return FORCE_RESIGN
+            .scope(true, backfill_inner_scoped(req, s))
+            .await;
+    }
+    backfill_inner_scoped(req, s).await
+}
+
+async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonValue, ApiError> {
     use emem_core::tslot::{Tempo, Tslot};
     let tempo = tempo_for_band(&req.band).ok_or_else(|| {
         ApiError(
@@ -86930,6 +87060,65 @@ mod tests {
         );
         assert_eq!(note_line("# no front matter\nline: not this\n"), None);
         assert_eq!(note_line("---\nline:\n---\nbody"), None);
+    }
+
+    /// The same acquisition signed by this responder is found, and returned
+    /// instead of re-signed; a different pass, another signer, or a forced
+    /// refresh is not.
+    #[tokio::test]
+    async fn the_same_acquisition_is_not_signed_twice() {
+        let s = test_app_state();
+        let cell = "defi.zb493.yiwo.zcb4e";
+        let fact = Fact::Primary(PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot: 20000,
+            value: ciborium::Value::Float(0.61),
+            unit: None,
+            confidence: 0.95,
+            uncertainty: None,
+            sources: vec![Source {
+                scheme: "sentinel_s2_l2a".into(),
+                id: "https://example.org/B08.tif ; https://example.org/B04.tif".into(),
+                cid: None,
+                hash: None,
+                captured_at: Some("2026-09-01T05:20:11Z".into()),
+                url: None,
+            }],
+            derivation: Derivation {
+                fn_key: "sentinel2_l2a_indices_ndvi@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: "2026-09-02T00:00:00Z".into(),
+            served_via: None,
+        });
+        let cid = sign_and_persist(&s, fact, "2026-09-02T00:00:00Z")
+            .await
+            .expect("persist");
+        let found =
+            existing_same_acquisition(&s, cell, "indices.ndvi", 20000, "2026-09-01T05:20:11Z")
+                .await;
+        assert_eq!(found.as_ref().map(|c| c.as_str()), Some(cid.as_str()));
+        assert!(
+            existing_same_acquisition(&s, cell, "indices.ndvi", 20000, "2026-09-06T05:20:11Z")
+                .await
+                .is_none(),
+            "another pass"
+        );
+        assert!(
+            existing_same_acquisition(&s, cell, "indices.nbr", 20000, "2026-09-01T05:20:11Z")
+                .await
+                .is_none(),
+            "another band"
+        );
+        assert!(!force_resign());
+        assert!(
+            FORCE_RESIGN.scope(true, async { force_resign() }).await,
+            "refresh re-signs"
+        );
     }
 
     /// Rows written before the version was stored are re-derived, and say so.
