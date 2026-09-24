@@ -10,10 +10,10 @@ deploy, `whitepaper-v2.md` for the math.
 ## The shape of the system
 
 A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **171 unique paths under
+`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **172 unique paths under
 `/v1/*`** in `openapi.json`) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**113 tools**: 18 core / 95 extended, with `tools/list` advertising the core
-tier and `POST /mcp/full` advertising all 113). No GPU or model sidecar runs; earlier versions
+(**114 tools**: 18 core / 96 extended, with `tools/list` advertising the core
+tier and `POST /mcp/full` advertising all 114). No GPU or model sidecar runs; earlier versions
 ran Clay, Prithvi, Galileo and JEPA-v2 on one, and facts they signed still
 verify. Storage is a sled hot cache plus an append-only Merkle
 log on local disk. Identity is a 32-byte ed25519 secret at
@@ -75,7 +75,7 @@ signed `Receipt`.
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
 | emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (113 tools) |
+| emem-mcp | MCP tool registry (114 tools) |
 | emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 7-variant `Intent` enum and rule-based planner |
@@ -422,8 +422,8 @@ a seaward profile, land-locked rejection with profile + suggestion), and
 REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (113 tools). Its `tools/list`
-advertises the 18 core tools; `POST /mcp/full` advertises all 113.
+backed by `crates/emem-mcp/src/lib.rs` (114 tools). Its `tools/list`
+advertises the 18 core tools; `POST /mcp/full` advertises all 114.
 Both dispatch every tool by name from `tools/call`. Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`

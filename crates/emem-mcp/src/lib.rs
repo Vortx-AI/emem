@@ -1175,6 +1175,15 @@ const SCHEMA_BORING_LATLNG: &str = r#"{"type":"object","properties":{
 "threshold":{"type":"number","description":"Cut point for the `pct_area_over` reducer (area-weighted the same way the mean is). Only meaningful once the call is in area mode, so it does nothing on a bare `lat`+`lng` with no `radius_m` and no `n_cells`, and nothing on a non-numeric band."}
 }}"#;
 
+const SCHEMA_GRID: &str = r#"{"type":"object","required":["center","bands"],"properties":{
+"center":{"type":"string","description":"Place name, cell64, or \"lat,lng\"."},
+"bands":{"type":"array","items":{"type":"string"},"minItems":1,"maxItems":8,"description":"Bands to read at every square, same keys as emem_recall.bands."},
+"n":{"type":"integer","minimum":2,"maximum":16,"default":12,"description":"Squares per side."},
+"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3,"description":"Distance from the centre to each edge row, km."},
+"tslot":{"type":"integer","description":"Optional tslot applied to every square."},
+"budget_ms":{"type":"integer","description":"Soft materialization budget; on expiry the grid returns what is ready plus pending, and the identical retry returns strictly more."},
+"bundle":{"type":"boolean","default":true,"description":"Bind each band's facts into one emem:bundle token."}}}"#;
+
 const SCHEMA_RECALL_MANY: &str = r#"{"type":"object","required":["cells"],"properties":{
 "budget_ms":{"type":"integer","description":"Optional soft materialization budget in ms; on expiry the response is a partial 200 with converged false, a typed pending[] and a retry hint. The identical call retried returns strictly more from cache. Absent = unchanged behaviour."},
 "cells":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"List of cell64 strings, max 256. Each cell is recalled in parallel and the responses are merged into a single signed envelope."},
@@ -2448,6 +2457,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         tier: "extended",
     },
     ToolDescriptor {
+        name: "emem_grid",
+        title: "A place as an n x n table of signed facts",
+        description: "One call returns a place as columns: `cells` row-major (north row first), and per band `values`, `fact_cids`, `captured_at` and one `bundle_token`, under ONE receipt citing every fact. Cold squares are read as one area, so the Sentinel-2 scene search runs once per grid, not once per square. `line` summarises the grid in one row.",
+        when_to_use: "Use for a map, a spatial correlation, or any question over the squares of an area around a place. Replaces n^2 emem_locate calls + emem_recall_many passes + one emem_memory_bundle per band. Cite `bundle_token` per band; verify `receipt` once. Pass budget_ms and repeat the identical call until `converged` is true.",
+        input_schema: SCHEMA_GRID,
+        output_schema: None,
+        example_args: r#"{"center":"Cubbon Park, Bengaluru","bands":["indices.ndvi","modis.lst_day_8day"],"n":12,"half_km":3,"budget_ms":20000}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
         name: "emem_elevation",
         title: "Coherent elevation across Cop-DEM + GMRT + WorldCover",
         description: "One-shot elevation answer that fuses Cop-DEM 30 m (land), GMRT (ocean topobathy), and ESA WorldCover (water mask) into a single signed scalar at a place or coordinate. Returns `elevation_m`, the source actually used, and a `coherence_note` when the two surfaces disagree at the coast.",
@@ -3078,6 +3099,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_query_region",
             "emem_cells_in_bbox",
             "emem_recall_many",
+            "emem_grid",
             "emem_recall_polygon",
             "emem_region_similarity",
             "emem_state",
@@ -3230,7 +3252,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
             "emem_ndvi", "emem_weather", "emem_soil", "emem_elevation", "emem_terrain",
             "emem_lst", "emem_water", "emem_forest", "emem_air", "emem_spi", "emem_burn_severity",
             "emem_deforestation_alert", "emem_sar_forest_disturbance", "emem_rice_ch4",
-            "emem_recall", "emem_recall_many", "emem_recall_polygon", "emem_at",
+            "emem_recall", "emem_recall_many", "emem_recall_polygon", "emem_at", "emem_grid",
             "emem_ask", "emem_state", "emem_state_multi", "emem_diff", "emem_compare",
             "emem_compare_bands", "emem_query_region", "emem_hunt", "emem_state_diff",
             "emem_change_attribution",

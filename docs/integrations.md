@@ -313,7 +313,7 @@ trail to a regulator who never trusted the operator).
 | Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
 | Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
 
-Any host that speaks MCP reaches the same 113 tools at the same URL, whether or
+Any host that speaks MCP reaches the same 114 tools at the same URL, whether or
 not it has a row here: the endpoint is `https://emem.dev/mcp` and reads need no
 key. The rows above are the ones with a checked-in example. Where a host has no
 native Streamable HTTP transport, the `mcp-remote` stdio bridge covers it, and
@@ -435,7 +435,7 @@ four lines:
 ```
 
 That endpoint advertises the 18 core tools from `tools/list`, so the host
-registers about 75 KB of descriptors rather than about 324 KB for all 113. The rest
+registers about 75 KB of descriptors rather than about 324 KB for all 114. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.
