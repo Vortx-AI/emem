@@ -872,6 +872,7 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
 .cz-rel path{ fill:none; stroke:currentColor; stroke-width:1; vector-effect:non-scaling-stroke; }
 .cz-heat rect{ fill:var(--accent); stroke:var(--paper); stroke-width:1; }
 .cz-heat rect.miss{ fill:none; stroke:var(--rule-strong); stroke-dasharray:2 2; }
+.cz-heat rect.absent{ fill:var(--rule-strong); fill-opacity:.35; }
 .cz-log line{ stroke:var(--rule-strong); stroke-width:1.2; }
 .cz-log circle{ fill:var(--paper); stroke:var(--ink-2); stroke-width:1.2; }
 .cz-log .hot line{ stroke:var(--accent); stroke-width:2; }
@@ -2152,11 +2153,14 @@ html{ scroll-padding-top:calc(var(--chrome-h, 5.8rem) + 1rem); }
           var r = document.createElementNS(NS, 'rect');
           r.setAttribute('x', (k % n) * w); r.setAttribute('y', Math.floor(k / n) * w);
           r.setAttribute('width', w); r.setAttribute('height', w);
-          if(v === null) r.setAttribute('class', 'miss');
+          var st = b.states ? b.states[k] : (v === null ? 'missing' : 'value');
+          if(st === 'absent') r.setAttribute('class', 'absent');
+          else if(v === null) r.setAttribute('class', 'miss');
           else r.setAttribute('fill-opacity', Math.max(0.08, Math.min(1, (v + 0.1) / 0.9)).toFixed(2));
           svg.appendChild(r);
         });
-        read(s, 'NDVI &middot; <b>' + b.present + '</b> of ' + g.cells.length + ' squares &middot; one receipt' +
+        read(s, 'NDVI &middot; <b>' + b.present + '</b> of ' + g.cells.length + ' squares' +
+          (b.absent ? ' &middot; ' + b.absent + ' under cloud' : '') + ' &middot; one receipt' +
           (b.bundle_token ? '<br>' + esc(b.bundle_token) : ''));
         if(b.bundle_token) go.href = '/v1/memory_bundle/' + encodeURIComponent(b.bundle_token);
       }
