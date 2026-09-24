@@ -48,6 +48,24 @@ use emem_core::ErrorCode;
 /// enough that a cold scene read stays inside the gateway budget.
 const MAX_SIDE_PX: u32 = 512;
 
+/// The scene classification asset: `scl` on Element84, `SCL` on Planetary
+/// Computer.
+fn scl_asset(item: &emem_fetch::stac::StacItem) -> Option<String> {
+    ["scl", "SCL"]
+        .iter()
+        .find_map(|k| item.assets.get(*k).cloned())
+}
+
+/// A DN on the harmonised scale (Element84's), whichever catalogue served it.
+/// 0 is L2A no-data in both conventions and stays 0.
+fn harmonise(dn: f64, offset: f64) -> f32 {
+    if dn == 0.0 {
+        0.0
+    } else {
+        (dn + offset) as f32
+    }
+}
+
 /// The raw Sentinel-2 bands this executor serves, with the Element84
 /// STAC asset aliases each may appear under. An allowlist, not a
 /// routing guess: any other band is a typed refusal naming this list.
@@ -216,10 +234,13 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     let centre_lat = (b.min_lat + b.max_lat) / 2.0;
     let centre_lng = (b.min_lng + b.max_lng) / 2.0;
     let cli = crate::s2_http_client();
-    let (item, _cloud, _days) =
+    let (item, _cloud, _days, host) =
         crate::s2_search_with_fallback(&cli, centre_lng, centre_lat, target_unix, now_unix)
             .await
             .map_err(upstream_error)?;
+    // Values stay on the harmonised DN scale whichever catalogue served the
+    // scene: see `crate::s2_dn_offset`.
+    let dn_offset = crate::s2_dn_offset(host, &item).map_err(upstream_error)?;
     let epsg = item
         .epsg
         .ok_or_else(|| upstream_error("stac item missing proj:epsg".into()))?;
@@ -288,7 +309,7 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
         dlng: sx,
         channels: 1,
     };
-    let values: Vec<f32> = raw.iter().map(|v| *v as f32).collect();
+    let values: Vec<f32> = raw.iter().map(|v| harmonise(*v, dn_offset)).collect();
     let artifact_bytes =
         encode_grid(&header, &values).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
     let byte_len = artifact_bytes.len();
@@ -365,7 +386,9 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
         "sources": [{
             "scheme": "sentinel2.l2a",
             "id": item.id,
-            "asset": url,
+            "asset": crate::s2_url_for_record(&url),
+            "catalogue": host,
+            "dn_offset": dn_offset,
             "captured_at": item.datetime,
             "cloud_cover": item.cloud_cover,
             // The illumination the scene was acquired under, carried into the
@@ -2240,6 +2263,7 @@ fn scene_tslot(datetime: &str) -> u64 {
 #[allow(clippy::too_many_arguments)]
 async fn read_masked_scene(
     cli: &reqwest::Client,
+    host: &'static str,
     item: &emem_fetch::stac::StacItem,
     aliases: &[&str],
     cx: f64,
@@ -2249,8 +2273,9 @@ async fn read_masked_scene(
     band_native_m: f64,
     reject: &std::collections::BTreeSet<u8>,
 ) -> Option<(Vec<f32>, JsonValue)> {
+    let dn_offset = crate::s2_dn_offset(host, item).ok()?;
     let band_url = aliases.iter().find_map(|a| item.assets.get(*a).cloned())?;
-    let scl_url = item.assets.get("scl").cloned()?;
+    let scl_url = scl_asset(item)?;
     let band_prof = emem_fetch::cog::open_profile(cli, &band_url).await.ok()?;
     // Same tile grid only: a different native resolution is a different pixel
     // lattice and cannot be medianed pixel-for-pixel.
@@ -2290,13 +2315,15 @@ async fn read_masked_scene(
             if (0.0..=255.0).contains(&scl) && reject.contains(&(scl as u8)) {
                 continue; // rejected -> stays NaN
             }
-            out[(r as usize) * (w as usize) + (c as usize)] = bv as f32;
+            out[(r as usize) * (w as usize) + (c as usize)] = harmonise(bv, dn_offset);
         }
     }
     let meta = json!({
         "id": item.id,
-        "asset": band_url,
-        "scl_asset": scl_url,
+        "asset": crate::s2_url_for_record(&band_url),
+        "scl_asset": crate::s2_url_for_record(&scl_url),
+        "catalogue": host,
+        "dn_offset": dn_offset,
         "captured_at": item.datetime,
         "cloud_cover": item.cloud_cover,
         "sun_azimuth_deg": item.sun_azimuth,
@@ -2354,25 +2381,47 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
 
     // ── scenes in the window (newest first). ───────────────────────────────
     let datetime = format!("{}T00:00:00Z/{}T23:59:59Z", req.start_date, req.end_date);
-    let items = emem_fetch::stac::search_many_at(
-        &cli,
-        emem_fetch::stac::STAC_ELEMENT84_V1,
-        "sentinel-2-l2a",
-        centre_lng,
-        centre_lat,
-        &datetime,
-        None,
-        (max_scenes * 2).min(50),
-    )
-    .await
-    .map_err(upstream_error)?;
+    let mut failures: Vec<String> = Vec::new();
+    let mut found = None;
+    for host in crate::s2_catalogues() {
+        let searched = emem_fetch::stac::search_many_at(
+            &cli,
+            host,
+            "sentinel-2-l2a",
+            centre_lng,
+            centre_lat,
+            &datetime,
+            None,
+            (max_scenes * 2).min(50),
+        )
+        .await;
+        let signed = match searched {
+            Ok(v) if host == emem_fetch::stac::STAC_MPC_V1 => {
+                crate::s2_sign_mpc_items(&cli, v).await
+            }
+            other => other,
+        };
+        match signed {
+            Ok(v) => {
+                found = Some((host, v));
+                break;
+            }
+            Err(e) => failures.push(format!("{host}: {e}")),
+        }
+    }
+    let (host, items) = found.ok_or_else(|| {
+        upstream_error(format!(
+            "stac: every Sentinel-2 catalogue failed: {}",
+            failures.join("; ")
+        ))
+    })?;
     // Anchor on the newest usable scene: it fixes the CRS, the native
     // resolution, and the output grid origin every other member is read onto.
     let anchor = items
         .iter()
         .find(|it| {
             it.epsg.is_some()
-                && it.assets.contains_key("scl")
+                && scl_asset(it).is_some()
                 && aliases.iter().any(|a| it.assets.contains_key(*a))
         })
         .ok_or_else(|| {
@@ -2424,7 +2473,7 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
         .iter()
         .filter(|it| {
             it.epsg == Some(epsg)
-                && it.assets.contains_key("scl")
+                && scl_asset(it).is_some()
                 && aliases.iter().any(|a| it.assets.contains_key(*a))
         })
         .take(max_scenes)
@@ -2432,6 +2481,7 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
     let reads = members.iter().map(|it| {
         read_masked_scene(
             &cli,
+            host,
             it,
             aliases,
             utm_c.easting,
@@ -2680,6 +2730,24 @@ pub async fn post_band_composite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Both catalogues land on one pixel scale: an ESA DN from Planetary
+    /// Computer plus its offset equals Element84's harmonised DN, and no-data
+    /// stays no-data rather than becoming -1000.
+    #[test]
+    fn either_catalogue_lands_on_one_scale() {
+        assert_eq!(harmonise(1834.0, -1000.0), harmonise(834.0, 0.0));
+        assert_eq!(harmonise(0.0, -1000.0), 0.0);
+        let item: emem_fetch::stac::StacItem = serde_json::from_value(json!({
+            "id": "x", "datetime": "2026-09-01T00:00:00Z", "collection": "sentinel-2-l2a",
+            "assets": {"SCL": "https://example.invalid/SCL.tif"},
+        }))
+        .unwrap();
+        assert_eq!(
+            scl_asset(&item).as_deref(),
+            Some("https://example.invalid/SCL.tif")
+        );
+    }
 
     #[test]
     fn aoi_cid_is_stable_and_order_sensitive() {

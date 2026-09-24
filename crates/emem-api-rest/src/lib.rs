@@ -8931,7 +8931,7 @@ async fn materializers(
                 "value_kind":        "primary",
                 "coverage":          "global; Sentinel-2 L2A 10 m; 5-day revisit at the equator",
                 "upstream_scheme":   "sentinel_s2_l2a",
-                "upstream_endpoint": "https://earth-search.aws.element84.com/v1/search → https://sentinel-cogs.s3.us-west-2.amazonaws.com/...",
+                "upstream_endpoint": "https://planetarycomputer.microsoft.com/api/stac/v1/search (primary; SAS-signed Azure COGs, per-scene BOA offset) or https://earth-search.aws.element84.com/v1/search (fallback; harmonised COGs); EMEM_S2_CATALOGUES reorders",
                 "derivation_fn_key": "sentinel2_l2a_ndvi@1",
                 "confidence":        0.92,
                 "tempo":             "fast",
@@ -11889,7 +11889,7 @@ async fn agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             "no_python_at_request_path": true,
             "cog_reader":     "pure-Rust HTTPS-range TIFF/IFD parser + Deflate/LZW + Predictor 1/2/3 (no GDAL, no rasterio); tile decode runs on the blocking pool, off the async reactor",
             "weather_source": "MET Norway api.met.no (no API key, no per-IP rate limit)",
-            "stac_search":    "Element84 earth-search (anonymous; AWS Open Data backed)",
+            "stac_search":    "Sentinel-2: Planetary Computer first, Element84 on failure (EMEM_S2_CATALOGUES); other collections as each connector names",
             "gateway_timeout_secs":      timeout_seconds(),
             "materializer_timeout_secs": materializer_timeout_secs(),
             "max_inflight":              max_inflight(),
@@ -50027,7 +50027,7 @@ pub(crate) async fn s2_search_with_fallback(
     lat: f64,
     target_unix: Option<i64>,
     now_unix: i64,
-) -> Result<(emem_fetch::stac::StacItem, f64, i64), String> {
+) -> Result<(emem_fetch::stac::StacItem, f64, i64, &'static str), String> {
     let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
@@ -50058,18 +50058,29 @@ pub(crate) async fn s2_search_with_fallback(
             iso8601_utc(lo_unix as u64),
             iso8601_utc(hi_unix as u64)
         );
-        match emem_fetch::stac::search_one(cli, "sentinel-2-l2a", lng, lat, &datetime, Some(cloud))
-            .await
-        {
-            Ok(Some(item)) => return Ok((item, cloud, days)),
-            Ok(None) => {
-                last_err = Some(format!(
-                    "no Sentinel-2 L2A scene under {cloud}% cloud in ±{days}d"
-                ));
-                continue;
+        let mut failures: Vec<String> = Vec::new();
+        let mut answered = false;
+        for host in s2_catalogues() {
+            match s2_candidates(cli, host, lng, lat, &datetime, cloud, 1).await {
+                Ok(items) => {
+                    answered = true;
+                    if let Some(item) = items.into_iter().next() {
+                        return Ok((item, cloud, days, host));
+                    }
+                    break;
+                }
+                Err(e) => failures.push(format!("{host}: {e}")),
             }
-            Err(e) => return Err(format!("stac: {e}")),
         }
+        if !answered {
+            return Err(format!(
+                "stac: every Sentinel-2 catalogue failed: {}",
+                failures.join("; ")
+            ));
+        }
+        last_err = Some(format!(
+            "no Sentinel-2 L2A scene under {cloud}% cloud in ±{days}d"
+        ));
     }
     Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
 }
@@ -50205,7 +50216,7 @@ async fn s2_sample_scl(
 /// `EMEM_S2_CATALOGUES=element84,mpc` reorders them, or names just one.
 ///
 /// The two do not serve the same numbers. See [`s2_dn_offset`].
-fn s2_catalogues() -> Vec<&'static str> {
+pub(crate) fn s2_catalogues() -> Vec<&'static str> {
     let named = std::env::var("EMEM_S2_CATALOGUES").unwrap_or_default();
     let list: Vec<&'static str> = named
         .split(',')
@@ -50237,7 +50248,10 @@ fn s2_catalogues() -> Vec<&'static str> {
 /// reflectance, a smooth plausible bias nothing downstream would catch. So an
 /// item that does not state its baseline is refused rather than guessed, and
 /// a catalogue this path does not know is refused outright.
-fn s2_dn_offset(search_url: &str, item: &emem_fetch::stac::StacItem) -> Result<f64, String> {
+pub(crate) fn s2_dn_offset(
+    search_url: &str,
+    item: &emem_fetch::stac::StacItem,
+) -> Result<f64, String> {
     if emem_fetch::stac::s2_dn_is_harmonised(search_url) {
         return Ok(0.0);
     }
@@ -50262,7 +50276,7 @@ fn s2_dn_offset(search_url: &str, item: &emem_fetch::stac::StacItem) -> Result<f
 /// token; sign every asset of these items so the SCL probe and the value
 /// reads work unchanged. The token is never recorded in a fact: see
 /// [`s2_url_for_record`].
-async fn s2_sign_mpc_items(
+pub(crate) async fn s2_sign_mpc_items(
     cli: &reqwest::Client,
     items: Vec<emem_fetch::stac::StacItem>,
 ) -> Result<Vec<emem_fetch::stac::StacItem>, String> {
@@ -50286,7 +50300,7 @@ async fn s2_sign_mpc_items(
 
 /// An asset url as it may be written into a signed fact: without its query
 /// string, which for Planetary Computer is a SAS token that expires.
-fn s2_url_for_record(url: &str) -> &str {
+pub(crate) fn s2_url_for_record(url: &str) -> &str {
     url.split('?').next().unwrap_or(url)
 }
 

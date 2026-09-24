@@ -336,10 +336,20 @@ reflectance is `(DN + offset) * 1e-4` with offset 0 for Element84 and -1000
 for Planetary Computer scenes from processing baseline 04.00. A scene that
 states no baseline is refused. Each fact's `derivation.args` ends with the
 catalogue and the offset. Planetary Computer's COGs pack 15-bit samples,
-which `cog.rs` reads.
+which `cog.rs` reads. `band_raster@1` and `s2_median_composite@1` store DNs
+on Element84's harmonised scale from either catalogue (0 stays no-data), and
+each source in the record names its `catalogue` and `dn_offset`, so a rebuild
+reads the same asset and applies the same term.
 
-The connector uses **`intersects: Point`**, not `bbox`. A bbox query can
-match neighbouring tiles in MGRS overlap zones — a Point is unambiguous.
+A single cell searches with **`intersects: Point`**, not `bbox`. A bbox query
+can match neighbouring tiles in MGRS overlap zones. A many-cell read
+(`recall_many`, `recall_polygon`, `/v1/grid`) asks once for the cells' bbox
+and keeps, per cell, the items whose footprint holds the point: the same
+test a point search runs, one request instead of one per cell. A truncated
+page, or an item with no footprint, falls back to the point search. A
+backfill lists every pass in its window with one search and signs each clear
+pass once. A catalogue that rate-limits is left alone for its `Retry-After`
+(60 s when it gives none).
 
 What's NOT supported: server-side reprojection, signed-URL chains beyond MS
 PC's SAS token, any catalog requiring an account.
