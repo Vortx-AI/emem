@@ -2096,7 +2096,22 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     if path.starts_with("/docs/diagrams/") && path.ends_with(".svg") {
         return Some("public, max-age=3600, stale-while-revalidate=86400");
     }
+    // Named by what they hold: a bundle, a tree over a note, an artifact.
+    // Any shared cache may keep them forever, because a stale or forged
+    // copy fails the check against its own name or signature.
+    if ["/v1/memory_bundle/", "/v1/tree/", "/v1/artifacts/"]
+        .iter()
+        .any(|p| path.starts_with(p))
+        && path != "/v1/tree/path"
+    {
+        return Some(IMMUTABLE);
+    }
     match path {
+        // Heads move every few seconds; a short shared cache lets a crowd of
+        // readers cost one fetch, and a stale head still verifies.
+        "/v1/log/sth" | "/v1/log/witnesses" | "/v1/perception/cards" => {
+            Some("public, max-age=15, stale-while-revalidate=60, stale-if-error=600")
+        }
         // agent.json is a build-pinned static surface; cache it like the
         // other static introspection responses.
         "/agent.json" => Some("public, max-age=3600, stale-while-revalidate=86400"),
@@ -2218,6 +2233,23 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
     }
 }
 
+const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+
+/// The 26-character name of a note stored under its own hash, when `path`
+/// has that shape (`/memories/…/<name>.md`).
+fn hash_named_note(path: &str) -> Option<&str> {
+    let name = path
+        .strip_prefix("/memories/")?
+        .rsplit('/')
+        .next()?
+        .strip_suffix(".md")?;
+    (name.len() == 26
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || (b'2'..=b'7').contains(&b)))
+    .then_some(name)
+}
+
 async fn cache_hint_layer(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
@@ -2225,6 +2257,29 @@ async fn cache_hint_layer(
     let path = req.uri().path().to_string();
     let method = req.method().clone();
     let mut resp = next.run(req).await;
+    // A note is only immutable if it IS its name: nothing forces a writer to
+    // name a note by its hash, and a note can be edited, so the body is
+    // hashed here and the promise made only when it holds.
+    if method == Method::GET && resp.status().is_success() {
+        if let Some(name) = hash_named_note(&path) {
+            let (mut parts, body) = resp.into_parts();
+            let bytes = axum::body::to_bytes(body, usize::MAX)
+                .await
+                .unwrap_or_default();
+            let cid = data_encoding::BASE32_NOPAD
+                .encode(&blake3::hash(&bytes).as_bytes()[..16])
+                .to_lowercase();
+            if cid == name {
+                parts
+                    .headers
+                    .insert(CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE));
+                if let Ok(v) = HeaderValue::from_str(&format!("\"{name}\"")) {
+                    parts.headers.insert(ETAG, v);
+                }
+            }
+            return Response::from_parts(parts, axum::body::Body::from(bytes));
+        }
+    }
     // GET and HEAD share routes in axum; both should advertise the same
     // cache hint so a HEAD probe sees what GET would deliver.
     if (method == Method::GET || method == Method::HEAD) && resp.status().is_success() {
@@ -86854,6 +86909,29 @@ mod tests {
             Some(4)
         );
         assert!(g["line"].as_str().unwrap().contains("ready=4/4"));
+    }
+
+    #[test]
+    fn only_named_reads_are_immutable_and_heads_are_brief() {
+        assert_eq!(
+            hash_named_note("/memories/by_attester/ddzmyzhn/wkxa7tcmw2orf7ujjf5yi66dhe.md"),
+            Some("wkxa7tcmw2orf7ujjf5yi66dhe")
+        );
+        assert_eq!(
+            hash_named_note("/memories/by_attester/ddzmyzhn/arcade/ask-x.md"),
+            None
+        );
+        assert_eq!(
+            hash_named_note("/memories/x/WKXA7TCMW2ORF7UJJF5YI66DHE.md"),
+            None
+        );
+        assert_eq!(
+            cache_ttl_for_path("/v1/memory_bundle/emem:bundle:abc"),
+            Some(IMMUTABLE)
+        );
+        assert_eq!(cache_ttl_for_path("/v1/tree/path"), None);
+        assert!(cache_ttl_for_path("/v1/log/sth").is_some_and(|v| v.contains("max-age=15")));
+        assert_eq!(cache_ttl_for_path("/v1/inbox"), None);
     }
 
     #[tokio::test]

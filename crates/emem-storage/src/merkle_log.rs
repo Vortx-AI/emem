@@ -351,6 +351,15 @@ impl AttestationLog {
                 break;
             }
             let path = self.root.join(format!("merkle.log.{idx}"));
+            // Skip whole segments that end before `start` by their record
+            // count, without reading them: a leaf near the head used to read
+            // every earlier segment (4.7 GB, ~5.5 s), and witnesses sampling
+            // leaves for a custody audit timed out on it.
+            let n = segment_record_count(&path)?;
+            if global + n <= start {
+                global += n;
+                continue;
+            }
             let mut bytes = Vec::new();
             std::fs::File::open(&path)?.read_to_end(&mut bytes)?;
             // Same length-driven walk as `leaf_hashes`: [u32 LE len][cbor][32 hash].
@@ -493,6 +502,39 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
 /// that way is what keeps it composable with the append counter: this
 /// process's own segments are counted by `appended`, never here, so no
 /// record is counted twice however many segments we seal while running.
+/// Records in one segment file, remembered by (path, length). A sealed
+/// segment never changes; the open one is recounted when it has grown. The
+/// walk reads only each record's 4-byte length and seeks past the body.
+fn segment_record_count(path: &std::path::Path) -> std::io::Result<u64> {
+    use std::io::{Seek, SeekFrom};
+    type Counts = std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, u64)>>;
+    static COUNTS: std::sync::OnceLock<Counts> = std::sync::OnceLock::new();
+    let len = std::fs::metadata(path)?.len();
+    let memo = COUNTS.get_or_init(Default::default);
+    if let Some((l, n)) = memo.lock().unwrap_or_else(|e| e.into_inner()).get(path) {
+        if *l == len {
+            return Ok(*n);
+        }
+    }
+    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
+    let (mut pos, mut n) = (0u64, 0u64);
+    let mut hdr = [0u8; 4];
+    while pos + 4 <= len {
+        f.seek(SeekFrom::Start(pos))?;
+        f.read_exact(&mut hdr)?;
+        let needed = 4 + u32::from_le_bytes(hdr) as u64 + 32;
+        if pos + needed > len {
+            break;
+        }
+        n += 1;
+        pos += needed;
+    }
+    memo.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(path.to_path_buf(), (len, n));
+    Ok(n)
+}
+
 fn count_records_below(root: &std::path::Path, first_own: u64) -> std::io::Result<u64> {
     let mut total = 0u64;
     for entry in std::fs::read_dir(root)? {
@@ -637,6 +679,33 @@ mod tests {
     /// Ranges are half-open and a short result means the log ended, which is
     /// what RFC 6962 permits. A range past the end must be empty, not an error,
     /// and must never wrap or panic.
+    /// Entries deep in a many-segment log come from skipping whole segments
+    /// by count, and match what a full walk returns, including after the
+    /// open segment grows between calls.
+    #[tokio::test]
+    async fn entries_skip_segments_and_stay_exact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut n = 0u64;
+        for _ in 0..4 {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..3 {
+                log.append(&distinct_attestation(n)).await.unwrap();
+                n += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let all = log.entries(0, n).unwrap();
+        assert_eq!(all.len() as u64, n);
+        for start in [0, 4, 7, 11] {
+            let got = log.entries(start, start + 1).unwrap();
+            assert_eq!(got, vec![all[start as usize].clone()], "start {start}");
+        }
+        log.append(&distinct_attestation(n)).await.unwrap();
+        let tail = log.entries(n, n + 1).unwrap();
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].0, n);
+    }
+
     #[tokio::test]
     async fn entries_range_is_half_open_and_clamps_past_the_end() {
         let tmp = tempfile::tempdir().unwrap();
