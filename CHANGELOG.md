@@ -7,6 +7,8 @@ to verify.
 
 ## [Unreleased]
 
+- Remove the retired foundation models: Clay v1.5, Prithvi-EO-2.0, Galileo and the JEPA-v2 dynamics head, with their GPU sidecar (`python/jepa_v2_sidecar/`), `POST /v1/jepa_predict_v2` and `POST /v1/triple_consensus` (113 MCP tools, 171 `/v1` paths). The bands stay declared in `bands-v0.json`, so `bands_cid` does not move and facts signed under them still recall and verify.
+
 ## [2.4.0] - 2026-09-07
 
 The release that made federation something a stranger can join, and stopped

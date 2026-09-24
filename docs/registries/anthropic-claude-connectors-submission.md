@@ -95,7 +95,7 @@ Use cases: climate risk assessment, agricultural monitoring, deforestation detec
 wildfire tracking, flood mapping, robot fleet coordination, multi-agent fact sharing, 
 audit-grade reporting.
 
-Earth is the substrate, not the subject. 115 tools. Apache 2.0.
+Earth is the substrate, not the subject. 113 tools. Apache 2.0.
 ```
 
 **Suggested use cases for the portal form:**

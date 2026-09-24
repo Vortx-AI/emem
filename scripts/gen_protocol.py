@@ -37,16 +37,6 @@ def architecture():
     s.text(SRCX, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
     s.text(SRCX, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
 
-    # right: GPU sidecar
-    s.circle(SIDX, CY, 40, fill=LAC, stroke=INK, sw=2.0)
-    s.dot_ring(SIDX, CY, 20, 4, 4.6, GOLD_PALE)
-    s.fish(SIDX, CY, 22, col=PAPER, op=0.85)
-    s.dot_ring(SIDX, CY, 52, 10, 1.6, INK, phase=SIDX)
-    s.flow((SIDX - 44, CY), (CX + LR + 56, CY), LAC, 1.3, op=0.7, bow=-30)
-    s.text(SIDX, CY - 64, "GPU sidecar", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(SIDX, CY + 70, "Clay · Prithvi", 11, INK_SOFT, font=MONO, anchor="middle")
-    s.text(SIDX, CY + 88, "Tessera · Galileo", 11, INK_SOFT, font=MONO, anchor="middle")
-
     # top: clients
     for (cx, label, col) in [(CX - 170, "MCP", TEAL), (CX + 170, "REST", INDIGO)]:
         s.circle(cx, 224, 30, fill=col, stroke=INK, sw=2.0)
@@ -536,7 +526,7 @@ def _encoders(name, seed, title, sub, footer):
     oy = 312
     sats = [("Sentinel-2", TEAL), ("Sentinel-1", INDIGO), ("HLS", LEAF), ("MODIS", TURMERIC), ("DEM", LAC)]
     sxs = [320 + i * 248 for i in range(len(sats))]
-    encs = [("Clay v1.5", INDIGO), ("Prithvi-EO-2", TEAL), ("Tessera", LEAF), ("Galileo", LAC)]
+    encs = [("spectral indices", INDIGO), ("SAR backscatter", TEAL), ("terrain", LEAF), ("phenology", LAC)]
     epos = [(CX + ER * math.cos(math.radians(-90 + i * 90)),
              CY + ER * math.sin(math.radians(-90 + i * 90)) * 0.92) for i in range(len(encs))]
     avoid = [(CX, CY, LR + 60), (W / 2, 150, 600), (W / 2, H - 80, 640)]
@@ -587,15 +577,15 @@ def _encoders(name, seed, title, sub, footer):
 def encoders_split():
     return _encoders("31-encoders-in-orbit-decoders-on-ground", 31,
         "Encoders in orbit, decoders on the ground",
-        "the sensors fly; the responder decodes their stacks into signed embeddings",
-        "Four foundation encoders read the same place differently, so disagreement is informative.")
+        "the sensors fly; the responder decodes their stacks into signed values",
+        "Four deterministic decoders read the same place differently, so disagreement is informative.")
 
 
 def fusion():
     return _encoders("33-fusion-orbit-and-ground", 33,
         "Fusion: orbit and ground",
-        "many modalities, one cell, one signed embedding the next agent can cite",
-        "S1, S2, DEM and climate fuse at one cell into a vector with a content id.")
+        "many modalities, one cell, one signed record the next agent can cite",
+        "S1, S2, DEM and climate fuse at one cell into a record with a content id.")
 
 
 def agent_to_token():

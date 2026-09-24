@@ -68,11 +68,10 @@ GENERATED_DIRS = {"docs/book/"}
 # Every entry is (file, max allowed dashes). Fix a file, delete its row.
 LEGACY_DASHES = {
     "docs/developers/data-sources.md": 48,
-    "docs/developers/inference.md": 40,
     "docs/plans/v0.0.8-and-v0.0.9.md": 37,
-    "docs/developers/architecture.md": 20,
-    "docs/developers/developing.md": 20,
-    "docs/operators/operating.md": 17,
+    "docs/developers/architecture.md": 19,
+    "docs/developers/developing.md": 17,
+    "docs/operators/operating.md": 15,
 }
 
 DASH = re.compile(r"[–—]")

@@ -75,13 +75,7 @@ fn is_dem_band(band: &str) -> bool {
 
 /// Encoder bands whose recall yields an N-D vector, so their raster is a
 /// multi-channel EMBEDDING FIELD (WB-5) rather than a scalar grid.
-const EMBEDDING_BANDS: &[&str] = &[
-    "geotessera",
-    "geotessera.multi_year",
-    "clay_v1",
-    "prithvi_eo2",
-    "galileo",
-];
+const EMBEDDING_BANDS: &[&str] = &["geotessera", "geotessera.multi_year"];
 /// Native sampling step for the embedding grid (geotessera is a 0.1° global
 /// grid; sampling finer just repeats a cell's vector).
 const EMBEDDING_STEP_DEG: f64 = 0.1;

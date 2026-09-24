@@ -32,12 +32,10 @@ for agents editing the source.
 ## Repo shape
 
 Rust workspace, 19 crates, version 2.4.0, MSRV 1.91. `emem-guard` is the verdict server for AI inference checkpoints (Anthropic Inference hooks, Claude Code hooks); it is a separate binary and shares no code path with the responder. The bulk of the code
-lives in `crates/emem-api-rest/src/lib.rs` (~29 k lines: HTTP/MCP router
-plus every inline materializer plus the foundation-embedding fan-out for
-`/v1/ask`) and `crates/emem-fetch/src/*.rs` (27 data connectors + 7
-utility modules). FastAPI sidecar in `python/jepa_v2_sidecar/` serves
-Clay v1.5, Prithvi-EO-2.0, Galileo, and JEPA-v2 over a Unix socket.
-Web surface in `web/` is plain HTML, no build step, included via
+lives in `crates/emem-api-rest/src/lib.rs` (HTTP/MCP router plus every inline materializer) and
+`crates/emem-fetch/src/*.rs` (27 data connectors + 7 utility modules).
+Earlier versions ran Clay, Prithvi, Galileo and JEPA-v2 on a GPU sidecar;
+facts they signed still verify. Web surface in `web/` is plain HTML, no build step, included via
 `include_str!`.
 
 ## Build
@@ -151,11 +149,10 @@ hook fails, fix the underlying issue.
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
 | Registries (8 manifests) | `crates/emem-core/data/*.json` + `src/` |
-| MCP tool registry (115 tools) | `crates/emem-mcp/src/lib.rs` |
+| MCP tool registry (113 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
-| Foundation-embedding fan-out for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
-| Physics solvers (heat / wave / NDVI / JEPA-v2) | `crates/emem-api-rest/src/physics.rs` |
-| Sidecar (FastAPI over UDS) | `python/jepa_v2_sidecar/server.py` |
+| Hunter and corpus-audit classifiers for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |
+| Physics solvers (heat / wave / NDVI AR(2)) | `crates/emem-api-rest/src/physics.rs` |
 | `/humans` interactive console | `web/humans.html` |
 | Static web surface | `web/` (served via `include_str!` from api-rest) |
 | Demos | `crates/emem-cli/src/bin/emem-{demo,livedemo,realdemo}.rs` |

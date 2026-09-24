@@ -150,12 +150,6 @@ export interface JepaPredictRequest {
   forecast_horizon_months?: number;
 }
 
-export interface JepaPredictV2Request {
-  cell: string;
-  band?: string;
-  k_history?: number;
-}
-
 export interface BoringQuery {
   lat?: number;
   lng?: number;

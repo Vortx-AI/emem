@@ -1108,8 +1108,8 @@ already full of the drift the protocol exists to stop.
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **125 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
-and NDVI through weather, forest change, surface water, and four open
-foundation-model embeddings. **168 algorithms** and **27 topics** are
+and NDVI through weather, forest change, surface water, and the Tessera
+foundation embedding. **168 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
@@ -1225,41 +1225,7 @@ one band, two tslots, and ask why the value moved.
 
 What ships as change surfaces today, stated plainly: `emem_diff` returns
 a raw delta (`nd.delta@1`); `state_diff` returns residual, L2, and cosine
-between two vintages of one encoder; `triple_consensus` reports
-year-over-year agreement across three encoders behind a gate its own
-output documents as uncalibrated. None of them attributes.
-
-**How uncalibrated, in numbers, because "uncalibrated" is doing a lot of
-work in that sentence.** Each encoder contributes
-`d = clamp(1 - cos(v_now, v_prev), 0, 1)` and votes if `d` clears
-`consensus_threshold`, default 0.15. That figure is Healey et al. 2018's
-LandTrendr gate for SPECTRAL change, applied unchanged to cosine
-distances in three embedding spaces that share no scale. Measured over 8
-maximally dissimilar chips, Clay's cosine spans 0.11 to 0.95 (sd 0.204)
-and clears 0.15 readily, while the deployed Prithvi checkpoint spans 0.88
-to 0.99 (sd 0.030) and its `d` tops out near 0.1155, under the gate.
-Prithvi therefore never votes: `agreement = all_three` is arithmetically
-unreachable on the deployed checkpoints, and `two_of_three` always means
-Clay plus Tessera. The responder says this in-band, in a
-`gate_calibration` string on every response, and the tool description
-tells a caller to read `encoders_used[].change` per encoder rather than
-trust the vote.
-
-The ensemble magnitude is the quadratic mean of the available
-components, `sqrt((d_c^2 + d_p^2 + d_t^2)/3)`, generalised to N <= 3. L2
-rather than an arithmetic mean was a choice, not a derivation: it lets
-the largest component dominate, which is the behaviour you want when one
-encoder detects a change the others miss and the wrong behaviour when the
-components are on different scales, which is the case here. So the
-ensemble is currently driven mostly by Clay.
-
-Fixing this needs a labelled change corpus, per encoder, that this
-responder does not have: a threshold per embedding space calibrated
-against known change and known no-change, rather than one number borrowed
-from a spectral index. Until that exists the three-tier vote should be
-read as a report of which encoders moved, not as a consensus, and a
-single worked example cannot establish otherwise. It is listed in §14.5
-as an open limit for that reason.
+between two vintages of one encoder. Neither attributes.
 
 What ships as of 2026-07-16 is the LEDGER: `POST /v1/change_attribution`
 (tool `emem_change_attribution`, registry key `change_attribution@1`)
@@ -1280,8 +1246,8 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **173 documented REST paths under `/v1/*`** (184 total
-in OpenAPI) and **115 MCP tools (16 core, 97 extended)**.
+`0.0.0.0:5051`): **171 documented REST paths under `/v1/*`** (182 total
+in OpenAPI) and **113 MCP tools (18 core, 95 extended)**.
 
 Discovery on first contact:
 
@@ -1302,14 +1268,14 @@ Discovery on first contact:
 
 v1 of this document stated that MCP tools are a strict read-only subset
 of REST and that writes go through REST only. That is false, and the
-responder refutes it from its own annotations: **21 of 115 tools carry
+responder refutes it from its own annotations: **23 of 113 tools carry
 `readOnlyHint: false`**. Five are destructive: `memory_create`,
 `memory_str_replace`, `memory_insert`, `memory_delete`, `memory_rename`;
-and sixteen are non-destructive writes, which is the number a reader is
+and eighteen are non-destructive writes, which is the number a reader is
 most likely to find surprising: alongside the obvious `emem_entity`,
 `emem_entity_link`, `emem_derive`, `emem_memory_bundle` and
 `emem_memory_supersede`, it includes `emem_ask`, `emem_recall`,
-`emem_backfill`, `emem_intent`, `emem_hunt`, `emem_triple_consensus`,
+`emem_backfill`, `emem_intent`, `emem_hunt`,
 `emem_change_attribution` and the four raster/cube builders. Those answer
 a question and PERSIST what they materialised to answer it, so asking is
 a write here even though nothing was asked to be stored. An agent can
@@ -1326,10 +1292,10 @@ An MCP host loads every advertised descriptor into the model's context at
 connect. All 102 cost about 243 KB of every conversation whether or not it
 ever touches Earth observation, and a third party measured exactly that
 and called it overhead. So `POST /mcp` advertises the 18 tools of the core
-loop, about 40 KB, and `POST /mcp/full` advertises all 115.
+loop, about 40 KB, and `POST /mcp/full` advertises all 113.
 
 Narrowing discovery removes no capability: **`tools/call` dispatches all
-115 by name at either endpoint**, and an explicit
+113 by name at either endpoint**, and an explicit
 `{"tier":"core"|"extended"|"all"}` overrides the endpoint default. A tool
 absent from a list is still callable. This matters because a tool an
 agent cannot see is a tool it concludes does not exist, and the failure
@@ -1541,19 +1507,10 @@ because the signature speaks to none of them.
 - **Declared is not wired.** 46 declared source schemes is a catalog
   count, not a capability count, and several schemes remain
   declared-but-unwired.
-- **JEPA v2 is trained, and does not beat persistence on real data.** This
-  entry previously said the artefact was an untrained residual-zero
-  identity baseline. That is false and `/v1/capabilities` refutes it:
-  `jepa_predict_v2` reports `trained: true`. The deployed artefact carries
-  `trained_at 2026-05-28` and 28,328 parameters. It was fitted on 12,000
-  wholly synthetic sequences from a seasonality generator and validated on
-  2,000 more, also synthetic (`synthetic_fraction_train: 1.0`), where it
-  beats a Markov-1 "predict the last lag" baseline by 62.7% on NDVI MSE.
-  On the 34 real NDVI pairs held for evaluation it does not beat that
-  baseline: MSE 0.021124 against the baseline's 0.019858, a skill score of
-  -0.064. The artefact's own `honesty_caveats` state the real corpus is
-  too sparse to train end-to-end. Treat `jepa_predict_v2` as a research
-  surface, not a forecast.
+- **The learned dynamics head is retired.** Earlier versions served
+  `jepa_predict_v2`, a head trained on synthetic sequences that did not beat
+  persistence on real NDVI (skill -0.064). The route is gone; receipts it
+  signed still verify.
 - **Cold region fetch has a ceiling, and it fails silently.** A region
   read whose bands are not yet materialized pays the upstream fetch per
   cell, about 1.2 s for `forest_change.lossyear`, and past roughly 250
@@ -1572,9 +1529,8 @@ because the signature speaks to none of them.
   assessment over a whole plantation.
 - **The change-attribution split does not exist.** The ledger ships
   (§10.3): per-term evidence with fact cids under a signed receipt. But
-  `emem_diff` and `state_diff` still return raw deltas,
-  `triple_consensus`'s agreement gate is uncalibrated with its strongest
-  verdict unreachable, and nothing decomposes a delta numerically into
+  `emem_diff` and `state_diff` still return raw deltas, and nothing
+  decomposes a delta numerically into
   environment, sensor, geometry, and encoder terms.
 
 ### 14.5b Where the differentiator actually appears
@@ -1748,7 +1704,7 @@ than discovering it through a failed signature.
 | §5.2: the receipt preimage is a `\|`-joined concatenation of `request_id`, `served_at`, `primitive`, `cells`, `fact_cids` | That is the **v0** rule. Every new receipt is signed under **preimage v1**: domain-separated, every segment tagged and length-prefixed (§6.1). v0 is retained for verification only, so pre-cutover receipts still verify. |
 | §5.2: "the `as_of` block sits outside the preimage ... does not change the signature math" | `as_of` **is** a tagged segment (`0x04`) and **is** signed (§6.2). |
 | §5.2.1: `body_hash = blake3(canonical request body bytes)` | The responder never hashes the request body. `body_hash` is **per-verb** (§6.4). A client implementing v1's rule cannot produce an acceptable signature. |
-| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **21 of 115 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
+| §15: "MCP tools are a strict read-only subset of REST; writes go through REST only" | **23 of 113 MCP tools write** (§11.1), including the five memory verbs, `emem_entity`, `emem_entity_link`, and `emem_derive`. |
 | §15: 93 documented REST paths under `/v1/*` (96 total), 92 MCP tools (10 core, 71 extended) | **108** under `/v1/*` (**112** total), **91** tools (**14** core, **77** extended). |
 
 ### 16.2 Claims in v1's supporting material this document withdraws
@@ -1783,7 +1739,7 @@ entries below record what was claimed, not what is still claimed.
   capability count. Declared is a catalog count and several schemes remain
   unwired (§14.5); the README now scopes the two numbers apart.
 - The homepage FAQ listing three foundation-model embeddings where the
-  substrate wires four (Clay was omitted). The page is compiled into the
+  substrate then wired four (Clay was omitted). The page is compiled into the
   binary, so that correction lands with the next server deploy rather
   than with this document.
 - "base-1024 bigrams", which appeared in 14 places including the OpenAPI

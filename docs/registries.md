@@ -183,9 +183,7 @@ Struct `algorithms::Algorithm`:
 
 ### The `parameters` + `learned_from` + `prerequisites` contract
 
-The flagship composite algorithms (`flood_risk@2`,
-`clay_prithvi_tessera_triple_consensus@1`, the six new triple-consensus
-algorithms below) carry their tunable constants as data, not as numeric
+The flagship composite algorithms (`flood_risk@2` and kin) carry their tunable constants as data, not as numeric
 literals inside the `formula` string. Three optional blocks make those
 constants discoverable, citable, and replaceable:
 
@@ -228,32 +226,11 @@ structured Absence (`archetype_centroids_unavailable`) rather than crashing.
 
 ### Triple-encoder consensus algorithms
 
-Seven algorithms compose Clay v1.5, Prithvi-EO-2.0, and Tessera (and in some
-cases Hansen GFC, Overture buildings, or SWIR) into a single agreement
-verdict over a 365-day window:
-
-| Key                                          | Domain     | Anchor                                    |
-|----------------------------------------------|------------|-------------------------------------------|
-| `clay_prithvi_tessera_triple_consensus@1`    | embedding  | three-encoder cosine-change consensus     |
-| `deforestation_triple@1`                     | vegetation | three-encoder + Hansen lossyear uplift    |
-| `wetland_change_triple@1`                    | water      | three-encoder + JRC GSW recurrence        |
-| `urban_expansion_triple@1`                   | human      | three-encoder + Overture buildings + SWIR |
-| `disaster_anomaly_triple@1`                  | climate    | three-encoder + FIRMS active fires        |
-| `climate_archetype_triple@1`                 | climate    | three-encoder + Köppen-Geiger centroids   |
-| `coastal_erosion_triple@1`                   | water      | three-encoder + JRC GSW shoreline mask    |
-
-Every triple algorithm uses the same shape: per-encoder cosine change vs a
-365-day lookback, gated by a `consensus_threshold` parameter, fused into an
-ensemble score plus a discrete agreement label (`one_or_none`,
-`two_of_three`, `all_three`, or a domain-specific uplift like
-`hansen_confirmed`). See `protocol.md` for the formula DSL at the wire level.
-
-The single `consensus_threshold` is applied to every encoder, and the
-encoders do not share a cosine scale, so the label under-counts encoders
-with a tight spread. On the deployed Prithvi checkpoint the change score
-tops out near 0.1155 against a 0.15 gate, which makes `all_three`
-unreachable. Responses carry a `gate_calibration` string saying so; read
-the per-encoder `change` values rather than the label.
+The registry still declares seven triple-encoder algorithms
+(`clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1` and
+five more), because the registry is content-addressed and old receipts cite
+it. They need the retired Clay and Prithvi encoders, so none of them runs
+here.
 
 ### Expr AST
 

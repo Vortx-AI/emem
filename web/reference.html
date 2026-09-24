@@ -495,7 +495,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">02</span><span class="idx-label">Endpoints</span></div>
     <dl>
-      <dt>REST paths</dt><dd>173 documented under /v1/*</dd>
+      <dt>REST paths</dt><dd>171 documented under /v1/*</dd>
       <dt>MCP tools</dt><dd>102 (15 core / 87 extended); /mcp lists core, /mcp/full lists all</dd>
       <dt>contract</dt><dd>OpenAPI 3.1</dd>
       <dt>mirror</dt><dd>MCP descriptors at /v1/tools</dd>
@@ -520,7 +520,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">place-anchored Q&amp;A with packaged receipts; routes to one of 27 band-topics</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region &rarr; top 8 cells, ranked by the algorithm's primary scalar</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state</td><td>emem_state</td><td class="desc">dense state vector at a cell; view=encoder (default, 128-D) or view=cube (1792-D)</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">fan-out across geotessera, clay_v1, prithvi_eo2, galileo; typed missing[] when unwired</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/state_multi</td><td>emem_state_multi</td><td class="desc">foundation-encoder fan-out (geotessera); typed missing[] when unwired</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/state_diff</td><td>emem_state_diff</td><td class="desc">vintage delta at one cell: residual vector + L2 + cosine between two tslots</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/memory_token</td><td>emem_memory_token</td><td class="desc">compose emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt; citation handle</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/memory_token/resolve</td><td>emem_memory_token_resolve</td><td class="desc">single round-trip dereference; returns the signed fact body the cid names</td></tr>
@@ -641,7 +641,6 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="path">emem_region_similarity</td><td>/v1/region_similarity</td><td class="desc">cosine between two regions' centroids in [-1, 1]: how alike two places are</td></tr>
         <tr><td class="path">emem_embedding_diversity</td><td>/v1/embedding_diversity</td><td class="desc">mean pairwise cosine distance across a region; high means a varied landscape</td></tr>
         <tr><td class="path">emem_neighborhood_consistency</td><td>/v1/neighborhood_consistency</td><td class="desc">mean cosine to a cell's 8 neighbours; its complement is a region-outlier score</td></tr>
-        <tr><td class="path">emem_triple_consensus</td><td>/v1/triple_consensus</td><td class="desc">Clay + Prithvi + Tessera at one cell, with the cross-encoder disagreement scored</td></tr>
         <tr><td class="path">emem_state_multi</td><td>/v1/state_multi</td><td class="desc">per-encoder fan-out across the four foundation encoders; typed missing[] when one is unwired</td></tr>
       </tbody>
     </table>
@@ -715,7 +714,6 @@ input::placeholder{color:var(--mute,#7a7363)}
       <dt>heat_solve</dt><dd>2-D FTCS, CFL-stable</dd>
       <dt>wave_solve</dt><dd>1-D shallow water</dd>
       <dt>jepa_predict</dt><dd>NDVI AR(2), closed form</dd>
-      <dt>jepa_predict_v2</dt><dd>Tessera dynamics</dd>
     </dl>
   </aside>
 
@@ -732,14 +730,13 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/heat_solve</td><td>emem_heat_solve</td><td class="desc">2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil (CFL-stable)</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/wave_solve</td><td>emem_wave_solve</td><td class="desc">1-D shallow-water equation along a seaward bathymetry gradient</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict</td><td>emem_jepa_predict</td><td class="desc">closed-form NDVI AR(2) seasonal model with fixed coefficients</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/jepa_predict_v2</td><td>emem_jepa_predict_v2</td><td class="desc">Tessera-embedding dynamics; trained on synthetic sequences, receipt carries training_synthetic</td></tr>
       </tbody>
     </table>
     </div>
 
     <p><span class="band">/v1/heat_solve</span> integrates 2-D explicit FTCS heat diffusion on a MODIS land-surface-temperature stencil, kept CFL-stable (for example, urban-heat spread). <span class="band">/v1/wave_solve</span> integrates a 1-D shallow-water equation along a seaward bathymetry gradient (for example, coastal swell), and rejects a land-locked profile rather than returning a meaningless field.</p>
 
-    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. <span class="band">/v1/jepa_predict_v2</span> runs a trained transformer over Tessera-embedding dynamics (28,328 parameters, fitted 2026-05-28). It was trained and validated entirely on synthetic sequences, so the receipt carries <span class="band">training_synthetic</span> rather than <span class="band">untrained_baseline</span>, letting a verifier see how little real corpus history grounds it. On the 34 real NDVI pairs held for evaluation it does not beat a predict-the-last-value baseline: MSE 0.021124 against 0.019858, a skill score of -0.064. Treat it as a research surface, not a forecast.</p>
+    <p><span class="band">/v1/jepa_predict</span> projects an NDVI trajectory forward with a closed-form AR(2) seasonal model and fixed coefficients: deterministic and reproducible. An earlier learned head, <span class="band">/v1/jepa_predict_v2</span>, lost to persistence and is retired.</p>
   </div>
 </section>
 
@@ -750,7 +747,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <div class="idx"><span class="idx-num">06</span><span class="idx-label">Machine contract</span></div>
     <dl>
       <dt>OpenAPI</dt><dd>3.1</dd>
-      <dt>documented</dt><dd>173 paths under /v1/*</dd>
+      <dt>documented</dt><dd>171 paths under /v1/*</dd>
       <dt>algorithms</dt><dd>live at /v1/algorithms</dd>
       <dt>bands</dt><dd>live at /v1/bands</dd>
       <dt>sources</dt><dd>live at /v1/sources</dd>
@@ -781,7 +778,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     <hr class="band-rule">
 
     <h2><span class="num">08</span>The full machine contract</h2>
-    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 173 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
+    <p class="lede">This page lists the surface agents reach for most. The complete, authoritative contract is <a href="/openapi.json">/openapi.json</a>: 171 documented paths under <span class="band">/v1/*</span>, OpenAPI 3.1.</p>
 
     <p style="font-weight:700;color:var(--ink);margin-top:1.6rem">One algebra, nine verbs</p>
     <p>The read surface implements the memory algebra defined in <a href="/docs/model.html">the memory model</a>; every verb is an existing endpoint, not a new one:</p>

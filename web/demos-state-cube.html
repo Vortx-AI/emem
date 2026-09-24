@@ -275,11 +275,11 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 
   <p class=lede>
     One endpoint, two views. <code>POST /v1/state</code> with <code>view=encoder</code> returns one named foundation
-    embedding at its native dimension (Tessera 128-D, Clay 1024-D, Prithvi 1024-D, Galileo 768-D).
-    <code>view=cube</code> returns the responder's full <b>1792-D voxel</b>, the fused fingerprint that lays those
-    four foundation encoders plus the raw sensor and derived bands into canonical offset order, with per-band
+    embedding at its native dimension (Tessera 128-D).
+    <code>view=cube</code> returns the responder's full <b>1792-D voxel</b>, the fused fingerprint that lays that
+    embedding plus the raw sensor and derived bands into canonical offset order, with per-band
     <code>coverage[]</code> so an agent can tell attested-zero from not-yet-materialised, and
-    <span class=accent>extras that preserve full Clay/Prithvi 1024-D fidelity</span> when the cube slot truncates them.
+    <span class=accent>extras that preserve full fidelity</span> when a cube slot truncates a stored vector.
     <b>The cube is a fixed-width fingerprint; the extras carry the full payload.</b>
     Pick a place, hit run, watch a real responder fill the slots in front of you.
   </p>
@@ -293,8 +293,6 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
       <label for=encInput>encoder (view=encoder only)</label>
       <select id=encInput>
         <option value="geotessera" selected>geotessera (128-D)</option>
-        <option value="clay_v1">clay_v1 (1024-D)</option>
-        <option value="prithvi_eo2">prithvi_eo2 (1024-D)</option>
       </select>
     </div>
     <div>
@@ -383,8 +381,8 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <span class=endpoint>POST /v1/state_multi</span>
       </div>
       <p class=desc>
-        The wired foundation encoders at the same place, side by side. Useful for cross-encoder consensus
-        (do Tessera, Clay, and Prithvi agree on the archetype here?) and redundancy-aware reasoning.
+        Every wired foundation encoder at the same place, with a typed <code>missing[]</code> for any
+        encoder that cannot answer here.
       </p>
       <div class=actions>
         <button id=btn4 type=button>run</button>

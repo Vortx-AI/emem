@@ -74,7 +74,7 @@ Ed25519-signed, BLAKE3 content-addressed fact with an offline-verifiable receipt
 
 No API key, no signup, no rate limits for reads.
 
-**Tools exposed:** 115 MCP tools including emem_locate, emem_recall, emem_ask,
+**Tools exposed:** 113 MCP tools including emem_locate, emem_recall, emem_ask,
 emem_memory_token, emem_deforestation_alert, emem_burn_severity, emem_band_raster.
 
 **Use cases:** climate risk, deforestation detection, flood mapping, wildfire tracking,
@@ -171,7 +171,7 @@ Up to **$350K in Google Cloud + Vertex AI credits**. Gemini and Earth Engine (GE
 |---|---|
 | Company name | Vortx AI Private Limited |
 | Product description | Shared, verifiable Earth memory infrastructure for AI agents, signed, cite-able spatial facts at 9.55m resolution, no API key |
-| AI/ML use | Yes, satellite foundation models (Clay, Prithvi, Tessera, Galileo), BGE-768 embeddings, GeoTessera spatial encoders |
+| AI/ML use | Yes, the Tessera satellite foundation embedding and BGE-768 text embeddings |
 | Google products used | Vertex AI, Google Earth Engine, Cloud Run / GKE |
 | Stage | Early stage / seed |
 | Use of credits | Vertex AI for inference, GEE for satellite data processing, Cloud Run for MCP server hosting |

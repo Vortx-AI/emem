@@ -17,8 +17,6 @@ emem is at version 2.4.0, a minor that makes the agent surface usable without a 
 - **Thousands of places, not billions.** The memory grows every day it is used, but it is early. Check the live count before you assume coverage.
 - **Two layers, two scopes, one write path.** The geospatial fact corpus grounds facts about physical places, not arbitrary text, and is not a general-purpose citation store for any document. The agent-memory layer under `/memories/*` is different on purpose: free-form, signed, BGE-searchable notes an agent wants another party or a later run to resolve and verify. What neither layer is, on the hosted node, is private; the next bullet says exactly how.
 - **Place ids are compact, not yet token-optimal.** A `cell64` measures 12 to 13 BPE tokens today. The id format is built for a tokenizer-optimized alphabet that would cut that further; the shipped alphabet does not achieve it yet.
-- **The learned predictor is an honest baseline.** `jepa_predict_v2` carries a dynamics head trained on wholly synthetic sequences; on real NDVI pairs it does not beat persistence (skill -0.064), so the endpoint serves the persistence baseline and says so: the receipt carries `NEGATIVE_SKILL` and every band comes back `via: persistence_fallback_negative_skill`. (`untrained_baseline` is a different warning, for the zero-init sentinel, and does not fire now that the head is trained.) Treat it as a research surface, not a forecast; the measurements live in the whitepaper's honest limits (section 14.5).
-- **Some foundation-model fingerprints are sidecar-gated on the hosted node** today. A cold place returns a signed absence for those, so `triple_consensus` runs partial when cold. Tessera fetches on demand.
 - **A place named in one language, labelled in another, is grounded from the names the gazetteer knows.** The confidence floor compares the query against the label, and gazetteer labels come back in the local script by design, so `Munich` against `München` and `Osaka` against `大阪市` once scored zero and were refused. The floor now consults the alternate names a place carries, and Munich, Osaka, Nuremberg, Florence, Gothenburg, Kazan, Copenhagen, Thessaloniki, Bruges and Chengdu all resolve to the right city. Two things were learned the hard way and are worth stating rather than smoothing over. The rescue's first version cleared the floor on a query's *country* words, so `Seoul, Republic of Korea` resolved to an embassy in Seoul and `Munich, Federal Republic of Germany` to an honorary consulate, both marked confident; a rescue is a claim about the place, so it now requires the place itself to match. And `of` is a prepositional anchor, which is right in `walkability of South Mumbai` and wrong inside `Republic of Korea`, where it made `Korea` a candidate that was tried before `Seoul` and answered with a village in Côte d'Ivoire. Candidates are tried in the order the question asks them now. Both produced a confident answer about the wrong place with a signed receipt attached, which is the failure this surface exists to prevent, and both were introduced by fixes for the refusal above.
 - **Upstream rate limits.** Some sources are rate-limited or slow to fetch (one land-surface-temperature source takes about 30 seconds per place).
 - **No sub-meter imagery** in the default build, and no notebook UI. Drive it from a notebook against REST or MCP.
@@ -62,10 +60,7 @@ The test we hold every item to: does it make emem's memories more trusted, porta
   specific immutable fact by cid; and the receipt makes whatever split
   is computed checkable by a third party. What does not exist is the
   split itself: `emem_diff` returns a raw delta (`nd.delta@1`),
-  `state_diff` returns residual, L2, and cosine, and `triple_consensus`
-  reports agreement across three encoders behind a gate it documents as
-  uncalibrated (Prithvi's deltas top out near 0.1155, so the strongest
-  verdict is unreachable). Nothing splits a delta among the terms.
+  and `state_diff` returns residual, L2, and cosine. Nothing splits a delta among the terms.
   Ships as of 2026-07-16, the LEDGER: `POST /v1/change_attribution`
   (tool `emem_change_attribution`, registry key `change_attribution@1`)
   reports per-term evidence for one cell, the observed Tessera
@@ -275,62 +270,11 @@ it supports.
   the addressing scheme measurably changes recall latency at all. The
   honest position today is that cell64 loses to H3 on both equal-area
   and token economy, and buys decode-free prefix locality in exchange.
-- **Per-encoder calibration for the change gate, aimed at the wrong axis.**
-  Corrected on 2026-08-13 by a result from outside. dpwotikn proved, on
-  their own substrate, that **a scalar nuisance parameter relocates a
-  threshold and can never reorder the candidates**. The support is
-  symbolic and needs no data: for a score `S` over an observable `c` with
-  a nuisance `L(x)`, `d2S/dc dx = -d(log L)/dx`, identically zero where
-  the field is flat.
-  Stated as they corrected it four days later, because the correction
-  sharpens what we can claim: that identity is a BOUND ON WHAT IS
-  POSSIBLE, not a prediction of how much a non-flat field buys. They
-  withdrew the correlation they had first attached to it, +0.738, after
-  re-measuring the same four recordings under a different estimator
-  warmup and getting -0.316; the predictor was unstable under a nuisance
-  of its own estimator, so neither sign carried information at n=4. They
-  retracted within the hour and withdrew a second correlation that had
-  been resting on the first.
-  What survives empirically is one clean paired result, which is what
-  they say they should have reported: at fixed binning and fixed floor,
-  substituting a per-bin field for a scalar rate moved recall by +0.008,
-  0.000, 0.000, +0.015 across four recordings and never made either
-  recall or false alarms worse.
-  So a per-encoder threshold buys exactly one of the two things this item
-  was asking for. It RELOCATES each encoder's decision boundary, which
-  fixes the fact that the deployed Prithvi checkpoint can never clear
-  0.15 and therefore never votes. It cannot improve discrimination within
-  an encoder, because reordering requires the nuisance parameter to vary
-  across the things being compared. This item had those two goods
-  conflated under the single word "calibration".
-  What survives is larger than what was written: a threshold that varies
-  per CONTEXT rather than per encoder, per cell or season or land cover,
-  learned causally. The labelled corpus is still needed for the
-  relocation half; the discrimination half needs a different shape
-  entirely.
-  And it is necessary rather than sufficient. A context-varying threshold
-  is the only kind that CAN reorder; whether it would improve our gate by
-  an amount worth having is not predicted by anything either of us has
-  measured, and their own bin-size sweep is the counterexample to assuming
-  it: a finer grid raised the gradient and lowered recall, because
-  changing the representation changes the observable as well as the field,
-  which the theorem says nothing about.
-  The original text follows, since it is still correct about the
-  relocation half. `triple_consensus`
-  votes each encoder's cosine delta against one threshold, 0.15, borrowed
-  from Healey et al. 2018's LandTrendr gate for spectral change. The
-  embedding spaces do not share a scale: over 8 maximally dissimilar
-  chips Clay spans 0.11 to 0.95 (sd 0.204) and the deployed Prithvi
-  checkpoint spans 0.88 to 0.99 (sd 0.030) with its delta topping out
-  near 0.1155, so Prithvi never votes and `all_three` is arithmetically
-  unreachable. The responder says so in-band on every response. What is
-  missing is not a better number but the corpus that would produce one: a
-  labelled set of known-change and known-no-change cells per encoder,
-  against which a threshold could be fitted and reported with a
-  false-positive rate. Until that exists the three-tier vote is a report
-  of which encoders moved, and one worked example cannot make it more.
-  The quadratic-mean ensemble is likewise a choice and not a derivation;
-  with components on different scales it is dominated by Clay.
+- **Per-encoder calibration for the change gate.** Closed by retirement:
+  the three-encoder ensemble it targeted was removed with the Clay and
+  Prithvi encoders. One finding carries over to any future gate: a scalar
+  nuisance parameter relocates a threshold and can never reorder the
+  candidates (dpwotikn, 2026-08-13).
 - **Accuracy, measured separately from verifiability.** Independently
   corroborated from outside on 2026-08-13, which is why it stays first.
   dpwotikn, scoring a detector in a wholly different domain, put it in
@@ -974,7 +918,7 @@ the prose still lacks is exactly the scaffolding a reviewer scans for.
 
 - **The responder URL in baked provenance.** Done. A bake fetches from a fast local node but the sidecar now records the public responder the artifacts are served from, so the re-check recipe points somewhere a reader can actually reach. The signing key is unchanged, so every receipt still verifies. See `--public-responder` in `examples/3d-worlds/make_splats.py`, wired through `scripts/bake_worlds.sh`.
 - **Provenance-preserving densification.** The exporter now does this. `python3 examples/3d-worlds/make_splats.py --densify F` subdivides each grid quad and writes `emem.splat_provenance.v2`, in which every splat is labelled `measured` (its own `fact_cid`) or `derived` (its up to four source cells, their `fact_cids`, and bilinear weights that sum to 1), so a derived continuous value is exactly re-derivable as `sum_i weight_i * source_i` and every source stays signature-checkable. Categorical bands (a loss year, a class code) are inherited from the nearest signed cell rather than averaged, and a node on an original cell stays that exact signed cell, so densifying never invents a value or drops a measured fact. `--check-derived` re-verifies a whole sidecar offline. The live `/worlds` viewer now densifies in lockstep with the exporter (the `splat-math.js` and Python paths are pinned to 1e-6 by a golden fixture), with a detail control and a pick panel that resolves any derived splat to its signed sources. Still open: carrying the same labelling into a standard splat container (next item).
-- **A world that rolls forward.** Open. `emem_jepa_predict_v2` is built to predict a cell's next step from its attested history; today it serves the persistence baseline with a warning, per the honest limit at the top of this page, so this item is a design, not a capability. Applied across a whole baked world, a predictor with real skill becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith. Rolling forward also wants a subscription surface, a token that resolves to the current value and says when it changed, instead of a caller polling recall in a loop; open, filed from the agent channel.
+- **A world that rolls forward.** Open. No predictor with real skill runs here: the learned dynamics head emem once served lost to persistence and is retired, so this item is a design, not a capability. Applied across a whole baked world, a predictor with real skill becomes a sequence of scene frames, each one a signed forecast that says it is a forecast, carrying the model id and the lags it read. A generated frame nobody has to take on faith. Rolling forward also wants a subscription surface, a token that resolves to the current value and says when it changed, instead of a caller polling recall in a loop; open, filed from the agent channel.
 - **Riding the splat standard.** Open. The worlds emit a bespoke 32-byte splat plus a PLY. As gaussian splatting consolidates on glTF and compressed transport formats, emem's provenance should ride inside the standard as a custom block, so any viewer renders the geometry and only emem-aware clients light up the click-to-verify layer.
 - **Planet scale.** Open. The cell ids are already hierarchical, so a world can become a tile pyramid: coarse gaussians far out, finer tiles baked on demand as a camera or an agent drills in, cached the way recalls already are.
 - **Generative where the memory is empty.** A first cut is live, the rest is the furthest-out item here. Where no fact exists, generate a plausible value from the embedding field and its neighbours, but stamp it with its own class of id, its model, its conditioning cells, and a confidence, so an agent can ask for measured cells only, or measured plus inferred, and always know which is which. The dense worlds at [`/splats`](https://emem.dev/splats) show the shape of it: every splat is labelled `measured`, `interpolated`, or `synthesized`, the measured trust root stays ed25519-signed, and the invented layers peel back off, so a viewer can drop to grounded-only in one step. Open is generalising that labelling beyond a splat scene to arbitrary bands, and giving each generated value the same signed envelope a measured fact gets. Grounded where grounded, generative where not, and labelled either way.

@@ -46,9 +46,7 @@ Inputs:
   reports which layer answered).
 - `encoder` defaults to `geotessera` (128-D Tessera annual embedding).
   Pass `geotessera.multi_year` for the 8-year stacked vintage when
-  the band is wired at this responder. Future encoders (Clay v1.5
-  1024-D, Prithvi-EO-2.0 1024-D) come online as their materialiser
-  workers ship.
+  the band is wired at this responder.
 - `tslot` optional; omit and the materialiser picks the natural
   vintage for the band (e.g. 2024 for `geotessera`).
 
@@ -315,7 +313,7 @@ trail to a regulator who never trusted the operator).
 | Plain REST               | `POST /v1/*`      | none | [`docs/agents.md`](agents.md) Quick reference |
 | Guardrail, any runtime   | `POST /v1/guard/verdict` | none | § Physical-world guardrails below |
 
-Any host that speaks MCP reaches the same 115 tools at the same URL, whether or
+Any host that speaks MCP reaches the same 113 tools at the same URL, whether or
 not it has a row here: the endpoint is `https://emem.dev/mcp` and reads need no
 key. The rows above are the ones with a checked-in example. Where a host has no
 native Streamable HTTP transport, the `mcp-remote` stdio bridge covers it, and
@@ -437,7 +435,7 @@ four lines:
 ```
 
 That endpoint advertises the 18 core tools from `tools/list`, so the host
-registers about 75 KB of descriptors rather than about 324 KB for all 115. The rest
+registers about 75 KB of descriptors rather than about 324 KB for all 113. The rest
 stay callable by name, and `emem_tools` searches them or returns one tool's
 schema on demand. Use `https://emem.dev/mcp/full` instead to register the
 whole catalog.

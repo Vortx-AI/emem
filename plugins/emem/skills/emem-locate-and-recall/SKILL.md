@@ -68,12 +68,12 @@ total dims). Common picks:
 - **Elevation**: `copdem30m.elevation_mean`, `gmrt.topobathy_mean`
 - **Land cover**: `esa_worldcover.lc_2021`
 - **Air**: `cams.pm25`, `cams.no2`, `cams.o3`, `cams.aod_550`
-- **Embeddings**: RETIRED on emem.dev since 2026-09-15. The four
-  foundation encoders (`geotessera`, `clay_v1`, `prithvi_eo2`,
-  `galileo`) are withdrawn on this deployment: stored vectors still
-  read, no new ones are computed, and asking for one returns a note with
-  reason `band_retired_at_this_responder`. Reach for the deterministic
-  indices instead — they are computed from Sentinel-1 and Sentinel-2 by
+- **Embeddings**: RETIRED. `clay_v1`, `prithvi_eo2` and `galileo` are
+  retired in the code, and `geotessera` is withdrawn on emem.dev since
+  2026-09-15. Stored vectors still read, no new ones are computed, and
+  asking for one returns a note with reason
+  `band_retired_at_this_responder`. Reach for the deterministic
+  indices instead: they are computed from Sentinel-1 and Sentinel-2 by
   a published formula, so anyone can recompute them and get your number.
 
 Ask the responder rather than trusting this list: `GET /v1/bands`

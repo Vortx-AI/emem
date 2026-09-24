@@ -7,7 +7,7 @@ Counts have a gate (`sync_counts`). Routes have one (`route_truth`). Live
 figures on the homepage have one (`live_numbers`). Nothing watched the
 sentences that assert what a *component is currently doing*, and those rot the
 same way, except more quietly: a count looks like a fact and invites checking,
-while "JEPA v2 is untrained today" reads like settled background.
+while "X is untrained today" reads like settled background.
 
 On 2026-08-17 five documents said the JEPA v2 dynamics head was untrained and
 that its receipt carries `untrained_baseline`. The head had since been trained.
@@ -69,12 +69,11 @@ SKIP = (
 )
 
 
-def probe_jepa_trained(origin):
-    """Is the dynamics head the zero-init sentinel, or a trained model?
+def probe_jepa_v2_route(origin):
+    """Does the responder still serve the retired JEPA-v2 dynamics route?
 
-    Read from the honesty warnings rather than a `trained` boolean on purpose:
-    the warnings are what an agent actually receives, so this checks the thing
-    the docs describe rather than an internal flag that happens to agree.
+    The route was removed with the GPU sidecar. A 404 or 405 is the retired
+    state; any other answer means it is served again and the docs may say so.
     """
     req = urllib.request.Request(
         origin + "/v1/jepa_predict_v2",
@@ -82,28 +81,28 @@ def probe_jepa_trained(origin):
         headers={"content-type": "application/json"},
         method="POST",
     )
-    with patient(req, timeout=90) as r:
-        body = json.loads(r.read())
-    warnings = json.dumps(body.get("model", {}).get("honesty_warnings", []))
-    return "untrained" if "untrained_baseline" in warnings else "trained"
+    try:
+        with patient(req, timeout=90) as r:
+            r.read()
+    except urllib.error.HTTPError as e:
+        if e.code in (404, 405):
+            return "retired"
+        return "served"
+    return "served"
 
 
 CLAIMS = [
     {
-        "name": "jepa_v2 training state",
-        "probe": probe_jepa_trained,
+        "name": "jepa_v2 route retired",
+        "probe": probe_jepa_v2_route,
         # Phrasing that may only appear while the state on the left holds.
         "forbidden_when": {
-            "trained": [
-                (r"jepa[^.\n]{0,60}\bis\b[^.\n]{0,30}\buntrained\b",
-                 "says the head is untrained; it is trained and loses to "
-                 "persistence (NEGATIVE_SKILL, persistence_fallback_negative_skill)"),
-                (r"\buntrained today\b",
-                 "asserts an untrained head as today's state"),
-            ],
-            "untrained": [
-                (r"jepa[^.\n]{0,60}\bis\b[^.\n]{0,30}\btrained\b(?![^.\n]{0,20}on )",
-                 "says the head is trained; the receipt carries untrained_baseline"),
+            "retired": [
+                (r"(?:call|POST)\s+`?/v1/jepa_predict_v2\b",
+                 "tells the reader to call /v1/jepa_predict_v2; the route was "
+                 "removed with the GPU sidecar"),
+                (r"\bemem_jepa_predict_v2\b(?=[^.\n]{0,40}\b(?:returns|predicts|serves)\b)",
+                 "describes emem_jepa_predict_v2 as live; the tool was removed"),
             ],
         },
     },

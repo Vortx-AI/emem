@@ -125,15 +125,6 @@ header.top .navlinks a:hover{color:var(--accent)}
 
 .interp{font-size:var(--t-2xs);color:var(--fg-2);line-height:1.6;margin:.9em 0 0;max-width:720px}
 .interp b{color:var(--fg);font-weight:500}
-.consensus{margin-top:2em;padding-top:1.4em;border-top:1px solid var(--line)}
-.consensus-h{font-size:var(--t-xs);font-weight:600;margin:0 0 .2em;color:var(--fg)}
-.encoders{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:.5em;margin:.5em 0}
-.enc{background:var(--bg-1);border:1px solid var(--line);padding:.6em .8em;border-radius:3px}
-.enc .name{font-size:var(--t-2xs);color:var(--fg);font-weight:500}
-.enc .chg{font-size:var(--t-md);color:var(--accent);font-weight:600;margin:.15em 0}
-.enc .sub{font-size:var(--t-3xs);color:var(--fg-3)}
-.enc[data-gate=over]{border-color:var(--accent)}
-.enc[data-gate=over] .name{color:var(--accent)}
 .tag-row{font-size:var(--t-2xs);color:var(--fg-3);margin:.4em 0 .8em}
 .tag-row .spinner{display:inline-block;width:10px;height:10px;border:2px solid var(--accent);
   border-right-color:transparent;border-radius:50%;animation:spin .7s linear infinite;margin-right:.4em;vertical-align:-1px}
@@ -259,7 +250,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <!--nav:end-->
 
 <main class=app id=main tabindex="-1">
-<h1 class="sr-only">Demo: find places that resemble this one, by encoder consensus</h1>
+<h1 class="sr-only">Demo: find places that resemble this one, by embedding similarity</h1>
   <header class=top role=banner>
     <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/find-similar</span></span>
     <span class=tag>k-NN over the 128-D Tessera embedding</span>
@@ -277,9 +268,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
     Sentinel-1 SAR + Sentinel-2 optical), and returns the K nearest cells on Earth by
     cosine similarity, each one a signed fact you can recall and verify.
     <span class=accent>One call: <code>POST /v1/find_similar</code>.</span>
-    Neighbours mean "the surface looks like this here", not "the climate matches",
-    so vintage-to-vintage <i>change</i> is cross-checked separately by
-    <a href="#consensus">triple_consensus</a> below.
+    Neighbours mean "the surface looks like this here", not "the climate matches".
   </p>
 
   <section class=controls aria-label="Inputs">
@@ -312,19 +301,6 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
     <p id=interp class=interp></p>
   </section>
 
-  <section id=consensus class=consensus aria-label="multi-encoder consensus">
-    <h2 class=consensus-h>Multi-encoder consensus at the query cell</h2>
-    <p class=muted style="font-size:var(--t-2xs);margin:.2em 0 .8em;max-width:680px">
-      Similarity is one encoder's opinion. The headline differentiator is <b>agreement across encoders</b>:
-      <code>POST /v1/triple_consensus</code> recalls the query cell through Clay, Prithvi, and Tessera, measures
-      each encoder's vintage-to-vintage change as <code>1 - cos(v_now, v_prev)</code>, and reports whether they
-      agree that something changed. <span class=endpoint-pill>POST /v1/triple_consensus</span>
-    </p>
-    <div class=tag-row id=conTag></div>
-    <div class=chips id=conChips></div>
-    <div class=encoders id=conEncoders></div>
-    <p id=conFormula class=muted style="font-size:var(--t-3xs);margin:.4em 0 0"></p>
-  </section>
 
   <section class=out aria-label="raw JSON">
     <p class=muted style="font-size:var(--t-3xs);margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response</p>
@@ -424,42 +400,6 @@ function toast(t){const el=$('toast');el.textContent=t;el.classList.add('on');se
 function shortCid(s){if(!s)return '—';return s.length>20?s.slice(0,12)+'…'+s.slice(-4):s}
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
-// Live multi-encoder consensus for the query cell. Verified fields against
-// emem.dev: agreement, consensus_threshold, ensemble, n_encoders_used,
-// encoders_used[{encoder, change, over_gate}], formula, receipt.responder_pubkey_b32.
-async function runConsensus(cell){
-  if (!cell) return;
-  $('conTag').innerHTML = '<span class=spinner></span>recalling Clay + Prithvi + Tessera…';
-  $('conChips').innerHTML = ''; $('conEncoders').innerHTML = ''; $('conFormula').textContent = '';
-  try {
-    const t0 = performance.now();
-    const d = await postJson('/v1/triple_consensus', { cell });
-    const dt = (performance.now() - t0).toFixed(0);
-    const agree = d.agreement || 'n/a';
-    const agreeKind = (agree === 'all_three' || agree === 'two_of_three') ? 'ok' : '';
-    // responder_pubkey_b32 sits at the top level of the triple_consensus
-    // response (the receipt carries `responder` as raw bytes).
-    const sig = d.responder_pubkey_b32 || (d.receipt && d.receipt.responder_pubkey_b32);
-    $('conChips').innerHTML = [
-      ['agreement', agree, agreeKind],
-      ['encoders', String(d.n_encoders_used ?? (d.encoders_used||[]).length), ''],
-      ['ensemble', (d.ensemble ?? 0).toFixed(4), ''],
-      ['gate', '≥ ' + (d.consensus_threshold ?? 0.15), ''],
-      ['signer', shortCid(sig), 'pub'],
-      ['took', dt + ' ms', ''],
-    ].map(([k,v,kind]) => `<span class=chip ${kind==='ok'?'style="color:var(--accent);border-color:var(--accent)"':''}><span class=dot></span><b>${k}</b><span class=muted>${escapeHTML(v)}</span></span>`).join('');
-    $('conEncoders').innerHTML = (d.encoders_used||[]).map(e => `
-      <div class=enc data-gate="${e.over_gate?'over':'under'}">
-        <div class=name>${escapeHTML(e.encoder)}</div>
-        <div class=chg>${(e.change ?? 0).toFixed(4)}</div>
-        <div class=sub>1 - cos(now, prev) · ${e.over_gate?'over gate':'under gate'}</div>
-      </div>`).join('') || '<div class=muted style="font-size:12px">no encoders contributed at this cell yet</div>';
-    $('conFormula').textContent = d.formula || '';
-    $('conTag').innerHTML = `<span style="color:var(--accent)">✓ ${d.n_encoders_used||0} encoders agree → <b>${escapeHTML(agree)}</b> (${dt} ms) · ${escapeHTML(d.honest_note||'')}</span>`;
-  } catch (e) {
-    $('conTag').innerHTML = `<span class=muted>consensus unavailable: ${escapeHTML(e.message)}</span>`;
-  }
-}
 function fmtJson(obj){
   let s = JSON.stringify(obj, null, 2);
   return s.replace(/("(\\u[\da-f]{4}|\\[^u]|[^\\"])*?")(\s*:)?|\b(true|false|null)\b|-?\d+(\.\d+)?([eE][+-]?\d+)?/g, m=>{
@@ -560,8 +500,6 @@ async function run(){
       : '';
     setRaw(j);
     $('tag').innerHTML = `<span style="color:var(--accent)">✓ ${neighbours.length} neighbours in ${dt} ms over the <code>${escapeHTML(bandUsed)}</code> foundation embedding · cited under <code>${shortCid(sig)}</code></span>`;
-    // Kick off the consensus mini-showcase for the query cell.
-    runConsensus(loc.cell64);
   } catch (e) {
     $('tag').innerHTML = `<span style="color:var(--warn)">✗ ${e.message}</span>`;
     setRaw(String(e));

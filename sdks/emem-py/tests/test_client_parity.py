@@ -148,7 +148,6 @@ WIRE_PARITY_CASES: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = [
     ("heat_solve", ("c",), {}),
     ("wave_solve", ("c", 2.0, 8.0), {}),
     ("jepa_predict", ("c",), {}),
-    ("jepa_predict_v2", ("c",), {}),
     # Boring lat/lng GET shortcuts
     ("ndvi", (), {"place": "Bengaluru"}),
     ("elevation", (), {"lat": 12.97, "lng": 77.59}),
@@ -161,7 +160,7 @@ WIRE_PARITY_CASES: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = [
     # Introspection GETs
     ("bands", (), {}),
     ("algorithms", (), {}),
-    ("algorithms", ("clay_prithvi_tessera_triple_consensus@1",), {}),
+    ("algorithms", ("flood_risk@2",), {}),
     ("sources", (), {}),
     ("schema", (), {}),
     ("manifests", (), {}),

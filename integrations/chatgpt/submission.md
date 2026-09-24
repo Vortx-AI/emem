@@ -88,9 +88,9 @@ Each of these was checked to resolve at the time this file was generated.
   `MCP-Protocol-Version` header is read as 2025-03-26, which is a fallback and
   not the preferred version.
 - Authentication: none for reads.
-- **115 MCP tools available; the 16 of the core loop exposed in this app.** `/mcp` advertises the 18
+- **113 MCP tools available; the 16 of the core loop exposed in this app.** `/mcp` advertises the 18
   tools of the core loop to keep a client's context small, `/mcp/full`
-  advertises all 115, and every tool is callable by name from either.
+  advertises all 113, and every tool is callable by name from either.
 - Content addressing: blake3 over canonical CBOR, base32-encoded. These are not
   IPFS CIDs and do not begin with `bafy`.
 - Signatures: ed25519, verifiable offline against the key published at

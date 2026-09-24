@@ -302,7 +302,7 @@
   <p>A pixel-art planet where real AI agents live. Every visual maps to a live, signed response
   from emem — shared, verifiable memory for AI agents at emem.dev: a vendor-neutral, citeable
   identity layer that stops referential drift. Nothing is scripted.</p>
-  <p>Seventeen missions in three chapters. THE LOOP: Ground &amp; File (locate → recall → verify →
+  <p>Sixteen missions in three chapters. THE LOOP: Ground &amp; File (locate → recall → verify →
   cite → share), Name (canonical entity identity), Echo (quote-check your own citation).
   THE ROOM: Channel (the live agent room, full-key trust badges), The Room (every addressed note,
   each citation resolved against the ledger), Bring Your Agents (the join contract at
@@ -311,8 +311,7 @@
   THE WORLD: Oracle (signed answers), Hunt (attested events), Region (one number for an area, with
   a receipt naming every cell it walked), Time (bi-temporal timelines),
   Prophet (forecast wagers settled by later observations), Contradiction (four water instruments
-  cross-examined at one address), Void (predict the typed nothing),
-  Jury (three-encoder change consensus).</p>
+  cross-examined at one address), Void (predict the typed nothing).</p>
   <p>This page is a JavaScript application; the same substrate it renders is open to any reader
   at <a href="https://emem.dev/openapi.json">emem.dev/openapi.json</a> (REST),
   <a href="https://emem.dev/.well-known/mcp.json">/.well-known/mcp.json</a> (MCP), and
@@ -694,7 +693,6 @@ body.ow-user #brief{display:none}
         <button data-m="prophet" type="button" title="the oracle is the record itself: backfill the signed archive around this day-of-year in past years, hear what the season usually reads (emem_compare_same_doy — never extrapolated), and stake XP on whether this year repeats it. Settles on a later boot against a fresh signed observation.">🧿 PROPHET</button>
         <button data-m="contra" type="button" title="four water instruments — MNDWI, NDWI, Sentinel-1 radar backscatter and twenty years of JRC recurrence — answer the same question at one address. Usually they agree. Call which one was fooled when they do not (a real disagreement, found in the corpus, nothing seeded)">⚖️ CONTRADICTION</button>
         <button data-m="void" type="button" title="predict whether memory can answer here at all — then recall it and see either a signed value or the typed reason nothing came back (an honest nothing is still an answer)">🕳 VOID</button>
-        <button data-m="jury" type="button" title="three independent foundation encoders (Clay, Prithvi, Tessera) each judge whether this exact cell changed since its last vintage — call the verdict before the jury speaks (emem_triple_consensus)">⚖ JURY</button>
       </div>
       <div id="evrow" hidden role="group" aria-label="Event to hunt"></div>
       <div class="presets" role="group" aria-label="Preset quests">
@@ -2364,11 +2362,9 @@ const REST={
     emem_entity:['POST','/v1/entity'],
     emem_entity_resolve:['POST','/v1/entity/resolve'],
     emem_entity_link:['POST','/v1/entity/alias'],
-    emem_jepa_predict_v2:['POST','/v1/jepa_predict_v2'],
     emem_backfill:['POST','/v1/backfill'],
     emem_compare_same_doy:['POST','/v1/compare_same_doy'],
     emem_echo_verify:['POST','/v1/echo_verify'],
-    emem_triple_consensus:['POST','/v1/triple_consensus'],
     emem_query_region:['POST','/v1/query_region'],
     emem_memory_bundle:['POST','/v1/memory_bundle'],
     emem_bands:['GET','/v1/bands']
@@ -2488,7 +2484,7 @@ async function latLoad(){
     }
   }catch(e){/* the bridge may strip _meta; the responder's own door still has it */}
   try{
-    /* /mcp/full, not /mcp: the core profile advertises 18 of 115 tools and the
+    /* /mcp/full, not /mcp: the core profile advertises 18 of 113 tools and the
        missions call well outside that set */
     const r=await fetch(REST.base+'/mcp/full',{method:'POST',
       headers:{'content-type':'application/json'},
@@ -3401,7 +3397,6 @@ const MISSIONS={
   a2a:{t:'A2A FRONT DOOR',ph:'place for the skill call — the follow-up will arrive with no place at all'},
   echo:{t:'RECEIVER’S CHECK',ph:'quote the value you last looted — from memory, exactly'},
   void:{t:'VOID',ph:'place to interrogate — will memory answer, or answer with nothing?'},
-  jury:{t:'THE JURY',ph:'place to put before the three-encoder jury — changed, or held still?'},
   region:{t:'THE REGION',ph:'place to draw a box around — the area answers as one exact number'},
   contra:{t:'CONTRADICTION',ph:'place or cell64 to cross-examine — four water instruments, one address'}
 };
@@ -4798,62 +4793,6 @@ async function runContradiction(place){
   }catch(e){missionFail(e);}
   finally{busy=false;$('go').disabled=false;}
 }
-/* ---- JURY: three independent encoders judge change at one cell ---- */
-async function runJury(place){
-  if(!await missionPrep('jury: '+place))return;
-  try{
-    await stageBanner(1,3,'THE JURY ASSEMBLES','Three foundation models — Clay, Prithvi, Tessera — were trained by different teams on different objectives. Each will compare this exact cell against its previous vintage, independently. Agreement between strangers is the only agreement worth anything.');
-    say('emem_locate("'+place+'")',null,0);
-    const loc=await mcpCall('emem_locate',{place:place},'uplink');
-    const L=loc.payload||{};
-    const cell=L.cell64||L.cell;
-    if(!cell)throw {code:'tool_error',message:'no cell64 in locate response'};
-    const label=L.place_label||(L.selected&&L.selected.label)||place;
-    const ctr=L.centre||{};
-    const dJ=(typeof ctr.lat_deg==='number')?llDir(ctr.lat_deg,ctr.lng_deg):BASEd;
-    await travelTo(dJ,true);addPin(dJ);ringPulse(dJ,0xb49af0);
-    const guess=await evChoice('call the verdict','Before the jury speaks: has '+label+' CHANGED since its last vintage, or HELD STILL? (The jury convicts only when enough encoders cross their own change gate.)',
-      [{k:'changed',t:'⚡ CHANGED — the world moved here'},{k:'held',t:'🗿 HELD STILL — same ground, same signal'}]);
-    /* 2 — THE DELIBERATION */
-    await stageBanner(2,3,'THE DELIBERATION','emem_triple_consensus runs all three encoders over the signed embeddings at this cell. Every vote cites the input facts it read; the formula is in the envelope.');
-    say('emem_triple_consensus',null,0);
-    const tc=await mcpCall('emem_triple_consensus',{cell:cell},'uplink');
-    const J=tc.payload||{};
-    if(J.available===false){
-      ev('note','the jury cannot sit','The responder says this consensus is not available here'+(J.reason?': "'+String(J.reason).slice(0,140)+'"':'.')+' No verdict, no stake — filed as found.');
-      missionQuiet('no quorum today');return;
-    }
-    const used=(J.encoders_used||[]).filter(e=>e&&e.encoder);
-    const absent=(J.encoders_absent||[]);
-    const need=J.consensus_min_models||2;
-    const votes=used.filter(e=>e.over_gate).length;
-    for(const e of used){
-      ev('result','juror · '+e.encoder,'Change score '+(typeof e.change==='number'?e.change.toFixed(3):'?')+' — '+(e.over_gate?'over the gate: this juror votes CHANGED.':'under the gate: this juror votes HELD.'),
-        [{t:'Δ '+(typeof e.change==='number'?e.change.toFixed(3):'?')},{t:e.over_gate?'votes CHANGED ▲':'votes HELD'},(e.input_fact_cids&&e.input_fact_cids.length)?{t:e.input_fact_cids.length+' cited inputs'}:null].filter(Boolean),tc.raw);
-      await sleep(RM?60:700);
-    }
-    for(const a of absent){
-      ev('note','juror absent · '+(a.encoder||'?'),'Did not sit: "'+(a.reason||a.reason_code||'no reason given')+'". The envelope says so instead of pretending a full bench.');
-    }
-    if(J.degraded&&J.degraded_message)ev('note','a degraded verdict, labelled',String(J.degraded_message).slice(0,220));
-    if(J.gate_calibration)ev('note','the gate, honestly',String(J.gate_calibration).slice(0,260)+' — the game renders the votes the envelope casts, miscalibration and all, because that is what the responder actually said.');
-    /* 3 — THE VERDICT */
-    const changed=votes>=need;
-    await stageBanner(3,3,'THE VERDICT',votes+' of '+used.length+' sitting jurors crossed the change gate; conviction needs '+need+'. The verdict: '+(changed?'CHANGED.':'HELD STILL.'));
-    ev('result','verdict: '+(changed?'CHANGED':'HELD STILL'),(changed?'Enough independent encoders crossed their own change gate — the ground moved, per '+votes+' of '+used.length+' jurors.':'The jury did not convict — '+votes+' of '+used.length+' crossed the gate, '+need+' needed.')+(typeof J.ensemble==='number'?' Ensemble change '+J.ensemble.toFixed(3)+(typeof J.consensus_threshold==='number'?' against gate '+J.consensus_threshold:'')+'.':''),
-      [{t:votes+'/'+used.length+' votes changed'},{t:'need '+need},typeof J.ensemble==='number'?{t:'ensemble '+J.ensemble.toFixed(3)}:null,J.agreement?{t:'agreement: '+J.agreement}:null].filter(Boolean),tc.raw);
-    const won=(guess==='changed')===changed;
-    if(won){gainXP(8);popConfetti();sfx.win();
-      unlock('embed','triple consensus · '+votes+'/'+used.length+' at '+label,0);
-      missionEnd('you read the world right ✦');
-    }else{
-      sfx.denied();
-      ev('note','the jury disagreed with you','You called '+(guess==='changed'?'CHANGED':'HELD STILL')+'; the verdict was '+(changed?'CHANGED':'HELD STILL')+'. No stake lost. Three strangers measured; that is worth more than either of our intuitions.');
-      missionQuiet('overruled — honestly');
-    }
-  }catch(e){missionFail(e);}
-  finally{busy=false;$('go').disabled=false;}
-}
 /* ---- ECHO: the receiver's check — quote your loot from memory ---- */
 async function runEcho(claim){
   const LF=getLastFact();
@@ -5383,7 +5322,6 @@ $('go').addEventListener('click',()=>{
   else if(MSEL==='region')runRegion(p);
   else if(MSEL==='contra')runContradiction(p);
   else if(MSEL==='void')runVoid(p);
-  else if(MSEL==='jury')runJury(p);
   else runQuest(p,presetBand);
 });
 $('place').addEventListener('keydown',e=>{if(e.key==='Enter')$('go').click();});

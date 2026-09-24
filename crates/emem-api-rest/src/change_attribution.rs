@@ -11,7 +11,7 @@
 //!
 //!   * `observed`   — the raw thing that moved: the Tessera year-over-year
 //!     embedding change (`d = clamp(1 - cos(latest, prev), 0, 1)`), same
-//!     construction as `triple_consensus`, plus the label-free index
+//!     construction as `deforestation_alert`, plus the label-free index
 //!     deltas below. Facts, not attribution.
 //!   * `env`        — evidence only: the two most-recent distinct-tslot
 //!     values of the label-free indices (NDVI, NBR, NDWI) with their raw
@@ -32,8 +32,7 @@
 //!     vintages is visible.
 //!
 //! The numeric split needs a calibrated cross-encoder, cross-sensor
-//! stability model that this responder does not have (the same honesty as
-//! `triple_consensus`'s `gate_calibration`). Until it exists, `split` is
+//! stability model that this responder does not have. Until it exists, `split` is
 //! null and `ATTRIBUTION_NOTE` says why. Fabricating per-term magnitudes
 //! from uncalibrated evidence would be exactly the failure mode the
 //! decomposition exists to prevent.
@@ -69,7 +68,7 @@ use emem_fact::{Derivation, DerivativeFact, Fact, FactCid};
 use emem_primitives::cbor_ops::{as_f64, as_vec_f32, cosine_finite};
 use emem_primitives::RecallReq;
 
-use crate::triple_consensus::covered_vintages;
+use crate::deforestation_alert::covered_vintages;
 use crate::{recall_with_auto_materialize, ApiError, AppState, EmemJson};
 
 /// Width of one GeoTessera vintage inside `geotessera.multi_year`.
@@ -80,8 +79,7 @@ const TESSERA_VINTAGE_DIM: usize = 128;
 /// registry; the ledger reads them, it does not re-derive them.
 const ENV_EVIDENCE_BANDS: [&str; 3] = ["indices.ndvi", "indices.nbr", "indices.ndwi"];
 
-/// Why `split` is null. Rides every response, in-band, the same way
-/// `triple_consensus` carries `gate_calibration`.
+/// Why `split` is null. Rides every response, in-band.
 pub(crate) const ATTRIBUTION_NOTE: &str = "ledger_not_split: this response \
 attributes by EVIDENCE, not by magnitude. Splitting a specific delta into \
 environment, sensor, geometry, encoder, and noise terms needs a calibrated \
@@ -114,8 +112,7 @@ struct ScalarRow {
     sources: Vec<String>,
 }
 
-/// Why a band contributes no evidence pair. Mirrors the closed-set
-/// discipline of `triple_consensus::AbsenceReason`; append only.
+/// Why a band contributes no evidence pair. A closed set; append only.
 enum EvidenceAbsence {
     SingleVintage(usize),
     NoScalarFacts,

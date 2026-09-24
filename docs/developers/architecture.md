@@ -10,12 +10,12 @@ deploy, `whitepaper-v2.md` for the math.
 ## The shape of the system
 
 A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **173 unique paths under
+`0.0.0.0:5051`) and serves both HTTP/REST (**189 route declarations**, **171 unique paths under
 `/v1/*`** in `openapi.json`) and an MCP JSON-RPC endpoint at `POST /mcp`
-(**115 tools**: 18 core / 97 extended, with `tools/list` advertising the core
-tier and `POST /mcp/full` advertising all 89). An optional Python sidecar over a Unix domain socket
-handles GPU inference for Clay v1.5, Prithvi-EO-2.0, Galileo, and
-JEPA v2. Storage is a sled hot cache plus an append-only Merkle
+(**113 tools**: 18 core / 95 extended, with `tools/list` advertising the core
+tier and `POST /mcp/full` advertising all 113). No GPU or model sidecar runs; earlier versions
+ran Clay, Prithvi, Galileo and JEPA-v2 on one, and facts they signed still
+verify. Storage is a sled hot cache plus an append-only Merkle
 log on local disk. Identity is a 32-byte ed25519 secret at
 `<EMEM_DATA>/identity.secret.b32` (mode 0600); the matching pubkey is
 published at `/.well-known/emem.json` so any client verifies receipts
@@ -31,7 +31,7 @@ The agricultural-field surface (`/v1/field_boundaries` plus
 World's global product (CC-BY-4.0, ~3.17 B field polygons) via
 PMTiles range reads.
 
-![emem architecture — one binary, two wire surfaces, one optional sidecar](/docs/diagrams/01-architecture.svg)
+![emem architecture — one binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
 *The whole stack in one figure. The ASCII variant below is the same shape, terminal-friendly.*
 
 ## Process topology
@@ -56,11 +56,6 @@ PMTiles range reads.
 |          |           |  fetch          |--> vsicurl / S3 / REST  |
 |          |           |  Dispatcher     |    (S2, Cop-DEM, MODIS, |
 |          |           +-----------------+     Tessera, GMRT, ...) |
-|          v                                                       |
-|   +---------------+                                              |
-|   | gpu_sidecar   |---UDS---> Python FastAPI                     |
-|   | (HTTP/1.1)    |          (Clay / Prithvi / Galileo / JEPA v2)|
-|   +---------------+                                              |
 +------------------------------------------------------------------+
 ```
 
@@ -74,13 +69,13 @@ signed `Receipt`.
 
 | Crate | Role |
 |-------|------|
-| emem-api-rest | HTTP/MCP router + AppState + inline materializers + sidecar client + physics solvers |
+| emem-api-rest | HTTP/MCP router + AppState + inline materializers + physics solvers |
 | emem-fetch | 16 data connectors + 13 utility modules: `chirps`, `cog`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `geonames`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `overture`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers`; utility: `admin1`, `admin2`, `admin3`, `cache_window`, `connectors`, `countries`, `lib`, `pois`, `proj`, `stac`, `template` |
 | emem-primitives | recall / find_similar / trajectory / compare / compare_bands / diff / verify / query_region + binary_embedding + refinement + cbor_ops |
 | emem-core | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
 | emem-cli | 7 binaries: `emem`, `emem-server`, `emem-demo`, `emem-livedemo`, `emem-realdemo`, `emem-ask-eval`, `emem-purge-fnkey` |
 | emem-storage | `MaterializingStorage` (cache + fetch + log composite), `Server`, `AttesterRegistry`, `AttestationLog` |
-| emem-mcp | MCP tool registry (115 tools) |
+| emem-mcp | MCP tool registry (113 tools) |
 | emem-codec | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet |
 | emem-cache | sled cache wrapper (`SledHotCache`) |
 | emem-intent | 7-variant `Intent` enum and rule-based planner |
@@ -405,8 +400,7 @@ bands), `materialize_power_band` (7 NASA POWER bands), the four
 Open-Meteo arms (`weather_current`, `cams_band`, `era5_band`,
 `marine_band`, ~25 bands total), `materialize_soilgrids_band` (6
 depths), `materialize_firms_active_fires`,
-`materialize_chirps_daily_precip`, plus Sentinel-1/-2, GeoTessera,
-Prithvi / Galileo / Clay encoders, JRC GSW, Overture, ESA
+`materialize_chirps_daily_precip`, plus Sentinel-1/-2, GeoTessera, JRC GSW, Overture, ESA
 WorldCover, Köppen, WorldPop, WDPA.
 
 Of the **46 declared source schemes** in `sources-v0.json`, five
@@ -414,48 +408,22 @@ remain declared-but-unwired: `dynamic_world.v1`,
 `openet.30m.daily`, `tropomi.s5p.{ch4, no2}`, `viirs.dnb.monthly`.
 A recall on those bands returns a typed `MaterializeMiss` Absence.
 
-## The inference plane
-
-`crates/emem-api-rest/src/gpu_sidecar.rs` is a hand-rolled HTTP/1.1
-client over a UDS resolved from `EMEM_SIDECAR_SOCK` (systemd unit:
-`%t/emem/jepa_sidecar.sock`; Rust default `/run/emem/jepa_sidecar.sock`).
-Timeout via `EMEM_SIDECAR_TIMEOUT_MS` (default 5000). On
-`SidecarError::Unavailable` the caller falls back to in-process CPU
-(where wired); on a non-503 from the sidecar it must refuse — no
-silent downgrade.
-
-Four GPU-pinned encoders co-resident on a 20 GB VRAM budget
-(`EMEM_SIDECAR_VRAM_BUDGET_GB=20`): Clay v1.5 (1024-D, ~18 ms warm,
-production), Prithvi-EO-2.0-300M-TL (1024-D, ~20 ms warm,
-production), Galileo (variant selectable via `EMEM_GALILEO_VARIANT`, default `base`
-in production; ~14 ms warm, S2-only modality wired), JEPA v2 dynamics (128-D, untrained baseline that
-short-circuits ONNX/sidecar inference when `is_trained() == false`
-and returns `last_input_vintage` directly). Per-model `*_BUDGET_GB`
-constants sum to `TOTAL_BUDGET_GB`; the cap is enforced via one
-`torch.cuda.set_per_process_memory_fraction` at registry init.
-CUDA OOM surfaces as 503 to Rust. See `docs/developers/inference.md` for input
-shapes, chip fetchers, and the trained-checkpoint loader contract.
+## The physics solvers
 
 Physics solvers in `crates/emem-api-rest/src/physics.rs` are
-in-process Rust, no sidecar dependency: `/v1/heat_solve` (FTCS 2D,
-3×3 MODIS `lst_day_8day` stencil, CFL safety 0.20),
-`/v1/wave_solve` (CTCS 1D shallow water along a seaward profile,
-land-locked rejection with profile + suggestion),
-`/v1/jepa_predict` (closed-form NDVI AR(2) with fixed coefficients),
-`/v1/jepa_predict_v2` (sidecar Tessera dynamics or short-circuit for
-the untrained baseline).
-
-`model.via` in the receipt records provenance: `python_sidecar` for
-sidecar calls, `in_process_cpu` for CPU fallback, `short_circuit`
-for the JEPA v2 untrained sentinel.
+in-process Rust: `/v1/heat_solve` (FTCS 2D, 3×3 MODIS `lst_day_8day`
+stencil, CFL safety 0.20), `/v1/wave_solve` (CTCS 1D shallow water along
+a seaward profile, land-locked rejection with profile + suggestion), and
+`/v1/jepa_predict` (closed-form NDVI AR(2) with fixed coefficients). See
+`docs/developers/inference.md`.
 
 ## The agent surface
 
 REST and MCP serve the same primitives. The MCP tool list is a
 strict read-only subset of REST; writes (`attest`, `backfill`,
 reviews POST) go through REST only. `POST /mcp` is JSON-RPC 2.0,
-backed by `crates/emem-mcp/src/lib.rs` (115 tools). Its `tools/list`
-advertises the 18 core tools; `POST /mcp/full` advertises all 115.
+backed by `crates/emem-mcp/src/lib.rs` (113 tools). Its `tools/list`
+advertises the 18 core tools; `POST /mcp/full` advertises all 113.
 Both dispatch every tool by name from `tools/call`. Three
 well-known endpoints publish capabilities: `/.well-known/mcp.json`
 (MCP transport advertisement), `/.well-known/agent-card.json`
@@ -486,20 +454,14 @@ The 169 REST endpoints split across 13 categories (full list at
   find_similar, trajectory, diff}`, `GET /v1/cells/:cell64`.
 - Write primitives (3): `POST /v1/{attest, attest_cbor, backfill}`.
 - Verify (2): `POST /v1/{verify, verify_receipt}`.
-- Physics solvers (4): `POST /v1/{heat_solve, wave_solve,
-  jepa_predict, jepa_predict_v2}`.
+- Physics solvers (3): `POST /v1/{heat_solve, wave_solve,
+  jepa_predict}`.
 - Boring-API alias zoo (18): GET+POST `/v1/{elevation, ndvi, air,
   lst, soil, water, forest, weather, at}`.
 
 `/v1/recall_many` accepts up to 256 cells per request; each cell
 carries its own signed receipt — verifying any one cell only
-verifies that cell. `/v1/ask` carries a `foundation_embeddings`
-envelope when the question matches Similarity or Change intent;
-fan-out runs concurrently across `clay_v1` + `prithvi_eo2` +
-`geotessera` under budget `ask_timeout_ms` (default 4000, read from
-the `clay_prithvi_tessera_triple_consensus@1` parameters block). On
-timeout the envelope carries
-`degraded_reason: "foundation_embedding_timeout"`.
+verifies that cell.
 
 ## Storage layout on disk
 
@@ -513,7 +475,6 @@ timeout the envelope carries
   geocoder.sled/           locate cache (separate sled DB)
   hf_cache/                HuggingFace snapshots; HF_HUB_OFFLINE=1 ready
   models/                  BAAI/bge-base-en-v1.5 ONNX for topic router
-  jepa_v2/                 dynamics_v2.onnx (~8 KB) + metadata.json
   acme.cache/              Let's Encrypt cert + account key (EMEM_TLS_DOMAINS)
 ```
 
@@ -526,7 +487,6 @@ such a process verify only until restart.
 | trigger | response |
 |---------|----------|
 | sled lock contention on `cache.sled/` | server holds exclusive lock; tools like `emem-purge-fnkey` require server stopped first |
-| sidecar OOM during cold-start | 503 to Rust client; JEPA v2 short-circuits, Prithvi / Clay / Galileo propagate 503 |
 | materializer timeout (`EMEM_MATERIALIZER_TIMEOUT_SECS`, default 14 s) | recall returns the original facts plus a `materialize_notes[]` entry `{band, status:"skipped", reason, reason_class:"timeout", retryable:true, absence:false}`; no zero-value fallback. A timeout is `unknown`, not a confirmed absence, so nothing is signed - a genuine "no data here" instead returns `status:"materialized"` with a signed Absence `fact_cid`. |
 | attestation rejected | `StorageError::AttestationInvalid` with message (root mismatch or bad signature); cache and log untouched |
 | upstream 502/503 | `FetchError::Transport`; materializer either propagates or signs a `NegativeFact` with `ReasonCid` (e.g. Cop-DEM over water) |
@@ -543,7 +503,5 @@ such a process verify only until restart.
 - `docs/operators/operating.md` — deploy paths (plain HTTP behind a reverse
   proxy, native TLS via Let's Encrypt TLS-ALPN-01), systemd units,
   env knobs.
-- `docs/whitepaper-v2.md` — math + design rationale + triple-consensus
-  algorithm derivation.
-- `docs/developers/inference.md` — sidecar protocol, per-encoder chip fetchers,
-  trained-checkpoint loader contract, VRAM partitioning.
+- `docs/whitepaper-v2.md` — math + design rationale.
+- `docs/developers/inference.md` — the in-process physics solvers.

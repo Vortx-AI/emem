@@ -50,10 +50,6 @@ Environment=RUST_LOG=info,rustls_acme=info
 Environment=ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0
 Environment=LD_LIBRARY_PATH=/opt/onnxruntime-1.22.0-cuda12/lib:/usr/lib/x86_64-linux-gnu
 
-# GPU sidecar (jepa_v2 + Prithvi + Galileo on CUDA via UDS)
-Environment=EMEM_SIDECAR_SOCK=%t/emem/jepa_sidecar.sock
-Environment=EMEM_SIDECAR_TIMEOUT_MS=10000
-
 # Google Analytics 4 measurement ID. The repo's web/index.html holds a
 # `__EMEM_GA_ID__` placeholder; the responder substitutes this value
 # at startup. Unset (or comment out) to disable GA entirely — the

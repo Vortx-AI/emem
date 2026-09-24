@@ -2,9 +2,8 @@
 """Architecture diagram in the engram's ink-on-paper Mithila hand.
 
 One binary at the centre. Clients reach it over MCP and REST (same handlers).
-Primitives ring the core. Upstream sources feed in from the left, the GPU
-sidecar from the right, and every write drops into an append-only signed log
-below. Four content-addressed manifests pin what produced each answer.
+Primitives ring the core. Upstream sources feed in from the left, and every write drops into an
+append-only signed log below. Four content-addressed manifests pin what produced each answer.
 
 Output: docs/diagrams/architecture.png
 """
@@ -51,17 +50,6 @@ for i in range(9):
 c.text(SRC_X, CY - 240, "46 sources", f_lab, INK, center=True)
 c.text(SRC_X, CY + 232, "STAC + COG, signed", f_tiny, INK_SOFT, center=True)
 c.text(SRC_X, CY + 247, "on the first miss", f_tiny, INK_SOFT, center=True)
-
-# ---- right: GPU sidecar (4 encoders)
-SID_X = 1452
-c.circle(SID_X, CY, 34, outline=INK, fill=LAC, w=1.6)
-c.circle(SID_X, CY, 34 * 0.66, outline=PAPER, w=1.0, a=210)
-c.dot_ring(SID_X, CY, 17, 4, 4.2, GOLD_PALE)
-c.dot_ring(SID_X, CY, 34 * 1.28, 8, 1.4, INK, phase=SID_X)
-flow((SID_X - 36, CY), (CX + 150, CY), LAC, 1.1, a_=150, bow=-26)
-c.text(SID_X, CY - 56, "GPU sidecar", f_lab, INK, center=True)
-c.text(SID_X, CY + 50, "Clay · Prithvi", f_tiny, INK_SOFT, center=True)
-c.text(SID_X, CY + 64, "Tessera · Galileo", f_tiny, INK_SOFT, center=True)
 
 # ---- top: clients over MCP + REST -> same handlers
 CLI_Y = 150

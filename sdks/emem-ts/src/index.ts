@@ -38,7 +38,6 @@ export type {
   HeatSolveRequest,
   IntentRequest,
   JepaPredictRequest,
-  JepaPredictV2Request,
   Json,
   LocateRequest,
   QueryRegionRequest,
