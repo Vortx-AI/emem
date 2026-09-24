@@ -1123,6 +1123,27 @@ async fn run_tile_decode(
         .map_err(|e| CogError::Inflate(format!("tile decode task panicked: {e}")))?
 }
 
+/// Whether samples are bit-packed rather than whole bytes, as Planetary
+/// Computer's Sentinel-2 COGs are (15 bits per sample).
+fn is_packed(bits_per_sample: u16) -> bool {
+    !bits_per_sample.is_multiple_of(8) && bits_per_sample < 32
+}
+
+/// One unsigned sample of a bit-packed tile: TIFF packs samples MSB-first
+/// and starts every row on a byte boundary.
+fn packed_uint(tile: &[u8], tile_w: u32, x: usize, y: usize, bits: u16) -> Option<f64> {
+    let bits = bits as usize;
+    let row_bytes = (tile_w as usize * bits).div_ceil(8);
+    let start = y * row_bytes * 8 + x * bits;
+    let mut v: u64 = 0;
+    for i in 0..bits {
+        let b = start + i;
+        let byte = *tile.get(b / 8)?;
+        v = (v << 1) | u64::from((byte >> (7 - (b % 8))) & 1);
+    }
+    Some(v as f64)
+}
+
 /// Decompress + undo the predictor for a SINGLE-band tile (Sentinel-2 / -1
 /// grayscale rasters, `samples_per_pixel = 1`). Pure CPU; byte-identical to
 /// the logic that previously ran inline in [`sample_pixel`] / [`sample_window`].
@@ -1150,6 +1171,16 @@ fn decode_tile_singleband(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>
         _ => unreachable!("compression already validated above"),
     }
 
+    // libtiff defines no predictor for packed samples, so neither do we.
+    if is_packed(codec.bits_per_sample) {
+        if codec.predictor != 1 {
+            return Err(CogError::Unsupported(format!(
+                "predictor={} on {}-bit packed samples",
+                codec.predictor, codec.bits_per_sample
+            )));
+        }
+        return Ok(tile_bytes);
+    }
     if codec.predictor == 2 {
         let row_bytes = (codec.tile_w as usize) * bps;
         match codec.bits_per_sample {
@@ -1315,12 +1346,14 @@ pub async fn sample_pixel(
             profile.compression
         )));
     }
+    let packed = is_packed(profile.bits_per_sample) && profile.sample_format == 1;
     if profile.bits_per_sample != 16
         && profile.bits_per_sample != 8
         && profile.bits_per_sample != 32
+        && !packed
     {
         return Err(CogError::Unsupported(format!(
-            "bits_per_sample={} (8/16/32 supported)",
+            "bits_per_sample={} (8/16/32, or unsigned packed, supported)",
             profile.bits_per_sample
         )));
     }
@@ -1369,6 +1402,21 @@ pub async fn sample_pixel(
     // under the decode semaphore — see run_tile_decode). Bit-identical output.
     let tile_bytes = run_tile_decode(tile_compressed, codec, decode_tile_singleband).await?;
 
+    if packed {
+        return packed_uint(
+            &tile_bytes,
+            profile.tile_w,
+            intra_col as usize,
+            intra_row as usize,
+            profile.bits_per_sample,
+        )
+        .ok_or_else(|| {
+            CogError::Unsupported(format!(
+                "decompressed tile too small for {}-bit pixel ({intra_col},{intra_row})",
+                profile.bits_per_sample
+            ))
+        });
+    }
     let bps = (profile.bits_per_sample / 8) as usize;
     let pixel_off =
         (intra_row as usize) * (profile.tile_w as usize) * bps + (intra_col as usize) * bps;
@@ -1448,9 +1496,11 @@ pub async fn sample_window(
             profile.compression
         )));
     }
+    let packed = is_packed(profile.bits_per_sample) && profile.sample_format == 1;
     if profile.bits_per_sample != 16
         && profile.bits_per_sample != 8
         && profile.bits_per_sample != 32
+        && !packed
     {
         return Err(CogError::Unsupported(format!(
             "bits_per_sample={} (8/16/32 supported)",
@@ -1586,28 +1636,40 @@ pub async fn sample_window(
                     let intra_col = (c - tile_col0) as usize;
                     let intra_row = (r - tile_row0) as usize;
                     let p = (intra_row * profile.tile_w as usize + intra_col) * bps;
-                    if p + bps > tile_bytes.len() {
+                    let v = if packed {
+                        match packed_uint(
+                            &tile_bytes,
+                            profile.tile_w,
+                            intra_col,
+                            intra_row,
+                            profile.bits_per_sample,
+                        ) {
+                            Some(v) => v,
+                            None => continue,
+                        }
+                    } else if p + bps > tile_bytes.len() {
                         continue;
-                    }
-                    let v = match (profile.bits_per_sample, profile.sample_format) {
-                        (16, 1) => {
-                            u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                    } else {
+                        match (profile.bits_per_sample, profile.sample_format) {
+                            (16, 1) => {
+                                u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                            }
+                            (16, 2) => {
+                                i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                            }
+                            (8, 1) => tile_bytes[p] as f64,
+                            (8, 2) => (tile_bytes[p] as i8) as f64,
+                            (32, 3) => {
+                                f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                            }
+                            (32, 1) => {
+                                u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                            }
+                            (32, 2) => {
+                                i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                            }
+                            _ => 0.0,
                         }
-                        (16, 2) => {
-                            i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
-                        }
-                        (8, 1) => tile_bytes[p] as f64,
-                        (8, 2) => (tile_bytes[p] as i8) as f64,
-                        (32, 3) => {
-                            f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                        }
-                        (32, 1) => {
-                            u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                        }
-                        (32, 2) => {
-                            i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                        }
-                        _ => 0.0,
                     };
                     let out_col = (c as i64 - want_col0) as usize;
                     let out_row = (r as i64 - want_row0) as usize;
@@ -2419,5 +2481,43 @@ mod window_geo {
         );
         // North-up: max_y is north of min_y, and the first row is the top.
         assert!(max_y > min_y, "y must increase northward");
+    }
+}
+
+#[cfg(test)]
+mod packed_sample_tests {
+    use super::*;
+
+    /// Pack 15-bit values MSB-first with byte-aligned rows, as TIFF does, and
+    /// read every one back, including across row padding.
+    #[test]
+    fn fifteen_bit_samples_read_back_exactly() {
+        let (w, h, bits) = (3u32, 2usize, 15u16);
+        let vals = [0u64, 1, 32767, 1000, 12345, 20001];
+        let row_bytes = (w as usize * bits as usize).div_ceil(8);
+        let mut tile = vec![0u8; row_bytes * h];
+        for (i, v) in vals.iter().enumerate() {
+            let (x, y) = (i % w as usize, i / w as usize);
+            let start = y * row_bytes * 8 + x * bits as usize;
+            for b in 0..bits as usize {
+                if (v >> (bits as usize - 1 - b)) & 1 == 1 {
+                    let pos = start + b;
+                    tile[pos / 8] |= 1 << (7 - pos % 8);
+                }
+            }
+        }
+        for (i, v) in vals.iter().enumerate() {
+            let (x, y) = (i % w as usize, i / w as usize);
+            assert_eq!(
+                packed_uint(&tile, w, x, y, bits),
+                Some(*v as f64),
+                "pixel {x},{y}"
+            );
+        }
+        assert!(
+            packed_uint(&tile, w, 3, 1, bits).is_none() || w > 3,
+            "out of tile reads nothing"
+        );
+        assert!(is_packed(15) && !is_packed(16) && !is_packed(8) && !is_packed(32));
     }
 }

@@ -388,7 +388,7 @@ the same materializer):
 
 | Connector | Mirroring |
 |---|---|
-| Sentinel-2 / Sentinel-1 STAC | dual: Element84 primary, MS Planetary Computer fallback |
+| Sentinel-2 / Sentinel-1 STAC | Sentinel-2: MS Planetary Computer primary, Element84 fallback (`EMEM_S2_CATALOGUES` reorders); Sentinel-1 RTC: Planetary Computer |
 | Terraclimate NCSS | dual: UI primary, NCAR RDA secondary (added 2026-05-08) |
 | Cop-DEM 30 m | single (Copernicus S3) |
 | Hansen GFC | single |

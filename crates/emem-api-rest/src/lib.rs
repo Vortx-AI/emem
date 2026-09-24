@@ -9075,7 +9075,7 @@ async fn materializers(
                 "kernel_for_router": "wave_seasonal",
                 "fetch_strategy":    "stac_search + https_range_cog",
                 "fetch_bytes_per_cell": "~600 KB (IFD + 1 tile per band × 2 bands)",
-                "notes":             "Pure-Rust COG range read against AWS Open Data sentinel-cogs bucket. STAC search picks the latest scene <40% cloud that *contains* the point (intersects: Point). Reflectance = DN × 1e-4 with no additive offset, which is correct because Element84 harmonises the L2A DN range: it removes ESA's BOA_ADD_OFFSET (−1000 DN from processing baseline 04.00, 2022-01-25) before publishing, so one scale reads the whole archive. Microsoft Planetary Computer serves ESA's DNs unaltered and would need the −1000 applied per item for baseline ≥ 04.00. The responder refuses to run this path against a non-harmonised catalogue rather than sign an offset-biased index. NDVI = (B08 − B04) / (B08 + B04). No API key. Range read uses Predictor 2 (horizontal differencing) + Deflate decompression."
+                "notes":             "Pure-Rust COG range read of Sentinel-2 L2A from Microsoft Planetary Computer, with Element84 Earth Search as the fallback when it fails. STAC search picks the latest scene <40% cloud that *contains* the point (intersects: Point). Reflectance = (DN + offset) × 1e-4, the offset per scene: 0 for Element84, which publishes harmonised DNs, and ESA's BOA_ADD_OFFSET (−1000 DN) for Planetary Computer scenes from processing baseline 04.00; a scene that states no baseline is refused rather than guessed. Each fact's derivation args end with the catalogue and the offset applied. NDVI = (B08 − B04) / (B08 + B04). No API key. Range read uses Predictor 2 (horizontal differencing) + Deflate decompression."
             },
             {
                 "band":              "sentinel1_raw",
@@ -50547,14 +50547,11 @@ fn s2_band_plan(band: &str) -> Option<(Vec<&'static [&'static str]>, &'static st
     static B09: &[&str] = &["nir09", "B09"];
     static B11: &[&str] = &["swir16", "B11"];
     static B12: &[&str] = &["swir22", "B12"];
-    static SCL: &[&str] = &["scl"];
+    static SCL: &[&str] = &["scl", "SCL"];
     match band {
-        // Raw L2A surface reflectance per band. uint16 DN → reflectance ∈ [0,1]
-        // by a bare 1e-4 scale, correct because `S2_STAC_HOST` (Element84)
-        // harmonises the DN range: it removes ESA's BOA_ADD_OFFSET (-1000 DN
-        // from processing baseline 04.00) before publishing. A catalogue that
-        // serves ESA's DNs raw (MPC does) needs the -1000 applied first for
-        // baseline >= 04.00. `s2_guard_harmonised_dn` enforces the provider.
+        // Raw L2A surface reflectance per band: (DN + offset) * 1e-4, the
+        // offset per scene from `s2_dn_offset` (0 for Element84's harmonised
+        // DNs, -1000 for Planetary Computer's ESA DNs from baseline 04.00).
         "s2.B01" => Some((vec![B01], "raw_reflectance", "B01 60m coastal aerosol")),
         "s2.B02" => Some((vec![B02], "raw_reflectance", "B02 10m blue")),
         "s2.B03" => Some((vec![B03], "raw_reflectance", "B03 10m green")),
@@ -50874,55 +50871,101 @@ async fn s2_sample_scl(
     }
 }
 
-/// The STAC catalogue the Sentinel-2 value path reads, for every band and
-/// every index. Named once, here, because the DN→reflectance arithmetic in
-/// [`materialize_sentinel2_band`] is calibrated to THIS catalogue's DN
-/// convention and to no other: see [`s2_guard_harmonised_dn`]. Changing this
-/// constant to a non-harmonised catalogue is a correctness change, not a
-/// failover, and the tests below fail when it is.
-const S2_STAC_HOST: &str = emem_fetch::stac::STAC_ELEMENT84_V1;
-
-/// Refuse to apply the offset-free `DN * 1e-4` scale to a catalogue that
-/// does not serve harmonised Sentinel-2 DNs.
+/// The STAC catalogues the Sentinel-2 value path reads, in order: Microsoft
+/// Planetary Computer first, Element84 Earth Search as the fallback.
 ///
-/// The value path multiplies raw DNs by 1e-4 with no additive term. That is
-/// correct against Element84, which removes ESA's `BOA_ADD_OFFSET` (-1000 DN
-/// from processing baseline 04.00, 2022-01-25) before publishing. Against a
-/// catalogue that serves ESA's DNs verbatim (Microsoft Planetary Computer
-/// does) the same arithmetic overstates every band's reflectance by 0.1.
+/// One catalogue was a single point of failure for every cold Sentinel-2
+/// read: on 2026-09-24 Element84 answered 403 to every request, and every
+/// fresh NDVI, band and scene read on this responder failed. Each tier of
+/// the scene search now tries the catalogues in turn and moves on only when
+/// one FAILS (transport error, 4xx/5xx, no SAS token); an empty answer from a
+/// healthy catalogue is a real "no scene here" and is not re-asked elsewhere.
+/// `EMEM_S2_CATALOGUES=element84,mpc` reorders them, or names just one.
 ///
-/// A hard error, not a silent correction, because the failure this guards
-/// against is a *misconfiguration* and the two outcomes are not equally
-/// recoverable. Auto-correcting would mean inferring the offset from
-/// `s2:processing_baseline`, which is absent on early items, so the
-/// correction would itself have to guess on exactly the scenes where a wrong
-/// guess is unrecoverable. An error is loud, local, and leaves no biased
-/// fact signed into the log. Ratio indices make the bias smooth and
-/// plausible rather than obviously broken, so nothing downstream would catch
-/// it.
-///
-/// `sources-v0.json` lists an MPC `sentinel-2-l2a` provider in the
-/// `sentinel_s2_l2a` scheme. That registry is a public catalogue of where
-/// the data comes from; it does not route, and no code path selects a
-/// provider from it. This guard is what makes wiring it a loud failure
-/// instead of a silent NDVI bias.
-fn s2_guard_harmonised_dn(search_url: &str) -> Result<(), String> {
-    if emem_fetch::stac::s2_dn_is_harmonised(search_url) {
-        return Ok(());
+/// The two do not serve the same numbers. See [`s2_dn_offset`].
+fn s2_catalogues() -> Vec<&'static str> {
+    let named = std::env::var("EMEM_S2_CATALOGUES").unwrap_or_default();
+    let list: Vec<&'static str> = named
+        .split(',')
+        .filter_map(|n| match n.trim() {
+            "mpc" => Some(emem_fetch::stac::STAC_MPC_V1),
+            "element84" => Some(emem_fetch::stac::STAC_ELEMENT84_V1),
+            _ => None,
+        })
+        .collect();
+    if list.is_empty() {
+        vec![
+            emem_fetch::stac::STAC_MPC_V1,
+            emem_fetch::stac::STAC_ELEMENT84_V1,
+        ]
+    } else {
+        list
     }
-    Err(format!(
-        "refusing to scale Sentinel-2 DNs from {search_url}: the value path applies \
-         reflectance = DN * 1e-4 with no additive term, which is only correct for a \
-         catalogue that has already removed ESA's BOA_ADD_OFFSET ({} DN from processing \
-         baseline {} onward). {} is the only such catalogue wired here. Serving raw ESA \
-         DNs through this path would bias every band ratio (NDVI, NDWI, EVI, …) toward \
-         zero without failing anything. Route Sentinel-2 back to the harmonised catalogue, \
-         or teach this path the per-item offset from `s2:processing_baseline` before \
-         changing S2_STAC_HOST.",
-        emem_fetch::stac::S2_BOA_ADD_OFFSET_DN,
-        emem_fetch::stac::S2_BOA_OFFSET_BASELINE,
-        emem_fetch::stac::STAC_ELEMENT84_V1,
-    ))
+}
+
+/// The additive DN term that turns this scene's DNs into reflectance with
+/// `reflectance = (DN + offset) * 1e-4`, or why no honest one exists.
+///
+/// Element84 publishes harmonised DNs: it has already removed ESA's
+/// `BOA_ADD_OFFSET` (-1000 DN from processing baseline 04.00, 2022-01-25), so
+/// its offset is 0 for every scene. Planetary Computer publishes ESA's DNs
+/// verbatim, so the offset is -1000 for baseline 04.00 onward and 0 before.
+/// Getting this wrong does not fail loudly: a +1000 DN error on both bands of
+/// a ratio index pulls NDVI toward zero by roughly a third at canopy
+/// reflectance, a smooth plausible bias nothing downstream would catch. So an
+/// item that does not state its baseline is refused rather than guessed, and
+/// a catalogue this path does not know is refused outright.
+fn s2_dn_offset(search_url: &str, item: &emem_fetch::stac::StacItem) -> Result<f64, String> {
+    if emem_fetch::stac::s2_dn_is_harmonised(search_url) {
+        return Ok(0.0);
+    }
+    if search_url != emem_fetch::stac::STAC_MPC_V1 {
+        return Err(format!(
+            "refusing to scale Sentinel-2 DNs from {search_url}: this path knows the DN convention of Element84 (harmonised) and Planetary Computer (ESA DNs, per-item BOA_ADD_OFFSET) only"
+        ));
+    }
+    match emem_fetch::stac::s2_baseline_has_boa_offset(item.processing_baseline.as_deref()) {
+        Some(true) => Ok(emem_fetch::stac::S2_BOA_ADD_OFFSET_DN),
+        Some(false) => Ok(0.0),
+        None => Err(format!(
+            "refusing to scale Sentinel-2 DNs of scene {}: Planetary Computer serves ESA DNs, which carry BOA_ADD_OFFSET ({} DN) from processing baseline {} onward, and this item states no s2:processing_baseline, so the offset would be a guess",
+            item.id,
+            emem_fetch::stac::S2_BOA_ADD_OFFSET_DN,
+            emem_fetch::stac::S2_BOA_OFFSET_BASELINE,
+        )),
+    }
+}
+
+/// Planetary Computer asset hrefs are Azure blobs that need an anonymous SAS
+/// token; sign every asset of these items so the SCL probe and the value
+/// reads work unchanged. The token is never recorded in a fact: see
+/// [`s2_url_for_record`].
+async fn s2_sign_mpc_items(
+    cli: &reqwest::Client,
+    items: Vec<emem_fetch::stac::StacItem>,
+) -> Result<Vec<emem_fetch::stac::StacItem>, String> {
+    if items.is_empty() {
+        return Ok(items);
+    }
+    let sas = emem_fetch::stac::mpc_sas_token(cli, "sentinel-2-l2a").await?;
+    Ok(items
+        .into_iter()
+        .map(|mut it| {
+            for href in it.assets.values_mut() {
+                if !href.contains('?') {
+                    href.push('?');
+                    href.push_str(&sas);
+                }
+            }
+            it
+        })
+        .collect())
+}
+
+/// An asset url as it may be written into a signed fact: without its query
+/// string, which for Planetary Computer is a SAS token that expires.
+fn s2_url_for_record(url: &str) -> &str {
+    url.split('?').next().unwrap_or(url)
 }
 
 /// The scene chosen by [`s2_pick_clear_scene`], plus the audit fields the
@@ -50994,7 +51037,13 @@ pub(crate) async fn s2_pick_clear_scene(
     let mut scenes_tried = 0usize;
     // Newest candidate seen across all tiers, the honest Absence fallback
     // when no scene is clear at the pixel.
-    let mut newest_seen: Option<(emem_fetch::stac::StacItem, f64, i64, Option<u8>)> = None;
+    let mut newest_seen: Option<(
+        emem_fetch::stac::StacItem,
+        f64,
+        i64,
+        Option<u8>,
+        &'static str,
+    )> = None;
     let mut last_err: Option<String> = None;
     for (cloud, days) in tiers {
         let (lo_unix, hi_unix) = match target_unix {
@@ -51023,20 +51072,37 @@ pub(crate) async fn s2_pick_clear_scene(
             iso8601_utc(lo_unix as u64),
             iso8601_utc(hi_unix as u64)
         );
-        let items = match emem_fetch::stac::search_many_at(
-            cli,
-            S2_STAC_HOST,
-            "sentinel-2-l2a",
-            lng,
-            lat,
-            &datetime,
-            Some(cloud),
-            max_scenes,
-        )
-        .await
-        {
-            Ok(v) => v,
-            Err(e) => return Err(format!("stac: {e}")),
+        let mut found: Option<(&'static str, Vec<emem_fetch::stac::StacItem>)> = None;
+        let mut failures: Vec<String> = Vec::new();
+        for host in s2_catalogues() {
+            let searched = emem_fetch::stac::search_many_at(
+                cli,
+                host,
+                "sentinel-2-l2a",
+                lng,
+                lat,
+                &datetime,
+                Some(cloud),
+                max_scenes,
+            )
+            .await;
+            let signed = match searched {
+                Ok(v) if host == emem_fetch::stac::STAC_MPC_V1 => s2_sign_mpc_items(cli, v).await,
+                other => other,
+            };
+            match signed {
+                Ok(v) => {
+                    found = Some((host, v));
+                    break;
+                }
+                Err(e) => failures.push(format!("{host}: {e}")),
+            }
+        }
+        let Some((host, items)) = found else {
+            return Err(format!(
+                "stac: every Sentinel-2 catalogue failed: {}",
+                failures.join("; ")
+            ));
         };
         if items.is_empty() {
             last_err = Some(format!(
@@ -51067,7 +51133,7 @@ pub(crate) async fn s2_pick_clear_scene(
         while let Some((item, scl)) = probes.next().await {
             scenes_tried += 1;
             if newest_seen.is_none() {
-                newest_seen = Some((item.clone(), cloud, days, scl));
+                newest_seen = Some((item.clone(), cloud, days, scl, host));
             }
             // A hard-reject SCL means a cloudy/unusable pixel, try the next
             // (older) candidate. Anything else (clear class, or SCL simply
@@ -51079,7 +51145,7 @@ pub(crate) async fn s2_pick_clear_scene(
                         item,
                         used_cloud: cloud,
                         used_days: days,
-                        search_url: S2_STAC_HOST,
+                        search_url: host,
                         scl,
                         clear: true,
                         scenes_tried,
@@ -51090,12 +51156,12 @@ pub(crate) async fn s2_pick_clear_scene(
     }
     // Every candidate across every tier was cloudy at the pixel: return the
     // newest so the caller signs an honest Absence (clear=false).
-    if let Some((item, used_cloud, used_days, scl)) = newest_seen {
+    if let Some((item, used_cloud, used_days, scl, host)) = newest_seen {
         return Ok(S2ChosenScene {
             item,
             used_cloud,
             used_days,
-            search_url: S2_STAC_HOST,
+            search_url: host,
             scl,
             clear: false,
             scenes_tried,
@@ -51147,7 +51213,7 @@ async fn materialize_sentinel2_band(
 /// `s2.*` raw-reflectance band and every `indices.*` derived index from the
 /// same one-scene path:
 ///
-/// 1. STAC search [`S2_STAC_HOST`] → latest scene <40% cloud that *contains*
+/// 1. STAC search [`s2_catalogues`] → latest scene <40% cloud that *contains*
 ///    the point (intersects: Point, never bbox).
 /// 2. For each STAC asset the band needs (1..4 of them), open the COG profile
 ///    via HTTP range read and sample one pixel.
@@ -51157,14 +51223,9 @@ async fn materialize_sentinel2_band(
 ///    `derivation.fn_key` records the formula so external attesters can
 ///    re-execute and corroborate.
 ///
-/// Step 3 scales DNs by 1e-4 with NO additive offset. That is correct here,
-/// and only here, because [`S2_STAC_HOST`] is Element84, which harmonises
-/// the L2A DN range: it removes ESA's `BOA_ADD_OFFSET` (-1000 DN from
-/// processing baseline 04.00, 2022-01-25) before publishing, so one scale
-/// reads every scene in the archive correctly. MPC serves ESA's DNs verbatim
-/// and would need the -1000 applied per item, keyed on
-/// `StacItem::processing_baseline`. [`s2_guard_harmonised_dn`] asserts the
-/// provider below rather than leaving that dependency implicit.
+/// Step 3 turns DNs into reflectance as `(DN + offset) * 1e-4`, the offset
+/// chosen per scene by [`s2_dn_offset`] from the catalogue it came from and
+/// its processing baseline; a scene whose offset cannot be known is refused.
 ///
 /// One STAC search per call, so per-band cost is dominated by the per-asset
 /// COG reads (~600 KB each: IFD head + 1 tile).
@@ -51242,7 +51303,8 @@ async fn materialize_sentinel2_band_inner(
     // it is gated too: the guard is about the provider being the one this
     // path is calibrated for, and there is no version of "wrong catalogue"
     // where signing a fact from it is right.
-    s2_guard_harmonised_dn(chosen.search_url)?;
+    let offset = s2_dn_offset(chosen.search_url, &item)?;
+    let r = |dn: f64| (dn + offset) * 1e-4;
 
     // Compute the band value.
     let (value, fact_unit) = match kind {
@@ -51254,7 +51316,7 @@ async fn materialize_sentinel2_band_inner(
                     item.id
                 ));
             }
-            let refl = raw * 1e-4;
+            let refl = r(raw);
             (refl, None)
         }
         "scl_categorical" => {
@@ -51266,33 +51328,33 @@ async fn materialize_sentinel2_band_inner(
             (raw, Some("class_index".to_string()))
         }
         "index_ndvi" => {
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
             if nir + red < 1e-6 {
                 return Err("ndvi denom ≈ 0".to_string());
             }
             ((nir - red) / (nir + red), None)
         }
         "index_ndwi" => {
-            let g = samples[0] * 1e-4;
-            let nir = samples[1] * 1e-4;
+            let g = r(samples[0]);
+            let nir = r(samples[1]);
             if g + nir < 1e-6 {
                 return Err("ndwi denom ≈ 0".to_string());
             }
             ((g - nir) / (g + nir), None)
         }
         "index_mndwi" => {
-            let g = samples[0] * 1e-4;
-            let swir = samples[1] * 1e-4;
+            let g = r(samples[0]);
+            let swir = r(samples[1]);
             if g + swir < 1e-6 {
                 return Err("mndwi denom ≈ 0".to_string());
             }
             ((g - swir) / (g + swir), None)
         }
         "index_evi" => {
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
-            let blue = samples[2] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let blue = r(samples[2]);
             let denom = nir + 6.0 * red - 7.5 * blue + 1.0;
             if denom.abs() < 1e-6 {
                 return Err("evi denom ≈ 0".to_string());
@@ -51300,24 +51362,24 @@ async fn materialize_sentinel2_band_inner(
             (2.5 * (nir - red) / denom, None)
         }
         "index_nbr" => {
-            let nir = samples[0] * 1e-4;
-            let swir2 = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let swir2 = r(samples[1]);
             if nir + swir2 < 1e-6 {
                 return Err("nbr denom ≈ 0".to_string());
             }
             ((nir - swir2) / (nir + swir2), None)
         }
         "index_ndmi" => {
-            let nir = samples[0] * 1e-4;
-            let swir1 = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
             if nir + swir1 < 1e-6 {
                 return Err("ndmi denom ≈ 0".to_string());
             }
             ((nir - swir1) / (nir + swir1), None)
         }
         "index_savi" => {
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
             let l = 0.5;
             if nir + red + l < 1e-6 {
                 return Err("savi denom ≈ 0".to_string());
@@ -51325,10 +51387,10 @@ async fn materialize_sentinel2_band_inner(
             ((1.0 + l) * (nir - red) / (nir + red + l), None)
         }
         "index_bsi" => {
-            let swir1 = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
-            let nir = samples[2] * 1e-4;
-            let blue = samples[3] * 1e-4;
+            let swir1 = r(samples[0]);
+            let red = r(samples[1]);
+            let nir = r(samples[2]);
+            let blue = r(samples[3]);
             let num = (swir1 + red) - (nir + blue);
             let den = (swir1 + red) + (nir + blue);
             if den.abs() < 1e-6 {
@@ -51337,8 +51399,8 @@ async fn materialize_sentinel2_band_inner(
             (num / den, None)
         }
         "index_ndbi" => {
-            let swir1 = samples[0] * 1e-4;
-            let nir = samples[1] * 1e-4;
+            let swir1 = r(samples[0]);
+            let nir = r(samples[1]);
             if swir1 + nir < 1e-6 {
                 return Err("ndbi denom ≈ 0".to_string());
             }
@@ -51347,8 +51409,8 @@ async fn materialize_sentinel2_band_inner(
         "index_ndti" => {
             // NDTI (Lacaux et al. 2007, RSE 109:66-77): turbidity proxy used
             // for waterborne-disease vector mapping in the Senegal Valley.
-            let red = samples[0] * 1e-4;
-            let green = samples[1] * 1e-4;
+            let red = r(samples[0]);
+            let green = r(samples[1]);
             if red + green < 1e-6 {
                 return Err("ndti denom ≈ 0".to_string());
             }
@@ -51358,8 +51420,8 @@ async fn materialize_sentinel2_band_inner(
             // GNDVI (Gitelson, Kaufman & Merzlyak 1996, RSE 58:289-298):
             // chlorophyll-sensitive vegetation index, saturates later than
             // NDVI over dense canopies, useful for crop nitrogen + pasture.
-            let nir = samples[0] * 1e-4;
-            let green = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let green = r(samples[1]);
             if nir + green < 1e-6 {
                 return Err("gndvi denom ≈ 0".to_string());
             }
@@ -51370,8 +51432,8 @@ async fn materialize_sentinel2_band_inner(
             // red-edge chlorophyll. Sentinel-2's red-edge band B05 (704 nm)
             // is uniquely mid-range and saturates much later than NIR,
             // exposing nitrogen status during peak biomass.
-            let nirn = samples[0] * 1e-4;
-            let re1 = samples[1] * 1e-4;
+            let nirn = r(samples[0]);
+            let re1 = r(samples[1]);
             if nirn + re1 < 1e-6 {
                 return Err("ndre denom ≈ 0".to_string());
             }
@@ -51383,9 +51445,9 @@ async fn materialize_sentinel2_band_inner(
             // measured at NIR (842 nm). Surface scum reflects strongly in
             // NIR but not in SWIR (water absorbs SWIR), so positive FAI
             // identifies HAB scums, sargassum, oil sheens, plastics.
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
-            let swir1 = samples[2] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let swir1 = r(samples[2]);
             // S2 band centers (nm): B04=665, B08=842, B11=1610.
             let lambda_baseline = red + (842.0 - 665.0) / (1610.0 - 665.0) * (swir1 - red);
             (nir - lambda_baseline, None)
@@ -51396,8 +51458,8 @@ async fn materialize_sentinel2_band_inner(
             // + 16.336. Valid for moderately turbid inland water; clip
             // to 0 at clearest pixels. Pre-storm vs post-storm Δ is the
             // pathogen-runoff signal.
-            let red = samples[0] * 1e-4;
-            let blue = samples[1] * 1e-4;
+            let red = r(samples[0]);
+            let blue = r(samples[1]);
             if blue.abs() < 1e-6 {
                 return Err("tss denom (blue) ≈ 0".to_string());
             }
@@ -51408,8 +51470,8 @@ async fn materialize_sentinel2_band_inner(
             // NDSI (Hall, Riggs & Salomonson 1995, RSE 54:127-140): the
             // canonical snow-cover index. Snow is bright in green and dark
             // in SWIR. Threshold ~0.4 separates snow from cloud over land.
-            let green = samples[0] * 1e-4;
-            let swir1 = samples[1] * 1e-4;
+            let green = r(samples[0]);
+            let swir1 = r(samples[1]);
             if green + swir1 < 1e-6 {
                 return Err("ndsi denom ≈ 0".to_string());
             }
@@ -51419,8 +51481,8 @@ async fn materialize_sentinel2_band_inner(
             // AFRI1.6 (Karnieli et al. 2001, RSE 77:10-21): aerosol-free
             // vegetation index for use under smoke/dust/haze. Uses SWIR
             // (which is largely transparent to aerosol) instead of red.
-            let nir = samples[0] * 1e-4;
-            let swir1 = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
             let denom = nir + 0.66 * swir1;
             if denom.abs() < 1e-6 {
                 return Err("afri1600 denom ≈ 0".to_string());
@@ -51432,8 +51494,8 @@ async fn materialize_sentinel2_band_inner(
             // correction than the canonical L=0.5 version, useful for
             // pasture/desert conditions where bare-soil background is
             // dominant.
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
             let l = 1.0;
             if nir + red + l < 1e-6 {
                 return Err("savi_l1 denom ≈ 0".to_string());
@@ -51445,8 +51507,8 @@ async fn materialize_sentinel2_band_inner(
             // means SDI < 1; bare/dry surfaces produce SDI ≈ 1. Used as
             // the multiplicative compound term in heat-stress: high LST ×
             // high SDI = no evaporative cooling = ER-visit risk.
-            let nir = samples[0] * 1e-4;
-            let swir1 = samples[1] * 1e-4;
+            let nir = r(samples[0]);
+            let swir1 = r(samples[1]);
             if nir + swir1 < 1e-6 {
                 return Err("sdi denom ≈ 0".to_string());
             }
@@ -51459,9 +51521,9 @@ async fn materialize_sentinel2_band_inner(
             // surfaces TREE canopy in urban grids, supports the WHO
             // "3-30-300" rule (3 trees from every window, 30% canopy
             // cover per neighborhood, 300 m to nearest green space).
-            let nir = samples[0] * 1e-4;
-            let red = samples[1] * 1e-4;
-            let swir1 = samples[2] * 1e-4;
+            let nir = r(samples[0]);
+            let red = r(samples[1]);
+            let swir1 = r(samples[2]);
             if nir + red < 1e-6 || swir1 + nir < 1e-6 {
                 return Err("uci denom ≈ 0".to_string());
             }
@@ -51525,7 +51587,11 @@ async fn materialize_sentinel2_band_inner(
                     band,
                     tslot,
                     "sentinel_s2_l2a",
-                    &asset_urls.join(" ; "),
+                    &asset_urls
+                        .iter()
+                        .map(|u| s2_url_for_record(u))
+                        .collect::<Vec<_>>()
+                        .join(" ; "),
                     &signed_at,
                     &format!(
                         "s2_scl_pixel_unusable: every one of {} candidate scene(s) in the ±{}d / {}%-cloud window was unusable at this pixel (newest: SCL={class} ({label}) at scene {} ({})); widen the window via EMEM_S2_LOOKBACK_DAYS / EMEM_S2_MAX_CLOUD, raise EMEM_S2_MAX_SCENES, or accept the Absence as authoritative",
@@ -51563,7 +51629,11 @@ async fn materialize_sentinel2_band_inner(
         uncertainty: None,
         sources: vec![Source {
             scheme: "sentinel_s2_l2a".into(),
-            id: asset_urls.join(" ; "),
+            id: asset_urls
+                .iter()
+                .map(|u| s2_url_for_record(u))
+                .collect::<Vec<_>>()
+                .join(" ; "),
             cid: None,
             hash: None,
             captured_at: Some(item.datetime.clone()),
@@ -51599,6 +51669,10 @@ async fn materialize_sentinel2_band_inner(
                 ciborium::Value::Integer(used_days.into()),
                 ciborium::Value::Integer(scl_value.map(|c| c as i64).unwrap_or(-1).into()),
                 ciborium::Value::Integer((chosen.scenes_tried as i64).into()),
+                // Appended, so every earlier position keeps its meaning: the
+                // catalogue the DNs came from and the offset applied to them.
+                ciborium::Value::Text(chosen.search_url.into()),
+                ciborium::Value::Float(offset),
             ])),
         },
         privacy_class: "public".into(),
@@ -59375,17 +59449,43 @@ async fn build_cell_scene_rgb(
     };
 
     let cli = s2_http_client();
-    let item = emem_fetch::stac::search_one(
-        &cli,
-        "sentinel-2-l2a",
-        lng,
-        lat,
-        &datetime,
-        Some(max_cloud_pct),
-    )
-    .await
-    .map_err(|e| format!("stac: {e}"))?
-    .ok_or_else(|| format!("{SCENE_MISS_PREFIX} < {max_cloud_pct}% in {datetime} at this cell"))?;
+    // The same catalogue ladder as the value path. The picture is a per-scene
+    // percentile stretch, so Planetary Computer's un-offset DNs change the
+    // stretch values reported beside it, not the image.
+    let mut searched: Result<Option<emem_fetch::stac::StacItem>, String> =
+        Err("no Sentinel-2 catalogue configured".into());
+    let mut failures = Vec::new();
+    for host in s2_catalogues() {
+        let got = emem_fetch::stac::search_one_at(
+            &cli,
+            host,
+            "sentinel-2-l2a",
+            lng,
+            lat,
+            &datetime,
+            Some(max_cloud_pct),
+        )
+        .await;
+        let got = match got {
+            Ok(Some(it)) if host == emem_fetch::stac::STAC_MPC_V1 => {
+                s2_sign_mpc_items(&cli, vec![it]).await.map(|mut v| v.pop())
+            }
+            other => other,
+        };
+        match got {
+            Ok(v) => {
+                searched = Ok(v);
+                break;
+            }
+            Err(e) => failures.push(format!("{host}: {e}")),
+        }
+    }
+    if searched.is_err() && !failures.is_empty() {
+        searched = Err(failures.join("; "));
+    }
+    let item = searched.map_err(|e| format!("stac: {e}"))?.ok_or_else(|| {
+        format!("{SCENE_MISS_PREFIX} < {max_cloud_pct}% in {datetime} at this cell")
+    })?;
 
     let red_url = item
         .assets
@@ -78119,38 +78219,169 @@ fn not_found(msg: &str) -> Response {
 mod s2_dn_offset_invariant {
     use super::*;
 
-    /// The load-bearing claim of the whole Sentinel-2 value path: it reads a
-    /// catalogue whose DNs have ESA's BOA_ADD_OFFSET already removed, which
-    /// is what makes the bare `DN * 1e-4` in `materialize_sentinel2_band_inner`
-    /// correct with no offset term.
-    ///
-    /// This test is the tripwire on a provider swap. Repointing
-    /// `S2_STAC_HOST` at Microsoft Planetary Computer (which `sources-v0.json`
-    /// lists as a `sentinel_s2_l2a` provider, and which serves ESA's DNs
-    /// verbatim) fails here rather than silently biasing every NDVI toward
-    /// zero. The bias is smooth and plausible, so nothing else would catch
-    /// it. If you are here because this test failed: the path needs the
-    /// per-item -1000 offset keyed on `StacItem::processing_baseline` before
-    /// it can read a raw catalogue. It is not a config change.
-    #[test]
-    fn s2_value_path_reads_a_harmonised_catalogue() {
-        assert!(
-            emem_fetch::stac::s2_dn_is_harmonised(S2_STAC_HOST),
-            "S2_STAC_HOST must serve harmonised DNs; see s2_guard_harmonised_dn"
-        );
-        assert!(s2_guard_harmonised_dn(S2_STAC_HOST).is_ok());
+    fn item(baseline: Option<&str>) -> emem_fetch::stac::StacItem {
+        serde_json::from_value(json!({
+            "id": "S2B_43PGQ_20260512_0_L2A", "cloud_cover": 3.0, "datetime": "2026-05-12T05:20:00Z",
+            "epsg": 32643, "assets": {}, "collection": "sentinel-2-l2a",
+            "processing_baseline": baseline,
+        }))
+        .unwrap()
     }
 
-    /// The guard refuses a non-harmonised provider rather than correcting it
-    /// or passing it through. A hard error keeps a biased fact out of the log.
+    /// The load-bearing claim of the Sentinel-2 value path: each catalogue's
+    /// DNs get exactly the offset that turns them into ESA reflectance.
+    /// Element84 has already removed BOA_ADD_OFFSET; Planetary Computer has
+    /// not, from baseline 04.00. A wrong answer here is a smooth, plausible
+    /// bias on every index, which nothing downstream would catch.
     #[test]
-    fn guard_refuses_a_raw_dn_catalogue() {
-        let err = s2_guard_harmonised_dn(emem_fetch::stac::STAC_MPC_V1)
-            .expect_err("MPC serves raw ESA DNs and must be refused");
-        assert!(err.contains("BOA_ADD_OFFSET"), "error must name the cause");
+    fn each_catalogue_gets_its_own_offset() {
+        let e84 = emem_fetch::stac::STAC_ELEMENT84_V1;
+        let mpc = emem_fetch::stac::STAC_MPC_V1;
+        assert_eq!(s2_dn_offset(e84, &item(Some("05.11"))).unwrap(), 0.0);
+        assert_eq!(s2_dn_offset(e84, &item(None)).unwrap(), 0.0);
+        assert_eq!(s2_dn_offset(mpc, &item(Some("05.11"))).unwrap(), -1000.0);
+        assert_eq!(s2_dn_offset(mpc, &item(Some("04.00"))).unwrap(), -1000.0);
+        assert_eq!(s2_dn_offset(mpc, &item(Some("03.01"))).unwrap(), 0.0);
+        // The same ground reads the same reflectance from either catalogue:
+        // Element84 publishes ESA DN - 1000 for a post-baseline scene.
+        let esa_dn = 3456.0;
+        let from_mpc = (esa_dn + s2_dn_offset(mpc, &item(Some("05.11"))).unwrap()) * 1e-4;
+        let from_e84 =
+            ((esa_dn - 1000.0) + s2_dn_offset(e84, &item(Some("05.11"))).unwrap()) * 1e-4;
+        assert!((from_mpc - from_e84).abs() < 1e-12);
+    }
+
+    /// Unknowns are refused, never guessed.
+    #[test]
+    fn an_unknown_baseline_or_catalogue_is_refused() {
+        let mpc = emem_fetch::stac::STAC_MPC_V1;
+        let err = s2_dn_offset(mpc, &item(None)).expect_err("no baseline, no offset");
+        assert!(err.contains("BOA_ADD_OFFSET"), "{err}");
+        assert!(s2_dn_offset(
+            "https://stac.example.invalid/v1/search",
+            &item(Some("05.11"))
+        )
+        .is_err());
+    }
+
+    /// Against the network: the same scene, the same pixel, read from
+    /// Planetary Computer with the per-item offset, must give the DNs and the
+    /// NDVI that Element84 gave for a fact already signed. `-- --ignored`.
+    #[tokio::test]
+    #[ignore]
+    async fn planetary_computer_reproduces_signed_element84_facts() {
+        let cli = s2_http_client();
+        let body = json!({"cells": ["defi.zb493.yiwo.zcb4e", "defi.zb64e.wopO.zc99b", "defi.zb64a.cAzU.zfa27"], "bands": ["indices.ndvi"]});
+        let r: JsonValue = cli
+            .post("https://emem.dev/v1/recall_many")
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let mut compared = 0;
+        let mut exact = 0;
+        let mut worst_ndvi: f64 = 0.0;
+        for (_, c) in r["by_cell"].as_object().unwrap() {
+            for f in c["facts"].as_array().unwrap().iter().take(4) {
+                let a = f["derivation"]["args"].as_array().unwrap();
+                // Element84-made facts predate the catalogue args at the end.
+                if a.len() != 11 {
+                    continue;
+                }
+                let (lat, lng, id) = (
+                    a[0].as_f64().unwrap(),
+                    a[1].as_f64().unwrap(),
+                    a[2].as_str().unwrap(),
+                );
+                let e84: Vec<f64> = a[5]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|v| v.as_f64().unwrap())
+                    .collect();
+                let parts: Vec<&str> = id.split('_').collect();
+                let (tile, date) = (parts[1], parts[2]);
+                let day = format!("{}-{}-{}", &date[..4], &date[4..6], &date[6..8]);
+                let items = emem_fetch::stac::search_many_at(
+                    &cli,
+                    emem_fetch::stac::STAC_MPC_V1,
+                    "sentinel-2-l2a",
+                    lng,
+                    lat,
+                    &format!("{day}T00:00:00Z/{day}T23:59:59Z"),
+                    None,
+                    10,
+                )
+                .await
+                .unwrap();
+                let Some(it) = items
+                    .into_iter()
+                    .find(|i| i.id.contains(&format!("_T{tile}_")))
+                else {
+                    continue;
+                };
+                let it = s2_sign_mpc_items(&cli, vec![it])
+                    .await
+                    .unwrap()
+                    .pop()
+                    .unwrap();
+                let off = s2_dn_offset(emem_fetch::stac::STAC_MPC_V1, &it).unwrap();
+                let utm =
+                    emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, it.epsg.unwrap()).unwrap();
+                let mut mpc = Vec::new();
+                for alias in [["nir", "B08"], ["red", "B04"]] {
+                    let url = alias.iter().find_map(|k| it.assets.get(*k)).unwrap();
+                    let prof = emem_fetch::cog::open_profile(&cli, url)
+                        .await
+                        .unwrap_or_else(|e| panic!("open {}: {e}", s2_url_for_record(url)));
+                    mpc.push(
+                        emem_fetch::cog::sample_pixel(&cli, url, &prof, utm.easting, utm.northing)
+                            .await
+                            .unwrap_or_else(|e| panic!("sample {}: {e}", s2_url_for_record(url))),
+                    );
+                }
+                let ndvi = |n: f64, r: f64| (n - r) / (n + r);
+                let e = ndvi(e84[0] * 1e-4, e84[1] * 1e-4);
+                let m = ndvi((mpc[0] + off) * 1e-4, (mpc[1] + off) * 1e-4);
+                eprintln!("{id} -> {} baseline {:?}: e84 dn {e84:?} mpc dn {mpc:?} offset {off}; ndvi e84 {e:.5} mpc {m:.5}", it.id, it.processing_baseline);
+                // Baseline 05.11 scenes have one processing run, so both catalogues
+                // serve the same product and the offset must reproduce Element84's
+                // DNs exactly. Older scenes exist in several runs (ESA's Collection-1
+                // reprocessing), and the two catalogues may hold different ones.
+                let same_run = it.processing_baseline.as_deref() >= Some("05.11");
+                if same_run {
+                    assert_eq!([mpc[0] + off, mpc[1] + off], [e84[0], e84[1]], "{id}");
+                    exact += 1;
+                } else {
+                    worst_ndvi = worst_ndvi.max((e - m).abs());
+                }
+                compared += 1;
+            }
+        }
+        assert!(compared >= 3, "compared only {compared} facts");
+        assert!(exact >= 1, "no same-run scene to check the offset exactly");
+        // Measured 2026-09-24, one-off: 0.010 worst over the older-baseline scenes.
         assert!(
-            s2_guard_harmonised_dn("https://stac.example.invalid/v1/search").is_err(),
-            "an unrecognised catalogue is not assumed harmonised"
+            worst_ndvi < 0.02,
+            "reprocessed scenes differ by {worst_ndvi} NDVI"
+        );
+    }
+
+    #[test]
+    fn catalogues_default_to_planetary_computer_then_element84() {
+        assert_eq!(
+            s2_catalogues(),
+            vec![
+                emem_fetch::stac::STAC_MPC_V1,
+                emem_fetch::stac::STAC_ELEMENT84_V1
+            ]
+        );
+        assert_eq!(
+            s2_url_for_record("https://x.blob.core.windows.net/a/B04.tif?st=1&se=2&sig=abc"),
+            "https://x.blob.core.windows.net/a/B04.tif"
         );
     }
 }

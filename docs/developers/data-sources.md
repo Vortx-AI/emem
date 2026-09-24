@@ -100,7 +100,7 @@ right now without grepping this document.
 | inline `marine`       | api-rest:11917| Open-Meteo marine API     | JSON REST                                         | `marine.*` wave/SST scalars                                                     | CC-BY-4.0                        |
 | inline `soilgrids`    | api-rest:14490| ISRIC SoilGrids 2.0       | JSON REST (one call per property)                 | `soilgrids.{soc, phh2o, clay, sand, bdod, nitrogen}_0_30cm`                      | CC-BY-4.0                        |
 | inline `viirs.fire.nrt` | api-rest:14278| NASA FIRMS (delegates to firms.rs) | bulk CSV via `firms.rs`                  | `firms.active_fires`                                                            | Public domain (NASA)             |
-| inline `s2`           | api-rest:12880| Element84 STAC + COG      | STAC search ≤40 % cloud, ≤30 d lookback, then `cog.rs` | `s2.B01..B12`, `s2.B8A`, `s2.scl`, `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | Copernicus open data             |
+| inline `s2`           | api-rest:12880| MPC, then Element84 STAC + COG | STAC search ≤40 % cloud, ≤30 d lookback, then `cog.rs` | `s2.B01..B12`, `s2.B8A`, `s2.scl`, `indices.{ndvi,ndwi,mndwi,evi,nbr,ndmi,savi,bsi,ndbi}` | Copernicus open data             |
 | inline `s1`           | api-rest:13219| MS PC STAC + COG          | STAC + SAS asset, dB conversion `10·log10(VV)`    | `sentinel1_raw` (VV slot)                                                       | Copernicus open data             |
 | inline `geotessera`   | api-rest:10609| dl2.geotessera.org        | HTTP range on .npy (~640 B/cell)                  | `geotessera`, `geotessera.{2017..2024}`, `geotessera.multi_year`, `geotessera.bin128` | Apache-2.0                       |
 | inline `cop_dem`      | api-rest:10091| Open-Meteo elevation      | JSON REST (Cop-DEM 90 m wrap)                     | `copdem30m.elevation_mean` (Primary on land, Absence over water)                | Public domain (Open-Meteo)       |
@@ -330,6 +330,15 @@ Two anonymous catalogs:
   catalog with proper UTM-projected COG tiles). Asset URLs are Azure Blob
   URLs that need a free anonymous SAS token; the connector caches the token
   for 50 min.
+
+Sentinel-2 reads Planetary Computer first and Element84 when it fails
+(`EMEM_S2_CATALOGUES`). The two serve different DNs for the same scene:
+Element84 has removed ESA's `BOA_ADD_OFFSET`, Planetary Computer has not, so
+reflectance is `(DN + offset) * 1e-4` with offset 0 for Element84 and -1000
+for Planetary Computer scenes from processing baseline 04.00. A scene that
+states no baseline is refused. Each fact's `derivation.args` ends with the
+catalogue and the offset. Planetary Computer's COGs pack 15-bit samples,
+which `cog.rs` reads.
 
 The connector uses **`intersects: Point`**, not `bbox`. A bbox query can
 match neighbouring tiles in MGRS overlap zones — a Point is unambiguous.
