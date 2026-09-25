@@ -74277,7 +74277,12 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             // and fall through to the importance gate. Passing a hardcoded 1.0
             // through the `via == "cache"` arm is what promoted every cached
             // row to high confidence regardless of what it was.
-            let (is_high_conf_else, reason_else) = match &cache_verdict {
+            // Two exceptions to the replay: the decision stage found the name
+            // ambiguous, or it replaced the answer, so the row's verdict is
+            // about the namesake it no longer serves.
+            let replayed = cache_verdict.as_ref().filter(|_| via != "wikidata");
+            let (is_high_conf_else, reason_else) = match replayed {
+                _ if disambiguation_required => (false, "ambiguous_top_two_candidates"),
                 Some((hc, reason)) => (*hc, reason.as_str()),
                 // Reached by the tiers that carry no verdict because they need
                 // none: direct lat/lng, the embedded gazetteer, and the admin
@@ -76537,8 +76542,8 @@ impl GeocodeDecision {
 /// says the name means, on one scale ([`emem_fetch::wikidata::Candidate::score`]).
 ///
 /// The cascade's answer is matched to its Wikidata item: the candidate
-/// within 25 km of its point, else one inside its box (a country's centroid
-/// and Wikidata's coordinate for it can be far apart). The same item: agreed. A namesake: the more prominent
+/// within 25 km of its point, else the one inside its box nearest the point
+/// (a country's centroid and Wikidata's coordinate for it can be far apart). The same item: agreed. A namesake: the more prominent
 /// wins by a margin of 0.3 (about twice the pages), otherwise the name is
 /// ambiguous and flagged. No item near the cascade's answer: Wikidata's best
 /// replaces it only on an exact name with real prominence (score >= 2).
@@ -76603,15 +76608,18 @@ fn decide_geocode(
         haversine_km(a.lat, a.lng, la, lo) < 25.0
     };
     let runner_up = cands.iter().find(|c| !near(c, best.lat, best.lng)).cloned();
-    // By point before by box: a region's own item sits at its centroid,
-    // while the namesake city it contains only sits inside its box.
+    // By point before by box, and in the box the item nearest the point: a
+    // region's own item sits near its centroid, the namesake city it
+    // contains only somewhere inside it.
+    let from_point = |c: &&emem_fetch::wikidata::Candidate| haversine_km(c.lat, c.lng, lat, lng);
     let cascade_item = cands
         .iter()
         .find(|c| near(c, lat, lng))
         .or_else(|| {
             cands
                 .iter()
-                .find(|c| bbox.is_some_and(|b| point_fits_bbox(c.lat, c.lng, b)))
+                .filter(|c| bbox.is_some_and(|b| point_fits_bbox(c.lat, c.lng, b)))
+                .min_by(|a, b| from_point(a).total_cmp(&from_point(b)))
         })
         .cloned();
     let far_rival = runner_up
@@ -87795,7 +87803,7 @@ mod tests {
             c("Q174", -23.55, -46.63, 256),
             c("Q175", -22.07, -48.43, 134),
         ];
-        let d = decide_geocode(&sp, -22.1, -48.5, Some((-25.3, -19.8, -53.1, -44.2))).unwrap();
+        let d = decide_geocode(&sp, -22.33, -48.36, Some((-25.5, -19.8, -53.1, -44.2))).unwrap();
         assert_eq!(d.cascade_item.map(|x| x.qid).as_deref(), Some("Q175"));
         assert!(d.replace_with.is_none() && d.ambiguous);
         // Two Portlands, comparably described: kept, and flagged.
