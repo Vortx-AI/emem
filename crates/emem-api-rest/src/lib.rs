@@ -76536,9 +76536,9 @@ impl GeocodeDecision {
 /// Decide between the cascade's answer (`lat`, `lng`) and what Wikidata
 /// says the name means, on one scale ([`emem_fetch::wikidata::Candidate::score`]).
 ///
-/// The cascade's answer is matched to its Wikidata item (the candidate
-/// within 25 km of its point, or inside its box: a country's centroid and
-/// its capital-city coordinate are one answer). The same item: agreed. A namesake: the more prominent
+/// The cascade's answer is matched to its Wikidata item: the candidate
+/// within 25 km of its point, else one inside its box (a country's centroid
+/// and Wikidata's coordinate for it can be far apart). The same item: agreed. A namesake: the more prominent
 /// wins by a margin of 0.3 (about twice the pages), otherwise the name is
 /// ambiguous and flagged. No item near the cascade's answer: Wikidata's best
 /// replaces it only on an exact name with real prominence (score >= 2).
@@ -76603,26 +76603,34 @@ fn decide_geocode(
         haversine_km(a.lat, a.lng, la, lo) < 25.0
     };
     let runner_up = cands.iter().find(|c| !near(c, best.lat, best.lng)).cloned();
-    let is_cascade = |c: &emem_fetch::wikidata::Candidate| {
-        near(c, lat, lng) || bbox.is_some_and(|b| point_fits_bbox(c.lat, c.lng, b))
-    };
-    let cascade_item = cands.iter().find(|c| is_cascade(c)).cloned();
+    // By point before by box: a region's own item sits at its centroid,
+    // while the namesake city it contains only sits inside its box.
+    let cascade_item = cands
+        .iter()
+        .find(|c| near(c, lat, lng))
+        .or_else(|| {
+            cands
+                .iter()
+                .find(|c| bbox.is_some_and(|b| point_fits_bbox(c.lat, c.lng, b)))
+        })
+        .cloned();
     let far_rival = runner_up
         .as_ref()
         .is_some_and(|r| r.exact && best.exact && best.score() - r.score() < MARGIN);
-    let (replace_with, ambiguous, rule) = if is_cascade(&best) {
-        (None, far_rival, "agreed")
-    } else if let Some(ci) = &cascade_item {
-        if best.score() - ci.score() >= MARGIN {
-            (Some(best.clone()), false, "namesake_less_prominent")
+    let (replace_with, ambiguous, rule) =
+        if cascade_item.as_ref().is_some_and(|c| c.qid == best.qid) {
+            (None, far_rival, "agreed")
+        } else if let Some(ci) = &cascade_item {
+            if best.score() - ci.score() >= MARGIN {
+                (Some(best.clone()), false, "namesake_less_prominent")
+            } else {
+                (None, true, "namesakes_within_margin")
+            }
+        } else if best.exact && best.score() >= 2.0 {
+            (Some(best.clone()), far_rival, "cascade_unknown_to_wikidata")
         } else {
-            (None, true, "namesakes_within_margin")
-        }
-    } else if best.exact && best.score() >= 2.0 {
-        (Some(best.clone()), far_rival, "cascade_unknown_to_wikidata")
-    } else {
-        (None, false, "evidence_too_weak")
-    };
+            (None, false, "evidence_too_weak")
+        };
     Some(GeocodeDecision {
         best,
         runner_up,
@@ -87781,6 +87789,15 @@ mod tests {
         let fr = [c("Q142", 46.0, 2.0, 400)];
         let d = decide_geocode(&fr, 46.6, 2.5, Some((41.3, 51.1, -5.1, 9.6))).unwrap();
         assert_eq!(d.rule, "agreed");
+        // The São Paulo state's centroid is its own item, not the city in
+        // its box; the city leads by less than the margin, so: flagged.
+        let sp = [
+            c("Q174", -23.55, -46.63, 256),
+            c("Q175", -22.07, -48.43, 134),
+        ];
+        let d = decide_geocode(&sp, -22.1, -48.5, Some((-25.3, -19.8, -53.1, -44.2))).unwrap();
+        assert_eq!(d.cascade_item.map(|x| x.qid).as_deref(), Some("Q175"));
+        assert!(d.replace_with.is_none() && d.ambiguous);
         // Two Portlands, comparably described: kept, and flagged.
         let pdx = [
             c("Q6106", 45.52, -122.68, 150),
