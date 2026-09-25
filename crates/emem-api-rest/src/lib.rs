@@ -73973,6 +73973,19 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 format!("{} ({})", c.label, c.description)
             });
             via = "wikidata";
+            // The cascade's candidates describe the namesake; the chosen
+            // item leads them so `selected` names what `centre` points at.
+            alternatives.insert(
+                0,
+                json!({
+                    "cell64": emem_codec::to_cell64(emem_codec::cell_from_latlng(c.lat, c.lng)),
+                    "lat": c.lat,
+                    "lng": c.lng,
+                    "label": c.label,
+                    "wikidata": c.qid,
+                    "source": "wikidata",
+                }),
+            );
             polygon_bbox = None;
             polygon_geojson = None;
             polygon_source = None;
@@ -74155,7 +74168,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .as_deref()
         .map(detect_query_feature_class)
         .unwrap_or(QueryFeatureClass::Unknown);
+    // A Wikidata item carries no OSM class to compare, and the decision
+    // chose it by name, not by tag.
     let class_mismatch = query_class != QueryFeatureClass::Unknown
+        && via != "wikidata"
         && !query_class.matches_osm(&sel_class, &sel_type);
     let sel_label = alternatives
         .first()
@@ -74183,7 +74199,9 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // only point where the verdict is real; a later read has no way to
     // reconstruct it. Skipped when the answer came from the cache, which would
     // just rewrite the value it replayed.
-    if via != "cache" {
+    // Nor when the decision replaced the answer: the row holds the
+    // cascade's namesake, and the verdict is about another place.
+    if via != "cache" && via != "wikidata" {
         if let Some(q) = req.place.as_deref() {
             nominatim_cache_note_verdict(q, is_high_conf, confidence_reason);
         }
@@ -74662,6 +74680,7 @@ fn locate_confidence(
         // and an unknown provenance is not a high-confidence one.
         "cache" => (false, "ttl_cache_hit_unknown_provenance"),
         "overture_admin_fallback" => (true, "overture_division_match"),
+        "wikidata" => (true, "wikidata_prominence_decision"),
         "photon" | "nominatim" => {
             if importance >= 0.5 {
                 (true, "geocoder_high_importance")
