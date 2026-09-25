@@ -73954,6 +73954,36 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             })));
         }
     };
+    // Decision stage: the cascade's answer against Wikidata's evidence of
+    // which place the name means (see `geocode_decision`).
+    let (mut lat, mut lng, mut label) = (lat, lng, label);
+    let decision = match req.place.as_deref() {
+        Some(p) if via != "direct" && !p.contains(',') => {
+            geocode_decision(p, lat, lng, polygon_bbox).await
+        }
+        _ => None,
+    };
+    if let Some(d) = &decision {
+        if let Some(c) = &d.replace_with {
+            lat = c.lat;
+            lng = c.lng;
+            label = Some(if c.description.is_empty() {
+                c.label.clone()
+            } else {
+                format!("{} ({})", c.label, c.description)
+            });
+            via = "wikidata";
+            polygon_bbox = None;
+            polygon_geojson = None;
+            polygon_source = None;
+            overture_division_id = None;
+            overture_subtype = None;
+            overture_country = None;
+        }
+        if d.ambiguous {
+            disambiguation_required = true;
+        }
+    }
     let cell = emem_codec::cell_from_latlng(lat, lng);
     let cell_str = emem_codec::to_cell64(cell);
     let center = emem_codec::latlng_from_cell64(&cell_str).ok();
@@ -74011,6 +74041,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         "lng_input": lng,
         "place_label": label,
         "via": via,
+        "decision": decision.as_ref().map(|d| d.to_json()),
         "centre": center.as_ref().map(|c| json!({"lat_deg": c.lat_deg, "lng_deg": c.lng_deg})),
         "bbox_deg": center.as_ref().map(|c| json!({
             "min_lat": c.bbox_deg.min_lat, "max_lat": c.bbox_deg.max_lat,
@@ -76447,6 +76478,140 @@ fn geojson_bbox(g: &JsonValue) -> Option<(f64, f64, f64, f64)> {
     let mut b = None;
     walk(g.get("coordinates")?, &mut b);
     b
+}
+
+/// What the decision stage concluded about a place name.
+struct GeocodeDecision {
+    best: emem_fetch::wikidata::Candidate,
+    runner_up: Option<emem_fetch::wikidata::Candidate>,
+    /// The Wikidata item that is the cascade's answer (within 25 km of it).
+    cascade_item: Option<emem_fetch::wikidata::Candidate>,
+    replace_with: Option<emem_fetch::wikidata::Candidate>,
+    ambiguous: bool,
+    rule: &'static str,
+}
+
+impl GeocodeDecision {
+    fn to_json(&self) -> JsonValue {
+        let c = |x: &emem_fetch::wikidata::Candidate| {
+            json!({
+                "wikidata": x.qid, "label": x.label, "description": x.description,
+                "lat": x.lat, "lng": x.lng, "sitelinks": x.sitelinks,
+                "exact_name": x.exact, "score": (x.score() * 1000.0).round() / 1000.0,
+            })
+        };
+        json!({
+            "evidence": "wikidata sitelinks (prominence) + exact name match",
+            "score": "log10(sitelinks + 1) + 1 if the name matches exactly",
+            "rule": self.rule,
+            "chosen": c(self.replace_with.as_ref().or(self.cascade_item.as_ref()).unwrap_or(&self.best)),
+            "best_by_evidence": c(&self.best),
+            "runner_up": self.runner_up.as_ref().map(c),
+            "cascade_item": self.cascade_item.as_ref().map(c),
+            "replaced_cascade": self.replace_with.is_some(),
+            "ambiguous": self.ambiguous,
+        })
+    }
+}
+
+/// Decide between the cascade's answer (`lat`, `lng`) and what Wikidata
+/// says the name means, on one scale ([`emem_fetch::wikidata::Candidate::score`]).
+///
+/// The cascade's answer is matched to its Wikidata item (the candidate
+/// within 25 km of its point, or inside its box: a country's centroid and
+/// its capital-city coordinate are one answer). The same item: agreed. A namesake: the more prominent
+/// wins by a margin of 0.3 (about twice the pages), otherwise the name is
+/// ambiguous and flagged. No item near the cascade's answer: Wikidata's best
+/// replaces it only on an exact name with real prominence (score >= 2).
+/// Two strong, far-apart namesakes within the margin (Springfield) are
+/// flagged either way. Deterministic: every answer cites the QIDs it chose
+/// between.
+async fn geocode_decision(
+    place: &str,
+    lat: f64,
+    lng: f64,
+    bbox: Option<(f64, f64, f64, f64)>,
+) -> Option<GeocodeDecision> {
+    type Memo = std::sync::Mutex<
+        std::collections::HashMap<
+            String,
+            (std::time::Instant, Vec<emem_fetch::wikidata::Candidate>),
+        >,
+    >;
+    static MEMO: std::sync::OnceLock<Memo> = std::sync::OnceLock::new();
+    let key = place.trim().to_lowercase();
+    let cached = MEMO
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&key)
+        .filter(|(at, _)| at.elapsed() < std::time::Duration::from_secs(86_400))
+        .map(|(_, c)| c.clone());
+    let cands = match cached {
+        Some(c) => c,
+        None => {
+            let c = tokio::time::timeout(
+                std::time::Duration::from_secs(4),
+                emem_fetch::wikidata::candidates(&reqwest_client(), place),
+            )
+            .await
+            .ok()?
+            .ok()?;
+            let mut m = MEMO
+                .get_or_init(Default::default)
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if m.len() > 8192 {
+                m.clear();
+            }
+            m.insert(key, (std::time::Instant::now(), c.clone()));
+            c
+        }
+    };
+    decide_geocode(&cands, lat, lng, bbox)
+}
+
+/// The rule of [`geocode_decision`], over candidates already fetched.
+fn decide_geocode(
+    cands: &[emem_fetch::wikidata::Candidate],
+    lat: f64,
+    lng: f64,
+    bbox: Option<(f64, f64, f64, f64)>,
+) -> Option<GeocodeDecision> {
+    const MARGIN: f64 = 0.3;
+    let best = cands.first()?.clone();
+    let near = |a: &emem_fetch::wikidata::Candidate, la: f64, lo: f64| {
+        haversine_km(a.lat, a.lng, la, lo) < 25.0
+    };
+    let runner_up = cands.iter().find(|c| !near(c, best.lat, best.lng)).cloned();
+    let is_cascade = |c: &emem_fetch::wikidata::Candidate| {
+        near(c, lat, lng) || bbox.is_some_and(|b| point_fits_bbox(c.lat, c.lng, b))
+    };
+    let cascade_item = cands.iter().find(|c| is_cascade(c)).cloned();
+    let far_rival = runner_up
+        .as_ref()
+        .is_some_and(|r| r.exact && best.exact && best.score() - r.score() < MARGIN);
+    let (replace_with, ambiguous, rule) = if is_cascade(&best) {
+        (None, far_rival, "agreed")
+    } else if let Some(ci) = &cascade_item {
+        if best.score() - ci.score() >= MARGIN {
+            (Some(best.clone()), false, "namesake_less_prominent")
+        } else {
+            (None, true, "namesakes_within_margin")
+        }
+    } else if best.exact && best.score() >= 2.0 {
+        (Some(best.clone()), far_rival, "cascade_unknown_to_wikidata")
+    } else {
+        (None, false, "evidence_too_weak")
+    };
+    Some(GeocodeDecision {
+        best,
+        runner_up,
+        cascade_item,
+        replace_with,
+        ambiguous,
+        rule,
+    })
 }
 
 /// Does the point belong to the box, allowing a margin of the box's own
@@ -87568,6 +87733,42 @@ mod tests {
         let g = json!({"type": "Polygon", "coordinates": [[[138.6, 35.2], [138.9, 35.2], [138.9, 35.5], [138.6, 35.2]]]});
         assert_eq!(geojson_bbox(&g), Some((35.2, 35.5, 138.6, 138.9)));
         assert_eq!(geojson_bbox(&json!({"type": "Point"})), None);
+    }
+
+    /// Coordinates and sitelink counts as Wikidata served them 2026-09-25.
+    #[test]
+    fn the_more_described_namesake_wins_and_close_ones_are_flagged() {
+        let c = |qid: &str, lat: f64, lng: f64, sitelinks: u32| emem_fetch::wikidata::Candidate {
+            qid: qid.into(),
+            label: qid.into(),
+            description: String::new(),
+            lat,
+            lng,
+            sitelinks,
+            exact: true,
+        };
+        // The cascade answered Central Park, Washington (Q1054174).
+        let park = [
+            c("Q160409", 40.78, -73.97, 90),
+            c("Q1054174", 46.97, -123.69, 9),
+        ];
+        let d = decide_geocode(&park, 46.97, -123.69, None).unwrap();
+        assert_eq!(d.replace_with.map(|x| x.qid).as_deref(), Some("Q160409"));
+        assert_eq!(d.rule, "namesake_less_prominent");
+        // It answered the park: agreed, and nothing close enough to flag.
+        let d = decide_geocode(&park, 40.78, -73.97, None).unwrap();
+        assert!(d.replace_with.is_none() && !d.ambiguous);
+        // France's centroid is not Paris, but its box holds Wikidata's point.
+        let fr = [c("Q142", 46.0, 2.0, 400)];
+        let d = decide_geocode(&fr, 46.6, 2.5, Some((41.3, 51.1, -5.1, 9.6))).unwrap();
+        assert_eq!(d.rule, "agreed");
+        // Two Portlands, comparably described: kept, and flagged.
+        let pdx = [
+            c("Q6106", 45.52, -122.68, 150),
+            c("Q49201", 43.66, -70.26, 110),
+        ];
+        let d = decide_geocode(&pdx, 43.66, -70.26, None).unwrap();
+        assert!(d.replace_with.is_none() && d.ambiguous);
     }
 
     #[test]

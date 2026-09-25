@@ -54,6 +54,7 @@ pub mod stac;
 pub mod template;
 pub mod terraclimate;
 pub mod wdpa;
+pub mod wikidata;
 pub mod worldpop;
 pub mod wri_gdm_drivers;
 
