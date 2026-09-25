@@ -2390,7 +2390,7 @@ async fn agent_access_log_layer(
         .to_string();
     let ip_h = hashed_ip(&req);
 
-    let resp = next.run(req).await;
+    let resp = REQUESTER.scope(ip_h.clone(), next.run(req)).await;
 
     let dur_ms = started.elapsed().as_secs_f64() * 1000.0;
     let status = resp.status().as_u16();
@@ -15242,7 +15242,7 @@ async fn boring_recall_aggregated(
     let cold_cells_skipped = cold.len().saturating_sub(cold_cap);
     let to_materialize: Vec<String> = cold.into_iter().take(cold_cap).collect();
     let mut p2: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
-    let area = s2_area_for_cells(&to_materialize);
+    let area = ColdCtx::capture(&to_materialize);
     for cell in &to_materialize {
         let req = RecallReq {
             cell: cell.clone(),
@@ -15252,8 +15252,9 @@ async fn boring_recall_aggregated(
         };
         let cell = cell.clone();
         let s = state.clone();
+        let area = area.clone();
         p2.spawn(async move {
-            let r = in_s2_area(area, recall_with_auto_materialize(&req, &s)).await;
+            let r = area.scope(recall_with_auto_materialize(&req, &s)).await;
             (cell, r)
         });
     }
@@ -16714,13 +16715,14 @@ async fn post_recall_many(
         Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallManyOut> = tokio::task::JoinSet::new();
-    let area = s2_area_for_cells(&req.cells);
+    let area = ColdCtx::capture(&req.cells);
     for (idx, cell) in req.cells.iter().enumerate() {
         let cell = cell.clone();
         let bands = req.bands.clone();
         let tslot = req.tslot;
         let s_clone = s.clone();
         let sema = sema.clone();
+        let area = area.clone();
         recall_set.spawn(async move {
             let _permit = sema.acquire().await.ok();
             let r = RecallReq {
@@ -16732,7 +16734,7 @@ async fn post_recall_many(
             // Auto-materialize cold cells to honour the contract; drop the
             // per-band notes (the per-cell signed receipt under
             // by_cell.<cell>.receipt is the citation surface for a bulk call).
-            let out = in_s2_area(area, recall_with_auto_materialize(&r, &s_clone)).await;
+            let out = area.scope(recall_with_auto_materialize(&r, &s_clone)).await;
             (idx, cell, out)
         });
     }
@@ -17952,7 +17954,7 @@ async fn post_recall_polygon(
         Result<(emem_primitives::recall::RecallResp, Vec<JsonValue>), ApiError>,
     );
     let mut recall_set: tokio::task::JoinSet<RecallOut> = tokio::task::JoinSet::new();
-    let area = s2_area_for_cells(&cells);
+    let area = ColdCtx::capture(&cells);
     for (idx, cell) in cells.iter().enumerate() {
         let cell_owned = cell.clone();
         let bands = req.bands.clone();
@@ -17962,6 +17964,7 @@ async fn post_recall_polygon(
         let scope = req.scope.clone();
         let s_clone = s.clone();
         let sema = sema.clone();
+        let area = area.clone();
         recall_set.spawn(async move {
             let _permit = sema.acquire().await.ok();
             let r = RecallReq {
@@ -17977,7 +17980,7 @@ async fn post_recall_polygon(
             (
                 idx,
                 cell_owned,
-                in_s2_area(area, recall_with_auto_materialize(&r, &s_clone)).await,
+                area.scope(recall_with_auto_materialize(&r, &s_clone)).await,
             )
         });
     }
@@ -50855,6 +50858,38 @@ fn s2_area_for_cells(cells: &[String]) -> Option<S2Area> {
     Some(S2Area { bbox: b, now_unix })
 }
 
+tokio::task_local! {
+    /// Who asked: the hashed client address the access layer logs. Read by
+    /// the cold-fetch ceiling to give each requester a bounded share.
+    static REQUESTER: String;
+}
+
+/// What a batch's cold work needs from its request, captured before its
+/// cells are spawned (task-locals do not cross `spawn`): the requester, for
+/// the ceiling's per-requester share, and the Sentinel-2 area.
+#[derive(Clone)]
+struct ColdCtx {
+    area: Option<S2Area>,
+    requester: Option<String>,
+}
+
+impl ColdCtx {
+    fn capture(cells: &[String]) -> Self {
+        Self {
+            area: s2_area_for_cells(cells),
+            requester: REQUESTER.try_with(|r| r.clone()).ok(),
+        }
+    }
+
+    async fn scope<F: std::future::Future>(self, fut: F) -> F::Output {
+        let fut = in_s2_area(self.area, fut);
+        match self.requester {
+            Some(r) => REQUESTER.scope(r, fut).await,
+            None => fut.await,
+        }
+    }
+}
+
 /// Run `fut` with the batch's area in scope, when there is one.
 async fn in_s2_area<F: std::future::Future>(area: Option<S2Area>, fut: F) -> F::Output {
     match area {
@@ -57731,32 +57766,52 @@ fn materialize_budget_per_min() -> u32 {
 /// be trivially defeated by the address rotation the request limiter already
 /// documents as a known limit.
 fn materialize_budget_take(n: usize) -> bool {
-    use std::sync::atomic::{AtomicU64, Ordering};
-    // Packed as (minute << 32 | spent) so the window roll and the spend are
-    // one atomic operation and two threads cannot straddle a reset.
-    static WINDOW: AtomicU64 = AtomicU64::new(0);
+    // One minute's ledger: the total, and what each requester spent. A
+    // requester may spend at most its share of the minute (by default half),
+    // so one caller fanning out polygons cannot starve every other caller of
+    // cold reads; when nobody else is asking, the share still bounds it,
+    // which is the point: the ceiling protects the upstreams and the log
+    // from any single source. Unattributed work shares one bucket.
+    struct Ledger {
+        minute: u64,
+        total: u64,
+        by: std::collections::HashMap<String, u64>,
+    }
+    static LEDGER: std::sync::LazyLock<std::sync::Mutex<Ledger>> = std::sync::LazyLock::new(|| {
+        std::sync::Mutex::new(Ledger {
+            minute: 0,
+            total: 0,
+            by: std::collections::HashMap::new(),
+        })
+    });
     let now_min = (now_unix_s() / 60).max(0) as u64;
     let cap = materialize_budget_per_min() as u64;
+    let share = ((cap as f64) * materialize_share()).ceil().max(1.0) as u64;
     let n = n.max(1) as u64;
-    loop {
-        let cur = WINDOW.load(Ordering::Relaxed);
-        let (min, spent) = (cur >> 32, cur & 0xffff_ffff);
-        let (min, spent) = if min == now_min {
-            (min, spent)
-        } else {
-            (now_min, 0)
-        };
-        if spent + n > cap {
-            return false;
-        }
-        let next = (min << 32) | (spent + n);
-        if WINDOW
-            .compare_exchange_weak(cur, next, Ordering::Relaxed, Ordering::Relaxed)
-            .is_ok()
-        {
-            return true;
-        }
+    let who = REQUESTER.try_with(|r| r.clone()).unwrap_or_default();
+    let mut l = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
+    if l.minute != now_min {
+        l.minute = now_min;
+        l.total = 0;
+        l.by.clear();
     }
+    let mine = l.by.get(&who).copied().unwrap_or(0);
+    if l.total + n > cap || mine + n > share {
+        return false;
+    }
+    l.total += n;
+    l.by.insert(who, mine + n);
+    true
+}
+
+/// The fraction of the per-minute cold-fetch ceiling one requester may
+/// spend (`EMEM_MATERIALIZE_SHARE`, 0 < share <= 1, default 0.5).
+fn materialize_share() -> f64 {
+    std::env::var("EMEM_MATERIALIZE_SHARE")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|v| *v > 0.0 && *v <= 1.0)
+        .unwrap_or(0.5)
 }
 
 async fn try_materialize_bands(
@@ -87352,6 +87407,27 @@ mod tests {
                 other => panic!("fact {i} missing: {other:?}"),
             }
         }
+    }
+
+    /// One requester is stopped at its share of the minute; another still
+    /// gets cold reads.
+    #[tokio::test]
+    async fn one_requester_cannot_spend_the_whole_ceiling() {
+        let share = ((materialize_budget_per_min() as f64) * materialize_share()).ceil() as usize;
+        let taken = REQUESTER
+            .scope("share-test-a".to_string(), async {
+                (0..share + 5)
+                    .take_while(|_| materialize_budget_take(1))
+                    .count()
+            })
+            .await;
+        assert!(taken <= share, "took {taken} of a {share} share");
+        let other = REQUESTER
+            .scope("share-test-b".to_string(), async {
+                materialize_budget_take(1)
+            })
+            .await;
+        assert!(other, "a second requester must still be served");
     }
 
     #[test]
