@@ -12330,10 +12330,27 @@ fn answered_bands<'a>(
 ) -> std::collections::HashSet<&'a str> {
     let recheck = absence_recheck_secs();
     let fresh_after = iso8601_utc(now_unix_s().saturating_sub(recheck as i64).max(0) as u64);
+    // The newest observation per band is the one that answers "the latest".
+    let mut newest: std::collections::HashMap<&str, &emem_fact::PrimaryFact> = Default::default();
+    for f in &resp.facts {
+        if let emem_fact::Fact::Primary(p) = f {
+            let e = newest.entry(p.band.as_str()).or_insert(p);
+            if p.tslot > e.tslot {
+                *e = p;
+            }
+        }
+    }
     resp.facts
         .iter()
         .filter_map(|f| match f {
-            emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+            emem_fact::Fact::Primary(p)
+                if bound_is_set
+                    || newest
+                        .get(p.band.as_str())
+                        .is_some_and(|n| primary_answers_latest(n)) =>
+            {
+                Some(p.band.as_str())
+            }
             emem_fact::Fact::Absence(a)
                 if recheck > 0
                     && &a.signer == me
@@ -12350,6 +12367,48 @@ fn answered_bands<'a>(
             _ => None,
         })
         .collect()
+}
+
+/// Does this band's newest reading still answer "the latest"? Until one
+/// slot of the band's own tempo has passed since it was signed or last
+/// re-checked: after that a newer slot can exist (a day for Sentinel-2, an
+/// hour for hourly weather, a year for annual products; never for static).
+/// Before this, any stored reading answered forever, so a June NDVI stood
+/// as the newest while a clear September scene sat unasked upstream.
+fn primary_answers_latest(p: &emem_fact::PrimaryFact) -> bool {
+    let slot = band_tempo_for_key(&p.band).map_or(0, |t| t.slot_seconds() as i64);
+    let since = now_unix_s() - slot;
+    slot == 0
+        || p.signed_at.as_str() >= iso8601_utc(since.max(0) as u64).as_str()
+        || latest_checked(&p.cell, &p.band).is_some_and(|t| t >= since)
+}
+
+type CheckedMap = std::collections::HashMap<(String, String), i64>;
+
+fn latest_checked_map() -> &'static std::sync::Mutex<CheckedMap> {
+    static M: std::sync::OnceLock<std::sync::Mutex<CheckedMap>> = std::sync::OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+/// When this process last asked upstream for the newest `band` at `cell`
+/// and got an answer. A re-check that finds the same pass signs nothing
+/// new, so without this a cloudy place would re-ask on every recall.
+fn latest_checked(cell: &str, band: &str) -> Option<i64> {
+    latest_checked_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&(cell.to_string(), band.to_string()))
+        .copied()
+}
+
+fn note_latest_checked(cell: &str, band: &str) {
+    let mut m = latest_checked_map()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if m.len() > 262_144 {
+        m.clear();
+    }
+    m.insert((cell.to_string(), band.to_string()), now_unix_s());
 }
 
 fn cell_needs_materialize(
@@ -19387,82 +19446,172 @@ async fn post_backfill(
 /// operator said it matters instead of only where queries land.
 ///
 /// Off by default. `EMEM_WARM_INTERVAL_SECS` > 0 enables it; each pass
-/// re-reads `$EMEM_DATA/warm_priority.json` so the list is editable
-/// without a restart. The file is a JSON array of entries:
-/// `[{"cells": ["defi..."], "band": "indices.ndvi",
-///    "start_unix": 0, "end_unix": 0}]` (window fields optional).
-/// Every pass runs each entry through the preparer with a per-pass
-/// budget (`EMEM_WARM_BUDGET_MS`, default 30000), which is the honesty
-/// requirement the roadmap set: the warmer never pretends to be
-/// synchronous, it just takes another honest bite every interval, and
-/// convergence is the store filling up.
+/// re-reads `EMEM_WARM_PRIORITY` (default `$EMEM_DATA/warm_priority.json`)
+/// so the list is editable without a restart. The file is a JSON array of entries:
+/// `[{"cells": ["defi...", "Bengaluru", "12.97,77.59"],
+///    "bands": ["indices.ndvi", "s2.B04"],
+///    "start_unix": 0, "end_unix": 0}]`
+/// (`band` for one band; window fields optional; other keys are notes).
+///
+/// Without a window an entry is warmed with the call a visitor makes, a
+/// recall of the newest reading, so what is warmed is exactly what is
+/// read, every band of a cell shares one scene pick, and a stored reading
+/// is re-checked only once its band's slot has passed. With a window it
+/// runs the backfill preparer over it. Each entry gets
+/// `EMEM_WARM_BUDGET_MS` (default 30000): what does not finish detaches
+/// and persists, and the next pass converges.
+///
+/// The schedule survives restarts: the last pass is kept in
+/// `$EMEM_DATA/warm_state.json`, so a deploy neither skips a due pass nor
+/// repeats one. A due pass waits while the box is busy (IO pressure above
+/// `EMEM_WARM_MAX_IO_PRESSURE`, default 10 % stalled over the last
+/// minute), which is also what keeps it off a booting store. It spends
+/// under its own requester name, so it takes at most its share of the
+/// cold-fetch ceiling and a visitor keeps the rest.
 fn spawn_warm_priority_loop(s: AppState) {
     let interval_secs = std::env::var("EMEM_WARM_INTERVAL_SECS")
         .ok()
-        .and_then(|v| v.parse::<u64>().ok())
+        .and_then(|v| v.parse::<i64>().ok())
         .unwrap_or(0);
-    if interval_secs == 0 {
+    if interval_secs <= 0 {
         return;
-    }
-    #[derive(Debug, serde::Deserialize)]
-    struct WarmEntry {
-        cells: Vec<String>,
-        band: String,
-        #[serde(default)]
-        start_unix: Option<i64>,
-        #[serde(default)]
-        end_unix: Option<i64>,
     }
     let budget_ms = std::env::var("EMEM_WARM_BUDGET_MS")
         .ok()
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(30_000);
+    let max_pressure = std::env::var("EMEM_WARM_MAX_IO_PRESSURE")
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(10.0);
     tokio::spawn(async move {
+        let state_path = emem_core::data_dir::data_path("warm_state.json");
         loop {
-            // Sleep first: the warmer never competes with boot.
-            tokio::time::sleep(std::time::Duration::from_secs(interval_secs)).await;
-            let path = emem_core::data_dir::data_path("warm_priority.json");
-            let path = path.to_string_lossy().into_owned();
-            let bytes = match tokio::fs::read(&path).await {
-                Ok(b) => b,
-                Err(_) => continue, // no list declared; nothing to warm
-            };
-            let entries: Vec<WarmEntry> = match serde_json::from_slice(&bytes) {
-                Ok(e) => e,
-                Err(e) => {
-                    tracing::warn!(target: "emem::warm", error = %e, path = %path,
-                        "warm_priority.json does not parse; skipping this pass");
-                    continue;
-                }
-            };
-            for entry in entries {
+            let last = tokio::fs::read(&state_path)
+                .await
+                .ok()
+                .and_then(|b| serde_json::from_slice::<JsonValue>(&b).ok())
+                .and_then(|v| v.get("last_pass_unix").and_then(|t| t.as_i64()))
+                .unwrap_or(0);
+            let wait = last + interval_secs - now_unix_s();
+            if wait > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(wait as u64)).await;
+                continue;
+            }
+            // Busy: look again in a minute, the window the pressure is read over.
+            if io_pressure_avg60().is_some_and(|p| p > max_pressure) {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                continue;
+            }
+            let started = now_unix_s();
+            REQUESTER
+                .scope("warmer".to_string(), warm_pass(&s, budget_ms))
+                .await;
+            let stamp = json!({ "last_pass_unix": started, "took_s": now_unix_s() - started });
+            if let Err(e) = tokio::fs::write(&state_path, stamp.to_string()).await {
+                tracing::warn!(target: "emem::warm", error = %e,
+                    "warm_state.json not written; the next boot repeats this pass");
+            }
+        }
+    });
+}
+
+/// Share of the last minute some task was stalled on IO (`some avg60`
+/// in /proc/pressure/io), in percent. `None` where the kernel does not
+/// publish it, which lets the warmer run.
+fn io_pressure_avg60() -> Option<f64> {
+    let text = std::fs::read_to_string("/proc/pressure/io").ok()?;
+    text.lines()
+        .find(|l| l.starts_with("some"))?
+        .split_whitespace()
+        .find_map(|kv| kv.strip_prefix("avg60="))?
+        .parse()
+        .ok()
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct WarmEntry {
+    cells: Vec<String>,
+    #[serde(default)]
+    band: Option<String>,
+    #[serde(default)]
+    bands: Vec<String>,
+    #[serde(default)]
+    start_unix: Option<i64>,
+    #[serde(default)]
+    end_unix: Option<i64>,
+}
+
+impl WarmEntry {
+    fn bands(&self) -> Vec<String> {
+        let mut b = self.bands.clone();
+        b.extend(self.band.clone());
+        b.sort_unstable();
+        b.dedup();
+        b
+    }
+}
+
+async fn warm_pass(s: &AppState, budget_ms: u64) {
+    let path = std::env::var_os("EMEM_WARM_PRIORITY")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| emem_core::data_dir::data_path("warm_priority.json"));
+    let Ok(bytes) = tokio::fs::read(&path).await else {
+        return; // no list declared; nothing to warm
+    };
+    let entries: Vec<WarmEntry> = match serde_json::from_slice(&bytes) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::warn!(target: "emem::warm", error = %e, path = %path.display(),
+                "warm_priority.json does not parse; skipping this pass");
+            return;
+        }
+    };
+    for entry in entries {
+        let bands = entry.bands();
+        if bands.is_empty() || entry.cells.is_empty() {
+            continue;
+        }
+        let windowed = entry.start_unix.is_some() || entry.end_unix.is_some();
+        let outcome = if windowed {
+            let mut last = Ok(JsonValue::Null);
+            for band in &bands {
                 let req = BackfillReq {
                     cell: String::new(),
                     cells: None,
-                    band: entry.band.clone(),
+                    band: band.clone(),
                     start_unix: entry.start_unix,
                     end_unix: entry.end_unix,
                     max_facts: None,
                     budget_ms: Some(budget_ms),
                     refresh: false,
                 };
-                match backfill_prepare(entry.cells, req, &s).await {
-                    Ok(v) => {
-                        tracing::info!(target: "emem::warm",
-                            band = %entry.band,
-                            converged = v.get("converged").and_then(|c| c.as_bool()).unwrap_or(false),
-                            ready = v.pointer("/progress/ready").and_then(|n| n.as_u64()).unwrap_or(0),
-                            pending = v.pointer("/progress/pending").and_then(|n| n.as_u64()).unwrap_or(0),
-                            "warm pass entry done");
-                    }
-                    Err(e) => {
-                        tracing::warn!(target: "emem::warm", band = %entry.band,
-                            error = %e.1.message, "warm pass entry failed");
-                    }
-                }
+                last = backfill_prepare(entry.cells.clone(), req, s).await;
             }
+            last
+        } else {
+            let req = RecallManyReq {
+                cells: entry.cells.clone(),
+                bands: Some(bands.clone()),
+                tslot: None,
+                budget_ms: Some(budget_ms),
+                compact: true,
+            };
+            post_recall_many(State(s.clone()), EmemJson(req))
+                .await
+                .map(|Json(v)| v)
+        };
+        match outcome {
+            Ok(v) => tracing::info!(target: "emem::warm",
+                bands = %bands.join(","),
+                cells = entry.cells.len(),
+                converged = v.get("converged").and_then(|c| c.as_bool()).unwrap_or(false),
+                pending = v.get("pending").and_then(|p| p.as_array()).map_or(0, |p| p.len()),
+                "warm pass entry done"),
+            Err(e) => tracing::warn!(target: "emem::warm", bands = %bands.join(","),
+                error = %e.1.message, "warm pass entry failed"),
         }
-    });
+    }
 }
 
 async fn backfill_prepare(
@@ -57828,6 +57977,23 @@ async fn try_materialize_bands(
     bound_tslot: Option<u64>,
     s: &AppState,
 ) -> Vec<MaterializeOutcome> {
+    let out = materialize_bands_once(cell64, bands, bound_tslot, s).await;
+    // Only an unbounded ask checks for the newest; an answer (a new fact, or
+    // the pass already held) is a check, an upstream failure is not.
+    if bound_tslot.is_none() {
+        for o in out.iter().filter(|o| o.fact_cid.is_some()) {
+            note_latest_checked(cell64, &o.band);
+        }
+    }
+    out
+}
+
+async fn materialize_bands_once(
+    cell64: &str,
+    bands: &[String],
+    bound_tslot: Option<u64>,
+    s: &AppState,
+) -> Vec<MaterializeOutcome> {
     if !auto_materialize_enabled() {
         return Vec::new();
     }
@@ -74183,7 +74349,14 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         .and_then(|a| a.get("alt_names"))
         .and_then(|l| l.as_str())
         .unwrap_or("");
-    let (is_high_conf, confidence_reason) = locate_confidence_checked(
+    // Wikidata's best exact item for the name is the item the cascade
+    // answered: two independent sources on one place. That settles fit,
+    // which the label checks can only estimate (a Japanese label for Mount
+    // Fuji shares no word with the question and is still right).
+    let decision_confirms = decision
+        .as_ref()
+        .is_some_and(|d| d.rule == "agreed" && d.best.exact && !d.ambiguous);
+    let (is_high_conf, confidence_reason) = match locate_confidence_checked(
         via,
         sel_imp,
         class_mismatch,
@@ -74193,7 +74366,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         sel_label,
         sel_alt_names,
         &sel_class,
-    );
+    ) {
+        (false, _) if decision_confirms && !class_mismatch => (true, "wikidata_confirms_answer"),
+        v => v,
+    };
     // Record it onto the cached row while the evidence still exists. This is
     // the only point where the candidate list has been walked, so it is the
     // only point where the verdict is real; a later read has no way to
@@ -74283,6 +74459,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             let replayed = cache_verdict.as_ref().filter(|_| via != "wikidata");
             let (is_high_conf_else, reason_else) = match replayed {
                 _ if disambiguation_required => (false, "ambiguous_top_two_candidates"),
+                _ if decision_confirms && !mismatch_text => (true, "wikidata_confirms_answer"),
                 Some((hc, reason)) => (*hc, reason.as_str()),
                 // Reached by the tiers that carry no verdict because they need
                 // none: direct lat/lng, the embedded gazetteer, and the admin
@@ -87627,10 +87804,12 @@ mod tests {
                 privacy_class: "public".into(),
                 schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
                 signer: s.identity.pubkey,
-                signed_at: "2026-09-02T00:00:00Z".into(),
+                // Signed now: warm means within the band's slot, and a
+                // reading older than that is re-checked upstream.
+                signed_at: chrono_iso8601_utc(),
                 served_via: None,
             });
-            let cid = sign_and_persist(&s, fact, "2026-09-02T00:00:00Z")
+            let cid = sign_and_persist(&s, fact, &chrono_iso8601_utc())
                 .await
                 .expect("persist");
             want.push((v, cid.as_str().to_string()));
@@ -87768,6 +87947,21 @@ mod tests {
         let g = json!({"type": "Polygon", "coordinates": [[[138.6, 35.2], [138.9, 35.2], [138.9, 35.5], [138.6, 35.2]]]});
         assert_eq!(geojson_bbox(&g), Some((35.2, 35.5, 138.6, 138.9)));
         assert_eq!(geojson_bbox(&json!({"type": "Point"})), None);
+    }
+
+    /// The list production reads, parsed the way the warmer parses it.
+    #[test]
+    fn the_warm_list_names_bands_this_responder_knows() {
+        let entries: Vec<WarmEntry> =
+            serde_json::from_str(include_str!("../../../config/warm_priority.json")).unwrap();
+        assert!(!entries.is_empty());
+        for e in &entries {
+            assert!(!e.cells.is_empty() && e.cells.len() <= 256);
+            assert!(!e.bands().is_empty());
+            for b in e.bands() {
+                assert!(band_tempo_for_key(&b).is_some(), "unknown band {b}");
+            }
+        }
     }
 
     /// Coordinates and sitelink counts as Wikidata served them 2026-09-25.
