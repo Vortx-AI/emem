@@ -73591,7 +73591,30 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 };
 
                 let hits: Vec<NominatimHit> = match (&photon_result, &nominatim_result) {
-                    (Ok(h), _) if !h.is_empty() => h.clone(),
+                    (Ok(h), _) if !h.is_empty() => {
+                        // Photon orders by how well the name matches, not by
+                        // which place people mean: for "Mount Fuji" a Wisconsin
+                        // peak came first and Japan's fifth. When its
+                        // candidates lie far apart the name is ambiguous, and
+                        // Nominatim's top candidate (importance calibrated on
+                        // Wikipedia) decides which one comes first.
+                        let mut h = h.clone();
+                        if candidates_spread_km(&h) > 100.0 {
+                            if let Some(top) = nominatim_lookup_candidates(p, 1)
+                                .await
+                                .ok()
+                                .and_then(|v| v.into_iter().next())
+                            {
+                                match h.iter().position(|c| {
+                                    haversine_km(c.lat, c.lng, top.lat, top.lng) < 25.0
+                                }) {
+                                    Some(i) => h[..=i].rotate_right(1),
+                                    None => h.insert(0, top),
+                                }
+                            }
+                        }
+                        h
+                    }
                     (Ok(_empty), Some(Ok(n))) if !n.is_empty() => {
                         via = "nominatim";
                         n.clone()
@@ -73707,24 +73730,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // extent.
                 if hit.bbox.is_none() {
                     if let Some(bb) = nominatim_bbox_for(p).await {
+                        // Attached only when it bounds the hit: a box from a
+                        // different feature than the point describes nothing.
                         if point_fits_bbox(hit.lat, hit.lng, bb) {
                             hit.bbox = Some(bb);
-                        } else if let Some(n) = nominatim_lookup_candidates(p, 1)
-                            .await
-                            .ok()
-                            .and_then(|v| v.into_iter().next())
-                            .filter(|n| n.importance >= hit.importance)
-                        {
-                            // The two geocoders named different features
-                            // ("Mount Fuji": Photon a peak in Wisconsin,
-                            // Nominatim the one in Japan). A point from one
-                            // with a box from the other describes nothing,
-                            // so the answer comes whole from the feature both
-                            // rank by: the higher importance.
-                            tracing::info!(target: "emem::locate", locate_query = %p,
-                                photon = %hit.label, nominatim = %n.label,
-                                "geocoders disagreed; kept the higher-importance feature");
-                            hit = n;
                         }
                     }
                 }
@@ -73735,7 +73744,10 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // accurate masked sample.
                 if hit.polygon_geojson.is_none() {
                     if let Some(g) = nominatim_polygon_geojson_for(p).await {
-                        hit.polygon_geojson = Some(g);
+                        if geojson_bbox(&g).is_some_and(|bb| point_fits_bbox(hit.lat, hit.lng, bb))
+                        {
+                            hit.polygon_geojson = Some(g);
+                        }
                     }
                 }
                 // Bug 4: Overture-divisions admin fallback. If the user
@@ -75421,7 +75433,12 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     "Republic", so "Seoul, Republic of Korea" resolved to the Chinese
 ///     embassy at high confidence. An exonym belongs to a place, not to a
 ///     building in one. Those stored verdicts must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 14;
+/// 15: an ambiguous name (Photon's candidates spread over 100 km) is ranked
+///     by Nominatim's importance, and a box or polygon fetched by name is
+///     attached only when it bounds the chosen point. "Mount Fuji" resolved
+///     to a peak in Wisconsin with Japan's box beside it; generation-14 rows
+///     for such names must re-resolve.
+const LOCATE_RESOLVER_VERSION: u32 = 15;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -76351,6 +76368,37 @@ fn nominatim_user_agent() -> String {
 /// boundingbox field). Returns `(min_lat, max_lat, min_lng, max_lng)`
 /// when Nominatim returns at least one hit with a `boundingbox`; `None`
 /// otherwise. Errors fail soft, caller continues without enrichment.
+/// The widest distance between any two geocoder candidates, in km.
+fn candidates_spread_km(hits: &[NominatimHit]) -> f64 {
+    let mut m: f64 = 0.0;
+    for (i, a) in hits.iter().enumerate() {
+        for b in &hits[i + 1..] {
+            m = m.max(haversine_km(a.lat, a.lng, b.lat, b.lng));
+        }
+    }
+    m
+}
+
+/// (min_lat, max_lat, min_lng, max_lng) of every coordinate in a GeoJSON
+/// geometry, or None when it holds none.
+fn geojson_bbox(g: &JsonValue) -> Option<(f64, f64, f64, f64)> {
+    fn walk(v: &JsonValue, b: &mut Option<(f64, f64, f64, f64)>) {
+        match v.as_array() {
+            Some(a) if a.len() >= 2 && a[0].is_number() && a[1].is_number() => {
+                if let (Some(x), Some(y)) = (a[0].as_f64(), a[1].as_f64()) {
+                    let (s, n, w, e) = b.unwrap_or((y, y, x, x));
+                    *b = Some((s.min(y), n.max(y), w.min(x), e.max(x)));
+                }
+            }
+            Some(a) => a.iter().for_each(|x| walk(x, b)),
+            None => {}
+        }
+    }
+    let mut b = None;
+    walk(g.get("coordinates")?, &mut b);
+    b
+}
+
 /// Does the point belong to the box, allowing a margin of the box's own
 /// size (at least ~5 km)? A point far outside the box it is reported with
 /// means the two came from different features.
@@ -87463,6 +87511,13 @@ mod tests {
         assert!(l.take(1, "b", 4, 8, 4));
         assert!(!l.take(1, "c", 1, 8, 4), "total cap reached");
         assert!(l.take(2, "a", 1, 8, 4), "a new minute");
+    }
+
+    #[test]
+    fn a_polygon_box_and_a_spread_of_candidates() {
+        let g = json!({"type": "Polygon", "coordinates": [[[138.6, 35.2], [138.9, 35.2], [138.9, 35.5], [138.6, 35.2]]]});
+        assert_eq!(geojson_bbox(&g), Some((35.2, 35.5, 138.6, 138.9)));
+        assert_eq!(geojson_bbox(&json!({"type": "Point"})), None);
     }
 
     #[test]
