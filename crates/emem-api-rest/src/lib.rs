@@ -57765,43 +57765,51 @@ fn materialize_budget_per_min() -> u32 {
 /// are consumed identically no matter who asks. A per-IP budget would also
 /// be trivially defeated by the address rotation the request limiter already
 /// documents as a known limit.
-fn materialize_budget_take(n: usize) -> bool {
-    // One minute's ledger: the total, and what each requester spent. A
-    // requester may spend at most its share of the minute (by default half),
-    // so one caller fanning out polygons cannot starve every other caller of
-    // cold reads; when nobody else is asking, the share still bounds it,
-    // which is the point: the ceiling protects the upstreams and the log
-    // from any single source. Unattributed work shares one bucket.
-    struct Ledger {
-        minute: u64,
-        total: u64,
-        by: std::collections::HashMap<String, u64>,
+/// One minute's cold-fetch ledger: the total, and what each requester spent.
+#[derive(Default)]
+struct BudgetLedger {
+    minute: u64,
+    total: u64,
+    by: std::collections::HashMap<String, u64>,
+}
+
+impl BudgetLedger {
+    /// Admit `n` for `who` in `minute` if neither the total `cap` nor the
+    /// requester's `share` would be exceeded.
+    fn take(&mut self, minute: u64, who: &str, n: u64, cap: u64, share: u64) -> bool {
+        if self.minute != minute {
+            *self = Self {
+                minute,
+                ..Default::default()
+            };
+        }
+        let mine = self.by.get(who).copied().unwrap_or(0);
+        if self.total + n > cap || mine + n > share {
+            return false;
+        }
+        self.total += n;
+        self.by.insert(who.to_string(), mine + n);
+        true
     }
-    static LEDGER: std::sync::LazyLock<std::sync::Mutex<Ledger>> = std::sync::LazyLock::new(|| {
-        std::sync::Mutex::new(Ledger {
-            minute: 0,
-            total: 0,
-            by: std::collections::HashMap::new(),
-        })
-    });
-    let now_min = (now_unix_s() / 60).max(0) as u64;
+}
+
+fn materialize_budget_take(n: usize) -> bool {
+    // A requester may spend at most its share of the minute (by default
+    // half), so one caller fanning out polygons cannot starve every other
+    // caller of cold reads; the total still caps everyone, protecting the
+    // upstreams and the log. Unattributed work shares one bucket.
+    static LEDGER: std::sync::LazyLock<std::sync::Mutex<BudgetLedger>> =
+        std::sync::LazyLock::new(Default::default);
     let cap = materialize_budget_per_min() as u64;
     let share = ((cap as f64) * materialize_share()).ceil().max(1.0) as u64;
-    let n = n.max(1) as u64;
     let who = REQUESTER.try_with(|r| r.clone()).unwrap_or_default();
-    let mut l = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
-    if l.minute != now_min {
-        l.minute = now_min;
-        l.total = 0;
-        l.by.clear();
-    }
-    let mine = l.by.get(&who).copied().unwrap_or(0);
-    if l.total + n > cap || mine + n > share {
-        return false;
-    }
-    l.total += n;
-    l.by.insert(who, mine + n);
-    true
+    LEDGER.lock().unwrap_or_else(|e| e.into_inner()).take(
+        (now_unix_s() / 60).max(0) as u64,
+        &who,
+        n.max(1) as u64,
+        cap,
+        share,
+    )
 }
 
 /// The fraction of the per-minute cold-fetch ceiling one requester may
@@ -73699,7 +73707,25 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // extent.
                 if hit.bbox.is_none() {
                     if let Some(bb) = nominatim_bbox_for(p).await {
-                        hit.bbox = Some(bb);
+                        if point_fits_bbox(hit.lat, hit.lng, bb) {
+                            hit.bbox = Some(bb);
+                        } else if let Some(n) = nominatim_lookup_candidates(p, 1)
+                            .await
+                            .ok()
+                            .and_then(|v| v.into_iter().next())
+                            .filter(|n| n.importance >= hit.importance)
+                        {
+                            // The two geocoders named different features
+                            // ("Mount Fuji": Photon a peak in Wisconsin,
+                            // Nominatim the one in Japan). A point from one
+                            // with a box from the other describes nothing,
+                            // so the answer comes whole from the feature both
+                            // rank by: the higher importance.
+                            tracing::info!(target: "emem::locate", locate_query = %p,
+                                photon = %hit.label, nominatim = %n.label,
+                                "geocoders disagreed; kept the higher-importance feature");
+                            hit = n;
+                        }
                     }
                 }
                 // Photon-routed hit; enrich with the true polygon
@@ -75641,6 +75667,15 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
             return None;
         }
     };
+    // A row whose point lies far outside its own box mixed two features
+    // (written before the geocoders' answers were reconciled); drop it and
+    // re-resolve rather than serve it for the rest of its TTL.
+    if let Some([a, b, c, d]) = entry.polygon_bbox {
+        if !point_fits_bbox(entry.lat, entry.lng, (a, b, c, d)) {
+            let _ = geocoder_db().remove(q.as_bytes());
+            return None;
+        }
+    }
     Some((
         entry.lat,
         entry.lng,
@@ -76316,6 +76351,15 @@ fn nominatim_user_agent() -> String {
 /// boundingbox field). Returns `(min_lat, max_lat, min_lng, max_lng)`
 /// when Nominatim returns at least one hit with a `boundingbox`; `None`
 /// otherwise. Errors fail soft, caller continues without enrichment.
+/// Does the point belong to the box, allowing a margin of the box's own
+/// size (at least ~5 km)? A point far outside the box it is reported with
+/// means the two came from different features.
+fn point_fits_bbox(lat: f64, lng: f64, (s, n, w, e): (f64, f64, f64, f64)) -> bool {
+    let m_lat = (n - s).abs().max(0.05);
+    let m_lng = (e - w).abs().max(0.05);
+    lat >= s - m_lat && lat <= n + m_lat && lng >= w - m_lng && lng <= e + m_lng
+}
+
 async fn nominatim_bbox_for(query: &str) -> Option<(f64, f64, f64, f64)> {
     let q = query.trim();
     if q.is_empty() {
@@ -87409,25 +87453,28 @@ mod tests {
         }
     }
 
-    /// One requester is stopped at its share of the minute; another still
-    /// gets cold reads.
-    #[tokio::test]
-    async fn one_requester_cannot_spend_the_whole_ceiling() {
-        let share = ((materialize_budget_per_min() as f64) * materialize_share()).ceil() as usize;
-        let taken = REQUESTER
-            .scope("share-test-a".to_string(), async {
-                (0..share + 5)
-                    .take_while(|_| materialize_budget_take(1))
-                    .count()
-            })
-            .await;
-        assert!(taken <= share, "took {taken} of a {share} share");
-        let other = REQUESTER
-            .scope("share-test-b".to_string(), async {
-                materialize_budget_take(1)
-            })
-            .await;
-        assert!(other, "a second requester must still be served");
+    /// One requester is stopped at its share of the minute; another is
+    /// still served; the total caps both; a new minute starts clean.
+    #[test]
+    fn one_requester_cannot_spend_the_whole_ceiling() {
+        let mut l = BudgetLedger::default();
+        let a = (0..10).take_while(|_| l.take(1, "a", 1, 8, 4)).count();
+        assert_eq!(a, 4);
+        assert!(l.take(1, "b", 4, 8, 4));
+        assert!(!l.take(1, "c", 1, 8, 4), "total cap reached");
+        assert!(l.take(2, "a", 1, 8, 4), "a new minute");
+    }
+
+    #[test]
+    fn a_point_outside_its_own_box_is_two_features() {
+        let fuji = (35.3627884, 35.3628884, 138.7307177, 138.7308177);
+        assert!(point_fits_bbox(35.3606, 138.7274, fuji));
+        assert!(
+            !point_fits_bbox(44.9456, -91.7707, fuji),
+            "Colfax, Wisconsin"
+        );
+        let india = (6.5, 35.7, 68.1, 97.4);
+        assert!(point_fits_bbox(12.97, 77.59, india));
     }
 
     #[test]
