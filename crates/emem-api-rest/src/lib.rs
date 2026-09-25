@@ -12158,7 +12158,6 @@ async fn recall_with_auto_materialize_capped(
     s: &AppState,
     cold_band_cap: Option<usize>,
 ) -> Result<(RecallResp, Vec<JsonValue>), ApiError> {
-    use std::collections::HashSet;
     // Canonicalize bare short-name bands (e.g. `elevation` →
     // `copdem30m.elevation_mean`) before either the recall fact-match or
     // the auto-materializer runs, so both agree on the resolved key.
@@ -12199,41 +12198,8 @@ async fn recall_with_auto_materialize_capped(
     //     fetch on every recall.
     let mut candidates: Vec<String> = match req.bands.as_ref() {
         Some(req_bands) if !req_bands.is_empty() => {
-            // Our own recent Absence is an answer, not a gap: the pixel was
-            // unusable in every scene tried, and asking again before a new
-            // scene can exist re-runs the same search and probes and signs
-            // the same Absence again, once per recall of a cloudy area.
-            let recheck = absence_recheck_secs();
             let bound_is_set = req.tslot.is_some() || req.as_of_tslot.is_some();
-            let fresh_after =
-                iso8601_utc(now_unix_s().saturating_sub(recheck as i64).max(0) as u64);
-            let present: HashSet<&str> = resp
-                .facts
-                .iter()
-                .filter_map(|f| match f {
-                    emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
-                    // Only an Absence about the recent past answers a recall
-                    // for "now": one signed today about a 2023 date says
-                    // nothing about the latest scene.
-                    emem_fact::Fact::Absence(a)
-                        if recheck > 0
-                            && a.signer == s.identity.pubkey
-                            && a.signed_at.as_str() >= fresh_after.as_str()
-                            && (bound_is_set
-                                || band_tempo_for_key(&a.band).is_some_and(|t| {
-                                    a.tslot
-                                        >= emem_core::tslot::Tslot::from_unix(
-                                            now_unix_s() - 90 * 86_400,
-                                            t,
-                                        )
-                                        .0
-                                })) =>
-                    {
-                        Some(a.band.as_str())
-                    }
-                    _ => None,
-                })
-                .collect();
+            let present = answered_bands(&resp, &s.identity.pubkey, bound_is_set);
             req_bands
                 .iter()
                 .filter(|b| !present.contains(b.as_str()))
@@ -12352,17 +12318,49 @@ async fn recall_with_auto_materialize_capped(
 /// at all. Used by the boring fan-out to classify warm vs cold cells from a
 /// cheap first pass so it can cap how many cold cells it materialises.
 /// `req_bands` must already be canonicalised (post `resolve_band_name`).
-fn cell_needs_materialize(resp: &RecallResp, req_bands: Option<&[String]>) -> bool {
+/// The bands a recall already answers: every Primary, and our own Absence
+/// when it is recent and, for an unbounded ("now") recall, about the last 90
+/// days. The pixel was unusable in every scene tried; asking again before a
+/// new scene can exist re-runs the same search and probes and signs the
+/// same Absence again.
+fn answered_bands<'a>(
+    resp: &'a RecallResp,
+    me: &emem_core::AttesterKey,
+    bound_is_set: bool,
+) -> std::collections::HashSet<&'a str> {
+    let recheck = absence_recheck_secs();
+    let fresh_after = iso8601_utc(now_unix_s().saturating_sub(recheck as i64).max(0) as u64);
+    resp.facts
+        .iter()
+        .filter_map(|f| match f {
+            emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
+            emem_fact::Fact::Absence(a)
+                if recheck > 0
+                    && &a.signer == me
+                    && a.signed_at.as_str() >= fresh_after.as_str()
+                    && (bound_is_set
+                        || band_tempo_for_key(&a.band).is_some_and(|t| {
+                            a.tslot
+                                >= emem_core::tslot::Tslot::from_unix(now_unix_s() - 90 * 86_400, t)
+                                    .0
+                        })) =>
+            {
+                Some(a.band.as_str())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn cell_needs_materialize(
+    resp: &RecallResp,
+    req_bands: Option<&[String]>,
+    me: &emem_core::AttesterKey,
+    bound_is_set: bool,
+) -> bool {
     match req_bands {
         Some(b) if !b.is_empty() => {
-            let present: std::collections::HashSet<&str> = resp
-                .facts
-                .iter()
-                .filter_map(|f| match f {
-                    emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
-                    _ => None,
-                })
-                .collect();
+            let present = answered_bands(resp, me, bound_is_set);
             b.iter().any(|band| !present.contains(band.as_str()))
         }
         _ => resp.facts.is_empty(),
@@ -15218,7 +15216,12 @@ async fn boring_recall_aggregated(
         if let Ok((cell, r)) = j {
             match r {
                 Ok(resp) => {
-                    if cell_needs_materialize(&resp, bands_for_recall.as_deref()) {
+                    if cell_needs_materialize(
+                        &resp,
+                        bands_for_recall.as_deref(),
+                        &state.identity.pubkey,
+                        tslot.is_some(),
+                    ) {
                         cold.push(cell);
                     } else {
                         per_cell.push((cell, resp));
@@ -15239,6 +15242,7 @@ async fn boring_recall_aggregated(
     let cold_cells_skipped = cold.len().saturating_sub(cold_cap);
     let to_materialize: Vec<String> = cold.into_iter().take(cold_cap).collect();
     let mut p2: tokio::task::JoinSet<CellRecall> = tokio::task::JoinSet::new();
+    let area = s2_area_for_cells(&to_materialize);
     for cell in &to_materialize {
         let req = RecallReq {
             cell: cell.clone(),
@@ -15249,7 +15253,7 @@ async fn boring_recall_aggregated(
         let cell = cell.clone();
         let s = state.clone();
         p2.spawn(async move {
-            let r = recall_with_auto_materialize(&req, &s).await;
+            let r = in_s2_area(area, recall_with_auto_materialize(&req, &s)).await;
             (cell, r)
         });
     }
