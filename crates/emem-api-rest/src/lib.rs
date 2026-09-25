@@ -19472,7 +19472,8 @@ async fn post_backfill(
 /// `$EMEM_DATA/warm_state.json`, so a deploy neither skips a due pass nor
 /// repeats one. A due pass waits while the box is busy (IO pressure above
 /// `EMEM_WARM_MAX_IO_PRESSURE`, default 10 % stalled over the last
-/// minute), which is also what keeps it off a booting store. It spends
+/// minute), which is also what keeps it off a booting store, for at most
+/// one interval. It spends
 /// under its own requester name, so it takes at most its share of the
 /// cold-fetch ceiling and a visitor keeps the rest.
 fn spawn_warm_priority_loop(s: AppState) {
@@ -19493,24 +19494,35 @@ fn spawn_warm_priority_loop(s: AppState) {
         .unwrap_or(10.0);
     tokio::spawn(async move {
         let state_path = emem_core::data_dir::data_path("warm_state.json");
+        // No record yet: due at boot, not late since 1970.
+        let never = now_unix_s() - interval_secs;
+        // Also kept here, so an unwritable state file cannot turn the
+        // schedule into back-to-back passes.
+        let mut ran_at = never;
         loop {
             let last = tokio::fs::read(&state_path)
                 .await
                 .ok()
                 .and_then(|b| serde_json::from_slice::<JsonValue>(&b).ok())
                 .and_then(|v| v.get("last_pass_unix").and_then(|t| t.as_i64()))
-                .unwrap_or(0);
+                .unwrap_or(never)
+                .max(ran_at);
             let wait = last + interval_secs - now_unix_s();
             if wait > 0 {
                 tokio::time::sleep(std::time::Duration::from_secs(wait as u64)).await;
                 continue;
             }
-            // Busy: look again in a minute, the window the pressure is read over.
-            if io_pressure_avg60().is_some_and(|p| p > max_pressure) {
+            // Busy: look again in a minute, the window the pressure is read
+            // over. Pressure delays a pass and never cancels it: once a pass
+            // is a whole interval late it runs, on a box that is never quiet
+            // (this one is shared), still inside its share of the ceiling.
+            let late = -wait;
+            if late < interval_secs && io_pressure_avg60().is_some_and(|p| p > max_pressure) {
                 tokio::time::sleep(std::time::Duration::from_secs(60)).await;
                 continue;
             }
             let started = now_unix_s();
+            ran_at = started;
             REQUESTER
                 .scope("warmer".to_string(), warm_pass(&s, budget_ms))
                 .await;
