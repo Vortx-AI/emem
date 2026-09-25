@@ -141,6 +141,63 @@
   .navmenu a { min-width: 0; overflow-wrap: anywhere }
 }
 
+/* The phone menu. On wide screens the panel is display:contents, so its
+   children sit in the bar's own flex row and the desktop layout is the one it
+   always was; the button does not render. */
+.navpanel { display: contents }
+.navtoggle { display: none }
+
+@media (max-width: 720px) {
+  /* Only once the nav script has run and marked the bar .navjs. Without it the
+     button would open nothing, so the bar stays unfolded as it was. */
+  /* The panel positions against .sitebar (sticky, so already a containing
+     block) rather than this row, so it spans the viewport edge to edge instead
+     of stopping at the row's side padding. */
+  .sitebar.navjs .sitebar-in { flex-wrap: nowrap; align-items: center; padding-top: var(--s-1); padding-bottom: var(--s-1) }
+  .sitebar.navjs .brand { min-height: 44px }
+  .sitebar.navjs .navtoggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--s-2);
+    margin-left: auto;
+    min-height: 44px;
+    min-width: 44px;
+    padding: 0 var(--s-3);
+    font: inherit;
+    font-size: var(--t-xs);
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    cursor: pointer;
+  }
+  .navtoggle svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round }
+  .navtoggle[aria-expanded="true"] { background: var(--paper-3); border-color: var(--ink-2) }
+  .navtoggle:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+
+  .sitebar.navjs .navpanel {
+    display: none;
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    flex-direction: column;
+    align-items: stretch;
+    max-height: calc(100dvh - 60px);
+    overflow-y: auto;
+    padding: var(--s-2) var(--s-3) var(--s-3);
+    background: var(--paper);
+    border-bottom: 1.6px solid var(--ink);
+    box-shadow: 0 10px 28px rgb(0 0 0 / .10);
+  }
+  .sitebar.navjs.navopen .navpanel { display: flex }
+  .sitebar.navjs .navgrp > summary { min-height: 44px; font-size: var(--t-xs); opacity: 1 }
+  .sitebar.navjs .navmenu { position: static; border: 0; box-shadow: none; padding: 0 0 var(--s-2) var(--s-3); background: transparent }
+  .sitebar.navjs .navmenu a { min-height: 44px }
+  .sitebar.navjs .sitebar-gap { display: none }
+  .sitebar.navjs .navplain { min-height: 44px; font-size: var(--t-xs); opacity: 1 }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .navgrp > summary { transition: none }
 }
@@ -264,6 +321,13 @@
      them from most readers. */
   .ports { gap: .25rem; flex-wrap: wrap }
   .port { padding: .3rem .5rem; letter-spacing: 0 }
+}
+
+/* Inside the phone menu panel. 2.75rem is 44px only where the root font is
+   16px; the demo and verify pages set a smaller root, so the bound is in px. */
+@media (max-width: 720px) {
+  .sitebar.navjs .ports { justify-content: flex-start; padding-top: var(--s-2); border-top: 1px solid var(--rule) }
+  .sitebar.navjs .port { min-height: 44px }
 }
 
 /* ── The footer edge ────────────────────────────────────────────────────────

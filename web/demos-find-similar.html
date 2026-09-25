@@ -200,6 +200,8 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
+<div class="navpanel" id="sitenav-panel">
 <details class="navgrp" name="sitenav">
 <summary>Understand</summary>
 <div class="navmenu">
@@ -244,9 +246,9 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
-</nav></header>
+</div></nav></header>
 <div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">find places that resemble this one</span><span class="aud-note">no prior knowledge assumed</span></div>
-<script>(function(){function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}document.addEventListener("keydown",function(e){if(e.key==="Escape")shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();});})();</script>
+<script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <main class=app id=main tabindex="-1">

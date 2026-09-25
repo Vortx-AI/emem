@@ -118,6 +118,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .hero.hero-lean{grid-template-columns:1fr;gap:0;padding:5rem 0 4rem;max-width:760px;margin:0 auto}
 .hero.hero-lean .sub{font-family:var(--display);font-size:var(--t-lg);max-width:68ch;line-height:1.44;margin:0 0 var(--s-4);color:var(--ink-2);font-weight:360;font-variation-settings:'opsz' 22;text-align:left}
 .hero.hero-lean .hero-cta{margin-top:1.4rem}
+/* The hero art is drawn 760 wide; without a cap it set the grid track's min-content and the page scrolled sideways by 370px at 390. */
+.hero.hero-lean img{max-width:100%;height:auto}
 .hero .sub a,.hero-trust a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}
 .hero-trust{font-size:var(--t-xs);color:var(--mute);margin:1.8rem 0 0;letter-spacing:.02em;border-top:1px solid var(--rule);padding-top:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 @media (max-width:680px){.hero-trust{white-space:normal}}
@@ -150,6 +152,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .code-head .copy:hover{color:var(--ink);background:var(--paper-2)}
 .code-head .copy.copied{color:var(--accent)}
 .code pre{margin:0;padding:1rem 1.2rem;overflow-x:auto;font-family:var(--mono);font-size:var(--t-sm);white-space:pre}
+.section-body > pre{overflow-x:auto;max-width:100%}
 .code pre code{font-family:inherit}
 .tok-c{color:var(--mute)}
 .tok-k{color:var(--ink);font-weight:700}
@@ -412,6 +415,8 @@ input::placeholder{color:var(--mute,#7a7363)}
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
+<div class="navpanel" id="sitenav-panel">
 <details class="navgrp on" name="sitenav">
 <summary>Understand</summary>
 <div class="navmenu">
@@ -456,9 +461,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
-</nav></header>
+</div></nav></header>
 <div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">the address, the fact, the receipt, in order</span><span class="aud-note">no prior knowledge assumed</span></div>
-<script>(function(){function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}document.addEventListener("keydown",function(e){if(e.key==="Escape")shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();});})();</script>
+<script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <section class="hero page hero-lean">

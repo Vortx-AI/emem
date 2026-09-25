@@ -501,6 +501,8 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
+<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
+<div class="navpanel" id="sitenav-panel">
 <details class="navgrp" name="sitenav">
 <summary>Understand</summary>
 <div class="navmenu">
@@ -545,9 +547,9 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <li><a class="port" href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry"><span class="port-pin" aria-hidden="true"></span>MCP registry</a></li>
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
-</nav></header>
+</div></nav></header>
 <div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory two agents can agree on</span><span class="aud-note">no prior knowledge assumed</span></div>
-<script>(function(){function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}document.addEventListener("keydown",function(e){if(e.key==="Escape")shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();});})();</script>
+<script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <main class="home">
@@ -1876,7 +1878,7 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
     return fetch(path, opt).then(function(r){
       return r.text().then(function(t){
         var d = null; try{ d = JSON.parse(t); }catch(e){}
-        if(!r.ok || (d && d.schema === 'emem.error.v1')) throw new Error(d && d.message ? d.message : 'the responder answered ' + r.status);
+        if(!r.ok || (d && d.schema === 'emem.error.v1')){ var er = new Error(d && d.message ? d.message : 'the responder answered ' + r.status); er.status = r.status; throw er; }
         if(!d) throw new Error('the answer was not JSON');
         return d;
       });
@@ -1893,15 +1895,18 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 
   /* ---- what the input is ---- */
   var ROUTES = { file:'tokenise the file', text:'tokenise the text', token:'check a token', place:'read a place', ask:'ask', url:'read a link' };
+  var LATLNG = /^-?\d{1,2}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/;
   function classify(v){
     var t = v.trim();
     if(attached) return 'file';
     if(!t) return '';
     if(/^(emem:[a-z]+:|memt:|memb:|meme:)\S+$/.test(t)) return 'token';
     if(/^https?:\/\/\S+$/i.test(t)) return 'url';
-    if(/^-?\d{1,2}(\.\d+)?\s*,\s*-?\d{1,3}(\.\d+)?$/.test(t)) return 'place';
-    if(/\?$/.test(t) || /^(what|where|when|how|why|which|who|is|are|does|do|can|will|was|compare|show me|tell me)\b/i.test(t)) return 'ask';
-    if(t.length <= 60 && t.split(/\s+/).length <= 5 && /^\p{Lu}[\p{L}\p{M}'’.\- ]*(,\s*[\p{L}\p{M}'’.\- ]+)*$/u.test(t)) return 'place';
+    if(LATLNG.test(t)) return 'place';
+    if(/\?$/.test(t) || /^(what|where|when|how|why|which|who|whose|is|are|was|were|does|do|did|has|have|can|could|will|would|should|compare|show me|tell me)\b/i.test(t)) return 'ask';
+    /* Short and one line reads as a name, whatever its case: "paris" is a place
+       before it is nine bytes. If no place answers to it, submit hashes it. */
+    if(!/\n/.test(t) && t.length <= 60 && t.split(/\s+/).length <= 5 && /\p{L}/u.test(t)) return 'place';
     return 'text';
   }
   /* A select is as wide as its longest option; a chat tool picker is as wide as what it says. */
@@ -2039,7 +2044,7 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
       ui = turn(v, ROUTES[r]);
       if(r === 'text') hashFile(new File([v], 'pasted text', { type:'text/plain' }), ui);
       else if(r === 'token') readToken(v, ui);
-      else if(r === 'place') readPlace(v, ui);
+      else if(r === 'place') LATLNG.test(v) ? readPlace(v, ui) : placeOrHash(v, ui);
       else if(r === 'ask') askIt(v, ui);
       else if(r === 'url') readLink(v, ui);
     }
@@ -2315,6 +2320,26 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
       var head = ui.say.innerHTML;
       return checkReceipt(g.receipt).then(function(r){ ui.say.innerHTML = head + '<br>' + verdict(r.ok, r.why); });
     }).catch(function(e){ fail(ui, e); });
+  }
+
+  /* A name no geocoder knows is still text someone typed, so it is hashed
+     rather than dropped, and the reply says which of the two happened. */
+  function placeOrHash(v, ui){
+    ui.say.textContent = 'looking for a place called ' + v + '…';
+    function hashInstead(){
+      hashFile(new File([v], 'pasted text', { type:'text/plain' }), ui);
+      ui.what.innerHTML = '<b>tokenised in this tab</b> &middot; no place called &ldquo;' + esc(v) + '&rdquo;; hashed it instead';
+    }
+    api('/v1/locate', { place:v }).then(function(d){
+      // A place only on evidence: Wikidata knows the exact name, or a
+      // gazetteer tier matched it. A fuzzy geocoder hit alone ("hello emem"
+      // finds a hairdresser) is not evidence that text names a place.
+      var dc = d.decision && d.decision.chosen;
+      var named = dc ? dc.exact_name : /^(country|admin|embedded|geonames|wide_bbox)/.test(d.via || '');
+      if((d.cell64 || d.cell) && named) readPlace(v, ui); else hashInstead();
+    }, function(e){
+      if(e && e.status === 404) hashInstead(); else fail(ui, e);
+    });
   }
 
   /* ---- a question: the answer, and the signed facts it rests on ---- */

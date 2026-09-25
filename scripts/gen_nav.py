@@ -164,7 +164,16 @@ GITHUB = "https://github.com/Vortx-AI/emem"
 def render(current: str) -> str:
     """`current` is the path of the page being rendered, for the on state."""
     out = [START, '<header class="sitebar"><nav class="sitebar-in" aria-label="Site">',
-           '<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>']
+           '<a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>',
+           # On a phone the groups, MCP and the ports took three rows and pushed
+           # the homepage composer ~640px down. Below 720px they fold into one
+           # panel behind this button. The panel is display:contents on wider
+           # screens, so the desktop bar lays out exactly as it did without it.
+           # The button is inert until the script below marks the bar .navjs;
+           # with scripting off the panel stays unfolded and every link shows.
+           '<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel">'
+           '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>',
+           '<div class="navpanel" id="sitenav-panel">']
     for group, items in NAV:
         hit = any(h == current for _, h, _ in items)
         # name= makes these an exclusive group: opening one closes the rest,
@@ -186,7 +195,7 @@ def render(current: str) -> str:
         out.append(f'<li><a class="port" href="{href}" target="_blank" rel="noopener noreferrer" title="{note}">'
                    f'<span class="port-pin" aria-hidden="true"></span>{label}</a></li>')
     out.append('</ul>')
-    out.append('</nav></header>')
+    out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.
     who, what = AUDIENCE.get(current, ("anyone", ""))
@@ -197,14 +206,31 @@ def render(current: str) -> str:
                f'<span class="aud-note">{note}</span>'
                f'</div>')
     # Progressive enhancement only. Escape and outside-click are the two
-    # dismissals <details> has no answer for; everything else is HTML.
+    # dismissals <details> has no answer for; everything else is HTML. The
+    # phone menu button is the one piece HTML cannot do for us: it closes on
+    # Escape (handing focus back to itself), on a click outside, and when
+    # focus tabs out of the bar, so a keyboard user is never left behind a
+    # panel they cannot see.
     out.append('<script>(function(){'
+               'var b=document.querySelector(".sitebar"),'
+               't=b&&b.querySelector(".navtoggle");'
                'function shut(){document.querySelectorAll(".navgrp[open]")'
                '.forEach(function(d){d.open=false;});}'
+               'function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}'
+               'function set(o,f){if(!t)return;'
+               't.setAttribute("aria-expanded",o?"true":"false");'
+               'b.classList.toggle("navopen",o);'
+               'if(!o){shut();if(f)t.focus();}}'
+               'if(t){b.classList.add("navjs");'
+               't.addEventListener("click",function(){set(!isOpen());});'
+               'b.addEventListener("focusout",function(e){'
+               'if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}'
                'document.addEventListener("keydown",function(e){'
-               'if(e.key==="Escape")shut();});'
+               'if(e.key!=="Escape")return;'
+               'if(isOpen())set(false,true);else shut();});'
                'document.addEventListener("click",function(e){'
-               'if(!e.target.closest(".navgrp"))shut();});'
+               'if(!e.target.closest(".navgrp"))shut();'
+               'if(isOpen()&&!b.contains(e.target))set(false);});'
                '})();</script>')
     out.append(END)
     return "\n".join(out)
