@@ -51071,8 +51071,11 @@ async fn materialize_sentinel2_band(
     let secs = materializer_timeout_secs();
     match tokio::time::timeout(
         std::time::Duration::from_secs(secs),
-        slot.get_or_try_init(|| {
-            materialize_sentinel2_band_inner(cell64, s, band, target_unix, at_or_before)
+        slot.get_or_try_init(|| async {
+            if !materialize_budget_take(1) {
+                return Err(budget_deferred_reason());
+            }
+            materialize_sentinel2_band_inner(cell64, s, band, target_unix, at_or_before).await
         }),
     )
     .await
@@ -51281,6 +51284,13 @@ async fn s2_backfill_by_pass(
             skipped += 1;
             steps.push(json!({"tslot": tslot, "target_unix": at, "scene": item.id, "status": "unusable_at_pixel", "reason": format!("SCL {} ({label})", scl.unwrap_or(0))}));
             continue;
+        }
+        if !materialize_budget_take(1) {
+            notes.push(format!(
+                "{}; call again with start_unix >= {at} to continue",
+                budget_deferred_reason()
+            ));
+            break;
         }
         let id = item.id.clone();
         let chosen = S2ChosenScene {
@@ -56090,7 +56100,11 @@ impl MaterializeOutcome {
 /// upstream did not answer, which is unknown, not a verified negative;
 /// signing it as Absence would attest to something never observed.
 fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
-    if reason.contains("unknown_band") {
+    if reason.starts_with(BUDGET_DEFERRED) {
+        ("deferred", true)
+    } else if reason.contains("retired") {
+        ("retired", false)
+    } else if reason.contains("unknown_band") {
         ("unknown_band", false)
     } else if reason.contains("no_auto_materializer_registered")
         || reason.contains("no materializer")
@@ -56100,6 +56114,7 @@ fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
         || reason.contains("dispatch-level timeout")
         || reason.contains("timed out")
         || reason.contains("timeout")
+        || reason.contains("s budget for")
     {
         ("timeout", true)
     } else {
@@ -57623,6 +57638,15 @@ fn absence_recheck_secs() -> u64 {
         .unwrap_or(21_600)
 }
 
+const BUDGET_DEFERRED: &str = "materialization deferred";
+
+fn budget_deferred_reason() -> String {
+    format!(
+        "{BUDGET_DEFERRED}: this responder is at its cold-fetch ceiling of {} per minute. The warm facts in this response are unaffected. Retry for the cold bands, or narrow the band list.",
+        materialize_budget_per_min()
+    )
+}
+
 /// Global cap on concurrent band materialisations across the WHOLE process.
 /// Heavy upstream fetch + decode (JRC GFC2020's ~110 MB COG, SoilGrids
 /// per-point JSON, Hansen/MODIS tiles) otherwise piles up and starves the
@@ -57761,18 +57785,20 @@ async fn try_materialize_bands(
     // typed note saying the cold half was deferred. Degrading to "you get
     // what is already here" keeps a legitimate wide scan working while
     // taking the amplification away.
-    if !materialize_budget_take(bands.len()) {
+    //
+    // Sentinel-2 bands are charged where their work starts instead (in
+    // `materialize_sentinel2_band`, after the single-flight memo), so a band
+    // answered by an in-flight or just-finished materialization of the same
+    // square costs nothing: charging per requested band made a 144-square
+    // grid spend 288 of the minute's budget whether or not it fetched.
+    let upfront = bands.iter().filter(|b| s2_band_plan(b).is_none()).count();
+    if upfront > 0 && !materialize_budget_take(upfront) {
         return bands
             .iter()
             .map(|b| MaterializeOutcome {
                 band: b.clone(),
                 fact_cid: None,
-                skip_reason: Some(format!(
-                    "materialization deferred: this responder is at its cold-fetch ceiling of \
-                     {} per minute. The warm facts in this response are unaffected. Retry for \
-                     the cold bands, or narrow the band list.",
-                    materialize_budget_per_min()
-                )),
+                skip_reason: Some(budget_deferred_reason()),
             })
             .collect();
     }
@@ -87326,6 +87352,28 @@ mod tests {
                 other => panic!("fact {i} missing: {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_skip_says_whether_retrying_can_help() {
+        assert_eq!(
+            classify_skip_reason(&budget_deferred_reason()),
+            ("deferred", true)
+        );
+        assert_eq!(
+            classify_skip_reason(
+                "sentinel-2 materializer exceeded the 14s budget for indices.ndvi at x"
+            ),
+            ("timeout", true)
+        );
+        assert_eq!(
+            classify_skip_reason("band_retired_at_this_responder"),
+            ("retired", false)
+        );
+        assert_eq!(
+            classify_skip_reason("stac status 502: bad gateway"),
+            ("upstream_error", true)
+        );
     }
 
     #[tokio::test]
