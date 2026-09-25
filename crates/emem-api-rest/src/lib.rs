@@ -4475,6 +4475,13 @@ async fn serve_405(req: axum::http::Request<axum::body::Body>) -> Response {
 }
 
 async fn serve_404(req: axum::http::Request<axum::body::Body>) -> Response {
+    // Read the body before answering. A reply that leaves a POST's body
+    // unread makes the close a TCP reset, which can reach the client before
+    // the 404 does: Python's urllib saw "connection closed" for
+    // /v1/jepa_predict_v2 while curl, sending in one packet, saw the 404.
+    let (parts, body) = req.into_parts();
+    let _ = axum::body::to_bytes(body, 1 << 16).await;
+    let req = axum::http::Request::from_parts(parts, axum::body::Body::empty());
     let accept = req
         .headers()
         .get(axum::http::header::ACCEPT)
@@ -34987,10 +34994,9 @@ struct StateReq {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     view: Option<String>,
     /// Vector band to read in `view="encoder"`. Defaults to
-    /// `geotessera` (128-D Tessera annual embedding). Other vector-
-    /// typed bands work the same way (`clay_v1` → 1024-D, `prithvi_eo2`
-    /// → 1024-D, `geotessera.multi_year` → 128-D). Ignored when
-    /// `view="cube"`.
+    /// `geotessera` (128-D Tessera annual embedding), which emem.dev has
+    /// retired: its signed facts still read and verify, and nothing new
+    /// materialises. Ignored when `view="cube"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     encoder: Option<String>,
     /// Tslot bucket (Unix-epoch / band's tempo cadence). Omit to let
@@ -35085,10 +35091,9 @@ struct StateResp {
     /// band fact_cids in `coverage[]` and the cube's `state_cid`).
     fact_cid: String,
     /// `view="encoder"`: `emem:fact:<cell>:<fact_cid>`, a citation handle.
-    /// `view="cube"`: `emem:fact:<cell>:<state_cid>`, the right-hand side
-    /// is the cube's content-id, not a single fact_cid (the cube is
-    /// assembled from up to 41 cited facts; their CIDs are in
-    /// `receipt.fact_cids[]`).
+    /// `view="cube"`: `emem:bundle:` over the facts the cube cites
+    /// (`receipt.fact_cids[]`), empty when it cites none; the cube's own
+    /// content id is `state_cid`.
     memory_token: String,
     /// L2 norm of the returned `vector`. Two consumers computing this
     /// should agree to floating-point reproducibility within the
@@ -35243,17 +35248,27 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
             emem_fact::Fact::Primary(p) if p.band == encoder => Some(p),
             _ => None,
         })
-        .ok_or_else(|| ApiError(
-            StatusCode::NOT_FOUND,
-            ErrorBody {
-                code: ErrorCode::CidNotFound,
-                message: format!(
-                    "/v1/state view=encoder: no fact at cell {} for encoder {}; the cell may be cold or the encoder unwired at this responder. See /v1/materializers.",
-                    cell, encoder
-                ),
-                details: None,
-            },
-        ))?;
+        .ok_or_else(|| {
+            // Retired is a deployment decision, not a cold cell: say so, and
+            // name the view that answers, instead of inviting a retry.
+            let why = if retired_bands().contains(encoder.as_str()) {
+                format!(
+                    "encoder {encoder} is retired at this responder: facts it signed before still verify, and none exists at cell {cell}. For this place's state, send view=\"cube\" (every wired band, materialize:true to fetch the cold ones)."
+                )
+            } else {
+                format!(
+                    "no fact at cell {cell} for encoder {encoder}; the cell may be cold or the encoder unwired at this responder. See /v1/materializers."
+                )
+            };
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("/v1/state view=encoder: {why}"),
+                    details: None,
+                },
+            )
+        })?;
 
     let vector = emem_primitives::cbor_ops::as_vec_f32(&primary.value).ok_or_else(|| ApiError(
         StatusCode::UNPROCESSABLE_ENTITY,
@@ -36230,8 +36245,34 @@ async fn state_view_cube(s: AppState, req: StateReq) -> Result<Json<StateResp>, 
         .to_lowercase();
 
     let l2_norm = vector.iter().map(|x| x * x).sum::<f32>().sqrt();
-    let memory_token = format!("emem:fact:{}:{}", cell, state_cid);
     let receipt_v = serde_json::to_value(&resp.receipt).unwrap_or(json!({}));
+    // The cube is no single fact, so its handle is the bundle of the facts
+    // it cites, which resolves. An `emem:fact:` token over `state_cid` named
+    // a fact that exists nowhere, and every cold cell handed out the same one.
+    let cited: Vec<String> = receipt_v["fact_cids"]
+        .as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    let memory_token = if cited.is_empty() {
+        String::new()
+    } else {
+        post_memory_bundle(
+            State(s.clone()),
+            EmemJson(emem_primitives::memory_bundle::BundleReq {
+                triples: Vec::new(),
+                fact_cids: Some(cited),
+                purpose: Some(format!("state cube at {cell}")),
+                scope: None,
+            }),
+        )
+        .await
+        .map(|Json(b)| b.bundle_token)
+        .unwrap_or_default()
+    };
     let manifest_cid = s.manifests.bands_cid.clone();
     let resolved_env = resolved_envelope(vec![("cell".into(), resolved)]);
 
@@ -61789,8 +61830,12 @@ async fn response_json(resp: Response) -> Result<JsonValue, (i64, String)> {
     if ok {
         Ok(v)
     } else {
+        // The envelope's own typed code, as the other arms send it, so a
+        // refusal reads the same through MCP as through REST.
+        let code =
+            serde_json::from_value::<ErrorCode>(v["code"].clone()).map_or(-32000, |c| -(c as i64));
         Err((
-            -32000,
+            code,
             v["message"]
                 .as_str()
                 .or(v["error"].as_str())

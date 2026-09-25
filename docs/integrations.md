@@ -11,31 +11,33 @@ already exists, plus a pointer to a runnable example in this repository.
 
 ## State vectors
 
-The dense state for any place on Earth, returned as a typed
-`vector: Vec<f32>` you can drop straight into an LLM's context, feed
-into a similarity search, or cache as a fingerprint for change
-detection. Signed, content-addressed, and packaged with a pre-composed
-memory-token handle.
+The state of a place as one fixed-width `vector: Vec<f32>`, every wired
+band at its canonical offset, with `coverage[]` saying which slots are
+measured, signed-absent, or not yet fetched. The vector's own content id
+is `state_cid`; the handle an agent passes on is an `emem:bundle:` over
+the facts it cites.
 
 ```bash
 curl -sX POST https://emem.dev/v1/state \
   -H 'content-type: application/json' \
-  -d '{"cell":"South Mumbai","encoder":"geotessera"}'
+  -d '{"cell":"South Mumbai","view":"cube"}'
 ```
 
 Response shape:
 
 ```json
 {
-  "cell":         "defi.zb4d7.ze56c.zf24c",
-  "encoder":      "geotessera",
-  "dim":          128,
-  "vector":       [0.043, -0.115, 0.298, ... ],
-  "l2_norm":      3.7146,
-  "tslot":        54,
-  "fact_cid":     "<52 chars base32-nopad-lowercase>",
-  "memory_token": "emem:fact:defi.zb4d7.ze56c.zf24c:<fact_cid>",
-  "receipt":      { /* signed ed25519 over canonical blake3 preimage */ }
+  "cell":          "defi.zb4d7.zb8ec.zf21e",
+  "view":          "cube",
+  "dim":           1792,
+  "vector":        [0.0, 0.0, ... ],
+  "filled_bands":  0,
+  "missing_bands": 41,
+  "coverage":      [{"key": "overture", "offset": 128, "dims": 64, "status": "missing"}, ...],
+  "state_cid":     "<52 chars base32-nopad-lowercase>",
+  "memory_token":  "",
+  "hint":          "all cube slots are cold at this cell ... pass materialize: true",
+  "receipt":       { /* signed ed25519 over canonical blake3 preimage */ }
 }
 ```
 
@@ -44,11 +46,13 @@ Inputs:
 - `cell` may be a cell64 string or a free-text place name (resolved
   through the standard geocoder cascade; the `resolved_from` field
   reports which layer answered).
-- `encoder` defaults to `geotessera` (128-D Tessera annual embedding).
-  Pass `geotessera.multi_year` for the 8-year stacked vintage when
-  the band is wired at this responder.
-- `tslot` optional; omit and the materialiser picks the natural
-  vintage for the band (e.g. 2024 for `geotessera`).
+- `materialize: true` fetches every cold slot (about 30 upstream calls
+  on a cold cell); `/v1/recall` with a narrow `bands` list warms only the
+  slots you need.
+- `view: "encoder"` reads one vector band. emem.dev has retired its
+  foundation encoders (Tessera, Clay, Prithvi, Galileo): facts they
+  signed still read and verify, and nothing new materialises, so a cell
+  without one answers 404 saying so.
 
 Use sites:
 

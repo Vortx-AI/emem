@@ -780,10 +780,10 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
 
     <div class="substrate-grid">
       <div class="lane">
-        <span class="verb">read · 128-D</span>
+        <span class="verb">read · 1792-D</span>
         <span class="title">/v1/state</span>
-        <span class="endpoint">{cell, encoder?, view?}</span>
-        <span class="desc">Dense signed state at any place. <code>view=encoder</code> returns one foundation embedding (default geotessera, 128-D); <code>view=cube</code> returns the full cube. Cell may be a place name; the geocoder cascade resolves it. Cold cells materialise on miss, then sign.</span>
+        <span class="endpoint">{cell, view, materialize?}</span>
+        <span class="desc">A place's state as one vector: <code>view=cube</code> lays every wired band at its offset, and <code>coverage[]</code> says which slots are measured. Cell may be a place name. <code>materialize:true</code> fetches the cold slots, then signs.</span>
       </div>
       <div class="lane">
         <span class="verb">cite · 1 string</span>
@@ -803,22 +803,22 @@ geotessera                <span class="tok-p">=&gt;</span> <span class="tok-p">{
       <div class="code-head"><span class="lang">SH</span><span class="tab">read · /v1/state</span><span class="spacer"></span><button class="copy" data-copy-target="#code-state">copy</button></div>
 <pre id="code-state"><code><span class="tok-cmd">$</span> <span class="tok-k">curl</span> <span class="tok-flag">-sX</span> POST <span class="tok-u">https://emem.dev/v1/state</span> \
     <span class="tok-flag">-H</span> <span class="tok-s">'content-type: application/json'</span> \
-    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"South Mumbai","encoder":"geotessera"}'</span>
+    <span class="tok-flag">-d</span> <span class="tok-s">'{"cell":"South Mumbai","view":"cube"}'</span>
 
 <span class="tok-p">{</span>
-  <span class="tok-key">"cell"</span>: <span class="tok-s">"defi.zb4d7.ze56c.zf24c"</span>,
-  <span class="tok-key">"view"</span>: <span class="tok-s">"encoder"</span>, <span class="tok-key">"encoder"</span>: <span class="tok-s">"geotessera"</span>, <span class="tok-key">"dim"</span>: <span class="tok-n">128</span>,
-  <span class="tok-key">"vector"</span>: [<span class="tok-n">4.17</span>, <span class="tok-n">-3.26</span>, <span class="tok-n">1.24</span>, <span class="tok-n">4.63</span>, <span class="tok-n">-2.15</span>, <span class="tok-c">/* 123 more */</span>],
-  <span class="tok-key">"l2_norm"</span>: <span class="tok-n">37.84</span>,
-  <span class="tok-key">"fact_cid"</span>: <span class="tok-s">"…"</span>,
-  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"emem:fact:defi.zb4d7.ze56c.zf24c:…"</span>,
+  <span class="tok-key">"cell"</span>: <span class="tok-s">"defi.zb4d7.zb8ec.zf21e"</span>, <span class="tok-key">"view"</span>: <span class="tok-s">"cube"</span>, <span class="tok-key">"dim"</span>: <span class="tok-n">1792</span>,
+  <span class="tok-key">"vector"</span>: [<span class="tok-n">0.0</span>, <span class="tok-n">0.0</span>, <span class="tok-c">/* 1790 more */</span>],
+  <span class="tok-key">"filled_bands"</span>: <span class="tok-n">0</span>, <span class="tok-key">"missing_bands"</span>: <span class="tok-n">41</span>,
+  <span class="tok-key">"coverage"</span>: [<span class="tok-p">{</span> <span class="tok-key">"key"</span>: <span class="tok-s">"overture"</span>, <span class="tok-key">"offset"</span>: <span class="tok-n">128</span>, <span class="tok-key">"dims"</span>: <span class="tok-n">64</span>, <span class="tok-key">"status"</span>: <span class="tok-s">"missing"</span> <span class="tok-p">}</span>, <span class="tok-c">/* … */</span>],
+  <span class="tok-key">"state_cid"</span>: <span class="tok-s">"…"</span>,
+  <span class="tok-key">"memory_token"</span>: <span class="tok-s">"emem:bundle:… (the facts it cites; empty when none)"</span>,
   <span class="tok-key">"receipt"</span>: <span class="tok-p">{</span> <span class="tok-key">"alg"</span>: <span class="tok-s">"ed25519"</span>, <span class="tok-key">"signature"</span>: <span class="tok-s">"…"</span> <span class="tok-p">}</span>
 <span class="tok-p">}</span></code></pre>
     </div>
 
     <p>Two more verbs fan the state read. <span class="band">/v1/state_multi</span> fans across the wired foundation encoders for the same cell, returning a per-encoder map plus a typed <span class="band">missing[]</span> list when an encoder is not wired at this responder. <span class="band">/v1/state_diff</span> takes one cell and two tslots and returns the delta vector, its L2 norm, and the cosine between the two source vectors, with both source <span class="band">fact_cid</span>s so the agent can quote both attestations as evidence.</p>
 
-    <p>emem reads one foundation embedding, <strong>Tessera</strong> (the default <span class="band">geotessera</span> 128-D vector), as an upstream fact. Earlier versions also ran Clay, Prithvi and Galileo; facts they signed still verify. An unwired encoder appears in <span class="band">missing[]</span> rather than being zero-filled.</p>
+    <p>emem.dev has retired its foundation encoders: Tessera, Clay, Prithvi and Galileo. Facts they signed still read through <span class="band">view=encoder</span> and still verify; nothing new materialises, and a cell without one answers 404 saying the encoder is retired. An unwired encoder appears in <span class="band">missing[]</span> rather than being zero-filled.</p>
 
     <p>Above the read surface sits a writable memory substrate the agent owns. <span class="band">/v1/memory_bundle</span> takes N (cell, band, tslot) triples and returns one signed envelope; the <span class="band">emem:bundle:&lt;bundle_cid&gt;</span> token is the multi-fact analogue of <span class="band">emem:fact:</span>. The six file-op verbs (<span class="band">memory_view &middot; memory_create &middot; memory_str_replace &middot; memory_insert &middot; memory_delete &middot; memory_rename</span>) conform to Anthropic&rsquo;s memory tool spec (header <span class="band">context-management-2025-06-27</span>): the &ldquo;files&rdquo; are signed, content-addressed blobs under a path tree rooted at <span class="band">/memories/</span>. Each file carries a <span class="band">kind</span> from the CoALA / LangMem taxonomy (<span class="band">episodic</span> for observations of events, <span class="band">semantic</span> for durable learned facts, <span class="band">procedural</span> for playbooks, <span class="band">resource</span> for scratchpads), and <span class="band">memory_list_by_kind</span> returns only the slice the agent asked for.</p>
 
