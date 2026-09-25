@@ -304,6 +304,50 @@ async fn get_or_fetch_tile(
     Ok(bytes_ref.clone())
 }
 
+type DecodedSlot = Arc<OnceCell<Arc<Vec<u8>>>>;
+
+/// Decoded tiles, shared. A grid samples each pixel from a handful of tiles,
+/// and every sample used to inflate its whole tile again (~860 decodes of
+/// the same few tiles for one 12x12 grid). Kept small because a decoded
+/// Sentinel-2 tile is ~2 MB: `EMEM_COG_DECODED_CACHE_CAP` (default 64),
+/// cleared wholesale when full, single-flight per tile like the byte cache.
+static DECODED_CACHE: LazyLock<Mutex<HashMap<TileKey, DecodedSlot>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+async fn get_or_decode_tile(
+    client: &Client,
+    url: &str,
+    tile_idx: usize,
+    off: u64,
+    len: u64,
+    codec: TileCodec,
+) -> Result<Arc<Vec<u8>>, CogError> {
+    let cap = std::env::var("EMEM_COG_DECODED_CACHE_CAP")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(64);
+    let key: TileKey = (cache_key(url).to_string(), tile_idx);
+    let cell = {
+        let mut guard = DECODED_CACHE.lock().await;
+        if guard.len() >= cap && !guard.contains_key(&key) {
+            guard.clear();
+        }
+        guard
+            .entry(key)
+            .or_insert_with(|| Arc::new(OnceCell::new()))
+            .clone()
+    };
+    let decoded = cell
+        .get_or_try_init(|| async {
+            let compressed = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
+            // Off the async reactor, under the decode semaphore.
+            let bytes = run_tile_decode(compressed, codec, decode_tile_singleband).await?;
+            Ok::<_, CogError>(Arc::new(bytes))
+        })
+        .await?;
+    Ok(decoded.clone())
+}
+
 /// Build a reqwest Client suitable for COG range-reads (long timeout,
 /// long idle + pool lifetime). Generic helper for warming a COG profile
 /// out-of-band of the request path. (The JRC GFC2020 connector no longer
@@ -1400,8 +1444,6 @@ pub async fn sample_pixel(
     // Tile-level single-flight: concurrent samplers for the same
     // (url, tile_idx) share one http_range. Hits the common path of a
     // polygon recall where N cells fall in the same physical COG tile.
-    let tile_compressed: Bytes = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
-
     // Decompress per the profile's `compression` tag.
     //   8 — Deflate / Adler32-framed zlib (Sentinel-2 / -1).
     //   5 — TIFF LZW: MSB-first bit packing, code size starts at 8, with
@@ -1409,9 +1451,7 @@ pub async fn sample_pixel(
     //       matches the TIFF spec; standard TIFF readers (libtiff, image-rs)
     //       use the same configuration.
     let codec = TileCodec::from_profile(profile);
-    // Decompress + undo the predictor off the async reactor (spawn_blocking
-    // under the decode semaphore — see run_tile_decode). Bit-identical output.
-    let tile_bytes = run_tile_decode(tile_compressed, codec, decode_tile_singleband).await?;
+    let tile_bytes = get_or_decode_tile(client, url, tile_idx, off, len, codec).await?;
 
     if packed {
         return packed_uint(
