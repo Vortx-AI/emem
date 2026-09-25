@@ -513,11 +513,69 @@ fn scan_existing(root: &std::path::Path) -> std::io::Result<LogState> {
 /// that way is what keeps it composable with the append counter: this
 /// process's own segments are counted by `appended`, never here, so no
 /// record is counted twice however many segments we seal while running.
+/// Name of the sidecar that remembers frozen segments' record counts across
+/// restarts. It never rewrites a segment, and every log reader matches only
+/// `merkle.log.<n>`, so it is invisible to them.
+const COUNTS_FILE: &str = "merkle.counts.v1";
+
+/// Records in a segment an earlier process wrote. Such a segment never
+/// changes, so its count is computed once, ever, and appended to the
+/// sidecar: a full count is one read of every segment (18.7 GB, 142 s on
+/// this responder, 2026-09-25) and used to be paid after every boot by the
+/// first log-head request. Lines are `<file name> <length> <count>`; one
+/// whose length no longer matches is ignored and recounted.
+fn frozen_segment_count(root: &std::path::Path, path: &std::path::Path) -> std::io::Result<u64> {
+    type Known = std::sync::Mutex<Option<std::collections::HashMap<String, (u64, u64)>>>;
+    static KNOWN: Known = std::sync::Mutex::new(None);
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or_default()
+        .to_string();
+    let len = std::fs::metadata(path)?.len();
+    {
+        let mut k = KNOWN.lock().unwrap_or_else(|e| e.into_inner());
+        let map = k.get_or_insert_with(Default::default);
+        let loaded = format!("{}\0loaded", root.display());
+        if !map.contains_key(&loaded) {
+            for l in std::fs::read_to_string(root.join(COUNTS_FILE))
+                .unwrap_or_default()
+                .lines()
+            {
+                let mut it = l.split_whitespace();
+                if let (Some(nm), Some(Ok(ln)), Some(Ok(ct))) = (
+                    it.next(),
+                    it.next().map(str::parse::<u64>),
+                    it.next().map(str::parse::<u64>),
+                ) {
+                    map.insert(root.join(nm).display().to_string(), (ln, ct));
+                }
+            }
+            map.insert(loaded, (0, 0));
+        }
+        if let Some((l, n)) = map.get(&path.display().to_string()) {
+            if *l == len {
+                return Ok(*n);
+            }
+        }
+    }
+    let n = segment_record_count(path)?;
+    if let Ok(mut f) = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(root.join(COUNTS_FILE))
+    {
+        let _ = writeln!(f, "{name} {len} {n}");
+    }
+    if let Some(map) = KNOWN.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
+        map.insert(path.display().to_string(), (len, n));
+    }
+    Ok(n)
+}
+
 /// Records in one segment file, remembered by (path, length). A sealed
-/// segment never changes; the open one is recounted when it has grown. The
-/// walk reads only each record's 4-byte length and seeks past the body.
+/// segment never changes; the open one is recounted when it has grown.
 fn segment_record_count(path: &std::path::Path) -> std::io::Result<u64> {
-    use std::io::{Seek, SeekFrom};
     type Counts = std::sync::Mutex<std::collections::HashMap<PathBuf, (u64, u64)>>;
     static COUNTS: std::sync::OnceLock<Counts> = std::sync::OnceLock::new();
     let len = std::fs::metadata(path)?.len();
@@ -527,14 +585,17 @@ fn segment_record_count(path: &std::path::Path) -> std::io::Result<u64> {
             return Ok(*n);
         }
     }
-    let mut f = std::io::BufReader::new(std::fs::File::open(path)?);
-    let (mut pos, mut n) = (0u64, 0u64);
-    let mut hdr = [0u8; 4];
-    while pos + 4 <= len {
-        f.seek(SeekFrom::Start(pos))?;
-        f.read_exact(&mut hdr)?;
-        let needed = 4 + u32::from_le_bytes(hdr) as u64 + 32;
-        if pos + needed > len {
+    // One sequential read per segment (segments average a few MB). Seeking
+    // record to record through a BufReader discards its buffer on every
+    // seek and re-reads ~8 KB per ~2 KB record, several times the bytes.
+    let mut bytes = Vec::with_capacity(len as usize);
+    std::fs::File::open(path)?.read_to_end(&mut bytes)?;
+    let (mut pos, mut n) = (0usize, 0u64);
+    while pos + 4 <= bytes.len() {
+        let rec = u32::from_le_bytes([bytes[pos], bytes[pos + 1], bytes[pos + 2], bytes[pos + 3]])
+            as usize;
+        let needed = 4 + rec + 32;
+        if pos + needed > bytes.len() {
             break;
         }
         n += 1;
@@ -557,7 +618,7 @@ fn count_records_below(root: &std::path::Path, first_own: u64) -> std::io::Resul
         if let Some(rest) = name.strip_prefix("merkle.log.") {
             if let Ok(n) = rest.parse::<u64>() {
                 if n < first_own {
-                    total += segment_record_count(&entry.path())?;
+                    total += frozen_segment_count(root, &entry.path())?;
                 }
             }
         }
@@ -779,6 +840,29 @@ mod tests {
         let on_disk = log.leaf_hashes().unwrap();
         assert_eq!(on_disk.last(), Some(&last.record_hash));
         assert_eq!(log.record_count().await, on_disk.len() as u64);
+    }
+
+    /// Frozen segments are counted once and remembered on disk: the next
+    /// process reads the sidecar, and the answer matches a full count.
+    #[tokio::test]
+    async fn frozen_counts_persist_beside_the_log() {
+        let tmp = tempfile::tempdir().unwrap();
+        for round in 0..3u64 {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for i in 0..4u64 {
+                log.append(&distinct_attestation(round * 10 + i))
+                    .await
+                    .unwrap();
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        assert_eq!(log.record_count().await, 12);
+        let side = std::fs::read_to_string(tmp.path().join(COUNTS_FILE)).unwrap();
+        assert_eq!(side.lines().count(), 3, "one line per frozen segment");
+        assert!(side.lines().all(|l| l.ends_with(" 4")));
+        let again = AttestationLog::open(tmp.path()).unwrap();
+        assert_eq!(again.record_count().await, 12);
+        assert_eq!(again.entries(0, 100).unwrap().len(), 12);
     }
 
     #[tokio::test]
