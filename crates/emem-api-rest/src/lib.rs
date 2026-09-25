@@ -73613,6 +73613,27 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                                 }
                             }
                         }
+                        // A query that names a kind of feature ("Mount …")
+                        // wants a feature of that kind first: the class check
+                        // that only flagged a mismatch after the pick ("Mount
+                        // Kilimanjaro" -> a primary school) now makes it.
+                        let want = detect_query_feature_class(p);
+                        let fits = |c: &NominatimHit| want.matches_osm(&c.class_, &c.type_);
+                        if want != QueryFeatureClass::Unknown && !h.first().is_some_and(fits) {
+                            if let Some(i) = h.iter().position(fits) {
+                                h[..=i].rotate_right(1);
+                            } else if let Some(bare) = strip_feature_word(p, want) {
+                                // OSM names the feature without its type word
+                                // ("Kilimanjaro", not "Mount Kilimanjaro").
+                                if let Some(c) = photon_lookup_candidates(&bare, 5)
+                                    .await
+                                    .ok()
+                                    .and_then(|v| v.into_iter().find(fits))
+                                {
+                                    h.insert(0, c);
+                                }
+                            }
+                        }
                         h
                     }
                     (Ok(_empty), Some(Ok(n))) if !n.is_empty() => {
@@ -74299,7 +74320,13 @@ impl QueryFeatureClass {
         let t = type_.to_ascii_lowercase();
         match self {
             Self::Unknown => true,
-            Self::Peak => c == "natural" && matches!(t.as_str(), "peak" | "ridge" | "saddle"),
+            Self::Peak => {
+                c == "natural"
+                    && matches!(
+                        t.as_str(),
+                        "peak" | "ridge" | "saddle" | "volcano" | "massif" | "mountain_range"
+                    )
+            }
             Self::Volcano => c == "natural" && t == "volcano",
             Self::WaterBody => {
                 c == "natural" && matches!(t.as_str(), "water" | "bay" | "strait" | "coastline")
@@ -74357,6 +74384,26 @@ impl QueryFeatureClass {
 /// intentionally short, only words an agent can be expected to know
 /// imply a specific OSM class. Multi-word queries are split on
 /// whitespace and punctuation, then each token is checked.
+/// The query without the word that names its feature class, when OSM
+/// usually leaves that word out of the name: "Mount Kilimanjaro" is mapped
+/// as "Kilimanjaro", "Mauna Loa volcano" as "Mauna Loa".
+fn strip_feature_word(q: &str, class: QueryFeatureClass) -> Option<String> {
+    let lower = q.trim().to_ascii_lowercase();
+    let words: &[&str] = match class {
+        QueryFeatureClass::Peak => &["mount ", "mt. ", "mt ", " peak", " summit"],
+        QueryFeatureClass::Volcano => &[" volcano", "volcán "],
+        QueryFeatureClass::Glacier => &[" glacier"],
+        _ => return None,
+    };
+    let bare = words.iter().find_map(|w| {
+        lower
+            .strip_prefix(w)
+            .or_else(|| lower.strip_suffix(w))
+            .map(|r| r.trim().to_string())
+    })?;
+    (!bare.is_empty()).then_some(bare)
+}
+
 fn detect_query_feature_class(q: &str) -> QueryFeatureClass {
     let lower = q.to_ascii_lowercase();
     // Order matters: volcano subsumes peak; glacier subsumes ice.
@@ -75438,7 +75485,10 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 ///     attached only when it bounds the chosen point. "Mount Fuji" resolved
 ///     to a peak in Wisconsin with Japan's box beside it; generation-14 rows
 ///     for such names must re-resolve.
-const LOCATE_RESOLVER_VERSION: u32 = 15;
+/// 16: a query naming a feature class picks a candidate of that class, and
+///     retries without the type word when none is ("Mount Kilimanjaro"
+///     resolved to a primary school; OSM names the peak "Kilimanjaro").
+const LOCATE_RESOLVER_VERSION: u32 = 16;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -87518,6 +87568,21 @@ mod tests {
         let g = json!({"type": "Polygon", "coordinates": [[[138.6, 35.2], [138.9, 35.2], [138.9, 35.5], [138.6, 35.2]]]});
         assert_eq!(geojson_bbox(&g), Some((35.2, 35.5, 138.6, 138.9)));
         assert_eq!(geojson_bbox(&json!({"type": "Point"})), None);
+    }
+
+    #[test]
+    fn the_type_word_is_not_the_name() {
+        let peak = QueryFeatureClass::Peak;
+        assert_eq!(
+            strip_feature_word("Mount Kilimanjaro", peak).as_deref(),
+            Some("kilimanjaro")
+        );
+        let volcano = QueryFeatureClass::Volcano;
+        assert_eq!(
+            strip_feature_word("Mauna Loa volcano", volcano).as_deref(),
+            Some("mauna loa")
+        );
+        assert_eq!(strip_feature_word("Paris", peak), None);
     }
 
     #[test]
