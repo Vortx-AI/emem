@@ -87997,8 +87997,14 @@ mod tests {
     /// The list production reads, parsed the way the warmer parses it.
     #[test]
     fn the_warm_list_names_bands_this_responder_knows() {
+        // Read, not include_str!: config/ is not in the image, and a
+        // compile-time include of it would break the release build.
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../config/warm_priority.json"
+        );
         let entries: Vec<WarmEntry> =
-            serde_json::from_str(include_str!("../../../config/warm_priority.json")).unwrap();
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         assert!(!entries.is_empty());
         for e in &entries {
             assert!(!e.cells.is_empty() && e.cells.len() <= 256);

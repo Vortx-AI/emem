@@ -64,6 +64,10 @@ SKIP = (
     "docs/book/",
     "docs/whitepaper-v1.md",
     "docs/collaboration-log.md",
+    # Records of what was true when written; naming a retired route is
+    # their job.
+    "docs/operators/deprecations.md",
+    "CHANGELOG.md",
     "target/",
     ".git/",
 )
