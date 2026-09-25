@@ -1,6 +1,5 @@
 [
  {
-  "band": "indices.ndvi",
   "cells": [
    "defi.zb493.yiwo.zcb4e",
    "defi.zb494.vemi.lAcu",
@@ -9,23 +8,7 @@
    "-9.729,-63.030",
    "13.061,77.350",
    "20.878,-156.682",
-   "20.757,-156.382"
-  ],
-  "why": "the newest clear greenness reading, the one the vortx.ai hero decodes",
-  "places": [
-   "Cubbon Park, Bengaluru: the world note, and the hero's live decode",
-   "Marina Beach, Chennai: world note",
-   "Maasai Mara: world note",
-   "Port of Rotterdam: world note",
-   "Amazon frontier: timelapse and forest grid",
-   "Bengaluru true colour and near infrared: Sentinel-2B scene",
-   "Lahaina: before and after the fire",
-   "Maui fires, 50 cm"
-  ]
- },
- {
-  "band": "indices.ndvi",
-  "cells": [
+   "20.757,-156.382",
    "33.448,-112.074",
    "25.420,51.489",
    "12.971,77.593",
@@ -33,23 +16,7 @@
    "-19.549,23.049",
    "-30.776,121.506",
    "34.452,-116.687",
-   "43.467,11.885"
-  ],
-  "why": "the newest clear greenness reading, the one the vortx.ai hero decodes",
-  "places": [
-   "Phoenix: green vs heat",
-   "Lusail, a city rising",
-   "Bengaluru: green vs heat",
-   "Lion and impala, Kruger",
-   "Okavango Delta, flood pulse",
-   "Super Pit, Kalgoorlie",
-   "Dry lake cracks, drone",
-   "A holiday photo, placed"
-  ]
- },
- {
-  "band": "indices.ndvi",
-  "cells": [
+   "43.467,11.885",
    "defi.zb509.zAro.heqI",
    "defi.zb545.zf86d.zb6c2",
    "defi.zb3e3.wogi.ze38e",
@@ -59,31 +26,20 @@
    "defi.zb5d9.heqe.pazi",
    "defi.zb5cf.zbc12.zd8d6"
   ],
-  "why": "the newest clear greenness reading, the one the vortx.ai hero decodes",
-  "places": [
-   "Ashok Nagar, Ranchi: ask chip",
-   "Delhi: ask chip",
-   "Amazon frontier, Rondônia: ask chip",
-   "Bengaluru: the ask panel's default place",
-   "Amazon frontier: /proof/ handoff chip",
-   "Sahara: /proof/ handoff chip",
-   "Des Moines: /proof/ handoff chip",
-   "Manhattan: /proof/ handoff chip"
-  ]
- },
- {
-  "band": "s2.B04",
-  "cells": [
-   "defi.zb493.yiwo.zcb4e",
-   "defi.zb494.vemi.lAcu",
-   "defi.zb3ef.degu.kAge",
-   "defi.zb64e.wopO.zc99b",
-   "-9.729,-63.030",
-   "13.061,77.350",
-   "20.878,-156.682",
-   "20.757,-156.382"
+  "bands": [
+   "indices.ndvi",
+   "s2.B04",
+   "s2.B08",
+   "sentinel1_raw",
+   "modis.lst_day_8day"
   ],
-  "why": "the red band NDVI is computed from",
+  "why": {
+   "indices.ndvi": "the newest clear greenness reading, the one the vortx.ai hero decodes",
+   "s2.B04": "the red band NDVI is computed from",
+   "s2.B08": "the near-infrared band NDVI is computed from",
+   "sentinel1_raw": "radar, through cloud: the reading a monsoon month still has",
+   "modis.lst_day_8day": "daytime ground heat, the other half of the cities' green vs heat"
+  },
   "places": [
    "Cubbon Park, Bengaluru: the world note, and the hero's live decode",
    "Marina Beach, Chennai: world note",
@@ -92,23 +48,7 @@
    "Amazon frontier: timelapse and forest grid",
    "Bengaluru true colour and near infrared: Sentinel-2B scene",
    "Lahaina: before and after the fire",
-   "Maui fires, 50 cm"
-  ]
- },
- {
-  "band": "s2.B04",
-  "cells": [
-   "33.448,-112.074",
-   "25.420,51.489",
-   "12.971,77.593",
-   "-25.014,31.077",
-   "-19.549,23.049",
-   "-30.776,121.506",
-   "34.452,-116.687",
-   "43.467,11.885"
-  ],
-  "why": "the red band NDVI is computed from",
-  "places": [
+   "Maui fires, 50 cm",
    "Phoenix: green vs heat",
    "Lusail, a city rising",
    "Bengaluru: green vs heat",
@@ -116,239 +56,7 @@
    "Okavango Delta, flood pulse",
    "Super Pit, Kalgoorlie",
    "Dry lake cracks, drone",
-   "A holiday photo, placed"
-  ]
- },
- {
-  "band": "s2.B04",
-  "cells": [
-   "defi.zb509.zAro.heqI",
-   "defi.zb545.zf86d.zb6c2",
-   "defi.zb3e3.wogi.ze38e",
-   "Bengaluru",
-   "defi.zb391.mewu.zcb6f",
-   "defi.zb50b.pIvO.geqO",
-   "defi.zb5d9.heqe.pazi",
-   "defi.zb5cf.zbc12.zd8d6"
-  ],
-  "why": "the red band NDVI is computed from",
-  "places": [
-   "Ashok Nagar, Ranchi: ask chip",
-   "Delhi: ask chip",
-   "Amazon frontier, Rondônia: ask chip",
-   "Bengaluru: the ask panel's default place",
-   "Amazon frontier: /proof/ handoff chip",
-   "Sahara: /proof/ handoff chip",
-   "Des Moines: /proof/ handoff chip",
-   "Manhattan: /proof/ handoff chip"
-  ]
- },
- {
-  "band": "s2.B08",
-  "cells": [
-   "defi.zb493.yiwo.zcb4e",
-   "defi.zb494.vemi.lAcu",
-   "defi.zb3ef.degu.kAge",
-   "defi.zb64e.wopO.zc99b",
-   "-9.729,-63.030",
-   "13.061,77.350",
-   "20.878,-156.682",
-   "20.757,-156.382"
-  ],
-  "why": "the near-infrared band NDVI is computed from",
-  "places": [
-   "Cubbon Park, Bengaluru: the world note, and the hero's live decode",
-   "Marina Beach, Chennai: world note",
-   "Maasai Mara: world note",
-   "Port of Rotterdam: world note",
-   "Amazon frontier: timelapse and forest grid",
-   "Bengaluru true colour and near infrared: Sentinel-2B scene",
-   "Lahaina: before and after the fire",
-   "Maui fires, 50 cm"
-  ]
- },
- {
-  "band": "s2.B08",
-  "cells": [
-   "33.448,-112.074",
-   "25.420,51.489",
-   "12.971,77.593",
-   "-25.014,31.077",
-   "-19.549,23.049",
-   "-30.776,121.506",
-   "34.452,-116.687",
-   "43.467,11.885"
-  ],
-  "why": "the near-infrared band NDVI is computed from",
-  "places": [
-   "Phoenix: green vs heat",
-   "Lusail, a city rising",
-   "Bengaluru: green vs heat",
-   "Lion and impala, Kruger",
-   "Okavango Delta, flood pulse",
-   "Super Pit, Kalgoorlie",
-   "Dry lake cracks, drone",
-   "A holiday photo, placed"
-  ]
- },
- {
-  "band": "s2.B08",
-  "cells": [
-   "defi.zb509.zAro.heqI",
-   "defi.zb545.zf86d.zb6c2",
-   "defi.zb3e3.wogi.ze38e",
-   "Bengaluru",
-   "defi.zb391.mewu.zcb6f",
-   "defi.zb50b.pIvO.geqO",
-   "defi.zb5d9.heqe.pazi",
-   "defi.zb5cf.zbc12.zd8d6"
-  ],
-  "why": "the near-infrared band NDVI is computed from",
-  "places": [
-   "Ashok Nagar, Ranchi: ask chip",
-   "Delhi: ask chip",
-   "Amazon frontier, Rondônia: ask chip",
-   "Bengaluru: the ask panel's default place",
-   "Amazon frontier: /proof/ handoff chip",
-   "Sahara: /proof/ handoff chip",
-   "Des Moines: /proof/ handoff chip",
-   "Manhattan: /proof/ handoff chip"
-  ]
- },
- {
-  "band": "sentinel1_raw",
-  "cells": [
-   "defi.zb493.yiwo.zcb4e",
-   "defi.zb494.vemi.lAcu",
-   "defi.zb3ef.degu.kAge",
-   "defi.zb64e.wopO.zc99b",
-   "-9.729,-63.030",
-   "13.061,77.350",
-   "20.878,-156.682",
-   "20.757,-156.382"
-  ],
-  "why": "radar, through cloud: the reading a monsoon month still has",
-  "places": [
-   "Cubbon Park, Bengaluru: the world note, and the hero's live decode",
-   "Marina Beach, Chennai: world note",
-   "Maasai Mara: world note",
-   "Port of Rotterdam: world note",
-   "Amazon frontier: timelapse and forest grid",
-   "Bengaluru true colour and near infrared: Sentinel-2B scene",
-   "Lahaina: before and after the fire",
-   "Maui fires, 50 cm"
-  ]
- },
- {
-  "band": "sentinel1_raw",
-  "cells": [
-   "33.448,-112.074",
-   "25.420,51.489",
-   "12.971,77.593",
-   "-25.014,31.077",
-   "-19.549,23.049",
-   "-30.776,121.506",
-   "34.452,-116.687",
-   "43.467,11.885"
-  ],
-  "why": "radar, through cloud: the reading a monsoon month still has",
-  "places": [
-   "Phoenix: green vs heat",
-   "Lusail, a city rising",
-   "Bengaluru: green vs heat",
-   "Lion and impala, Kruger",
-   "Okavango Delta, flood pulse",
-   "Super Pit, Kalgoorlie",
-   "Dry lake cracks, drone",
-   "A holiday photo, placed"
-  ]
- },
- {
-  "band": "sentinel1_raw",
-  "cells": [
-   "defi.zb509.zAro.heqI",
-   "defi.zb545.zf86d.zb6c2",
-   "defi.zb3e3.wogi.ze38e",
-   "Bengaluru",
-   "defi.zb391.mewu.zcb6f",
-   "defi.zb50b.pIvO.geqO",
-   "defi.zb5d9.heqe.pazi",
-   "defi.zb5cf.zbc12.zd8d6"
-  ],
-  "why": "radar, through cloud: the reading a monsoon month still has",
-  "places": [
-   "Ashok Nagar, Ranchi: ask chip",
-   "Delhi: ask chip",
-   "Amazon frontier, Rondônia: ask chip",
-   "Bengaluru: the ask panel's default place",
-   "Amazon frontier: /proof/ handoff chip",
-   "Sahara: /proof/ handoff chip",
-   "Des Moines: /proof/ handoff chip",
-   "Manhattan: /proof/ handoff chip"
-  ]
- },
- {
-  "band": "modis.lst_day_8day",
-  "cells": [
-   "defi.zb493.yiwo.zcb4e",
-   "defi.zb494.vemi.lAcu",
-   "defi.zb3ef.degu.kAge",
-   "defi.zb64e.wopO.zc99b",
-   "-9.729,-63.030",
-   "13.061,77.350",
-   "20.878,-156.682",
-   "20.757,-156.382"
-  ],
-  "why": "daytime ground heat, the other half of the cities' green vs heat",
-  "places": [
-   "Cubbon Park, Bengaluru: the world note, and the hero's live decode",
-   "Marina Beach, Chennai: world note",
-   "Maasai Mara: world note",
-   "Port of Rotterdam: world note",
-   "Amazon frontier: timelapse and forest grid",
-   "Bengaluru true colour and near infrared: Sentinel-2B scene",
-   "Lahaina: before and after the fire",
-   "Maui fires, 50 cm"
-  ]
- },
- {
-  "band": "modis.lst_day_8day",
-  "cells": [
-   "33.448,-112.074",
-   "25.420,51.489",
-   "12.971,77.593",
-   "-25.014,31.077",
-   "-19.549,23.049",
-   "-30.776,121.506",
-   "34.452,-116.687",
-   "43.467,11.885"
-  ],
-  "why": "daytime ground heat, the other half of the cities' green vs heat",
-  "places": [
-   "Phoenix: green vs heat",
-   "Lusail, a city rising",
-   "Bengaluru: green vs heat",
-   "Lion and impala, Kruger",
-   "Okavango Delta, flood pulse",
-   "Super Pit, Kalgoorlie",
-   "Dry lake cracks, drone",
-   "A holiday photo, placed"
-  ]
- },
- {
-  "band": "modis.lst_day_8day",
-  "cells": [
-   "defi.zb509.zAro.heqI",
-   "defi.zb545.zf86d.zb6c2",
-   "defi.zb3e3.wogi.ze38e",
-   "Bengaluru",
-   "defi.zb391.mewu.zcb6f",
-   "defi.zb50b.pIvO.geqO",
-   "defi.zb5d9.heqe.pazi",
-   "defi.zb5cf.zbc12.zd8d6"
-  ],
-  "why": "daytime ground heat, the other half of the cities' green vs heat",
-  "places": [
+   "A holiday photo, placed",
    "Ashok Nagar, Ranchi: ask chip",
    "Delhi: ask chip",
    "Amazon frontier, Rondônia: ask chip",
