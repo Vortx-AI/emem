@@ -55546,10 +55546,114 @@ async fn sign_and_persist(
     fact: Fact,
     signed_at: &str,
 ) -> Result<emem_fact::FactCid, String> {
-    let cids = sign_and_persist_many(s, vec![fact], signed_at).await?;
-    cids.into_iter()
-        .next()
-        .ok_or_else(|| "put_attestation returned no fact_cid".to_string())
+    // Group commit. Every materializer signs one fact at a time, so a cold
+    // grid wrote one attestation, one log record and one index flush per
+    // square. A fact now joins its server's queue, and whoever holds the
+    // writer next signs everything queued as one attestation; each fact
+    // keeps its own signed_at, cid and inclusion proof. The batch runs as
+    // its own task so a caller's timeout cannot split it.
+    let q = sign_queue(s);
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    q.queue
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .push((fact, signed_at.to_string(), tx));
+    let writer = q.writer.clone().lock_owned().await;
+    let batch = std::mem::take(&mut *q.queue.lock().unwrap_or_else(|e| e.into_inner()));
+    if batch.is_empty() {
+        drop(writer);
+    } else {
+        let s = s.clone();
+        tokio::spawn(async move {
+            let _writer = writer;
+            sign_batch(&s, batch).await;
+        });
+    }
+    rx.await
+        .map_err(|_| "fact signing: the batch was dropped".to_string())?
+}
+
+type PendingFact = (
+    Fact,
+    String,
+    tokio::sync::oneshot::Sender<Result<emem_fact::FactCid, String>>,
+);
+
+/// A server's queue of facts waiting to be signed, and the writer lock.
+struct SignQueue {
+    writer: Arc<tokio::sync::Mutex<()>>,
+    queue: std::sync::Mutex<Vec<PendingFact>>,
+}
+
+fn sign_queue(s: &AppState) -> Arc<SignQueue> {
+    type Queues = std::sync::Mutex<std::collections::HashMap<usize, Arc<SignQueue>>>;
+    static QUEUES: std::sync::OnceLock<Queues> = std::sync::OnceLock::new();
+    QUEUES
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(Arc::as_ptr(s) as usize)
+        .or_insert_with(|| {
+            Arc::new(SignQueue {
+                writer: Default::default(),
+                queue: Default::default(),
+            })
+        })
+        .clone()
+}
+
+/// Sign queued facts as one attestation per chunk. Byte-identical facts in
+/// one batch are signed once and share the cid (a duplicate leaf would be
+/// refused). If a chunk is refused, its facts are retried one by one, so a
+/// fact that cannot be signed fails alone.
+async fn sign_batch(s: &AppState, batch: Vec<PendingFact>) {
+    const CHUNK: usize = 512;
+    let mut rest = batch;
+    while !rest.is_empty() {
+        let tail = rest.split_off(rest.len().min(CHUNK));
+        let chunk = std::mem::replace(&mut rest, tail);
+        let mut unique: Vec<Fact> = Vec::new();
+        let mut index: std::collections::HashMap<Vec<u8>, usize> = Default::default();
+        let mut slot_of: Vec<usize> = Vec::with_capacity(chunk.len());
+        let mut signed_at = String::new();
+        for (f, at, _) in &chunk {
+            let mut f = f.clone();
+            f.canonicalize_floats();
+            let key = emem_fact::cbor::to_canonical_cbor(&f).unwrap_or_default();
+            let next = unique.len();
+            let i = *index.entry(key).or_insert(next);
+            if i == next {
+                unique.push(f);
+            }
+            slot_of.push(i);
+            if at.as_str() > signed_at.as_str() {
+                signed_at = at.clone();
+            }
+        }
+        let cids: Vec<Result<emem_fact::FactCid, String>> =
+            match sign_and_persist_many(s, unique.clone(), &signed_at).await {
+                Ok(c) if c.len() == unique.len() => c.into_iter().map(Ok).collect(),
+                _ => {
+                    let mut out = Vec::with_capacity(unique.len());
+                    for f in unique {
+                        let at = match &f {
+                            Fact::Primary(p) => p.signed_at.clone(),
+                            Fact::Absence(a) => a.signed_at.clone(),
+                            _ => signed_at.clone(),
+                        };
+                        out.push(sign_and_persist_many(s, vec![f], &at).await.and_then(|c| {
+                            c.into_iter()
+                                .next()
+                                .ok_or_else(|| "put_attestation returned no fact_cid".to_string())
+                        }));
+                    }
+                    out
+                }
+            };
+        for ((_, _, done), i) in chunk.into_iter().zip(slot_of) {
+            let _ = done.send(cids[i].clone());
+        }
+    }
 }
 
 /// Batched variant: sign and persist N facts as ONE Attestation, in ONE
@@ -87138,6 +87242,64 @@ mod tests {
         assert_eq!(cache_ttl_for_path("/v1/tree/path"), None);
         assert!(cache_ttl_for_path("/v1/log/sth").is_some_and(|v| v.contains("max-age=15")));
         assert_eq!(cache_ttl_for_path("/v1/inbox"), None);
+    }
+
+    /// Concurrent signings share attestations but not identities: each
+    /// caller gets its own fact back, readable, and two byte-identical facts
+    /// come back as one cid instead of a refused batch.
+    #[tokio::test]
+    async fn concurrent_signings_group_and_each_gets_its_fact() {
+        let s = test_app_state();
+        let fact = |i: u64| {
+            Fact::Primary(PrimaryFact {
+                cell: "defi.zb493.yiwo.zcb4e".into(),
+                band: "indices.ndvi".into(),
+                tslot: 30_000 + i,
+                value: ciborium::Value::Float(0.5),
+                unit: None,
+                confidence: 0.95,
+                uncertainty: None,
+                sources: vec![],
+                derivation: Derivation {
+                    fn_key: "sentinel2_l2a_indices_ndvi@1".into(),
+                    args: None,
+                },
+                privacy_class: "public".into(),
+                schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
+                signer: s.identity.pubkey,
+                signed_at: "2026-09-25T00:00:00Z".into(),
+                served_via: None,
+            })
+        };
+        let mut tasks = Vec::new();
+        for i in 0..20u64 {
+            let (s, f) = (s.clone(), fact(i));
+            tasks.push(tokio::spawn(async move {
+                sign_and_persist(&s, f, "2026-09-25T00:00:00Z").await
+            }));
+        }
+        let (a, b, f99, g99) = (s.clone(), s.clone(), fact(99), fact(99));
+        let twin =
+            tokio::spawn(async move { sign_and_persist(&a, f99, "2026-09-25T00:00:00Z").await });
+        let twin2 = sign_and_persist(&b, g99, "2026-09-25T00:00:00Z")
+            .await
+            .unwrap();
+        assert_eq!(twin.await.unwrap().unwrap(), twin2);
+        let mut cids = Vec::new();
+        for t in tasks {
+            cids.push(t.await.unwrap().unwrap());
+        }
+        let mut uniq = cids.clone();
+        uniq.sort_by(|x, y| x.as_str().cmp(y.as_str()));
+        uniq.dedup();
+        assert_eq!(uniq.len(), 20);
+        let got = s.storage.get_facts_many(&cids).await.unwrap();
+        for (i, f) in got.into_iter().enumerate() {
+            match f {
+                Some(Fact::Primary(p)) => assert_eq!(p.tslot, 30_000 + i as u64),
+                other => panic!("fact {i} missing: {other:?}"),
+            }
+        }
     }
 
     #[tokio::test]
