@@ -229,7 +229,7 @@ Required: `token`
 
 ## `emem_tools`
 
-The map of emem's tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool's full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 110, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint. When to use: Call FIRST when…
+The map of emem's tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool's full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 114, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint. When to use: Call FIRST when…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -345,13 +345,12 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 
 ```json
 {
-  "triples": [],
+  "fact_cids": [],      // optional
   "purpose": "<purpose>", // optional
-  "scope": {}           // optional
+  "scope": {},          // optional
+  "triples": []         // optional
 }
 ```
-
-Required: `triples`
 
 ---
 

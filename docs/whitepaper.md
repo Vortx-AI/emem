@@ -1356,7 +1356,7 @@ a factor of two and a half while making an argument about trust.
 ### 11.2 Tiering is a listing decision, not a capability decision
 
 An MCP host loads every advertised descriptor into the model's context at
-connect. All 113 cost about 324 KB of every conversation whether or not it
+connect. All 114 cost about 324 KB of every conversation whether or not it
 ever touches Earth observation. So `POST /mcp` advertises the 18 tools of
 the core loop in a single page, about 75 KB, and `POST /mcp/full`
 advertises all 114. Both byte figures were measured on the wire on
