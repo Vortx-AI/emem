@@ -50789,6 +50789,25 @@ async fn s2_pick_clear_scene_uncached(
     Err(last_err.unwrap_or_else(|| "no Sentinel-2 L2A scene found".into()))
 }
 
+/// The most Sentinel-2 items a window can hold, as a bound for paging:
+/// one pass every 2.5 days (two satellites, 5-day revisit each), per MGRS
+/// tile (~1 degree) the area touches, doubled for adjacent orbits
+/// overlapping. A point touches up to 4 tiles where they overlap.
+fn s2_items_bound(datetime: &str, bbox: Option<[f64; 4]>) -> usize {
+    let days = datetime
+        .split_once('/')
+        .and_then(|(a, b)| {
+            Some((parse_iso8601_unix(b)? - parse_iso8601_unix(a)?) as f64 / 86_400.0)
+        })
+        .unwrap_or(30.0)
+        .max(1.0);
+    let tiles = match bbox {
+        Some([w, s_, e, n]) => ((e - w).ceil() + 1.0) * ((n - s_).ceil() + 1.0),
+        None => 4.0,
+    };
+    ((days / 2.5).ceil() * tiles * 2.0) as usize
+}
+
 /// The area a many-cell read covers, set around each cell's task so the
 /// scene search is asked once per area rather than once per cell.
 #[derive(Clone, Copy, Debug)]
@@ -50914,7 +50933,7 @@ async fn s2_area_page(
                 area.bbox,
                 datetime,
                 Some(cloud),
-                250,
+                s2_items_bound(datetime, Some(area.bbox)),
             )
             .await?;
             let items = if host == emem_fetch::stac::STAC_MPC_V1 {
@@ -51141,7 +51160,14 @@ async fn s2_passes(
     start: i64,
     end: i64,
 ) -> Result<(Vec<emem_fetch::stac::StacItem>, &'static str, f64, bool), String> {
-    const PAGE: usize = 250;
+    let page = s2_items_bound(
+        &format!(
+            "{}/{}",
+            iso8601_utc(start.max(0) as u64),
+            iso8601_utc(end.max(start + 86_400) as u64)
+        ),
+        None,
+    );
     let base_cloud = std::env::var("EMEM_S2_MAX_CLOUD")
         .ok()
         .and_then(|v| v.parse::<f64>().ok())
@@ -51155,9 +51181,9 @@ async fn s2_passes(
     );
     let mut failures: Vec<String> = Vec::new();
     for host in s2_catalogues() {
-        match s2_candidates(cli, host, lng, lat, &datetime, cloud, PAGE).await {
+        match s2_candidates(cli, host, lng, lat, &datetime, cloud, page).await {
             Ok(items) => {
-                let truncated = items.len() >= PAGE;
+                let truncated = items.len() >= page;
                 return Ok((items, host, cloud, truncated));
             }
             Err(e) => failures.push(format!("{host}: {e}")),
@@ -51206,7 +51232,7 @@ async fn s2_backfill_by_pass(
     if truncated {
         if let Some(first) = passes.first() {
             notes.push(format!(
-                "the window holds more passes than one page; this call starts at {} (the oldest returned). Call again with end_unix before it for the earlier ones",
+                "the window holds more passes than this call reads; this call starts at {} (the oldest returned). Call again with end_unix before it for the earlier ones",
                 first.datetime
             ));
         }

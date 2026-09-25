@@ -292,17 +292,28 @@ fn is_rate_limit(status: u16, body: &str) -> bool {
 /// first 160 bytes of its body) in the error, and a rate limit puts the host
 /// on cooldown so the next caller fails fast instead of asking again.
 async fn post_search(client: &Client, search_url: &str, body: &Value) -> Result<Value, String> {
+    stac_request(client, search_url, Some(body)).await
+}
+
+/// One STAC search request: POST with `body`, or GET when `body` is None
+/// (a `next` link may be either).
+async fn stac_request(client: &Client, url: &str, body: Option<&Value>) -> Result<Value, String> {
+    let search_url = url.split('?').next().unwrap_or(url);
     if let Some(left) = stac_cooling(search_url) {
         return Err(format!(
             "stac cooling down {}s after a rate limit from this host",
             left.as_secs().max(1)
         ));
     }
-    let resp = client
-        .post(search_url)
-        .header("content-type", "application/json")
+    let req = match body {
+        Some(b) => client
+            .post(url)
+            .header("content-type", "application/json")
+            .json(b),
+        None => client.get(url),
+    };
+    let resp = req
         .header("user-agent", emem_core::outbound::user_agent())
-        .json(body)
         .send()
         .await
         .map_err(|e| format!("stac http: {e}"))?;
@@ -401,10 +412,8 @@ pub async fn search_many_at(
     max_cloud: Option<f64>,
     limit: usize,
 ) -> Result<Vec<StacItem>, String> {
-    let limit = limit.clamp(1, 500);
     let mut body = json!({
         "intersects": {"type": "Point", "coordinates": [lng, lat]},
-        "limit": limit,
         "collections": [collection],
         "datetime": datetime,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
@@ -412,15 +421,70 @@ pub async fn search_many_at(
     if let Some(c) = max_cloud {
         body["query"] = json!({"eo:cloud_cover": {"lt": c}});
     }
-    let v = post_search(client, search_url, &body).await?;
-    let feats = match v.get("features").and_then(|f| f.as_array()) {
-        Some(a) => a,
-        None => return Ok(Vec::new()),
-    };
-    Ok(feats
-        .iter()
-        .map(|f| parse_stac_feature(f, collection))
-        .collect())
+    Ok(search_paged(client, search_url, collection, body, limit)
+        .await?
+        .0)
+}
+
+/// Items a STAC search returns, following its `next` links (STAC API item
+/// search paging: a link's `method`, `body` and `merge`) until the answer
+/// is whole or `max_items` is reached. `true` means the catalogue said there
+/// was nothing more, not that a page happened to come back short.
+async fn search_paged(
+    client: &Client,
+    search_url: &str,
+    collection: &str,
+    mut body: Value,
+    max_items: usize,
+) -> Result<(Vec<StacItem>, bool), String> {
+    // A server may cap the page below this; the next link carries on.
+    body["limit"] = json!(max_items.clamp(1, 250));
+    let mut url = search_url.to_string();
+    let mut req_body = Some(body);
+    let mut items: Vec<StacItem> = Vec::new();
+    loop {
+        let v = stac_request(client, &url, req_body.as_ref()).await?;
+        if let Some(a) = v.get("features").and_then(|f| f.as_array()) {
+            items.extend(a.iter().map(|f| parse_stac_feature(f, collection)));
+        }
+        let next = v.get("links").and_then(|l| l.as_array()).and_then(|l| {
+            l.iter()
+                .find(|x| x.get("rel").and_then(|r| r.as_str()) == Some("next"))
+        });
+        let Some(next) = next else {
+            return Ok((items, true));
+        };
+        if items.len() >= max_items {
+            items.truncate(max_items);
+            return Ok((items, false));
+        }
+        let Some(href) = next.get("href").and_then(|h| h.as_str()) else {
+            return Ok((items, false));
+        };
+        url = href.to_string();
+        let post = next
+            .get("method")
+            .and_then(|m| m.as_str())
+            .is_some_and(|m| m.eq_ignore_ascii_case("POST"));
+        req_body = if !post {
+            None
+        } else {
+            let link_body = next.get("body").cloned().unwrap_or(json!({}));
+            let merge = next.get("merge").and_then(|m| m.as_bool()).unwrap_or(false);
+            match (merge, req_body.take()) {
+                (true, Some(mut prev)) => {
+                    if let (Some(p), Some(l)) = (prev.as_object_mut(), link_body.as_object()) {
+                        for (k, v) in l {
+                            p.insert(k.clone(), v.clone());
+                        }
+                    }
+                    Some(prev)
+                }
+                (false, prev) if link_body.as_object().is_some_and(|o| o.is_empty()) => prev,
+                _ => Some(link_body),
+            }
+        };
+    }
 }
 
 /// Items of `collection` whose footprint intersects `bbox`
@@ -445,10 +509,8 @@ pub async fn search_bbox_at(
             bbox[0], bbox[1], bbox[2], bbox[3]
         ),
     );
-    let limit = limit.clamp(1, 500);
     let mut body = json!({
         "bbox": bbox,
-        "limit": limit,
         "collections": [collection],
         "datetime": datetime,
         "sortby": [{"field": "properties.datetime", "direction": "desc"}],
@@ -456,18 +518,7 @@ pub async fn search_bbox_at(
     if let Some(c) = max_cloud {
         body["query"] = json!({"eo:cloud_cover": {"lt": c}});
     }
-    let v = post_search(client, search_url, &body).await?;
-    let items: Vec<StacItem> = v
-        .get("features")
-        .and_then(|f| f.as_array())
-        .map(|a| {
-            a.iter()
-                .map(|f| parse_stac_feature(f, collection))
-                .collect()
-        })
-        .unwrap_or_default();
-    let complete = items.len() < limit;
-    Ok((items, complete))
+    search_paged(client, search_url, collection, body, limit).await
 }
 
 /// Process-wide cache of MPC SAS tokens, keyed by collection. Microsoft
@@ -708,6 +759,51 @@ fn days_from_civil(y: i32, m: u32, d: u32) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A two-page catalogue: the pager follows the POST `next` link with its
+    /// body (merge false, as Element84 sends it), returns both pages, and
+    /// reports the answer whole only when no `next` link is left.
+    #[tokio::test]
+    async fn paging_follows_next_links_until_the_catalogue_says_done() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/search", listener.local_addr().unwrap());
+        let next_url = base.clone();
+        tokio::spawn(async move {
+            for page in 0..2 {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 8192];
+                let n = sock.read(&mut buf).await.unwrap();
+                let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                let feat = |id: &str| json!({"id": id, "properties": {"datetime": "2026-09-01T00:00:00Z"}});
+                let body = if page == 0 {
+                    assert!(!req.contains("\"next\":\"p2\""));
+                    json!({"features": [feat("a"), feat("b")],
+                           "links": [{"rel": "next", "method": "POST", "href": next_url, "merge": false,
+                                      "body": {"collections": ["c"], "limit": 2, "next": "p2"}}]})
+                } else {
+                    assert!(
+                        req.contains("\"next\":\"p2\""),
+                        "second page must send the link body"
+                    );
+                    json!({"features": [feat("c")], "links": []})
+                };
+                let text = body.to_string();
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                    text.len()
+                );
+                sock.write_all(resp.as_bytes()).await.unwrap();
+            }
+        });
+        let cli = Client::new();
+        let (items, whole) = search_paged(&cli, &base, "c", json!({"collections": ["c"]}), 100)
+            .await
+            .unwrap();
+        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(ids, ["a", "b", "c"]);
+        assert!(whole);
+    }
 
     #[test]
     fn a_rate_limit_is_recognised_in_either_dialect() {
