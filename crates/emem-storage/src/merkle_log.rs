@@ -81,17 +81,27 @@ impl AttestationLog {
     /// on this responder it is a multi-second read of several GB, and an
     /// async worker parked on it stalls every other request that worker
     /// owned.
-    async fn prior_records(&self, s: &mut LogState) -> u64 {
-        if s.prior.is_none() {
-            let root = self.root.clone();
-            let first_own = s.first_own_segment;
-            if let Ok(Ok(n)) =
-                tokio::task::spawn_blocking(move || count_records_below(&root, first_own)).await
-            {
-                s.prior = Some(n);
-            }
+    async fn prior_records(&self) -> u64 {
+        // Counted WITHOUT the state lock: the count walks every frozen
+        // segment (GBs), and holding the lock through it stopped every
+        // append, so every fact write, for minutes after a boot on a cold
+        // page cache (a 131 s append measured 2026-09-25). Frozen segments
+        // never change, so a racing duplicate count is merely redundant.
+        let (first_own, known) = {
+            let s = self.state.lock().await;
+            (s.first_own_segment, s.prior)
+        };
+        if let Some(n) = known {
+            return n;
         }
-        s.prior.unwrap_or(0)
+        let root = self.root.clone();
+        match tokio::task::spawn_blocking(move || count_records_below(&root, first_own)).await {
+            Ok(Ok(n)) => {
+                self.state.lock().await.prior = Some(n);
+                n
+            }
+            _ => 0,
+        }
     }
 
     /// Append an attestation. Bytes are flushed and fsynced before this
@@ -223,9 +233,8 @@ impl AttestationLog {
     /// Cumulative number of attestation records appended in this log's
     /// lifetime (including across restarts of the process).
     pub async fn record_count(&self) -> u64 {
-        let mut s = self.state.lock().await;
-        let prior = self.prior_records(&mut s).await;
-        prior + s.appended
+        let prior = self.prior_records().await;
+        prior + self.state.lock().await.appended
     }
 
     /// Collect every record's per-record hash (the trailing
@@ -548,29 +557,12 @@ fn count_records_below(root: &std::path::Path, first_own: u64) -> std::io::Resul
         if let Some(rest) = name.strip_prefix("merkle.log.") {
             if let Ok(n) = rest.parse::<u64>() {
                 if n < first_own {
-                    total += count_records_in(&entry.path())?;
+                    total += segment_record_count(&entry.path())?;
                 }
             }
         }
     }
     Ok(total)
-}
-
-fn count_records_in(path: &std::path::Path) -> std::io::Result<u64> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?.read_to_end(&mut bytes)?;
-    let mut count = 0u64;
-    let mut i = 0usize;
-    while i + 4 <= bytes.len() {
-        let len = u32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]) as usize;
-        let needed = 4 + len + 32;
-        if i + needed > bytes.len() {
-            break;
-        }
-        i += needed;
-        count += 1;
-    }
-    Ok(count)
 }
 
 /// Segment manifest for snapshot/replication. Published to the coverage
