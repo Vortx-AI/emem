@@ -105,6 +105,13 @@ esac
 #
 # daemon-reload is idempotent and costs milliseconds, so it is not conditional
 # on having noticed that the unit changed -- noticing is the part that failed.
+# The warmer's list lives in the repo (config/warm_priority.json) and is read
+# from the data dir every pass, so a link keeps the two the same list: a
+# git pull changes what the next pass warms, with no restart. Idempotent.
+echo "==> warm list: var/emem/warm_priority.json -> config/warm_priority.json"
+mkdir -p "$REPO/var/emem"
+ln -sfn "$REPO/config/warm_priority.json" "$REPO/var/emem/warm_priority.json"
+
 echo "==> systemctl --user daemon-reload"
 systemctl --user daemon-reload
 

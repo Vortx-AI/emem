@@ -176,6 +176,8 @@ when the variable is unset.
 | `EMEM_SECRET_B32` | (loaded from `<EMEM_DATA>/identity.secret.b32`) | ed25519 secret override, base32-nopad |
 | `EMEM_AUTO_MATERIALIZE` | unset (off) | enable lazy fetch on `/v1/recall` miss |
 | `EMEM_MATERIALIZE_SHARE` | `0.5` | the fraction of the per-minute cold-fetch ceiling (`EMEM_MATERIALIZE_PER_MIN`) one requester (hashed client address) may spend; the total still caps everyone |
+| `EMEM_WARM_INTERVAL_SECS` | `0` (off) | the densification warmer: every this many seconds, re-read `<EMEM_DATA>/warm_priority.json` and backfill each entry (`cells`, `band`, optional `start_unix`/`end_unix`) through the preparer; the production unit sets 21600 and `scripts/redeploy.sh` links the list from `config/warm_priority.json` |
+| `EMEM_WARM_BUDGET_MS` | `30000` | the warmer's budget per entry per pass; what does not finish detaches and persists, and the next pass converges |
 | `EMEM_ABSENCE_RECHECK_SECS` | `21600` | how long this responder's own Absence stands as the answer before a recall asks upstream again; `0` re-asks every time |
 | `EMEM_MEMORY_SEARCH_POLL_SECS` | `60` | memory-search indexer pass; the indexed set and vectors stay resident, so a pass reads no index rows |
 | `EMEM_TIMEOUT_SECS` | 180 | per-request gateway timeout (clamped 1..=600) |
