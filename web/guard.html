@@ -427,13 +427,15 @@ HTTP 200</code></pre></div>
 
     <p>Add a citation that <strong>resolves</strong> and the rule declines:</p>
     <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
-           per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala."]}
+           per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq."]}
 
 { "action": "allow", "leaf": "leaf_3", "checked": 1 }</code></pre></div>
 
+    <p>The rule checks that the citation <em>resolves</em>, not that it is about the claim: the fact cited here is Lusail&rsquo;s elevation (<code>POST /v1/memory_token/resolve</code> returns it), and a reader still has to check that the band, place and date are the claim&rsquo;s own.</p>
+
     <p>A citation that does <strong>not</strong> resolve buys nothing. Change four characters of that cid and the denial stands:</p>
     <div class="code"><div class="code-head"><span class="tab">POST /verdict &mdash; your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
-           per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45za22."]}
+           per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7o22hq."]}
 
 {
   "action": "deny",

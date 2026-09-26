@@ -1026,6 +1026,8 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
   function pin(){
     pinP = pinP || fetch('/.well-known/emem.json').then(json)
       .then(function(d){ return d.responder && d.responder.pubkey_b32; });
+    /* a failed fetch is not the key: the next check asks again */
+    pinP.catch(function(){ pinP = null; });
     return pinP;
   }
 
@@ -1575,7 +1577,10 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
               var dec = (f.shown.match(/\.(\d+)/) || ['', ''])[1].length, v = parseFloat(f.shown);
               var same = typeof d.value === 'number' && Math.abs(d.value - v) <= 0.5 * Math.pow(10, -dec) + 1e-9;
               var ok = r && r.ok && rc.responder_pubkey_b32 === x[1] && (rc.fact_cids || []).indexOf(f.cid) >= 0 && d.cell === f.cell && same;
-              f.st = ok ? '<span class="ok">&#10003; signature and value checked in this tab</span>'
+              /* when the value was observed, from the signed fact: the photo's date is not the reading's */
+              var src = ((d.fact || {}).sources || [])[0] || {};
+              f.obs = (src.captured_at || '').slice(0, 10);
+              f.st = ok ? '<span class="ok">&#10003; signature and value checked in this tab</span>' + (f.obs ? ' &middot; observed ' + esc(f.obs) : '')
                 : '<span class="no">&#10007; did not verify: ' + esc((r && !r.ok && r.state) || (same ? 'receipt does not bind this fact' : 'value differs from the note')) + '</span>';
             })
             .catch(function(e){ f.st = '<span class="no">' + esc(e.message || 'the fact did not resolve') + '</span>'; });
@@ -1588,9 +1593,15 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
         show();
         F[0].p.then(show);
         every(s, 2600, function(){ i++; show(); });
-        s._agent += '\nplaced at ' + lat + ', ' + lon + ' (from its EXIF), cell emem:cell:' + F[0].cell +
-          '\nsigned facts at that place:\n' + F.map(function(f){ return '  ' + f.band + ' ' + f.shown + '  ' + f.tok; }).join('\n') +
-          '\nresolve a fact: POST ' + O + '/v1/memory_token/resolve {"token":"<fact>"}';
+        var base = s._agent;
+        function agentText(){
+          return base + '\nplaced at ' + lat + ', ' + lon + ' (from its EXIF), cell emem:cell:' + F[0].cell + (taken ? '; taken ' + taken : '') +
+            '\nsigned facts at that place, each with the date it was observed (not the date of the photo):\n' +
+            F.map(function(f){ return '  ' + f.band + ' ' + f.shown + (f.obs ? ' observed ' + f.obs : '') + '  ' + f.tok; }).join('\n') +
+            '\nresolve a fact: POST ' + O + '/v1/memory_token/resolve {"token":"<fact>"}';
+        }
+        s._agent = agentText();
+        Promise.all(F.map(function(f){ return f.p; })).then(function(){ s._agent = agentText(); });
       },
       /* the microscope volume: each hashed chunk is one z-slice at its depth,
          smaller at each coarser level, and the stack turns */
@@ -1723,8 +1734,11 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
             s._agent = 'emem splat world ' + s.dataset.world + ' · ' + (x[0].world.place || '') +
               '\ngeometry, one signed field: ' + tok + '\nresolve: POST ' + O + '/v1/raster/resolve {"token":"<raster>","spot_check":true}' + tail;
           }, function(e){
-            read(s, esc(tok) + '<br><span class="no">this responder holds no record for that field token' + (e.status ? ' (' + e.status + ')' : '') + '</span><br>' +
+            /* lead with what resolves: the facts the world grew from; the field token is named as not held here */
+            var bt = pv.bundle_token;
+            read(s, (bt ? esc(bt) + '<br>' : '') + '<span class="no">its field token has no record on this responder' + (e.status ? ' (' + e.status + ')' : '') + '</span><br>' +
               end.toLocaleString('en') + ' of ' + li.total.toLocaleString('en') + ' splats drawn: measured and interpolated ground only');
+            if(bt){ size(s, s.querySelector('[data-size] b').textContent, bt.length + ' B'); var cap = s.querySelector('[data-size] span'); if(cap) cap.textContent = 'the splat file \u2192 the signed facts it grew from'; }
           });
           return fetch(base + 'world_albedo.splat', { headers:{ Range:'bytes=0-' + (end * 32 - 1) } }).then(function(r){
             if(!r.ok) throw new Error('the splats answered ' + r.status);
@@ -1773,7 +1787,8 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
             size(s, v + ' ' + (f.unit || ''), tok.length + ' B');
             read(s, esc(tok) + '<br>checking the signature&hellip;');
             s.querySelector('[data-go]').href = '/verify?q=' + encodeURIComponent(tok);
-            s._agent = 'emem fact, elevation at Lusail: ' + v + ' ' + (f.unit || '') + '\n' + tok +
+            var obs = (f.observed_at || (((f.sources || [])[0] || {}).captured_at) || '').slice(0, 10);
+            s._agent = 'emem fact, elevation at Lusail: ' + v + ' ' + (f.unit || '') + ' (' + f.band + (obs ? ', observed ' + obs : '') + ')\n' + tok +
               '\nresolve: POST ' + O + '/v1/memory_token/resolve {"token":"' + tok + '"}\nthe place: emem:cell:' + f.cell +
               '\nverify the receipt against ' + (d.receipt.responder_pubkey_b32 || '') + ' (ed25519)';
             return Promise.all([core(), pin()]).then(function(x){
@@ -1813,8 +1828,9 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
           if(b.bundle_token){
             go.href = '/v1/memory_bundle/' + encodeURIComponent(b.bundle_token);
             size(s, g.cells.length + ' squares', b.bundle_token.length + ' B');
-            s._agent = 'emem bundle, NDVI over central Bengaluru, ' + g.cells.length + ' squares\n' + b.bundle_token +
-              '\nresolve: GET ' + O + '/v1/memory_bundle/' + b.bundle_token + '\neach member is an emem:fact: token at one emem:cell';
+            s._agent = 'emem bundle, NDVI over central Bengaluru: ' + b.present + ' of ' + g.cells.length + ' squares measured' +
+              (b.absent ? ', ' + b.absent + ' under cloud (signed absences, cited by the receipt, not in the bundle)' : '') + '\n' + b.bundle_token +
+              '\nresolve: GET ' + O + '/v1/memory_bundle/' + b.bundle_token + '\neach member is an emem:fact: token at one emem:cell; each fact carries the date it was observed';
           }
         }
         function ask(left){
@@ -2777,13 +2793,16 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
     }).catch(function(e){ mark(l2, false, esc(short(e))); });
     var l3 = line('checking emem.dev\'s countersignature…');
     var counter = !n.receipt ? Promise.resolve(mark(l3, false, 'the write came back without a receipt')) :
-      checkReceipt(n.receipt, n.cid).then(function(v){ mark(l3, v.ok, v.ok ? 'emem.dev countersigned the write at ' + esc(n.receipt.served_at || '') + ', checked against its published key' : 'the write receipt did not verify: ' + esc(v.why)); });
+      checkReceipt(n.receipt, n.cid).then(function(v){ mark(l3, v.ok, v.ok ? 'emem.dev countersigned the write at ' + esc(n.receipt.served_at || '') + ', checked against its published key' : 'the write receipt did not verify: ' + esc(v.why)); },
+        function(e){ mark(l3, false, 'the countersignature could not be checked: ' + esc(short(e))); });
     var l4 = line('waiting for a signed log head that includes it…'), tries = 0;
     /* a head signed before the write cannot include it: each try takes a fresh head, then proves inclusion to that head */
     function logged(){
       headC = null;
-      return head().then(function(hh){ return fetch('/v1/log/inclusion?entry_hash=' + n.hash + '&tree_size=' + hh.sth.tree_size); }).then(function(x){
-        if(x.status === 404 && ++tries < 20) return new Promise(function(z){ setTimeout(z, 2000); }).then(logged);
+      /* not yet (404), or a responder busy for a moment (5xx, or no head): look again */
+      var again = function(){ return ++tries < 20 ? new Promise(function(z){ setTimeout(z, 2000); }).then(logged) : null; };
+      return head().then(function(hh){ return fetch('/v1/log/inclusion?entry_hash=' + n.hash + '&tree_size=' + hh.sth.tree_size); }, function(){ return { status:503 }; }).then(function(x){
+        if((x.status === 404 || x.status >= 500) && tries < 19) return again();
         return logCheck({ hash:n.hash }, { disabled:false }, l4);
       });
     }
@@ -2902,8 +2921,10 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
       var v = typeof d.value === 'number' ? Math.round(d.value * 1000) / 1000 : d.value;
       var p = before(ui, mk('p', 'bot-val')); p.textContent = v + ' ' + (d.unit || ''); mk('small', '', p, d.band || '');
       sizeLine(ui, '1 signed fact', t.length + ' chars');
-      agentBtn(ui, 'emem fact, ' + (d.band || '') + ' = ' + v + ' ' + (d.unit || '') + '\n' + t +
-        '\nresolve: POST ' + O2 + '/v1/memory_token/resolve {"token":"' + t + '"}\nthe place: emem:cell:' + d.cell +
+      /* hand on the responder's canonical form, and when the value was observed */
+      var ct = d.canonical_token || t, obs = String((((d.fact || {}).sources || [])[0] || {}).captured_at || '').slice(0, 10);
+      agentBtn(ui, 'emem fact, ' + (d.band || '') + ' = ' + v + ' ' + (d.unit || '') + (obs ? ', observed ' + obs : '') + '\n' + ct +
+        '\nresolve: POST ' + O2 + '/v1/memory_token/resolve {"token":"' + ct + '"}\nthe place: emem:cell:' + d.cell +
         '\nverify the receipt against ' + ((d.receipt && d.receipt.responder_pubkey_b32) || '') + ' (ed25519)');
       link(ui, 'open in /verify', '/verify?q=' + encodeURIComponent(t));
       link(ui, 'the fact', '/v1/facts/' + encodeURIComponent(d.fact_cid));
@@ -2979,13 +3000,14 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
         ui.tok = tokLine(ui, b.bundle_token || '…');
         ui.sz = sizeLine(ui, g.cells.length + ' squares', (b.bundle_token ? b.bundle_token.length : 0) + ' chars');
         agentBtn(ui, function(){
-          return 'emem bundle, NDVI over ' + (c.label || center) + ', ' + g.cells.length + ' squares\n' + ui.bt +
+          return 'emem bundle, NDVI over ' + (c.label || center) + ': ' + ui.bp + ' of ' + g.cells.length + ' squares measured' +
+            (ui.ba ? ', ' + ui.ba + ' under cloud (signed absences, cited by the receipt, not in the bundle)' : '') + '\n' + ui.bt +
             '\nthe place: emem:cell:' + (c.cell64 || '') + '\nresolve: GET ' + O2 + '/v1/memory_bundle/' + ui.bt +
             '\neach member is an emem:fact: token at one emem:cell';
         });
         ui.open = link(ui, 'the bundle', '/v1/grid');
       }
-      ui.bt = b.bundle_token;
+      ui.bt = b.bundle_token; ui.bp = b.present; ui.ba = b.absent;
       if(b.bundle_token){ ui.tok.textContent = b.bundle_token; ui.open.href = '/v1/memory_bundle/' + encodeURIComponent(b.bundle_token); ui.sz.lastChild.textContent = b.bundle_token.length + ' chars'; }
       ui.say.innerHTML = 'NDVI &middot; <b>' + b.present + '</b> of ' + g.cells.length + ' squares' + (b.absent ? ' &middot; ' + b.absent + ' under cloud' : '') + ' &middot; one receipt';
       return b;
@@ -3039,23 +3061,55 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
         return;
       }
       var pr = d.place_resolved || {}, cids = d.fact_cids || (d.receipt && d.receipt.fact_cids) || [];
-      var cell = (d.receipt && d.receipt.cells && d.receipt.cells.length === 1) ? d.receipt.cells[0] : pr.cell64;
-      ui.what.innerHTML = '<b>ask</b>' + (pr.label ? ' &middot; ' + esc(pr.label) : '') + (cell ? ' &middot; ' + esc(cell) : '');
+      /* a token names its fact's own cell, so one is composed only when the receipt covers exactly one */
+      var cell = d.receipt && d.receipt.cells && d.receipt.cells.length === 1 ? d.receipt.cells[0] : null;
+      ui.what.innerHTML = '<b>ask</b>' + (pr.label ? ' &middot; ' + esc(pr.label) : '') + (cell || pr.cell64 ? ' &middot; ' + esc(cell || pr.cell64) : '');
       var a = String(d.answer || d.answer_md || '').replace(/\s+/g, ' ').trim();
       before(ui, mk('p', 'bot-text', null, a.length > 360 ? a.slice(0, a.lastIndexOf(' ', 357)) + '…' : a || 'no answer came back'));
-      var toks = cell ? cids.slice(0, 3).map(function(c){ return 'emem:fact:' + cell + ':' + c; }) : [];
-      if(toks.length){
-        var ul = before(ui, mk('ul', 'bot-cites'));
-        toks.forEach(function(k){ var l = mk('a', '', mk('li', '', ul), k.slice(0, 34) + '…'); l.href = '/verify?q=' + encodeURIComponent(k); });
-      }
       sizeLine(ui, cids.length + ' signed facts', 'one receipt');
-      agentBtn(ui, 'emem answer to: ' + q + '\n' + a + '\ncited, ' + cids.length + ' signed facts' + (cell ? ' at emem:cell:' + cell : '') + ':\n' +
-        (cell ? cids.map(function(c){ return 'emem:fact:' + cell + ':' + c; }) : cids).join('\n') +
-        (cids.length ? '\nresolve any: POST ' + O2 + '/v1/memory_token/resolve {"token":"<one of the above>"}' : ''));
-      if(toks.length) link(ui, 'open in /verify', '/verify?q=' + encodeURIComponent(toks[0]));
-      ui.say.textContent = 'checking the signature…';
-      if(!d.receipt){ ui.say.textContent = 'no receipt came with this answer'; return; }
-      return checkReceipt(d.receipt).then(function(r){ ui.say.innerHTML = verdict(r.ok, r.why) + ' &middot; the answer text is not signed; the facts are'; });
+      var shown = ((d.band_observations_summary || {}).bands || []).filter(function(x){ return x.value !== null && x.value !== undefined; });
+      var toks = cell ? cids.map(function(c){ return 'emem:fact:' + cell + ':' + c; }) : [];
+      /* Each number the answer states, joined to the one signed fact that holds
+         it (same band, same value), with the date it was observed; a newer
+         reading of that band in the same receipt is named, not hidden. */
+      var cites = !toks.length ? Promise.resolve([]) : api('/v1/memory_token/resolve_many', { tokens:toks.slice(0, 256) }).then(function(m){
+        var got = (m.items || []).filter(function(i){ return i.ok && i.resolution; }).map(function(i){
+          var R = i.resolution, src = ((R.fact || {}).sources || [])[0] || {};
+          return { band:R.band, value:R.value, unit:R.unit, tok:R.canonical_token || i.token, at:String(src.captured_at || '').slice(0, 10) };
+        });
+        return shown.map(function(x){
+          var same = got.filter(function(g){ return g.band === x.band; });
+          var hit = same.filter(function(g){ return g.value === x.value; })[0];
+          var newest = same.slice().sort(function(p, q){ return p.at < q.at ? 1 : -1; })[0];
+          return { band:x.band, value:x.value, unit:x.unit, hit:hit, newer:hit && newest && newest.at > hit.at ? newest : null };
+        });
+      }).catch(function(){ return []; });
+      function fmtv(v){ return typeof v === 'number' ? String(+v.toPrecision(4)) : String(v); }
+      return cites.then(function(cs){
+        var bound = cs.filter(function(c){ return c.hit; });
+        if(bound.length){
+          var ul = before(ui, mk('ul', 'bot-cites'));
+          bound.slice(0, 6).forEach(function(c){
+            var li = mk('li', '', ul), l = mk('a', '', li, c.band + ' ' + fmtv(c.value) + (c.unit ? ' ' + c.unit : '') + ' · observed ' + c.hit.at);
+            l.href = '/verify?q=' + encodeURIComponent(c.hit.tok);
+            if(c.newer) mk('span', 'no', li, ' · a newer reading in this receipt: ' + fmtv(c.newer.value) + ' on ' + c.newer.at);
+          });
+        }
+        agentBtn(ui, 'emem answer to: ' + q + '\n' + a +
+          (bound.length ? '\neach stated number, and the signed fact that holds it:\n' + bound.map(function(c){
+            return '  ' + c.band + ' ' + fmtv(c.value) + (c.unit ? ' ' + c.unit : '') + ' observed ' + c.hit.at + '  ' + c.hit.tok + (c.newer ? '  (newer in this receipt: ' + fmtv(c.newer.value) + ' on ' + c.newer.at + ', ' + c.newer.tok + ')' : '');
+          }).join('\n') : '') +
+          (cs.length > bound.length ? '\n' + (cs.length - bound.length) + ' stated number(s) matched no fact in the receipt' : '') +
+          '\nthe receipt signs ' + cids.length + ' facts in all' + (cell ? ' at emem:cell:' + cell : '') + '; resolve any: POST ' + O2 + '/v1/memory_token/resolve {"token":"emem:fact:<cell>:<fact_cid>"}' +
+          (cell ? '' : ', or by cid alone: GET ' + O2 + '/v1/facts/<fact_cid>') +
+          '\nthe answer text is not signed; the facts are');
+        if(bound.length) link(ui, 'open in /verify', '/verify?q=' + encodeURIComponent(bound[0].hit.tok));
+        ui.say.textContent = 'checking the signature…';
+        if(!d.receipt){ ui.say.textContent = 'no receipt came with this answer'; return; }
+        return checkReceipt(d.receipt).then(function(r){
+          ui.say.innerHTML = verdict(r.ok, r.why) + ' &middot; ' + bound.length + ' of ' + cs.length + ' stated numbers bound to a signed fact &middot; the answer text is not signed; the facts are';
+        });
+      });
     }).catch(function(e){ fail(ui, e); });
   }
 

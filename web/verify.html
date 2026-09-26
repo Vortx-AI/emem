@@ -1243,8 +1243,39 @@ async function verifyMemoryPath(path){
 }
 
 // An emem: token → resolve → render fact + verify its receipt (bytes).
+/* Each token family resolves at its own route; only emem:fact goes through
+   /v1/memory_token/resolve. A family whose resolver signs a receipt is
+   verified here; the others report the check their resolver made. */
+const FAMILY = {
+  bundle:    t => ['GET',  '/v1/memory_bundle/' + encodeURIComponent(t)],
+  entity:    t => ['POST', '/v1/entity/resolve'],
+  raster:    t => ['POST', '/v1/raster/resolve'],
+  rasterset: t => ['POST', '/v1/raster_bundle/resolve'],
+  cube:      t => ['POST', '/v1/cube/resolve'],
+  trace:     t => ['POST', '/v1/trace_resolve'],
+  tree:      t => ['GET',  '/v1/tree/' + encodeURIComponent(t.replace(/^emem:tree:/, '').replace(/#row=/, '?row=').split('?')[0]) + (/#row=/.test(t) ? '?row=' + encodeURIComponent(t.split('#row=')[1]) : '')],
+};
+async function resolveFamily(fam, token){
+  const [method, path] = FAMILY[fam](token);
+  setStatus('pending', 'resolving emem:' + fam + '…', '<code>' + method + ' ' + escapeHtml(path.split('?')[0]) + '</code>');
+  try {
+    const r = await fetch(path, method === 'GET' ? {} : { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ token }) });
+    const d = await r.json();
+    if (!r.ok || d.code) throw new Error(d.message || d.code || ('http '+r.status));
+    if (d.receipt){ _lastReceipt = d.receipt; refreshRecipes(d.receipt); return await verifyAndRender(d.receipt); }
+    const said = fam === 'tree' ? (d.note_root_matches ? 'the note\'s ' + d.rows + ' rows fold to the root it states; its author signed that note' : 'the rows do not fold to the note\'s root')
+      : fam === 'rasterset' ? (d.member_count + ' members' + (d.verified !== undefined ? ', verified: ' + d.verified : ''))
+      : fam === 'trace' ? ('resolved; re-verify with ' + (d.reverify || 'POST /v1/trace_verify'))
+      : 'resolved';
+    /* the check mark is for a signature verified here; these resolvers sign none, so their result is neutral */
+    setStatus(fam === 'tree' && !d.note_root_matches ? 'fail' : 'unverified', 'emem:' + fam + ' resolved', escapeHtml(said) + ' · this resolver signs no receipt of its own, so nothing here was signature-checked');
+  } catch (e) { setStatus('fail', 'could not resolve emem:' + fam, escapeHtml(String(e))); }
+}
+
 async function resolveTokenAndVerify(token){
   $('authorshipCard').classList.add('hidden');
+  const fam = (/^emem:([a-z]+):/.exec(token) || [])[1];
+  if (fam && FAMILY[fam]) return resolveFamily(fam, token);
   setStatus('pending', 'resolving token…', '<code>POST /v1/memory_token/resolve</code>');
   try {
     const r = await fetch('/v1/memory_token/resolve', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ token }) });

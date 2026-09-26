@@ -109,6 +109,8 @@ h1 .accent{color:var(--accent)}
 .q .cite .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-2)}
 .q .cite[data-kind=cell] .dot{background:var(--accent)}
 .q .cite[data-kind=src] .dot{background:var(--info)}
+.q a.cite{text-decoration:none}
+.q a.cite:hover{border-color:var(--accent)}
 .q details{margin-top:.5rem}
 .q details summary{font-size:var(--t-xs);color:var(--ink-3);cursor:pointer;list-style:none;padding:.18em 0}
 .q details summary::-webkit-details-marker{display:none}
@@ -321,6 +323,8 @@ const HOST=location.origin;
 function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function pretty(o){return JSON.stringify(o,null,2);}
 function shortCid(c){return c?c.slice(0,12)+'…':''}
+/* a token, shown short; the link and its title carry it whole */
+function shortTok(t){const m=/^emem:([a-z]+):(.+):([a-z2-7]{26,52})$/.exec(t||'');return m?'emem:'+m[1]+':…:'+m[3].slice(0,8)+'…':t}
 
 const Q=[
   {title:"How high is Mount Everest?", endpoint:"/v1/elevation", method:"POST",
@@ -332,8 +336,9 @@ const Q=[
      return {
        answer:`<span class=v>${e?.toFixed?e.toFixed(0):e} m</span> above sea level. ${escapeHTML(d.interpretation||'')}`,
        citations:[
-         d.cell64?{kind:'cell',text:'cell '+d.cell64}:null,
+         d.sub_facts?.copdem30m_elevation_mean?.memory_token?{tok:d.sub_facts.copdem30m_elevation_mean.memory_token,text:'elevation'}:null,
          d.lc_class_decoded?{kind:'src',text:'land class: '+d.lc_class_decoded}:null,
+         d.sub_facts?.esa_worldcover_lc_2021?.memory_token?{tok:d.sub_facts.esa_worldcover_lc_2021.memory_token,text:'land class'}:null,
          {kind:'src',text:'Cop-DEM 90 m + ESA WorldCover'},
          d.responder_pubkey_b32?{kind:'cid',text:'signer '+shortCid(d.responder_pubkey_b32)}:null,
        ].filter(Boolean)
@@ -346,13 +351,14 @@ const Q=[
      // value is a top-level number (verified against emem.dev).
      const b=d.bands||{};
      const pm25=b['cams.pm25']?.value; const no2=b['cams.no2']?.value;
-     const cid=(b['cams.pm25']?.fact_cids||[])[0];
+     const pt=b['cams.pm25']?.memory_tokens||[], nt=b['cams.no2']?.memory_tokens||[];
      return {
        answer:`PM2.5 <span class=v>${pm25!=null?pm25.toFixed(1):'—'}</span> <span class=u>µg/m³</span> · NO₂ <span class=v>${no2!=null?no2.toFixed(1):'—'}</span> <span class=u>µg/m³</span>`,
        citations:[
          {kind:'cell',text:`${d.coverage_fraction!=null?Math.round(d.coverage_fraction*100)+'% coverage':'aggregated'}`},
          {kind:'src',text:'CAMS via Open-Meteo (~11 km)'},
-         cid?{kind:'cid',text:'fact_cid '+shortCid(cid)}:null,
+         pt[0]?{tok:pt[0],text:'PM2.5'+(pt.length>1?' (one of '+pt.length+' signed readings averaged)':'')}:null,
+         nt[0]?{tok:nt[0],text:'NO₂'+(nt.length>1?' (one of '+nt.length+')':'')}:null,
        ].filter(Boolean)
      };
    }},
@@ -368,7 +374,7 @@ const Q=[
        citations:[
          {kind:'src',text:'Sentinel-2 L2A (B08, B04)'},
          d.cell64?{kind:'cell',text:'cell '+d.cell64}:null,
-         n.fact_cid?{kind:'cid',text:'fact_cid '+shortCid(n.fact_cid)}:null,
+         n.memory_token?{tok:n.memory_token,text:'NDVI'}:n.fact_cid&&n.cell64?{tok:'emem:fact:'+n.cell64+':'+n.fact_cid,text:'NDVI'}:null,
        ].filter(Boolean)
      };
    }},
@@ -389,8 +395,8 @@ const Q=[
      return {
        answer:`Top hotspots ranked by NDVI: ${h.map(x=>`<span class=v>NDVI ${x.value?.toFixed?x.value.toFixed(3):x.value}</span> at ${x.cell64.slice(0,18)}…`).join(' · ')}`,
        citations: [
-         ...h.map(x=>({kind:'cell',text:x.cell64})).slice(0,2),
-         h[0]?.fact_cid?{kind:'cid',text:'fact_cid '+shortCid(h[0].fact_cid)}:null,
+         /* each hotspot's own fact: its cell and cid come from one object, so the token is exact */
+         ...h.filter(x=>x.fact_cid&&x.cell64).map((x,k)=>({tok:'emem:fact:'+x.cell64+':'+x.fact_cid,text:'hotspot '+(k+1)})),
        ].filter(Boolean)
      };
    }},
@@ -491,7 +497,9 @@ async function fire(i){
     card.classList.remove('busy'); card.classList.add('ok');
     $('meta_q'+i).textContent=`ok · ${dt} ms`;
     $('ans_q'+i).innerHTML=out.answer;
-    $('cits_q'+i).innerHTML=out.citations.map(c=>`<span class=cite data-kind="${c.kind||''}"><span class=dot></span>${escapeHTML(c.text)}</span>`).join('');
+    $('cits_q'+i).innerHTML=out.citations.map(c=>c.tok
+      ?`<a class=cite data-kind=tok href="/verify?q=${encodeURIComponent(c.tok)}" title="${escapeHTML(c.tok)}"><span class=dot></span>${escapeHTML(c.text)} ${escapeHTML(shortTok(c.tok))}</a>`
+      :`<span class=cite data-kind="${c.kind||''}"><span class=dot></span>${escapeHTML(c.text)}</span>`).join('');
     $('raw_q'+i).textContent=pretty(data);
   }catch(e){
     card.classList.remove('busy'); card.classList.add('fail');
