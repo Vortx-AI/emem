@@ -3,8 +3,8 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/verify · cryptographic receipt verifier</title>
-<meta name=description content="Paste a fact CID or a receipt. Every signature is recomputed in your browser, ed25519 over the canonical preimage, with no server round-trip. The trust layer, visible.">
+<title>emem.dev/verify · check anything emem signed</title>
+<meta name=description content="Paste any emem token, note name, receipt or log hash. Its signature, its content address and its place in the transparency log are checked in your browser, step by step.">
 <link rel=canonical href="https://emem.dev/verify">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel="apple-touch-icon" href="/vortxgola.gif">
@@ -30,309 +30,127 @@
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <style>
-/* /verify — the trust-layer surface. Same warm paper/ink palette as the
-   rest of emem.dev (/, /how-it-works, /humans, /gallery): light by default,
-   dark via prefers-color-scheme. Variable names stay on the --bg/--fg axis
-   so the crypto/render code below needs no rewriting; the values map to the
-   canonical OKLch paper/ink tokens (hue 85, green accent at hue 145). */
-:root{
-  --bg:oklch(0.975 0.005 85);    --bg-1:oklch(0.955 0.005 85);
-  --bg-2:oklch(0.93 0.006 85);   --bg-3:oklch(0.90 0.006 85);
-  --fg:oklch(0.20 0.005 85);     --fg-2:oklch(0.32 0.005 85);
-  /* Same AA correction as web/tokens.css: this page keeps its own copy of the
-     palette under different names, so the fix there did not reach it. 0.68
-     measured 2.53:1 behind the glossary chips and the input label. */
-  --fg-3:oklch(0.42 0.005 85);   --fg-mute:oklch(0.491 0.005 85);
-  --line:oklch(0.86 0.008 85);   --line-2:oklch(0.72 0.010 85);
-  --accent:oklch(0.45 0.09 145); --accent-bg:oklch(0.93 0.04 145);
-  --accent-dim:oklch(0.48 0.10 145);
-  --warn:oklch(0.50 0.11 35);    --pending:oklch(0.495 0.12 75);
-  --info:oklch(0.50 0.13 270);
-  --sans:var(--mono);
-}
+/* /verify: the homepage's idiom (composer, turns, cards) over the shared
+   tokens. Mono is the record, serif the claim. */
+.vfy{ --field:oklch(0.995 0.002 85); --field-shadow:oklch(0.20 0.02 85 / .09); }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;min-height:100%;background:var(--bg);color:var(--fg);
-  font-family:var(--sans);font-size:var(--t-xs);line-height:1.55;
-  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-  font-variant-numeric:tabular-nums;
-}
-.mono,code,kbd,samp,pre{font-family:var(--mono)}
-a{color:var(--fg);text-decoration:none;border-bottom:1px dotted var(--line-2)}
-a:hover{color:var(--accent);border-bottom-color:var(--accent)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-button{font:inherit;font-family:var(--mono);color:var(--fg);background:transparent;
-  border:1px solid var(--line-2);padding:.45em .9em;cursor:pointer;border-radius:3px;
-  letter-spacing:.02em;font-size:var(--t-2xs);}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button.primary{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
-button.primary:hover{background:var(--accent-bg);filter:brightness(.98)}
-button.ghost{border:none;padding:.3em .6em;color:var(--fg-2)}
-input,textarea{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);
-  border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:var(--t-2xs);
-  font-variant-ligatures:none}
-input:focus,textarea:focus{border-color:var(--accent)}
-textarea{min-height:120px;resize:vertical;line-height:1.5}
-hr{border:none;border-top:1px solid var(--line);margin:1.2em 0}
-::selection{background:var(--accent);color:var(--bg)}
+html{font-size:100%}
+html, body{margin:0;padding:0;overflow-x:clip}
+body{background:var(--paper);color:var(--ink);font-family:var(--display);font-size:var(--t-md);line-height:1.6;-webkit-font-smoothing:antialiased}
+code, kbd, pre, samp, input, textarea, button{font-family:var(--mono)}
+a{color:var(--accent)}
+::selection{background:var(--accent);color:var(--paper)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.skip{position:absolute;left:-999px;top:0}
+.skip:focus{left:1em;top:1em;background:var(--paper-2);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
+.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
+.vfy{max-width:52rem;margin:0 auto;padding:0 var(--pad-x) var(--s-6)}
+.hero{padding:var(--s-6) 0 var(--s-4);text-align:center}
+.hero h1{font-family:var(--display);font-weight:420;font-size:clamp(var(--t-2xl), 5.4vw, var(--t-4xl));line-height:1.06;letter-spacing:-.02em;margin:0 auto var(--s-2);text-wrap:balance;font-variation-settings:'opsz' 60}
+.hero .lede{margin:0 auto var(--s-4);font-family:var(--mono);font-size:var(--t-sm);color:var(--mute)}
 
-/* layout */
-.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
-header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
-  border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
-header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:var(--t-base);color:var(--fg)}
-header.top .brand a{display:inline-flex;align-items:center;min-height:24px}
-header.top .brand .slash{color:var(--fg-mute)}
-header.top .brand .verify{color:var(--accent)}
-header.top .tag{font-size:var(--t-3xs);color:var(--fg-3);font-family:var(--mono);letter-spacing:.04em}
-header.top .spacer{flex:1}
-header.top .navlinks{display:flex;gap:.6em;font-size:var(--t-3xs);font-family:var(--mono);color:var(--fg-3)}
-header.top .navlinks a{color:var(--fg-3);border-bottom:none;
-  display:inline-flex;align-items:center;min-height:24px}
-header.top .navlinks a:hover{color:var(--accent)}
+/* the composer */
+.cmp-box{position:relative;display:flex;flex-direction:column;gap:var(--s-1);background:var(--field);border:1px solid var(--rule);border-radius:1.618rem;
+  box-shadow:0 1px 2px var(--field-shadow), 0 .618rem 1.618rem -.382rem var(--field-shadow);padding:var(--s-2) var(--s-2) var(--s-1);text-align:left}
+.cmp-box:focus-within{border-color:var(--rule-strong)}
+.cmp-in{display:block;width:100%;min-height:3.2rem;max-height:14rem;resize:none;overflow-y:auto;margin:0;padding:var(--s-1) var(--s-2) 0;border:0;outline:0;background:transparent;color:var(--ink);font-size:var(--t-sm);line-height:1.5}
+.cmp-in::placeholder{color:var(--mute);opacity:1}
+.cmp-in:focus-visible{outline:0}
+.cmp-row{display:flex;align-items:center;gap:var(--s-1)}
+.cmp-hint{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:var(--s-2)}
+.cmp-icon{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--ink-2);cursor:pointer;padding:0}
+.cmp-icon:hover{background:var(--paper-3);color:var(--ink)}
+.cmp-icon svg{width:20px;height:20px}
+.cmp-send{flex:0 0 auto;width:44px;height:44px;padding:0;border:0;background:transparent;cursor:pointer}
+.cmp-send span{width:36px;height:36px;border-radius:50%;display:grid;place-items:center;background:var(--accent);color:var(--paper);margin:auto}
+.cmp-send svg{width:18px;height:18px}
+.cmp-send[disabled]{cursor:default}
+.cmp-send[disabled] span{background:var(--rule);color:var(--mute)}
+.chips{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--s-1);margin:var(--s-3) 0 0;padding:0;list-style:none}
+.chips button{min-height:44px;padding:0 var(--s-3);border:1px solid var(--rule);border-radius:999px;background:transparent;color:var(--ink-2);font-size:var(--t-2xs);cursor:pointer}
+.chips button:hover{border-color:var(--accent);color:var(--accent)}
+.chips button[disabled]{opacity:.55;cursor:progress}
+.legend{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--s-2) var(--s-4);margin:var(--s-4) 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
+.legend b{font-weight:600}
 
-.lede{color:var(--fg-2);font-size:var(--t-sm);margin:0 0 1.4em;line-height:1.65;max-width:680px}
-.lede b{color:var(--fg);font-weight:500}
-.lede .accent{color:var(--accent);font-weight:500}
+/* a turn: what was pasted, and the verification under it */
+.thread{display:flex;flex-direction:column;gap:var(--s-5);margin-top:var(--s-5)}
+.turn{display:flex;flex-direction:column;gap:var(--s-2);animation:turnin .3s ease both}
+@keyframes turnin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.you{align-self:flex-end;max-width:85%;margin:0;padding:var(--s-2) var(--s-3);border-radius:1.2rem 1.2rem .382rem 1.2rem;background:var(--paper-3);font-family:var(--mono);font-size:var(--t-2xs);line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap;max-height:8.5em;overflow:hidden}
+.bot-what{margin:0;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);letter-spacing:.04em}
+.bot-what b{color:var(--accent);font-weight:600}
+.card{border:1px solid var(--rule);border-radius:1rem;background:var(--field);overflow:hidden}
+.vis{margin:0;background:var(--paper-2);border-bottom:1px solid var(--rule)}
+.vis:empty{display:none}
+.vis img{display:block;width:100%;max-height:280px;object-fit:cover}
+.in{padding:var(--s-3);display:flex;flex-direction:column;gap:var(--s-2);min-width:0}
+.verdict{align-self:flex-start;display:inline-flex;align-items:center;gap:var(--s-1);padding:4px 12px;border-radius:999px;font-family:var(--mono);font-size:var(--t-2xs);font-weight:600;border:1px solid var(--rule-strong);color:var(--ink-2)}
+.verdict.ok{background:var(--accent-bg);border-color:var(--accent);color:var(--accent)}
+.verdict.no{background:var(--absent-bg);border-color:var(--absent);color:var(--absent)}
+.verdict.plain{color:var(--ink-2)}
+.tok{margin:0;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;color:var(--accent);overflow-wrap:anywhere;line-height:1.4}
+.val{margin:0;font-family:var(--display);font-size:var(--t-xl);line-height:1.15}
+.val small{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);margin-left:var(--s-1)}
+.txt{margin:0;font-family:var(--display);font-size:var(--t-base);line-height:1.55;color:var(--ink-2);overflow-wrap:anywhere}
+.steps{list-style:none;margin:0;padding:0;font-family:var(--mono);font-size:var(--t-2xs);color:var(--ink-2);line-height:1.5}
+.steps li{display:grid;grid-template-columns:1.4em minmax(0, 1fr);gap:var(--s-1);padding:3px 0;overflow-wrap:anywhere}
+.steps li i{font-style:normal;text-align:center;color:var(--mute)}
+.steps li.ok i{color:var(--accent)}
+.steps li.no i{color:var(--absent)}
+.steps li.no{color:var(--absent)}
+.steps li.info i{color:var(--mute)}
+.steps li.run i{animation:blink 1s ease-in-out infinite}
+@keyframes blink{0%,100%{opacity:.3}50%{opacity:1}}
+.rows{margin:0;display:grid;grid-template-columns:auto minmax(0, 1fr);gap:2px var(--s-3);font-family:var(--mono);font-size:var(--t-3xs)}
+.rows dt{color:var(--mute)}
+.rows dd{margin:0;color:var(--ink-2);overflow-wrap:anywhere}
+.rows dd a{color:var(--accent);text-decoration:none}
+.rows dd a:hover{text-decoration:underline}
+.sub summary{min-height:44px;display:flex;align-items:center;gap:var(--s-2);cursor:pointer;list-style:none;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute)}
+.sub summary::-webkit-details-marker{display:none}
+.sub summary::before{content:"";width:.4rem;height:.4rem;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease}
+.sub[open] summary::before{transform:rotate(45deg)}
+.sub pre{margin:0;max-height:22rem;overflow:auto;padding:var(--s-2);background:var(--paper-2);border-radius:.618rem;font-size:var(--t-3xs);line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+.units{margin:0;padding:0;list-style:none;font-family:var(--mono);font-size:var(--t-3xs);max-height:18rem;overflow:auto}
+.units li{display:flex;flex-wrap:wrap;align-items:baseline;gap:0 var(--s-2);padding:3px 0;border-bottom:1px solid var(--rule)}
+.units li b{color:var(--ink);font-weight:600;overflow-wrap:anywhere}
+.units li span{color:var(--mute)}
+.units li button{margin-left:auto;min-height:32px;padding:0 var(--s-2);border:1px solid var(--rule);border-radius:999px;background:transparent;color:var(--accent);font-size:var(--t-3xs);cursor:pointer}
+.cells{display:grid;grid-template-columns:repeat(auto-fill, minmax(14px, 1fr));gap:3px;padding:var(--s-3)}
+.cells i{aspect-ratio:1;border-radius:2px;background:var(--rule)}
+.cells i.on{background:var(--accent)}
+.cells i.absent{background:var(--rule-strong);opacity:.5}
+.bar{height:10px;margin:var(--s-3);border-radius:5px;background:var(--rule);position:relative;overflow:hidden}
+.bar i{position:absolute;top:0;bottom:0;width:3px;background:var(--accent)}
+.acts{display:flex;flex-wrap:wrap;align-items:center;gap:var(--s-1);padding:0 var(--s-3) var(--s-3)}
+.acts:empty{display:none}
+.act{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--rule-strong);border-radius:999px;background:transparent;color:var(--ink);font-size:var(--t-2xs);cursor:pointer;text-decoration:none}
+.act:hover{background:var(--paper-2)}
+.act.main{background:var(--accent);border-color:var(--accent);color:var(--paper)}
+.ok{color:var(--accent);font-weight:600}
+.no{color:var(--absent);font-weight:600}
 
-/* input section */
-.input-card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
-  border-radius:4px;margin-bottom:1.3em}
-.input-card label{display:block;font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
-  text-transform:uppercase;color:var(--fg-mute);margin-bottom:.45em}
-.input-card .row{display:flex;gap:.55em;align-items:stretch;flex-wrap:wrap}
-.input-card .row input{flex:1;min-width:200px}
-.input-card .row button{flex-shrink:0}
-.input-card .or{text-align:center;font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.16em;
-  color:var(--fg-mute);text-transform:uppercase;margin:.8em 0 .55em}
-.input-card .examples{margin-top:.55em;display:flex;flex-wrap:wrap;gap:.3em;align-items:center}
-.input-card .examples .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;
-  color:var(--fg-mute);text-transform:uppercase;margin-right:.3em}
-.input-card .examples button{font-size:var(--t-3xs);padding:.22em .55em;border-radius:99px;
-  background:var(--bg-2);min-height:24px}
-
-/* status banner */
-.status{display:flex;align-items:center;gap:.7em;padding:1em 1.2em;border-radius:4px;
-  margin-bottom:1.3em;font-family:var(--mono);font-size:var(--t-xs);border:1px solid var(--line)}
-.status .glyph{font-size:var(--t-xl);line-height:1;flex-shrink:0;
-  width:36px;height:36px;display:flex;align-items:center;justify-content:center;border-radius:50%}
-.status .text{flex:1}
-.status .sub{font-size:var(--t-2xs);color:var(--fg-3);margin-top:.18em;line-height:1.5}
-.status.ok{border-color:var(--accent);background:var(--accent-bg)}
-.status.ok .glyph{background:var(--accent-bg);color:var(--accent)}
-.status.ok .text{color:var(--accent)}
-.status.fail{border-color:var(--warn);background:var(--bg-1)}
-.status.fail .glyph{background:var(--bg-2);color:var(--warn)}
-.status.fail .text{color:var(--warn)}
-.status.pending{border-color:var(--pending);background:var(--bg-1)}
-.status.pending .glyph{background:var(--bg-2);color:var(--pending);
-  animation:pulse 1.4s ease-in-out infinite}
-.status.idle{border-style:dashed;color:var(--fg-3)}
-.status.idle .glyph{background:var(--bg-2);color:var(--fg-mute)}
-/* "unverified" is deliberately NOT a variant of ok. Nothing was checked,
-   so it must not read as a pass at a glance: dashed border, muted glyph,
-   no accent colour. The distinction this page exists to make is between
-   "verified" and "the server said so", and the styling has to carry it
-   as clearly as the words do. */
-.status.unverified{border-color:var(--pending);border-style:dashed;background:var(--bg-1)}
-.status.unverified .glyph{background:var(--bg-2);color:var(--pending)}
-.status.unverified .text{color:var(--fg-2)}
-@keyframes pulse{0%,100%{opacity:.45}50%{opacity:1}}
-
-/* cards */
-.card{background:var(--bg-1);border:1px solid var(--line);padding:1.1em 1.2em;
-  border-radius:4px;margin-bottom:1em}
-.card h3{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.18em;
-  color:var(--fg-mute);text-transform:uppercase;margin:0 0 .9em;font-weight:500;
-  display:flex;align-items:center;gap:.55em}
-.card h3 .pill{font-size:var(--t-3xs);letter-spacing:.1em;padding:.1em .55em;border:1px solid var(--line-2);
-  border-radius:99px;color:var(--fg-3);background:var(--bg-2);text-transform:none}
-.card .grid{display:grid;grid-template-columns:auto 1fr;gap:.5em 1.2em;font-family:var(--mono);font-size:var(--t-2xs)}
-.card .grid .k{color:var(--fg-mute);font-size:var(--t-3xs);letter-spacing:.06em;text-transform:lowercase;
-  padding-top:.18em;align-self:start}
-/* break-all breaks EVERY word at the box edge, which is right for a 52-char
-   CID and wrong for the prose that shares this cell: the "what a green check
-   means" rows read "this is what the p / age has always done".
-   overflow-wrap:anywhere breaks only what genuinely cannot fit, so the CIDs
-   still wrap and the sentences stop being cut in half. */
-.card .grid .v{color:var(--fg);overflow-wrap:anywhere;line-height:1.55}
-.card .grid .v.dim{color:var(--fg-2)}
-.card .grid .v code{font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);background:var(--bg-2);
-  padding:.05em .4em;border-radius:2px}
-.chip{display:inline-flex;align-items:center;gap:.35em;font-family:var(--mono);font-size:var(--t-3xs);
-  color:var(--fg-2);background:var(--bg-2);border:1px solid var(--line);padding:.08em .55em;
-  border-radius:99px;cursor:copy;letter-spacing:.01em;transition:color .12s,border-color .12s}
-.chip:hover{color:var(--accent);border-color:var(--accent)}
-.chip .dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;background:var(--fg-mute)}
-.chip[data-kind=cell] .dot{background:var(--accent)}
-.chip[data-kind=cid] .dot{background:var(--info)}
-.chip[data-kind=pub] .dot{background:var(--accent-dim)}
-.chip[data-kind=ok] .dot{background:var(--accent)}
-.chip[data-kind=ok]{color:var(--accent);border-color:var(--accent);background:var(--accent-bg)}
-.chip[data-kind=fail] .dot{background:var(--warn)}
-.chip[data-kind=fail]{color:var(--warn);border-color:var(--warn)}
-.value-preview{background:var(--bg-2);border:1px solid var(--line);padding:.55em .7em;
-  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);
-  white-space:pre-wrap;word-break:break-word;max-height:200px;overflow:auto;margin-top:.2em}
-.actions{display:flex;gap:.4em;margin-top:.85em;flex-wrap:wrap}
-.actions button{font-size:var(--t-3xs);padding:.3em .65em}
-
-/* sources block */
-.source-row{display:flex;align-items:center;gap:.6em;padding:.45em 0;border-bottom:1px dashed var(--line)}
-.source-row:last-child{border-bottom:none}
-.source-row .lic{font-family:var(--mono);font-size:var(--t-3xs);color:var(--fg-3);
-  border:1px solid var(--line);padding:.05em .4em;border-radius:99px;background:var(--bg-2);
-  white-space:nowrap;flex-shrink:0}
-.source-row a{color:var(--fg-2);font-family:var(--mono);font-size:var(--t-2xs);flex:1;
-  overflow-wrap:anywhere}
-.source-row a:hover{color:var(--accent)}
-
-/* "verify it yourself" recipes */
-.recipes{display:grid;gap:.6em;margin-top:.4em}
-.recipes details{background:var(--bg-2);border:1px solid var(--line);padding:.55em .8em;
-  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs)}
-.recipes summary{cursor:pointer;color:var(--fg-2);outline:none;list-style:none}
-/* outline:none hides the default marker treatment and also removed the focus
-   ring. The four nav summaries on this page change outline, width and colour
-   on focus; only these three did not, so this is one rule short of a
-   convention rather than a missing one. They are the 'check it yourself, in
-   your language' disclosures, which is the last place to lose a keyboard
-   user. */
-.recipes summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.recipes summary::-webkit-details-marker{display:none}
-.recipes summary::before{content:"▸ ";color:var(--fg-mute)}
-.recipes[open] summary::before,
-.recipes details[open] summary::before{content:"▾ "}
-.recipes pre{margin:.55em 0 .1em;background:var(--bg);border:1px solid var(--line);
-  padding:.55em .65em;border-radius:3px;font-size:var(--t-3xs);color:var(--fg);
-  white-space:pre-wrap;word-break:break-word;overflow-x:auto;line-height:1.5}
-/* WCAG 2.5.8 puts the floor for a pointer target at 24x24. Measured on a
-   375px viewport these were 19px and 20px tall. min-height with a centring
-   flex box reaches the floor without changing where anything sits: the chips
-   keep their padding and their place in the line. */
-.recipes .copy{margin-left:.6em;font-size:var(--t-3xs);padding:.1em .45em;
-  min-height:24px;display:inline-flex;align-items:center}
-
-/* glossary */
-.gloss{display:flex;flex-wrap:wrap;gap:.35em;margin:1.2em 0 .4em;align-items:center;
-  padding:.7em 0;border-top:1px solid var(--line)}
-.gloss .lbl{font-family:var(--mono);font-size:var(--t-3xs);letter-spacing:.14em;color:var(--fg-mute);
-  text-transform:uppercase;margin-right:.3em}
-.gloss .gchip{font-family:var(--mono);font-size:var(--t-3xs);color:var(--fg-3);
-  background:var(--bg-1);border:1px solid var(--line);padding:.15em .55em;
-  border-radius:99px;cursor:help;letter-spacing:.02em;
-  min-height:24px;display:inline-flex;align-items:center}
-.gloss .gchip:hover{color:var(--accent);border-color:var(--accent)}
-.gpop{position:absolute;background:var(--bg-1);border:1px solid var(--accent);padding:.7em .85em;
-  border-radius:4px;font-family:var(--mono);font-size:var(--t-2xs);color:var(--fg);
-  max-width:min(420px,94vw);box-shadow:0 12px 36px rgba(0,0,0,.18);line-height:1.6;z-index:10;display:none}
-.gpop.on{display:block}
-.gpop b{color:var(--accent);font-weight:600}
-
-/* footer — canonical emem.dev page foot, mapped onto this surface's
-   --bg/--fg tokens and constrained to the 920px verify column. */
-.page{max-width:920px;margin:0 auto;padding:0 1.4em}
-.foot{padding:3rem 0 2rem;border-top:1px solid var(--line);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--fg-mute);font-size:var(--t-3xs)}
-.foot a{border-bottom:none}
-.foot-meta .name{color:var(--fg);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
-.foot-meta .desc{color:var(--fg-mute);line-height:1.5}
-.foot-meta .desc a{color:var(--fg-2);text-decoration:underline;text-decoration-color:var(--line)}
+/* footer, on the shared tokens */
+.foot{padding:3rem 0 2rem;border-top:1px solid var(--rule);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--mute);font-family:var(--mono);font-size:var(--t-3xs)}
+.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
+.foot-meta .desc{line-height:1.5}
 .foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
-.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3);margin:0 0 .618rem;font-weight:700}
+.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.382rem}
-.foot-col a{color:var(--fg-2);text-decoration:none;
-  display:inline-flex;align-items:center;min-height:24px}
+.foot-col a{color:var(--ink-2);text-decoration:none;display:inline-flex;align-items:center;min-height:24px}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--line);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--fg-3)}
+.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
 .foot-bottom a{color:inherit}
-
-/* toast */
-.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);
-  background:var(--bg-2);color:var(--fg);border:1px solid var(--line-2);padding:.45em .9em;
-  border-radius:3px;font-family:var(--mono);font-size:var(--t-2xs);z-index:200;opacity:0;
-  pointer-events:none;transition:opacity .18s ease,transform .18s ease;
-  box-shadow:0 8px 32px rgba(0,0,0,.18)}
+.toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);background:var(--paper-2);color:var(--ink);border:1px solid var(--rule-strong);padding:.45em .9em;border-radius:999px;font-family:var(--mono);font-size:var(--t-2xs);z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
-.muted{color:var(--fg-3)}
-.skip{position:absolute;left:-999px;top:0}
-.skip:focus{left:1em;top:1em;background:var(--bg-1);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
-.hidden{display:none!important}
 
-/* unified site statusbar, adapted to this surface's --bg/--fg tokens */
-.statusbar{border-bottom:1px solid var(--line);background:var(--bg-1);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:920px;margin:0 auto;padding:0 1.4em;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-3xs);font-family:var(--mono)}
-.statusbar a{color:var(--fg-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--line);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
-.statusbar a:first-of-type{border-left:1px solid var(--line);margin-left:.5rem}
-.statusbar a:hover{opacity:1;color:var(--fg);background:var(--bg-2)}
-.statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:var(--t-2xs);letter-spacing:.02em;color:var(--fg);padding-right:1rem;border-right:1px solid var(--line);display:flex;align-items:center;gap:.382rem}
-.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-.statusbar .spacer{flex:1}
-
-/* Mithila accent: double-line + small accent diamond, for framed panels */
-.mithila{display:flex;align-items:center;gap:.5em;margin:0 0 1.1em}
-.mithila .ln{flex:1;height:0;border-top:1px solid var(--line);box-shadow:0 3px 0 -2px var(--line)}
-.mithila .dia{width:7px;height:7px;background:var(--accent);transform:rotate(45deg);flex-shrink:0;opacity:.8}
-.input-card,.card,.status{position:relative}
-.input-card::before,.card::before{content:"";position:absolute;left:1.2em;right:1.2em;top:.55em;height:0;border-top:1px solid var(--line);box-shadow:0 2px 0 -1px var(--line);opacity:.5;pointer-events:none}
-.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
-
-/* ===== Mithila form controls — coherent native UI across the product ===== */
-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.382rem 1.618rem .382rem .618rem;border-radius:0;cursor:pointer}
-select:hover{border-color:var(--accent,#3f7a4e)}
-option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
-optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
-input[type=checkbox]{appearance:none;-webkit-appearance:none;width:14px;height:14px;border:1.5px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);cursor:pointer;position:relative;flex:0 0 auto;border-radius:0;margin:0;vertical-align:middle}
-input[type=checkbox]:checked{background:var(--accent,#3f7a4e);border-color:var(--ink,#2b2620)}
-input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--paper,#f3eee2);border-width:0 2px 2px 0;transform:rotate(45deg)}
-input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
-input::placeholder{color:var(--mute,#7a7363)}
-:focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
-.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
-
-/* ── Conditional blocks, last ───────────────────────────────────────────────
-   A media query adds NO specificity, so an override written above the rule
-   it overrides loses on source order and does nothing: the class matches,
-   the query matches, and the declaration is struck through. This page had
-   overrides that could not win. Every @media block now sits after every
-   unconditional rule, which makes that impossible rather than remembered.
-   Checked by scripts/css_override_order.py. */
-@media (prefers-color-scheme: dark){
-  :root{
-    --bg:oklch(0.16 0.005 85);    --bg-1:oklch(0.19 0.005 85);
-    --bg-2:oklch(0.23 0.006 85);  --bg-3:oklch(0.27 0.006 85);
-    --fg:oklch(0.93 0.005 85);    --fg-2:oklch(0.80 0.005 85);
-    --fg-3:oklch(0.72 0.005 85);  --fg-mute:oklch(0.649 0.005 85);
-    --line:oklch(0.28 0.008 85);  --line-2:oklch(0.40 0.010 85);
-    --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
-    --accent-dim:oklch(0.66 0.10 145);
-    --warn:oklch(0.72 0.13 35);   --pending:oklch(0.78 0.13 75);
-    --info:oklch(0.78 0.14 270);
-  }
-}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-@media(max-width:760px){
-  .app{padding:1em .8em 4em}
-  header.top{gap:.4em;padding-bottom:.8em;margin-bottom:1em}
-  header.top .navlinks{flex-wrap:wrap;gap:.5em}
-  .input-card{padding:.9em 1em}
-  .input-card .row{flex-direction:column;align-items:stretch}
-  .input-card .row input,.input-card .row button{flex:none;width:100%}
-}
-@media(max-width:480px){
-  html{font-size:var(--t-xs)}
-  .lede{font-size:var(--t-xs)}
-  .card{padding:.9em 1em}
-  .card .grid{font-size:var(--t-2xs)}
-  .recipes pre{font-size:var(--t-3xs)}
-  .source-row{flex-wrap:wrap}
-}
-@media(max-width:760px){header.top .tag{display:none}}
-@media(max-width:600px){.card .grid{grid-template-columns:1fr;gap:.2em .8em}}
-@media(min-width:601px){.card .grid .k{text-align:right}}
-@media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.foot-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:760px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .vfy{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); } }
+:root[data-theme="dark"] .vfy{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); }
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+@media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.foot-grid{grid-template-columns:repeat(2,1fr)}.you{max-width:100%}}
 </style>
 </head>
 <body>
@@ -390,149 +208,29 @@ input::placeholder{color:var(--mute,#7a7363)}
 <div class="audience aud-developers"><span class="aud-for">for developers</span><span class="aud-what">paste a token, watch the proof run</span><span class="aud-note">expect commands you can paste and formats you can implement</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
-<main class=app id=main tabindex="-1">
-<h1 class="sr-only">Verify an emem receipt or signed fact, offline</h1>
-  <header class=top role=banner>
-    <span class=brand aria-label="emem.dev verify page"><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=verify>verify</span></span>
-    <span class=tag>cryptographic receipt verifier</span>
-    <span class=spacer></span>
-    <nav class=navlinks aria-label="protocol surfaces">
-      <a href="/openapi.json">openapi</a>
-      <a href="/spec.md">spec</a>
-      <a href="/agents.md">agents</a>
-    </nav>
-  </header>
-
-  <p class=lede>
-    Every fact this protocol serves is <b>content-addressed</b> (BLAKE3 over canonical CBOR → 52-char base32 CID).
-    Every recall is wrapped in a <b>receipt</b> signed by the responder's ed25519 key over a deterministic preimage.
-    <span class=accent>This page verifies that signature in your browser</span>, with no call back to the issuer.
-    Drop a fact CID, an <code>emem:</code> token, a signed <code>/memories/</code> message, or a raw receipt JSON, and watch the math run.
-  </p>
-
-  <div class=mithila aria-hidden=true><span class=ln></span><span class=dia></span><span class=ln></span></div>
-
-  <section class=input-card aria-label="Input">
-    <label for=cidInput>a fact CID, an <code>emem:</code> token, or a <code>/memories/</code> path</label>
-    <div class=row>
-      <input id=cidInput type=text spellcheck=false autocomplete=off
-             placeholder="a 52-char fact CID, emem:fact:… , or /memories/by_attester/…">
-      <button id=btnVerifyCid class=primary type=button>fetch &amp; verify</button>
-    </div>
-    <div class=examples>
-      <span class=lbl>try</span>
-      <button data-example="qbq2dy7adyuvozs7s3gqg5jnpkcwq2duegltjyhbxsivuqbpjofq" type=button>a Tessera embedding fact</button>
-      <button data-example="emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q" type=button>a recomputed derivation token</button>
-      <button data-example="/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md" type=button>a signed agent message</button>
-      <button data-example=load-densest type=button>densest cell</button>
-    </div>
-    <div class=or>or paste a receipt JSON</div>
-    <label for=receiptInput>receipt JSON · verifies the ed25519 signature offline against the canonical preimage</label>
-    <textarea id=receiptInput spellcheck=false autocomplete=off
-              placeholder='{"primitive":"recall","served_at":"2026-05-13T14:38:00Z","request_id":"…","cells":["…"],"fact_cids":["…"],"responder_pubkey_b32":"…","sig_b32":"…","schema_cid":"…"}'></textarea>
-    <div class=actions>
-      <button id=btnVerifyReceipt class=primary type=button>verify receipt</button>
-      <button id=btnPasteFromClipboard type=button>paste from clipboard</button>
-      <button id=btnClear type=button>clear</button>
-    </div>
+<main class=vfy id=main tabindex="-1">
+  <section class=hero aria-labelledby=vh>
+    <h1 id=vh>Check anything emem signed.</h1>
+    <p class=lede>paste a token, a name, a receipt or a log hash &middot; every check runs in this tab</p>
+    <form class=cmp id=cmp autocomplete=off>
+      <div class=cmp-box>
+        <label for=q class=sr-only>A token, name, link, receipt JSON or r1 line</label>
+        <textarea id=q class=cmp-in rows=2 spellcheck=false placeholder="emem:fact:…  emem:bundle:…  emem:tree:…  a note name, a receipt, an r1 line"></textarea>
+        <div class=cmp-row>
+          <button type=button class=cmp-icon id=paste title="paste from the clipboard" aria-label="paste from the clipboard"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.6 stroke-linecap=round stroke-linejoin=round aria-hidden=true><rect x=7 y=4 width=10 height=4 rx=1 /><path d="M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2"/></svg></button>
+          <span class=cmp-hint id=hint>reads the kind from what you paste</span>
+          <button type=submit class=cmp-send id=go aria-label="verify" disabled><span><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round aria-hidden=true><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></button>
+        </div>
+      </div>
+    </form>
+    <ul class=chips id=chips aria-label="examples, each fetched live"></ul>
+    <ul class=legend aria-label="what the verdicts mean">
+      <li><b class=ok>&#10003; verified</b> a signature checked here against the key it names</li>
+      <li><b>&#9675; resolved</b> found, its bytes hash to its name, nobody signs it</li>
+      <li><b class=no>&#10007; failed</b> and the reason</li>
+    </ul>
   </section>
-
-  <section class="status idle" id=statusBanner role=status aria-live=polite>
-    <span class=glyph aria-hidden=true>◌</span>
-    <div>
-      <div class=text id=statusText>idle · fetch a fact or paste a receipt to begin</div>
-      <div class=sub id=statusSub>this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser</div>
-    </div>
-  </section>
-
-  <section class="card" aria-label="What a green check means">
-    <h3>what a green check means <span class=pill>three legs</span></h3>
-    <div class=grid style="grid-template-columns:max-content 1fr;gap:.4em 1em">
-      <div class=k>bytes</div><div class=v><span class=muted>valid means emem stored and served exactly these bytes: the responder's receipt signature checks. This is what the page has always done.</span></div>
-      <div class=k>authorship</div><div class=v><span class=muted>which attester wrote a signed message or memory, verified offline against <em>their</em> ed25519 key, not the responder's. This is how an agent trusts a message on the A2A channel.</span></div>
-      <div class=k>inclusion</div><div class=v><span class=muted>is THIS record in the transparency log at a given tree size. emem does <b>not</b> prove this today: facts do not yet chain to log leaves. Stated plainly rather than faked, because "verified" with no object is the vagueness this page exists to kill.</span></div>
-      <div class=k>consistency</div><div class=v><span class=muted>has the log only ever grown, never rewritten history. This one emem <b>does</b> support: pin the signed head below, then later call <code>/v1/log/consistency</code> against a newer size. Inclusion and consistency are different guarantees and a compliance reader needs to know which is which.</span></div>
-    </div>
-  </section>
-
-  <section class="card hidden" id=factCard aria-label="Fact details">
-    <h3>fact <span class=pill id=factKindPill>·</span></h3>
-    <div class=grid id=factGrid></div>
-  </section>
-
-  <section class="card hidden" id=authorshipCard aria-label="Authorship">
-    <h3>authorship <span class=pill id=authorshipPill>·</span></h3>
-    <div class=grid id=authorshipGrid></div>
-  </section>
-
-  <section class="card hidden" id=receiptCard aria-label="Receipt details">
-    <h3>receipt <span class=pill id=receiptPrimitivePill>·</span></h3>
-    <div class=grid id=receiptGrid></div>
-    <div class=actions>
-      <button id=btnReverify type=button>re-verify</button>
-      <button id=btnCopyReceipt type=button>copy receipt JSON</button>
-      <button id=btnShareLink type=button>copy share link</button>
-    </div>
-  </section>
-
-  <section class="card" aria-label="Verify it yourself">
-    <h3>verify it yourself <span class=pill>three independent paths</span></h3>
-    <p class=muted style="font-size:var(--t-2xs);margin:0 0 .8em;line-height:1.6">
-      The receipt's signature is reproducible from primitives every system already has. Pick whichever recipe
-      matches your toolchain; they all compute the same byte-for-byte digest and run the same ed25519 verify.
-    </p>
-    <div class=recipes>
-      <details open>
-        <summary>shell · <code>curl</code> + the responder's <code>/v1/verify_receipt</code></summary>
-        <pre id=recipeCurl>POST https://emem.dev/v1/verify_receipt …</pre>
-        <button class=copy data-copy=recipeCurl type=button>copy</button>
-      </details>
-      <details>
-        <summary>python · <code>httpx</code> + <code>cryptography</code> for the offline path</summary>
-        <pre id=recipePy>import httpx …</pre>
-        <button class=copy data-copy=recipePy type=button>copy</button>
-      </details>
-      <details>
-        <summary>in-browser · <code>@noble/curves</code> + <code>@noble/hashes</code> (what this page just ran)</summary>
-        <pre id=recipeJs>// preimage_version 1 (current): blake3 over a domain-separated,
-//   length-prefixed segment stream — "emem.preimage.v1" | "receipt" |
-//   (tag,len,bytes) for request_id, served_at, [scope|as_of|edges|
-//   manifest], primitive, cells[], fact_cids[]
-// preimage_version 0 (legacy): request_id|served_at|…|primitive|cells,|cids,
-// digest = blake3(preimage, 32B)
-// ok     = ed25519.verify(sig_64B, digest, responder_pubkey_32B)</pre>
-        <button class=copy data-copy=recipeJs type=button>copy</button>
-      </details>
-    </div>
-  </section>
-
-  <section class="card" aria-label="Transparency log">
-    <h3>transparency log <span class=pill>append-only anchor</span></h3>
-    <p class=muted style="font-size:var(--t-2xs);margin:0 0 .8em;line-height:1.6">
-      An RFC 6962 Merkle tree (BLAKE3) records every attestation batch. Pin its signed head now; later prove the log
-      only grew, never rewrote history. The head's signature verifies against the responder's key by the rule at
-      <a href="/v1/verifier_spec" target=_blank rel=noopener><code>/v1/verifier_spec</code></a>
-      (<code>transparency_log_sth</code>). Individual facts do not yet chain to leaves, so this proves the log's
-      integrity, not that one specific fact is in it.
-    </p>
-    <div class=actions>
-      <button id=btnPinSth class=primary type=button>pin the current head</button>
-    </div>
-    <div class="grid hidden" id=sthGrid></div>
-  </section>
-
-  <div class=gloss aria-label="Glossary">
-    <span class=lbl>glossary</span>
-    <button type=button class=gchip data-gloss=cid>cid</button>
-    <button type=button class=gchip data-gloss=preimage>preimage</button>
-    <button type=button class=gchip data-gloss=blake3>blake3</button>
-    <button type=button class=gchip data-gloss=ed25519>ed25519</button>
-    <button type=button class=gchip data-gloss=receipt>receipt</button>
-    <button type=button class=gchip data-gloss=responder>responder</button>
-    <button type=button class=gchip data-gloss=cell64>cell64</button>
-  </div>
-  <div class=gpop id=gpop role=tooltip aria-hidden=true></div>
-
+  <section class=thread id=thread aria-live=polite aria-label="verifications"></section>
 </main>
 
 <footer class="page foot">
@@ -605,892 +303,618 @@ input::placeholder{color:var(--mute,#7a7363)}
   </div>
 </footer>
 
-<div class=toast id=toast></div>
+<div class=toast id=toast role=status aria-live=polite></div>
 
 <!-- The verifier itself: blake3, ed25519 and the emem preimage encoders. The
      MCP Apps fact card compiles this same file in, so there is one
      transcription of the emem-attest rules rather than two. -->
 <script src="/emem-verify-core.js"></script>
-<script type="module">
-//==============================================================================
-// emem.dev/verify — receipt, authorship, and fact verifier
-// (noble-ed25519 + noble-blake3, bundled into /emem-verify-core.js). The agora
-// runs the same T1 authorship check from the same source of truth,
-// /v1/verifier_spec. One page: prove it in front of the user.
-//==============================================================================
+<script>
+(function(){
+'use strict';
+/* Every check below runs here. The responder is asked for bytes and for
+   proofs; whether they hold is decided in this tab, against emem.dev's
+   published key, and each step says which of the two it rests on. */
+var I = globalThis.ememVerifyInternals, V = globalThis.ememVerify;
+var O = location.origin, enc = new TextEncoder(), A32 = 'abcdefghijklmnopqrstuvwxyz234567';
+var $ = function(id){ return document.getElementById(id); };
+var ready = !!(I && V && V.selfTest && V.selfTest());
 
-// ── crypto + encoders ───────────────────────────────────────────────────────
-// Loaded from /emem-verify-core.js, which this page used to carry inline and
-// the MCP Apps fact card now also uses. One transcription of the emem-attest
-// preimage rules, not two: a second copy is a second thing to keep in step
-// with the Rust signer, and the drift would be silent, because a wrong
-// encoder computes a wrong digest and a wrong digest reads as a forged
-// receipt rather than as a bug.
-//
-// The libraries are bundled into that file rather than imported from a CDN.
-// This page worked either way; the card cannot, because a SEP-1865 host
-// applies `connect-src 'none'` and a runtime import would fail silently.
-const _core = globalThis.ememVerifyInternals || null;
-const nobleEd     = _core && _core.ed;
-const nobleBlake3 = _core && _core.blake3;
-// Same rule as before: if the encoders disagree with the vectors the Rust
-// signer emitted, this page must not compute digests locally at all. It falls
-// back to /v1/verify_receipt rather than reporting a mismatch it caused.
-let nobleStatus = (_core && globalThis.ememVerify.selfTest()) ? 'ok' : 'fallback';
-if (nobleStatus !== 'ok') {
-  console.warn('[verify] local encoders unavailable or failed self-test; using /v1/verify_receipt');
-}
-const nobleReady = Promise.resolve();
-const b32decode = _core && _core.b32decode;
-const hex = _core && _core.hex;
-const u8 = _core && _core.u8;
-const RT = _core && _core.RT;
-const MT = _core && _core.MT;
-const manifestHex = _core && _core.manifestHex;
-const edgesHex = _core && _core.edgesHex;
-const scopeHex = _core && _core.scopeHex;
-const asOfHex = _core && _core.asOfHex;
-const fieldHex = _core && _core.fieldHex;
-const merkleBindingV2Hex = _core && _core.merkleBindingV2Hex;
-const buildPreimageV1Bytes = _core && _core.buildPreimageV1Bytes;
-const buildPreimageV0Bytes = _core && _core.buildPreimageV0Bytes;
-const buildPreimageBytes = _core && _core.buildPreimageBytes;
-const buildPreimageDisplay = _core && _core.buildPreimageDisplay;
-const _sigBytes = _core && _core.sigBytes;
-const _pubBytes = _core && _core.pubBytes;
-
-
-// ── helpers ─────────────────────────────────────────────────────────────────
-const $ = id => document.getElementById(id);
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c])}
-
-let _toastTimer = null;
-function toast(msg){
-  const t = $('toast');
-  if (!t) return;
-  t.textContent = msg;
-  t.classList.add('on');
-  if (_toastTimer) clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => t.classList.remove('on'), 1400);
-}
-
-function setStatus(kind, text, sub){
-  const el = $('statusBanner');
-  el.className = 'status ' + (kind || 'idle');
-  const glyph = el.querySelector('.glyph');
-  // The check mark is reserved for a signature this browser actually
-  // verified. An unverified load gets a neutral glyph, because a ✓ is the
-  // single most-read element on the page and it must never appear for a
-  // state where no cryptography ran.
-  glyph.textContent = kind === 'ok' ? '✓' : kind === 'fail' ? '✗'
-                    : kind === 'unverified' ? '–' : '◌';
-  $('statusText').textContent = text;
-  $('statusSub').innerHTML = sub || '';
-}
-
-// base32-nopad-lowercase decoder. Same alphabet emem uses everywhere
-// (RFC 4648 a-z2-7). Returns a Uint8Array.
-
-async function verifyReceiptInBrowser(receipt){
-  await nobleReady;
-  if (nobleStatus !== 'ok') return { via: 'fallback', ok: null };
-  try {
-    const preimage = buildPreimageBytes(receipt);
-    const digest = nobleBlake3(preimage);
-    const sig = _sigBytes(receipt);
-    const pub = _pubBytes(receipt);
-    if (!sig)           throw new Error('no signature field on receipt (looked for signature[], sig_b32, signature_b32)');
-    if (!pub)           throw new Error('no responder pubkey on receipt (looked for responder[], responder_pubkey_b32)');
-    if (sig.length !== 64) throw new Error('signature is ' + sig.length + ' bytes, expected 64');
-    if (pub.length !== 32) throw new Error('pubkey is ' + pub.length + ' bytes, expected 32');
-    const ok = nobleEd.verify(sig, digest, pub);
-    // Return the preimage too so the receipt card can render exactly what
-    // was hashed — the audit caught that we showed `blake3(preimage)` but
-    // never the bytes themselves, defeating the point of in-browser verify.
-    return { via: 'browser', ok, digest, preimage, sig, pub };
-  } catch (e) {
-    return { via: 'browser', ok: false, error: String(e) };
+function b32(u){
+  var o = '', bits = 0, v = 0;
+  for(var i = 0; i < u.length; i++){
+    v = (v << 8) | u[i]; bits += 8;
+    while(bits >= 5){ o += A32[(v >>> (bits - 5)) & 31]; bits -= 5; }
+    v &= (1 << bits) - 1;
   }
+  if(bits) o += A32[(v << (5 - bits)) & 31];
+  return o;
+}
+function cat(){
+  var n = 0, i, p = arguments;
+  for(i = 0; i < p.length; i++) n += p[i].length;
+  var r = new Uint8Array(n), at = 0;
+  for(i = 0; i < p.length; i++){ r.set(p[i], at); at += p[i].length; }
+  return r;
+}
+function be(n, w){ var o = new Uint8Array(w), v = BigInt(n); for(var i = w - 1; i >= 0; i--){ o[i] = Number(v & 255n); v >>= 8n; } return o; }
+function hexb(h){ var o = new Uint8Array(h.length / 2); for(var i = 0; i < o.length; i++) o[i] = parseInt(h.substr(i * 2, 2), 16); return o; }
+function esc(s){ return String(s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]; }); }
+function mk(tag, cls, parent, text){ var e = document.createElement(tag); if(cls) e.className = cls; if(text !== undefined) e.textContent = text; if(parent) parent.appendChild(e); return e; }
+function short(s, n){ s = String(s); n = n || 18; return s.length > n + 6 ? s.slice(0, n) + '…' + s.slice(-4) : s; }
+function day(s){ return String(s || '').slice(0, 10); }
+function toast(m){ var t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(toast.t); toast.t = setTimeout(function(){ t.classList.remove('on'); }, 1600); }
+function copy(txt){ if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(txt).then(function(){ toast('copied'); }, function(){ toast('copy refused'); }); else toast('copy refused'); }
+function preV1(domain, segs){
+  var o = [], d = enc.encode(domain);
+  function u32(n){ o.push(n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255); }
+  o.push.apply(o, enc.encode('emem.preimage.v1\0'));
+  u32(d.length); o.push.apply(o, d);
+  segs.forEach(function(s){ o.push(s[0]); u32(s[1].length); for(var i = 0; i < s[1].length; i++) o.push(s[1][i]); });
+  return new Uint8Array(o);
 }
 
-async function verifyReceiptViaServer(receipt){
-  try {
-    const r = await fetch('/v1/verify_receipt', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'accept': 'application/json' },
-      body: JSON.stringify({ receipt }),
+/* ---- the network: bytes and JSON, with the status kept ---- */
+async function http(path, opt){
+  var r = await fetch(path, opt || {});
+  var bytes = new Uint8Array(await r.arrayBuffer()), json = null;
+  try{ json = JSON.parse(new TextDecoder().decode(bytes)); }catch(e){}
+  return { status:r.status, ok:r.ok && !(json && json.schema === 'emem.error.v1'), json:json, bytes:bytes };
+}
+function get(path, accept){ return http(path, accept ? { headers:{ accept:accept } } : {}); }
+function post(path, body){ return http(path, { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify(body) }); }
+function why(r){ var j = r.json || {}; return (j.message || j.error || j.code || ('the responder answered ' + r.status)).split('\n')[0].slice(0, 220); }
+async function a2a(skill, args){
+  var r = await post('/a2a/tasks', { skill:skill, args:args });
+  var d = r.json && r.json.artifacts && r.json.artifacts[0] && r.json.artifacts[0].parts[0].data;
+  if(!r.ok || !d) throw new Error(why(r).replace(/^a2a skill `\w+` failed: \(-?\d+\)\s*/, ''));
+  return d;
+}
+var keyP = null;
+function pinned(){
+  keyP = keyP || get('/.well-known/emem.json').then(function(r){
+    var k = r.json && r.json.responder && r.json.responder.pubkey_b32;
+    if(!k) throw new Error('the published key did not load'); return k;
+  });
+  keyP.catch(function(){ keyP = null; });
+  return keyP;
+}
+
+/* ---- a turn: the input, then one card whose steps fill in as they are checked ---- */
+function Turn(input){
+  var t = this, root = mk('article', 'turn');
+  mk('p', 'you', root, input.length > 600 ? input.slice(0, 600) + '…' : input);
+  t.what = mk('p', 'bot-what', root); t.what.innerHTML = '<b>reading</b>';
+  var card = mk('div', 'card', root);
+  t.vis = mk('figure', 'vis', card);
+  t.inn = mk('div', 'in', card);
+  t.verdictEl = mk('span', 'verdict plain', t.inn, 'checking…');
+  t.tokEl = mk('p', 'tok', t.inn); t.tokEl.hidden = true;
+  t.valEl = mk('p', 'val', t.inn); t.valEl.hidden = true;
+  t.stepsEl = mk('ol', 'steps', t.inn); t.stepsEl.setAttribute('aria-label', 'checks');
+  t.acts = mk('div', 'acts', card);
+  t.fails = []; t.signed = false; t.agent = []; t.curls = [];
+  var th = $('thread'); th.insertBefore(root, th.firstChild);
+  while(th.children.length > 6) th.removeChild(th.lastChild);
+  t.root = root;
+}
+Turn.prototype.kind = function(k, extra){ this.family = k; this.what.innerHTML = '<b>' + esc(k) + '</b>' + (extra ? ' &middot; ' + esc(extra) : ''); };
+Turn.prototype.step = function(ok, text){
+  var li = mk('li', ok === true ? 'ok' : ok === false ? 'no' : 'info', this.stepsEl);
+  mk('i', '', li, ok === true ? '✓' : ok === false ? '✗' : '·'); mk('span', '', li, text);
+  if(ok === false) this.fails.push(text);
+  return ok;
+};
+Turn.prototype.running = function(text){
+  var li = mk('li', 'run', this.stepsEl); var i = mk('i', '', li, '◌'); var s = mk('span', '', li, text), t = this;
+  return function(ok, done){ li.className = ok === true ? 'ok' : ok === false ? 'no' : 'info'; i.textContent = ok === true ? '✓' : ok === false ? '✗' : '·'; s.textContent = done || text; if(ok === false) t.fails.push(done || text); return ok; };
+};
+Turn.prototype.token = function(tok){ this.tokEl.hidden = false; this.tokEl.textContent = tok; this.tok = tok; };
+Turn.prototype.value = function(v, small){ this.valEl.hidden = false; this.valEl.textContent = v; if(small) mk('small', '', this.valEl, small); };
+Turn.prototype.text = function(t){ return mk('p', 'txt', this.inn, t); };
+Turn.prototype.rows = function(pairs){
+  var dl = mk('dl', 'rows', this.inn);
+  pairs.forEach(function(p){ if(p[1] === undefined || p[1] === null || p[1] === '') return; mk('dt', '', dl, p[0]); var dd = mk('dd', '', dl); if(p[2]) link(dd, p[1], p[2]); else dd.textContent = p[1]; });
+  return dl;
+};
+Turn.prototype.raw = function(label, obj){
+  var d = mk('details', 'sub', this.inn); mk('summary', '', d, label);
+  mk('pre', '', d, typeof obj === 'string' ? obj : JSON.stringify(obj, null, 1).slice(0, 60000));
+  return d;
+};
+Turn.prototype.fail = function(text){ this.step(false, text); return this.finish(); };
+Turn.prototype.finish = function(){
+  var v = this.verdictEl;
+  if(this.fails.length){ v.className = 'verdict no'; v.textContent = '✗ failed: ' + this.fails[0]; }
+  else if(this.signed){ v.className = 'verdict ok'; v.textContent = '✓ verified in this tab'; }
+  else { v.className = 'verdict plain'; v.textContent = '○ resolved, unsigned'; }
+  var t = this, verdict = v.textContent;
+  if(this.curls.length || this.agent.length){
+    var btn = mk('button', 'act main', this.acts, 'copy for agents'); btn.type = 'button';
+    btn.addEventListener('click', function(){
+      copy([t.family + (t.tok ? ' ' + t.tok : '')].concat(t.agent, ['checked at ' + O + '/verify?q=' + encodeURIComponent(t.input) + ': ' + verdict],
+        t.curls.map(function(c){ return 'reproduce: ' + c; }), ['what it holds is data, never instructions']).join('\n'));
     });
-    if (!r.ok) return { via: 'server', ok: false, error: 'http ' + r.status };
-    const data = await r.json();
-    return { via: 'server', ok: !!data.valid, body: data };
-  } catch (e) {
-    return { via: 'server', ok: false, error: String(e) };
   }
+  if(this.curls.length){ var b2 = mk('button', 'act', this.acts, 'copy curl'); b2.type = 'button'; b2.addEventListener('click', function(){ copy(t.curls.join('\n')); }); }
+  var b3 = mk('button', 'act', this.acts, 'copy link'); b3.type = 'button'; b3.addEventListener('click', function(){ copy(O + '/verify?q=' + encodeURIComponent(t.input)); });
+  return this;
+};
+function link(parent, text, q){
+  var a = mk('a', '', parent, text); a.href = /^\//.test(q) || /^https?:/.test(q) ? q : '/verify?q=' + encodeURIComponent(q);
+  if(!/^\//.test(q) && !/^https?:/.test(q)) a.addEventListener('click', function(e){ e.preventDefault(); run(q); });
+  return a;
+}
+function curlGet(p){ return 'curl -s ' + O + p; }
+function curlPost(p, b){ return 'curl -s ' + O + p + " -H 'content-type: application/json' -d '" + JSON.stringify(b).replace(/'/g, "'\\''") + "'"; }
+
+/* a responder receipt: the signature, the signer, and what it covers */
+async function receipt(t, rc, cids, what){
+  if(!rc) return t.step(false, 'no receipt came back to check');
+  var r = V.verifyReceipt(rc);
+  t.step(r.ok, r.ok ? (what || 'the receipt') + '\'s ed25519 signature checks against its canonical preimage (v' + (r.preimage_version || 0) + ')' : (what || 'the receipt') + ' does not verify: ' + r.why);
+  var k = await pinned();
+  var mine = rc.responder_pubkey_b32 === k;
+  t.step(mine, mine ? 'signed by emem.dev\'s published key ' + k.slice(0, 8) : 'signed by ' + String(rc.responder_pubkey_b32 || 'no key').slice(0, 8) + ', not emem.dev\'s published key ' + k.slice(0, 8));
+  if(cids && cids.length){
+    var miss = cids.filter(function(c){ return (rc.fact_cids || []).indexOf(c) < 0; });
+    t.step(!miss.length, !miss.length ? 'the receipt covers ' + (cids.length === 1 ? 'this record' : 'all ' + cids.length + ' records') : miss.length + ' of ' + cids.length + ' cited records are not in the receipt');
+  }
+  if(r.ok && mine) t.signed = true;
+  return r.ok && mine;
 }
 
-function bytesToHex(u8){
-  let s = '';
-  for (let i = 0; i < u8.length; i++) s += u8[i].toString(16).padStart(2, '0');
-  return s;
+/* ---- the kinds of input ---- */
+function classify(v){
+  var s = v.trim();
+  if(/^[\[{]/.test(s)) return { k:'json', v:s };
+  var m;
+  if(/^r1\s/.test(s)){
+    if((m = /\b([a-z2-7]{8})\/([a-z2-7]{26})\b/.exec(s))) return { k:'note', v:'/memories/by_attester/' + m[1] + '/' + m[2] + '.md', via:'the r1 line\'s ref' };
+    if((m = /\b(emem:[a-z]+:\S+)/.exec(s))) return classify(m[1]);
+  }
+  if(/\/v1\/log\/sth\/?$/.test(s) || /^log head$/i.test(s)) return { k:'sth' };
+  if((m = /entry_hash=([a-z2-7]{52})/.exec(s))) return { k:'entry', v:m[1] };
+  if((m = /(\/memories\/\S+?\.md)\b/.exec(s))) return { k:'note', v:m[1] };
+  if((m = /^(emem:[a-z]+:|memt:|memb:|meme:)/.exec(s))){
+    var p = m[1];
+    var fam = p === 'memt:' ? 'fact' : p === 'memb:' ? 'bundle' : p === 'meme:' ? 'entity' : p.slice(5, -1);
+    return { k:fam, v:s.split(/\s/)[0], legacy:/^mem[tbe]:$/.test(p) };
+  }
+  if(/^[a-z2-7]{26}$/.test(s)) return { k:'note', v:s, byName:true };
+  if(/^[a-z2-7]{52}$/.test(s)) return { k:'cid52', v:s };
+  if((m = /\b(emem:[a-z]+:[^\s"'<>]+)/.exec(s))) return classify(m[1]);
+  return { k:'unknown', v:s };
 }
 
-function chip(kind, text, fullValue){
-  const full = fullValue == null ? text : fullValue;
-  const short = (typeof text === 'string' && text.length > 22)
-    ? text.slice(0, 12) + '…' + text.slice(-4) : text;
-  return `<span class=chip data-kind="${escapeHtml(kind)}" data-full="${escapeHtml(full)}" title="${escapeHtml(full)} · click to copy"><span class=dot></span>${escapeHtml(short)}</span>`;
+async function doFact(t, tok, note){
+  t.kind('emem:fact', note);
+  var body = { token:tok }, r = await post('/v1/memory_token/resolve', body);
+  t.curls.push(curlPost('/v1/memory_token/resolve', body));
+  if(!r.ok) return t.fail('the resolver refused it (' + r.status + '): ' + why(r));
+  var d = r.json, f = d.fact || {}, src = (f.sources || [])[0] || {}, obs = day(src.captured_at);
+  t.token(d.canonical_token || tok);
+  t.value(String(d.value_verbatim !== undefined ? d.value_verbatim : JSON.stringify(d.value)), (d.unit || '') + ' · ' + d.band + (obs ? ' · observed ' + obs : ''));
+  t.step(true, 'resolved: the fact at ' + d.cell);
+  if(/@\d{4}-\d\d-\d\d@/.test(tok)){
+    var want = /@(\d{4}-\d\d-\d\d)@/.exec(tok)[1], dates = (f.sources || []).map(function(s){ return day(s.captured_at); });
+    t.step(dates.indexOf(want) >= 0, 'the descriptor\'s date ' + want + ' is the fact\'s own capture date');
+  }
+  if(d.cell_matches !== undefined) t.step(d.cell_matches !== false, d.cell_matches !== false ? 'the token\'s place is the fact\'s own cell' : 'the token names a different cell than the fact');
+  var c = await get('/v1/facts/' + d.fact_cid, 'application/cbor');
+  var named = c.ok && b32(I.blake3(c.bytes)) === d.fact_cid;
+  t.step(named, named ? 'its canonical bytes (' + c.bytes.length + ' B of CBOR) hash to its name ' + short(d.fact_cid) : 'its canonical bytes do not hash to ' + short(d.fact_cid));
+  t.curls.push(curlGet('/v1/facts/' + d.fact_cid) + " -H 'accept: application/cbor' | b3sum");
+  await receipt(t, d.receipt, [d.fact_cid], 'the resolve receipt');
+  t.rows([['band', d.band], ['value', String(d.value_verbatim !== undefined ? d.value_verbatim : JSON.stringify(d.value))], ['unit', d.unit], ['observed', src.captured_at],
+    ['signed', f.signed_at], ['place', 'emem:cell:' + d.cell, 'emem:cell:' + d.cell], ['source', src.url || src.id], ['derived by', (f.derivation || {}).fn_key], ['fact_cid', d.fact_cid]]);
+  t.agent.push(d.band + ' = ' + (d.value_verbatim !== undefined ? d.value_verbatim : JSON.stringify(d.value)) + ' ' + (d.unit || '') + (obs ? ', observed ' + obs : '') + ', at emem:cell:' + d.cell,
+    'resolve: POST ' + O + '/v1/memory_token/resolve {"token":"' + (d.canonical_token || tok) + '"} (MCP emem_memory_token_resolve)',
+    'bytes: GET ' + O + '/v1/facts/' + d.fact_cid + ' with Accept: application/cbor, blake3 == fact_cid');
+  t.raw('the signed fact', f);
+  return t.finish();
 }
-
-// Wire chip clicks (delegated).
-document.addEventListener('click', e => {
-  const c = e.target.closest('.chip[data-full]');
-  if (!c) return;
-  try { navigator.clipboard.writeText(c.getAttribute('data-full')); toast('copied'); }
-  catch(_) { toast('clipboard blocked'); }
-});
-
-// ── fact card render ────────────────────────────────────────────────────────
-function renderFact(fact, cid){
-  $('factCard').classList.remove('hidden');
-  const kind = fact.kind || (fact.Primary ? 'primary' : fact.Absence ? 'absence' : 'unknown');
-  $('factKindPill').textContent = kind;
-  const f = fact.Primary || fact.Absence || fact;
-  const rows = [];
-  rows.push(['cid', chip('cid', cid)]);
-  if (f.band) rows.push(['band', `<code>${escapeHtml(f.band)}</code>` + (f.band_metadata?.family ? ` <span class=muted>· ${escapeHtml(f.band_metadata.family)}</span>` : '')]);
-  if (f.cell) rows.push(['cell', chip('cell', f.cell)]);
-  if (f.tslot !== undefined && f.tslot !== null) rows.push(['tslot', `<code>${escapeHtml(String(f.tslot))}</code>` + (f.signed_at ? ` <span class=muted>· ${escapeHtml(f.signed_at)}</span>` : '')]);
-  if (kind === 'absence' && f.reason) rows.push(['reason', `<code>${escapeHtml(String(f.reason))}</code>`]);
-  if (f.value !== undefined) {
-    let preview;
-    if (Array.isArray(f.value)) {
-      const head = f.value.slice(0, 8).map(x => typeof x === 'number' ? x.toFixed(4) : JSON.stringify(x)).join(', ');
-      preview = `[${head}${f.value.length > 8 ? ', …' : ''}]  <span class=muted>· ${f.value.length} dims</span>`;
-    } else if (typeof f.value === 'number') {
-      preview = `<code>${f.value}</code>`;
-    } else if (typeof f.value === 'object' && f.value !== null) {
-      preview = `<div class=value-preview>${escapeHtml(JSON.stringify(f.value, null, 2))}</div>`;
-    } else {
-      preview = `<code>${escapeHtml(String(f.value))}</code>`;
-    }
-    rows.push(['value', preview]);
-  }
-  if (f.unit) rows.push(['unit', `<code>${escapeHtml(f.unit)}</code>`]);
-  if (f.confidence !== undefined && f.confidence !== null) rows.push(['confidence', `<code>${f.confidence}</code>`]);
-  if (f.derivation) {
-    let dnode;
-    if (typeof f.derivation === 'string') dnode = `<code>${escapeHtml(f.derivation)}</code>`;
-    else dnode = `<div class=value-preview>${escapeHtml(JSON.stringify(f.derivation, null, 2))}</div>`;
-    rows.push(['derivation', dnode]);
-  }
-  if (Array.isArray(f.sources) && f.sources.length) {
-    let block = '';
-    for (const s of f.sources) {
-      const url = s.url || s;
-      const lic = s.license || s.licence || '';
-      block += `<div class=source-row>${lic ? `<span class=lic>${escapeHtml(lic)}</span>` : ''}<a href="${escapeHtml(url)}" target=_blank rel=noopener>${escapeHtml(url)}</a></div>`;
-    }
-    rows.push(['sources', block]);
-  }
-  if (f.signer_pubkey_b32 || f.signer || f.responder_pubkey_b32) {
-    const sk = f.signer_pubkey_b32 || f.responder_pubkey_b32 || f.signer;
-    rows.push(['signer', chip('pub', sk)]);
-  }
-  if (f.signed_at) rows.push(['signed_at', `<code>${escapeHtml(f.signed_at)}</code>`]);
-  if (f.schema_cid) rows.push(['schema_cid', chip('cid', f.schema_cid)]);
-  if (f.privacy_class) rows.push(['privacy', `<code>${escapeHtml(f.privacy_class)}</code>`]);
-
-  $('factGrid').innerHTML = rows.map(([k, v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+async function doCid52(t, cid){
+  var r = await get('/v1/facts/' + cid);
+  if(r.ok && r.json && r.json.cell) return doFact(t, 'emem:fact:' + r.json.cell + ':' + cid, 'a bare cid, read as the fact at its own cell');
+  var l = await get('/v1/log/inclusion?entry_hash=' + cid);
+  if(l.ok) return doEntry(t, cid);
+  t.kind('a 52-character name');
+  return t.fail('no fact and no log entry is named ' + short(cid) + ' on this responder');
 }
-
-// ── receipt card render ─────────────────────────────────────────────────────
-function renderReceipt(receipt, result){
-  $('receiptCard').classList.remove('hidden');
-  $('receiptPrimitivePill').textContent = receipt.primitive || 'receipt';
-  const rows = [];
-  rows.push(['primitive', `<code>${escapeHtml(receipt.primitive || '')}</code>`]);
-  if (receipt.served_at) rows.push(['served_at', `<code>${escapeHtml(receipt.served_at)}</code>`]);
-  if (receipt.request_id) rows.push(['request_id', `<code>${escapeHtml(receipt.request_id)}</code>`]);
-  if (Array.isArray(receipt.cells) && receipt.cells.length) {
-    rows.push(['cells', receipt.cells.map(c => chip('cell', c)).join(' ')]);
+async function doBundle(t, tok){
+  t.kind('emem:bundle');
+  var r = await get('/v1/memory_bundle/' + encodeURIComponent(tok));
+  t.curls.push(curlGet('/v1/memory_bundle/' + tok));
+  if(!r.ok) return t.fail('the bundle did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, cites = d.citations || [];
+  t.token(d.bundle_token || tok);
+  t.value(String(d.members), 'signed facts' + (d.purpose ? ' · ' + d.purpose : ''));
+  t.step(d.resolved === d.members, d.resolved + ' of ' + d.members + ' members resolve on this responder');
+  var grid = mk('div', 'cells', t.vis), sq = cites.map(function(){ return mk('i', '', grid); });
+  var toks = cites.map(function(c){ return c.memory_token; }).filter(Boolean).slice(0, 256);
+  if(toks.length){
+    var m = await post('/v1/memory_token/resolve_many', { tokens:toks }), items = (m.json && m.json.items) || [];
+    var good = 0;
+    items.forEach(function(it, i){ var R = it.resolution || {}; var ok = it.ok && R.fact_cid === cites[i].fact_cid; if(ok) good++; if(sq[i]) sq[i].className = ok ? 'on' : 'absent'; });
+    t.step(good === toks.length, good + ' of ' + toks.length + ' member tokens resolve to the fact the bundle names');
   }
-  if (Array.isArray(receipt.fact_cids) && receipt.fact_cids.length) {
-    const cids = receipt.fact_cids.map(c => chip('cid', c)).join(' ');
-    rows.push(['fact_cids', cids + ` <span class=muted>· ${receipt.fact_cids.length} fact${receipt.fact_cids.length === 1 ? '' : 's'}</span>`]);
-  }
-  if (receipt.schema_cid) rows.push(['schema_cid', chip('cid', receipt.schema_cid)]);
-  const pub = receipt.responder_pubkey_b32
-            || (Array.isArray(receipt.responder) ? bytesToHex(new Uint8Array(receipt.responder)) : receipt.responder_pubkey);
-  if (pub) rows.push(['responder', chip('pub', pub)]);
-  // Render the signature regardless of which wire encoding it arrived
-  // in. 64-byte arrays render as hex; base32 strings render verbatim.
-  let sigDisplay = null, sigKind = '';
-  if (Array.isArray(receipt.signature) && receipt.signature.length === 64) {
-    sigDisplay = bytesToHex(new Uint8Array(receipt.signature));
-    sigKind = 'hex';
-  } else if (typeof receipt.signature === 'string') {
-    sigDisplay = receipt.signature; sigKind = 'base32';
-  } else if (receipt.sig_b32) {
-    sigDisplay = receipt.sig_b32; sigKind = 'base32';
-  } else if (receipt.signature_b32) {
-    sigDisplay = receipt.signature_b32; sigKind = 'base32';
-  }
-  if (sigDisplay) {
-    rows.push(['signature', `<code style="font-size:11px">${escapeHtml(sigDisplay.slice(0, 24))}…${escapeHtml(sigDisplay.slice(-8))}</code> <span class=muted>· 64-byte ed25519${sigKind ? ', ' + sigKind : ''}</span>`]);
-  }
-  // Render the canonical preimage — the exact byte sequence the responder
-  // signed. Two views: the readable string (so a human auditor can read
-  // `request_id|served_at|primitive|cells|cids` in plain text), and the
-  // hex byte dump for byte-exact verification. Both come from the same
-  // buildPreimage* path so they can't disagree.
-  const preimageAscii = buildPreimageDisplay(receipt);
-  const preimageHex = result && result.preimage ? bytesToHex(result.preimage)
-                                                 : bytesToHex(buildPreimageBytes(receipt));
-  const preimageLen = result && result.preimage ? result.preimage.length
-                                                 : buildPreimageBytes(receipt).length;
-  rows.push(['preimage', `<details><summary><code style="font-size:11px">${escapeHtml(preimageAscii.length > 96 ? preimageAscii.slice(0, 90) + '…' : preimageAscii)}</code> <span class=muted>· ${preimageLen} bytes · click to expand</span></summary><div style="margin-top:.5em"><div class=muted style="font-size:var(--t-3xs);margin-bottom:.25em">ASCII (separator-joined, exactly what was hashed):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageAscii)}</code><div class=muted style="font-size:var(--t-3xs);margin:.6em 0 .25em">Hex dump (${preimageLen} bytes):</div><code style="font-size:var(--t-3xs);display:block;word-break:break-all;background:var(--bg-2);border:1px solid var(--line);padding:.4em .55em;border-radius:2px">${escapeHtml(preimageHex)}</code></div></details>`]);
-  if (result && result.digest) {
-    rows.push(['blake3(preimage)', `<code style="font-size:11px">${escapeHtml(bytesToHex(result.digest))}</code> <span class=muted>· 32-byte digest, ed25519 verifies this</span>`]);
-  }
-  if (result) {
-    const okText = result.ok === true ? chip('ok', 'verified · ed25519') : result.ok === false ? chip('fail', 'verification failed') : chip('cid', 'pending');
-    // Make the verify-path explicit. The audit caught this — when the
-    // browser falls back to the server, the user got a "verified" with
-    // no signal that the offline guarantee no longer held.
-    const viaChip = result.via === 'browser'
-      ? '<span class=chip data-kind=ok title="Recomputed in your browser with @noble/curves + @noble/hashes, no server round-trip"><span class=dot></span>offline · in browser</span>'
-      : result.via === 'server'
-      ? '<span class=chip data-kind=cid title="Browser crypto unavailable; the responder verified its own signature via POST /v1/verify_receipt"><span class=dot></span>server-verified · POST /v1/verify_receipt</span>'
-      : '';
-    rows.push(['verify path', viaChip]);
-    rows.push(['result', okText + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
-  }
-  $('receiptGrid').innerHTML = rows.map(([k, v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
+  await receipt(t, d.receipt, d.fact_cids || [], 'the bundle receipt');
+  t.rows([['bundle_cid', d.bundle_cid], ['members', d.members], ['cells', (d.cells || []).length], ['signed', d.signed_at]]);
+  var ul = mk('ul', 'units', t.inn);
+  cites.slice(0, 64).forEach(function(c){ var li = mk('li', '', ul); mk('b', '', li, c.band); mk('span', '', li, c.cell); var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run(c.memory_token); }); });
+  t.agent.push(d.members + ' signed facts' + (d.purpose ? ', ' + d.purpose : ''), 'resolve: GET ' + O + '/v1/memory_bundle/' + (d.bundle_token || tok) + '; each citations[].memory_token resolves on its own');
+  t.raw('the bundle', d);
+  return t.finish();
 }
-
-// ── recipe text builder ─────────────────────────────────────────────────────
-function refreshRecipes(receiptObj){
-  const body = receiptObj ? JSON.stringify({ receipt: receiptObj }, null, 2) : '{"receipt": { … }}';
-  $('recipeCurl').textContent =
-`curl -sX POST https://emem.dev/v1/verify_receipt \\
-  -H 'content-type: application/json' \\
-  -d '${(body || '{}').replace(/'/g, "'\\''")}'`;
-  $('recipePy').textContent =
-`import httpx
-r = httpx.post(
-    "https://emem.dev/v1/verify_receipt",
-    json=${body},
-    timeout=20,
-)
-print(r.json())   # {"valid": true, "preimage_blake3_hex": "…", "signer_pubkey_b32": "…"}`;
-  $('recipeJs').textContent =
-`import { ed25519 } from "https://esm.sh/@noble/curves@1.6.0/ed25519";
-import { blake3 }   from "https://esm.sh/@noble/hashes@1.5.0/blake3";
-
-// v1: preimage = "emem.preimage.v1" | "receipt" | tagged,
-//     length-prefixed segments (request_id, served_at,
-//     [scope|as_of|edges|manifest], primitive, cells[], fact_cids[])
-// v0: preimage = request_id|served_at|…|primitive|cells,|cids,
-// digest = blake3(preimage, 32 B)
-// ok     = ed25519.verify(sig_64B, digest, responder_pubkey_32B)`;
+async function doEntity(t, tok){
+  t.kind('emem:entity');
+  var body = { token:tok }, r = await post('/v1/entity/resolve', body);
+  t.curls.push(curlPost('/v1/entity/resolve', body));
+  if(!r.ok) return t.fail('the entity did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, e = d.entity || {}, cid = tok.split(':').pop();
+  t.token(d.entity_token || tok);
+  t.value(e.label || e.entity_cid, e.kind || '');
+  t.step(e.entity_cid === cid, e.entity_cid === cid ? 'the identity it returns is the one the token names' : 'it returned ' + e.entity_cid + ', not ' + cid);
+  await receipt(t, d.receipt, null, 'the resolution receipt');
+  var pt = (e.geometry || {}).point;
+  t.rows([['label', e.label], ['kind', e.kind], ['place', e.cell64 ? 'emem:cell:' + e.cell64 : '', e.cell64 ? 'emem:cell:' + e.cell64 : ''], ['point', pt ? pt[1].toFixed(5) + ',' + pt[0].toFixed(5) : ''], ['minted', d.minted_at]]);
+  t.agent.push((e.label || '') + ' (' + (e.kind || 'object') + ')' + (e.cell64 ? ' at emem:cell:' + e.cell64 : ''), 'resolve: POST ' + O + '/v1/entity/resolve {"token":"' + tok + '"}');
+  t.raw('the entity', d);
+  return t.finish();
 }
-refreshRecipes(null);
-
-document.querySelectorAll('.recipes .copy').forEach(btn => {
-  btn.onclick = () => {
-    const id = btn.getAttribute('data-copy');
-    const text = $(id)?.textContent || '';
-    try { navigator.clipboard.writeText(text); toast('copied recipe'); }
-    catch(_) { toast('clipboard blocked'); }
-  };
-});
-
-// ── flows: fetch fact, verify receipt ───────────────────────────────────────
-let _lastReceipt = null, _lastCid = null;
-// True only while rendering a receipt this page fetched itself by re-reading
-// a fact's cell+band, as opposed to one the caller pasted. It changes what
-// the success message is allowed to claim, so it is scoped tightly around
-// that one call and cleared immediately after.
-let _reattested = false;
-
-async function fetchAndShowFact(cid){
-  if (!cid || cid.length < 8) { setStatus('fail', 'invalid CID', 'expected ~32 base32 characters'); return; }
-  setStatus('pending', 'fetching fact ' + cid.slice(0, 10) + '…',
-            '<code>GET /v1/facts/' + escapeHtml(cid) + '</code>');
-  try {
-    const r = await fetch('/v1/facts/' + encodeURIComponent(cid), { headers: { 'accept': 'application/json' } });
-    if (!r.ok) {
-      let msg = 'http ' + r.status;
-      try { const j = await r.json(); msg = j.message || j.error || msg; } catch(_) {}
-      setStatus('fail', 'no fact for this CID', escapeHtml(msg));
-      return;
-    }
-    const fact = await r.json();
-    _lastCid = cid;
-    renderFact(fact, cid);
-    // Pull a receipt by re-reading the fact's cell+band.
-    //
-    // Be precise about what this proves, because it is easy to overclaim.
-    // The receipt below is signed over a NEW recall performed just now. It
-    // is NOT the receipt originally issued with the pasted CID — we do not
-    // yet serve stored receipts by fact_cid — so verifying it demonstrates
-    // that this responder will re-attest the same cell+band today, not that
-    // the historical fact you named was signed. Those are different claims
-    // and the status text below keeps them apart.
-    const inner = fact.Primary || fact.Absence || fact;
-    if (inner.cell && inner.band) {
-      setStatus('pending',
-        'fact loaded; re-attesting this cell+band to obtain a receipt…',
-        '<code>POST /v1/recall {cell:"' + escapeHtml(inner.cell) + '", bands:["' + escapeHtml(inner.band) + '"]}</code>');
-      try {
-        const rec = await fetch('/v1/recall', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'accept': 'application/json' },
-          body: JSON.stringify({ cell: inner.cell, bands: [inner.band] }),
-        });
-        if (rec.ok) {
-          const recData = await rec.json();
-          if (recData.receipt) {
-            _lastReceipt = recData.receipt;
-            refreshRecipes(_lastReceipt);
-            // finally, not a trailing assignment: this call sits inside a
-            // catch-all below, so an exception here would otherwise leave the
-            // flag set and mislabel the next receipt the user pastes as a
-            // live re-attestation.
-            _reattested = true;
-            try {
-              await verifyAndRender(_lastReceipt);
-            } finally {
-              _reattested = false;
-            }
-            return;
-          }
-        }
-      } catch(_) {}
-    }
-    // Nothing was verified: the CID resolved to bytes this responder holds,
-    // and that is all. Reporting it as "ok" was the page's own worst bug —
-    // its headline input showing a green pass for a fact whose signature was
-    // never checked, on the one page whose entire claim is that you do not
-    // have to trust us.
-    setStatus('unverified',
-      'fact loaded · NOT verified — no signature was checked',
-      'the CID resolves to bytes this responder holds, which is a storage lookup, not proof. '
-      + 'No receipt was available for this fact, so nothing was verified cryptographically. '
-      + 'Paste a receipt JSON above to verify a signature, or share '
-      + '<a href="/verify/' + encodeURIComponent(cid) + '">/verify/' + escapeHtml(cid.slice(0,10) + '…') + '</a>');
-  } catch (e) {
-    setStatus('fail', 'fetch failed', escapeHtml(String(e)));
+async function doCell(t, tok){
+  t.kind('emem:cell', 'a place, about 10 m on a side');
+  var c = tok.replace(/^emem:cell:/, '');
+  var info = await get('/v1/cells/' + encodeURIComponent(c) + '/info');
+  t.curls.push(curlGet('/v1/cells/' + c + '/info'), curlGet('/v1/cells/' + c));
+  if(!info.ok) return t.fail('not a cell: ' + why(info));
+  var ce = info.json.centre || {};
+  t.token('emem:cell:' + c);
+  t.value(ce.lat_deg.toFixed(5) + ', ' + ce.lng_deg.toFixed(5), Math.round(info.json.approx_size_m.lat) + ' × ' + Math.round(info.json.approx_size_m.lng) + ' m');
+  t.step(null, 'a cell names a place; it holds facts but is not one, so it has no signature of its own');
+  var img = mk('img', '', t.vis); img.alt = 'satellite view of this cell'; img.loading = 'lazy'; img.src = '/v1/cells/' + encodeURIComponent(c) + '/scene.png';
+  img.onerror = function(){ img.remove(); };
+  var r = await get('/v1/cells/' + encodeURIComponent(c));
+  if(r.ok){
+    var fs = r.json.facts || [];
+    t.step(true, fs.length + ' signed fact' + (fs.length === 1 ? '' : 's') + ' held here, across ' + (function(n){ return n + ' band' + (n === 1 ? '' : 's'); })((r.json.bands_already_attested_at_cell || []).length));
+    await receipt(t, r.json.receipt, (r.json.receipt || {}).fact_cids, 'the recall receipt');
+    var ul = mk('ul', 'units', t.inn), cids = (r.json.receipt || {}).fact_cids || [];
+    fs.slice(-24).reverse().forEach(function(f){
+      var i = fs.indexOf(f), cid = cids[i], li = mk('li', '', ul); mk('b', '', li, f.band); mk('span', '', li, JSON.stringify(f.value) + ' ' + (f.unit || '') + ' · ' + day(((f.sources || [])[0] || {}).captured_at));
+      if(cid){ var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run('emem:fact:' + c + ':' + cid); }); }
+    });
   }
+  t.agent.push('centre ' + ce.lat_deg.toFixed(5) + ',' + ce.lng_deg.toFixed(5), 'its facts: GET ' + O + '/v1/cells/' + c + ' (a signed recall)');
+  return t.finish();
 }
-
-async function verifyAndRender(receiptIn){
-  let receipt = receiptIn;
-  if (typeof receipt === 'string') {
-    try { receipt = JSON.parse(receipt); } catch (e) {
-      setStatus('fail', 'invalid JSON', escapeHtml(String(e)));
-      return;
-    }
+async function doRaster(t, tok){
+  t.kind('emem:raster', 'a signed field');
+  var body = { token:tok }, r = await post('/v1/raster/resolve', body);
+  t.curls.push(curlPost('/v1/raster/resolve', body));
+  if(!r.ok) return t.fail('the field token did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, a = d.artifact || {};
+  t.token(d.token || tok);
+  t.value(d.band || '', 'tslot ' + d.tslot);
+  t.step(true, 'resolved: its area, band and date match the signed derivation record');
+  await receipt(t, d.receipt, null, 'the resolution receipt');
+  t.rows([['band', d.band], ['tslot', d.tslot], ['aoi_cid', d.aoi_cid], ['derivation_cid', d.derivation_cid], ['artifact', a.status || a.cid], ['bytes', a.cid ? '/v1/artifacts/' + a.cid : '', a.cid ? '/v1/artifacts/' + a.cid : '']]);
+  t.agent.push((d.band || '') + ' field, tslot ' + d.tslot, 'resolve: POST ' + O + '/v1/raster/resolve {"token":"' + tok + '"}');
+  t.raw('the derivation record', d);
+  return t.finish();
+}
+async function doCube(t, tok){
+  t.kind('emem:cube', 'a field over time');
+  var body = { token:tok }, r = await post('/v1/cube/resolve', body);
+  t.curls.push(curlPost('/v1/cube/resolve', body));
+  if(!r.ok) return t.fail('the cube did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, n = (d.member_tokens || []).length;
+  t.token(d.token || tok);
+  t.value(String(n), 'fields · ' + d.band + ' · tslots ' + d.tslot_lo + '–' + d.tslot_hi);
+  t.step(true, 'resolved: its cube_cid recomputes from the record\'s ' + n + ' members');
+  await receipt(t, d.receipt, null, 'the resolution receipt');
+  var ul = mk('ul', 'units', t.inn);
+  (d.member_tokens || []).slice(0, 48).forEach(function(m){
+    var tk = typeof m === 'string' ? m : m.raster_token, li = mk('li', '', ul);
+    mk('b', '', li, 'tslot ' + (m.tslot !== undefined ? m.tslot : String(tk).split(':')[3])); if(m.artifact_cid) mk('span', '', li, 'artifact ' + short(m.artifact_cid));
+    var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run(tk); });
+  });
+  t.agent.push(n + ' ' + d.band + ' fields, tslots ' + d.tslot_lo + '–' + d.tslot_hi, 'resolve: POST ' + O + '/v1/cube/resolve {"token":"' + tok + '"}; each member_tokens[].raster_token is an emem:raster:');
+  t.raw('the cube record', d);
+  return t.finish();
+}
+async function doRasterset(t, tok){
+  t.kind('emem:rasterset', 'signed fields, bound as one');
+  var body = { token:tok }, r = await post('/v1/raster_bundle/resolve', body);
+  t.curls.push(curlPost('/v1/raster_bundle/resolve', body));
+  if(!r.ok) return t.fail('the set did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, mem = d.members || [];
+  t.token(tok);
+  t.value(String(d.member_count || mem.length), 'fields');
+  t.step(d.verified !== false, d.verified !== false ? 'its bundle_cid recomputes from its ordered members' : 'its members do not recompute to its bundle_cid');
+  var live = mem.filter(function(m){ return m.resolves !== false; }).length;
+  t.step(live === mem.length, live + ' of ' + mem.length + ' member fields resolve');
+  var first = mem[0] && mem[0].token;
+  if(first){
+    var fr = await post('/v1/raster/resolve', { token:first });
+    if(fr.ok) await receipt(t, fr.json.receipt, null, 'the first member\'s receipt');
+    else t.step(false, 'its first member did not resolve: ' + why(fr));
   }
-  if (!receipt || typeof receipt !== 'object') {
-    setStatus('fail', 'no receipt provided', 'paste a receipt JSON above and hit "verify receipt"');
-    return;
+  var ul = mk('ul', 'units', t.inn);
+  mem.slice(0, 48).forEach(function(m){ var li = mk('li', '', ul); mk('b', '', li, (m.band || '') + ' ' + (m.cell || '')); var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run(m.token); }); });
+  t.agent.push((d.member_count || mem.length) + ' fields', 'resolve: POST ' + O + '/v1/raster_bundle/resolve {"token":"' + tok + '"}; each members[].token is an emem:raster:');
+  t.raw('the set', d);
+  return t.finish();
+}
+async function doTrace(t, tok){
+  t.kind('emem:trace', 'an attested run on a device');
+  var body = { token:tok }, r = await post('/v1/trace_resolve', body);
+  t.curls.push(curlPost('/v1/trace_resolve', body));
+  if(!r.ok || !r.json || r.json.resolved !== true) return t.fail('the trace did not resolve: ' + ((r.json && r.json.error) || (r.ok ? 'this responder holds no trace by that name' : why(r))));
+  var d = r.json, tr = d.trace || {}, dev = tr.device || {};
+  t.token(tok);
+  t.value(String((tr.segments || []).length), 'segments · ' + (dev.substrate_profile || ''));
+  t.step(true, 'resolved: the trace record the token names');
+  var v = await post('/v1/trace_verify', { trace:tr, profile:dev.substrate_profile });
+  var ok = v.ok && v.json && v.json.verdict === 'admit';
+  t.step(ok, ok ? 'emem.dev re-verified the device\'s signature and coverage: admit (checked by the responder, not in this tab)' : 'the trace did not re-verify: ' + ((v.json && (v.json.verdict + ' ' + JSON.stringify((v.json.report || {}).reasons || []))) || why(v)));
+  t.rows([['profile', dev.substrate_profile], ['boot', dev.boot_id], ['window', tr.window_start_ns ? (tr.window_end_ns - tr.window_start_ns) / 1e9 + ' s' : ''], ['trace_root', tr.trace_root ? String(tr.trace_root).slice(0, 40) : ''], ['previous', d.prev_trace_token, d.prev_trace_token]]);
+  t.agent.push('a trace of ' + (tr.segments || []).length + ' segments on ' + (dev.substrate_profile || 'a device'), 'resolve: POST ' + O + '/v1/trace_resolve {"token":"' + tok + '"}; re-verify: POST ' + O + '/v1/trace_verify {trace, profile}');
+  t.raw('the trace', d);
+  return t.finish();
+}
+async function doState(t, tok){
+  t.kind('emem:state', 'one stage of an answer\'s reasoning');
+  var cid = tok.replace(/^emem:state:/, ''), r = await get('/v1/state/' + cid);
+  t.curls.push(curlGet('/v1/state/' + cid));
+  if(!r.ok) return t.fail('no state is named ' + short(cid) + ' here (' + r.status + '): ' + why(r));
+  var d = r.json, rec = d.record || {}, df = rec.derived_from || [];
+  t.token('emem:state:' + cid);
+  var facts = df.filter(function(x){ return x.as === 'fact'; }), prev = df.filter(function(x){ return x.as === 'own_state'; })[0];
+  t.value(rec.kind || 'state', facts.length + ' facts it grounded');
+  var re = b32(I.blake3(hexb(d.canonical_cbor_hex)));
+  t.step(re === cid, re === cid ? 'its canonical CBOR hashes to its name here' : 'its bytes hash to ' + short(re) + ', not its name');
+  t.step(null, 'a state is content-addressed, not signed; it commits to the previous stage and to the facts, which verify on their own');
+  t.rows([['kind', rec.kind], ['class', rec.class], ['previous stage', prev ? 'emem:state:' + prev.cid : '', prev ? 'emem:state:' + prev.cid : ''], ['facts', facts.length], ['responder', rec.responder_pubkey_b32]]);
+  var ul = mk('ul', 'units', t.inn);
+  facts.slice(0, 40).forEach(function(x){ var li = mk('li', '', ul); mk('b', '', li, short(x.cid, 24)); var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run(x.cid); }); });
+  t.agent.push(rec.kind + ' stage over ' + facts.length + ' facts', 'resolve: GET ' + O + '/v1/state/' + cid + '; check blake3(hex-decode(canonical_cbor_hex)) == cid');
+  t.raw('the state record', rec);
+  return t.finish();
+}
+function noteRows(text){
+  return text.split('\n').filter(function(l){ return /^\| /.test(l) && / \|$/.test(l); }).map(function(l){ return l.slice(2, -2).split(' | '); })
+    .filter(function(c){ return (c.length === 5 || c.length === 6) && c[0].trim() && c[0].trim() !== 'what' && /^\d+$/.test(c[2]) && /^\d+$/.test(c[3]); });
+}
+function front(text, k){ var m = new RegExp('^' + k + ': (.+)$', 'm').exec(text); return m ? m[1].trim() : null; }
+async function authorship(t, v){
+  var a = v.authorship;
+  if(!a || !a.sig_b32) return t.step(null, 'no author signature: this note is responder-held only');
+  var full = I.blake3(enc.encode(v.content)), bodyOk = I.hex(full) === a.body_hash_hex;
+  var pre = a.preimage_version === 1 ? cat(enc.encode('emem.memory_write|' + a.verb + '|' + a.signed_path + '|'), hexb(a.body_hash_hex))
+    : cat(enc.encode('emem.memory_write.v2|' + a.verb + '|' + a.signed_path + '|'), hexb(a.body_hash_hex), enc.encode('|' + (a.base || 'absent')));
+  var sig = I.ed.verify(I.b32decode(a.sig_b32), I.blake3(pre), I.b32decode(a.attester_pubkey_b32));
+  var ok = sig && bodyOk && a.signed_path === v.path;
+  t.step(ok, ok ? 'its author ' + a.attester_pubkey_b32.slice(0, 8) + ' signed these exact bytes at this path (preimage v' + (a.preimage_version || 2) + ')' : !sig ? 'the author signature does not verify' : !bodyOk ? 'the signed body hash is not these bytes' : 'the signature is over a different path');
+  if(ok) t.signed = true;
+  return ok;
+}
+async function inclusion(t, hash){
+  var line = t.running('asking for a proof that the log holds it…');
+  try{
+    var sth = (await get('/v1/log/sth')).json.sth, k = await pinned();
+    var d = I.blake3(preV1('emem.translog.sth.v1', [[1, be(sth.tree_size, 8)], [2, I.b32decode(sth.root_b32)], [3, enc.encode(sth.signed_at)], [4, I.b32decode(sth.responder_pubkey_b32)]]));
+    var headOk = sth.responder_pubkey_b32 === k && I.ed.verify(I.b32decode(sth.signature_b32), d, I.b32decode(sth.responder_pubkey_b32));
+    if(!headOk) return line(false, 'the log head did not verify against emem.dev\'s published key');
+    var r = await get('/v1/log/inclusion?entry_hash=' + hash + '&tree_size=' + sth.tree_size);
+    if(r.status === 404) return line(false, 'not in the log at the signed head of ' + sth.tree_size.toLocaleString('en') + ' entries');
+    if(!r.ok) return line(false, 'the log answered ' + r.status + ': ' + why(r));
+    var j = r.json;
+    var node = function(l, rr){ return I.blake3(cat(new Uint8Array([1]), l, rr)); };
+    var lf = I.blake3(cat(new Uint8Array([0]), I.b32decode(j.entry_hash_b32)));
+    if(b32(lf) !== j.leaf_hash_b32) return line(false, 'the leaf does not match its entry');
+    var fn = j.leaf_index, sn = sth.tree_size - 1, acc = lf;
+    (j.audit_path_b32 || []).forEach(function(s){
+      var p = I.b32decode(s);
+      if(sn === 0){ sn = -1; return; }
+      if(fn % 2 === 1 || fn === sn){ acc = node(p, acc); if(fn % 2 === 0) while(fn % 2 === 0 && fn !== 0){ fn = Math.floor(fn / 2); sn = Math.floor(sn / 2); } }
+      else acc = node(acc, p);
+      fn = Math.floor(fn / 2); sn = Math.floor(sn / 2);
+    });
+    var ok = sn === 0 && b32(acc) === sth.root_b32;
+    line(ok, ok ? 'in the log: entry ' + j.leaf_index.toLocaleString('en') + ' of ' + sth.tree_size.toLocaleString('en') + ', its audit path folds to the signed head (RFC 6962, blake3)' : 'the audit path does not reach the signed root');
+    t.curls.push(curlGet('/v1/log/inclusion?entry_hash=' + hash));
+    return { ok:ok, j:j, sth:sth };
+  }catch(e){ return line(false, 'the log proof failed: ' + String(e.message || e)); }
+}
+async function doNote(t, c){
+  t.kind('a signed note', c.via || (c.byName ? 'by its name' : 'at its address'));
+  var args = c.byName ? { file_cid:c.v } : { path:c.v }, v;
+  t.curls.push(curlPost('/a2a/tasks', { skill:'emem_memory_view', args:args }));
+  try{ v = await a2a('emem_memory_view', args); }catch(e){ return t.fail('no note ' + (c.byName ? 'named ' + c.v : 'at ' + c.v) + ': ' + e.message); }
+  var bytes = enc.encode(v.content), name = b32(I.blake3(bytes).slice(0, 16)), hashNamed = /\/([a-z2-7]{26})\.md$/.exec(v.path);
+  t.token(v.path);
+  var kind = front(v.content, 'emem') || 'text';
+  t.value(front(v.content, 'source') || (/^# (.+)$/m.exec(v.content) || [])[1] || v.path.split('/').pop(), kind + ' · ' + bytes.length.toLocaleString('en') + ' B');
+  if(c.byName) t.step(name === c.v, name === c.v ? 'its bytes hash to the name you gave: ' + name : 'its bytes hash to ' + name + ', not ' + c.v);
+  else if(hashNamed) t.step(name === hashNamed[1], name === hashNamed[1] ? 'its bytes hash to the name in its address' : 'its bytes hash to ' + name + ', not the name in its address');
+  else t.step(null, 'its address is a path, not a hash, so it names no bytes; the signature below does');
+  await authorship(t, v);
+  if(v.receipt) await receipt(t, v.receipt, [v.file_cid], 'the read receipt');
+  if(v.log && v.log.entry_hash_b32) await inclusion(t, v.log.entry_hash_b32);
+  var rows = noteRows(v.content);
+  if((kind === 'pointer.v1' || kind === 'directory.v1') && rows.length){
+    var tr = await get('/v1/tree/' + v.file_cid), root = front(v.content, 'root');
+    if(tr.ok) t.step(tr.json.note_root_matches && tr.json.root_b32 === root, tr.json.note_root_matches && tr.json.root_b32 === root ? 'its ' + rows.length + ' rows fold to the root it states, ' + short(root) : 'its rows do not fold to the root it states');
+    var ul = mk('ul', 'units', t.inn);
+    rows.slice(0, 200).forEach(function(rw, i){
+      var li = mk('li', '', ul); mk('b', '', li, rw[0]); mk('span', '', li, rw[5] || (rw[1] === '·' ? 'bytes ' + rw[2] + '+' + rw[3] : 'a published part'));
+      var b = mk('button', '', li, 'prove'); b.type = 'button'; b.addEventListener('click', function(){ run('emem:tree:' + v.file_cid + '#row=' + i); });
+    });
+    t.agent.push('a ' + kind + ' index of ' + rows.length + ' units under root ' + root, 'prove a unit: GET ' + O + '/v1/tree/' + v.file_cid + '?row=<i>  (token emem:tree:' + v.file_cid + '#row=<i>)');
   }
-  _lastReceipt = receipt;
-  refreshRecipes(receipt);
-  setStatus('pending', 'verifying ed25519 signature in your browser…',
-    '<code>digest = blake3(preimage); ed25519.verify(sig, digest, pubkey)</code>');
-  let result = await verifyReceiptInBrowser(receipt);
-  if (result.via === 'fallback') {
-    // The crypto libraries did not load, so this browser verified nothing.
-    //
-    // The previous behaviour here was to ask /v1/verify_receipt instead and
-    // report the answer as a result — i.e. when the trust-minimised path
-    // broke, the page asked the party being verified whether its own
-    // signature was good. That is the one dependency a verifier must not
-    // have, and it failed silently, in exactly the situation (blocked or
-    // unreachable CDN) where a reader is most entitled to a real answer.
-    //
-    // The server is still consulted, because "the responder says yes" is
-    // genuinely informative, but it is reported as what it is: hearsay from
-    // the signer, under an unverified status, never a pass.
-    const server = await verifyReceiptViaServer(receipt);
-    renderReceipt(receipt, { ...server, via: 'server-only' });
-    setStatus('unverified',
-      'NOT verified here · the in-browser crypto libraries did not load',
-      'this page could not recompute anything, so nothing was verified independently. '
-      + 'The responder\'s own endpoint reports the signature as <strong>'
-      + (server.ok === true ? 'valid' : server.ok === false ? 'INVALID' : 'unknown')
-      + '</strong>, but that is the signer vouching for itself and is not proof. '
-      + 'The check runs in your browser from /emem-verify-core.js; if that did not load, '
-      + 'reload, or verify offline with the recipe below, which depends on nothing this page serves.');
-    return;
-  } else if (result.via === 'browser' && result.ok !== true) {
-    // The browser computed a non-match. Before declaring tamper, cross-check
-    // the server: this guards against an in-browser encoder edge case
-    // producing a wrong preimage (false positive) rather than a genuine bad
-    // signature. Only when BOTH paths reject do we call it tampered.
-    setStatus('pending', 'browser recomputation did not match · cross-checking /v1/verify_receipt',
-              'confirming against the responder\'s verifier before reporting a result');
-    const server = await verifyReceiptViaServer(receipt);
-    if (server.ok === true) {
-      // Browser says no, server says yes. These disagree, and the reason
-      // matters: it is not tamper (a tampered receipt fails BOTH), it is
-      // this page's preimage encoder disagreeing with the responder's —
-      // a verifier-version drift, i.e. a bug in the verifier you are
-      // reading. Reporting it as a plain pass would let the server's yes
-      // paper over a broken client. It is surfaced as its own state.
-      result = { ...server, browserInconclusive: true, verifierDrift: true };
-    } else {
-      // Keep the server's body. Both verifiers agree the signature is bad,
-      // but only the responder can tell a receipt RESHAPED in transit from
-      // one that was tampered with, because only it holds the inclusion
-      // proof it recorded and can put it back to see whether the rest of
-      // the receipt still verifies. This page has no such handle.
-      result = { ...result, serverConfirmed: server.ok === false, serverBody: server.body };
-    }
-  }
-  renderReceipt(receipt, result);
-  const pv = Number(receipt.preimage_version) || 0;
-  const vtag = pv >= 2 ? ' · preimage v2 (inclusion proof bound)'
-             : pv >= 1 ? ' · preimage v1'
-             : '';
-  if (result.verifierDrift) {
-    // Deliberately not 'ok'. The signature may well be fine, but the only
-    // thing that established it is the party being verified, which is the
-    // one authority this page exists to do without.
-    setStatus('unverified',
-      'verifier drift · this page could not confirm the signature itself',
-      'your browser recomputed a different preimage than the responder did, and the responder '
-      + 'reports the signature as valid. A TAMPERED receipt fails both checks, so this is not '
-      + 'tamper — it means this page\'s encoder disagrees with the responder\'s, which is a bug '
-      + 'in the verifier you are reading. Treat this as UNVERIFIED: the only thing vouching for '
-      + 'the signature right now is the server that produced it. Please report it at '
-      + '<a href="https://github.com/Vortx-AI/emem/issues" target="_blank" rel="noopener noreferrer">github.com/Vortx-AI/emem/issues</a>.'
-      + vtag);
-  } else if (result.ok === true) {
-    const how = result.via === 'browser'
-      ? ' · verified offline by your browser'
-      : (result.browserInconclusive
-          ? ' · verified via /v1/verify_receipt (offline recomputation was inconclusive)'
-          : ' · verified via /v1/verify_receipt');
-    // A receipt obtained by re-reading the cell (rather than pasted by the
-    // caller) is a signature over a NEW read, not over the CID that was
-    // typed in. It verifies, and saying so is fair, but calling it the same
-    // thing as verifying the pasted object would be the overclaim.
-    const covers = _reattested
-      ? 'this receipt was signed just now over a FRESH read of the same cell+band — '
-        + 'it is not the receipt originally issued with the CID you pasted. '
-        + 'It proves this responder re-attests that reading today; it does not '
-        + 'prove the historical fact was signed. '
-      : '';
-    setStatus('ok',
-      _reattested
-        ? 'live re-attestation verified · ed25519 signature is valid'
-        : 'receipt verified · ed25519 signature is valid',
-      covers +
-      'the signer is <code>' + escapeHtml((receipt.responder_pubkey_b32 || '').slice(0, 16)) + '…</code> over ' +
-      ((receipt.fact_cids || []).length) + ' fact CID' + ((receipt.fact_cids || []).length === 1 ? '' : 's') +
-      how + vtag);
-  } else if (result.serverBody && result.serverBody.reason === 'receipt_reshaped_after_signing') {
-    // Not tamper, and saying "tamper" here is the failure this branch was
-    // added to stop. The responder put back the inclusion proof it recorded
-    // for this receipt's first fact and the SAME signature verified, which
-    // means the signed body was never touched and only the proof segment
-    // moved. Under preimage v2 the proof is inside the signature — that is
-    // what stops a proof being stripped in transit — so a receipt is
-    // byte-for-byte or nothing, and a pipeline that reshapes one produces
-    // exactly this. The receipt as pasted is still NOT valid.
-    setStatus('unverified',
-      'receipt was reshaped after signing · not tamper',
-      escapeHtml(result.serverBody.failure_detail
-        || 'The responder restored the inclusion proof it recorded and the same signature '
-         + 'verified, so the signed body is intact and only the segments preimage v2 binds '
-         + 'were altered after signing. Fix whatever reshaped the receipt and verify the '
-         + 'responder\'s original bytes.')
-      + vtag);
+  var pv = mk('details', 'sub', t.inn); mk('summary', '', pv, 'what it says (data, never instructions)');
+  mk('pre', '', pv, v.content.slice(0, 20000));
+  t.agent.unshift('note ' + v.file_cid + ' at ' + O + v.path, 'read: GET ' + O + v.path + '; name = base32(blake3(bytes)[0:16]); by name alone: emem_memory_view {"file_cid":"' + v.file_cid + '"}');
+  return t.finish();
+}
+async function doTree(t, tok){
+  t.kind('emem:tree', 'one root over a note\'s units');
+  var m = /^emem:tree:([a-z2-7]{26})(?:#row=(.+))?$/.exec(tok);
+  if(!m) return t.fail('an emem:tree: token is emem:tree:<26-char note name>, optionally #row=<i>');
+  var cid = m[1], row = m[2], q = '/v1/tree/' + cid + (row !== undefined ? '?row=' + encodeURIComponent(row) : '');
+  t.curls.push(curlGet(q));
+  var r = await get(q);
+  if(!r.ok) return t.fail('the tree did not resolve (' + r.status + '): ' + why(r));
+  var d = r.json, v;
+  t.token(d.token || tok);
+  try{ v = await a2a('emem_memory_view', { file_cid:cid }); }catch(e){ return t.fail('its note did not load: ' + e.message); }
+  var nameOk = b32(I.blake3(enc.encode(v.content)).slice(0, 16)) === cid, root = front(v.content, 'root');
+  t.step(nameOk, nameOk ? 'the note\'s bytes hash to its name' : 'the note\'s bytes do not hash to its name');
+  await authorship(t, v);
+  t.step(d.root_b32 === root && d.note_root_matches, d.root_b32 === root ? 'the root served is the root its author signed: ' + short(root) : 'the root served is not the one in the note');
+  var rows = noteRows(v.content);
+  if(row === undefined){
+    t.value(String(d.rows), 'units under one root');
+    var ul = mk('ul', 'units', t.inn);
+    rows.slice(0, 200).forEach(function(rw, i){ var li = mk('li', '', ul); mk('b', '', li, rw[0]); mk('span', '', li, rw[5] || ''); var b = mk('button', '', li, 'prove'); b.type = 'button'; b.addEventListener('click', function(){ run('emem:tree:' + cid + '#row=' + i); }); });
   } else {
-    const confirmed = result.serverConfirmed
-      ? 'Both your browser and the responder\'s verifier reject this signature. '
-      : '';
-    // A v2 receipt is ALLOWED to carry no proof (facts older than the proof
-    // tree sign an explicit ABSENT marker), so "no merkle_proof" is not by
-    // itself a fault and this page must not report it as one. What it can
-    // fairly do is name the likeliest innocent cause before the caller goes
-    // hunting an attacker.
-    const missingSegment = (receipt.preimage_version === undefined) ? 'preimage_version'
-                         : (pv >= 2 && !receipt.merkle_proof) ? 'merkle_proof'
-                         : null;
-    const reshapeHint = missingSegment
-      ? ' This receipt carries no <code>' + missingSegment + '</code>. preimage v2 binds both the '
-        + 'inclusion proof and the version that selects the rule, so if anything between the '
-        + 'responder and here dropped that field, that alone produces this result on data nobody '
-        + 'tampered with. Re-verify the responder\'s original bytes before concluding forgery.'
-      : '';
-    setStatus('fail',
-      'receipt did NOT verify · tamper detected',
-      confirmed + 'the signature does not match a blake3 digest of the canonical preimage. ' +
-      (result.error ? '<code>' + escapeHtml(result.error) + '</code>' : 'check that responder_pubkey_b32, sig_b32, and the cells/fact_cids arrays are byte-identical to what the responder signed.') + reshapeHint);
+    var i = d.row && d.row.index, rw = rows[i];
+    if(!rw) return t.fail('row ' + row + ' is not in the note');
+    t.value(rw[0], 'row ' + i + ' of ' + d.rows);
+    var h = I.b32decode(rw[4]), url = rw[1];
+    if(url !== '·'){
+      var sec = await get(url.indexOf(O) === 0 ? url.slice(O.length) : url);
+      var same = sec.ok && b32(I.blake3(sec.bytes)) === rw[4];
+      t.step(same, same ? 'the unit it points to, fetched, hashes to its row' : 'the unit at its url does not hash to its row');
+    } else t.step(null, 'a · row is a range of the author\'s own file: blake3 bytes ' + rw[2] + '…' + (+rw[2] + +rw[3]) + ' of it and compare with ' + short(rw[4]));
+    var acc = I.blake3(cat(enc.encode(url === '·' ? '' : url), be(rw[2], 8), be(rw[3], 8), h));
+    t.step(b32(acc) === d.leaf_b32, b32(acc) === d.leaf_b32 ? 'its leaf, rebuilt here, is the leaf served' : 'its leaf, rebuilt here, differs from the leaf served');
+    (d.path || []).forEach(function(p){ var s = I.b32decode(p.hash_b32); acc = p.side === 'left' ? I.blake3(cat(s, acc)) : I.blake3(cat(acc, s)); });
+    var folds = b32(acc) === root;
+    t.step(folds, folds ? 'folded through ' + (d.path || []).length + ' hash' + ((d.path || []).length === 1 ? '' : 'es') + ', it reaches the signed root' : 'its path does not reach the signed root');
+    t.rows([['url', url === '·' ? 'the source itself' : url, url === '·' ? '' : url], ['offset', rw[2]], ['length', rw[3]], ['blake3', rw[4]]]);
   }
+  t.agent.push('note ' + cid + ', root ' + root, 'proof: GET ' + O + q + '; leaf = blake3(url || u64be offset || u64be length || hash), node = blake3(left || right)');
+  return t.finish();
 }
-
-// ── emem: tokens, /memories/ paths, authorship, transparency log ────────────
-// The receipt path above verifies BYTES (the responder signed these). These
-// add the other two legs: AUTHORSHIP (which attester wrote a signed message)
-// and the transparency-log anchor. See the "three legs" card.
-function hexToBytes(h){
-  const clean = String(h).trim();
-  const out = new Uint8Array(clean.length >> 1);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(clean.substr(i*2, 2), 16);
-  return out;
-}
-function concatBytes(parts){
-  let n = 0; for (const p of parts) n += p.length;
-  const out = new Uint8Array(n); let o = 0;
-  for (const p of parts) { out.set(p, o); o += p.length; }
-  return out;
-}
-// _enc is already declared above, at the top of this same script block. A
-// second `const` here threw "Identifier '_enc' has already been declared",
-// which killed the WHOLE block: every browser-side check on this page was
-// dead from the moment it shipped. Introduced by the three-legs change in
-// 8871f14, on the one page whose promise is that you can verify without us.
-
-// T1 authorship: the one construction where the CALLER signs and the responder
-// verifies. v2 preimage = blake3("emem.memory_write.v2|"+verb+"|"+signed_path+
-// "|"+raw(body_hash)+"|"+base); v1 is the same without the ".v2" and without
-// "|"+base. The authorship block names the version that was signed
-// (preimage_version, base); a block without one is tried as v2 with base
-// "absent", then v1. This page built only v1, so every v2-signed note failed.
-// For create/str_replace/insert also assert body_hash == blake3(content),
-// binding the signature to THESE bytes. Rule of record: /v1/verifier_spec.
-async function verifyAuthorshipInBrowser(a, content){
-  await nobleReady;
-  if (nobleStatus !== 'ok') return { via:'fallback', ok:null };
-  try {
-    if (!a || !a.sig_b32 || !a.attester_pubkey_b32 || !a.body_hash_hex || !a.verb || !a.signed_path)
-      return { via:'browser', ok:null, error:'no authorship block · this object is responder-signed only, not caller-authored' };
-    let bodyOk = null;
-    if (content != null) bodyOk = (bytesToHex(nobleBlake3(_enc.encode(content))) === a.body_hash_hex);
-    const build = (v, base) => concatBytes([
-      _enc.encode(v === 2 ? 'emem.memory_write.v2|' : 'emem.memory_write|'), _enc.encode(a.verb),
-      _enc.encode('|'), _enc.encode(a.signed_path),
-      _enc.encode('|'), hexToBytes(a.body_hash_hex),
-    ].concat(v === 2 ? [_enc.encode('|'), _enc.encode(base)] : []));
-    const sig = b32decode(a.sig_b32);
-    const pub = b32decode(a.attester_pubkey_b32);
-    if (sig.length !== 64) throw new Error('attester signature is ' + sig.length + ' bytes, expected 64');
-    if (pub.length !== 32) throw new Error('attester pubkey is ' + pub.length + ' bytes, expected 32');
-    const tries = a.preimage_version === 2 ? [[2, a.base]]
-      : a.preimage_version === 1 ? [[1, null]]
-      : [[2, 'absent'], [1, null]];
-    let preimage = null, digest = null, sigOk = false, version = null;
-    for (const [v, base] of tries) {
-      if (v === 2 && typeof base !== 'string') continue;
-      preimage = build(v, base); digest = nobleBlake3(preimage);
-      if (nobleEd.verify(sig, digest, pub)) { sigOk = true; version = v; break; }
-    }
-    return { via:'browser', ok: sigOk && bodyOk !== false, sigOk, bodyOk, digest, preimage, version };
-  } catch (e) { return { via:'browser', ok:false, error:String(e) }; }
-}
-
-function renderAuthorship(a, content, result){
-  $('authorshipCard').classList.remove('hidden');
-  $('authorshipPill').textContent = (a && a.verb) ? a.verb : 'signed message';
-  const rows = [];
-  if (a && a.signed_path) rows.push(['path', `<code style="font-size:11px">${escapeHtml(a.signed_path)}</code>`]);
-  if (a && a.attester_pubkey_b32) rows.push(['attester', chip('pub', a.attester_pubkey_b32)]);
-  if (a && a.body_hash_hex) rows.push(['body_hash', `<code style="font-size:11px">${escapeHtml(a.body_hash_hex.slice(0,16))}…</code> <span class=muted>· blake3(content)</span>`]);
-  if (a && a.sig_b32) rows.push(['attester sig', `<code style="font-size:11px">${escapeHtml(a.sig_b32.slice(0,24))}…</code> <span class=muted>· 64-byte ed25519</span>`]);
-  if (result){
-    if (result.ok === true){
-      rows.push(['authorship', chip('ok','verified · this attester wrote these bytes')]);
-      if (result.bodyOk === true) rows.push(['content bound', chip('ok','body_hash matches blake3(content)')]);
-    } else if (result.ok === false){
-      rows.push(['authorship', chip('fail','did NOT verify') + (result.error ? ` <span class=muted>· ${escapeHtml(result.error)}</span>` : '')]);
-    } else {
-      rows.push(['authorship', chip('cid', result.error || 'not caller-authored')]);
-    }
-    if (result.via) rows.push(['verify path', result.via === 'browser'
-      ? '<span class=chip data-kind=ok title="Recomputed in your browser, no server round-trip"><span class=dot></span>offline · in browser</span>'
-      : `<span class=chip data-kind=cid><span class=dot></span>${escapeHtml(result.via)}</span>`]);
+async function doJson(t, s){
+  t.kind('a receipt');
+  var obj; try{ obj = JSON.parse(s); }catch(e){ return t.fail('not JSON: ' + e.message); }
+  function find(o, depth){
+    if(!o || typeof o !== 'object' || depth > 6) return null;
+    if(o.fact_cids && (o.signature || o.sig_b32 || o.signature_b32)) return o;
+    if(o.receipt) { var r = find(o.receipt, depth + 1); if(r) return r; }
+    for(var k in o){ var f = find(o[k], depth + 1); if(f) return f; }
+    return null;
   }
-  $('authorshipGrid').innerHTML = rows.map(([k,v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
-}
-
-// A /memories/... path: fetch memory_view (same-origin MCP), verify AUTHORSHIP
-// (caller-signed) and the responder receipt (bytes).
-async function verifyMemoryPath(path){
-  $('authorshipCard').classList.add('hidden');
-  setStatus('pending', 'fetching signed memory…', '<code>memory_view ' + escapeHtml(path) + '</code>');
-  try {
-    const r = await fetch('/mcp', { method:'POST', headers:{'content-type':'application/json'},
-      body: JSON.stringify({ jsonrpc:'2.0', id:1, method:'tools/call', params:{ name:'memory_view', arguments:{ path } } }) });
-    const env = await r.json();
-    const txt = env && env.result && env.result.content && env.result.content[0] && env.result.content[0].text;
-    if (!txt) throw new Error('memory not found');
-    const mv = JSON.parse(txt);
-    if (mv.code) throw new Error(mv.message || mv.code);
-    _lastCid = mv.file_cid || null;
-    const ares = await verifyAuthorshipInBrowser(mv.authorship, mv.content);
-    renderAuthorship(mv.authorship, mv.content, ares);
-    if (mv.receipt){ _lastReceipt = mv.receipt; refreshRecipes(mv.receipt); await verifyAndRender(mv.receipt); }
-    if (ares.ok === true) setStatus('ok', 'authorship verified · this attester wrote these exact bytes',
-      'signed by <code>' + escapeHtml((mv.authorship.attester_pubkey_b32||'').slice(0,16)) + '…</code>, checked offline against their key' + (ares.bodyOk===true ? ', and the content hash matches' : ''));
-    else if (ares.ok === false) setStatus('fail', 'authorship did NOT verify',
-      ares.error ? '<code>'+escapeHtml(ares.error)+'</code>' : 'the attester signature does not match these bytes');
-  } catch (e) { setStatus('fail', 'could not verify memory', escapeHtml(String(e))); }
-}
-
-// An emem: token → resolve → render fact + verify its receipt (bytes).
-/* Each token family resolves at its own route; only emem:fact goes through
-   /v1/memory_token/resolve. A family whose resolver signs a receipt is
-   verified here; the others report the check their resolver made. */
-const FAMILY = {
-  bundle:    t => ['GET',  '/v1/memory_bundle/' + encodeURIComponent(t)],
-  entity:    t => ['POST', '/v1/entity/resolve'],
-  raster:    t => ['POST', '/v1/raster/resolve'],
-  rasterset: t => ['POST', '/v1/raster_bundle/resolve'],
-  cube:      t => ['POST', '/v1/cube/resolve'],
-  trace:     t => ['POST', '/v1/trace_resolve'],
-  tree:      t => ['GET',  '/v1/tree/' + encodeURIComponent(t.replace(/^emem:tree:/, '').replace(/#row=/, '?row=').split('?')[0]) + (/#row=/.test(t) ? '?row=' + encodeURIComponent(t.split('#row=')[1]) : '')],
-};
-async function resolveFamily(fam, token){
-  const [method, path] = FAMILY[fam](token);
-  setStatus('pending', 'resolving emem:' + fam + '…', '<code>' + method + ' ' + escapeHtml(path.split('?')[0]) + '</code>');
-  try {
-    const r = await fetch(path, method === 'GET' ? {} : { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ token }) });
-    const d = await r.json();
-    if (!r.ok || d.code) throw new Error(d.message || d.code || ('http '+r.status));
-    if (d.receipt){ _lastReceipt = d.receipt; refreshRecipes(d.receipt); return await verifyAndRender(d.receipt); }
-    const said = fam === 'tree' ? (d.note_root_matches ? 'the note\'s ' + d.rows + ' rows fold to the root it states; its author signed that note' : 'the rows do not fold to the note\'s root')
-      : fam === 'rasterset' ? (d.member_count + ' members' + (d.verified !== undefined ? ', verified: ' + d.verified : ''))
-      : fam === 'trace' ? ('resolved; re-verify with ' + (d.reverify || 'POST /v1/trace_verify'))
-      : 'resolved';
-    /* the check mark is for a signature verified here; these resolvers sign none, so their result is neutral */
-    setStatus(fam === 'tree' && !d.note_root_matches ? 'fail' : 'unverified', 'emem:' + fam + ' resolved', escapeHtml(said) + ' · this resolver signs no receipt of its own, so nothing here was signature-checked');
-  } catch (e) { setStatus('fail', 'could not resolve emem:' + fam, escapeHtml(String(e))); }
-}
-
-async function resolveTokenAndVerify(token){
-  $('authorshipCard').classList.add('hidden');
-  const fam = (/^emem:([a-z]+):/.exec(token) || [])[1];
-  if (fam && FAMILY[fam]) return resolveFamily(fam, token);
-  setStatus('pending', 'resolving token…', '<code>POST /v1/memory_token/resolve</code>');
-  try {
-    const r = await fetch('/v1/memory_token/resolve', { method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify({ token }) });
-    const d = await r.json();
-    if (!r.ok || d.code) throw new Error(d.message || d.code || ('http '+r.status));
-    if (d.fact){ _lastCid = d.fact_cid || null; renderFact(d.fact, d.fact_cid || token); }
-    if (d.receipt){ _lastReceipt = d.receipt; refreshRecipes(d.receipt); await verifyAndRender(d.receipt); }
-    else setStatus('ok', 'token resolved', 'this token carries no attached receipt; paste one above to verify a signature');
-  } catch (e) { setStatus('fail', 'could not resolve token', escapeHtml(String(e))); }
-}
-
-// Transparency log: pin the current signed head (the append-only anchor).
-async function pinSth(){
-  const grid = $('sthGrid');
-  try {
-    const d = await fetch('/v1/log/sth').then(r => r.json());
-    const s = d.sth || d;
-    const sig = s.signature_b32 || s.sig_b32 || '';
-    const rows = [];
-    if (s.tree_size !== undefined) rows.push(['tree_size', `<code>${escapeHtml(String(s.tree_size))}</code> <span class=muted>· entries logged</span>`]);
-    const root = s.root_b32 || s.root_hash_b32 || s.root;
-    if (root) rows.push(['root', chip('cid', root)]);
-    if (s.signed_at) rows.push(['signed_at', `<code>${escapeHtml(s.signed_at)}</code>`]);
-    if (s.responder_pubkey_b32) rows.push(['responder', chip('pub', s.responder_pubkey_b32)]);
-    if (sig) rows.push(['signature', `<code style="font-size:11px">${escapeHtml(sig.slice(0,24))}…</code> <span class=muted>· ed25519, rule at /v1/verifier_spec</span>`]);
-    if (s.tree_size !== undefined) rows.push(['prove append-only', `<code style="font-size:11px">GET /v1/log/consistency?first=${escapeHtml(String(s.tree_size))}&amp;second=&lt;later&gt;</code>`]);
-    grid.innerHTML = rows.map(([k,v]) => `<div class=k>${escapeHtml(k)}</div><div class=v>${v}</div>`).join('');
-    grid.classList.remove('hidden');
-    toast('head pinned · tree_size ' + (s.tree_size ?? '?'));
-  } catch (e) { toast('could not fetch log head'); }
-}
-
-// Central router: fact CID, emem: token, or /memories/ path.
-function runVerify(input){
-  const v = String(input || '').trim();
-  if (!v){ toast('paste a CID, token, or path first'); return; }
-  if (v.startsWith('emem:')){ history.replaceState({}, '', '/verify?q=' + encodeURIComponent(v)); return resolveTokenAndVerify(v); }
-  if (v.startsWith('/memories/')){ history.replaceState({}, '', '/verify?q=' + encodeURIComponent(v)); return verifyMemoryPath(v); }
-  history.replaceState({}, '', '/verify/' + encodeURIComponent(v));
-  return fetchAndShowFact(v);
-}
-
-// ── glossary popovers ───────────────────────────────────────────────────────
-const GLOSS = {
-  cid: { title: 'cid · content identifier',
-    body: 'BLAKE3 hash (32 bytes) of the canonical CBOR encoding of a fact or manifest, then base32-nopad-lowercase (32 characters). Two responders observing the same fact compute the same CID. The CID *is* the validator: you can never serve different bytes under the same CID.' },
-  preimage: { title: 'preimage · the bytes the responder signed',
-    body: 'The byte sequence whose blake3 hash ed25519 signs. <b>v1</b> (current): a domain-separated, length-prefixed stream — <code>"emem.preimage.v1" | domain | (tag, len, bytes) per segment</code> — so no two distinct receipts can ever share a preimage. <b>v0</b> (legacy, still verifiable): <code>request_id | served_at | […scope|as_of|edges|manifest] | primitive | (cells,) | (cids,)</code>, UTF-8, <code>|</code>-separated. The receipt\'s <code>preimage_version</code> field selects the rule.' },
-  blake3: { title: 'blake3 · content hash',
-    body: '32-byte cryptographic hash used for fact CIDs and for the preimage digest in receipts. Collision-resistant, parallel, and faster than SHA-2 / SHA-3. Library used here: <code>@noble/hashes/blake3</code>.' },
-  ed25519: { title: 'ed25519 · responder signing key',
-    body: '32-byte public key, 64-byte signature. Every receipt is signed by the responder\'s ed25519 key over the blake3 digest of the canonical preimage. Library used here: <code>@noble/curves/ed25519</code>.' },
-  receipt: { title: 'receipt · the signed envelope',
-    body: 'A small object the responder emits alongside any recall: <code>{primitive, request_id, served_at, cells[], fact_cids[], responder_pubkey_b32, sig_b32, schema_cid}</code>. Verifies offline with the math shown above.' },
-  responder: { title: 'responder · the signer',
-    body: 'A node that stores facts and signs receipts. Identified by an ed25519 public key. Multiple responders can co-attest the same fact, which is how you know a fact is real, not just one party\'s claim. This responder\'s pubkey is visible at <a href="/.well-known/emem.json" target=_blank rel=noopener>/.well-known/emem.json</a>.' },
-  cell64: { title: 'cell64 · the place primitive',
-    body: 'A 64-bit identifier for a ~9.55 m square on Earth. The interior packs lat[21]·lng[22] bits as fixed-point integers; the 4-char prefix is a checksum. Example: <code>defi.zb544.pico.zd392</code>.' },
-};
-function showGloss(key, btn){
-  const pop = $('gpop');
-  if (!pop) return;
-  if (!key) { pop.classList.remove('on'); pop.setAttribute('aria-hidden','true'); return; }
-  const g = GLOSS[key];
-  if (!g) return;
-  pop.innerHTML = '<b>' + escapeHtml(g.title) + '</b><br>' + g.body;
-  pop.classList.add('on'); pop.setAttribute('aria-hidden','false');
-  if (btn) {
-    const r = btn.getBoundingClientRect();
-    pop.style.left = Math.max(8, Math.min(window.innerWidth - 440, r.left)) + 'px';
-    pop.style.top  = (r.bottom + window.scrollY + 8) + 'px';
-    pop.style.transform = 'none';
-  }
-}
-document.querySelectorAll('.gchip').forEach(btn => {
-  btn.addEventListener('click', e => {
-    e.stopPropagation();
-    const k = btn.getAttribute('data-gloss');
-    const open = btn.getAttribute('aria-expanded') === 'true';
-    document.querySelectorAll('.gchip').forEach(c => c.setAttribute('aria-expanded','false'));
-    if (open) { showGloss(null); return; }
-    btn.setAttribute('aria-expanded','true');
-    showGloss(k, btn);
+  var rc = find(obj, 0);
+  if(!rc) return t.fail('no receipt in it: a receipt carries fact_cids and a signature');
+  var ok = await receipt(t, rc, null, 'the receipt');
+  t.value(rc.primitive || 'receipt', (rc.fact_cids || []).length + ' records · ' + (rc.served_at || ''));
+  t.rows([['primitive', rc.primitive], ['served', rc.served_at], ['request', rc.request_id], ['cells', (rc.cells || []).length], ['signer', rc.responder_pubkey_b32]]);
+  var ul = mk('ul', 'units', t.inn), cells = rc.cells || [];
+  (rc.fact_cids || []).slice(0, 120).forEach(function(c){
+    var tok = cells.length === 1 && /^[a-z]{4}\./.test(cells[0]) ? 'emem:fact:' + cells[0] + ':' + c : c;
+    var li = mk('li', '', ul); mk('b', '', li, short(c, 26)); var b = mk('button', '', li, 'check'); b.type = 'button'; b.addEventListener('click', function(){ run(tok); });
   });
-});
-document.addEventListener('click', e => {
-  if (e.target.closest('.gpop') || e.target.closest('.gchip')) return;
-  showGloss(null);
-});
-window.addEventListener('keydown', e => { if (e.key === 'Escape') showGloss(null); });
-
-// ── examples ────────────────────────────────────────────────────────────────
-async function loadDensestExample(){
-  setStatus('pending', 'looking up the responder\'s densest cell…',
-    '<code>GET /v1/coverage</code> → pick the cell with the most attested facts → recall → grab a fact_cid');
-  try {
-    const cov = await fetch('/v1/coverage').then(r => r.json());
-    const cell = (cov.cells || [])[0];
-    if (!cell) { setStatus('fail', 'no coverage available', '·'); return; }
-    const rec = await fetch('/v1/recall', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ cell: cell.cell64 }),
-    }).then(r => r.json());
-    const cid = (rec.receipt && rec.receipt.fact_cids && rec.receipt.fact_cids[0])
-             || (rec.facts && rec.facts[0] && (rec.facts[0].fact_cid || rec.facts[0].cid));
-    if (!cid) { setStatus('fail', 'densest cell has no facts', '·'); return; }
-    $('cidInput').value = cid;
-    history.replaceState({}, '', '/verify/' + cid);
-    await fetchAndShowFact(cid);
-  } catch (e) {
-    setStatus('fail', 'example fetch failed', escapeHtml(String(e)));
+  t.curls.push(curlPost('/v1/verify_receipt', { receipt:'<the receipt>' }));
+  t.agent.push('a receipt signing ' + (rc.fact_cids || []).length + ' records', 'check it: POST ' + O + '/v1/verify_receipt {"receipt": <exact bytes>}; a reshaped receipt fails by design');
+  t.raw('the receipt', rc);
+  return t.finish();
+}
+async function doSth(t){
+  t.kind('the log head', 'an append-only record of every write');
+  var r = await get('/v1/log/sth'); t.curls.push(curlGet('/v1/log/sth'));
+  if(!r.ok) return t.fail('the log head did not load: ' + why(r));
+  var s = r.json.sth, k = await pinned();
+  var d = I.blake3(preV1('emem.translog.sth.v1', [[1, be(s.tree_size, 8)], [2, I.b32decode(s.root_b32)], [3, enc.encode(s.signed_at)], [4, I.b32decode(s.responder_pubkey_b32)]]));
+  var ok = I.ed.verify(I.b32decode(s.signature_b32), d, I.b32decode(s.responder_pubkey_b32));
+  t.token(s.root_b32);
+  t.value(s.tree_size.toLocaleString('en'), 'entries · signed ' + s.signed_at);
+  t.step(ok, ok ? 'the head\'s signature checks over (size, root, time, key)' : 'the head\'s signature does not check');
+  t.step(s.responder_pubkey_b32 === k, s.responder_pubkey_b32 === k ? 'signed by emem.dev\'s published key' : 'signed by a key that is not the published one');
+  if(ok && s.responder_pubkey_b32 === k) t.signed = true;
+  t.step(null, 'pin this head; later, GET /v1/log/consistency?first=' + s.tree_size + '&second=<newer> proves the log only grew');
+  t.rows([['tree size', s.tree_size], ['root', s.root_b32], ['signed', s.signed_at], ['log', s.log_id]]);
+  t.agent.push('log head ' + s.tree_size + ' entries, root ' + s.root_b32 + ', signed ' + s.signed_at, 'append-only check: GET ' + O + '/v1/log/consistency?first=' + s.tree_size + '&second=<later size>');
+  return t.finish();
+}
+async function doEntry(t, hash){
+  t.kind('a log entry');
+  t.token(hash);
+  var p = await inclusion(t, hash);
+  if(p && p.ok){
+    t.value('entry ' + p.j.leaf_index.toLocaleString('en'), 'of ' + p.sth.tree_size.toLocaleString('en'));
+    var bar = mk('div', 'bar', t.vis), mark = mk('i', '', bar); mark.style.left = (100 * p.j.leaf_index / p.sth.tree_size).toFixed(3) + '%';
+    t.signed = true;
+    if(p.j.memory_note_file_cid) t.rows([['the note it records', p.j.memory_note_file_cid, p.j.memory_note_file_cid]]);
   }
+  t.agent.push('log entry ' + hash, 'proof: GET ' + O + '/v1/log/inclusion?entry_hash=' + hash + '; fold audit_path_b32 to the root of a signed head');
+  return t.finish();
 }
 
-document.querySelectorAll('button[data-example]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const v = btn.getAttribute('data-example');
-    if (v === 'load-densest') return loadDensestExample();
-    $('cidInput').value = v;
-    runVerify(v);
+/* ---- run one input ---- */
+var FAM = { fact:null, bundle:doBundle, entity:doEntity, cell:doCell, raster:doRaster, cube:doCube, rasterset:doRasterset, tree:doTree, trace:doTrace, attestation:doTrace, state:doState };
+async function run(input){
+  input = String(input || '').trim();
+  if(!input) return;
+  history.replaceState({}, '', '/verify?q=' + encodeURIComponent(input));
+  var t = new Turn(input); t.input = input;
+  if(!ready) return t.fail('the in-tab verifier did not load or failed its self-test, so nothing is checked here');
+  var c = classify(input);
+  try{
+    if(c.k === 'fact') return await doFact(t, c.v, c.legacy ? 'a legacy memt: token' : null);
+    if(c.k === 'cid52') return await doCid52(t, c.v);
+    if(c.k === 'note') return await doNote(t, c);
+    if(c.k === 'json') return await doJson(t, c.v);
+    if(c.k === 'sth') return await doSth(t);
+    if(c.k === 'entry') return await doEntry(t, c.v);
+    if(FAM[c.k]) return await FAM[c.k](t, c.v);
+    t.kind('unrecognised');
+    return t.fail(c.k === 'unknown' ? 'no emem token, name, receipt or log hash in it' : 'emem:' + c.k + ': is not a token family this page knows');
+  }catch(e){ return t.fail(String(e && e.message || e)); }
+}
+
+/* ---- examples, each minted live, so none can go stale ---- */
+var EX = [
+  ['a fact', function(){ return post('/v1/recall', { place:'Manaus', bands:['copdem30m.elevation_mean'] }).then(function(r){ var f = (r.json.facts || []).slice(-1)[0]; return f.memory_token; }); }],
+  ['a fact, as coordinates', function(){ return post('/v1/recall', { place:'Manaus', bands:['copdem30m.elevation_mean'] }).then(function(r){ var f = (r.json.facts || []).slice(-1)[0];
+      return post('/v1/memory_token', { cell:f.cell, fact_cid:f.fact_cid, band:f.band, observed_on:day(((f.sources || [])[0] || {}).captured_at) }); }).then(function(r){ return r.json.descriptor_token; }); }],
+  ['a bundle', function(){ return post('/v1/grid', { center:'-3.119,-60.022', bands:['indices.ndvi'], n:2, half_km:0.3, budget_ms:6000 }).then(function(r){ return r.json.bands['indices.ndvi'].bundle_token; }); }],
+  ['a place', function(){ return post('/v1/locate', { place:'Manaus' }).then(function(r){ return 'emem:cell:' + r.json.cell64; }); }],
+  ['a receipt', function(){ return post('/v1/recall', { place:'Manaus', bands:['copdem30m.elevation_mean'] }).then(function(r){ return JSON.stringify({ receipt:r.json.receipt }); }); }],
+  ['the log head', function(){ return Promise.resolve(O + '/v1/log/sth'); }],
+  ['an answer\'s reasoning', function(){ return post('/v1/ask', { question:'How green is Manaus?' }).then(function(r){ return (JSON.stringify(r.json).match(/emem:state:[a-z2-7]{52}/) || [])[0]; }); }]
+];
+var chips = $('chips');
+EX.forEach(function(e){
+  var b = mk('button', '', mk('li', '', chips), e[0]); b.type = 'button';
+  b.addEventListener('click', function(){
+    b.disabled = true;
+    e[1]().then(function(v){ if(!v) throw new Error('no example came back'); $('q').value = v; sync(); run(v); }, function(err){ toast('the example did not load: ' + (err.message || err)); }).then(function(){ b.disabled = false; });
   });
 });
 
-$('btnVerifyCid').onclick = () => runVerify($('cidInput').value);
-$('btnPinSth').onclick = pinSth;
-$('btnVerifyReceipt').onclick = () => {
-  const txt = $('receiptInput').value.trim();
-  if (!txt) { toast('paste a receipt JSON first'); return; }
-  verifyAndRender(txt);
-};
-$('btnReverify').onclick = () => { if (_lastReceipt) verifyAndRender(_lastReceipt); };
-$('btnPasteFromClipboard').onclick = async () => {
-  try {
-    const txt = await navigator.clipboard.readText();
-    $('receiptInput').value = txt;
-    toast('pasted ' + txt.length + ' chars');
-  } catch (_) { toast('clipboard blocked · paste manually'); }
-};
-$('btnClear').onclick = () => {
-  $('cidInput').value = '';
-  $('receiptInput').value = '';
-  $('factCard').classList.add('hidden');
-  $('receiptCard').classList.add('hidden');
-  $('authorshipCard').classList.add('hidden');
-  $('sthGrid').classList.add('hidden');
-  _lastReceipt = null; _lastCid = null;
-  refreshRecipes(null);
-  setStatus('idle', 'idle · fetch a fact or paste a receipt to begin',
-    'this surface verifies <code>blake3(preimage) → ed25519.verify(sig, digest, pubkey)</code> entirely in your browser');
-  history.replaceState({}, '', '/verify');
-};
-$('btnCopyReceipt').onclick = () => {
-  if (!_lastReceipt) return;
-  try { navigator.clipboard.writeText(JSON.stringify(_lastReceipt, null, 2)); toast('receipt JSON copied'); }
-  catch(_) { toast('clipboard blocked'); }
-};
-$('btnShareLink').onclick = () => {
-  const cid = _lastCid || $('cidInput').value.trim();
-  if (!cid) { toast('no CID to share'); return; }
-  const url = location.origin + '/verify/' + cid;
-  try { navigator.clipboard.writeText(url); toast('share link copied'); }
-  catch(_) { toast('clipboard blocked'); }
-};
-
-// ── bootstrap from URL ──────────────────────────────────────────────────────
-//
-// /verify           → idle landing
-// /verify/<cid>     → auto-fetch fact + verify a fresh recall receipt
-// /verify?receipt=  → decode base64-url(JSON) and verify
-(function bootstrap(){
-  // Path: /verify/<cid>
-  const m = location.pathname.match(/^\/verify\/([A-Za-z0-9._-]+)$/);
-  if (m) {
-    const cid = decodeURIComponent(m[1]);
-    $('cidInput').value = cid;
-    fetchAndShowFact(cid);
-    return;
-  }
-  // Query: ?q=<emem: token | /memories/ path>, ?receipt=<base64>, or ?cid=<cid>
-  const p = new URLSearchParams(location.search || '');
-  // `token` is an alias for `q`. It is the obvious name for an emem: token and
-  // a link elsewhere on the site guessed it, landing readers on an empty form
-  // with their token in the address bar. Accepting the obvious spelling costs
-  // one line; making every caller learn ours costs a reader every time.
-  const q = p.get('q') || p.get('token');
-  if (q) { $('cidInput').value = q; runVerify(q); return; }
-  const r = p.get('receipt');
-  if (r) {
-    try {
-      const decoded = atob(r.replace(/-/g, '+').replace(/_/g, '/'));
-      $('receiptInput').value = decoded;
-      verifyAndRender(decoded);
-    } catch (_) {
-      $('receiptInput').value = r;
-      verifyAndRender(r);
-    }
-    return;
-  }
-  const qcid = p.get('cid');
-  if (qcid) {
-    $('cidInput').value = qcid;
-    history.replaceState({}, '', '/verify/' + qcid);
-    fetchAndShowFact(qcid);
-    return;
-  }
-  // Hash-style anchors as a courtesy: /verify#<cid>.
-  if (location.hash && location.hash.length > 1) {
-    const cid = decodeURIComponent(location.hash.slice(1));
-    if (/^[a-z2-7]{20,}$/i.test(cid)) {
-      $('cidInput').value = cid;
-      history.replaceState({}, '', '/verify/' + cid);
-      fetchAndShowFact(cid);
-    }
-  }
+/* ---- the composer ---- */
+var q = $('q'), go = $('go'), hint = $('hint');
+var NAMES = { fact:'a signed fact', cid52:'a 52-character name', note:'a signed note', json:'a receipt', sth:'the log head', entry:'a log entry', bundle:'a bundle of facts',
+  entity:'an object\'s identity', cell:'a place', raster:'a signed field', cube:'a field over time', rasterset:'signed fields, bound', tree:'a Merkle proof', trace:'a device trace', attestation:'a device attestation', state:'a reasoning stage', unknown:'nothing to check yet' };
+function sync(){
+  var v = q.value.trim(); go.disabled = !v;
+  hint.textContent = v ? 'reads as ' + (NAMES[classify(v).k] || 'an unknown kind') : 'reads the kind from what you paste';
+  q.style.height = 'auto'; q.style.height = Math.min(q.scrollHeight, 224) + 'px';
+}
+q.addEventListener('input', sync);
+q.addEventListener('keydown', function(e){ if(e.key === 'Enter' && !e.shiftKey && !/^[\[{]/.test(q.value.trim())){ e.preventDefault(); if(q.value.trim()) run(q.value); } });
+$('cmp').addEventListener('submit', function(e){ e.preventDefault(); run(q.value); });
+$('paste').addEventListener('click', function(){
+  if(!navigator.clipboard || !navigator.clipboard.readText) return toast('this browser does not share its clipboard; paste with the keyboard');
+  navigator.clipboard.readText().then(function(v){ q.value = v; sync(); q.focus(); }, function(){ toast('the clipboard was not shared'); });
+});
+var start = new URLSearchParams(location.search).get('q') || (/^\/verify\/(.+)$/.exec(location.pathname) || [])[1];
+if(start){ start = decodeURIComponent(start); q.value = start; sync(); run(start); }
 })();
 </script>
 </body>
