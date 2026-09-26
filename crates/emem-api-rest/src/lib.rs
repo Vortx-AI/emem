@@ -8730,7 +8730,15 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                     .and_then(|v| v.as_str())
                     .map(str::to_owned)
                     .unwrap_or_default();
-                let status = if let Some(meta) = band_materializer_meta(&key) {
+                // Retired here outranks a wired connector: the band stays in
+                // the registry (its layout is content-addressed by bands_cid)
+                // and its signed facts still verify, but nothing new is made.
+                let status = if retired_bands().contains(key.as_str()) {
+                    json!({
+                        "kind": "retired",
+                        "note": "retired on this deployment: facts it signed before still read and verify; nothing new materialises",
+                    })
+                } else if let Some(meta) = band_materializer_meta(&key) {
                     json!({
                         "kind": "live",
                         "tempo_seconds": meta.tempo.slot_seconds(),
@@ -9208,7 +9216,16 @@ async fn materializers(
             JsonValue::Array(a) => Some(a),
             _ => None,
         })
-        .unwrap_or_default();
+        .unwrap_or_default()
+        .into_iter()
+        // A retired band has no connector on this deployment; listing it
+        // advertised a fetch that is refused.
+        .filter(|m| {
+            !m.get("band")
+                .and_then(|b| b.as_str())
+                .is_some_and(|b| retired_bands().contains(b))
+        })
+        .collect::<Vec<_>>();
     let total = materializers_full.len();
     let start = (page - 1).saturating_mul(page_size).min(total);
     let end = start.saturating_add(page_size).min(total);
