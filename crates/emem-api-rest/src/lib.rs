@@ -14282,30 +14282,33 @@ async fn boring_recall_at(
         .encode(&state.identity.pubkey.0)
         .to_lowercase();
     let served_at = resp.receipt.served_at.clone();
-    let cid_for = |band: &str| -> Option<String> {
-        for (idx, fact) in resp.facts.iter().enumerate() {
-            let fact_band = match fact {
-                emem_fact::Fact::Primary(p) => Some(p.band.as_str()),
-                emem_fact::Fact::Absence(a) => Some(a.band.as_str()),
-                _ => None,
-            };
-            if fact_band == Some(band) {
-                return resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
-            }
-        }
-        None
-    };
-    let mut by_band = serde_json::Map::new();
-    for fact in &resp.facts {
-        let band = match fact {
-            emem_fact::Fact::Primary(p) => p.band.clone(),
-            emem_fact::Fact::Absence(a) => a.band.clone(),
+    // Each band's newest reading, cited by that reading's own cid. The value
+    // and the cid came from different facts before: the loop kept the last
+    // (newest) value while the cid lookup returned the band's first (oldest).
+    let mut newest: std::collections::BTreeMap<String, (usize, u64)> = Default::default();
+    for (idx, fact) in resp.facts.iter().enumerate() {
+        let (band, tslot) = match fact {
+            emem_fact::Fact::Primary(p) => (p.band.clone(), p.tslot),
+            emem_fact::Fact::Absence(a) => (a.band.clone(), a.tslot),
             _ => continue,
         };
-        let cid = cid_for(&band);
+        let e = newest.entry(band).or_insert((idx, tslot));
+        if tslot >= e.1 {
+            *e = (idx, tslot);
+        }
+    }
+    let mut by_band = serde_json::Map::new();
+    for (band, (idx, _)) in newest {
+        let cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
         by_band.insert(
-            band.clone(),
-            boring_view(fact, cid.as_deref(), &pubkey_b32, &cell_str, &served_at),
+            band,
+            boring_view(
+                &resp.facts[idx],
+                cid.as_deref(),
+                &pubkey_b32,
+                &cell_str,
+                &served_at,
+            ),
         );
     }
 
@@ -15379,10 +15382,26 @@ async fn boring_recall_aggregated(
         if resp.receipt.served_at > latest_served_at {
             latest_served_at = resp.receipt.served_at.clone();
         }
+        // One reading per cell and band, its newest: a cell's history is
+        // not more cells, and averaging it in with the latest weighted old
+        // readings by how often they were fetched.
+        let mut newest: BTreeMap<String, (usize, u64)> = BTreeMap::new();
         for (idx, fact) in resp.facts.iter().enumerate() {
-            let (band, signed_at) = match fact {
-                emem_fact::Fact::Primary(p) => (p.band.clone(), p.signed_at.clone()),
-                emem_fact::Fact::Absence(a) => (a.band.clone(), a.signed_at.clone()),
+            let (band, tslot) = match fact {
+                emem_fact::Fact::Primary(p) => (p.band.clone(), p.tslot),
+                emem_fact::Fact::Absence(a) => (a.band.clone(), a.tslot),
+                _ => continue,
+            };
+            let e = newest.entry(band).or_insert((idx, tslot));
+            if tslot >= e.1 {
+                *e = (idx, tslot);
+            }
+        }
+        for (band, (idx, _)) in newest {
+            let fact = &resp.facts[idx];
+            let signed_at = match fact {
+                emem_fact::Fact::Primary(p) => p.signed_at.clone(),
+                emem_fact::Fact::Absence(a) => a.signed_at.clone(),
                 _ => continue,
             };
             let fact_cid = resp.receipt.fact_cids.get(idx).map(|c| c.0.clone());
@@ -63460,7 +63479,18 @@ fn band_observations_from_recall(
             emem_fact::Fact::Derivative(d) => d.band.as_str(),
         };
         let cid = receipt_cids.get(idx).map(|c| c.as_str());
-        by_band.entry(band).or_insert((f, cid));
+        // The newest measurement answers; a signed absence only when the
+        // band holds no measurement. First-seen was the oldest, because
+        // recall returns facts in tslot order.
+        let rank = |f: &emem_fact::Fact| match f {
+            emem_fact::Fact::Primary(p) => (2, p.tslot),
+            emem_fact::Fact::Absence(a) => (1, a.tslot),
+            emem_fact::Fact::Derivative(_) => (0, 0),
+        };
+        let e = by_band.entry(band).or_insert((f, cid));
+        if rank(f) >= rank(e.0) {
+            *e = (f, cid);
+        }
     }
     let notes_for = |band: &str| -> Vec<JsonValue> {
         materialize_notes
@@ -63625,7 +63655,11 @@ fn band_observations_from_recall(
         if emitted_bands.contains(band) {
             continue;
         }
-        let cid = receipt_cids.get(idx).map(|c| c.as_str());
+        // The band's chosen (newest) reading, not the first one walked.
+        let (fact, cid) = by_band
+            .get(band)
+            .copied()
+            .unwrap_or((fact, receipt_cids.get(idx).map(|c| c.as_str())));
         out.push(entry_for_band(band, fact, cid, None, "inventory"));
         emitted_bands.insert(band.to_string());
     }
@@ -69393,6 +69427,9 @@ fn band_observations_summary(band_observations: &[JsonValue]) -> JsonValue {
             "band":  band,
             "value": value,
             "unit":  o.get("unit").cloned().unwrap_or(JsonValue::Null),
+            // The fact this number is, so the prose written from the summary
+            // can be traced to a signed reading without the verbose envelope.
+            "fact_cid": o.get("fact_cid").cloned().unwrap_or(JsonValue::Null),
             // Age comes along into the summary, because the summary is what
             // the DEFAULT envelope carries and therefore what the prose is
             // written from. Leaving it out of the slim shape meant the
@@ -73189,7 +73226,7 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
             .unwrap_or(0);
         if oldest_days >= 1 {
             parts.push(format!(
-                "{it} As last measured, not as of now: the oldest reading above is                  {oldest_days} days old, and `freshness.stale_bands` names every one."
+                "{it}. As last measured, not as of now: the oldest reading above is {oldest_days} days old, and `freshness.stale_bands` names every one."
             ));
         } else {
             parts.push(format!("{it}."));
