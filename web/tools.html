@@ -99,7 +99,7 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
 
 <details class="tool" id="emem_tools">
   <summary><code>emem_tools</code><span class="tt">What tools exist here, and when to reach for each</span><span class="tw">Call FIRST when you do not know which tool answers the question, or need a capability absent from your list: absent from the list is not absent from the server.</span></summary>
-  <p>The map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool&#x27;s full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 115, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint.</p>
+  <p>The map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool&#x27;s full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 114, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_tools&quot;, &quot;arguments&quot;: {&quot;q&quot;: &quot;ndvi&quot;}}}&#x27;</code></pre>
 </details>
 
@@ -196,7 +196,7 @@ h2{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink
 <details class="tool" id="emem_guard_verdict">
   <summary><code>emem_guard_verdict</code><span class="tt">Check whether the citations in a draft actually verify</span><span class="tw">Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it.</span></summary>
   <p>Run emem-guard&#x27;s policy pipeline over text you are about to send, against this responder&#x27;s corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY &lt;CODE&gt; token=&lt;token|-&gt; fix=&lt;fix&gt; leaf=&lt;leaf|-&gt;`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).</p>
-  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_verdict&quot;, &quot;arguments&quot;: {&quot;texts&quot;: [&quot;Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala&quot;]}}}&#x27;</code></pre>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_guard_verdict&quot;, &quot;arguments&quot;: {&quot;texts&quot;: [&quot;Lusail&#x27;s ground sits at 2.6 m per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq&quot;]}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_intent">
@@ -215,7 +215,7 @@ ask              | description                  | place/cell/lat+lng  | free-tex
 An unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;damO.zb000.xUti.zde78&quot;, &quot;type&quot;: &quot;did_change&quot;, &quot;window&quot;: [20245, 20620]}}}&#x27;</code></pre>
 </details>
-<h2>Read the world (59)</h2>
+<h2>Read the world (60)</h2>
 
 <details class="tool" id="emem_air">
   <summary><code>emem_air</code><span class="tt">Air-quality snapshot (CAMS PM2.5 / NO2 / O3)</span><span class="tw">Use when the user names a place and asks about air quality, pollution, or emissions exposure.</span></summary>
@@ -383,6 +383,12 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <summary><code>emem_forest</code><span class="tt">Forest signals (Hansen GFC + ESA WorldCover)</span><span class="tw">Use when the user asks about deforestation, canopy cover, forest loss, or wants a forest-vs-not classification.</span></summary>
   <p>Recall the signed forest facts at a place&#x27;s cell64: Hansen Global Forest Change (tree cover 2000 baseline + year-of-loss) + ESA WorldCover 2021 land class, attested on a miss; each carries a citeable fact_cid.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_forest&quot;, &quot;arguments&quot;: {&quot;place&quot;: &quot;Amazon, Brazil&quot;}}}&#x27;</code></pre>
+</details>
+
+<details class="tool" id="emem_grid">
+  <summary><code>emem_grid</code><span class="tt">A place as an n x n table of signed facts</span><span class="tw">Use for a map, a spatial correlation, or any question over the squares of an area around a place.</span></summary>
+  <p>One call returns a place as columns: `cells` row-major (north row first), and per band `values`, `fact_cids`, `captured_at` and one `bundle_token`, under ONE receipt citing every fact. Cold squares are read as one area, so the Sentinel-2 scene search runs once per grid, not once per square. `line` summarises the grid in one row.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_grid&quot;, &quot;arguments&quot;: {&quot;bands&quot;: [&quot;indices.ndvi&quot;, &quot;modis.lst_day_8day&quot;], &quot;budget_ms&quot;: 20000, &quot;center&quot;: &quot;Cubbon Park, Bengaluru&quot;, &quot;half_km&quot;: 3, &quot;n&quot;: 12}}}&#x27;</code></pre>
 </details>
 
 <details class="tool" id="emem_heat_solve">

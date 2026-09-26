@@ -8733,7 +8733,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                 // Retired here outranks a wired connector: the band stays in
                 // the registry (its layout is content-addressed by bands_cid)
                 // and its signed facts still verify, but nothing new is made.
-                let status = if retired_bands().contains(key.as_str()) {
+                let status = if is_retired(&key) {
                     json!({
                         "kind": "retired",
                         "note": "retired on this deployment: facts it signed before still read and verify; nothing new materialises",
@@ -9223,7 +9223,7 @@ async fn materializers(
         .filter(|m| {
             !m.get("band")
                 .and_then(|b| b.as_str())
-                .is_some_and(|b| retired_bands().contains(b))
+                .is_some_and(is_retired)
         })
         .collect::<Vec<_>>();
     let total = materializers_full.len();
@@ -12272,9 +12272,8 @@ async fn recall_with_auto_materialize_capped(
     // the band has been withdrawn here and a GPU would not. The retirement is
     // the operative fact, so it is the one the caller gets.
     if !retired_bands().is_empty() {
-        let (retired, keep): (Vec<String>, Vec<String>) = candidates
-            .into_iter()
-            .partition(|b| retired_bands().contains(b.as_str()));
+        let (retired, keep): (Vec<String>, Vec<String>) =
+            candidates.into_iter().partition(|b| is_retired(b));
         candidates = keep;
         if !retired.is_empty() {
             materialize_notes.push(json!({
@@ -35343,7 +35342,7 @@ async fn state_view_encoder(s: AppState, req: StateReq) -> Result<Json<StateResp
         .ok_or_else(|| {
             // Retired is a deployment decision, not a cold cell: say so, and
             // name the view that answers, instead of inviting a retry.
-            let why = if retired_bands().contains(encoder.as_str()) {
+            let why = if is_retired(&encoder) {
                 format!(
                     "encoder {encoder} is retired at this responder: facts it signed before still verify, and none exists at cell {cell}. For this place's state, send view=\"cube\" (every wired band, materialize:true to fetch the cold ones)."
                 )
@@ -35460,7 +35459,7 @@ fn foundation_encoders() -> Vec<&'static str> {
                 )
         })
         .map(|b| b.key.as_str())
-        .filter(|k| !retired_bands().contains(*k))
+        .filter(|k| !is_retired(k))
         .collect()
 }
 
@@ -35491,6 +35490,19 @@ fn retired_bands() -> &'static std::collections::BTreeSet<String> {
                 .filter(|s| !s.is_empty()),
         );
         set
+    })
+}
+
+/// A band is retired when it or its family is: retiring `geotessera`
+/// retires `geotessera.2024` and `geotessera.multi_year`, whose upstream
+/// now answers 410 Gone. Exact names alone left the children offered and
+/// fetched.
+fn is_retired(band: &str) -> bool {
+    retired_bands().iter().any(|r| {
+        band == r
+            || band
+                .strip_prefix(r.as_str())
+                .is_some_and(|t| t.starts_with('.'))
     })
 }
 
@@ -57209,7 +57221,7 @@ fn all_materializable_bands() -> Vec<String> {
     // filter /v1/data_availability went on advertising three encoders that
     // answered `missing` at every cell, which is how an agent designs a
     // feature against a model nobody is running.
-    out.retain(|b| !retired_bands().contains(b.as_str()));
+    out.retain(|b| !is_retired(b));
     out
 }
 
@@ -91743,6 +91755,19 @@ mod tests {
     /// The control is the same source with no retirement configured, where
     /// the partition must not fire.
     #[test]
+    fn a_retired_family_retires_its_children_and_nothing_else() {
+        let r = retired_bands()
+            .iter()
+            .next()
+            .expect("one retired band")
+            .clone();
+        assert!(is_retired(&r));
+        assert!(is_retired(&format!("{r}.2024")));
+        assert!(!is_retired(&format!("{r}x")));
+        assert!(!is_retired("indices.ndvi"));
+    }
+
+    #[test]
     fn a_retired_band_is_refused_before_the_materializer_is_tried() {
         let src = include_str!("lib.rs");
         let i = src
@@ -91750,7 +91775,7 @@ mod tests {
             .expect("the retirement note");
         let before = &src[i.saturating_sub(900)..i];
         assert!(
-            before.contains("partition(|b| retired_bands().contains(b.as_str()))"),
+            before.contains("partition(|b| is_retired(b))"),
             "the note must be produced by partitioning the candidate list, not by a later filter"
         );
         let note = &src[i..i + 700];
