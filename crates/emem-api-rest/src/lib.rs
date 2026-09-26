@@ -2023,7 +2023,8 @@ fn apply_cors_headers(response: &mut Response, origin_header: Option<&str>) {
         if allow.iter().any(|o| o.eq_ignore_ascii_case(&origin)) {
             if let Ok(v) = HeaderValue::from_str(&origin) {
                 h.insert("access-control-allow-origin", v);
-                h.insert("vary", HeaderValue::from_static("Origin"));
+                // Appended: a handler's own Vary (Accept on /v1/facts) must survive.
+                h.append("vary", HeaderValue::from_static("Origin"));
             }
         }
         // Origin present but not allowlisted → no allow-origin header,
@@ -22879,13 +22880,30 @@ async fn get_fact(
         });
         return (StatusCode::BAD_REQUEST, Json(body)).into_response();
     }
-    // Immutable: the CID *is* the validator. Return 304 on If-None-Match match.
-    let etag_value = format!("\"{}\"", cid);
+    // One URL, two representations chosen by Accept: the canonical CBOR (which
+    // the cid is the hash of, so the cid is its validator) and a JSON view.
+    // Both are immutable, so each needs its own ETag and `Vary: Accept`: with
+    // one tag and no Vary, a cache answered a CBOR request with the JSON it
+    // held, and /verify reported a sound fact's bytes as not hashing to its
+    // name.
+    let wants_cbor = headers
+        .get(axum::http::header::ACCEPT)
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|a| a.contains("application/cbor"));
+    let etag_value = if wants_cbor {
+        format!("\"{cid}\"")
+    } else {
+        format!("\"{cid}.json\"")
+    };
     if let Some(if_none) = headers.get(IF_NONE_MATCH).and_then(|v| v.to_str().ok()) {
-        if if_none.contains(&etag_value) {
+        if if_none
+            .split(',')
+            .any(|t| t.trim().trim_start_matches("W/") == etag_value)
+        {
             return Response::builder()
                 .status(StatusCode::NOT_MODIFIED)
                 .header(ETAG, &etag_value)
+                .header(axum::http::header::VARY, "accept")
                 .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
                 .body(axum::body::Body::empty())
                 .unwrap_or_else(|_| StatusCode::NOT_MODIFIED.into_response());
@@ -22924,16 +22942,13 @@ async fn get_fact(
     //   base32_nopad_lower(blake3(body)) == the cid in the URL you asked for.
     // A route whose bytes hash to their own address can be caught lying by
     // anyone who bothers.
-    let wants_cbor = headers
-        .get(axum::http::header::ACCEPT)
-        .and_then(|v| v.to_str().ok())
-        .is_some_and(|a| a.contains("application/cbor"));
     if wants_cbor {
         return match emem_cache::fact_canonical_cbor(&fact) {
             Ok(bytes) => Response::builder()
                 .status(StatusCode::OK)
                 .header(CONTENT_TYPE, "application/cbor")
                 .header(ETAG, &etag_value)
+                .header(axum::http::header::VARY, "accept")
                 .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
                 .header("x-emem-cid-preimage", "blake3-32; base32-nopad-lowercase")
                 .body(axum::body::Body::from(bytes))
@@ -22954,6 +22969,7 @@ async fn get_fact(
         .status(StatusCode::OK)
         .header(CONTENT_TYPE, "application/json; charset=utf-8")
         .header(ETAG, &etag_value)
+        .header(axum::http::header::VARY, "accept")
         .header(CACHE_CONTROL, "public, max-age=31536000, immutable")
         .body(axum::body::Body::from(body))
         .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response())
