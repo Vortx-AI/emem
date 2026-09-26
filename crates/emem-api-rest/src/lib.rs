@@ -10469,6 +10469,27 @@ async fn guard_verdict_read_render(
         resolved.push((t.clone(), st));
     }
     let checked = resolved.len();
+    // What each citation came to here, so an agent can tell a citation this
+    // responder holds and verified from one it cannot find. Both still
+    // answer `allow` (a token minted elsewhere is legitimate); the
+    // difference is stated, not left for the caller to guess from a count.
+    let per_citation: Vec<JsonValue> = resolved
+        .iter()
+        .map(|(t, st)| {
+            let (state, means) = match st {
+                emem_guard::TokenStatus::Verified => ("verified", "held here; its signature verifies over the cited bytes"),
+                emem_guard::TokenStatus::SignatureFailed => ("signature_failed", "held here; its signature does not verify"),
+                emem_guard::TokenStatus::ByteMismatch => ("byte_mismatch", "held here, but as different bytes than the citation claims"),
+                emem_guard::TokenStatus::Unresolved => ("not_held_here", "this responder holds no such fact: minted elsewhere, or it does not exist; resolve it where it was minted before relying on it"),
+                _ => ("drifted", "held and verified, but the world has moved past the band's tolerance since this reading"),
+            };
+            json!({ "token": t.token, "state": state, "means": means })
+        })
+        .collect();
+    let verified_here = per_citation
+        .iter()
+        .filter(|c| c["state"] == "verified")
+        .count();
     let evidence = policy::Evidence {
         tokens: resolved,
         values: guard_values,
@@ -10498,6 +10519,8 @@ async fn guard_verdict_read_render(
         o.insert("schema".into(), json!("emem.guard.verdict.v1"));
         o.insert("checked".into(), json!(checked));
         o.insert("citations_found".into(), json!(found.len()));
+        o.insert("citations_verified_here".into(), json!(verified_here));
+        o.insert("citations".into(), JsonValue::Array(per_citation));
         // Said plainly, because the difference matters: this endpoint tells an
         // agent what a guard WOULD say. It is not in anybody's request path.
         o.insert("advisory".into(), json!(true));
@@ -13566,6 +13589,20 @@ enum AggKind {
     Multidim,
 }
 
+/// A unit that names a code rather than a quantity: a class
+/// (`lccs_class`, `class_index`) or a position on the calendar
+/// (`year_of_loss`, `doy`). Averaging those is arithmetic on labels:
+/// Manaus's forest-loss year came back as "252.15".
+fn unit_is_code(unit: &str) -> bool {
+    let u = unit.to_ascii_lowercase();
+    u.contains("class")
+        || u.contains("code")
+        || u.contains("category")
+        || u.starts_with("year_of")
+        || u == "doy"
+        || u == "day_of_year"
+}
+
 fn band_agg_kind(band: &str) -> AggKind {
     // Categorical: integer class IDs. Mode + class distribution makes
     // sense; mean does not.
@@ -15435,7 +15472,14 @@ async fn boring_recall_aggregated(
     let mut total_attempts: usize = 0;
     for band in &band_iter {
         let entries = by_band.get(band).cloned().unwrap_or_default();
-        let kind = band_agg_kind(band);
+        // The facts' own unit says whether a value is a quantity or a code.
+        let kind = match entries.iter().find_map(|e| match &e.fact {
+            emem_fact::Fact::Primary(p) => p.unit.clone(),
+            _ => None,
+        }) {
+            Some(u) if unit_is_code(&u) => AggKind::Categorical,
+            _ => band_agg_kind(band),
+        };
         let n_total = cells.len();
         let n_present = entries.len();
         let n_missing = n_total.saturating_sub(n_present);
@@ -79041,10 +79085,16 @@ mod s2_dn_offset_invariant {
             "cell": cell, "band": "indices.ndvi",
         }))
         .unwrap();
-        let (steps, _m, cached, _k, _n) = S2_AREA
+        // Its own requester: the cold-fetch ledger is per process, and under
+        // the whole suite other tests spend the unattributed share this one
+        // needs, so passes were deferred and the order assert failed.
+        let (steps, _m, cached, _k, _n) = REQUESTER
             .scope(
-                area,
-                s2_backfill_by_pass(&req, &s, tempo, start, end, 16, have),
+                "test:a_backfill_visits_each_pass_once".to_string(),
+                S2_AREA.scope(
+                    area,
+                    s2_backfill_by_pass(&req, &s, tempo, start, end, 16, have),
+                ),
             )
             .await;
         let at: Vec<i64> = steps
@@ -88041,6 +88091,17 @@ mod tests {
         let g = json!({"type": "Polygon", "coordinates": [[[138.6, 35.2], [138.9, 35.2], [138.9, 35.5], [138.6, 35.2]]]});
         assert_eq!(geojson_bbox(&g), Some((35.2, 35.5, 138.6, 138.9)));
         assert_eq!(geojson_bbox(&json!({"type": "Point"})), None);
+    }
+
+    /// Units as the facts carry them (measured on Bengaluru's cell, 2026-09-26).
+    #[test]
+    fn a_class_or_a_calendar_position_is_a_code_not_a_quantity() {
+        for u in ["lccs_class", "class_index", "year_of_loss", "doy"] {
+            assert!(unit_is_code(u), "{u}");
+        }
+        for u in ["m", "K", "ug/m3", "unitless ratio", "fraction"] {
+            assert!(!unit_is_code(u), "{u}");
+        }
     }
 
     /// The list production reads, parsed the way the warmer parses it.

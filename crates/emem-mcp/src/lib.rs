@@ -502,6 +502,8 @@ const OUT_GUARD_VERDICT: &str = r#"{"type":"object","required":["action","adviso
 "code":{"type":"string","enum":["PROV_SIG","PROV_BYTES","PROV_DRIFT","PROV_VALUE","GEO_ZONE","CLAIM_UNGROUNDED","POLICY_MODULE"],"description":"Present only on a deny."},
 "fix":{"type":"string","enum":["refresh_token","remove_reference","contact_admin","redact_and_retry","cite_observation","correct_value"],"description":"The actionable half: what to change and retry."},
 "citations_found":{"type":"integer","description":"How many emem: tokens were found in the text. Compare with receipt.fact_cids: a well-formed token that resolved to nothing counts here and not there."},
+"citations_verified_here":{"type":"integer","description":"How many of the citations this responder holds and verified."},
+"citations":{"type":"array","description":"Each citation and what it came to here: verified, signature_failed, byte_mismatch, not_held_here (minted elsewhere or nonexistent: resolve it where it was minted before relying on it), or drifted.","items":{"type":"object"}},
 "checked":{"type":"integer","description":"How many were actually resolved, bounded by the verdict budget."},
 "claim":{"type":"object","description":"On CLAIM_UNGROUNDED: the sentence, magnitude, quantity, anchor, and source_band. source_band is a recallable band key, or null when this responder observes no band in that quantity."},
 "receipt":{"type":"object","description":"ed25519 receipt. `fact_cids` lists what actually resolved and is the field that separates a real citation from an invented one."},
@@ -2554,7 +2556,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. `claim_gating: true` also names measurable claims with no citation and the band that would answer them. For a payload another framework produced (CloudEvent, OPA input, OpenAI moderations body, another server's tool call) send it as-is and name its `shape`: the default reader sees only `texts`, and a check that read nothing still answers allow. To ENFORCE rather than consult, emem_guard_selfhost returns the procedure for your own node.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
-        example_args: r#"{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}"#,
+        example_args: r#"{"texts":["Lusail's ground sits at 2.6 m per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq"]}"#,
         level: "L1", category: ToolCategory::Verify,
         // openWorldHint was false while the description says the opposite in
         // plain words: "a citation this responder does not hold is never a

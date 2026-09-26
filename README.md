@@ -263,15 +263,15 @@ The concrete version, for one agent and one number:
 
 ```text
 without emem
-  turn 12   the agent verifies a value: 918 m
+  turn 12   the agent verifies a value: 915 m
   turn 40   the context is compacted
   turn 41   what survives: "the site sits at roughly 900 m"
 
 with emem
   turn 12   the agent keeps one line:
-            emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
+            emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
   turn 40   the context is compacted
-  turn 41   the line resolves to 918.0 m, and the signature still checks
+  turn 41   the line resolves to 915.1 m, and the signature still checks
 ```
 
 Three things you lose when the memory is a paraphrase inside one model: a long task quietly loses its own verified precision and nothing downstream notices; agents re-derive each other's work because a summary from another vendor cannot be trusted; and a claim cannot be audited once its author is gone, because nothing proves which value it actually saw. emem removes all three by making the fact, not the summary, the thing you carry.
@@ -324,7 +324,7 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 ### The one line an agent keeps
 
 ```
-emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
+emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq
 ```
 
 The address of a place plus the fingerprint of one signed observation there. An agent keeps this line and drops the payload. Any agent, any model, any month later resolves it back to the exact same bytes and re-checks the signature without trusting whoever sent it. In practice your agent runs four verbs: locate a place, recall its signed facts, reason over them, cite the tokens in its output. Verification is the receiver's single call.

@@ -404,7 +404,7 @@ curl -s -X POST https://emem.dev/v1/recall \
 {
   "facts": [{
     "band": "copdem30m.elevation_mean", "cell": "defi.zb493.xuqA.zcb5f",
-    "tslot": 0, "value": 918.0, "unit": "m", "confidence": 0.95,
+    "tslot": 0, "value": 915.0712280273438, "unit": "m", "confidence": 0.95,
     "derivation": {"fn_key": "open_meteo_copdem90m@1", "args": [12.971899, 77.593665]},
     "sources": [{"scheme": "open_meteo",
                  "id": "https://api.open-meteo.com/v1/elevation?latitude=12.971899&longitude=77.593665",
@@ -417,7 +417,7 @@ curl -s -X POST https://emem.dev/v1/recall \
     "request_id": "01KR39HY37333FD3C9PBV0F67B",
     "primitive": "emem.recall", "served_at": "2026-05-08T07:59:08Z",
     "cells": ["defi.zb493.xuqA.zcb5f"],
-    "fact_cids": ["yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"],
+    "fact_cids": ["tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq"],
     "responder_pubkey_b32": "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka",
     "responder_key_epoch": 0,
     "schema_cid": "d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq",
@@ -495,7 +495,7 @@ curl -s -X POST https://emem.dev/v1/verify \
 ```json
 {
   "verdict": true,
-  "evidence": ["yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"],
+  "evidence": ["tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq"],
   "receipt": {"primitive": "emem.verify"}
 }
 ```
@@ -1069,7 +1069,7 @@ act on, ask whether the citations in it still resolve.
 ```bash
 curl -sS -X POST https://emem.dev/v1/guard/verdict \
   -H 'content-type: application/json' \
-  -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala"]}'
+  -d '{"texts":["Elevation there is 915 m per emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq"]}'
 ```
 
 ```json
