@@ -62,9 +62,11 @@ def example(t: dict) -> str:
     return (
         "curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' "
         + "-d '"
+        # A single quote in an example (an English possessive) would close the
+        # shell string, so it is written as '\'' and the line still pastes.
         + json.dumps(
             {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": json.loads(body)}
-        )
+        ).replace("'", "'\\''")
         + "'"
     )
 

@@ -1,7 +1,6 @@
 ---
 name: emem-verify-before-publish
 description: Check a draft before you send it. Resolve every emem citation in the text, confirm each one actually supports the sentence around it, and get an allow or deny with a machine-readable reason. Use before publishing any answer that cites emem, before handing a report to a user or another agent, and whenever a number in your draft came from earlier in the conversation rather than from a token you just resolved.
-allowed-tools: Bash(curl:*) Bash(jq:*) Read
 ---
 
 # emem-verify-before-publish

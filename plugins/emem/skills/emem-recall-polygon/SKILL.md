@@ -1,7 +1,6 @@
 ---
 name: emem-recall-polygon
 description: Recall signed Earth-observation facts at every cell inside a user-supplied polygon. Use when the user asks about an extent rather than a point — "what's the average NDVI inside this watershed", "show me precipitation across the Western Ghats", "what's the elevation profile of this region". Accepts a polygon as [lng, lat] coordinate pairs and returns per-cell facts plus a summary. Each cell carries its own Ed25519 receipt.
-allowed-tools: Bash(curl:*) Bash(jq:*) Read
 ---
 
 # emem-recall-polygon

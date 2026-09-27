@@ -1,7 +1,6 @@
 ---
 name: emem-sign-and-attest
 description: Write to emem with your own ed25519 key — save a signed note or memory another agent can verify, or register a derivation over signed facts that the responder will recompute. Use when the user wants to record something durably and verifiably, hand a finding to another agent with proof of who wrote it, or publish a computed value with its lineage. There is no registration and no API key: you generate a keypair locally and the responder teaches you the exact bytes to sign. Reads are public; only writes need the key.
-allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read Write
 ---
 
 # emem-sign-and-attest

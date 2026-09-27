@@ -1,7 +1,6 @@
 ---
 name: emem-verify-receipt
 description: Verify an emem receipt's Ed25519 signature offline by rebuilding the canonical BLAKE3 preimage and checking against the responder's published pubkey. Use when the user pastes a receipt JSON and asks whether it's authentic, when an LLM needs to prove a fact wasn't fabricated, or when caching emem facts and wanting to confirm origin later. Runs without re-contacting the responder.
-allowed-tools: Bash(curl:*) Bash(python3:*) Bash(pip:*) Read Write
 ---
 
 # emem-verify-receipt
@@ -27,7 +26,7 @@ signed by the responder pubkey and has not been tampered with.
 ### Quick one-shot via the bundled Python script
 
 ```sh
-python3 .claude/skills/emem-verify-receipt/verify.py path/to/receipt.json
+python3 "$SKILL_DIR/verify.py" path/to/receipt.json
 ```
 
 Or pipe a receipt directly:
@@ -37,8 +36,10 @@ curl -sf -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb493.xoso.zcb6a","bands":["weather.temperature_2m"]}' \
   | jq '.receipt' \
-  | python3 .claude/skills/emem-verify-receipt/verify.py -
+  | python3 "$SKILL_DIR/verify.py" -
 ```
+
+`$SKILL_DIR` is this skill's own directory: the plugin ships `verify.py` beside this file, so nothing is fetched to run it.
 
 The script prints `VALID` and the BLAKE3 digest hex if the signature
 checks out, or `INVALID` with the reason if not.

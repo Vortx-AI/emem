@@ -1,7 +1,6 @@
 ---
 name: emem-shared-identity
 description: Make two agents refer to the same object. Mint or fetch a canonical identity for a thing (a field, a corridor, an asset, a place-as-object), converge a fuzzy phrasing onto an identity already registered, and attest that two phrasings denote one object. Use when several agents or several documents call the same thing by different names and the disagreement is about words rather than measurements, or before handing another agent a finding it must be able to look up. Reads are public; writing to the shared identity space needs a key and a declared endpoint (tier T3).
-allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read
 ---
 
 # emem-shared-identity

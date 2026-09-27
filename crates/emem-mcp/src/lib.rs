@@ -2556,7 +2556,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. `claim_gating: true` also names measurable claims with no citation and the band that would answer them. For a payload another framework produced (CloudEvent, OPA input, OpenAI moderations body, another server's tool call) send it as-is and name its `shape`: the default reader sees only `texts`, and a check that read nothing still answers allow. To ENFORCE rather than consult, emem_guard_selfhost returns the procedure for your own node.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
-        example_args: r#"{"texts":["Lusail's ground sits at 2.6 m per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq"]}"#,
+        example_args: r#"{"texts":["Lusail ground sits at 2.6 m per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq"]}"#,
         level: "L1", category: ToolCategory::Verify,
         // openWorldHint was false while the description says the opposite in
         // plain words: "a citation this responder does not hold is never a

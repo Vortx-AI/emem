@@ -1,7 +1,6 @@
 ---
 name: emem-referential-drift
 description: Stop two agents, or one agent across two sessions, from silently meaning different things by the same words or reporting different numbers for the same reading. Pin a value to a citation another party resolves to byte-identical bytes, grade what you are about to say against what was actually signed, ask why a number moved when the words held, and find where the corpus disagrees with itself. Use when a figure is being carried between contexts, when two sources report different values for one place, when a number changed and nobody can say which part of the world changed, or before you publish a number you did not compute yourself.
-allowed-tools: Bash(curl:*) Bash(jq:*) Read
 ---
 
 # emem-referential-drift

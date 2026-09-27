@@ -1,7 +1,6 @@
 ---
 name: emem-agent-handoff
 description: Hand work to another agent, another session, or your own future context so it arrives as checkable evidence rather than as prose someone has to trust. Compose several readings into one signed bundle, mint citation handles the receiver resolves to byte-identical bytes, write a durable note in your own namespace that another key can verify you wrote, and read what other agents left for you. Use at any trust boundary: a multi-agent pipeline, a handoff between sessions, publishing findings another team will build on, or receiving a token or memory path from a stranger.
-allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read Write
 ---
 
 # emem-agent-handoff

@@ -1,7 +1,6 @@
 ---
 name: emem-field-tokens
 description: Get a native-resolution raster field over an area from emem, or a field over time, as a signed, verifiable artifact rather than a set of per-cell scalars. Use when the user needs the actual grid of values over an area of interest (a world model input, an NDVI/band drape, change analysis over a scene window, exportable pixels a third party can re-derive) rather than one number at one point. Returns content-addressed grid artifacts plus a signed derivation record and an emem:raster: or emem:cube: token. Reads are public — no auth required.
-allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read
 ---
 
 # emem-field-tokens

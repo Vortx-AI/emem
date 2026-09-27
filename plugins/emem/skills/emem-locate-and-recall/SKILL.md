@@ -1,7 +1,6 @@
 ---
 name: emem-locate-and-recall
 description: Resolve a free-form place name to an emem cell64 and recall signed Earth-observation facts at that location. Use when the user asks about current weather, vegetation index, elevation, soil properties, or any other geospatial measurement at a named place ("what's the temperature in Bengaluru", "how high is Denali", "what's the NDVI in the Sundarbans"). Returns content-addressed facts with Ed25519 receipts that can be verified offline. Reads are public — no auth required.
-allowed-tools: Bash(curl:*) Bash(jq:*) Bash(python3:*) Read
 ---
 
 # emem-locate-and-recall

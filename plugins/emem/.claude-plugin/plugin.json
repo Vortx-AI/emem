@@ -18,5 +18,7 @@
     "ed25519",
     "content-addressed",
     "agent-memory"
-  ]
+  ],
+  "icon": "icon.svg",
+  "privacyPolicyUrl": "https://emem.dev/privacy"
 }

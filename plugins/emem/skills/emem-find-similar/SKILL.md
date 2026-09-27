@@ -1,7 +1,6 @@
 ---
 name: emem-find-similar
 description: Return the top-K most similar places on Earth by cosine over a stored 128-D surface-texture embedding. Use when the user asks for analogues, look-alikes or counterparts ("find cities like Bangalore", "where else looks like the Sundarbans"). IMPORTANT, changed 2026-09-15: the embedding band is RETIRED on emem.dev — the index is frozen, no new vectors are computed, and a cell without one cannot get one. The skill tells you how to check coverage before promising an answer.
-allowed-tools: Bash(curl:*) Bash(jq:*) Read
 ---
 
 # emem-find-similar
