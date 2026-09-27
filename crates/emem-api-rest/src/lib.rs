@@ -8721,6 +8721,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
             "bands_cid".into(),
             JsonValue::String(s.manifests.bands_cid.clone()),
         );
+        let wired = all_materializable_bands();
         if let Some(arr) = map.get_mut("bands").and_then(|v| v.as_array_mut()) {
             for entry in arr.iter_mut() {
                 let Some(obj) = entry.as_object_mut() else {
@@ -8748,7 +8749,17 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                         "history_to_unix": meta.history_to_unix,
                         "wire_path": meta.wire_path,
                     })
-                } else if let Some(sample_scalar) = family_root_sample_scalar(&key) {
+                } else if let Some(sample_scalar) = family_root_sample_scalar(&key)
+                    .map(str::to_string)
+                    // Else any wired child under the family: the hand-kept map
+                    // missed jrc_gfc2020 and jrc_tmf, whose children do fetch,
+                    // so the catalogue called them declared_no_connector.
+                    .or_else(|| {
+                        let prefix = format!("{key}.");
+                        wired.iter().find(|b| b.starts_with(&prefix)).cloned()
+                    })
+                {
+                    let sample_scalar = sample_scalar.as_str();
                     // Family-root key (e.g. `nightlights`, `terraclimate`,
                     // `sentinel2_raw`) has no direct materializer at the
                     // root, but a representative scalar child IS wired.
@@ -68142,7 +68153,7 @@ async fn post_eudr_dds_inner(
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
         "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored).",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR alerts are NOT in the current hot-path consensus, TMF is deferred off the hot path for latency (119 MB/~78 s cold full-tile download, no upstream HTTP Range), WRI/RADD are signed Absence today; the verdict is the JRC GFC2020 + Hansen consensus only.",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR alerts are NOT in the current hot-path consensus, TMF is deferred off the hot path for latency (its dispatcher serves 119 MB whole tiles, ~78 s cold, and ignores HTTP Range; GFC2020's COGs do serve Range and are read by range), WRI/RADD are signed Absence today; the verdict is the JRC GFC2020 + Hansen consensus only.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request but is off the verdict hot path (119 MB/~78 s cold, no upstream HTTP Range).",
