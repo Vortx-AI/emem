@@ -348,6 +348,32 @@ input::placeholder{color:var(--mute,#7a7363)}
    @media. The page would have overflowed at 375px and nothing in the move would
    have said so. */
 @media (max-width:860px){.tf-grid{grid-template-columns:1fr}}
+/* ── by role: computed from /openapi.json and /v1/tools ── */
+#by-role{padding-top:2.2rem}
+.br-head{display:flex;align-items:baseline;justify-content:space-between;gap:1rem;flex-wrap:wrap}
+.br-head h2{margin:0}
+#by-role .num{margin-right:.6rem;color:var(--accent);font-family:var(--mono);font-size:.6em;vertical-align:.25em}
+.br-sum{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);margin:0}
+.br-flow{display:grid;grid-template-columns:1fr minmax(10rem,.55fr) 1fr;gap:1rem;margin-top:1.2rem;align-items:start}
+.br-col h3,.br-mid h3{font-family:var(--mono);font-size:var(--t-sm);font-weight:700;margin:0 0 .5rem;color:var(--ink)}
+.br-col h3 span{font-weight:400;color:var(--mute);margin-left:.4rem}
+.br-mid{position:sticky;top:5rem;border:1.6px solid var(--accent);background:var(--paper);padding:.9rem;text-align:center}
+.br-mid h3{font-family:var(--display);font-size:var(--t-xl);font-weight:500}
+.br-mid p{font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);margin:.2rem 0}
+.br-mid a{font-family:var(--mono);font-size:var(--t-2xs)}
+.br-g{border:1px solid var(--rule-strong);background:var(--paper);margin:0 0 .5rem}
+.br-g>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;gap:.6rem;padding:.5rem .7rem;font-family:var(--mono);font-size:var(--t-xs);color:var(--ink)}
+.br-g>summary::-webkit-details-marker{display:none}
+.br-g>summary b{font-weight:600}
+.br-g>summary i{font-style:normal;color:var(--accent)}
+.br-g ul{list-style:none;margin:0;padding:.1rem .7rem .6rem;display:grid;gap:.25rem}
+.br-g li{font-family:var(--mono);font-size:var(--t-3xs);color:var(--ink-2);display:flex;gap:.5rem;min-width:0}
+.br-g li code{color:var(--accent);flex:0 0 auto;max-width:55%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.br-g li span{color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.br-rest{margin-top:.8rem;border:1px dashed var(--rule-strong);padding:.5rem .7rem}
+.br-rest>summary{cursor:pointer;font-family:var(--mono);font-size:var(--t-xs)}
+.br-read-body{display:grid;grid-template-columns:repeat(3,1fr);gap:.5rem;margin-top:.6rem}
+@media (max-width:860px){.br-flow{grid-template-columns:1fr}.br-mid{position:static}.br-read-body{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -406,10 +432,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <header class="hero hero-lean page">
   <div>
-    <picture><source media="(prefers-color-scheme: dark)" srcset="/art/one-address-dark.svg"><img src="/art/one-address-light.svg" width="760" loading="lazy" decoding="async" alt="Five different phrasings of one place on the left, each drawn loosely and none matching another; on the right, one address drawn as a node with edges, which every agent resolves to identically."></picture><h1>The <span class="accent">read surface</span>.</h1>
-    <p class="sub">emem is a shared, verifiable memory for AI agents: a citeable identity layer that stops referential drift, both the paraphrase that drifts from its referent (the token pins it) and the readout that drifts at a pinned reference (the change-attribution ledger reports the per-term evidence; the numeric split is roadmap), so different models reason from the same world object instead of divergent descriptions, grounded in signed Earth observation.</p><details class="fold"><summary>more</summary><p class="rest">One set of handlers answers every read, whether an agent reaches it over MCP or plain REST, and every answer comes back as an ed25519 receipt it can verify offline. This page is the human-readable index of that surface: client setup, the high-traffic endpoints, the one-shot domain tools, the twelve hunter events, and the physics solvers. The full machine contract is <a href="/openapi.json">/openapi.json</a>.</p></details>
+    <picture><source media="(prefers-color-scheme: dark)" srcset="/art/one-address-dark.svg"><img src="/art/one-address-light.svg" width="760" loading="lazy" decoding="async" alt="Five different phrasings of one place on the left, each drawn loosely and none matching another; on the right, one address drawn as a node with edges, which every agent resolves to identically."></picture><h1>Encode. Name. <span class="accent">Decode.</span></h1>
+    <p class="sub">Every route and tool, grouped by what it does: what writes signed memory, what names it, what reads and checks it. Computed from <a href="/openapi.json">/openapi.json</a> and <a href="/v1/tools">/v1/tools</a> as you load this page.</p>
     <div class="hero-cta">
-      <a class="btn" href="#client-setup">Client setup</a>
+      <a class="btn" href="#by-role">By role</a>
+      <a class="btn ghost" href="#client-setup">Client setup</a>
       <a class="btn ghost" href="/openapi.json">openapi.json</a>
     </div>
     <p class="hero-trust">No API keys for reads · one MCP tool per primitive, mirrored as plain <code>/v1</code> REST · every answer an ed25519 receipt, verifiable offline.</p>
@@ -417,6 +444,19 @@ input::placeholder{color:var(--mute,#7a7363)}
 </header>
 
 <div class="mith-div"><span class="gem"></span></div>
+
+<section class="page" id="by-role" aria-label="every route and tool, by role">
+  <div class="br-head">
+    <h2><span class="num">00</span>By role</h2>
+    <p class="br-sum" id="br-sum">reading /openapi.json and /v1/tools&hellip;</p>
+  </div>
+  <div class="br-flow">
+    <div class="br-col" id="br-encode"><h3>encode <span>writes signed memory</span></h3></div>
+    <div class="br-mid"><h3>emem</h3><p>one name &middot; signed &middot; logged</p><a href="#token-grammar">token families &darr;</a><p class="br-head-live" id="br-sth">log head&hellip;</p></div>
+    <div class="br-col" id="br-decode"><h3>decode <span>reads, cites, checks</span></h3></div>
+  </div>
+  <details class="br-rest" id="br-read"><summary>read <span id="br-read-n"></span></summary><div class="br-read-body"></div></details>
+</section>
 
 <section class="section page" id="token-grammar">
   <div class="tf" aria-label="the emem token family">
@@ -951,5 +991,76 @@ input::placeholder{color:var(--mute,#7a7363)}
     }
   })();
 </script>
-
+<script>
+/* By role: every route in /openapi.json and every tool in /v1/tools, sorted by
+   ordered rules into what writes signed memory and what reads and checks it.
+   Nothing is listed by hand, and anything no rule claims is counted in "read". */
+(function(){
+  var E = [
+    ['sign a note', /^emem_memory_(create|str_replace|insert|delete|supersede|rename)$/],
+    ['attest a value', /^(\/v1\/(derive|attest|attest_cbor|attest_traced|enroll_attested|device_publish)$|emem_(derive|attest\w*)$)/],
+    ['reason', /^(\/v1\/(ask|intent|explain)$|emem_(ask|intent|explain|reason)$)/],
+    ['read the web, sign it', /^(\/v1\/(read|ocr|perception\/\{path\})$|emem_(read|ocr)$)/],
+    ['decide', /^(\/v1\/decide$|emem_decide$)/],
+    ['name an object', /^(\/v1\/entity(\/alias)?$|emem_entity(_link|_alias)?$)/],
+    ['mint a token', /^(\/v1\/(memory_token|memory_bundle|band_raster|band_cube|band_composite|raster_bundle)$|emem_(memory_token|memory_bundle|band_raster|band_cube|band_composite|raster_bundle)$)/],
+    ['fetch the world, sign on a miss', /^(\/v1\/(fetch|backfill|recall|recall_many|recall_polygon|grid)$|emem_(fetch|backfill|recall|recall_many|recall_polygon|grid)$)/]
+  ];
+  var D = [
+    ['resolve a token', /^(\/v1\/(memory_token\/resolve(_many)?|memory_bundle\/\{token\}|raster\/resolve|cube\/resolve|raster_bundle\/resolve|tree\/.*|state\/\{cid\}|entity\/resolve|entity\/\{id\}|trace_resolve|facts\/\{cid\}|artifacts\/\{cid\})$|emem_(\w*_resolve\w*|tree|memory_view|memory_bundle_resolve|entity_resolve|get_fact)$)/],
+    ['verify', /^(\/v1\/(verify|verify_receipt|echo_verify|trace_verify|verifier_spec|enroll_verify|range_hash)$|emem_(verify\w*|echo_verify|trace_verify|range_hash)$)/],
+    ['the log', /^(\/v1\/log\/.*|emem_log_\w*)$/],
+    ['check an answer', /^(\/v1\/guard\/.*|emem_guard\w*)$/],
+    ['find and compare', /^(\/v1\/(memory\/search|memory_contradictions|inbox|edges|edges\/recall|diff|state_diff|derived)$|emem_(memory_search|memory_contradictions|memory_list_by_kind|inbox|edges\w*|diff|state_diff|derive_list)$)/],
+    ['doors', /^(\/mcp|\/a2a\/.*|\/v1\/a2a\/.*|\/\.well-known\/.*|\/v1\/agent_card|\/v1\/chat\/completions|\/v1\/stream|\/v1\/memory\/sse|\/spec\/a2a\/.*|search|fetch)$/]
+  ];
+  /* what is left: reads, sorted into families; "other" is what no rule names */
+  var R = [
+    ['world readings', /^(\/v1\/|emem_)(ndvi|air|lst|soil|water|forest|weather|at|elevation|terrain|spi|burn_severity|rice_ch4|deforestation_alert|sar_forest_disturbance|eudr_dds|change_attribution|field_boundaries|building_footprints|trajectory|compare\w*|find_similar|region_\w+|neighborhood_consistency|query_region|hunt|state|state_multi|embedding_\w+|tessera_field|jepa_predict|heat_solve|wave_solve|temporal_route)$/],
+    ['places and cells', /^(\/v1\/(locate|cells\/.*|cells_in_bbox|grid_info)|emem_(locate|cell_\w+|cells_in_bbox|grid_info))$/],
+    ['catalogue', /^(\/v1\/|emem_)(bands|materializers|sources|functions|algorithms(\/\{key\})?|algorithm_cids|explain_algorithm|schema|schemas(\/.*)?|topics|manifests|capabilities|data_availability|coverage\w*|coverage_map\.svg|tools|limits|errors|deprecations|intents|models|quickstart|discover|demos|worlds|substrates|trace_encodings|device_platforms|devices|fleet|agents|contributors(\/.*)?|agent_\w+|corpus_state_stats|vector_index\/stats|memory_search\/stats|scoreboard|benchmark(\/grade)?|reviews(\/.*)?|enlist|harness\/protocol|arcade\/protocol|plane\/conformance|channel\/geo|health|verifier)$/],
+    ['liveness', /^\/(health|live)$/]
+  ];
+  function esc(t){ return String(t).replace(/[&<>"]/g, function(c){ return { '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]; }); }
+  function first(t){ t = String(t || '').replace(/\s+/g, ' ').trim(); var i = t.search(/[.:;(](\s|$)/); return (i > 0 ? t.slice(0, i) : t).slice(0, 110); }
+  function j(u){ return fetch(u).then(function(r){ if(!r.ok) throw new Error(u + ' ' + r.status); return r.json(); }); }
+  function place(key, rules){ for(var i = 0; i < rules.length; i++) if(rules[i][1].test(key)) return rules[i][0]; return null; }
+  function group(el, name, items, open){
+    var d = document.createElement('details'); d.className = 'br-g'; if(open) d.open = true;
+    d.innerHTML = '<summary><b>' + esc(name) + '</b><i>' + items.length + '</i></summary><ul>' +
+      items.map(function(x){ return '<li><code title="' + esc(x.k) + '">' + esc(x.k) + '</code><span>' + esc(x.w) + '</span></li>'; }).join('') + '</ul>';
+    el.appendChild(d);
+  }
+  var root = document.getElementById('by-role'); if(!root) return;
+  Promise.all([j('/openapi.json'), j('/v1/tools')]).then(function(x){
+    var items = [];
+    Object.keys(x[0].paths || {}).forEach(function(p){
+      var ops = x[0].paths[p]; Object.keys(ops).forEach(function(m){
+        var o = ops[m]; if(!o || typeof o !== 'object') return;
+        items.push({ k:p, m:m.toUpperCase(), w:m.toUpperCase() + ' ' + first(o.summary || o.description || o.operationId) });
+      });
+    });
+    (x[1].tools || []).forEach(function(t){ items.push({ k:t.name, m:'MCP', w:'MCP ' + first(t.title || t.description) }); });
+    var enc = {}, dec = {}, read = {};
+    items.forEach(function(it){
+      var e = place(it.k, E), d = !e && place(it.k, D);
+      /* a path with a write verb and a read verb (entity) lands by verb */
+      if(e === 'name an object' && it.m === 'GET') { e = null; d = 'resolve a token'; }
+      if(e) (enc[e] = enc[e] || []).push(it);
+      else if(d) (dec[d] = dec[d] || []).push(it);
+      else { var seg = place(it.k, R) || 'other'; (read[seg] = read[seg] || []).push(it); }
+    });
+    var ne = 0, nd = 0, nr = 0;
+    E.forEach(function(r, i){ var g = enc[r[0]]; if(g){ ne += g.length; group(document.getElementById('br-encode'), r[0], g, i < 2); } });
+    D.forEach(function(r, i){ var g = dec[r[0]]; if(g){ nd += g.length; group(document.getElementById('br-decode'), r[0], g, i < 2); } });
+    var body = document.querySelector('#br-read .br-read-body');
+    Object.keys(read).sort(function(a, b){ return read[b].length - read[a].length; }).forEach(function(k){ nr += read[k].length; group(body, k, read[k], false); });
+    document.getElementById('br-read-n').textContent = '· ' + nr + ' catalogue and domain reads';
+    var sum = document.getElementById('br-sum');
+    sum.textContent = items.length + ' routes and tools · ' + ne + ' encode · ' + nd + ' decode · ' + nr + ' read · computed now';
+  }).catch(function(e){ var sum = document.getElementById('br-sum'); sum.textContent = 'could not read the catalogue: ' + (e && e.message || e); });
+  j('/v1/log/sth').then(function(d){ var el = document.getElementById('br-sth'); el.textContent = Number(d.sth.tree_size).toLocaleString('en') + ' log entries'; })
+    .catch(function(){ var el = document.getElementById('br-sth'); el.textContent = 'log head unreachable'; });
+})();
+</script>
 </body></html>

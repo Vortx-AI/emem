@@ -433,6 +433,16 @@ input::placeholder{color:var(--mute,#7a7363)}
 .hw-live{ font-size:var(--t-xs); color:var(--ink-2); border:1px dashed var(--rule-strong); border-radius:6px; padding:var(--s-2) var(--s-3); overflow-wrap:anywhere; }
 .hw-live b{ color:var(--accent); font-weight:600; }
 
+.hw-lanes{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:var(--s-2); margin-top:var(--s-3); }
+.hw-lanes button{ text-align:left; display:grid; gap:2px; padding:var(--s-2); border:1px solid var(--rule-strong); border-radius:8px; background:var(--paper); color:var(--ink-2); cursor:pointer; font:inherit; }
+.hw-lanes button b{ font-size:var(--t-sm); color:var(--ink); }
+.hw-lanes button span{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.hw-lanes button[aria-selected="true"]{ border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
+.hw-wide{ flex:1 1 18rem; }
+#hw-rform{ margin-bottom:var(--s-2); }
+.hw-wide input{ width:100%; }
+.hw-hint{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); margin:var(--s-1) 0 var(--s-2); }
+@media (max-width:640px){ .hw-lanes{ grid-template-columns:1fr; } }
 .hw-run{ border:1px solid var(--rule-strong); border-radius:10px; padding:var(--s-3); background:var(--paper-2); margin-top:var(--s-3); }
 .hw-form{ display:flex; flex-wrap:wrap; gap:var(--s-2); align-items:flex-end; }
 .hw-fld{ display:grid; gap:var(--s-1); flex:1 1 160px; font-size:var(--t-2xs); color:var(--mute); }
@@ -573,15 +583,21 @@ input::placeholder{color:var(--mute,#7a7363)}
   <aside class="section-meta">
     <div class="idx"><span class="idx-num">00</span><span class="idx-label">Run it</span></div>
     <dl>
-      <dt>calls</dt><dd>locate &middot; recall &middot; log head &middot; mint &middot; resolve</dd>
-      <dt>checked here</dt><dd>receipt signature, pinned key, log head signature, token binding</dd>
+      <dt>lanes</dt><dd>a reading &middot; a reasoning step &middot; a signed note</dd>
+      <dt>checked here</dt><dd>signatures, content addresses, the chain of reasoning, log inclusion, tree paths</dd>
       <dt>trusts</dt><dd>nothing the responder says about itself</dd>
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">00</span>One request, followed through</h2>
-    <p class="lede">Pick a place and a reading. Each step below is a live call to this responder, and each check runs in your tab.</p>
+    <h2><span class="num">00</span>Encode, name, decode: followed through</h2>
+    <p class="lede">Pick a lane. Each step is a live call; each check runs in your tab.</p>
+    <div class="hw-lanes" role="tablist" aria-label="what to follow">
+      <button type="button" role="tab" aria-selected="true" data-lane="reading"><b>a reading</b><span>encode: a satellite band &rarr; decode: your tab</span></button>
+      <button type="button" role="tab" aria-selected="false" data-lane="reasoning"><b>a reasoning step</b><span>encode: an answer's stages &rarr; decode: the chain</span></button>
+      <button type="button" role="tab" aria-selected="false" data-lane="note"><b>a signed note</b><span>encode: an agent's key &rarr; decode: by name alone</span></button>
+    </div>
     <div class="hw-run" id="hw-run">
+    <div class="hw-lane" data-lane="reading">
       <form class="hw-form" id="hw-form">
         <label class="hw-fld"><span>place</span><input id="hw-place" type="text" value="Lusail" spellcheck="false" autocomplete="off"></label>
         <label class="hw-fld"><span>reading</span><select id="hw-band">
@@ -610,6 +626,38 @@ input::placeholder{color:var(--mute,#7a7363)}
         <button type="button" class="hw-go" id="hw-copy">copy for agents</button>
         <a class="hw-lnk" id="hw-verify" href="/verify">open in /verify</a>
       </div>
+    </div>
+    <div class="hw-lane" data-lane="reasoning" hidden>
+      <form class="hw-form" id="hw-rform">
+        <label class="hw-fld hw-wide"><span>question</span><input id="hw-q" type="text" value="What is the elevation of Lusail?" spellcheck="false" autocomplete="off"></label>
+        <button class="hw-go" id="hw-rgo" type="submit">run</button>
+      </form>
+      <ol class="hw-steps" id="hw-rsteps">
+        <li data-s="ask"><b>answer it</b><span class="hw-o">POST /v1/ask</span></li>
+        <li data-s="chain"><b>read the chain of stages</b><span class="hw-o">one emem:state per stage, each naming the one before</span></li>
+        <li data-s="state"><b>fetch the last stage</b><span class="hw-o">GET /v1/state/{cid}</span></li>
+        <li data-s="rehash"><b>re-hash it</b><span class="hw-o">blake3 of its canonical bytes, in this tab</span></li>
+        <li data-s="receipt"><b>check the answer's receipt</b><span class="hw-o">ed25519 against the published key</span></li>
+        <li data-s="fact"><b>resolve a fact it stood on</b><span class="hw-o">POST /v1/memory_token/resolve</span></li>
+      </ol>
+      <div class="hw-acts" id="hw-racts" hidden><a class="hw-lnk" id="hw-rverify" href="/verify">open the last stage in /verify</a></div>
+    </div>
+    <div class="hw-lane" data-lane="note" hidden>
+      <form class="hw-form" id="hw-nform">
+        <label class="hw-fld hw-wide"><span>note name</span><input id="hw-n" type="text" value="t4ogdga3z7nbcw7gmau2zqgz44" spellcheck="false" autocomplete="off"></label>
+        <button class="hw-go" id="hw-ngo" type="submit">run</button>
+      </form>
+      <p class="hw-hint">paste any note name, such as one the <a href="/#hero">homepage tokeniser</a> published</p>
+      <ol class="hw-steps" id="hw-nsteps">
+        <li data-s="view"><b>recover it by name</b><span class="hw-o">emem_memory_view over POST /a2a/tasks</span></li>
+        <li data-s="name"><b>re-hash the bytes</b><span class="hw-o">base32(blake3(bytes)[0:16]) == its name</span></li>
+        <li data-s="author"><b>check who signed it</b><span class="hw-o">ed25519 over the write, in this tab</span></li>
+        <li data-s="log"><b>prove it is in the log</b><span class="hw-o">GET /v1/log/inclusion, folded to a signed head</span></li>
+        <li data-s="tree"><b>prove one part</b><span class="hw-o">GET /v1/tree/{name}?row=0</span></li>
+        <li data-s="cite"><b>cite it</b><span class="hw-o">one token</span></li>
+      </ol>
+      <div class="hw-acts" id="hw-nacts" hidden><a class="hw-lnk" id="hw-nverify" href="/verify">open in /verify</a></div>
+    </div>
     </div>
   </div>
 </section>
@@ -1286,6 +1334,141 @@ input::placeholder{color:var(--mute,#7a7363)}
   if('IntersectionObserver' in window){
     new IntersectionObserver(function(es, io){ if(es[0].isIntersecting){ io.disconnect(); start(); } }, { rootMargin:'200px' }).observe(document.getElementById('hw-run'));
   } else start();
+
+  /* ---- the other two lanes: a reasoning step, a signed note ---- */
+  function stepper(ol){
+    return {
+      set: function(name, cls, html){ var li = ol.querySelector('[data-s="' + name + '"]'); li.className = cls; li.querySelector('.hw-o').innerHTML = html; },
+      reset: function(){ [].forEach.call(ol.children, function(li){ li.className = ''; }); },
+      fail: function(e){ var li = ol.querySelector('li.now') || ol.querySelector('li:not(.ok)'); if(li) this.set(li.getAttribute('data-s'), 'no', esc(e && e.message || e)); }
+    };
+  }
+  function hexb(h){ var o = new Uint8Array(h.length / 2); for(var i = 0; i < o.length; i++) o[i] = parseInt(h.substr(i * 2, 2), 16); return o; }
+  function cat(){ var n = 0, a = arguments; for(var i = 0; i < a.length; i++) n += a[i].length; var o = new Uint8Array(n), k = 0; for(i = 0; i < a.length; i++){ o.set(a[i], k); k += a[i].length; } return o; }
+  function short(c){ return String(c).slice(0, 12) + '…'; }
+
+  var R = stepper(document.getElementById('hw-rsteps')), rgo = document.getElementById('hw-rgo');
+  function runReasoning(q){
+    R.reset(); rgo.disabled = true; document.getElementById('hw-racts').hidden = true;
+    var t = {};
+    R.set('ask', 'now', 'asking&hellip;');
+    post('/v1/ask', { question:q }).then(function(d){
+      var r = d.reasoning || {}, st = r.states || [];
+      if(!st.length) throw new Error('this answer carried no reasoning stages' + (d.status ? ' (' + d.status + ')' : ''));
+      t.d = d; t.st = st;
+      var a = String(d.answer || d.answer_md || '').replace(/\s+/g, ' ').trim();
+      R.set('ask', 'ok', '<span class="hw-v">' + esc(a.length > 140 ? a.slice(0, a.lastIndexOf(' ', 137)) + '…' : a) + '</span>\n' + st.length + ' stages: ' + st.map(function(x){ return esc(x.stage); }).join(' &rarr; '));
+      /* each stage names the one before as its own_state: the chain is checkable from the answer alone */
+      var cid = function(x){ return String(x.state || '').replace(/^emem:state:/, ''); };
+      var broken = st.filter(function(x, i){ if(!i) return false; return !(x.derived_from || []).some(function(e){ return e.as === 'own_state' && e.cid === cid(st[i - 1]); }); });
+      R.set('chain', broken.length ? 'no' : 'ok', (broken.length ? 'the chain breaks at ' + esc(broken[0].stage) : 'each stage names the one before') + '\n' +
+        st.map(function(x){ return esc(x.stage) + ' ' + esc(short(cid(x))); }).join(' &middot; '));
+      t.cid = cid(st[st.length - 1]); t.tok = 'emem:state:' + t.cid;
+      R.set('state', 'now', 'fetching ' + esc(short(t.cid)) + '&hellip;');
+      return Promise.all([j('/v1/state/' + t.cid), core(), pin()]);
+    }).then(function(x){
+      var rec = x[0], I = x[1].I, V = x[1].V, key = x[2];
+      R.set('state', rec.address_holds ? 'ok' : 'no', '<span class="hw-v">' + esc(rec.token || t.tok) + '</span>\n' + (rec.address_holds ? 'the responder recomputes the address from the bytes it holds' : 'the stored bytes do not give this address'));
+      var here = b32(I.blake3(hexb(rec.canonical_cbor_hex || '')));
+      R.set('rehash', here === t.cid ? 'ok' : 'no', (here === t.cid ? 'recomputed here: the bytes are the name' : 'recomputed here: ' + esc(short(here)) + ' is not the name') + ' &middot; ' + ((rec.canonical_cbor_hex || '').length / 2) + ' bytes of CBOR');
+      var rc = t.d.receipt || {}, v = V.verifyReceipt(rc), ok = v.ok && rc.responder_pubkey_b32 === key;
+      var grounded = (t.d.reasoning.steps || []).reduce(function(n, s){ return Math.max(n, s.grounded_total || 0); }, 0);
+      R.set('receipt', ok ? 'ok' : 'no', (ok ? 'signature verified in this tab' : 'did not verify: ' + esc(v.why || 'not the published key')) + ' &middot; signs ' + (rc.fact_cids || []).length + ' facts; the stages grounded ' + grounded);
+      var cells = rc.cells || [], cids = rc.fact_cids || [];
+      if(cells.length !== 1 || !cids.length) throw new Error('the receipt spans ' + cells.length + ' cells; resolve its facts by cid at /v1/facts/{cid}');
+      t.ftok = 'emem:fact:' + cells[0] + ':' + cids[0];
+      R.set('fact', 'now', 'resolving ' + esc(short(cids[0])) + '&hellip;');
+      return post('/v1/memory_token/resolve', { token:t.ftok });
+    }).then(function(f){
+      var src = ((f.fact || {}).sources || [])[0] || {};
+      R.set('fact', 'ok', '<span class="hw-v">' + esc(f.band) + ' ' + esc(typeof f.value === 'number' ? +f.value.toPrecision(6) : JSON.stringify(f.value)) + (f.unit ? ' ' + esc(f.unit) : '') + '</span> &middot; observed ' + esc(String(src.captured_at || '').slice(0, 10) || 'undated') + '\n' + esc(f.canonical_token || t.ftok));
+      document.getElementById('hw-rverify').href = '/verify?q=' + encodeURIComponent(t.tok);
+      document.getElementById('hw-racts').hidden = false;
+    }).catch(function(e){ R.fail(e); }).then(function(){ rgo.disabled = false; });
+  }
+  document.getElementById('hw-rform').addEventListener('submit', function(e){ e.preventDefault(); var q = document.getElementById('hw-q').value.trim(); if(q) runReasoning(q); });
+
+  var N = stepper(document.getElementById('hw-nsteps')), ngo = document.getElementById('hw-ngo');
+  function runNote(name){
+    N.reset(); ngo.disabled = true; document.getElementById('hw-nacts').hidden = true;
+    var t = { name:name };
+    N.set('view', 'now', 'recovering ' + esc(name) + '&hellip;');
+    post('/a2a/tasks', { skill:'emem_memory_view', args:{ file_cid:name } }).then(function(task){
+      var v = task.artifacts && task.artifacts[0] && task.artifacts[0].parts[0].data;
+      if(!v || typeof v.content !== 'string') throw new Error('no note is named ' + name);
+      t.v = v; t.bytes = enc.encode(v.content);
+      N.set('view', 'ok', '<span class="hw-v">' + esc(v.path) + '</span> &middot; ' + t.bytes.length.toLocaleString('en') + ' bytes');
+      return Promise.all([core(), pin()]);
+    }).then(function(x){
+      var I = x[0].I, key = x[1], v = t.v, full = I.blake3(t.bytes);
+      var named = b32(full.slice(0, 16)) === name;
+      N.set('name', named ? 'ok' : 'no', named ? 'the bytes hash to their name' : 'the bytes do not hash to ' + esc(name));
+      var a = v.authorship || {};
+      if(!a.sig_b32){ N.set('author', 'no', 'no signature came with the note'); }
+      else {
+        var pre = cat(enc.encode('emem.memory_write.v2|' + a.verb + '|' + a.signed_path + '|'), hexb(a.body_hash_hex), enc.encode('|' + (a.base || 'absent')));
+        var ok = a.body_hash_hex === I.hex(full) && a.signed_path === v.path && I.ed.verify(I.b32decode(a.sig_b32), I.blake3(pre), I.b32decode(a.attester_pubkey_b32));
+        N.set('author', ok ? 'ok' : 'no', (ok ? 'signed by ' : 'the signature does not check for ') + '<span class="hw-v">' + esc(String(a.attester_pubkey_b32).slice(0, 8)) + '</span> over its path and bytes');
+      }
+      t.I = I; t.key = key;
+      var eh = (v.log || {}).entry_hash_b32;
+      if(!eh){ N.set('log', 'no', 'this note was written before notes entered the log'); return null; }
+      N.set('log', 'now', 'asking for its path to the signed head&hellip;');
+      return j('/v1/log/inclusion?entry_hash=' + eh);
+    }).then(function(inc){
+      if(inc){
+        var I = t.I, s = inc.sth, pk = I.b32decode(s.responder_pubkey_b32);
+        var headOk = s.responder_pubkey_b32 === t.key && I.ed.verify(I.b32decode(s.signature_b32), I.blake3(preV1('emem.translog.sth.v1', [[1, be(s.tree_size, 8)], [2, I.b32decode(s.root_b32)], [3, enc.encode(s.signed_at)], [4, pk]])), pk);
+        var node = function(l, r){ return I.blake3(cat(new Uint8Array([1]), l, r)); };
+        var acc = I.blake3(cat(new Uint8Array([0]), I.b32decode(inc.entry_hash_b32))), leafOk = b32(acc) === inc.leaf_hash_b32;
+        var fn = inc.leaf_index, sn = s.tree_size - 1;
+        (inc.audit_path_b32 || []).forEach(function(h){
+          var p = I.b32decode(h);
+          if(sn === 0){ sn = -1; return; }
+          if(fn % 2 === 1 || fn === sn){ acc = node(p, acc); if(fn % 2 === 0) while(fn % 2 === 0 && fn !== 0){ fn = Math.floor(fn / 2); sn = Math.floor(sn / 2); } }
+          else acc = node(acc, p);
+          fn = Math.floor(fn / 2); sn = Math.floor(sn / 2);
+        });
+        var ok = headOk && leafOk && sn === 0 && b32(acc) === s.root_b32;
+        N.set('log', ok ? 'ok' : 'no', (ok ? 'in the log: ' : 'the path did not reach the signed head: ') + 'entry ' + Number(inc.leaf_index).toLocaleString('en') + ' of ' + Number(s.tree_size).toLocaleString('en') + ', ' + (inc.audit_path_b32 || []).length + ' hashes to a head signed ' + esc(s.signed_at.slice(11, 16)) + 'Z');
+      }
+      var content = t.v.content;
+      if(!/^emem: (pointer|directory)\.v1$/m.test(content)){ N.set('tree', 'ok', 'a note, not a table of parts: nothing to prove row by row'); return null; }
+      N.set('tree', 'now', 'fetching row 0&hellip;');
+      return j('/v1/tree/' + name + '?row=0');
+    }).then(function(tr){
+      var I = t.I;
+      if(tr){
+        var rows = t.v.content.split('\n').map(function(l){ return /^\| .* \|$/.test(l) ? l.slice(2, -2).split(' | ') : null; })
+          .filter(function(c){ return c && (c.length === 5 || c.length === 6) && /^\d+$/.test(c[2]) && /^\d+$/.test(c[3]) && c[0].trim() !== 'what'; });
+        var r0 = rows[0], stated = (/^root: (\S+)$/m.exec(t.v.content) || [])[1];
+        var ok = !!r0 && tr.note_root_matches && tr.root_b32 === stated;
+        if(ok){
+          var url = r0[1] === '·' ? '' : r0[1], acc = I.blake3(cat(enc.encode(url), be(+r0[2], 8), be(+r0[3], 8), I.b32decode(r0[4].trim())));
+          ok = b32(acc) === tr.leaf_b32;
+          (tr.path || []).forEach(function(p){ var h = I.b32decode(p.hash_b32); acc = p.side === 'left' ? I.blake3(cat(h, acc)) : I.blake3(cat(acc, h)); });
+          ok = ok && b32(acc) === stated;
+        }
+        N.set('tree', ok ? 'ok' : 'no', (ok ? 'row 0 (' + esc(r0[0].slice(0, 40)) + ') folds through ' + (tr.path || []).length + ' hashes to the root the note states' : 'row 0 did not fold to the stated root') + ' &middot; ' + tr.rows + ' rows');
+      }
+      t.tok = tr ? 'emem:tree:' + name : name;
+      N.set('cite', 'ok', '<span class="hw-v">' + esc(t.tok) + '</span>\nany agent: emem_memory_view {"file_cid":"' + esc(name) + '"}');
+      document.getElementById('hw-nverify').href = '/verify?q=' + encodeURIComponent(t.tok);
+      document.getElementById('hw-nacts').hidden = false;
+    }).catch(function(e){ N.fail(e); }).then(function(){ ngo.disabled = false; });
+  }
+  document.getElementById('hw-nform').addEventListener('submit', function(e){ e.preventDefault(); var n = document.getElementById('hw-n').value.trim(); if(n) runNote(n); });
+
+  /* lanes: a lane runs the first time it is opened */
+  var ran = { reading:true };
+  [].forEach.call(document.querySelectorAll('.hw-lanes button'), function(b){
+    b.addEventListener('click', function(){
+      var lane = b.dataset.lane;
+      [].forEach.call(document.querySelectorAll('.hw-lanes button'), function(x){ x.setAttribute('aria-selected', x === b ? 'true' : 'false'); });
+      [].forEach.call(document.querySelectorAll('.hw-lane'), function(p){ p.hidden = p.dataset.lane !== lane; });
+      if(!ran[lane]){ ran[lane] = true; if(lane === 'reasoning') runReasoning(document.getElementById('hw-q').value.trim()); else if(lane === 'note') runNote(document.getElementById('hw-n').value.trim()); }
+    });
+  });
 
   /* ---- live figures elsewhere on the page ---- */
   j('/v1/log/sth').then(function(d){
