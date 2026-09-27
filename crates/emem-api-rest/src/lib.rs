@@ -19947,12 +19947,14 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                         },
                         "visual_evidence": {
                             "type": ["object", "null"],
-                            "$comment": "Present only when the plot's input carried `request_visual_evidence: true`. Self-contained block under schema `emem.visual_evidence.v1`.",
+                            "$comment": "Present only when the plot's input carried `request_visual_evidence: true`. Self-contained block under schema `emem.visual_evidence.v2`.",
                             "properties": {
-                                "schema": {"const": "emem.visual_evidence.v1"},
+                                "schema": {"const": "emem.visual_evidence.v2"},
                                 "method": {"type": "string", "$comment": "Always 'annual_s2_l2a_least_cloudy + annual_s1_rtc_vv_cloud_independent'"},
                                 "anchor_policy": {"type": "string", "$comment": "Per-year anchor date + the cloud-fallback ladder applied"},
                                 "verdict": {"type": "string", "enum": ["no_visual_deforestation", "visual_deforestation_suspected", "indeterminate_no_baseline"]},
+                                "verdict_basis": {"type": "string", "enum": ["ndvi_and_s1_vv", "ndvi_only", "s1_vv_only", "neither"], "$comment": "Which declared signals the verdict actually rests on"},
+                                "signals": {"type": "object", "$comment": "Per signal: evaluated (it had a 2020 baseline and a latest reading), breached, and why_not when it did not run"},
                                 "thresholds": {
                                     "type": "object",
                                     "properties": {
@@ -65854,6 +65856,24 @@ async fn build_plot_visual_evidence(
             .map(|d| d >= ndvi_drop_thr)
             .unwrap_or(false);
     let s1_breach = s1_drop_latest.map(|d| d >= s1_drop_db_thr).unwrap_or(false);
+    // Which signals the verdict actually rests on. Two thresholds are
+    // declared; when S1 has no baseline or no latest reading, the verdict is
+    // NDVI's alone, and saying "no visual deforestation" without that reads
+    // as though both cleared.
+    let ndvi_ran = ndvi_2020_median.is_some()
+        && (max_drop_vs_baseline.is_some()
+            || ndvi_drop_latest.is_some()
+            || per_year
+                .last()
+                .and_then(|y| y.get("ndvi_delta_vs_2020"))
+                .is_some_and(|v| v.is_number()));
+    let s1_ran = s1_2020_median.is_some() && latest.as_ref().is_some_and(|v| v.is_number());
+    let verdict_basis = match (ndvi_ran, s1_ran) {
+        (true, true) => "ndvi_and_s1_vv",
+        (true, false) => "ndvi_only",
+        (false, true) => "s1_vv_only",
+        (false, false) => "neither",
+    };
     let verdict = if ndvi_breach || s1_breach {
         "visual_deforestation_suspected"
     } else if ndvi_2020_median.is_none() && s1_2020_median.is_none() {
@@ -65870,6 +65890,12 @@ async fn build_plot_visual_evidence(
         "date_correctness_note": "anchor_unix per year is the REQUESTED anchor, not an observation date. Cite ndvi_observed_date_range / s1_observed_date_range (and each scene's x-emem-scene-datetime header) as the real evidence dates in a DDS.",
         "years": per_year,
         "verdict": verdict,
+        "verdict_basis": verdict_basis,
+        "signals": {
+            "ndvi": { "evaluated": ndvi_ran, "breached": ndvi_breach },
+            "s1_vv": { "evaluated": s1_ran, "breached": s1_breach,
+                "why_not": if s1_ran { JsonValue::Null } else if s1_2020_median.is_none() { json!("no 2020 VV baseline at this plot") } else { json!("no latest VV reading at this plot") } },
+        },
         "thresholds": {
             "ndvi_drop_vs_2020": ndvi_drop_thr,
             "s1_vv_drop_db_vs_2020": s1_drop_db_thr,
