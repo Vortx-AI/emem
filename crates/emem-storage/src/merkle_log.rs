@@ -287,9 +287,18 @@ impl AttestationLog {
             }
         }
         indices.sort_unstable();
+        // Every segment below the highest index is sealed and never changes.
+        let open_segment = self.max_segment_index()?;
         let mut out: Vec<(u64, Vec<[u8; 32]>)> = Vec::with_capacity(indices.len());
         for idx in indices {
             let path = self.root.join(format!("merkle.log.{idx}"));
+            let sealed = open_segment.is_some_and(|m| idx < m);
+            if sealed {
+                if let Some(leaves) = self.read_leaf_sidecar(idx, &path) {
+                    out.push((idx, leaves));
+                    continue;
+                }
+            }
             let mut bytes = Vec::new();
             std::fs::File::open(&path)?.read_to_end(&mut bytes)?;
             // Each record is [u32 LE len][len bytes cbor][32 bytes hash].
@@ -310,9 +319,68 @@ impl AttestationLog {
                 leaves.push(leaf);
                 i += needed;
             }
+            if sealed {
+                self.write_leaf_sidecar(idx, bytes.len() as u64, &leaves);
+            }
             out.push((idx, leaves));
         }
         Ok(out)
+    }
+
+    /// Highest segment index on disk, the one still being appended to.
+    fn max_segment_index(&self) -> std::io::Result<Option<u64>> {
+        let mut max = None;
+        for entry in std::fs::read_dir(&self.root)? {
+            let entry = entry?;
+            if let Some(n) = entry
+                .file_name()
+                .to_str()
+                .and_then(|n| n.strip_prefix("merkle.log."))
+                .and_then(|r| r.parse::<u64>().ok())
+            {
+                max = Some(max.map_or(n, |m: u64| m.max(n)));
+            }
+        }
+        Ok(max)
+    }
+
+    /// A sealed segment's leaf hashes, saved beside it so a boot reads 32
+    /// bytes per record instead of the whole segment: the full tree used to
+    /// take two minutes to rebuild (1,617 segments, 2.4M leaves) and every
+    /// route that needs the log head waited for it. Layout: "EMEMLVS1",
+    /// u64 LE segment length, u64 LE leaf count, 32-byte blake3 of the
+    /// leaves, then the leaves. These leaves feed the signed root, so a
+    /// sidecar is used only when the segment length and the checksum both
+    /// match; anything else is ignored and the segment itself is read.
+    fn read_leaf_sidecar(&self, idx: u64, segment: &std::path::Path) -> Option<Vec<[u8; 32]>> {
+        let seg_len = std::fs::metadata(segment).ok()?.len();
+        let b = std::fs::read(self.root.join(format!("merkle.leaves.{idx}.v1"))).ok()?;
+        if b.len() < 56 || &b[..8] != b"EMEMLVS1" {
+            return None;
+        }
+        let len = u64::from_le_bytes(b[8..16].try_into().ok()?);
+        let n = u64::from_le_bytes(b[16..24].try_into().ok()?) as usize;
+        let body = &b[56..];
+        if len != seg_len || body.len() != n * 32 || blake3::hash(body).as_bytes() != &b[24..56] {
+            return None;
+        }
+        Some(body.as_chunks::<32>().0.to_vec())
+    }
+
+    fn write_leaf_sidecar(&self, idx: u64, seg_len: u64, leaves: &[[u8; 32]]) {
+        let body: Vec<u8> = leaves.iter().flatten().copied().collect();
+        let mut b = Vec::with_capacity(56 + body.len());
+        b.extend_from_slice(b"EMEMLVS1");
+        b.extend_from_slice(&seg_len.to_le_bytes());
+        b.extend_from_slice(&(leaves.len() as u64).to_le_bytes());
+        b.extend_from_slice(blake3::hash(&body).as_bytes());
+        b.extend_from_slice(&body);
+        let dst = self.root.join(format!("merkle.leaves.{idx}.v1"));
+        let tmp = dst.with_extension("v1.tmp");
+        // Best effort: a failed write only means the next boot reads the segment.
+        if std::fs::write(&tmp, &b).is_ok() {
+            let _ = std::fs::rename(&tmp, &dst);
+        }
     }
 
     /// Return the raw attestation CBOR for the half-open global index range
@@ -965,6 +1033,46 @@ mod tests {
         // Past the end is empty, not an error: a caller that has already read
         // the highest segment asks this every time the log has not grown.
         assert!(log.leaf_hashes_from(99).unwrap().is_empty());
+    }
+
+    /// Sealed segments get a leaf sidecar on first read and are served from it
+    /// after; the open segment never is; a damaged sidecar is ignored.
+    #[tokio::test]
+    async fn sealed_segments_read_their_leaves_from_a_checked_sidecar() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut seq = 0u64;
+        for count in [3u64, 4, 2] {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..count {
+                log.append(&distinct_attestation(seq)).await.unwrap();
+                seq += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let first = log.leaf_hashes_from(0).unwrap();
+        let side = |i: u64| tmp.path().join(format!("merkle.leaves.{i}.v1"));
+        assert!(
+            side(0).exists() && side(1).exists(),
+            "sealed segments get a sidecar"
+        );
+        assert!(!side(2).exists(), "the open segment never does");
+        assert_eq!(
+            log.leaf_hashes_from(0).unwrap(),
+            first,
+            "the sidecar gives the same leaves"
+        );
+
+        // One flipped byte in a stored leaf: the checksum refuses it and the
+        // segment itself is read, so the tree cannot be fed a wrong leaf.
+        let mut b = std::fs::read(side(0)).unwrap();
+        let last = b.len() - 1;
+        b[last] ^= 0xff;
+        std::fs::write(side(0), &b).unwrap();
+        assert_eq!(
+            log.leaf_hashes_from(0).unwrap(),
+            first,
+            "a damaged sidecar must not be used"
+        );
     }
 
     #[tokio::test]
