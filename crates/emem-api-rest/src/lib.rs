@@ -66217,11 +66217,24 @@ async fn batch_build_facts_via_window(
 
     // Resolve the COG URL for this band + region.
     let cli = s2_http_client();
+    // The tile the publisher lists now: a name built from a pinned version
+    // read a dead V3 path here after the JRC moved LATEST to V4.
+    let jrc_url = if band == "jrc_gfc2020.forest_2020" {
+        match emem_fetch::jrc_gfc2020::tile_url(&cli, centre_lat, centre_lng).await {
+            Ok((u, _)) => Some(u),
+            Err(e) => {
+                let why = format!("jrc_gfc2020 tile listing: {e}");
+                return (0..cells.len()).map(|i| (i, Err(why.clone()))).collect();
+            }
+        }
+    } else {
+        None
+    };
     let (url, scheme, fn_key, _layer_str) = match band {
         "jrc_gfc2020.forest_2020" => (
             // 10° tile covering the polygon centre, small IFD, ~1 s cold.
             // The legacy 41 GB single-COG is never read on this path.
-            emem_fetch::jrc_gfc2020::tile_url_for(centre_lat, centre_lng),
+            jrc_url.clone().unwrap_or_default(),
             "jrc.gfc2020.v3",
             "jrc_gfc2020_v3_pixel@1",
             "forest_2020",

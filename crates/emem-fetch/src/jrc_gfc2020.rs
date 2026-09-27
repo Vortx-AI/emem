@@ -197,9 +197,39 @@ pub fn tile_name_for(lat: f64, lng: f64) -> String {
     format!("JRC_GFC2020_V3_{lat_tag}_{lng_tag}.tif")
 }
 
-/// Full upstream URL of the 10° tile covering `(lat, lng)`.
+/// The version the tile listing last named (0 until it has been read).
+static LAST_VERSION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+/// URL of the 10° tile covering `(lat, lng)` at the version the listing
+/// last named. For synchronous callers (cache prewarm) only: before the
+/// listing has been read it falls back to the V3 name, which is a cache
+/// miss, never a fact. Readers use [`tile_url`].
 pub fn tile_url_for(lat: f64, lng: f64) -> String {
-    format!("{JRC_GFC2020_TILES_BASE_URL}/{}", tile_name_for(lat, lng))
+    match LAST_VERSION.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => format!("{JRC_GFC2020_TILES_BASE_URL}/{}", tile_name_for(lat, lng)),
+        v => {
+            let (a, b) = tile_corner_tags(lat, lng);
+            format!("{JRC_GFC2020_TILES_BASE_URL}/JRC_GFC2020_V{v}_{a}_{b}.tif")
+        }
+    }
+}
+
+/// URL of the 10° tile covering `(lat, lng)` at the version the publisher
+/// lists now, with that version.
+pub async fn tile_url(
+    client: &Client,
+    lat: f64,
+    lng: f64,
+) -> Result<(String, u32), JrcGfc2020Error> {
+    let idx = tile_index(client).await?;
+    let (a, b) = tile_corner_tags(lat, lng);
+    Ok((
+        format!(
+            "{JRC_GFC2020_TILES_BASE_URL}/JRC_GFC2020_V{}_{a}_{b}.tif",
+            idx.version
+        ),
+        idx.version,
+    ))
 }
 
 /// The tiles `LATEST/` actually publishes: the newest version present and
@@ -269,6 +299,7 @@ async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc
     let idx = std::sync::Arc::new(parse_tile_index(&body).ok_or_else(|| {
         JrcGfc2020Error::Transport(format!("tile listing {url} names no GFC2020 tiles"))
     })?);
+    LAST_VERSION.store(idx.version, std::sync::atomic::Ordering::Relaxed);
     *g = Some((std::time::Instant::now(), idx.clone()));
     Ok(idx)
 }
