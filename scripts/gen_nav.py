@@ -51,37 +51,72 @@ import sys
 START = "<!--nav:start-->"
 END = "<!--nav:end-->"
 
-# label, href, one-line note shown under the label.
-NAV = [
-    ("Understand", [
-        ("How it works", "/how-it-works", "the address, the fact, the receipt"),
-        ("The long version", "/the-long-version", "the whole argument, at length"),
-        ("Solutions", "/solutions", "four agents already running on it"),
-        ("Whitepaper", "/whitepaper", "the long form, with the proofs"),
-        ("The spec", "/spec", "wire format, preimages, canonical bytes"),
-    ]),
-    ("See it run", [
-        ("Demos", "/demos", "eight, each a real call against production"),
-        ("Walk a world", "/worlds", "signed terrain you can fly through"),
-        ("The channel", "/channel", "agents talking, every message addressable"),
-        ("Scoreboard", "/scoreboard", "the live benchmark, two heats"),
-        ("Gallery", "/gallery", "what the record looks like rendered"),
-    ]),
-    ("Verify", [
-        ("Check a receipt", "/verify", "paste any token, the proof runs in your browser"),
-        ("emem-guard", "/guard", "allow or deny, signed, with a reason"),
-        ("Transparency log", "/v1/log/sth", "pin a signed head, prove it only ever grew"),
-        ("Who writes here", "/agents", "every attester, discovered not curated"),
-    ]),
-    ("Build", [
-        ("Reference", "/reference", "the read surface, endpoint by endpoint"),
-        ("OpenAPI", "/openapi.json", "the machine contract"),
-        ("Skills", "/skills.md", "runnable procedures for an agent"),
-        ("Clients", "/clients", "connect Claude, Cursor, or your own"),
-        ("A2A", "/a2a", "how two agents share one memory"),
-        ("Docs", "/docs", "the book"),
-    ]),
+# THE SITE, AS DATA. Every link the chrome draws is computed from this table:
+# the bar, the "More" menu, the developer path (prev / next on each page), the
+# footer columns and the lab banner. Nothing below writes a link by hand.
+#
+# path, label, verb-first note, section, kind
+#   kind "path"  on the developer path, in the order a newcomer walks it
+#   kind "ref"   reference: reached from the bar or the footer, not the path
+#   kind "lab"   unfinished or experimental; kept reachable, marked, off the path
+SITE = [
+    ("/",                     "Home",          "tokenise a file, read a place, ask", "Try",     "path"),
+    ("/demos",                "Demos",         "run eight live calls",               "Try",     "path"),
+    ("/demos/ask-the-earth",  "Ask the Earth", "ask, get a signed answer",           "Try",     "demo"),
+    ("/demos/signed-answer",  "Signed answer", "watch a receipt get built",          "Try",     "demo"),
+    ("/demos/recall-polygon", "Recall an area","read a polygon at once",             "Try",     "demo"),
+    ("/demos/find-similar",   "Find similar",  "find places like this one",          "Try",     "demo"),
+    ("/demos/state-cube",     "State cube",    "one place as one vector",            "Try",     "demo"),
+    ("/demos/trajectory",     "Trajectory",    "one cell through time",              "Try",     "demo"),
+    ("/how-it-works",         "How it works",  "follow one request end to end",      "Learn",   "path"),
+    ("/reference",            "Reference",     "call every endpoint",                "Connect", "path"),
+    ("/tools",                "MCP tools",     "browse all tools, copy a call",      "Connect", "path"),
+    ("/verify",               "Verify",        "paste any token, check it here",     "Verify",  "path"),
+    ("/guard",                "Guard",         "gate an answer on its citations",    "Verify",  "path"),
+    ("/a2a",                  "A2A",           "hand memory between agents",         "Connect", "path"),
+    ("/docs/",                "Docs",          "read the book",                      "Connect", "ref"),
+    ("/clients",              "Clients",       "connect Claude, Cursor, ChatGPT",    "Connect", "ref"),
+    ("/openapi.json",         "OpenAPI",       "load the machine contract",          "Connect", "ref"),
+    ("/skills.md",            "Skills",        "run a procedure as an agent",        "Connect", "ref"),
+    ("/agents",               "Attesters",     "see every key that writes",          "Verify",  "ref"),
+    ("/v1/log/sth",           "Log head",      "pin a signed head",                  "Verify",  "ref"),
+    ("/solutions",            "Solutions",     "see four agents using it",           "Learn",   "ref"),
+    ("/whitepaper",           "Whitepaper",    "read the math and the proofs",       "Learn",   "ref"),
+    ("/spec",                 "Spec",          "implement the wire format",          "Learn",   "ref"),
+    ("/whitepaper/v1",        "Whitepaper v1", "read the superseded edition",        "Learn",   "ref"),
+    ("/worlds",               "Worlds",        "fly signed terrain",                 "Lab",     "lab"),
+    ("/channel",              "Channel",       "read agents talking",                "Lab",     "lab"),
+    ("/scoreboard",           "Scoreboard",    "watch a benchmark race",             "Lab",     "lab"),
+    ("/gallery",              "Gallery",       "see the record rendered",            "Lab",     "lab"),
+    ("/the-long-version",     "Long version",  "read the old homepage",              "Lab",     "lab"),
 ]
+
+# The bar shows the developer path flat, so nothing on it hides behind a click;
+# everything else sits in one "More" menu, grouped by section.
+BAR = ["/demos", "/how-it-works", "/reference", "/tools", "/verify", "/docs/"]
+SECTIONS = ["Try", "Learn", "Connect", "Verify", "Lab"]
+DEV_PATH = [row[0] for row in SITE if row[4] == "path"]
+DEMOS = [row[0] for row in SITE if row[4] == "demo"]
+ROW = {row[0]: row for row in SITE}
+
+# Kept for callers that read the old grouped shape (tools, channel and the
+# whitepaper generators call render(); nothing reads NAV directly any more).
+NAV = [(sec, [(r[1], r[0], r[2]) for r in SITE if r[3] == sec and r[4] != "demo"])
+       for sec in SECTIONS]
+
+
+def path_neighbours(current: str):
+    """(prev, next, index, total) on the walk this page belongs to."""
+    if current in DEMOS:
+        walk = ["/demos"] + DEMOS + ["/how-it-works"]
+    else:
+        walk = DEV_PATH
+    if current not in walk:
+        return None
+    i = walk.index(current)
+    prev = walk[i - 1] if i > 0 else None
+    nxt = walk[i + 1] if i + 1 < len(walk) else None
+    return prev, nxt, i, len(walk), walk
 
 # Who each surface is for, and what it will feel like when you open it.
 #
@@ -112,7 +147,7 @@ AUDIENCE = {
     "/gallery":     ("anyone",    "the record, rendered"),
     "/channel":     ("anyone",    "agents talking, in public"),
     "/scoreboard":  ("anyone",    "the benchmark, live"),
-    "/whitepaper-v1": ("leaders", "superseded, kept as it shipped"),
+    "/whitepaper/v1": ("leaders", "superseded, kept as it shipped"),
     "/how-it-works":  ("anyone",    "the address, the fact, the receipt, in order"),
     # This WAS the homepage until 2026-08-26. It is the whole case at length,
     # for a reader who wants more than the one line the front page now carries.
@@ -174,18 +209,29 @@ def render(current: str) -> str:
            '<button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel">'
            '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>',
            '<div class="navpanel" id="sitenav-panel">']
-    for group, items in NAV:
-        hit = any(h == current for _, h, _ in items)
-        # name= makes these an exclusive group: opening one closes the rest,
-        # in HTML, with no script. Without it every <details> is independent
-        # and the menus stack on top of each other.
-        out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
-        out.append(f'<summary>{group}</summary>')
-        out.append('<div class="navmenu">')
-        for label, href, note in items:
+    # The developer path, flat: every step visible, none behind a click.
+    for href in BAR:
+        label = ROW[href][1]
+        on = href == current or (href == "/demos" and current in DEMOS)
+        mark = ' aria-current="page"' if on else ''
+        out.append(f'<a class="navlink{" on" if on else ""}" href="{href}"{mark}>{label}</a>')
+    # Everything else, grouped by section, in one menu. Lab pages say so.
+    more = [r for r in SITE if r[0] not in BAR and r[4] not in ("demo",) and r[0] != "/"]
+    hit = any(r[0] == current for r in more)
+    out.append(f'<details class="navgrp{" on" if hit else ""}" name="sitenav">')
+    out.append('<summary>More</summary>')
+    out.append('<div class="navmenu navmenu-cols">')
+    for sec in SECTIONS:
+        rows = [r for r in more if r[3] == sec]
+        if not rows:
+            continue
+        out.append(f'<div class="navsec"><h6>{sec.lower()}</h6>')
+        for href, label, note, _, kind in rows:
             mark = ' aria-current="page"' if href == current else ''
-            out.append(f'<a href="{href}"{mark}><b>{label}</b><span>{note}</span></a>')
-        out.append('</div></details>')
+            tag = '<i class="labtag">lab</i>' if kind == "lab" else ''
+            out.append(f'<a href="{href}"{mark}><b>{label}{tag}</b><span>{note}</span></a>')
+        out.append('</div>')
+    out.append('</div></details>')
     out.append('<span class="sitebar-gap"></span>')
     out.append('<a class="navplain" href="/mcp">MCP</a>')
     # The sockets. A <ul> because it IS a list of places, and a screen reader
@@ -199,12 +245,17 @@ def render(current: str) -> str:
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.
     who, what = AUDIENCE.get(current, ("anyone", ""))
-    note = AUDIENCE_NOTE.get(who, "")
-    out.append(f'<div class="audience aud-{who}">'
-               f'<span class="aud-for">for {who}</span>'
-               f'<span class="aud-what">{what}</span>'
-               f'<span class="aud-note">{note}</span>'
-               f'</div>')
+    row = ROW.get(current)
+    if row and row[4] == "lab":
+        # A lab page stays reachable and says what it is before anything else.
+        out.append(f'<div class="audience aud-lab"><span class="aud-for">lab</span>'
+                   f'<span class="aud-what">{what or row[2]}: unfinished, off the developer path</span>'
+                   f'<a class="aud-note" href="/demos">start at the demos</a></div>')
+    else:
+        out.append(f'<div class="audience aud-{who}">'
+                   f'<span class="aud-for">for {who}</span>'
+                   f'<span class="aud-what">{what}</span>'
+                   f'</div>')
     # Progressive enhancement only. Escape and outside-click are the two
     # dismissals <details> has no answer for; everything else is HTML. The
     # phone menu button is the one piece HTML cannot do for us: it closes on
@@ -236,6 +287,105 @@ def render(current: str) -> str:
     return "\n".join(out)
 
 
+FOOT_START = "<!--foot:start-->"
+FOOT_END = "<!--foot:end-->"
+
+# What a developer or an agent reaches for without a page: machine entry points.
+MACHINE = [
+    ("llms.txt", "/llms.txt"), ("agent card", "/.well-known/agent-card.json"),
+    ("emem.json", "/.well-known/emem.json"), ("MCP", "/mcp"), ("discover", "/v1/discover"),
+    ("quickstart", "/docs/quickstart.html"), ("self-host", "/docs/self-host.html"),
+]
+
+# The log head, verified in the tab on every page: the chrome itself is a
+# check anyone can watch run. Loaded when the reader is idle, never on the
+# critical path; if anything fails it says so and verifies nothing.
+PROOF_JS = ("<script>(function(){var el=document.querySelector('[data-proof]');if(!el)return;"
+            "var enc=new TextEncoder();"
+            "function u32(o,n){o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);}"
+            "function be8(n){var o=new Uint8Array(8),v=BigInt(n);for(var i=7;i>=0;i--){o[i]=Number(v&255n);v>>=8n;}return o;}"
+            "function pre(d,segs){var o=[],b=enc.encode(d);o.push.apply(o,enc.encode('emem.preimage.v1\\0'));u32(o,b.length);o.push.apply(o,b);"
+            "segs.forEach(function(s){o.push(s[0]);u32(o,s[1].length);for(var i=0;i<s[1].length;i++)o.push(s[1][i]);});return new Uint8Array(o);}"
+            "function say(ok,t){el.innerHTML=(ok?'<b class=\"ok\">&#10003;</b> ':'<b class=\"no\">&#10007;</b> ')+t;}"
+            "function run(){var I=globalThis.ememVerifyInternals;if(!I)return say(false,'verifier did not load');"
+            "Promise.all([fetch('/.well-known/emem.json').then(function(r){return r.json();}),fetch('/v1/log/sth').then(function(r){return r.json();})]).then(function(x){"
+            "var k=x[0].responder&&x[0].responder.pubkey_b32,h=x[1].sth,pk=I.b32decode(h.responder_pubkey_b32);"
+            "var d=I.blake3(pre('emem.translog.sth.v1',[[1,be8(h.tree_size)],[2,I.b32decode(h.root_b32)],[3,enc.encode(h.signed_at)],[4,pk]]));"
+            "var ok=h.responder_pubkey_b32===k&&I.ed.verify(I.b32decode(h.signature_b32),d,pk);"
+            "say(ok,'log head <a href=\"/verify?q=https%3A%2F%2Femem.dev%2Fv1%2Flog%2Fsth\">'+Number(h.tree_size).toLocaleString('en')+' entries</a>, signed '+h.signed_at.slice(11,16)+'Z, '+(ok?'signature checked in this tab':'signature did NOT verify'));"
+            "}).catch(function(){say(false,'log head unreachable');});}"
+            "function go(){if(globalThis.ememVerifyInternals)return run();var s=document.createElement('script');s.src='/emem-verify-core.js';s.onload=run;"
+            "s.onerror=function(){say(false,'verifier did not load');};document.head.appendChild(s);}"
+            "(window.requestIdleCallback||function(f){setTimeout(f,1200);})(go);})();</script>")
+
+
+def render_foot(current: str) -> str:
+    """The developer path (prev / next), the footer columns and the live proof."""
+    import gen_footer_ports  # the "Listed on" column owns its own markers
+    out = [FOOT_START]
+    nb = path_neighbours(current)
+    if nb:
+        prev, nxt, i, total, walk = nb
+        out.append('<nav class="pathbar" aria-label="Where this page sits on the developer path">')
+        if prev:
+            out.append(f'<a class="pb-prev" href="{prev}"><i>&larr;</i><b>{ROW[prev][1]}</b></a>')
+        else:
+            out.append('<span class="pb-prev"></span>')
+        out.append('<ol class="pb-steps">')
+        for k, href in enumerate(walk):
+            here = ' aria-current="step"' if href == current else ''
+            out.append(f'<li><a href="{href}" title="{ROW[href][1]}: {ROW[href][2]}"{here}>'
+                       f'<span>{k + 1}</span></a></li>')
+        out.append('</ol>')
+        if nxt:
+            out.append(f'<a class="pb-next" href="{nxt}"><b>{ROW[nxt][1]}</b><span>{ROW[nxt][2]}</span><i>&rarr;</i></a>')
+        else:
+            out.append(f'<a class="pb-next" href="{GITHUB}" target="_blank" rel="noopener noreferrer"><b>GitHub</b><span>star it, fork it, run it</span><i>&rarr;</i></a>')
+        out.append('</nav>')
+    out.append('<footer class="page foot sitefoot">')
+    out.append('<div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a>'
+               '<p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>')
+    out.append('<div class="sf-grid">')
+    for sec in SECTIONS:
+        rows = [r for r in SITE if r[3] == sec and r[4] != "demo"]
+        out.append(f'<div class="foot-col"><h4>{sec}</h4><ul>')
+        for href, label, _, _, kind in rows:
+            tag = ' <i class="labtag">lab</i>' if kind == "lab" else ''
+            out.append(f'<li><a href="{href}">{label}</a>{tag}</li>')
+        out.append('</ul></div>')
+    out.append('<div class="foot-col"><h4>Machine</h4><ul>')
+    for label, href in MACHINE:
+        out.append(f'<li><a href="{href}">{label}</a></li>')
+    out.append('</ul></div>')
+    out.append(gen_footer_ports.column())
+    out.append('</div>')
+    out.append('<div class="sf-bottom"><span>Apache-2.0 &middot; built by '
+               '<a href="https://vortx.ai" target="_blank" rel="noopener noreferrer">vortx.ai</a></span>'
+               f'<span><a href="{GITHUB}" target="_blank" rel="noopener noreferrer">github</a> &middot; '
+               '<a href="/privacy">privacy &middot; terms</a></span></div>')
+    out.append('</footer>')
+    out.append(PROOF_JS)
+    out.append(FOOT_END)
+    return "\n".join(out)
+
+
+FOOT_GEN = re.compile(re.escape(FOOT_START) + r'.*?' + re.escape(FOOT_END), re.S)
+FOOT_OLD = re.compile(r'<footer\b[^>]*>.*?</footer>', re.S)
+
+
+def apply_foot(html: str, current: str) -> str:
+    foot = render_foot(current)
+    if FOOT_GEN.search(html):
+        return FOOT_GEN.sub(lambda _: foot, html, count=1)
+    m = None
+    for m in FOOT_OLD.finditer(html):
+        pass  # the page footer is the last <footer> in the document
+    if m:
+        return html[:m.start()] + foot + html[m.end():]
+    i = html.rfind("</body>")
+    return (html[:i] + foot + "\n" + html[i:]) if i >= 0 else html + "\n" + foot
+
+
 # The nav a page carries today, in any of its seven shapes.
 OLD = re.compile(r'<header class="statusbar">.*?</header>', re.S)
 GEN = re.compile(re.escape(START) + r'.*?' + re.escape(END), re.S)
@@ -248,6 +398,8 @@ def served_as(name: str) -> str:
         return "/demos"
     if name.startswith("demos-"):
         return "/demos/" + name[len("demos-"):-len(".html")]
+    if name == "whitepaper-v1.html":
+        return "/whitepaper/v1"
     return "/" + name[:-len(".html")]
 
 
@@ -316,9 +468,80 @@ SKIP = {# channel.html was skipped for "owning its markup". It did own it, and i
                               "conversation, not a page on this site"}
 
 
+# PROSE, FOLDED. A paragraph past FOLD_WORDS keeps its first sentence and
+# folds the rest behind "more": the claim stays on the page, the argument is
+# one click away. Deterministic and idempotent (a folded remainder carries a
+# class, so it is never folded again), so the gate can compare like the nav.
+FOLD_WORDS = 45
+# Generated elsewhere, or a paper whose paragraphs are the point.
+FOLD_SKIP = {"index.html", "tools.html", "channel.html", "whitepaper-v1.html",
+             "whitepaper-v2.html", "the-long-version.html"}
+_INLINE = {"a", "b", "strong", "em", "i", "code", "span", "sup", "sub", "abbr", "kbd", "small", "mark", "q", "s", "u"}
+_VOID = {"br", "img", "wbr"}
+
+
+def _split_first(inner: str):
+    """Split paragraph HTML after its first sentence, outside any inline tag."""
+    depth, i, text_len = 0, 0, 0
+    n = len(inner)
+    while i < n:
+        c = inner[i]
+        if c == "<":
+            j = inner.find(">", i)
+            if j < 0:
+                return None
+            tag = inner[i + 1:j].strip()
+            name = re.match(r"/?([a-zA-Z0-9]+)", tag)
+            nm = name.group(1).lower() if name else ""
+            if nm not in _INLINE and nm not in _VOID:
+                return None  # block content inside a <p>: leave it alone
+            if tag.startswith("/"):
+                depth -= 1
+            elif nm not in _VOID and not tag.endswith("/"):
+                depth += 1
+            i = j + 1
+            continue
+        text_len += 1
+        if (c in ".:" and depth == 0 and text_len >= 15 and i + 2 < n
+                and inner[i + 1] == " " and (inner[i + 2].isupper() or inner[i + 2].isdigit() or inner[i + 2] in "<`\"(")):
+            head, tail = inner[:i + 1], inner[i + 2:]
+            if len(re.sub(r"<[^>]+>", "", tail).split()) < 8:
+                return None  # not worth a click
+            return head, tail
+        i += 1
+    return None
+
+
+_P = re.compile(r"<p(\s[^>]*)?>(.*?)</p>", re.S)
+_OPAQUE = re.compile(r"(<script\b.*?</script>|<style\b.*?</style>|<pre\b.*?</pre>|<template\b.*?</template>|"
+                     + re.escape(START) + r".*?" + re.escape(END) + r"|"
+                     + re.escape("<!--foot:start-->") + r".*?" + re.escape("<!--foot:end-->") + r")", re.S)
+
+
+def fold_prose(html: str) -> str:
+    def one(m):
+        attrs, inner = m.group(1) or "", m.group(2)
+        # A paragraph a script can address (id, data-*) or one already folded
+        # is left exactly as written.
+        if re.search(r"\b(id|data-[\w-]+)=", attrs) or "rest" in attrs:
+            return m.group(0)
+        if len(re.sub(r"<[^>]+>", "", inner).split()) <= FOLD_WORDS:
+            return m.group(0)
+        cut = _split_first(inner)
+        if not cut:
+            return m.group(0)
+        head, tail = cut
+        return (f'<p{attrs}>{head}</p><details class="fold"><summary>more</summary>'
+                f'<p class="rest">{tail}</p></details>')
+    parts = _OPAQUE.split(html)
+    return "".join(pt if k % 2 else _P.sub(one, pt) for k, pt in enumerate(parts))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--except", dest="exclude", action="append", default=[],
+                    help="a web/ file name to leave untouched (another writer owns it now)")
     a = ap.parse_args()
 
     changed, drifted, skipped = [], [], []
@@ -336,7 +559,7 @@ def main():
                            f"exist; drop the entry or fix the name.")
     for path in sorted(glob.glob("web/*.html")):
         name = os.path.basename(path)
-        if name in SKIP:
+        if name in SKIP or name in a.exclude:
             skipped.append(name)
             continue
         s = open(path, encoding="utf-8").read()
@@ -361,6 +584,9 @@ def main():
                     drifted.append(f"{name}: nowhere to insert a nav")
                     continue
                 out = s[:m.start()] + "\n" + nav + s[m.start():]
+        out = apply_foot(out, served_as(name))
+        if name not in FOLD_SKIP:
+            out = fold_prose(out)
         if "/nav.css" not in out:
             out = out.replace('<link rel=stylesheet href="/tokens.css">',
                               '<link rel=stylesheet href="/tokens.css">\n'

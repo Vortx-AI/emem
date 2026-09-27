@@ -161,7 +161,8 @@ h2{{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--in
 </div>
 </body></html>
 """
-    (REPO / "web" / "tools.html").write_text(page)
+    # the generated footer too, from the same site map as the bar
+    (REPO / "web" / "tools.html").write_text(_gen_nav.apply_foot(page, "/tools"))
     print(f"wrote web/tools.html: {total} tools, {len(sections)} sections")
     return 0
 

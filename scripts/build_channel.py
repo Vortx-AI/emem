@@ -3157,7 +3157,8 @@ def main() -> int:
         return STAMP_RE.sub(r"\1<STAMP>", text)
 
     def write_atomic(path, text):
-
+        # the generated footer too, from the same site map as the bar
+        text = gen_nav.apply_foot(text, "/channel")
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text)
         tmp.replace(path)

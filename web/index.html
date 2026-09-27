@@ -389,7 +389,6 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 .bot-chunks .bot-cells{ height:14px; }
 .bot-chunks .bot-cells i{ border-radius:2px; }
 .bot-chunks span{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
-.fig .sealtick{ fill:none; stroke:var(--field); stroke-width:2.2; stroke-linecap:round; stroke-linejoin:round; }
 .act{ display:inline-flex; align-items:center; justify-content:center; min-height:44px; padding:0 var(--s-3);
   border:1px solid var(--rule-strong); border-radius:999px; background:transparent; color:var(--ink);
   font-family:var(--mono); font-size:var(--t-2xs); cursor:pointer; text-decoration:none; }
@@ -422,63 +421,69 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 
 /* ---- how it works: three steps, each a drawing ---- */
 .how{ padding:var(--s-5) 0; }
-.steps{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:var(--s-3); counter-reset:step; }
-.step{ border:1px solid var(--rule); border-radius:1rem; background:var(--field); overflow:hidden; display:flex; flex-direction:column; }
-.step svg{ display:block; width:100%; height:auto; background:var(--paper-2); border-bottom:1px solid var(--rule); color:var(--ink-2); }
-.step-in{ padding:var(--s-3); display:flex; flex-direction:column; gap:var(--s-1); flex:1 1 auto; }
-.step h3{ margin:0; font-family:var(--display); font-weight:500; font-size:var(--t-lg); color:var(--ink); }
-.step h3::before{ counter-increment:step; content:counter(step) "  "; font-family:var(--mono); font-size:var(--t-2xs); color:var(--accent); vertical-align:middle; margin-right:var(--s-1); }
-.step p{ margin:0; font-family:var(--mono); font-size:var(--t-2xs); line-height:1.55; color:var(--ink-2); }
-.step .snip{ margin-top:auto; padding-top:var(--s-1); color:var(--mute); overflow-wrap:anywhere; min-height:3.2em; }
-.step .snip b{ color:var(--accent); font-weight:600; }
-.fig .ln{ fill:none; stroke:currentColor; stroke-width:1.2; stroke-linecap:round; stroke-linejoin:round; }
-.fig .fa{ fill:var(--accent); }
-.fig .fp{ fill:var(--field); stroke:currentColor; stroke-width:1.2; }
-.fig .fr{ fill:var(--rule); }
-.fig .ac{ stroke:var(--accent); }
-.fig text{ font-family:var(--mono); font-size:var(--t-3xs); fill:currentColor; }
-.fig text.a{ fill:var(--accent); font-weight:600; }
-/* motion only while on screen, never under reduced motion */
-.how.on .f1 .chunk{ animation:chunk 3.2s ease-in-out infinite; }
-.how.on .f1 .chunk:nth-of-type(2){ animation-delay:.2s; } .how.on .f1 .chunk:nth-of-type(3){ animation-delay:.4s; }
-.how.on .f1 .chunk:nth-of-type(4){ animation-delay:.6s; } .how.on .f1 .chunk:nth-of-type(5){ animation-delay:.8s; }
-.how.on .f1 .chunk:nth-of-type(6){ animation-delay:1s; }
-@keyframes chunk{ 0%, 15%{ opacity:.25; } 30%, 100%{ opacity:1; } }
-.how.on .f1 .tokpill{ animation:pill 3.2s ease-in-out infinite; }
-@keyframes pill{ 0%, 45%{ opacity:0; transform:translateX(-6px); } 60%, 92%{ opacity:1; transform:none; } 100%{ opacity:0; } }
-.how.on .f2 .seal{ transform-box:fill-box; transform-origin:center; animation:seal 3.2s ease-in-out infinite; }
-@keyframes seal{ 0%, 20%{ transform:scale(1.8); opacity:0; } 35%, 100%{ transform:scale(1); opacity:1; } }
-.how.on .f2 .newblock{ animation:append 3.2s ease-in-out infinite; }
-@keyframes append{ 0%, 45%{ opacity:0; transform:translateX(-14px); } 65%, 100%{ opacity:1; transform:none; } }
-.how.on .f3 .hop{ animation:hop 3.2s ease-in-out infinite; }
-@keyframes hop{ 0%{ transform:translateX(0); opacity:0; } 10%{ opacity:1; } 55%{ transform:translateX(150px); opacity:1; } 65%, 100%{ transform:translateX(150px); opacity:0; } }
-.how.on .f3 .tick{ animation:tick 3.2s ease-in-out infinite; }
-@keyframes tick{ 0%, 55%{ opacity:0; } 70%, 100%{ opacity:1; } }
-.f1 .tokpill, .f3 .tick, .f2 .newblock{ opacity:1; }
+.how-sub{ margin:0 0 var(--s-3); font-family:var(--mono); font-size:var(--t-2xs); color:var(--mute); }
+.pipe{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:0; position:relative;
+  border:1px solid var(--rule); border-radius:1rem; background:var(--field); overflow:hidden; }
+.st{ position:relative; display:flex; flex-direction:column; gap:4px; padding:var(--s-3) var(--s-2); min-width:0; border-left:1px solid var(--rule);
+  font-family:var(--mono); color:var(--ink-2); transition:background .4s; }
+.st:first-child{ border-left:0; }
+.st b{ font-size:var(--t-3xs); letter-spacing:.06em; text-transform:uppercase; color:var(--mute); font-weight:600; }
+.st .v{ font-size:var(--t-xs); color:var(--ink); overflow-wrap:anywhere; line-height:1.35; min-height:2.7em; }
+.st .k{ font-size:var(--t-3xs); color:var(--mute); }
+.st .dot{ position:absolute; top:var(--s-2); right:var(--s-2); width:8px; height:8px; border-radius:50%; border:1px solid var(--rule-strong); background:transparent; }
+.st.run .dot{ border-color:var(--accent); animation:pulse 1s ease-in-out infinite; }
+.st.done .dot{ background:var(--accent); border-color:var(--accent); }
+.st.done .v{ color:var(--accent); }
+.st.bad .dot{ background:var(--absent); border-color:var(--absent); }
+.st.done b{ color:var(--ink-2); }
+.st .bar{ display:flex; gap:1px; height:6px; margin-top:2px; }
+.st .bar i{ flex:1 1 0; background:var(--rule); border-radius:1px; }
+.st .bar i.on{ background:var(--accent); }
+@keyframes pulse{ 0%, 100%{ opacity:.35; } 50%{ opacity:1; } }
+.how-foot{ margin:var(--s-2) 0 0; font-family:var(--mono); font-size:var(--t-2xs); color:var(--mute); }
+.how-foot a{ display:inline-flex; align-items:center; min-height:44px; color:var(--accent); }
 
-/* ---- use it from ---- */
+/* ---- use it from: rendered from #surfaces ---- */
 .use{ padding:var(--s-4) 0 var(--s-5); }
-.tabs{ display:flex; gap:var(--s-1); margin:0 0 var(--s-2); flex-wrap:wrap; }
-.tab{ min-height:44px; padding:0 var(--s-3); border:1px solid var(--rule); border-radius:999px; background:transparent;
-  color:var(--ink-2); font-family:var(--mono); font-size:var(--t-2xs); cursor:pointer; }
-.tab[aria-selected="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
-.tab:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
-.panel{ position:relative; border:1px solid var(--rule); border-radius:1rem; background:var(--paper-2); }
-.panel[hidden]{ display:none; }
-.panel pre{ margin:0; padding:var(--s-3) 5.5rem var(--s-3) var(--s-3); overflow-x:auto; font-family:var(--mono);
-  font-size:var(--t-2xs); line-height:1.6; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; }
-.panel .act{ position:absolute; top:var(--s-1); right:var(--s-1); background:var(--field); }
-.panel p{ margin:0; padding:0 var(--s-3) var(--s-3); font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
-.panel p a{ display:inline-flex; align-items:center; min-height:44px; min-width:44px; color:var(--accent); }
-.more{ display:flex; flex-wrap:wrap; gap:0 var(--s-3); margin:var(--s-4) 0 0; padding:0; list-style:none; }
-.more a{ display:inline-flex; align-items:center; justify-content:center; min-height:44px; min-width:44px; font-family:var(--mono); font-size:var(--t-xs);
-  color:var(--accent); text-decoration:underline; text-underline-offset:3px; text-decoration-thickness:1px; }
-
-@media (max-width:760px){
-  .steps{ grid-template-columns:1fr; }
-  .step{ display:grid; grid-template-columns:40% minmax(0, 1fr); }
-  .step svg{ height:100%; border-bottom:0; border-right:1px solid var(--rule); }
+.use-kinds{ display:flex; flex-wrap:wrap; gap:var(--s-1); margin:0 0 var(--s-2); }
+.use-kinds button{ min-height:36px; padding:0 var(--s-2); border:1px solid var(--rule); border-radius:999px; background:transparent;
+  color:var(--ink-2); font-family:var(--mono); font-size:var(--t-3xs); cursor:pointer; }
+.use-kinds button[aria-pressed="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.use-kinds button:focus-visible{ outline:2px solid var(--accent); outline-offset:2px; }
+.surf{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(13.5rem, 1fr)); gap:var(--s-1); }
+.sf{ display:grid; grid-template-columns:auto minmax(0, 1fr) auto; grid-template-rows:auto auto; column-gap:var(--s-2); align-items:center;
+  padding:var(--s-2); border:1px solid var(--rule); border-radius:.75rem; background:var(--field); min-width:0; }
+.sf[hidden]{ display:none; }
+.sf svg{ grid-row:1 / span 2; width:28px; height:28px; color:var(--ink); }
+.sf .n{ font-family:var(--display); font-size:var(--t-sm); color:var(--ink); line-height:1.2; }
+.sf .w{ grid-column:2; font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.sf .go{ grid-row:1 / span 2; grid-column:3; min-height:36px; min-width:44px; padding:0 var(--s-2); border:1px solid var(--rule-strong); border-radius:999px;
+  background:transparent; color:var(--accent); font-family:var(--mono); font-size:var(--t-3xs); cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; justify-content:center; }
+.sf .go:hover{ border-color:var(--accent); }
+.sf .s{ width:7px; height:7px; border-radius:50%; display:inline-block; margin-left:6px; vertical-align:middle; border:1px solid var(--rule-strong); }
+.sf .s[data-s="live"]{ background:var(--accent); border-color:var(--accent); }
+.sf .s[data-s="down"]{ background:var(--absent); border-color:var(--absent); }
+@media (max-width:560px){
+  .surf{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .sf{ grid-template-columns:auto minmax(0, 1fr); row-gap:6px; }
+  .sf svg{ grid-row:1; width:22px; height:22px; }
+  .sf .w{ grid-column:1 / -1; }
+  .sf .go{ grid-row:auto; grid-column:1 / -1; }
 }
+
+@media (max-width:980px){
+  .pipe{ grid-template-columns:repeat(4, minmax(0, 1fr)); }
+  .st:nth-child(5){ border-left:0; }
+  .st:nth-child(n+5){ border-top:1px solid var(--rule); }
+}
+@media (max-width:560px){
+  .pipe{ grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  .st{ border-left:1px solid var(--rule); border-top:1px solid var(--rule); }
+  .st:nth-child(odd){ border-left:0; }
+  .st:nth-child(-n+2){ border-top:0; }
+  .st:last-child{ grid-column:1 / -1; border-left:0; }
+}
+@media (prefers-reduced-motion: reduce){ .st.run .dot{ animation:none; opacity:1; } .st{ transition:none; } }
 @media (max-width:640px){
   .hero{ padding:var(--s-5) 0 var(--s-3); }
   .hero .lede{ margin-bottom:var(--s-4); font-size:var(--t-2xs); }
@@ -491,8 +496,6 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
   .bot{ grid-template-columns:1fr; }
   .bot-mark{ display:none; }
   .home h2{ font-size:var(--t-xl); }
-  .step{ grid-template-columns:1fr; }
-  .step svg{ height:auto; border-right:0; border-bottom:1px solid var(--rule); }
 }
 @media (prefers-reduced-motion: reduce){
   .turn, .bot-heat rect, .bot-dots i{ animation:none; }
@@ -514,41 +517,39 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
 <button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
 <div class="navpanel" id="sitenav-panel">
+<a class="navlink" href="/demos">Demos</a>
+<a class="navlink" href="/how-it-works">How it works</a>
+<a class="navlink" href="/reference">Reference</a>
+<a class="navlink" href="/tools">MCP tools</a>
+<a class="navlink" href="/verify">Verify</a>
+<a class="navlink" href="/docs/">Docs</a>
 <details class="navgrp" name="sitenav">
-<summary>Understand</summary>
-<div class="navmenu">
-<a href="/how-it-works"><b>How it works</b><span>the address, the fact, the receipt</span></a>
-<a href="/the-long-version"><b>The long version</b><span>the whole argument, at length</span></a>
-<a href="/solutions"><b>Solutions</b><span>four agents already running on it</span></a>
-<a href="/whitepaper"><b>Whitepaper</b><span>the long form, with the proofs</span></a>
-<a href="/spec"><b>The spec</b><span>wire format, preimages, canonical bytes</span></a>
-</div></details>
-<details class="navgrp" name="sitenav">
-<summary>See it run</summary>
-<div class="navmenu">
-<a href="/demos"><b>Demos</b><span>eight, each a real call against production</span></a>
-<a href="/worlds"><b>Walk a world</b><span>signed terrain you can fly through</span></a>
-<a href="/channel"><b>The channel</b><span>agents talking, every message addressable</span></a>
-<a href="/scoreboard"><b>Scoreboard</b><span>the live benchmark, two heats</span></a>
-<a href="/gallery"><b>Gallery</b><span>what the record looks like rendered</span></a>
-</div></details>
-<details class="navgrp" name="sitenav">
-<summary>Verify</summary>
-<div class="navmenu">
-<a href="/verify"><b>Check a receipt</b><span>paste any token, the proof runs in your browser</span></a>
-<a href="/guard"><b>emem-guard</b><span>allow or deny, signed, with a reason</span></a>
-<a href="/v1/log/sth"><b>Transparency log</b><span>pin a signed head, prove it only ever grew</span></a>
-<a href="/agents"><b>Who writes here</b><span>every attester, discovered not curated</span></a>
-</div></details>
-<details class="navgrp" name="sitenav">
-<summary>Build</summary>
-<div class="navmenu">
-<a href="/reference"><b>Reference</b><span>the read surface, endpoint by endpoint</span></a>
-<a href="/openapi.json"><b>OpenAPI</b><span>the machine contract</span></a>
-<a href="/skills.md"><b>Skills</b><span>runnable procedures for an agent</span></a>
-<a href="/clients"><b>Clients</b><span>connect Claude, Cursor, or your own</span></a>
-<a href="/a2a"><b>A2A</b><span>how two agents share one memory</span></a>
-<a href="/docs"><b>Docs</b><span>the book</span></a>
+<summary>More</summary>
+<div class="navmenu navmenu-cols">
+<div class="navsec"><h6>learn</h6>
+<a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
+<a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
+<a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
+<a href="/whitepaper/v1"><b>Whitepaper v1</b><span>read the superseded edition</span></a>
+</div>
+<div class="navsec"><h6>connect</h6>
+<a href="/a2a"><b>A2A</b><span>hand memory between agents</span></a>
+<a href="/clients"><b>Clients</b><span>connect Claude, Cursor, ChatGPT</span></a>
+<a href="/openapi.json"><b>OpenAPI</b><span>load the machine contract</span></a>
+<a href="/skills.md"><b>Skills</b><span>run a procedure as an agent</span></a>
+</div>
+<div class="navsec"><h6>verify</h6>
+<a href="/guard"><b>Guard</b><span>gate an answer on its citations</span></a>
+<a href="/agents"><b>Attesters</b><span>see every key that writes</span></a>
+<a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
+</div>
+<div class="navsec"><h6>lab</h6>
+<a href="/worlds"><b>Worlds<i class="labtag">lab</i></b><span>fly signed terrain</span></a>
+<a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
+<a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
+<a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
+<a href="/the-long-version"><b>Long version<i class="labtag">lab</i></b><span>read the old homepage</span></a>
+</div>
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navplain" href="/mcp">MCP</a>
@@ -559,7 +560,7 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory two agents can agree on</span><span class="aud-note">no prior knowledge assumed</span></div>
+<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">memory two agents can agree on</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -875,88 +876,24 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 
 <section class="how" id="how" aria-labelledby="how-h">
   <h2 id="how-h">How it works</h2>
-  <ol class="steps">
-    <li class="step">
-      <svg class="fig f1" viewBox="0 0 240 120" role="img" aria-label="A file's chunks, each hashed, folding into one short token">
-        <rect class="chunk fa" x="18" y="30" width="18" height="18" rx="3"/><rect class="chunk fa" x="40" y="30" width="18" height="18" rx="3"/><rect class="chunk fa" x="62" y="30" width="18" height="18" rx="3"/>
-        <rect class="chunk fa" x="18" y="52" width="18" height="18" rx="3"/><rect class="chunk fa" x="40" y="52" width="18" height="18" rx="3"/><rect class="chunk fa" x="62" y="52" width="18" height="18" rx="3"/>
-        <path class="ln" d="M92 50h26m-6-5 6 5-6 5"/>
-        <g class="tokpill"><rect class="fp ac" x="126" y="36" width="100" height="28" rx="14"/><text class="a" x="140" y="54">emem:tree:&hellip;</text></g>
-        <text x="18" y="96">500 MB &rarr; 26 chars</text>
-      </svg>
-      <div class="step-in">
-        <h3>Name it</h3>
-        <p>Hash the bytes. A file, a place, a reading or a model gets one short token.</p>
-        <p class="snip">Bengaluru &rarr; <b>defi.zb493.wIxI.zcb34</b></p>
-      </div>
-    </li>
-    <li class="step">
-      <svg class="fig f2" viewBox="0 0 240 120" role="img" aria-label="A fact sealed with a signature and appended to a log">
-        <rect class="fp" x="18" y="22" width="82" height="62" rx="6"/>
-        <path class="ln" d="M30 38h56M30 50h42M30 62h50"/>
-        <g class="seal"><circle class="fa" cx="96" cy="80" r="13"/><path class="sealtick" d="m90 80 4 4 8-8"/></g>
-        <path class="ln" d="M122 60h96"/>
-        <rect class="fp" x="124" y="50" width="20" height="20" rx="3"/><rect class="fp" x="150" y="50" width="20" height="20" rx="3"/><rect class="fp" x="176" y="50" width="20" height="20" rx="3"/>
-        <rect class="newblock fa" x="202" y="50" width="20" height="20" rx="3"/>
-        <text x="124" y="40">log</text>
-        <text x="18" y="108">ed25519 &middot; append-only</text>
-      </svg>
-      <div class="step-in">
-        <h3>Sign it</h3>
-        <p>Every fact is signed and appended to a public log that only grows.</p>
-        <p class="snip" id="snipLog">reading the log head&hellip;</p>
-      </div>
-    </li>
-    <li class="step">
-      <svg class="fig f3" viewBox="0 0 240 120" role="img" aria-label="A token passing from one agent to another, which checks it">
-        <path class="ln" d="M58 58h124" stroke-dasharray="3 4"/>
-        <circle class="fp" cx="38" cy="58" r="20"/><text x="34" y="62">A</text>
-        <circle class="fp" cx="202" cy="58" r="20"/><text x="198" y="62">B</text>
-        <circle class="hop fa" cx="50" cy="58" r="6"/>
-        <path class="tick ln ac" d="m193 88 6 6 12-12" stroke-width="2.4"/>
-        <text x="18" y="108">no shared vendor</text>
-      </svg>
-      <div class="step-in">
-        <h3>Check it</h3>
-        <p>Any agent re-hashes and verifies offline. No key, no account.</p>
-        <p class="snip" id="snipSig">&nbsp;</p>
-      </div>
-    </li>
+  <p class="how-sub">this page, tokenised live in your tab</p>
+  <ol class="pipe" id="pipe" aria-live="polite">
+    <li class="st" data-st="bytes"><i class="dot"></i><b>read</b><span class="v" data-v>this page</span><span class="k">bytes</span></li>
+    <li class="st" data-st="units"><i class="dot"></i><b>split</b><span class="v" data-v>&hellip;</span><span class="k">units</span><span class="bar" data-bar aria-hidden="true"></span></li>
+    <li class="st" data-st="hash"><i class="dot"></i><b>hash</b><span class="v" data-v>&hellip;</span><span class="k">blake3 per unit</span></li>
+    <li class="st" data-st="root"><i class="dot"></i><b>fold</b><span class="v" data-v>&hellip;</span><span class="k">one root</span></li>
+    <li class="st" data-st="log"><i class="dot"></i><b>log</b><span class="v" data-v>&hellip;</span><span class="k">signed head</span></li>
+    <li class="st" data-st="name"><i class="dot"></i><b>name</b><span class="v" data-v>&hellip;</span><span class="k">26 chars</span></li>
+    <li class="st" data-st="check"><i class="dot"></i><b>check</b><span class="v" data-v>&hellip;</span><span class="k">offline</span></li>
   </ol>
+  <p class="how-foot"><a href="#cmpIn">tokenise yours</a> &middot; <a href="/how-it-works">the full walk</a> &middot; <a href="/verify">verify a token</a></p>
 </section>
 
 <section class="use" id="use" aria-labelledby="use-h">
   <h2 id="use-h">Use it from</h2>
-  <div class="tabs" role="tablist" aria-label="Ways in">
-    <button type="button" class="tab" role="tab" id="tab-mcp" aria-controls="p-mcp" aria-selected="true">MCP</button>
-    <button type="button" class="tab" role="tab" id="tab-rest" aria-controls="p-rest" aria-selected="false" tabindex="-1">REST</button>
-    <button type="button" class="tab" role="tab" id="tab-a2a" aria-controls="p-a2a" aria-selected="false" tabindex="-1">A2A</button>
-  </div>
-  <div class="panel" role="tabpanel" id="p-mcp" aria-labelledby="tab-mcp">
-    <pre id="c-mcp">{ "mcpServers": { "emem": { "type": "http", "url": "https://emem.dev/mcp" } } }</pre>
-    <button type="button" class="act" data-copy="#c-mcp">copy</button>
-    <p><a href="/mcp">/mcp</a> core loop &middot; <a href="/mcp/full">/mcp/full</a> every tool</p>
-  </div>
-  <div class="panel" role="tabpanel" id="p-rest" aria-labelledby="tab-rest" hidden>
-    <pre id="c-rest">curl -s https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"place":"Manaus","bands":["elevation"]}'</pre>
-    <button type="button" class="act" data-copy="#c-rest">copy</button>
-    <p><a href="/reference">every route</a> &middot; <a href="/openapi.json">openapi.json</a></p>
-  </div>
-  <div class="panel" role="tabpanel" id="p-a2a" aria-labelledby="tab-a2a" hidden>
-    <pre id="c-a2a">curl -s https://emem.dev/.well-known/agent-card.json</pre>
-    <button type="button" class="act" data-copy="#c-a2a">copy</button>
-    <p><a href="/a2a">message, tasks, skills</a></p>
-  </div>
-  <ul class="more" aria-label="Go deeper">
-    <li><a href="/how-it-works">how it works</a></li>
-    <li><a href="/verify">verify a receipt</a></li>
-    <li><a href="/reference">reference</a></li>
-    <li><a href="/whitepaper">whitepaper</a></li>
-    <li><a href="/demos">demos</a></li>
-    <li><a href="/docs">docs</a></li>
-  </ul>
+  <div class="use-kinds" id="useKinds" role="toolbar" aria-label="Filter"></div>
+  <ul class="surf" id="surf"></ul>
+  <script type="application/json" id="surfaces">[{"id":"mcp","kind":"protocol","name":"MCP","what":"any MCP client","do":"copy","val":"{ \"mcpServers\": { \"emem\": { \"type\": \"http\", \"url\": \"https://emem.dev/mcp\" } } }","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"plug"},{"id":"rest","kind":"protocol","name":"REST","what":"OpenAPI 3.1","do":"open","val":"/openapi.json","check":{"url":"/openapi.json","method":"HEAD"},"mark":"braces"},{"id":"a2a","kind":"protocol","name":"A2A","what":"agent card","do":"copy","val":"curl -s https://emem.dev/.well-known/agent-card.json","check":{"url":"/.well-known/agent-card.json","method":"HEAD"},"mark":"a2a"},{"id":"claude-code","kind":"assistant","name":"Claude Code","what":"one command","do":"copy","val":"claude mcp add --transport http emem https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude"},{"id":"claude-plugin","kind":"assistant","name":"Claude plugin","what":"MCP server + skills","do":"copy","val":"/plugin marketplace add Vortx-AI/emem","listed":"repo: .claude-plugin/marketplace.json","mark":"claude"},{"id":"claude-ai","kind":"assistant","name":"Claude.ai","what":"custom connector","do":"copy","val":"https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude"},{"id":"chatgpt","kind":"assistant","name":"ChatGPT","what":"app","do":"open","val":"https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77","listed":"2026-09-27","mark":"chatgpt"},{"id":"dify","kind":"assistant","name":"Dify","what":"marketplace plugin","do":"open","val":"https://marketplace.dify.ai/plugin/vortx-ai/emem","listed":"2026-09-27","mark":"dify"},{"id":"cursor","kind":"editor","name":"Cursor","what":"one-click install","do":"open","val":"cursor://anysphere.cursor-deeplink/mcp/install?name=emem&config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"cursor"},{"id":"vscode","kind":"editor","name":"VS Code","what":"one command","do":"copy","val":"code --add-mcp '{\"name\":\"emem\",\"type\":\"http\",\"url\":\"https://emem.dev/mcp\"}'","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"vscode"},{"id":"gemini","kind":"editor","name":"Gemini CLI","what":"extension config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json","listed":"repo: examples/gemini-extension.json","mark":"gemini"},{"id":"cline","kind":"editor","name":"Cline","what":"MCP config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json","listed":"repo: examples/cline.mcp.json","mark":"cline"},{"id":"mcp-registry","kind":"registry","name":"MCP Registry","what":"io.github.Vortx-AI/emem","do":"open","val":"https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem","listed":"2026-09-27","mark":"registry"},{"id":"github-mcp","kind":"registry","name":"GitHub MCP","what":"github.com/mcp","do":"open","val":"https://github.com/mcp/Vortx-AI/emem","listed":"2026-09-27","mark":"github"},{"id":"glama","kind":"registry","name":"Glama","what":"MCP directory","do":"open","val":"https://glama.ai/mcp/servers/Vortx-AI/emem","listed":"2026-09-27","mark":"glama"},{"id":"hf","kind":"registry","name":"Hugging Face","what":"Space","do":"open","val":"https://huggingface.co/spaces/vortx-ai/emem","listed":"2026-09-27","mark":"hf"},{"id":"docker","kind":"self-host","name":"Docker","what":"the whole responder","do":"copy","val":"docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest","listed":"ghcr.io 2026-09-27","mark":"docker"},{"id":"encoder","kind":"self-host","name":"Air-gapped encoder","what":"no network, one binary","do":"copy","val":"docker pull ghcr.io/vortx-ai/emem-encode:latest && docker pull ghcr.io/vortx-ai/emem-airgap:latest","listed":"ghcr.io 2026-09-27","mark":"airgap"},{"id":"py","kind":"sdk","name":"Python","what":"ememdev","do":"copy","val":"pip install ememdev","listed":"pypi 2.4.0","mark":"py"},{"id":"ts","kind":"sdk","name":"TypeScript","what":"@vortxai/emem","do":"copy","val":"npm i @vortxai/emem","listed":"npm 2.4.0","mark":"ts"},{"id":"frameworks","kind":"sdk","name":"Frameworks","what":"LangChain · LlamaIndex · CrewAI · AutoGen · Mastra · Agno · Semantic Kernel","do":"open","val":"https://github.com/Vortx-AI/emem/tree/main/examples","listed":"repo: examples/","mark":"layers"},{"id":"github","kind":"sdk","name":"GitHub","what":"Apache-2.0 source","do":"open","val":"https://github.com/Vortx-AI/emem","listed":"2026-09-27","mark":"github"}]</script>
 </section>
 
 </main>
@@ -3272,109 +3209,212 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
     }).catch(function(e){ fail(ui, e); });
   }
 
-  /* ---- how it works: motion on screen only; the log head, live and checked ---- */
-  var how = $('how');
-  if(how && 'IntersectionObserver' in window){
-    var fed = false;
+  /* ---- how it works: this page is read as units, hashed, folded, named and
+     checked, in the tab, by the same code the composer runs on your files ---- */
+  var pipe = $('pipe');
+  function stg(k){ return pipe.querySelector('[data-st="' + k + '"]'); }
+  function setSt(k, state, v){
+    var e = stg(k); e.classList.remove('run', 'done', 'bad'); e.classList.add(state);
+    if(v !== undefined) e.querySelector('[data-v]').textContent = v;
+  }
+  /* a beat between stages so the eye can follow them; none under reduced motion */
+  function beat(){ return RM.matches ? Promise.resolve() : new Promise(function(z){ setTimeout(z, 420); }); }
+  function runPipe(){
+    var I, bytes, units, name, root;
+    setSt('bytes', 'run');
+    return Promise.all([core(), fetch(location.pathname).then(function(r){ return r.arrayBuffer(); })]).then(function(x){
+      I = x[0]; bytes = new Uint8Array(x[1]);
+      setSt('bytes', 'done', mb(bytes.length) + ' of HTML');
+      return beat();
+    }).then(function(){
+      setSt('units', 'run');
+      return readUnits(new File([bytes], 'index.html', { type:'text/html' }));
+    }).then(function(r){
+      units = r.units;
+      var bar = stg('units').querySelector('[data-bar]');
+      bar.textContent = '';
+      units.forEach(function(){ bar.appendChild(document.createElement('i')); });
+      setSt('units', 'done', many(units.length, r.noun));
+      return beat();
+    }).then(function(){
+      setSt('hash', 'run');
+      var sq = stg('units').querySelectorAll('[data-bar] i');
+      units.forEach(function(u, i){ u.h = I.blake3(bytes.subarray(u.off, u.off + u.len)); if(sq[i]) sq[i].className = 'on'; });
+      setSt('hash', 'done', b32(units[0].h).slice(0, 13) + '…');
+      return beat();
+    }).then(function(){
+      setSt('root', 'run');
+      root = b32(rootOf(I, units.map(function(u){ return leafU(I, '·', u.off, u.len, u.h); })));
+      setSt('root', 'done', root.slice(0, 13) + '…');
+      return beat();
+    }).then(function(){
+      setSt('log', 'run');
+      return head().then(function(h){
+        setSt('log', h.ok ? 'done' : 'bad', h.sth.tree_size.toLocaleString('en') + ' entries ' + (h.ok ? '✓' : '✗'));
+      });
+    }).then(beat).then(function(){
+      setSt('name', 'run');
+      name = b32(I.blake3(bytes).slice(0, 16));
+      setSt('name', 'done', name);
+      return beat();
+    }).then(function(){
+      /* what any agent does with a name: fetch the bytes again, hash, compare */
+      setSt('check', 'run');
+      return fetch(location.pathname, { cache:'no-store' }).then(function(r){ return r.arrayBuffer(); }).then(function(ab){
+        var ok = b32(I.blake3(new Uint8Array(ab)).slice(0, 16)) === name;
+        setSt('check', ok ? 'done' : 'bad', ok ? '✓ served bytes hash to the name' : '✗ served bytes changed');
+      });
+    }).catch(function(e){
+      var r = pipe.querySelector('.st.run');
+      if(r){ r.classList.remove('run'); r.classList.add('bad'); r.querySelector('[data-v]').textContent = short(e); }
+    });
+  }
+  if(pipe && 'IntersectionObserver' in window){
+    var ran = false;
     new IntersectionObserver(function(es){
-      var on = es[0].isIntersecting;
-      how.classList.toggle('on', on && !RM.matches);
-      if(!on || fed) return;
-      fed = true;
-      head().then(function(h){
-        $('snipLog').innerHTML = 'log head: <b>' + esc(h.sth.tree_size.toLocaleString('en')) + '</b> entries, signed ' + esc(String(h.sth.signed_at).replace('T', ' ').replace(/:\d\dZ$/, 'Z'));
-        $('snipSig').innerHTML = h.ok ? '<b>&#10003;</b> that head&rsquo;s signature, checked in this tab' : '<span class="no">&#10007; that head did not verify</span>';
-      }).catch(function(e){ $('snipLog').textContent = short(e); fed = false; });
-    }, { threshold:0.25 }).observe(how);
+      if(ran || !es[0].isIntersecting) return;
+      ran = true; runPipe();
+    }, { threshold:0.3 }).observe(pipe);
   }
 
-  /* ---- use it from: tabs and copy ---- */
-  var tabs = [].slice.call(document.querySelectorAll('.use [role=tab]'));
-  function pick(t){
-    tabs.forEach(function(x){ var on = x === t; x.setAttribute('aria-selected', on ? 'true' : 'false'); x.tabIndex = on ? 0 : -1; $(x.getAttribute('aria-controls')).hidden = !on; });
+  /* ---- use it from: drawn from #surfaces, one entry per way in ---- */
+  var MARK = {
+    plug:'<path d="M9 3v5M15 3v5M7 8h10v3a5 5 0 0 1-10 0zM12 16v5"/>',
+    braces:'<path d="M9 4C7 4 7 6 7 8s-1 3-3 4c2 1 3 2 3 4s0 4 2 4M15 4c2 0 2 2 2 4s1 3 3 4c-2 1-3 2-3 4s0 4-2 4"/>',
+    a2a:'<circle cx="5.5" cy="12" r="2.5"/><circle cx="18.5" cy="12" r="2.5"/><path d="M8.5 10.5h7m-2-2 2 2-2 2M15.5 13.5h-7m2 2-2-2 2-2"/>',
+    claude:'<path d="M12 3v18M3 12h18M5.6 5.6l12.8 12.8M18.4 5.6 5.6 18.4"/>',
+    chatgpt:'<path d="M12 4.5 18.5 8.25v7.5L12 19.5 5.5 15.75v-7.5z"/><circle cx="12" cy="12" r="2.6"/>',
+    dify:'<path d="M7 5h4.5a7 7 0 0 1 0 14H7z"/>',
+    cursor:'<path d="M6 4l12 7-5.2 1.6L10.5 18z"/>',
+    vscode:'<path d="M16.5 4 20 5.5v13L16.5 20 7 12.8 4.5 14.8 3 14V10l1.5-.8L7 11.2zM16.5 8v8L11 12z"/>',
+    gemini:'<path d="M12 3c.9 4.6 3.8 7.8 9 9-5.2 1.2-8.1 4.4-9 9-.9-4.6-3.8-7.8-9-9 5.2-1.2 8.1-4.4 9-9z"/>',
+    cline:'<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 10l3 2-3 2M12 15h5"/>',
+    registry:'<path d="M8 6h12M8 12h12M8 18h12"/><circle cx="4.5" cy="6" r="1"/><circle cx="4.5" cy="12" r="1"/><circle cx="4.5" cy="18" r="1"/>',
+    github:'<circle cx="7" cy="5.5" r="2"/><circle cx="7" cy="18.5" r="2"/><circle cx="17" cy="8" r="2"/><path d="M7 7.5v9M17 10c0 4-10 2.5-10 6.5"/>',
+    glama:'<path d="M18.5 8.5A7 7 0 1 0 19 13h-6"/>',
+    hf:'<circle cx="12" cy="12" r="8.5"/><circle cx="9" cy="10" r=".9"/><circle cx="15" cy="10" r=".9"/><path d="M8.5 14c2 2.2 5 2.2 7 0"/>',
+    docker:'<path d="M3 13h18c-.4 4-4 7-9 7s-8.4-3-9-7zM6 10h3v3H6zM9 10h3v3H9zM12 10h3v3h-3zM9 7h3v3H9z"/>',
+    airgap:'<rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M9 11V8a3 3 0 0 1 6 0v3M3 3l18 18"/>',
+    py:'<rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M8 16V9h2.5a2 2 0 0 1 0 4H8M14 9l1.8 3.5L17.5 9M15.8 12.5V16"/>',
+    ts:'<rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7 9h5M9.5 9v7M17 9.8c-.5-.6-1.2-.8-2-.8-1 0-1.8.6-1.8 1.4 0 2 3.8 1.3 3.8 3.3 0 .9-.9 1.5-2 1.5-.9 0-1.7-.3-2.2-1"/>',
+    layers:'<path d="M12 4l9 5-9 5-9-5zM3 14l9 5 9-5"/>'
+  };
+  var surfEl = $('surf'), kindsEl = $('useKinds'), SURF = [];
+  try{ SURF = JSON.parse($('surfaces').textContent); }catch(e){ SURF = []; }
+  var KINDS = [];
+  SURF.forEach(function(x){ if(KINDS.indexOf(x.kind) < 0) KINDS.push(x.kind); });
+  function mark(k){ return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + (MARK[k] || MARK.plug) + '</svg>'; }
+  SURF.forEach(function(x){
+    var li = mk('li', 'sf', surfEl); li.dataset.kind = x.kind;
+    li.innerHTML = mark(x.mark);
+    var n = mk('span', 'n', li, x.name);
+    var dot = mk('i', 's', n); dot.title = x.check ? 'checking when visible' : 'listed: ' + (x.listed || '');
+    x.dot = dot;
+    mk('span', 'w', li, x.what).title = x.what;
+    var ext = /^https?:|^cursor:/.test(x.val) && x.val.indexOf(O2) !== 0;
+    if(x.do === 'copy'){
+      var b = mk('button', 'go', li, 'copy'); b.type = 'button'; b.title = x.val;
+      b.setAttribute('aria-label', 'copy ' + x.name + ': ' + x.val);
+      b.addEventListener('click', function(){ copyTo(b, x.val); });
+    } else {
+      var a = mk('a', 'go', li, 'open'); a.href = x.val; a.setAttribute('aria-label', 'open ' + x.name);
+      if(ext){ a.target = '_blank'; a.rel = 'noopener noreferrer'; }
+    }
+  });
+  function filter(k, btn){
+    [].forEach.call(kindsEl.children, function(c){ c.setAttribute('aria-pressed', c === btn ? 'true' : 'false'); });
+    [].forEach.call(surfEl.children, function(li){ li.hidden = k !== 'all' && li.dataset.kind !== k; });
   }
-  tabs.forEach(function(t, i){
-    t.addEventListener('click', function(){ pick(t); });
-    t.addEventListener('keydown', function(e){
-      var k = { ArrowRight:i + 1, ArrowLeft:i - 1 }[e.key];
-      if(k === undefined) return;
-      var n = tabs[(k + tabs.length) % tabs.length]; pick(n); n.focus();
-    });
+  ['all'].concat(KINDS).forEach(function(k, i){
+    var b = mk('button', '', kindsEl, k + (k === 'all' ? ' · ' + SURF.length : '')); b.type = 'button';
+    b.setAttribute('aria-pressed', i ? 'false' : 'true');
+    b.addEventListener('click', function(){ filter(k, b); });
   });
-  document.querySelectorAll('[data-copy]').forEach(function(b){
-    b.addEventListener('click', function(){ var t = document.querySelector(b.dataset.copy); if(t) copyTo(b, t.textContent); });
-  });
+  /* a same-origin way in is checked when the grid is on screen; a listing
+     elsewhere cannot be read from this tab, so it states when it was checked */
+  function probe(c){
+    var init = c.mcp ? { method:'POST', headers:{ 'content-type':'application/json', accept:'application/json, text/event-stream' },
+      body:JSON.stringify({ jsonrpc:'2.0', id:1, method:'initialize', params:{ protocolVersion:'2025-06-18', capabilities:{}, clientInfo:{ name:'emem.dev', version:'1' } } }) } : { method:c.method || 'GET' };
+    return fetch(c.url, init).then(function(r){ return r.ok; }, function(){ return false; });
+  }
+  if(surfEl && 'IntersectionObserver' in window){
+    var probed = false;
+    new IntersectionObserver(function(es){
+      if(probed || !es[0].isIntersecting) return;
+      probed = true;
+      var seen = {};
+      SURF.forEach(function(x){
+        if(!x.check) return;
+        var key = x.check.url + '|' + (x.check.method || 'GET');
+        seen[key] = seen[key] || probe(x.check);
+        seen[key].then(function(ok){ x.dot.dataset.s = ok ? 'live' : 'down'; x.dot.title = ok ? 'answered just now' : 'did not answer just now'; });
+      });
+    }, { threshold:0.1 }).observe(surfEl);
+  }
   sync();
 })();
 </script>
 
-<footer class="page foot inverted">
-  <div class="foot-meta">
-    <div class="name">emem</div>
-    <div class="desc">A verifiable memory of Earth, free for any agent to read and check.</div>
-  </div>
-  <div>
-    <div class="foot-grid">
-      <div class="foot-col">
-        <h4>Protocol</h4>
-        <ul>
-          <li><a href="/docs/">docs (full book + search)</a></li>
-          <li><a href="/tools">every tool, generated</a></li>
-          <li><a href="/spec.md">spec.md</a></li>
-          <li><a href="/whitepaper">whitepaper</a></li>
-          <li><a href="/docs/diagrams">diagram gallery</a></li>
-          <li><a href="/docs/gallery">the living atlas</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Agents</h4>
-        <ul>
-          <li><a href="/a2a">the A2A layer</a></li>
-          <li><a href="/agents.md">agents.md</a></li>
-          <li><a href="/integrations.md">integrations</a></li>
-          <li><a href="/llms.txt">llms.txt</a></li>
-          <li><a href="/docs/model.html">the memory model</a></li>
-          <li><a href="/.well-known/agent-card.json">agent-card.json</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Machine</h4>
-        <ul>
-          <li><a href="/openapi.json">openapi.json</a></li>
-          <li><a href="/mcp">/mcp</a></li>
-          <li><a href="/v1/discover">/v1/discover</a></li>
-          <li><a href="/.well-known/emem.json">.well-known/emem.json</a></li>
-          <li><a href="/v1/corpus_state_stats">corpus stats</a></li>
-          <li><a href="/v1/stream">live stream (SSE)</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Try it</h4>
-        <ul>
-          <li><a href="/card">the card (share this)</a></li>
-          <li><a href="/demos">demos index</a></li>
-          <li><a href="/demos/ask-the-earth">ask the Earth (10 live calls)</a></li>
-          <li><a href="/demos/state-cube">state cube walk</a></li>
-          <li><a href="/demos/signed-answer">signed answer in 4 steps</a></li>
-          <li><a href="/verify">verify a receipt</a></li>
-          <li><a href="/v1/benchmark">agent benchmark</a></li>
-          <li><a href="/gallery">gallery</a></li>
-        </ul>
-      </div>
-      <div class="foot-col">
-        <h4>Developers</h4>
-        <ul>
-          <li><a href="/docs/quickstart.html">quickstart (60-second)</a></li>
-          <li><a href="/docs/api/">API reference (ReDoc)</a></li>
-          <li><a href="/docs/errors.html">errors</a></li>
-          <li><a href="/docs/self-host.html">self-host</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-py" rel="noopener noreferrer" target="_blank">Python client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/sdks/emem-ts" rel="noopener noreferrer" target="_blank">TypeScript client</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/tree/main/examples" rel="noopener noreferrer" target="_blank">examples</a></li>
-          <li><a href="https://github.com/Vortx-AI/emem/issues" rel="noopener noreferrer" target="_blank">issues / roadmap</a></li>
-          <li><a href="/health">health</a></li>
-        </ul>
-      </div>
+<!--foot:start-->
+<nav class="pathbar" aria-label="Where this page sits on the developer path">
+<span class="pb-prev"></span>
+<ol class="pb-steps">
+<li><a href="/" title="Home: tokenise a file, read a place, ask" aria-current="step"><span>1</span></a></li>
+<li><a href="/demos" title="Demos: run eight live calls"><span>2</span></a></li>
+<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
+<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
+<li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>
+<li><a href="/verify" title="Verify: paste any token, check it here"><span>6</span></a></li>
+<li><a href="/guard" title="Guard: gate an answer on its citations"><span>7</span></a></li>
+<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
+</ol>
+<a class="pb-next" href="/demos"><b>Demos</b><span>run eight live calls</span><i>&rarr;</i></a>
+</nav>
+<footer class="page foot sitefoot">
+<div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
+<div class="sf-grid">
+<div class="foot-col"><h4>Try</h4><ul>
+<li><a href="/">Home</a></li>
+<li><a href="/demos">Demos</a></li>
+</ul></div>
+<div class="foot-col"><h4>Learn</h4><ul>
+<li><a href="/how-it-works">How it works</a></li>
+<li><a href="/solutions">Solutions</a></li>
+<li><a href="/whitepaper">Whitepaper</a></li>
+<li><a href="/spec">Spec</a></li>
+<li><a href="/whitepaper/v1">Whitepaper v1</a></li>
+</ul></div>
+<div class="foot-col"><h4>Connect</h4><ul>
+<li><a href="/reference">Reference</a></li>
+<li><a href="/tools">MCP tools</a></li>
+<li><a href="/a2a">A2A</a></li>
+<li><a href="/docs/">Docs</a></li>
+<li><a href="/clients">Clients</a></li>
+<li><a href="/openapi.json">OpenAPI</a></li>
+<li><a href="/skills.md">Skills</a></li>
+</ul></div>
+<div class="foot-col"><h4>Verify</h4><ul>
+<li><a href="/verify">Verify</a></li>
+<li><a href="/guard">Guard</a></li>
+<li><a href="/agents">Attesters</a></li>
+<li><a href="/v1/log/sth">Log head</a></li>
+</ul></div>
+<div class="foot-col"><h4>Lab</h4><ul>
+<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
+<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
+<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
+<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
+<li><a href="/the-long-version">Long version</a> <i class="labtag">lab</i></li>
+</ul></div>
+<div class="foot-col"><h4>Machine</h4><ul>
+<li><a href="/llms.txt">llms.txt</a></li>
+<li><a href="/.well-known/agent-card.json">agent card</a></li>
+<li><a href="/.well-known/emem.json">emem.json</a></li>
+<li><a href="/mcp">MCP</a></li>
+<li><a href="/v1/discover">discover</a></li>
+<li><a href="/docs/quickstart.html">quickstart</a></li>
+<li><a href="/docs/self-host.html">self-host</a></li>
+</ul></div>
 <!--ports:start-->
       <!-- Generated by scripts/gen_footer_ports.py from gen_nav.PORTS.
            Do not edit by hand: the bar and the footer read one list, so
@@ -3390,15 +3430,10 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
         </ul>
       </div>
       <!--ports:end-->
-    </div>
-    <div class="foot-bottom">
-      <span>Built by <a href="https://vortx.ai" rel="noopener noreferrer" target="_blank">vortx.ai</a>. Apache-2.0. Contact <a href="mailto:avijeet@vortx.ai">avijeet@vortx.ai</a>.</span>
-      <span>
-        <a href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">github</a> ·
-        <a href="/privacy">privacy · terms</a>
-      </span>
-    </div>
-  </div>
+</div>
+<div class="sf-bottom"><span>Apache-2.0 &middot; built by <a href="https://vortx.ai" target="_blank" rel="noopener noreferrer">vortx.ai</a></span><span><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">github</a> &middot; <a href="/privacy">privacy &middot; terms</a></span></div>
 </footer>
+<script>(function(){var el=document.querySelector('[data-proof]');if(!el)return;var enc=new TextEncoder();function u32(o,n){o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);}function be8(n){var o=new Uint8Array(8),v=BigInt(n);for(var i=7;i>=0;i--){o[i]=Number(v&255n);v>>=8n;}return o;}function pre(d,segs){var o=[],b=enc.encode(d);o.push.apply(o,enc.encode('emem.preimage.v1\0'));u32(o,b.length);o.push.apply(o,b);segs.forEach(function(s){o.push(s[0]);u32(o,s[1].length);for(var i=0;i<s[1].length;i++)o.push(s[1][i]);});return new Uint8Array(o);}function say(ok,t){el.innerHTML=(ok?'<b class="ok">&#10003;</b> ':'<b class="no">&#10007;</b> ')+t;}function run(){var I=globalThis.ememVerifyInternals;if(!I)return say(false,'verifier did not load');Promise.all([fetch('/.well-known/emem.json').then(function(r){return r.json();}),fetch('/v1/log/sth').then(function(r){return r.json();})]).then(function(x){var k=x[0].responder&&x[0].responder.pubkey_b32,h=x[1].sth,pk=I.b32decode(h.responder_pubkey_b32);var d=I.blake3(pre('emem.translog.sth.v1',[[1,be8(h.tree_size)],[2,I.b32decode(h.root_b32)],[3,enc.encode(h.signed_at)],[4,pk]]));var ok=h.responder_pubkey_b32===k&&I.ed.verify(I.b32decode(h.signature_b32),d,pk);say(ok,'log head <a href="/verify?q=https%3A%2F%2Femem.dev%2Fv1%2Flog%2Fsth">'+Number(h.tree_size).toLocaleString('en')+' entries</a>, signed '+h.signed_at.slice(11,16)+'Z, '+(ok?'signature checked in this tab':'signature did NOT verify'));}).catch(function(){say(false,'log head unreachable');});}function go(){if(globalThis.ememVerifyInternals)return run();var s=document.createElement('script');s.src='/emem-verify-core.js';s.onload=run;s.onerror=function(){say(false,'verifier did not load');};document.head.appendChild(s);}(window.requestIdleCallback||function(f){setTimeout(f,1200);})(go);})();</script>
+<!--foot:end-->
 </body>
 </html>
