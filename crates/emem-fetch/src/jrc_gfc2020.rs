@@ -273,6 +273,15 @@ async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc
     Ok(idx)
 }
 
+/// One pixel read, with the file it came from: provenance names the
+/// file actually read, so a version bump is visible in the fact.
+#[derive(Debug, Clone)]
+pub struct Reading {
+    pub value: u8,
+    pub url: String,
+    pub version: u32,
+}
+
 /// Read one pixel from the GFC2020 V3 raster and return the EUDR
 /// forest indicator (`1` = forest at 2020-12-31, `0` = non-forest).
 ///
@@ -288,7 +297,11 @@ async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc
 ///   (fully-oceanic cell) — sign an `Absence`.
 /// - `Err(Transport)` for HTTP / network failures.
 /// - `Err(Decode)` for COG layout / codec / range failures.
-pub async fn fetch_forest_2020(client: &Client, lat: f64, lng: f64) -> Result<u8, JrcGfc2020Error> {
+pub async fn fetch_forest_2020(
+    client: &Client,
+    lat: f64,
+    lng: f64,
+) -> Result<Reading, JrcGfc2020Error> {
     if !lat.is_finite() || lat.abs() > JRC_GFC2020_LAT_BOUND {
         return Err(JrcGfc2020Error::CoverageGap { lat, lng });
     }
@@ -336,7 +349,11 @@ pub async fn fetch_forest_2020(client: &Client, lat: f64, lng: f64) -> Result<u8
             "pixel out of range: value={byte} (GFC2020 V3 is single-band uint8 0/1) at lat={lat:.6} lng={lng:.6}"
         )));
     }
-    Ok(byte)
+    Ok(Reading {
+        value: byte,
+        url,
+        version: idx.version,
+    })
 }
 
 #[cfg(test)]
@@ -553,11 +570,18 @@ mod tests {
             }
             Err(other) => panic!("yasuni unexpectedly errored: {other:?}"),
         };
-        assert_eq!(v, 1, "Yasuni rainforest (-1.15, -76.45) must read forest=1");
+        assert_eq!(
+            v.value, 1,
+            "Yasuni rainforest (-1.15, -76.45) must read forest=1"
+        );
 
         // CIV cocoa repro plot — must return a valid 0/1 indicator.
         match fetch_forest_2020(&client, 5.69, -6.70).await {
-            Ok(v) => assert!(v <= 1, "CIV indicator must be 0 or 1, got {v}"),
+            Ok(v) => assert!(
+                v.value <= 1,
+                "CIV indicator must be 0 or 1, got {}",
+                v.value
+            ),
             Err(JrcGfc2020Error::Transport(s)) => {
                 eprintln!("[skip] civ live test: transport: {s}");
             }

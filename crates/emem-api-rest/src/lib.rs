@@ -54215,9 +54215,12 @@ async fn build_fact_jrc_gfc2020(
     let cli = s2_http_client();
     // Provenance reflects the actual 10° tile read (not the legacy 41 GB
     // single-COG), see jrc_gfc2020 module docs for why we tile.
-    let url = jrc_gfc2020::tile_url_for(lat, lng);
     match jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await {
-        Ok(value) => Ok(Fact::Primary(PrimaryFact {
+        Ok(jrc_gfc2020::Reading {
+            value,
+            url,
+            version,
+        }) => Ok(Fact::Primary(PrimaryFact {
             cell: cell64.to_string(),
             band: band.to_string(),
             tslot: 0,
@@ -54238,7 +54241,8 @@ async fn build_fact_jrc_gfc2020(
                 args: Some(ciborium::Value::Array(vec![
                     ciborium::Value::Float(lat),
                     ciborium::Value::Float(lng),
-                    ciborium::Value::Text(jrc_gfc2020::JRC_GFC2020_VERSION_TAG.into()),
+                    // The version the publisher's listing named when this was read.
+                    ciborium::Value::Text(format!("v{version}")),
                 ])),
             },
             privacy_class: "public".into(),
@@ -54249,7 +54253,7 @@ async fn build_fact_jrc_gfc2020(
         })),
         Err(jrc_gfc2020::JrcGfc2020Error::CoverageGap { lat: la, lng: ln }) => {
             let reason = format!(
-                "jrc_gfc2020_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the JRC GFC2020 V3 ±82° latitude envelope."
+                "jrc_gfc2020_coverage_gap: cell ({la:.6},{ln:.6}) lies outside the JRC GFC2020 ±82° latitude envelope."
             );
             Ok(build_absence_fact(
                 s,
@@ -54257,18 +54261,18 @@ async fn build_fact_jrc_gfc2020(
                 band,
                 0,
                 "jrc.gfc2020.v3",
-                &url,
+                "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/",
                 signed_at,
                 &reason,
             ))
         }
-        Err(jrc_gfc2020::JrcGfc2020Error::TileNotFound { tile, .. }) => {
+        Err(jrc_gfc2020::JrcGfc2020Error::TileNotFound { tile, url }) => {
             // The JRC publishes no 10° tile for fully-oceanic cells; an
             // absent tile is a genuine coverage gap, signed as Absence
             // rather than fabricating a non-forest zero. (EUDR plots are
             // on land, so this is a defensive boundary case.)
             let reason = format!(
-                "jrc_gfc2020_tile_not_found: 10° tile {tile} is not published (cell outside JRC GFC2020 V3 tile coverage)."
+                "jrc_gfc2020_tile_not_found: 10° tile {tile} is not in the published tile listing (open ocean or outside JRC GFC2020 coverage)."
             );
             Ok(build_absence_fact(
                 s,
