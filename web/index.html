@@ -444,6 +444,77 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 .how-foot a{ display:inline-flex; align-items:center; min-height:44px; color:var(--accent); }
 
 /* ---- use it from: rendered from #surfaces ---- */
+.flow, .kpi, .toks, .writers, .dev{ padding:var(--s-4) 0; }
+.home > .flow, .home > .toks{ max-width:68rem; }
+.flow-sub{ margin:0 0 var(--s-3); font-family:var(--mono); font-size:var(--t-2xs); color:var(--mute); }
+.fl{ position:relative; display:grid; grid-template-columns:minmax(0, 1fr) minmax(11rem, .8fr) minmax(0, 1fr); gap:var(--s-4); align-items:center; }
+.fl-col{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-1); position:relative; z-index:1; }
+.fl-n a{ display:grid; grid-template-columns:minmax(0, 1fr) auto; gap:0 var(--s-1); padding:var(--s-1) var(--s-2); border:1px solid var(--rule); border-radius:.6rem;
+  background:var(--field); text-decoration:none; color:var(--ink); }
+.fl-n a:hover{ border-color:var(--accent); }
+.fl-n b{ font-family:var(--display); font-weight:420; font-size:var(--t-sm); }
+.fl-n .fl-c{ grid-column:1; font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fl-n code{ grid-row:1 / span 2; grid-column:2; align-self:center; font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); }
+.fl-mid{ position:relative; z-index:1; display:grid; justify-items:center; gap:6px; padding:var(--s-3) var(--s-2); border:1.5px solid var(--accent); border-radius:1rem;
+  background:var(--paper); text-align:center; }
+.fl-core{ font-family:var(--display); font-size:var(--t-2xl); line-height:1; color:var(--ink); }
+.fl-verbs{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); letter-spacing:.04em; }
+.fl-tok{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fl-head{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--ink-2); }
+.fl-wires{ position:absolute; inset:0; width:100%; height:100%; pointer-events:none; z-index:0; overflow:visible; }
+.fl-wires path{ fill:none; stroke:var(--rule-strong); stroke-width:1.2; stroke-dasharray:4 5; }
+.fl.on .fl-wires path{ animation:flw 1.6s linear infinite; }
+@keyframes flw{ to{ stroke-dashoffset:-18; } }
+@media (prefers-reduced-motion: reduce){ .fl.on .fl-wires path{ animation:none; } }
+@media (max-width:760px){
+  .fl{ grid-template-columns:minmax(0, 1fr); gap:var(--s-2); }
+  .fl-wires{ display:none; }
+  .fl-mid{ order:0; }
+  .fl-enc::after{ content:"\2193"; display:block; text-align:center; color:var(--mute); }
+  .fl-mid{ margin-bottom:var(--s-3); }
+  .fl-mid::after{ content:"\2193"; position:absolute; left:50%; bottom:calc(-1 * var(--s-3)); transform:translateX(-50%); color:var(--mute); }
+}
+.kpi-l{ margin:0; display:grid; grid-template-columns:repeat(auto-fit, minmax(9rem, 1fr)); gap:var(--s-1); }
+.kpi-l div{ padding:var(--s-2); border:1px solid var(--rule); border-radius:.75rem; background:var(--field); }
+.kpi-l dt{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.kpi-l dd{ margin:4px 0 0; font-family:var(--display); font-size:var(--t-xl); color:var(--ink); line-height:1.1; overflow-wrap:anywhere; }
+.kpi-note{ margin:var(--s-1) 0 0; font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.tk{ list-style:none; margin:0; padding:0; display:grid; grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr)); gap:var(--s-1); }
+.tk-t{ display:grid; gap:4px; padding:var(--s-2); border:1px solid var(--rule); border-radius:.75rem; background:var(--field); min-width:0; }
+.tk-t:first-child{ grid-column:span 2; }
+.tk-f{ font-family:var(--mono); font-size:var(--t-sm); color:var(--accent); font-weight:600; }
+.tk-v{ font-family:var(--display); font-size:var(--t-base); color:var(--ink); }
+.tk-c{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--ink-2); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tk-s{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.tk-go{ justify-self:start; min-height:36px; display:inline-flex; align-items:center; font-family:var(--mono); font-size:var(--t-3xs); color:var(--accent); }
+@media (max-width:560px){ .tk-t:first-child{ grid-column:auto; } }
+.wr-sum{ margin:0 0 var(--s-2); font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink-2); }
+.wr-sum b{ font-family:var(--display); font-size:var(--t-lg); color:var(--ink); font-weight:420; }
+.wr-l{ list-style:none; margin:0 0 var(--s-2); padding:0; display:grid; gap:var(--s-1); grid-template-columns:repeat(auto-fill, minmax(15rem, 1fr)); }
+.wr-l li{ display:grid; gap:2px; padding:var(--s-2); border:1px solid var(--rule); border-radius:.75rem; background:var(--field); }
+.wr-l b{ font-family:var(--display); font-weight:420; font-size:var(--t-base); color:var(--ink); }
+.wr-l span{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); overflow-wrap:anywhere; }
+.wr-tiers{ display:flex; gap:2px; height:28px; border-radius:.4rem; overflow:hidden; }
+.wr-bar{ display:flex; align-items:center; min-width:2.6rem; padding:0 6px; background:var(--rule); }
+.wr-bar:nth-child(2n){ background:var(--rule-strong); }
+.wr-bar:last-child{ background:var(--accent); }
+.wr-bar i{ font-style:normal; font-family:var(--mono); font-size:var(--t-3xs); color:var(--ink); white-space:nowrap; overflow:hidden; }
+.wr-bar:last-child i{ color:var(--paper); }
+.wr-note{ margin:var(--s-1) 0 0; font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.dev-tabs{ display:flex; gap:var(--s-1); margin:0 0 var(--s-2); }
+.dev-tabs button{ min-height:40px; padding:0 var(--s-3); border:1px solid var(--rule); border-radius:999px; background:transparent; color:var(--ink-2);
+  font-family:var(--mono); font-size:var(--t-2xs); cursor:pointer; }
+.dev-tabs button[aria-selected="true"]{ background:var(--ink); border-color:var(--ink); color:var(--paper); }
+.dev-p{ display:grid; gap:var(--s-1); }
+.dev-p[hidden]{ display:none; }
+.dev-cmd{ display:flex; align-items:center; gap:var(--s-1); padding:var(--s-1) var(--s-1) var(--s-1) var(--s-2); border:1px solid var(--rule-strong); border-radius:.6rem; background:var(--field); min-width:0; }
+.dev-cmd code{ flex:1 1 auto; min-width:0; font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink); overflow-x:auto; white-space:nowrap; }
+.dev-copy{ flex:none; min-height:36px; padding:0 var(--s-2); border:1px solid var(--rule-strong); border-radius:999px; background:transparent; color:var(--accent);
+  font-family:var(--mono); font-size:var(--t-3xs); cursor:pointer; }
+.dev-p pre{ margin:0; padding:var(--s-2); border-radius:.6rem; background:var(--ink); color:var(--paper); overflow-x:auto; font-size:var(--t-3xs); }
+.dev-l{ margin:0; padding-left:1.2em; font-family:var(--mono); font-size:var(--t-2xs); color:var(--ink-2); }
+.dev-links{ margin:var(--s-2) 0 0; font-family:var(--mono); font-size:var(--t-2xs); }
+.dev-links a{ color:var(--accent); display:inline-flex; align-items:center; min-height:44px; }
 .use{ padding:var(--s-4) 0 var(--s-5); }
 .use-kinds{ display:flex; flex-wrap:wrap; gap:var(--s-1); margin:0 0 var(--s-2); }
 .use-kinds button{ min-height:36px; padding:0 var(--s-2); border:1px solid var(--rule); border-radius:999px; background:transparent;
@@ -566,7 +637,7 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 
 <main class="home">
 
-<section class="hero" aria-labelledby="hero-h">
+<section class="hero" id="hero" aria-labelledby="hero-h">
   <h1 id="hero-h">Give your agent a memory other agents can check.</h1>
   <p class="lede">Hash a file. Read a place. Sign it. Hand it on.</p>
 
@@ -610,9 +681,56 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
   <div class="thread" id="thread" aria-live="polite"></div>
 </section>
 
+<section class="flow" id="flow" aria-labelledby="flow-h">
+  <h2 id="flow-h">Encode once. Decode anywhere.</h2>
+  <p class="flow-sub">left: what writes signed memory &middot; middle: one name, signed, logged &middot; right: what reads and checks it</p>
+  <div class="fl" id="fl">
+    <ol class="fl-col fl-enc" id="flEnc" aria-label="encoders"></ol>
+    <div class="fl-mid" id="flMid">
+      <b class="fl-core">emem</b>
+      <span class="fl-verbs">name &middot; sign &middot; log</span>
+      <code class="fl-tok" id="flTok">emem:fact:…</code>
+      <span class="fl-head" id="flHead">log head &hellip;</span>
+    </div>
+    <ol class="fl-col fl-dec" id="flDec" aria-label="decoders"></ol>
+    <svg class="fl-wires" id="flWires" aria-hidden="true"></svg>
+  </div>
+  <script type="application/json" id="encoders">[
+{"id":"world","name":"The world","what":"satellites, sensors, open data","tok":"emem:fact","count":{"url":"/v1/materializers?page_size=1","path":"pagination.total","unit":"wired bands"},"to":"reel"},
+{"id":"files","name":"Files","what":"any file, read as units","tok":"emem:tree","count":{"tab":"in your tab"},"to":"hero"},
+{"id":"claims","name":"Agent claims","what":"signed notes, derivations","tok":"note · emem:fact","count":{"url":"/v1/agents","sum":"agents.notes","unit":"signed notes"},"to":"writers"},
+{"id":"reasoning","name":"Reasoning","what":"each step of an answer","tok":"emem:state","count":{"tab":"per answer"},"to":"tokens"},
+{"id":"decisions","name":"Decisions","what":"closed-set answers, signed","tok":"receipt","count":{"tab":"POST /v1/decide"},"to":"dev"},
+{"id":"traces","name":"Traces","what":"device and OS execution","tok":"emem:trace","count":{"url":"/v1/trace_encodings","len":"registry.encodings","unit":"capture encodings"},"to":"tokens"},
+{"id":"identities","name":"Identities","what":"one object, one name","tok":"emem:entity","count":{"tab":"POST /v1/entity"},"to":"tokens"}
+]</script>
+</section>
+
+<section class="kpi" aria-label="Measured now">
+  <dl class="kpi-l" id="kpi">
+    <div><dt>log entries</dt><dd id="kpi-log" data-pending>&hellip;</dd></div>
+    <div><dt>signing keys</dt><dd id="kpi-keys" data-pending>&hellip;</dd></div>
+    <div><dt>signed notes</dt><dd id="kpi-notes" data-pending>&hellip;</dd></div>
+    <div><dt>wired bands</dt><dd id="kpi-bands" data-pending>&hellip;</dd></div>
+    <div><dt>MCP tools</dt><dd id="kpi-tools" data-pending>&hellip;</dd></div>
+    <div><dt>head verified here</dt><dd id="kpi-ms" data-pending>&hellip;</dd></div>
+  </dl>
+  <p class="kpi-note">measured by this tab just now, from the responder&rsquo;s own endpoints</p>
+</section>
+
+<section class="toks" id="tokens" aria-labelledby="tokens-h">
+  <h2 id="tokens-h">One token per thing</h2>
+  <ul class="tk" id="tk"></ul>
+</section>
+
+<section class="writers" id="writers" aria-labelledby="writers-h">
+  <h2 id="writers-h">Who writes to emem</h2>
+  <div class="wr" id="wr"><p class="wr-sum" id="wrSum">&hellip;</p><ul class="wr-l" id="wrL"></ul><div class="wr-tiers" id="wrTiers"></div></div>
+</section>
+
 <section class="live" aria-labelledby="live-h">
   <p class="eyebrow"><b>live</b> &middot; read and checked in your tab</p>
-  <h2 id="live-h">What agents already carry</h2>
+  <h2 id="live-h">Encoded: what agents already carry</h2>
 <section class="cz" id="reel" aria-roledescription="carousel" aria-label="What emem carries">
   <div class="cz-track" id="czTrack" tabindex="0" aria-label="Slides; swipe or use the arrow keys">
 
@@ -890,10 +1008,38 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
 </section>
 
 <section class="use" id="use" aria-labelledby="use-h">
-  <h2 id="use-h">Use it from</h2>
+  <h2 id="use-h">Decode it anywhere</h2>
   <div class="use-kinds" id="useKinds" role="toolbar" aria-label="Filter"></div>
   <ul class="surf" id="surf"></ul>
-  <script type="application/json" id="surfaces">[{"id":"mcp","kind":"protocol","name":"MCP","what":"any MCP client","do":"copy","val":"{ \"mcpServers\": { \"emem\": { \"type\": \"http\", \"url\": \"https://emem.dev/mcp\" } } }","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"plug"},{"id":"rest","kind":"protocol","name":"REST","what":"OpenAPI 3.1","do":"open","val":"/openapi.json","check":{"url":"/openapi.json","method":"HEAD"},"mark":"braces"},{"id":"a2a","kind":"protocol","name":"A2A","what":"agent card","do":"copy","val":"curl -s https://emem.dev/.well-known/agent-card.json","check":{"url":"/.well-known/agent-card.json","method":"HEAD"},"mark":"a2a"},{"id":"claude-code","kind":"assistant","name":"Claude Code","what":"one command","do":"copy","val":"claude mcp add --transport http emem https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude"},{"id":"claude-plugin","kind":"assistant","name":"Claude plugin","what":"MCP server + skills","do":"copy","val":"/plugin marketplace add Vortx-AI/emem","listed":"repo: .claude-plugin/marketplace.json","mark":"claude"},{"id":"claude-ai","kind":"assistant","name":"Claude.ai","what":"custom connector","do":"copy","val":"https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude"},{"id":"chatgpt","kind":"assistant","name":"ChatGPT","what":"app","do":"open","val":"https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77","listed":"2026-09-27","mark":"chatgpt"},{"id":"dify","kind":"assistant","name":"Dify","what":"marketplace plugin","do":"open","val":"https://marketplace.dify.ai/plugin/vortx-ai/emem","listed":"2026-09-27","mark":"dify"},{"id":"cursor","kind":"editor","name":"Cursor","what":"one-click install","do":"open","val":"cursor://anysphere.cursor-deeplink/mcp/install?name=emem&config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"cursor"},{"id":"vscode","kind":"editor","name":"VS Code","what":"one command","do":"copy","val":"code --add-mcp '{\"name\":\"emem\",\"type\":\"http\",\"url\":\"https://emem.dev/mcp\"}'","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"vscode"},{"id":"gemini","kind":"editor","name":"Gemini CLI","what":"extension config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json","listed":"repo: examples/gemini-extension.json","mark":"gemini"},{"id":"cline","kind":"editor","name":"Cline","what":"MCP config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json","listed":"repo: examples/cline.mcp.json","mark":"cline"},{"id":"mcp-registry","kind":"registry","name":"MCP Registry","what":"io.github.Vortx-AI/emem","do":"open","val":"https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem","listed":"2026-09-27","mark":"registry"},{"id":"github-mcp","kind":"registry","name":"GitHub MCP","what":"github.com/mcp","do":"open","val":"https://github.com/mcp/Vortx-AI/emem","listed":"2026-09-27","mark":"github"},{"id":"glama","kind":"registry","name":"Glama","what":"MCP directory","do":"open","val":"https://glama.ai/mcp/servers/Vortx-AI/emem","listed":"2026-09-27","mark":"glama"},{"id":"hf","kind":"registry","name":"Hugging Face","what":"Space","do":"open","val":"https://huggingface.co/spaces/vortx-ai/emem","listed":"2026-09-27","mark":"hf"},{"id":"docker","kind":"self-host","name":"Docker","what":"the whole responder","do":"copy","val":"docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest","listed":"ghcr.io 2026-09-27","mark":"docker"},{"id":"encoder","kind":"self-host","name":"Air-gapped encoder","what":"no network, one binary","do":"copy","val":"docker pull ghcr.io/vortx-ai/emem-encode:latest && docker pull ghcr.io/vortx-ai/emem-airgap:latest","listed":"ghcr.io 2026-09-27","mark":"airgap"},{"id":"py","kind":"sdk","name":"Python","what":"ememdev","do":"copy","val":"pip install ememdev","listed":"pypi 2.4.0","mark":"py"},{"id":"ts","kind":"sdk","name":"TypeScript","what":"@vortxai/emem","do":"copy","val":"npm i @vortxai/emem","listed":"npm 2.4.0","mark":"ts"},{"id":"frameworks","kind":"sdk","name":"Frameworks","what":"LangChain · LlamaIndex · CrewAI · AutoGen · Mastra · Agno · Semantic Kernel","do":"open","val":"https://github.com/Vortx-AI/emem/tree/main/examples","listed":"repo: examples/","mark":"layers"},{"id":"github","kind":"sdk","name":"GitHub","what":"Apache-2.0 source","do":"open","val":"https://github.com/Vortx-AI/emem","listed":"2026-09-27","mark":"github"}]</script>
+  <script type="application/json" id="surfaces">[{"id":"mcp","kind":"protocol","name":"MCP","what":"any MCP client","do":"copy","val":"{ \"mcpServers\": { \"emem\": { \"type\": \"http\", \"url\": \"https://emem.dev/mcp\" } } }","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"plug","role":"both"},{"id":"rest","kind":"protocol","name":"REST","what":"OpenAPI 3.1","do":"open","val":"/openapi.json","check":{"url":"/openapi.json","method":"HEAD"},"mark":"braces","role":"both"},{"id":"a2a","kind":"protocol","name":"A2A","what":"agent card","do":"copy","val":"curl -s https://emem.dev/.well-known/agent-card.json","check":{"url":"/.well-known/agent-card.json","method":"HEAD"},"mark":"a2a","role":"both"},{"id":"claude-code","kind":"assistant","name":"Claude Code","what":"one command","do":"copy","val":"claude mcp add --transport http emem https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"claude-plugin","kind":"assistant","name":"Claude plugin","what":"MCP server + skills","do":"copy","val":"/plugin marketplace add Vortx-AI/emem","listed":"repo: .claude-plugin/marketplace.json","mark":"claude","role":"decoder"},{"id":"claude-ai","kind":"assistant","name":"Claude.ai","what":"custom connector","do":"copy","val":"https://emem.dev/mcp","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"claude","role":"decoder"},{"id":"chatgpt","kind":"assistant","name":"ChatGPT","what":"app","do":"open","val":"https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77","listed":"2026-09-27","mark":"chatgpt","role":"decoder"},{"id":"dify","kind":"assistant","name":"Dify","what":"marketplace plugin","do":"open","val":"https://marketplace.dify.ai/plugin/vortx-ai/emem","listed":"2026-09-27","mark":"dify","role":"decoder"},{"id":"cursor","kind":"editor","name":"Cursor","what":"one-click install","do":"open","val":"cursor://anysphere.cursor-deeplink/mcp/install?name=emem&config=eyJ1cmwiOiJodHRwczovL2VtZW0uZGV2L21jcCJ9","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"cursor","role":"decoder"},{"id":"vscode","kind":"editor","name":"VS Code","what":"one command","do":"copy","val":"code --add-mcp '{\"name\":\"emem\",\"type\":\"http\",\"url\":\"https://emem.dev/mcp\"}'","check":{"url":"/mcp","method":"POST","mcp":true},"mark":"vscode","role":"decoder"},{"id":"gemini","kind":"editor","name":"Gemini CLI","what":"extension config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/gemini-extension.json","listed":"repo: examples/gemini-extension.json","mark":"gemini","role":"decoder"},{"id":"cline","kind":"editor","name":"Cline","what":"MCP config","do":"open","val":"https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json","listed":"repo: examples/cline.mcp.json","mark":"cline","role":"decoder"},{"id":"mcp-registry","kind":"registry","name":"MCP Registry","what":"io.github.Vortx-AI/emem","do":"open","val":"https://registry.modelcontextprotocol.io/v0/servers?search=io.github.Vortx-AI/emem","listed":"2026-09-27","mark":"registry","role":"decoder"},{"id":"github-mcp","kind":"registry","name":"GitHub MCP","what":"github.com/mcp","do":"open","val":"https://github.com/mcp/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"decoder"},{"id":"glama","kind":"registry","name":"Glama","what":"MCP directory","do":"open","val":"https://glama.ai/mcp/servers/Vortx-AI/emem","listed":"2026-09-27","mark":"glama","role":"decoder"},{"id":"hf","kind":"registry","name":"Hugging Face","what":"Space","do":"open","val":"https://huggingface.co/spaces/vortx-ai/emem","listed":"2026-09-27","mark":"hf","role":"decoder"},{"id":"context7","kind":"registry","role":"decoder","name":"Context7","what":"docs for coding agents · /vortx-ai/emem","do":"open","val":"https://context7.com/vortx-ai/emem","listed":"2026-09-27","mark":"context7"},{"id":"mulesoft","kind":"registry","role":"decoder","name":"MuleSoft","what":"Vortx AI MCP Server on Anypoint Exchange · flows reach it through MuleSoft's MCP and A2A connectors","do":"open","val":"https://anypoint.mulesoft.com/exchange/68e53915-e89b-4e82-b794-12d37982db4c/vortxAi-asset/","listed":"Exchange: mcp 2.0.0, published 2026-08-13","mark":"mulesoft"},{"id":"docker","kind":"self-host","name":"Docker","what":"the whole responder","do":"copy","val":"docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest","listed":"ghcr.io 2026-09-27","mark":"docker","role":"both"},{"id":"encoder","kind":"self-host","name":"Air-gapped encoder","what":"no network, one binary","do":"copy","val":"docker pull ghcr.io/vortx-ai/emem-encode:latest && docker pull ghcr.io/vortx-ai/emem-airgap:latest","listed":"ghcr.io 2026-09-27","mark":"airgap","role":"both"},{"id":"py","kind":"sdk","name":"Python","what":"ememdev","do":"copy","val":"pip install ememdev","listed":"pypi 2.4.0","mark":"py","role":"both"},{"id":"ts","kind":"sdk","name":"TypeScript","what":"@vortxai/emem","do":"copy","val":"npm i @vortxai/emem","listed":"npm 2.4.0","mark":"ts","role":"both"},{"id":"frameworks","kind":"sdk","name":"Frameworks","what":"LangChain · LlamaIndex · CrewAI · AutoGen · Mastra · Agno · Semantic Kernel","do":"open","val":"https://github.com/Vortx-AI/emem/tree/main/examples","listed":"repo: examples/","mark":"layers","role":"both"},{"id":"github","kind":"sdk","name":"GitHub","what":"Apache-2.0 source","do":"open","val":"https://github.com/Vortx-AI/emem","listed":"2026-09-27","mark":"github","role":"both"}]</script>
+</section>
+
+<section class="dev" id="dev" aria-labelledby="dev-h">
+  <h2 id="dev-h">Build with it</h2>
+  <div class="dev-tabs" role="tablist" aria-label="ways to start">
+    <button type="button" role="tab" aria-selected="true" aria-controls="dev-mcp" id="dt-mcp">MCP</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="dev-sdk" id="dt-sdk">SDK</button>
+    <button type="button" role="tab" aria-selected="false" aria-controls="dev-self" id="dt-self">Self-host</button>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-mcp" aria-labelledby="dt-mcp">
+    <div class="dev-cmd"><code>claude mcp add --transport http emem https://emem.dev/mcp</code><button type="button" class="dev-copy">copy</button></div>
+<pre><code>curl -s https://emem.dev/mcp -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_locate","arguments":{"place":"Lusail"}}}'</code></pre>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-sdk" aria-labelledby="dt-sdk" hidden>
+    <div class="dev-cmd"><code>pip install ememdev</code><button type="button" class="dev-copy">copy</button></div>
+<pre><code>from ememdev import Client
+
+with Client() as em:
+    cell = em.locate("Mount Fuji")["cell64"]
+    facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
+    print(facts["facts"][0]["value"])</code></pre>
+    <div class="dev-cmd"><code>npm i @vortxai/emem</code><button type="button" class="dev-copy">copy</button></div>
+  </div>
+  <div class="dev-p" role="tabpanel" id="dev-self" aria-labelledby="dt-self" hidden>
+    <div class="dev-cmd"><code>docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest</code><button type="button" class="dev-copy">copy</button></div>
+    <ul class="dev-l"><li>point any MCP client at <code>http://127.0.0.1:5051/mcp</code></li><li>its own key signs, its own log grows</li><li>no network: <code>ghcr.io/vortx-ai/emem-airgap</code></li></ul>
+  </div>
+  <p class="dev-links"><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub</a> &middot; <a href="/reference">reference</a> &middot; <a href="/tools">MCP tools</a> &middot; <a href="/verify">verify</a></p>
 </section>
 
 </main>
@@ -3297,7 +3443,9 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
     airgap:'<rect x="6" y="11" width="12" height="9" rx="1.5"/><path d="M9 11V8a3 3 0 0 1 6 0v3M3 3l18 18"/>',
     py:'<rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M8 16V9h2.5a2 2 0 0 1 0 4H8M14 9l1.8 3.5L17.5 9M15.8 12.5V16"/>',
     ts:'<rect x="3.5" y="5" width="17" height="14" rx="3"/><path d="M7 9h5M9.5 9v7M17 9.8c-.5-.6-1.2-.8-2-.8-1 0-1.8.6-1.8 1.4 0 2 3.8 1.3 3.8 3.3 0 .9-.9 1.5-2 1.5-.9 0-1.7-.3-2.2-1"/>',
-    layers:'<path d="M12 4l9 5-9 5-9-5zM3 14l9 5 9-5"/>'
+    layers:'<path d="M12 4l9 5-9 5-9-5zM3 14l9 5 9-5"/>',
+    context7:'<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9h8l-5 7"/>',
+    mulesoft:'<circle cx="12" cy="12" r="8.5"/><path d="M7.5 15.5V9l4.5 5 4.5-5v6.5"/>'
   };
   var surfEl = $('surf'), kindsEl = $('useKinds'), SURF = [];
   try{ SURF = JSON.parse($('surfaces').textContent); }catch(e){ SURF = []; }
@@ -3351,6 +3499,172 @@ details[open] > .bot-sum::before{ transform:rotate(45deg); }
       });
     }, { threshold:0.1 }).observe(surfEl);
   }
+
+  /* ---- encode, emem, decode: every node and number read live ---- */
+  function fmtN(n){ return Number(n).toLocaleString('en'); }
+  function dig(o, path){ return path.split('.').reduce(function(a, k){ return a == null ? a : a[k]; }, o); }
+  function jget(u){ return fetch(u).then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); }); }
+  var once = {};
+  function cached(u){ return once[u] = once[u] || jget(u); }
+  function whenSeen(el, f){
+    if(!el) return;
+    if(!('IntersectionObserver' in window)){ f(); return; }
+    var io = new IntersectionObserver(function(es){ if(es[0].isIntersecting){ io.disconnect(); f(); } }, { threshold:0.15 });
+    io.observe(el);
+  }
+  var ENC = [];
+  try{ ENC = JSON.parse($('encoders').textContent); }catch(e){ ENC = []; }
+  var encEl = $('flEnc'), decEl = $('flDec'), flEl = $('fl');
+  function node(parent, name, sub, tok, to){
+    var li = mk('li', 'fl-n', parent), a = mk('a', '', li);
+    a.href = '#' + to;
+    mk('b', '', a, name); var n = mk('span', 'fl-c', a, sub || ''); if(tok) mk('code', '', a, tok);
+    return n;
+  }
+  ENC.forEach(function(e){
+    var c = node(encEl, e.name, e.count && e.count.tab ? e.count.tab : '…', e.tok, e.to);
+    if(!e.count || e.count.tab) return;
+    e.el = c;
+  });
+  /* decoders: the surfaces grid, grouped by kind, with its size */
+  var groups = {};
+  SURF.forEach(function(x){ if(x.role === 'encoder') return; (groups[x.kind] = groups[x.kind] || []).push(x.name); });
+ var KLAB = { protocol:'Protocols', assistant:'Assistants', editor:'Editors', registry:'Registries', 'self-host':'Self-host', sdk:'SDKs' };
+  Object.keys(groups).forEach(function(k){
+    node(decEl, KLAB[k] || k, groups[k].length + ' · ' + groups[k].slice(0, 3).join(', ') + (groups[k].length > 3 ? '…' : ''), null, 'use');
+  });
+  /* the wires: drawn from each node's box to the core, redrawn on resize */
+  function wires(){
+    var svg = $('flWires'), mid = $('flMid');
+    if(!svg || !mid || getComputedStyle(svg).display === 'none') return;
+    var b = flEl.getBoundingClientRect(), m = mid.getBoundingClientRect(), d = '';
+    svg.setAttribute('viewBox', '0 0 ' + b.width + ' ' + b.height);
+    [].forEach.call(encEl.children, function(li){
+      var r = li.getBoundingClientRect(), y = r.top + r.height / 2 - b.top, x1 = r.right - b.left, x2 = m.left - b.left, my = m.top + m.height / 2 - b.top;
+      d += 'M' + x1 + ' ' + y + ' C' + (x1 + x2) / 2 + ' ' + y + ' ' + (x1 + x2) / 2 + ' ' + my + ' ' + x2 + ' ' + my + ' ';
+    });
+    [].forEach.call(decEl.children, function(li){
+      var r = li.getBoundingClientRect(), y = r.top + r.height / 2 - b.top, x1 = m.right - b.left, x2 = r.left - b.left, my = m.top + m.height / 2 - b.top;
+      d += 'M' + x1 + ' ' + my + ' C' + (x1 + x2) / 2 + ' ' + my + ' ' + (x1 + x2) / 2 + ' ' + y + ' ' + x2 + ' ' + y + ' ';
+    });
+    svg.innerHTML = '<path d="' + d + '"/>';
+  }
+  if(flEl){ wires(); window.addEventListener('resize', wires); }
+
+  /* the numbers: each one a call this tab makes now */
+  function put(id, v){ var e = $(id); if(e){ e.textContent = v; e.removeAttribute('data-pending'); } }
+  whenSeen($('flow'), function(){
+    if(flEl) flEl.classList.add('on');
+    factOnce().then(function(t){ var c = $('flTok'); c.textContent = t; c.title = t; }, function(){});
+    var t0 = performance.now();
+    headC = null;
+    head().then(function(h){
+      var ms = Math.round(performance.now() - t0);
+      put('kpi-log', fmtN(h.sth.tree_size)); put('kpi-ms', h.ok ? ms + ' ms ✓' : 'did not verify');
+      $('flHead').innerHTML = (h.ok ? '<span class="ok">&#10003;</span> ' : '<span class="no">&#10007;</span> ') + 'log head ' + fmtN(h.sth.tree_size) + ' entries';
+    }, function(){ put('kpi-log', 'unreachable'); });
+    cached('/v1/agents').then(function(d){
+      var a = d.agents || [];
+      put('kpi-keys', fmtN(d.count || a.length));
+      put('kpi-notes', fmtN(a.reduce(function(n, x){ return n + (x.notes || 0); }, 0)));
+    }).catch(function(){});
+    cached('/v1/materializers?page_size=1').then(function(d){ put('kpi-bands', fmtN(d.pagination.total)); }).catch(function(){});
+    jget('/v1/tools').then(function(d){ put('kpi-tools', fmtN(d.total)); }).catch(function(){});
+    ENC.forEach(function(e){
+      if(!e.el) return;
+      cached(e.count.url).then(function(d){
+        var v = e.count.path ? dig(d, e.count.path) : e.count.len ? (dig(d, e.count.len) || []).length :
+          (dig(d, e.count.sum.split('.')[0]) || []).reduce(function(n, x){ return n + (x[e.count.sum.split('.')[1]] || 0); }, 0);
+        e.el.textContent = fmtN(v) + ' ' + e.count.unit;
+      }).catch(function(){ e.el.textContent = 'did not answer'; });
+    });
+  });
+
+  /* ---- one token per thing: each tile a live token that resolves ---- */
+  function slideAttr(sel, attr){ var e = document.querySelector(sel); return e ? (attr ? e.getAttribute(attr) : e.textContent.trim()) : null; }
+  /* a slide's read line runs straight into its caption, so the token is cut by its own shape */
+  var SHAPE = { 'emem:tree:':/^emem:tree:[a-z2-7]{26}/, 'emem:rasterset:':/^emem:rasterset:[a-z2-7]{52}:[a-z2-7]{52}/ };
+  function firstRead(prefix){
+    var m = null;
+    [].some.call(document.querySelectorAll('.cz-slide [data-read]'), function(e){ return (m = SHAPE[prefix].exec(e.textContent.trim())); });
+    return m ? m[0] : null;
+  }
+  var askP = null, factP = null;
+  function factOnce(){ return factP = factP || api('/v1/recall', { place:'Lusail', bands:['copdem30m.elevation_mean'] }).then(function(d){ return d.facts[0].memory_token; }); }
+  function askOnce(){ return askP = askP || api('/v1/ask', { question:'What is the elevation of Lusail?' }); }
+  var FAM = [
+    { f:'fact', v:'cite a reading', get:factOnce,
+      res:function(t){ return api('/v1/memory_token/resolve', { token:t }); } },
+    { f:'bundle', v:'cite a grid of readings', get:function(){ return api('/v1/grid', { center:'12.9763,77.5929', bands:['indices.ndvi'], n:4, half_km:0.5, budget_ms:6000 }).then(function(g){ return g.bands['indices.ndvi'].bundle_token; }); },
+      res:function(t){ return jget('/v1/memory_bundle/' + encodeURIComponent(t)); } },
+    { f:'tree', v:'prove one part of a file', get:function(){ return Promise.resolve(firstRead('emem:tree:')); },
+      res:function(t){ return jget('/v1/tree/' + t.split(':')[2].split('#')[0]); } },
+    { f:'entity', v:'name one object', get:function(){ var c = slideAttr('.cz-slide[data-entity]', 'data-entity'); return Promise.resolve(c && 'emem:entity:' + c); },
+      res:function(t){ return api('/v1/entity/resolve', { token:t }); } },
+    { f:'state', v:'address a step of reasoning', get:function(){ return askOnce().then(function(d){ var st = (d.reasoning || {}).states || []; return st.length ? st[st.length - 1].state : null; }); },
+      res:function(t){ return jget('/v1/state/' + t.split(':')[2]); } },
+    { f:'trace', v:'attest a device run', get:function(){ return Promise.resolve(slideAttr('.cz-slide[data-kind="trace"]', 'data-token')); },
+      res:function(t){ return api('/v1/trace_resolve', { token:t }); } },
+    { f:'rasterset', v:'bind a stack of fields', get:function(){ return Promise.resolve(firstRead('emem:rasterset:')); },
+      res:function(t){ return api('/v1/raster_bundle/resolve', { token:t }); } }
+  ];
+  var tkEl = $('tk');
+  FAM.forEach(function(x){
+    var li = mk('li', 'tk-t', tkEl);
+    mk('b', 'tk-f', li, 'emem:' + x.f); mk('span', 'tk-v', li, x.v);
+    x.code = mk('code', 'tk-c', li, '…'); x.st = mk('span', 'tk-s', li, 'waiting');
+    x.a = mk('a', 'tk-go', li, 'check'); x.a.hidden = true;
+  });
+  whenSeen(tkEl, function(){
+    FAM.forEach(function(x){
+      x.get().then(function(t){
+        if(!t) throw new Error('none held');
+        x.code.textContent = t; x.code.title = t;
+        x.a.href = '/verify?q=' + encodeURIComponent(t); x.a.hidden = false;
+        var t0 = performance.now();
+        return x.res(t).then(function(){ x.st.innerHTML = '<span class="ok">&#10003;</span> resolves, ' + Math.round(performance.now() - t0) + ' ms'; });
+      }).catch(function(e){ x.st.innerHTML = '<span class="no">&#10007;</span> ' + esc(short(e)); });
+    });
+  });
+
+  /* ---- who writes: the keys that signed, grouped by who vouches for them ---- */
+  whenSeen($('writers'), function(){
+    cached('/v1/agents').then(function(d){
+      var a = d.agents || [], notes = a.reduce(function(n, x){ return n + (x.notes || 0); }, 0);
+      var talk = a.filter(function(x){ return (x.correspondence || 0) > 0; }).length;
+      $('wrSum').innerHTML = '<b>' + fmtN(a.length) + '</b> keys &middot; <b>' + fmtN(notes) + '</b> signed notes &middot; <b>' + fmtN(talk) + '</b> keys in correspondence';
+      var byDom = {};
+      a.forEach(function(x){
+        var oe = ((x.enlistment || {}).org_evidence) || {}, dom = oe.ok ? oe.domain : null;
+        if(dom) (byDom[dom] = byDom[dom] || []).push(x);
+      });
+      var L = $('wrL');
+      Object.keys(byDom).sort(function(p, q){ return byDom[q].reduce(function(n, x){ return n + x.notes; }, 0) - byDom[p].reduce(function(n, x){ return n + x.notes; }, 0); }).forEach(function(dom){
+        var ks = byDom[dom], li = mk('li', '', L);
+        mk('b', '', li, dom);
+        mk('span', '', li, ks.length + ' key' + (ks.length === 1 ? '' : 's') + ' · ' + fmtN(ks.reduce(function(n, x){ return n + (x.notes || 0); }, 0)) + ' notes · ' + ks.map(function(x){ return x.prefix; }).slice(0, 3).join(' '));
+      });
+      var tiers = {};
+      a.forEach(function(x){ var t = ((x.enlistment || {}).tier || 'unranked').split('_')[0]; tiers[t] = (tiers[t] || 0) + 1; });
+      var T = $('wrTiers');
+      Object.keys(tiers).sort().forEach(function(t){
+        var s2 = mk('span', 'wr-bar', T); s2.style.flexGrow = tiers[t]; s2.title = t + ': ' + tiers[t];
+        mk('i', '', s2, t + ' ' + tiers[t]);
+      });
+      mk('p', 'wr-note', $('wr'), 'a domain listed here publishes the key in its own /.well-known/emem-agents.json; tiers: GET /v1/enlist');
+    }).catch(function(){ $('wrSum').textContent = 'the agents list did not answer'; });
+  });
+
+  /* ---- build with it: three ways in ---- */
+  [].forEach.call(document.querySelectorAll('.dev-tabs [role=tab]'), function(tb, i, all){
+    tb.addEventListener('click', function(){
+      [].forEach.call(all, function(o){ var on = o === tb; o.setAttribute('aria-selected', on ? 'true' : 'false'); $(o.getAttribute('aria-controls')).hidden = !on; });
+    });
+  });
+  [].forEach.call(document.querySelectorAll('.dev-copy'), function(b){
+    b.addEventListener('click', function(){ copyTo(b, b.previousElementSibling.textContent); });
+  });
+
   sync();
 })();
 </script>
