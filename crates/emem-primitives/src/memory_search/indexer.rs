@@ -652,7 +652,14 @@ pub async fn hydrate_once(
                 continue;
             }
         };
-        let vector = match embedder.embed_document(&text) {
+        // A model run: on the blocking pool, never on an async worker, which it
+        // would hold for the length of the embedding.
+        let emb = embedder.clone();
+        let doc = text.clone();
+        let embedded = tokio::task::spawn_blocking(move || emb.embed_document(&doc))
+            .await
+            .unwrap_or_else(|e| Err(EmbedError::Ort(format!("embed task: {e}"))));
+        let vector = match embedded {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(target: "emem::memory_search", path = %s.path, error = %e, "embed failed; file will be retried on next pass");

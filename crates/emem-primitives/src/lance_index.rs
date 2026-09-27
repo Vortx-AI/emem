@@ -422,8 +422,11 @@ impl LanceIndex {
             let end = (chunk_start + CHUNK).min(cids.len());
             let cid_slice = &cids[chunk_start..end];
             let key_slice = &keys[chunk_start..end];
+            // Uncited: hydrating the index serves nobody. Counted, every boot
+            // credited each fact's signer with a citation and hammered one
+            // sled key per signer from the async workers.
             let facts = storage
-                .get_facts_many(cid_slice)
+                .get_facts_many_uncited(cid_slice)
                 .await
                 .map_err(|e| LanceError::Storage(e.to_string()))?;
             for ((key, cid), fact_opt) in key_slice.iter().zip(cid_slice.iter()).zip(facts) {

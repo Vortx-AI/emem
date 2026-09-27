@@ -63,10 +63,18 @@ impl AttesterStats {
     }
 }
 
+/// Citations per signer (count, last cited at), and when they were last written.
+type PendingCitations = (std::collections::BTreeMap<String, (u64, u64)>, u64);
+
 /// Sled-backed reputation tracker. Cheap to construct, safe to share via Arc.
 #[derive(Clone)]
 pub struct AttesterRegistry {
     tree: Arc<Tree>,
+    /// Citations counted since the last write: signer -> (count, last unix s).
+    /// Every served read cites its facts, nearly all under one signer, so a
+    /// per-read compare-and-swap on that one key had every concurrent read
+    /// retry-spinning in sled; they now add here and are written in one go.
+    pending: Arc<std::sync::Mutex<PendingCitations>>,
 }
 
 impl AttesterRegistry {
@@ -75,6 +83,7 @@ impl AttesterRegistry {
         let tree = db.open_tree("emem.attesters")?;
         Ok(Self {
             tree: Arc::new(tree),
+            pending: Default::default(),
         })
     }
 
@@ -150,20 +159,42 @@ impl AttesterRegistry {
     /// Called from read paths after a fact is served to a client.
     pub fn record_citations(&self, facts: &[Fact]) -> sled::Result<()> {
         let now = unix_secs();
-        let mut per_signer: std::collections::BTreeMap<String, u64> =
-            std::collections::BTreeMap::new();
-        for f in facts {
-            let signer = match f {
-                Fact::Primary(p) => &p.signer.0,
-                Fact::Derivative(d) => &d.signer.0,
-                Fact::Absence(a) => &a.signer.0,
-            };
-            *per_signer.entry(b32(signer)).or_insert(0) += 1;
-        }
-        for (signer_b32, n) in per_signer {
+        let due = {
+            let mut g = self.pending.lock().unwrap_or_else(|e| e.into_inner());
+            for f in facts {
+                let signer = match f {
+                    Fact::Primary(p) => &p.signer.0,
+                    Fact::Derivative(d) => &d.signer.0,
+                    Fact::Absence(a) => &a.signer.0,
+                };
+                let e = g.0.entry(b32(signer)).or_insert((0, now));
+                e.0 += 1;
+                e.1 = now;
+            }
+            if now.saturating_sub(g.1) >= 30 {
+                g.1 = now;
+                std::mem::take(&mut g.0)
+            } else {
+                Default::default()
+            }
+        };
+        self.write_citations(due)
+    }
+
+    /// Write counted citations now (also at shutdown, so none are lost).
+    pub fn flush_citations(&self) -> sled::Result<()> {
+        let due = std::mem::take(&mut self.pending.lock().unwrap_or_else(|e| e.into_inner()).0);
+        self.write_citations(due)
+    }
+
+    fn write_citations(
+        &self,
+        due: std::collections::BTreeMap<String, (u64, u64)>,
+    ) -> sled::Result<()> {
+        for (signer_b32, (n, at)) in due {
             self.update(&signer_b32, |s| {
                 s.citations += n;
-                s.last_cited_unix_s = now;
+                s.last_cited_unix_s = at;
             })?;
         }
         Ok(())

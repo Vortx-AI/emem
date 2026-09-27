@@ -391,6 +391,16 @@ pub trait Storage: Send + Sync {
     /// Fetch many facts by CID.
     async fn get_facts_many(&self, cids: &[FactCid]) -> Result<Vec<Option<Fact>>, StorageError>;
 
+    /// Fetch many facts by CID for the responder's own use (index
+    /// hydration), which serves nobody and so cites nobody. Defaults to
+    /// [`Storage::get_facts_many`] for stores that count nothing.
+    async fn get_facts_many_uncited(
+        &self,
+        cids: &[FactCid],
+    ) -> Result<Vec<Option<Fact>>, StorageError> {
+        self.get_facts_many(cids).await
+    }
+
     /// Persist an attestation. Verifies the merkle root + ed25519
     /// signature before committing. Returns CIDs of stored facts.
     async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError>;
@@ -983,6 +993,13 @@ impl Storage for MaterializingStorage {
             }
         }
         Ok(facts)
+    }
+
+    async fn get_facts_many_uncited(
+        &self,
+        cids: &[FactCid],
+    ) -> Result<Vec<Option<Fact>>, StorageError> {
+        Ok(self.cache.get_many(cids).await?)
     }
 
     async fn put_attestation(&self, att: &Attestation) -> Result<Vec<FactCid>, StorageError> {
