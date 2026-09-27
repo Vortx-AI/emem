@@ -70,10 +70,10 @@ pinned scene. Fetch the bytes and re-hash to verify:
 ```sh
 CID=$(curl -sf ... | jq -r '.artifact.artifact_cid')     # from the response
 curl -sf "https://emem.dev/v1/artifacts/$CID" \
-  | python3 -c "import sys,base64;from blake3 import blake3;
-d=sys.stdin.buffer.read();
-print('re-hash matches:', blake3(d).digest().hex())"   # compare to artifact_cid (base32)
+  | python3 "$SKILL_DIR/rehash.py" "$CID"   # prints MATCH or MISMATCH
 ```
+
+`$SKILL_DIR` is this skill's own directory; the plugin ships `rehash.py` beside this file (it needs `pip install blake3`).
 
 The grid bytes are a canonical little-endian f32 array with a 64-byte header
 (`application/x.emem-grid-f32.v1`): magic `EMEMGRD1`, then `width`, `height`,
