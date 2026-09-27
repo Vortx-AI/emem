@@ -1,4 +1,4 @@
-//! JRC Global Forest Cover 2020 V3 connector.
+//! JRC Global Forest Cover 2020 connector, at whichever version `LATEST/` publishes (V4 since 2026-09; the tile listing decides).
 //!
 //! Source: **Bourgoin, C., et al. (2026). *JRC Global map of forest
 //! cover for year 2020 — version 3* (GFC2020 V3). Earth System Science
@@ -202,6 +202,77 @@ pub fn tile_url_for(lat: f64, lng: f64) -> String {
     format!("{JRC_GFC2020_TILES_BASE_URL}/{}", tile_name_for(lat, lng))
 }
 
+/// The tiles `LATEST/` actually publishes: the newest version present and
+/// the tile ids it covers, read from the directory listing.
+///
+/// The JRC replaced V3 with V4 under `LATEST/` and every V3 URL started
+/// answering 404, which this connector read as "no tile here" and signed
+/// as an Absence: the EUDR forest test went silent on every cell. Reading
+/// the listing makes the version the publisher's statement, and makes a
+/// missing tile one the listing leaves out, not one that failed to load.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TileIndex {
+    pub version: u32,
+    pub tiles: std::collections::HashSet<String>,
+}
+
+/// Parse a directory listing for `JRC_GFC2020_V<n>_<lat>_<lon>.tif`,
+/// keeping the tiles of the newest `<n>`. Pure, for testing.
+pub fn parse_tile_index(listing: &str) -> Option<TileIndex> {
+    let mut by_version: std::collections::BTreeMap<u32, std::collections::HashSet<String>> =
+        Default::default();
+    for piece in listing.split("JRC_GFC2020_V").skip(1) {
+        let digits: String = piece.chars().take_while(|c| c.is_ascii_digit()).collect();
+        let Ok(v) = digits.parse::<u32>() else {
+            continue;
+        };
+        let rest = &piece[digits.len()..];
+        let Some(name) = rest.strip_prefix('_').and_then(|r| r.split(".tif").next()) else {
+            continue;
+        };
+        let ok = name.split('_').count() == 2
+            && name.split('_').all(|t| {
+                t.len() >= 2
+                    && matches!(t.as_bytes()[0], b'N' | b'S' | b'E' | b'W')
+                    && t[1..].bytes().all(|b| b.is_ascii_digit())
+            });
+        if ok {
+            by_version.entry(v).or_default().insert(name.to_string());
+        }
+    }
+    by_version
+        .into_iter()
+        .next_back()
+        .map(|(version, tiles)| TileIndex { version, tiles })
+}
+
+/// The published tile index, read once a day.
+async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc2020Error> {
+    type Slot = tokio::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<TileIndex>)>>;
+    static SLOT: std::sync::OnceLock<Slot> = std::sync::OnceLock::new();
+    let mut g = SLOT.get_or_init(Default::default).lock().await;
+    if let Some((at, idx)) = g.as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(86_400) {
+            return Ok(idx.clone());
+        }
+    }
+    let url = format!("{JRC_GFC2020_TILES_BASE_URL}/");
+    let body = client
+        .get(&url)
+        .send()
+        .await
+        .and_then(|r| r.error_for_status())
+        .map_err(|e| JrcGfc2020Error::Transport(format!("tile listing {url}: {e}")))?
+        .text()
+        .await
+        .map_err(|e| JrcGfc2020Error::Transport(format!("tile listing {url}: {e}")))?;
+    let idx = std::sync::Arc::new(parse_tile_index(&body).ok_or_else(|| {
+        JrcGfc2020Error::Transport(format!("tile listing {url} names no GFC2020 tiles"))
+    })?);
+    *g = Some((std::time::Instant::now(), idx.clone()));
+    Ok(idx)
+}
+
 /// Read one pixel from the GFC2020 V3 raster and return the EUDR
 /// forest indicator (`1` = forest at 2020-12-31, `0` = non-forest).
 ///
@@ -225,18 +296,35 @@ pub async fn fetch_forest_2020(client: &Client, lat: f64, lng: f64) -> Result<u8
         return Err(JrcGfc2020Error::CoverageGap { lat, lng });
     }
 
-    let url = tile_url_for(lat, lng);
     let (lat_tag, lng_tag) = tile_corner_tags(lat, lng);
     let tile = format!("{lat_tag}_{lng_tag}");
+    let idx = tile_index(client).await?;
+    let url = format!(
+        "{JRC_GFC2020_TILES_BASE_URL}/JRC_GFC2020_V{}_{tile}.tif",
+        idx.version
+    );
+    // Not published at all (open ocean): an Absence is the true answer.
+    if !idx.tiles.contains(&tile) {
+        return Err(JrcGfc2020Error::TileNotFound { tile, url });
+    }
+    // Published but failing to load is the upstream's trouble, never a
+    // fact about the place: a 404 on a listed tile is a transport error.
+    let listed =
+        |e: CogError, tile: String, url: String| match JrcGfc2020Error::from_cog(e, tile, url) {
+            JrcGfc2020Error::TileNotFound { tile, url } => {
+                JrcGfc2020Error::Transport(format!("listed tile {tile} answered 404 at {url}"))
+            }
+            other => other,
+        };
 
     let profile = crate::cog::open_profile(client, &url)
         .await
-        .map_err(|e| JrcGfc2020Error::from_cog(e, tile.clone(), url.clone()))?;
+        .map_err(|e| listed(e, tile.clone(), url.clone()))?;
     // EPSG:4326 tile — sample directly with (lng, lat) as world (x, y).
     // The shared sampler honours the geo-transform via `world_to_pixel`.
     let raw = crate::cog::sample_pixel(client, &url, &profile, lng, lat)
         .await
-        .map_err(|e| JrcGfc2020Error::from_cog(e, tile, url.clone()))?;
+        .map_err(|e| listed(e, tile, url.clone()))?;
     if !raw.is_finite() || raw < 0.0 || raw > u8::MAX as f64 {
         return Err(JrcGfc2020Error::Decode(format!(
             "non-uint8 pixel value {raw} from {url}"
@@ -254,6 +342,20 @@ pub async fn fetch_forest_2020(client: &Client, lat: f64, lng: f64) -> Result<u8
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The listing as JEODPP serves it (2026-09-27): only V4 tiles, with
+    /// stray links, and a V3 entry from a mixed mirror to prove the newest wins.
+    #[test]
+    fn the_listing_names_the_version_and_the_tiles() {
+        let html = r#"<a href="JRC_GFC2020_V4_N0_E100.tif">x</a> <a href="JRC_GFC2020_V4_S10_W70.tif">y</a>
+            <a href="JRC_GFC2020_V3_N10_W10.tif">old</a> <a href="JRC_GFC2020_V4_README.txt">r</a>"#;
+        let idx = parse_tile_index(html).unwrap();
+        assert_eq!(idx.version, 4);
+        assert!(idx.tiles.contains("N0_E100") && idx.tiles.contains("S10_W70"));
+        assert!(!idx.tiles.contains("N10_W10"));
+        assert_eq!(idx.tiles.len(), 2);
+        assert!(parse_tile_index("no tiles here").is_none());
+    }
 
     /// `tile_name_for` produces the documented
     /// `JRC_GFC2020_V3_<lat>_<lon>.tif` pattern across all four
