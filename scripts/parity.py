@@ -196,6 +196,10 @@ CASES = [
     Case("ndvi/aggregate", "emem_ndvi", "/v1/ndvi", {"place": PLACE}),
 ]
 
+# Cases that read a band's newest reading, which may be re-fetched on the
+# first call after it lapses (see run_case).
+SETTLE_FIRST = {"ndvi/aggregate"}
+
 # Cases where the same call, repeated on ONE transport, must return bit-identical
 # values. This is the property sgozfgkr actually found broken, and comparing the
 # two transports once would not have caught it: both were unstable.
@@ -721,6 +725,13 @@ def main():
         return 2
 
     def run_case(c):
+        # A stored reading answers "the latest" for one slot of its band, so
+        # the first call after it lapses fetches a newer scene; seconds later
+        # the other door reads that scene. That is two moments, not two
+        # doors, so a case that reads the newest reading is settled once
+        # before the pair is compared.
+        if c.name in SETTLE_FIRST:
+            call_rest(origin, c)
         cat, detail = compare(c, call_mcp(origin, c), call_rest(origin, c))
         if cat in FAILING and c.name in KNOWN_DIVERGENCES:
             cat, detail = "KNOWN", KNOWN_DIVERGENCES[c.name]
