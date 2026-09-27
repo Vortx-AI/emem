@@ -45638,41 +45638,51 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
                     "open memory_file_meta: {e}"
                 ))
             })?;
-        let mut out = Vec::new();
-        for kv in paths.iter().flatten() {
-            let Ok(path) = std::str::from_utf8(&kv.0) else {
-                continue;
-            };
-            let Ok(cid) = std::str::from_utf8(&kv.1) else {
-                continue;
-            };
-            // Pull the meta CBOR so we can fill signed_at +
-            // attester_pubkey_b32 + size_bytes. Missing meta is
-            // recoverable, we synthesise minimal fields.
-            let meta_bytes = metas.get(cid.as_bytes()).ok().flatten();
-            let meta: Option<MemoryFileMeta> = meta_bytes
-                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
-            let (signed_at, attester_pubkey_b32, size_bytes) = match meta {
-                Some(m) => {
-                    let pk_b32 = data_encoding::BASE32_NOPAD
-                        .encode(&m.receipt.responder.0)
-                        .to_lowercase();
-                    (m.signed_at, Some(pk_b32), m.size_bytes)
-                }
-                None => (String::new(), None, 0),
-            };
-            out.push(emem_primitives::memory_search::MemoryFileSummary {
-                path: path.to_string(),
-                file_cid: cid.to_string(),
-                // Kind taxonomy is owned by Agent W (memory_typing.rs).
-                // Until that lands, every file is plain "resource".
-                kind: "resource".to_string(),
-                signed_at,
-                attester_pubkey_b32,
-                size_bytes,
-            });
-        }
-        Ok(out)
+        // On the blocking pool: this walks every memory path and decodes each
+        // one's meta CBOR, seconds of CPU at 54k notes. Run on an async worker
+        // it pinned that worker every pass, and at boot, with several passes
+        // and the tree rebuild in flight, even static routes stopped answering.
+        tokio::task::spawn_blocking(move || {
+            let mut out = Vec::new();
+            for kv in paths.iter().flatten() {
+                let Ok(path) = std::str::from_utf8(&kv.0) else {
+                    continue;
+                };
+                let Ok(cid) = std::str::from_utf8(&kv.1) else {
+                    continue;
+                };
+                // Pull the meta CBOR so we can fill signed_at +
+                // attester_pubkey_b32 + size_bytes. Missing meta is
+                // recoverable, we synthesise minimal fields.
+                let meta_bytes = metas.get(cid.as_bytes()).ok().flatten();
+                let meta: Option<MemoryFileMeta> = meta_bytes
+                    .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+                let (signed_at, attester_pubkey_b32, size_bytes) = match meta {
+                    Some(m) => {
+                        let pk_b32 = data_encoding::BASE32_NOPAD
+                            .encode(&m.receipt.responder.0)
+                            .to_lowercase();
+                        (m.signed_at, Some(pk_b32), m.size_bytes)
+                    }
+                    None => (String::new(), None, 0),
+                };
+                out.push(emem_primitives::memory_search::MemoryFileSummary {
+                    path: path.to_string(),
+                    file_cid: cid.to_string(),
+                    // Kind taxonomy is owned by Agent W (memory_typing.rs).
+                    // Until that lands, every file is plain "resource".
+                    kind: "resource".to_string(),
+                    signed_at,
+                    attester_pubkey_b32,
+                    size_bytes,
+                });
+            }
+            Ok(out)
+        })
+        .await
+        .map_err(|e| {
+            emem_primitives::memory_search::IndexerError::Storage(format!("memory list task: {e}"))
+        })?
     }
 
     async fn read_text(
@@ -61513,6 +61523,21 @@ async fn post_enlist(
 /// that as a runtime stall. The scan now runs on the blocking pool and the
 /// worker only awaits it, like every other storage read here.
 async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    // The roster is a full scan of the memory tree (~0.9 s at 54k notes) and
+    // the homepage asks for it on every view; 30 s of staleness is invisible
+    // in a count of keys and notes.
+    type Held = std::sync::Mutex<Option<(std::time::Instant, JsonValue)>>;
+    static HELD: std::sync::OnceLock<Held> = std::sync::OnceLock::new();
+    if let Some((at, v)) = HELD
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .as_ref()
+    {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return Ok(Json(v.clone()));
+        }
+    }
     let body = tokio::task::spawn_blocking(move || get_agents_sync(s))
         .await
         .map_err(|e| {
@@ -61525,6 +61550,10 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
                 },
             )
         })??;
+    *HELD
+        .get_or_init(Default::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), body.clone()));
     Ok(Json(body))
 }
 
