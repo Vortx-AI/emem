@@ -1489,6 +1489,17 @@ def verify_count_history() -> list[str]:
             for h in COUNT_HISTORY if not any(h in n for n in scanned)]
 
 
+def _stale_phrase_is_current(ph: str) -> bool:
+    """A count can come back: 118 materializers was stale once and is the
+    canonical count again, and the table flagged the doc for being right."""
+    m = re.match(r"\s*(\d+)\s+(.*)", ph)
+    if not m:
+        return False
+    n, noun = int(m.group(1)), m.group(2)
+    return any(re.match(pat, noun, re.I) and n in (CANON[k] for k in keys)
+               for pat, keys in NEAR_MISS_FAMILIES)
+
+
 def scan_prose() -> list[str]:
     hits = []
     for rel, phrases in STALE_PHRASES.items():
@@ -1502,7 +1513,7 @@ def scan_prose() -> list[str]:
             continue
         body = p.read_text()
         for ph in phrases:
-            if ph in body:
+            if ph in body and not _stale_phrase_is_current(ph):
                 hits.append(f"{rel}: stale count phrase present: {ph!r}")
     return hits
 

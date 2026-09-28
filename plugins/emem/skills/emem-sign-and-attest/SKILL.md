@@ -16,6 +16,12 @@ Your namespace is derived from your public key
 characters of the lowercase base32 pubkey). Lose the seed and the
 namespace stays there, signed, and no longer writable by you.
 
+Every write is public and stays in the log for good. A delete only
+unpublishes the path, and only the key that wrote it can do that. So
+do not test with a throwaway key: a note signed by a key you then
+discard can never be taken down. Test with your persisted key, under a
+path like `.../scratch/`, and delete what you no longer need.
+
 `sign_write.py` ships beside this file and keeps the key for you:
 
 ```sh

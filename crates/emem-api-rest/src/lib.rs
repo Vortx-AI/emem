@@ -4789,7 +4789,7 @@ fn arcade_protocol() -> JsonValue {
         // said the route was 404) while this line went on advertising it. The
         // second one lost a session to it before asking.
         "verb": "memory_create over MCP tools/call. There is NO REST route for the memory write verbs",
-        "preimage": "blake3(b\"emem.memory_write|create|\" + path + b\"|\" + blake3(body))",
+        "preimage": "blake3(b\"emem.memory_write.v2|create|\" + path + b\"|\" + blake3(body) + b\"|\" + base), base = the file_cid now at path or b\"absent\"",
         "attester": "{\"pubkey_b32\": <your ed25519 public key, base32-nopad-lowercase>, \"sig_b32\": <ed25519 signature over the preimage, same encoding>}",
         "why": "The signature is what makes the character on screen mean anything. An unsigned write would render identically and prove nothing, so there is no unsigned path."
       },
@@ -8810,6 +8810,12 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
             "bands_cid".into(),
             JsonValue::String(s.manifests.bands_cid.clone()),
         );
+        // The registry's own note says editorial fields can change without
+        // moving the CID. They cannot: every serialised field is hashed.
+        map.insert(
+            "_note".into(),
+            json!("Source of truth: agri integrate_10m.py BAND_OFFSETS. Order is the physical layout in cube_10m.npz. MUST stay byte-identical; family is editorial. Every field of every band, the editorial description / interpretation / pitfalls / references included, is hashed into bands_cid, so editing any of them moves the CID. Text found stale after release is corrected where it is served and marked `text_erratum`; the registry keeps its bytes."),
+        );
         let wired = all_materializable_bands();
         if let Some(arr) = map.get_mut("bands").and_then(|v| v.as_array_mut()) {
             for entry in arr.iter_mut() {
@@ -8821,6 +8827,7 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                     .and_then(|v| v.as_str())
                     .map(str::to_owned)
                     .unwrap_or_default();
+                apply_band_errata(&key, obj);
                 // Retired here outranks a wired connector: the band stays in
                 // the registry (its layout is content-addressed by bands_cid)
                 // and its signed facts still verify, but nothing new is made.
@@ -14010,6 +14017,37 @@ fn s2_scl_from_fact_json(obj: &serde_json::Map<String, JsonValue>) -> Option<i64
 /// bands, ~µs per call. Hot paths that call this in a loop should hoist
 /// the `key_index` themselves; for the boring single-fact / aggregated
 /// paths the per-call cost is dominated by the upstream materializer.
+/// Registry text that went stale after release, served corrected. Every
+/// field of a `Band`, editorial ones included, serialises into `bands_cid`,
+/// so the embedded registry keeps its bytes and the correction is applied
+/// where the text is served, marked so a reader can tell the two apart.
+const BAND_TEXT_ERRATA: &[(&str, &str, &str)] = &[
+    ("forest_change", "description", "Hansen Global Forest Change v1.13 (2000-2025 annual update) features: tree-cover-2000 percentage, year-of-loss, year-of-gain, plus annualised loss-rate summaries."),
+    ("forest_change", "units", "mixed (percent canopy cover, year [2001..2025], boolean gain mask)"),
+    ("forest_change", "interpretation", "`forest_change.lossyear > 0` flags pixels that lost canopy since 2001 — the canonical deforestation signal; the value is the calendar year (2001..=2025 in v1.13). Pair with `mangrove` or `protected` to score 'illegal deforestation in a protected area'. `forest_change.treecover2000` carries the year-2000 baseline canopy cover %; `forest_change.gain` carries the dataset-frozen 2000-2012 gain mask."),
+    ("forest_change", "references", "Hansen et al. 2013 (Science 342, 850-853) + annual updates at https://glad.umd.edu/dataset/global-2010-tree-cover-30-m and https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html"),
+];
+
+fn apply_band_errata(band_key: &str, obj: &mut serde_json::Map<String, JsonValue>) {
+    let fields: Vec<&str> = BAND_TEXT_ERRATA
+        .iter()
+        .filter(|(k, _, _)| *k == band_key)
+        .map(|(_, f, text)| {
+            obj.insert((*f).to_string(), json!(text));
+            *f
+        })
+        .collect();
+    if !fields.is_empty() {
+        obj.insert(
+            "text_erratum".into(),
+            json!({
+                "fields": fields,
+                "why": "the registry's text for these fields is out of date; it stays in the registry because bands_cid hashes it, and the corrected text is served here",
+            }),
+        );
+    }
+}
+
 fn band_metadata_for_response(band_key: &str) -> JsonValue {
     let registry = &*emem_core::bands::DEFAULT;
     // Bands with dots ("esa_worldcover.lc_2021", "copdem30m.elevation_mean")
@@ -14105,6 +14143,12 @@ fn band_metadata_for_response(band_key: &str) -> JsonValue {
             .map(|(id, lab)| (id.to_string(), json!(lab)))
             .collect();
         map.insert("class_decode".into(), JsonValue::Object(decode));
+    }
+    if let Some(b) = band_entry {
+        apply_band_errata(&b.key, &mut map);
+        if let Some(u) = b.scalar_units.get(band_key) {
+            map.insert("units".into(), json!(u));
+        }
     }
     if map.is_empty() {
         JsonValue::Null
@@ -40391,10 +40435,71 @@ fn rank_alias_candidates(
 }
 
 fn entity_record_get(tree: &sled::Tree, entity_cid: &str) -> Option<JsonValue> {
-    tree.get(entity_cid.as_bytes())
+    let mut rec = tree
+        .get(entity_cid.as_bytes())
         .ok()
         .flatten()
-        .and_then(|v| serde_json::from_slice::<JsonValue>(&v).ok())
+        .and_then(|v| serde_json::from_slice::<JsonValue>(&v).ok())?;
+    if let Some(g) = rec.pointer_mut("/entity/geometry") {
+        withhold_foreign_geojson(g);
+    }
+    Some(rec)
+}
+
+/// `[min_lng, min_lat, max_lng, max_lat]` over every position in a GeoJSON
+/// geometry's `coordinates`, at any nesting depth.
+fn geojson_extent(geojson: &JsonValue) -> Option<[f64; 4]> {
+    fn walk(v: &JsonValue, e: &mut Option<[f64; 4]>) {
+        let Some(a) = v.as_array() else { return };
+        if let (Some(x), Some(y)) = (
+            a.first().and_then(JsonValue::as_f64),
+            a.get(1).and_then(JsonValue::as_f64),
+        ) {
+            let b = e.get_or_insert([x, y, x, y]);
+            *b = [b[0].min(x), b[1].min(y), b[2].max(x), b[3].max(y)];
+            return;
+        }
+        for c in a {
+            walk(c, e);
+        }
+    }
+    let mut e = None;
+    walk(geojson.get("coordinates")?, &mut e);
+    e
+}
+
+/// Drop a boundary that does not reach the entity's own point. Entities
+/// minted before the locate cascade kept its polygon with the place it chose
+/// carry another place's outline (Mount Fuji's, from a Wisconsin township),
+/// and geometry is outside the entity cid and the mint signature, so the
+/// record is kept and the outline is withheld where it is served.
+fn withhold_foreign_geojson(geometry: &mut JsonValue) {
+    const SLACK_DEG: f64 = 0.05;
+    let (Some(lng), Some(lat)) = (
+        geometry.pointer("/point/0").and_then(JsonValue::as_f64),
+        geometry.pointer("/point/1").and_then(JsonValue::as_f64),
+    ) else {
+        return;
+    };
+    let Some(ext) = geometry.get("geojson").and_then(geojson_extent) else {
+        return;
+    };
+    let inside = lng >= ext[0] - SLACK_DEG
+        && lng <= ext[2] + SLACK_DEG
+        && lat >= ext[1] - SLACK_DEG
+        && lat <= ext[3] + SLACK_DEG;
+    if !inside {
+        if let Some(o) = geometry.as_object_mut() {
+            o.remove("geojson");
+            o.insert(
+                "geojson_withheld".into(),
+                json!({
+                    "reason": "the stored boundary does not contain this entity's point, so it belongs to another place",
+                    "extent": ext,
+                }),
+            );
+        }
+    }
 }
 
 /// The bytes an entity mint signs over: every identity-bearing field, in
@@ -40626,7 +40731,11 @@ async fn post_entity(
         geometry: EntityGeometry {
             point: loc.point,
             bbox: loc.bbox,
-            geojson: loc.geojson.clone(),
+            geojson: loc.geojson.clone().filter(|g| {
+                let mut probe = json!({"point": loc.point, "geojson": g});
+                withhold_foreign_geojson(&mut probe);
+                probe.get("geojson").is_some()
+            }),
         },
         external_ids: ext,
         parent: req.parent.clone(),
@@ -41603,7 +41712,7 @@ fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32], base: &str) -> 
             "pubkey8_is": format!("the first {} characters of your lowercase base32 pubkey, i.e. pubkey_b32[..{}]", emem_primitives::PUBKEY_SHORT_LEN, emem_primitives::PUBKEY_SHORT_LEN),
             "registration": "None. Any ed25519 keypair works; generate one locally. The namespace is claimed by whoever first writes to it and is then held by that key. There is no enrolment step and no API key.",
         },
-        "worked_example": "import base64, blake3, httpx\nfrom cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey\nfrom cryptography.hazmat.primitives import serialization\n\nsk = Ed25519PrivateKey.generate()          # persist the 32-byte seed; it owns your namespace\npk = sk.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)\nb32 = lambda b: base64.b32encode(b).decode().rstrip('=').lower()\npubkey_b32 = b32(pk)\npath = f\"/memories/by_attester/{pubkey_b32[:8]}/note.md\"\ntext = \"what I learned\"\nbody_hash = blake3.blake3(text.encode()).digest()\ndigest = blake3.blake3(b\"emem.memory_write|create|\" + path.encode() + b\"|\" + body_hash).digest()\nattester = {\"pubkey_b32\": pubkey_b32, \"sig_b32\": b32(sk.sign(digest))}\n# then POST memory_create with {path, file_text: text, attester}",
+        "worked_example": "import base64, blake3, httpx\nfrom cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey\nfrom cryptography.hazmat.primitives import serialization\n\nsk = Ed25519PrivateKey.generate()          # persist the 32-byte seed; it owns your namespace\npk = sk.public_key().public_bytes(encoding=serialization.Encoding.Raw, format=serialization.PublicFormat.Raw)\nb32 = lambda b: base64.b32encode(b).decode().rstrip('=').lower()\npubkey_b32 = b32(pk)\npath = f\"/memories/by_attester/{pubkey_b32[:8]}/note.md\"\ntext = \"what I learned\"\nbody_hash = blake3.blake3(text.encode()).digest()\nbase = \"absent\"                          # or the file_cid now at `path` when you overwrite it\ndigest = blake3.blake3(b\"emem.memory_write.v2|create|\" + path.encode() + b\"|\" + body_hash + b\"|\" + base.encode()).digest()\nattester = {\"pubkey_b32\": pubkey_b32, \"sig_b32\": b32(sk.sign(digest))}\n# then POST memory_create with {path, file_text: text, attester}",
         "spec": "GET /v1/verifier_spec, under caller_signed_objects",
     })
 }
@@ -42403,7 +42512,7 @@ fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiE
                     "code": "memory_signature_replayed",
                     "verb": verb,
                     "path": path,
-                    "why": "The write preimage is blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash) and has no nonce or timestamp, so a captured signature stays valid forever. Destructive verbs are therefore single-use per signature.",
+                    "why": "This signature verified against the v1 preimage, blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash), which has no nonce or timestamp, so a captured one stays valid forever and is single-use here. Sign v2 instead (details.how_to_sign on any refusal): it binds the file_cid you replace, so a replay fails once the path has moved on.",
                     "idempotent_verbs_exempt": "create and supersede are idempotent and stay replayable, so an honest retry after a dropped connection still works. Only verbs whose effect depends on current state are single-use.",
                 })),
             },
@@ -52983,9 +53092,10 @@ async fn materialize_overture_road_bearing(
         captured_at: Some(release.clone()),
         url: Some(upstream_url.clone()),
     };
-    let Some(road) = found else {
+    let row_groups = format!("row_groups={}", found.row_groups.join(";"));
+    let Some(road) = found.nearest else {
         let reason = format!(
-            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no transportation segment within {RADIUS_M} m of ({lat:.6},{lng:.6})."
+            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no transportation segment within {RADIUS_M} m of ({lat:.6},{lng:.6}); {row_groups}."
         );
         return sign_band_absence(
             cell64,
@@ -53016,6 +53126,7 @@ async fn materialize_overture_road_bearing(
                 ciborium::Value::Float(RADIUS_M),
                 ciborium::Value::Text(format!("distance_m={:.1}", road.distance_m)),
                 ciborium::Value::Text(release),
+                ciborium::Value::Text(row_groups),
             ])),
         },
         privacy_class: "public".into(),
@@ -89285,6 +89396,63 @@ mod tests {
                 .is_err(),
             "control: the v1 formula the block used to describe fails"
         );
+    }
+
+    #[test]
+    fn stale_hansen_text_is_served_corrected_and_marked() {
+        let m = band_metadata_for_response("forest_change.lossyear");
+        assert!(m["description"].as_str().unwrap().contains("v1.13"), "{m}");
+        assert!(m["references"].as_str().unwrap().contains("GFC-2025-v1.13"));
+        assert!(m["text_erratum"]["fields"].is_array());
+        assert!(
+            !m["units"].as_str().unwrap().contains("2024"),
+            "the scalar's own unit still wins: {}",
+            m["units"]
+        );
+        let raw = emem_core::bands::DEFAULT.lookup("forest_change").unwrap();
+        assert!(
+            raw.description.as_deref().unwrap().contains("v1.12"),
+            "the registry keeps its hashed bytes"
+        );
+    }
+
+    #[test]
+    fn an_entity_boundary_that_misses_its_point_is_withheld() {
+        let ring = json!({"type": "Polygon", "coordinates": [[[-91.77, 44.96], [-91.65, 44.94], [-91.70, 45.03], [-91.77, 44.96]]]});
+        let mut g = json!({"point": [138.7307, 35.3628], "geojson": ring.clone()});
+        withhold_foreign_geojson(&mut g);
+        assert!(g.get("geojson").is_none(), "{g}");
+        assert!(g["geojson_withheld"]["extent"].is_array());
+
+        let fuji = json!({"type": "Polygon", "coordinates": [[[138.70, 35.34], [138.76, 35.34], [138.76, 35.38], [138.70, 35.38], [138.70, 35.34]]]});
+        let mut g = json!({"point": [138.7307, 35.3628], "geojson": fuji});
+        withhold_foreign_geojson(&mut g);
+        assert!(g.get("geojson").is_some(), "control: its own outline stays");
+        assert!(g.get("geojson_withheld").is_none());
+    }
+
+    /// The refusal's worked example signs the preimage the refusal states.
+    #[test]
+    fn the_signing_recipe_teaches_v2_throughout() {
+        let bh = emem_primitives::body_hash(b"x");
+        for verb in [
+            "create",
+            "str_replace",
+            "insert",
+            "supersede",
+            "delete",
+            "rename",
+        ] {
+            let r = attester_recipe(verb, "/memories/by_attester/abcdefgh/n.md", &bh, "absent");
+            let pre = r["how_it_was_built"]["preimage"].as_str().unwrap();
+            let ex = r["worked_example"].as_str().unwrap();
+            assert!(pre.contains("emem.memory_write.v2|"), "{verb}: {pre}");
+            assert!(ex.contains("emem.memory_write.v2|"), "{verb}: {ex}");
+            assert!(
+                !ex.contains("emem.memory_write|"),
+                "{verb}: example still signs v1"
+            );
+        }
     }
 
     /// A memory write lands in the transparency log as its own entry kind, and

@@ -462,10 +462,14 @@ plus `put_attestation_gated`, with `emem:trace:` tokens and the first
 committed conformance vectors), the `GET /v1/substrates` and
 `POST /v1/trace_verify` surfaces with their MCP tools, and a runnable
 satellite-operator example
-(`crates/emem-primitives/examples/satellite_downlink.rs`) all ship;
-the `os_trace` field on the hosted attest surface, an authenticated
-enrollment endpoint, and the drift-anchor wiring are the open work,
-in that order. The test each substrate must pass is unchanged
+(`crates/emem-primitives/examples/satellite_downlink.rs`) all ship.
+So do the hosted device write path (`POST /v1/attest_traced`, an
+attestation plus its `emem.os_trace.v1` trace) and self-service
+enrollment (`POST /v1/enroll_attested`, admitted only on a platform
+attestation that endorses the key and chains to a whitelisted anchor).
+Every anchor shipped is provisional, so enrollment refuses every call
+today, which is the intended no-new-admissions state. Admitting a first
+production anchor and the drift-anchor wiring are the open work. The test each substrate must pass is unchanged
 and now has a second half: observations sign at the source, resolve
 byte-identically anywhere, verify offline, and carry the execution
 evidence their profile demands.

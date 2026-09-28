@@ -7,6 +7,12 @@ to verify.
 
 ## [Unreleased]
 
+- Signing recipes teach the preimage the responder verifies first. The MCP write tools' `attester` schemas, the refusal's `how_to_sign.worked_example` and the `write_contract` stated `emem.memory_write|verb|path|body_hash` (v1) beside a v2 digest, so a caller who followed the example produced a v1 signature, refused outright for delete and rename. They now state `emem.memory_write.v2|verb|path|body_hash|base`. Derive and entity mints keep their v1 form, which is what they verify.
+- Entity records whose stored boundary does not contain their own point serve without it (`geometry.geojson_withheld`, with the stored extent). Two Mount Fuji entities carried a Wisconsin township's outline from an early locate; geometry is outside the entity cid and the mint signature, so nothing signed changes. New mints drop such a boundary.
+- `/v1/bands` and `band_metadata` serve Hansen's registry text as v1.13 (2001..2025), marked `text_erratum`. Every band field is hashed into `bands_cid`, so the registry keeps its bytes; the served `_note` no longer claims editorial fields can change without moving the CID.
+- `overture.transportation.road_bearing_deg` facts sign which part files and row groups were read (`row_groups=part-…#3,4;…`), Absences included, so a reader can check an answer against those bytes of the release rather than the whole theme.
+- Plugin: the writing skills say a write is permanent and only its own key can unpublish it, so test with a persisted key, not a throwaway one. The roadmap no longer lists device enrollment and the traced attest path as unbuilt.
+
 - Boot no longer reads the whole fact store. The vector index's hydration fetched every fact (millions) to keep the ~51k that are embeddings: 9.5 minutes of IO after each restart, during which fact writes waited 107-158 s and DDS and ask calls timed out. It now samples one fact per band and reads only the bands whose values are vectors.
 - Overture facts carry `sources[0].hash`: blake3 over the sorted `key, etag, size` listing of the release's files for that theme, so a fact still names exactly which objects it was read from after Overture drops the release (it keeps about three). The release tag was already in `captured_at` and the derivation.
 - New band `overture.transportation.road_bearing_deg`: the axial bearing (0..180 degrees from north) of the nearest Overture road segment within 50 m, with the distance in its derivation; an Absence when the release holds none. 118 wired band names.

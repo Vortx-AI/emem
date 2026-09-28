@@ -763,20 +763,28 @@ impl OvertureClient {
         lat: f64,
         lng: f64,
         radius_m: f64,
-    ) -> Result<Option<RoadBearing>, OvertureError> {
+    ) -> Result<RoadBearingRead, OvertureError> {
         let m_lat = 111_320.0_f64;
         let m_lng = 111_320.0_f64 * lat.to_radians().cos().max(1e-6);
         let (dlat, dlng) = (radius_m / m_lat, radius_m / m_lng);
         let (s_lat, n_lat, w_lng, e_lng) = (lat - dlat, lat + dlat, lng - dlng, lng + dlng);
         let files = self.list_files(SEGMENTS).await?;
         let parallel = scan_parallelism();
-        let found: Vec<Option<RoadBearing>> = futures_util::stream::iter(files)
+        let found: Vec<(Option<RoadBearing>, Option<String>)> = futures_util::stream::iter(files)
             .map(|key| async move {
                 let meta = self.footer(&key).await?;
                 let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
                 if rgs.is_empty() {
-                    return Ok::<_, OvertureError>(None);
+                    return Ok::<_, OvertureError>((None, None));
                 }
+                let read = format!(
+                    "{}#{}",
+                    key.rsplit('/').next().unwrap_or(&key),
+                    rgs.iter()
+                        .map(usize::to_string)
+                        .collect::<Vec<_>>()
+                        .join(",")
+                );
                 let mut stream = self.open_stream(&key, rgs, &[]).await?;
                 let mut best: Option<RoadBearing> = None;
                 while let Some(batch) =
@@ -818,16 +826,22 @@ impl OvertureClient {
                         }
                     }
                 }
-                Ok(best)
+                Ok((best, Some(read)))
             })
             .buffer_unordered(parallel)
             .try_collect()
             .await?;
-        Ok(found
+        let mut row_groups: Vec<String> = found.iter().filter_map(|(_, r)| r.clone()).collect();
+        row_groups.sort();
+        let nearest = found
             .into_iter()
-            .flatten()
+            .filter_map(|(b, _)| b)
             .filter(|b| b.distance_m <= radius_m)
-            .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m)))
+            .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
+        Ok(RoadBearingRead {
+            nearest,
+            row_groups,
+        })
     }
 
     /// The cache key `division_polygon_with_subtype` would use for these
@@ -2596,6 +2610,15 @@ fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64, f64), u
         return None;
     }
     Some(((cx / total as f64, cy / total as f64), total))
+}
+
+/// What a nearest-road search found, and which bytes it read to find it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoadBearingRead {
+    pub nearest: Option<RoadBearing>,
+    /// `part-file#rg,rg` for every row group read, sorted: with the release,
+    /// the exact bytes a reader needs to re-derive the answer, absence included.
+    pub row_groups: Vec<String>,
 }
 
 /// The nearest road to a point and its direction there.

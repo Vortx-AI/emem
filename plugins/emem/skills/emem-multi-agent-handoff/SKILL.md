@@ -126,6 +126,9 @@ keys you intend to trust.
 
 ## Writing for others
 
+- Everything you write is public and stays in the log. Only your own
+  key can unpublish it, so write with a persisted key, never a
+  throwaway one.
 - Paths under `/memories/by_attester/<your pubkey8>/` accept writes only
   from the matching key. A cross-key write is
   `403 memory_namespace_violation`: the system working, not an outage.
