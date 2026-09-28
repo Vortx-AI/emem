@@ -392,7 +392,10 @@ _BODY = re.compile(r'<body\b([^>]*)>')
 def mark_doc(html: str) -> str:
     """Put class="doc" on <body>, which is what nav.css keys the inner-page
     width and gutter on. Idempotent; a page with no <body> tag is left alone."""
-    m = _BODY.search(html)
+    # Search after </head>: a <body mentioned in a head comment or a <style>
+    # block matched first once, and the class landed inside the comment.
+    head_end = html.find("</head>")
+    m = _BODY.search(html, head_end if head_end >= 0 else 0)
     if not m:
         return html
     attrs = m.group(1)
