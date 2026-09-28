@@ -703,6 +703,13 @@ body.doc :is(.section-body, .doc-body) > :is(p, ul, ol, blockquote, h2, h3, h4, 
 .next-steps b { display: block; font: 600 var(--t-sm)/1.3 var(--mono) }
 .next-steps span { display: block; margin-top: var(--s-1); font: var(--t-xs)/1.45 var(--mono); color: var(--mute) }
 
+.doc-head .purpose code { font-size: .82em }
+/* Several page templates set word-break:break-all on the side-column values,
+   which split "Ed25519-signed" mid-word. */
+body.doc .section-meta dd, body.doc .hero-meta .kv .v { word-break: normal; overflow-wrap: anywhere }
+/* Pages with a global dotted a{border-bottom} underlined the generated chrome. */
+.crumbs a, .pathbar a, .sitefoot a, .doc-toc a { border-bottom: 0 }
+
 /* Breadcrumb, generated into the audience strip. */
 .crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1); margin: 0; padding: 0; list-style: none; color: var(--mute) }
 .crumbs li { display: inline-flex; gap: var(--s-1) }
