@@ -56410,7 +56410,7 @@ fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
             (0.0, 2100.0, "year (0 = none)")
         }
         "esa_worldcover.lc_2021" => (0.0, 100.0, "class"),
-        "weather.temperature_2m" => (-95.0, 65.0, "degC"),
+        "weather.temperature_2m" => (-90.0, 60.0, "degC"),
         "weather.precipitation_mm" => (0.0, 500.0, "mm per hour"),
         "weather.cloud_cover" => (0.0, 100.0, "percent"),
         "soilgrids.clay_0_30cm" | "soilgrids.sand_0_30cm" => (0.0, 100.0, "percent"),

@@ -166,4 +166,4 @@ hook fails, fix the underlying issue.
 - [docs/developers/developing.md](docs/developers/developing.md): dev workflow + test invariants
 - [docs/agents.md](docs/agents.md): *consumer*-agent guide (how to USE emem)
 - [web/skills.md](web/skills.md): composed recipes for agent integrations
-- [plugins/emem/](plugins/emem/): the Claude Code plugin — MCP server plus eight skills, installable with `/plugin marketplace add Vortx-AI/emem`
+- [plugins/emem/](plugins/emem/): the Claude Code plugin, MCP server plus nineteen skills, installable with `/plugin marketplace add Vortx-AI/emem`
