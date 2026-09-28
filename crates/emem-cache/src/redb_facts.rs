@@ -396,7 +396,22 @@ impl RedbFacts {
         }
         let t = std::time::Instant::now();
         let at_drop = self.live_writes.load(Ordering::Acquire);
+        // With no write live, the drop itself is the close: a durable commit
+        // of the allocator state, a shrink, and the fsync that also flushes
+        // every Durability::None commit since the last durable one. It has no
+        // budget, and on 2026-09-28 it outlasted docker's 120 s stop grace, so
+        // say when it starts and how long it took.
+        tracing::info!(
+            target: "emem::boot",
+            writes_live_at_drop = at_drop,
+            "redb close: writing the allocator state and syncing the file"
+        );
         drop(taken);
+        tracing::info!(
+            target: "emem::boot",
+            drop_ms = t.elapsed().as_millis() as u64,
+            "redb close: drop returned"
+        );
         while self.live_writes.load(Ordering::Acquire) > 0 && t.elapsed() < budget {
             std::thread::sleep(std::time::Duration::from_millis(25));
         }

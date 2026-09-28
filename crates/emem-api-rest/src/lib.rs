@@ -40440,8 +40440,12 @@ fn entity_record_get(tree: &sled::Tree, entity_cid: &str) -> Option<JsonValue> {
         .ok()
         .flatten()
         .and_then(|v| serde_json::from_slice::<JsonValue>(&v).ok())?;
-    if let Some(g) = rec.pointer_mut("/entity/geometry") {
-        withhold_foreign_geojson(g);
+    let cell = rec
+        .pointer("/entity/cell64")
+        .and_then(JsonValue::as_str)
+        .map(str::to_string);
+    if let (Some(cell), Some(g)) = (cell, rec.pointer_mut("/entity/geometry")) {
+        withhold_foreign_geometry(g, &cell);
     }
     Some(rec)
 }
@@ -40468,35 +40472,64 @@ fn geojson_extent(geojson: &JsonValue) -> Option<[f64; 4]> {
     e
 }
 
-/// Drop a boundary that does not reach the entity's own point. Entities
-/// minted before the locate cascade kept its polygon with the place it chose
-/// carry another place's outline (Mount Fuji's, from a Wisconsin township),
-/// and geometry is outside the entity cid and the mint signature, so the
-/// record is kept and the outline is withheld where it is served.
-fn withhold_foreign_geojson(geometry: &mut JsonValue) {
+/// Withhold geometry that is not at the entity's cell. The cell is part of
+/// the entity cid; the geometry is in neither the cid nor the mint signature.
+/// An early locate mixed answers: three entities for the Mount Fuji peak in
+/// Colfax, Wisconsin carry that peak's cell and point but the Japanese
+/// volcano's bbox. The record is kept, and what disagrees with the cell is
+/// withheld where it is served.
+fn withhold_foreign_geometry(geometry: &mut JsonValue, cell64: &str) {
     const SLACK_DEG: f64 = 0.05;
-    let (Some(lng), Some(lat)) = (
-        geometry.pointer("/point/0").and_then(JsonValue::as_f64),
-        geometry.pointer("/point/1").and_then(JsonValue::as_f64),
-    ) else {
+    let Ok(ll) = emem_codec::latlng_from_cell64(cell64) else {
         return;
     };
-    let Some(ext) = geometry.get("geojson").and_then(geojson_extent) else {
+    let (lng, lat) = (ll.lng_deg, ll.lat_deg);
+    let near = |x: f64, y: f64, e: [f64; 4]| {
+        x >= e[0] - SLACK_DEG
+            && x <= e[2] + SLACK_DEG
+            && y >= e[1] - SLACK_DEG
+            && y <= e[3] + SLACK_DEG
+    };
+    let Some(o) = geometry.as_object_mut() else {
         return;
     };
-    let inside = lng >= ext[0] - SLACK_DEG
-        && lng <= ext[2] + SLACK_DEG
-        && lat >= ext[1] - SLACK_DEG
-        && lat <= ext[3] + SLACK_DEG;
-    if !inside {
-        if let Some(o) = geometry.as_object_mut() {
+    let bbox = o
+        .get("bbox")
+        .and_then(JsonValue::as_array)
+        .map(|b| b.iter().filter_map(JsonValue::as_f64).collect::<Vec<_>>());
+    if let Some([w, so, e, n]) = bbox.as_deref() {
+        let ext = [*w, *so, *e, *n];
+        if !near(lng, lat, ext) {
+            o.remove("bbox");
+            o.insert(
+                "bbox_withheld".into(),
+                json!({"reason": "the stored bbox does not reach this entity's cell, so it belongs to another place", "extent": ext}),
+            );
+        }
+    }
+    if let Some(ext) = o.get("geojson").and_then(geojson_extent) {
+        if !near(lng, lat, ext) {
             o.remove("geojson");
             o.insert(
                 "geojson_withheld".into(),
-                json!({
-                    "reason": "the stored boundary does not contain this entity's point, so it belongs to another place",
-                    "extent": ext,
-                }),
+                json!({"reason": "the stored boundary does not reach this entity's cell, so it belongs to another place", "extent": ext}),
+            );
+        }
+    }
+    let stored = (
+        o.get("point")
+            .and_then(|p| p.get(0))
+            .and_then(JsonValue::as_f64),
+        o.get("point")
+            .and_then(|p| p.get(1))
+            .and_then(JsonValue::as_f64),
+    );
+    if let (Some(px), Some(py)) = stored {
+        if !near(px, py, [lng, lat, lng, lat]) {
+            o.insert("point".into(), json!([lng, lat]));
+            o.insert(
+                "point_withheld".into(),
+                json!({"reason": "the stored point is not at this entity's cell; the cell centre is served instead", "stored": [px, py]}),
             );
         }
     }
@@ -40722,6 +40755,8 @@ async fn post_entity(
         })));
     }
 
+    let mut at_cell = json!({"point": loc.point, "geojson": loc.geojson});
+    withhold_foreign_geometry(&mut at_cell, &loc.cell64);
     let entity = Entity {
         schema: "emem.entity.v1".to_string(),
         entity_cid: entity_cid.clone(),
@@ -40729,13 +40764,12 @@ async fn post_entity(
         label: req.label.clone(),
         cell64: loc.cell64.clone(),
         geometry: EntityGeometry {
-            point: loc.point,
+            point: at_cell
+                .get("point")
+                .and_then(|p| serde_json::from_value(p.clone()).ok())
+                .unwrap_or(loc.point),
             bbox: loc.bbox,
-            geojson: loc.geojson.clone().filter(|g| {
-                let mut probe = json!({"point": loc.point, "geojson": g});
-                withhold_foreign_geojson(&mut probe);
-                probe.get("geojson").is_some()
-            }),
+            geojson: at_cell.get("geojson").filter(|g| !g.is_null()).cloned(),
         },
         external_ids: ext,
         parent: req.parent.clone(),
@@ -89417,18 +89451,31 @@ mod tests {
     }
 
     #[test]
-    fn an_entity_boundary_that_misses_its_point_is_withheld() {
-        let ring = json!({"type": "Polygon", "coordinates": [[[-91.77, 44.96], [-91.65, 44.94], [-91.70, 45.03], [-91.77, 44.96]]]});
-        let mut g = json!({"point": [138.7307, 35.3628], "geojson": ring.clone()});
-        withhold_foreign_geojson(&mut g);
-        assert!(g.get("geojson").is_none(), "{g}");
-        assert!(g["geojson_withheld"]["extent"].is_array());
+    fn entity_geometry_that_is_not_at_its_cell_is_withheld() {
+        // As stored for the Mount Fuji peak in Colfax, Wisconsin: cell, point
+        // and town outline there, bbox on the Japanese volcano.
+        let cell = "defi.zb5ff.pOyA.zaf69";
+        let town = json!({"type": "Polygon", "coordinates": [[[-91.7727774, 44.9656539], [-91.7730549, 44.9437872], [-91.6507144, 44.9430612], [-91.6513718, 45.0299455], [-91.7727774, 44.9656539]]]});
+        let mut g = json!({"bbox": [138.7307177, 35.3627884, 138.7308177, 35.3628884], "geojson": town, "point": [-91.770751898468, 44.945647690605]});
+        withhold_foreign_geometry(&mut g, cell);
+        assert!(g.get("bbox").is_none(), "{g}");
+        assert_eq!(g["bbox_withheld"]["extent"][0], 138.7307177);
+        assert!(
+            g.get("geojson").is_some(),
+            "the outline reaches the cell: {g}"
+        );
+        assert!(
+            g.get("point_withheld").is_none(),
+            "the point is at the cell: {g}"
+        );
 
-        let fuji = json!({"type": "Polygon", "coordinates": [[[138.70, 35.34], [138.76, 35.34], [138.76, 35.38], [138.70, 35.38], [138.70, 35.34]]]});
-        let mut g = json!({"point": [138.7307, 35.3628], "geojson": fuji});
-        withhold_foreign_geojson(&mut g);
-        assert!(g.get("geojson").is_some(), "control: its own outline stays");
-        assert!(g.get("geojson_withheld").is_none());
+        let mut g = json!({"point": [138.73, 35.36], "geojson": {"type": "Polygon", "coordinates": [[[138.70, 35.34], [138.76, 35.34], [138.76, 35.38], [138.70, 34.38], [138.70, 35.34]]]}});
+        withhold_foreign_geometry(&mut g, cell);
+        assert!(
+            g.get("geojson").is_none() && g["point_withheld"]["stored"][0] == 138.73,
+            "{g}"
+        );
+        assert!((g["point"][0].as_f64().unwrap() + 91.7707).abs() < 0.01);
     }
 
     /// The refusal's worked example signs the preimage the refusal states.
