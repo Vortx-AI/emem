@@ -177,8 +177,22 @@ fi
 # count. A sentinel file covers the case where the unit is up but an operator
 # has asked for hands off.
 UNIT_STATE=$($SYSTEMCTL is-active emem-server.service 2>/dev/null || true)
-if [ "$UNIT_STATE" = "inactive" ] || [ -e /run/emem/maintenance ] || [ -e /home/ubuntu/emem/var/emem/.maintenance ]; then
+# `deactivating` is a stop in progress: the server is closing its store, and a
+# restart queued behind it only adds a SIGKILL if that close is slow.
+if [ "$UNIT_STATE" = "inactive" ] || [ "$UNIT_STATE" = "deactivating" ] || [ -e /run/emem/maintenance ] || [ -e /home/ubuntu/emem/var/emem/.maintenance ]; then
   echo "emem-watchdog: emem-server is ${UNIT_STATE:-unknown} by operator action (or a maintenance sentinel is present); not counting this miss and not restarting"
+  echo 0 >"$STATE"
+  exit 0
+fi
+
+# A boot that is still opening the store is not a stall either. /live binds
+# only after the store opens, and a store left unclean rebuilds its allocator
+# state first: 29 minutes on 2026-09-28, when this counter reached 30 and
+# SIGKILLed the boot, which left the store unclean for the next boot to rebuild
+# again. The server logs `emem::boot` progress every 60 s while it works, so a
+# progress line in the last 150 s means it is booting, not wedged.
+if journalctl -u emem-server.service --since "-150s" --no-pager -q 2>/dev/null | grep -q "emem::boot"; then
+  echo "emem-watchdog: /live not up yet, but emem-server logged boot progress in the last 150 s; booting, not counting this miss"
   echo 0 >"$STATE"
   exit 0
 fi
