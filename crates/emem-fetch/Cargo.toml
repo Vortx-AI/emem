@@ -22,6 +22,9 @@ flate2        = { workspace = true }
 # LZW (TIFF compression=5) decoder for JRC Global Surface Water tiles.
 # Pure-Rust, no transitives; same crate `image-rs`/`tiff` ecosystem uses.
 weezl         = "0.1"
+# ZSTD (TIFF compression=50000) for re-encoded COG mirrors; already linked
+# into the server through parquet/lance.
+zstd          = "0.13"
 # Overture Maps materializer: anonymous S3 + parquet row-group pruning + WKB decode.
 # parquet's `async` and `object_store` features bring in
 # parquet::arrow::async_reader::ParquetObjectReader which streams row groups

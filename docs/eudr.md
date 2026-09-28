@@ -28,10 +28,10 @@ pins a count; the ceiling is 51,200 cells. The verdict consensus runs
 Both baselines are read with one `cog::sample_window` per band over the polygon bounding
 box and indexed per cell from the in-memory buffer (O(1) upstream reads, O(N) lookups),
 so a fully-sampled polygon completes a base verdict in a couple of seconds warm. JRC TMF
-v2025 deforestation, WRI-Sims driver attribution and RADD SAR alerts are not in the
-hot-path consensus (TMF carries no upstream HTTP Range and costs ~78 s cold; WRI/RADD are
-signed Absence today); each remains available as an explicit band request off the verdict
-path.
+v1.2025 deforestation year is read on every cell, by HTTP Range from a COG re-encoding of
+the JRC tiles, and reported per plot as `tmf_cross_check` (where it and Hansen agree on
+post-cut-off loss); it is not counted in the verdict. WRI-Sims driver attribution and RADD
+SAR alerts are signed Absence today and stay off the verdict path.
 
 The plot-level verdict aggregates per-cell verdicts with the Article 2(4) 0.5 ha MMU
 floor: if `failing_area_ha < 0.5`, the verdict is demoted from `fail` to `below_mmu` and

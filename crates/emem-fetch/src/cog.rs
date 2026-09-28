@@ -120,6 +120,27 @@ pub struct CogProfile {
     pub epsg: Option<u32>,
     /// GDAL_NODATA string if the tag was present.
     pub nodata: Option<String>,
+    /// GTRasterTypeGeoKey (1025) = 2: the tiepoint names a pixel's centre,
+    /// not its upper-left corner. Absent or 1 is PixelIsArea, the default.
+    pub pixel_is_point: bool,
+}
+
+/// The pixel containing a fractional pixel position.
+///
+/// On a PixelIsArea raster pixel `k` spans `[k, k+1)`, so the containing
+/// pixel is the floor, as GDAL reads it. Rounding instead read the
+/// south-east neighbour for any point in the right or lower half of a
+/// pixel: every point sampler here did that from the first commit until
+/// 2026-09-28, found by reading pixel centres against GDAL. The epsilon
+/// keeps a point exactly on a corner (as `pixel_to_world` returns) from
+/// flooring one pixel low on float error.
+pub fn pixel_index(col_f: f64, row_f: f64, pixel_is_point: bool) -> (i64, i64) {
+    if pixel_is_point {
+        (col_f.round() as i64, row_f.round() as i64)
+    } else {
+        const EPS: f64 = 1e-6;
+        ((col_f + EPS).floor() as i64, (row_f + EPS).floor() as i64)
+    }
 }
 
 impl CogProfile {
@@ -142,13 +163,13 @@ impl CogProfile {
         let j = self.tiepoint.1;
         let x = self.tiepoint.2;
         let y = self.tiepoint.3;
-        let col = (i + (world_x - x) / sx).round() as i64;
-        let row = (j + (y - world_y) / sy).round() as i64;
-        (col, row)
+        let col_f = i + (world_x - x) / sx;
+        let row_f = j + (y - world_y) / sy;
+        pixel_index(col_f, row_f, self.pixel_is_point)
     }
 
-    /// The world coordinate of a pixel's upper-left corner. Exact inverse of
-    /// `world_to_pixel` before its rounding.
+    /// The world coordinate of a pixel's upper-left corner (its centre on a
+    /// PixelIsPoint raster). Inverse of `world_to_pixel` before it snaps.
     pub fn pixel_to_world(&self, col: i64, row: i64) -> (f64, f64) {
         let (sx, sy) = self.pixel_scale;
         let (i, j, x, y) = self.tiepoint;
@@ -1055,8 +1076,10 @@ fn finish_profile(
         )));
     }
 
-    // Try to find EPSG via GeoKeyDirectory key 3072 (ProjectedCSTypeGeoKey).
+    // Try to find EPSG via GeoKeyDirectory key 3072 (ProjectedCSTypeGeoKey),
+    // and the raster type from key 1025.
     let mut epsg: Option<u32> = None;
+    let mut pixel_is_point = false;
     if let Some((cnt, off_u64)) = geokey_ref {
         let off = off_u64 as usize;
         if buf.len() >= off + cnt * 2 {
@@ -1073,7 +1096,9 @@ fn finish_profile(
                 let value = u16::from_le_bytes(buf[kp + 6..kp + 8].try_into().unwrap());
                 if key_id == 3072 && tiff_tag_loc == 0 {
                     epsg = Some(value as u32);
-                    break;
+                }
+                if key_id == 1025 && tiff_tag_loc == 0 {
+                    pixel_is_point = value == 2;
                 }
             }
         }
@@ -1098,6 +1123,7 @@ fn finish_profile(
         tiepoint,
         epsg,
         nodata,
+        pixel_is_point,
     })
 }
 
@@ -1199,6 +1225,10 @@ fn packed_uint(tile: &[u8], tile_w: u32, x: usize, y: usize, bits: u16) -> Optio
     Some(v as f64)
 }
 
+/// TIFF compression tag for Zstandard (the GDAL/libtiff registration),
+/// used by the source.coop COG re-encodings.
+const COMPRESSION_ZSTD: u16 = 50000;
+
 /// Decompress + undo the predictor for a SINGLE-band tile (Sentinel-2 / -1
 /// grayscale rasters, `samples_per_pixel = 1`). Pure CPU; byte-identical to
 /// the logic that previously ran inline in [`sample_pixel`] / [`sample_window`].
@@ -1222,6 +1252,10 @@ fn decode_tile_singleband(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>
             tile_bytes = dec
                 .decode(compressed)
                 .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+        }
+        COMPRESSION_ZSTD => {
+            tile_bytes = zstd::stream::decode_all(compressed)
+                .map_err(|e| CogError::Inflate(format!("zstd: {e}")))?;
         }
         _ => unreachable!("compression already validated above"),
     }
@@ -1335,7 +1369,11 @@ fn decode_tile_multisample(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8
                 .decode(compressed)
                 .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
         }
-        _ => unreachable!("compression already gated to 5 or 8 above"),
+        COMPRESSION_ZSTD => {
+            tile_bytes = zstd::stream::decode_all(compressed)
+                .map_err(|e| CogError::Inflate(format!("zstd: {e}")))?;
+        }
+        _ => unreachable!("compression already gated to 5, 8 or 50000 above"),
     }
 
     if codec.predictor == 2 {
@@ -1395,9 +1433,9 @@ pub async fn sample_pixel(
     world_x: f64,
     world_y: f64,
 ) -> Result<f64, CogError> {
-    if profile.compression != 8 && profile.compression != 5 {
+    if !matches!(profile.compression, 5 | 8 | COMPRESSION_ZSTD) {
         return Err(CogError::Unsupported(format!(
-            "compression={} (Deflate (8) and LZW (5) supported)",
+            "compression={} (Deflate (8), LZW (5) and ZSTD (50000) supported)",
             profile.compression
         )));
     }
@@ -1541,9 +1579,9 @@ pub async fn sample_window(
             (requested_px * 8) / (1024 * 1024)
         )));
     }
-    if profile.compression != 8 && profile.compression != 5 {
+    if !matches!(profile.compression, 5 | 8 | COMPRESSION_ZSTD) {
         return Err(CogError::Unsupported(format!(
-            "compression={} (Deflate (8) and LZW (5) supported)",
+            "compression={} (Deflate (8), LZW (5) and ZSTD (50000) supported)",
             profile.compression
         )));
     }
@@ -1745,9 +1783,9 @@ pub async fn sample_pixel_multi(
     world_x: f64,
     world_y: f64,
 ) -> Result<Vec<f64>, CogError> {
-    if profile.compression != 8 && profile.compression != 5 {
+    if !matches!(profile.compression, 5 | 8 | COMPRESSION_ZSTD) {
         return Err(CogError::Unsupported(format!(
-            "compression={} (only Deflate (8) and LZW (5) supported in multi-band)",
+            "compression={} (only Deflate (8), LZW (5) and ZSTD (50000) supported in multi-band)",
             profile.compression
         )));
     }
@@ -1834,6 +1872,36 @@ pub async fn sample_pixel_multi(
         out.push(v);
     }
     Ok(out)
+}
+
+/// Whether a pinned release is still published, judged by one tile of it
+/// that is known to exist. Connectors ask this before signing a 404 as an
+/// Absence: the JRC moved GFC2020 to V4 and every V3 tile answered 404,
+/// which read as "no tile here" on every cell. Answers are kept an hour.
+pub async fn release_alive(client: &Client, canary_url: &str) -> bool {
+    type Seen = std::sync::Mutex<std::collections::HashMap<String, (std::time::Instant, bool)>>;
+    static SEEN: std::sync::OnceLock<Seen> = std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(Default::default);
+    if let Some((at, alive)) = seen
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(canary_url)
+    {
+        if at.elapsed() < std::time::Duration::from_secs(3600) {
+            return *alive;
+        }
+    }
+    let alive = match http_range(client, canary_url, 0, 15).await {
+        Ok(_) => true,
+        // Only a 404 on the canary says the release is gone; a flaky
+        // network says nothing either way, and is not remembered.
+        Err(e) if e.to_string().contains("404") => false,
+        Err(_) => return true,
+    };
+    seen.lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(canary_url.to_string(), (std::time::Instant::now(), alive));
+    alive
 }
 
 async fn http_range(
@@ -2458,7 +2526,7 @@ mod tests {
 
 #[cfg(test)]
 mod window_geo {
-    use super::CogProfile;
+    use super::{pixel_index, CogProfile};
 
     fn s2_like() -> CogProfile {
         // A Sentinel-2 style north-up tile: 10 m pixels, tiepoint mapping pixel
@@ -2483,7 +2551,22 @@ mod window_geo {
             tiepoint: (0.0, 0.0, 600_000.0, 5_700_000.0),
             epsg: Some(32630),
             nodata: None,
+            pixel_is_point: false,
         }
+    }
+
+    /// A point belongs to the pixel whose area contains it, as GDAL reads
+    /// it: the right and lower halves of a pixel are that pixel, not the
+    /// south-east neighbour.
+    #[test]
+    fn a_point_reads_the_pixel_that_contains_it() {
+        assert_eq!(pixel_index(8727.5, 18979.5, false), (8727, 18979));
+        assert_eq!(pixel_index(8727.99, 18979.01, false), (8727, 18979));
+        assert_eq!(pixel_index(8727.0 - 1e-9, 18979.0, false), (8727, 18979));
+        assert_eq!(pixel_index(8727.6, 18979.4, true), (8728, 18979));
+        let p = s2_like();
+        let (x, y) = p.pixel_to_world(40, 70);
+        assert_eq!(p.world_to_pixel(x + 7.5, y - 7.5), (40, 70));
     }
 
     #[test]

@@ -214,6 +214,23 @@ pub fn tile_url_for(lat: f64, lng: f64) -> String {
     }
 }
 
+/// The version the tile listing last named, if it has been read.
+pub fn listed_version() -> Option<u32> {
+    match LAST_VERSION.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => None,
+        v => Some(v),
+    }
+}
+
+/// Source scheme naming the version the listing last named, for facts
+/// signed without a reading (an Absence). V3 until the listing is read.
+pub fn listed_scheme() -> String {
+    match LAST_VERSION.load(std::sync::atomic::Ordering::Relaxed) {
+        0 => "jrc.gfc2020.v3".to_string(),
+        v => format!("jrc.gfc2020.v{v}"),
+    }
+}
+
 /// URL of the 10° tile covering `(lat, lng)` at the version the publisher
 /// lists now, with that version.
 pub async fn tile_url(

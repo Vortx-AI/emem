@@ -7,6 +7,15 @@ to verify.
 
 ## [Unreleased]
 
+- Raster point reads take the pixel that contains the point. `cog::world_to_pixel` rounded the fractional pixel position, so any point in the right or lower half of a pixel read its south-east neighbour; GDAL takes the floor. Every COG-backed band (Hansen, JRC GFC2020 and TMF, WorldCover, Cop-DEM, CCI biomass, Sentinel scenes, and the hand-rolled DMSP-OLS and Köppen readers) did this from the first commit. The fn_keys are unchanged because their registry definition was always "the pixel at (lat, lng)"; facts signed before this release may carry the neighbouring pixel. PixelIsPoint rasters (GTRasterTypeGeoKey 2) still round, which is correct for them.
+- JRC TMF reads by HTTP Range from a ZSTD COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf), falling back to the JRC dispatcher; the COG reader decodes ZSTD (compression 50000). Pixel values checked equal to the JRC's on 1200 random pixels across two tiles. Facts name the file read, and a mirror read says so in its derivation.
+- `/v1/eudr_dds` reads TMF DeforestationYear on every cell again and reports `tmf_cross_check` per plot (post-cut-off loss agreement with Hansen). It is not counted in the verdict.
+- `/v1/eudr_dds` adds `forest_baseline_dataset`: the forest datasets the verdict read, with the versions named by the signed facts' own source files. `forest_baseline_computed: "jrc_gfc2020_v3"` is a stable enum value, not the dataset version (the JRC now publishes V4).
+- JRC GFC2020 facts name the listed version in `sources[0].scheme` (`jrc.gfc2020.v4`), on the per-cell and the polygon-window paths alike; the window path's derivation now carries the version too.
+- Hansen, WorldCover and CCI biomass sign a 404 as an Absence only while a known tile of the pinned release still answers; otherwise it is a transport error. The GFC2020 V3 to V4 move turned exactly this 404 into a signed "no forest data" on every cell.
+- A GFC2020 read that hits the 14 s dispatch cap keeps running and warms the tile for the next ask; dispatch-cap timeouts are now logged.
+- Citation counts are flushed on shutdown.
+
 - Remove the retired foundation models: Clay v1.5, Prithvi-EO-2.0, Galileo and the JEPA-v2 dynamics head, with their GPU sidecar (`python/jepa_v2_sidecar/`), `POST /v1/jepa_predict_v2` and `POST /v1/triple_consensus` (113 MCP tools, 171 `/v1` paths). The bands stay declared in `bands-v0.json`, so `bands_cid` does not move and facts signed under them still recall and verify.
 
 ## [2.4.0] - 2026-09-07

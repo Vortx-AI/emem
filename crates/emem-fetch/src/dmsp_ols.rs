@@ -572,8 +572,7 @@ fn sample_tiff_bytes(buf: &[u8], lat: f64, lng: f64) -> Result<u8, DmspOlsError>
     let (i0, j0, x0, y0) = tiepoint;
     let col_f = i0 + (lng - x0) / sx;
     let row_f = j0 + (y0 - lat) / sy;
-    let col = col_f.round() as i64;
-    let row = row_f.round() as i64;
+    let (col, row) = crate::cog::pixel_index(col_f, row_f, false);
     if col < 0 || row < 0 || col >= width as i64 || row >= height as i64 {
         return Err(DmspOlsError::OutOfBounds { lat, lng });
     }
@@ -833,17 +832,20 @@ mod tests {
         // V4 grid (sx = sy = DMSP_OLS_PIXEL_DEG, tiepoint at
         // top-left = (-180, 75)).
         let to_px = |lat: f64, lng: f64| -> (i64, i64) {
-            let col = ((lng - DMSP_OLS_LEFT_LNG) / DMSP_OLS_PIXEL_DEG).round() as i64;
-            let row = ((DMSP_OLS_TOP_LAT - lat) / DMSP_OLS_PIXEL_DEG).round() as i64;
-            (col, row)
+            crate::cog::pixel_index(
+                (lng - DMSP_OLS_LEFT_LNG) / DMSP_OLS_PIXEL_DEG,
+                (DMSP_OLS_TOP_LAT - lat) / DMSP_OLS_PIXEL_DEG,
+                false,
+            )
         };
 
-        // Central NYC (40.7579554, -73.9855319) — Times Square. Expect
-        // a column near (180-74)/0.00833 ≈ 12722 and row near
-        // (75-40.76)/0.00833 ≈ 4109. High DN expected on a live read
-        // (Manhattan saturates the V4 sensor; values at or near 63).
+        // Central NYC (40.7579554, -73.9855319) — Times Square. Column
+        // (180-73.9855)*120 = 12721.74 and row (75-40.758)*120 = 4109.05:
+        // the pixels containing it are 12721 and 4109 (rounding read the
+        // 12722 neighbour). High DN expected on a live read (Manhattan
+        // saturates the V4 sensor; values at or near 63).
         let (col, row) = to_px(40.757_955_4, -73.985_531_9);
-        assert_eq!(col, 12722, "NYC col drifted");
+        assert_eq!(col, 12721, "NYC col drifted");
         assert_eq!(row, 4109, "NYC row drifted");
         assert!((col as u32) < 43200);
         assert!((row as u32) < 16800);

@@ -305,15 +305,31 @@ pub fn tile_url_se_for(year: u16, lat: f64, lng: f64) -> Option<String> {
 /// Sample one pixel from one ESA CCI Biomass raster (AGB or AGB_SD)
 /// and return the value as `f32` t/ha. Internal helper — both public
 /// fetches share the same EPSG:4326 + LZW + uint16 read path.
+///
+/// `canary` is the same release's tile over central Sumatra, which it
+/// publishes: a 404 there too means the release is gone, not the tile.
 async fn sample_one(
     client: &Client,
     url: &str,
+    canary: &str,
     lat: f64,
     lng: f64,
 ) -> Result<f32, EsaCciBiomassError> {
-    let profile = crate::cog::open_profile(client, url)
-        .await
-        .map_err(|e| EsaCciBiomassError::from_cog(e, lat, lng))?;
+    let profile = match crate::cog::open_profile(client, url).await {
+        Ok(p) => p,
+        Err(e) => {
+            let err = EsaCciBiomassError::from_cog(e, lat, lng);
+            // A missing tile is an Absence only while the release is published.
+            if matches!(err, EsaCciBiomassError::CoverageGap { .. })
+                && !crate::cog::release_alive(client, canary).await
+            {
+                return Err(EsaCciBiomassError::Transport(format!(
+                    "{url} answered 404 and so does the release's known tile {canary}: the pinned release is no longer published"
+                )));
+            }
+            return Err(err);
+        }
+    };
     // EPSG:4326 — sample directly with (lng, lat) as world (x, y).
     // The shared sampler honours the per-tile geo-transform via
     // `world_to_pixel`.
@@ -363,10 +379,12 @@ pub async fn fetch_agb(
     }
 
     let agb_url = tile_url(lat, lng, year, ESA_CCI_BIOMASS_LAYER_AGB);
-    let agb = sample_one(client, &agb_url, lat, lng).await?;
+    let agb_canary = tile_url(0.5, 101.5, year, ESA_CCI_BIOMASS_LAYER_AGB);
+    let agb = sample_one(client, &agb_url, &agb_canary, lat, lng).await?;
 
     let sd_url = tile_url(lat, lng, year, ESA_CCI_BIOMASS_LAYER_AGB_SD);
-    let se = sample_one(client, &sd_url, lat, lng).await?;
+    let sd_canary = tile_url(0.5, 101.5, year, ESA_CCI_BIOMASS_LAYER_AGB_SD);
+    let se = sample_one(client, &sd_url, &sd_canary, lat, lng).await?;
 
     Ok(EsaCciBiomassSample {
         agb_t_per_ha: agb,

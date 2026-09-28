@@ -142,6 +142,15 @@ const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(300);
 /// one-line edit.
 const JRC_TMF_DISPATCHER: &str = "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py";
 
+/// A cloud-optimised re-encoding of the same v1.2025 tiles (Epoch, on
+/// source.coop): ZSTD COGs that serve HTTP Range, so one pixel costs a few
+/// kilobytes instead of an 80 MB tile. Pixel values are the JRC's: one-off
+/// check on 2026-09-28, 1200/1200 random pixels equal (297 non-zero) against
+/// the dispatcher's DeforestationYear tiles `N10_E100` and `N0_W70`, same
+/// origin and pixel size. Tried first; the dispatcher is the
+/// fallback, and a fact names whichever file it read.
+const JRC_TMF_MIRROR: &str = "https://data.source.coop/epoch/jrc-tmf/v1_2025";
+
 /// Dataset-name segment for the per-year `AnnualChange_{year}` raster
 /// (uint8 land-use classification, 1990..=2025 in v2025). Reissued every
 /// vintage; the per-year suffix is the calendar year.
@@ -327,6 +336,70 @@ pub fn tile_url(dataset: &str, lat_tag: &str, lng_tag: &str) -> String {
     format!("{JRC_TMF_DISPATCHER}?type=tile&dataset={dataset}&lat={lat_tag}&lon={lng_tag}")
 }
 
+/// Mirror URL for a `(dataset, lat_tag, lng_tag)` triple. Pure helper.
+pub fn mirror_url(dataset: &str, lat_tag: &str, lng_tag: &str) -> String {
+    format!("{JRC_TMF_MIRROR}/{lat_tag}_{lng_tag}/{dataset}.tif")
+}
+
+/// One pixel read, with the file it came from.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pixel<T> {
+    pub value: T,
+    pub url: String,
+    /// `true` when read from the range-served mirror, not the JRC dispatcher.
+    pub mirror: bool,
+}
+
+/// Read one pixel of `dataset`: the mirror by range first, then the JRC
+/// tile pulled and cached whole.
+async fn read_pixel(
+    client: &Client,
+    dataset: &str,
+    lat: f64,
+    lng: f64,
+    bits: u16,
+) -> Result<Pixel<f64>, JrcTmfError> {
+    let lat_tag = tile_lat_tag(lat).ok_or(JrcTmfError::CoverageGap { lat, lng })?;
+    let lng_tag = tile_lng_tag(lng).ok_or(JrcTmfError::CoverageGap { lat, lng })?;
+    let mirror = mirror_url(dataset, &lat_tag, &lng_tag);
+    match sample_cog(client, &mirror, lat, lng, bits).await {
+        Ok(value) => {
+            return Ok(Pixel {
+                value,
+                url: mirror,
+                mirror: true,
+            })
+        }
+        Err(e) => {
+            tracing::debug!(url = %mirror, error = %e, "jrc_tmf mirror miss, using the dispatcher")
+        }
+    }
+    let path = ensure_tile_cached(client, dataset, lat, lng).await?;
+    let value = sample_via_cog(&path, lat, lng, bits).await?;
+    Ok(Pixel {
+        value,
+        url: tile_url(dataset, &lat_tag, &lng_tag),
+        mirror: false,
+    })
+}
+
+fn narrow<T: TryFrom<u32>>(p: Pixel<f64>, max: f64) -> Result<Pixel<T>, JrcTmfError> {
+    let v = p.value;
+    if !v.is_finite() || v < 0.0 || v > max || v.fract() != 0.0 {
+        return Err(JrcTmfError::Decode(format!(
+            "pixel value {v} out of range at {}",
+            p.url
+        )));
+    }
+    let value = T::try_from(v as u32)
+        .map_err(|_| JrcTmfError::Decode(format!("pixel value {v} out of range")))?;
+    Ok(Pixel {
+        value,
+        url: p.url,
+        mirror: p.mirror,
+    })
+}
+
 /// Ensure the JRC TMF tile covering `(lat, lng)` for `dataset` is
 /// present in the local cache. The heart of the pull-and-cache strategy.
 ///
@@ -465,13 +538,15 @@ pub async fn fetch_annual_change(
     lat: f64,
     lng: f64,
     year: u16,
-) -> Result<u8, JrcTmfError> {
+) -> Result<Pixel<u8>, JrcTmfError> {
     if !year_is_supported(year) {
         return Err(JrcTmfError::YearNotAvailable { year });
     }
     let dataset = format!("{DATASET_ANNUAL_CHANGE_PREFIX}_{year}");
-    let path = ensure_tile_cached(client, &dataset, lat, lng).await?;
-    sample_uint8_pixel(&path, lat, lng).await
+    narrow(
+        read_pixel(client, &dataset, lat, lng, 8).await?,
+        u8::MAX as f64,
+    )
 }
 
 /// Read one pixel from the cached `DeforestationYear` raster at
@@ -487,9 +562,9 @@ pub async fn fetch_deforestation_year(
     client: &Client,
     lat: f64,
     lng: f64,
-) -> Result<u16, JrcTmfError> {
-    let path = ensure_tile_cached(client, DATASET_DEFORESTATION_YEAR, lat, lng).await?;
-    sample_uint16_pixel(&path, lat, lng).await
+) -> Result<Pixel<u16>, JrcTmfError> {
+    let p = read_pixel(client, DATASET_DEFORESTATION_YEAR, lat, lng, 16).await?;
+    narrow(p, u16::MAX as f64)
 }
 
 /// Read one pixel from the cached `DegradationYear` raster at
@@ -500,9 +575,9 @@ pub async fn fetch_degradation_year(
     client: &Client,
     lat: f64,
     lng: f64,
-) -> Result<u16, JrcTmfError> {
-    let path = ensure_tile_cached(client, DATASET_DEGRADATION_YEAR, lat, lng).await?;
-    sample_uint16_pixel(&path, lat, lng).await
+) -> Result<Pixel<u16>, JrcTmfError> {
+    let p = read_pixel(client, DATASET_DEGRADATION_YEAR, lat, lng, 16).await?;
+    narrow(p, u16::MAX as f64)
 }
 
 /// Read one pixel from the cached `TransitionMap_Subtypes` raster at
@@ -513,39 +588,9 @@ pub async fn fetch_transition_subtype(
     client: &Client,
     lat: f64,
     lng: f64,
-) -> Result<u8, JrcTmfError> {
-    let path = ensure_tile_cached(client, DATASET_TRANSITION_SUBTYPES, lat, lng).await?;
-    sample_uint8_pixel(&path, lat, lng).await
-}
-
-/// Sample a uint8 pixel from a locally-cached JRC TMF tile. Routes
-/// the local file through the shared [`crate::cog`] sampler via its
-/// `file://` short-circuit. The sampler handles both classic TIFF
-/// (`II*\0`) and BigTIFF (`II+\0`); JRC TMF v2025 ships every tile we
-/// have probed as BigTIFF, so the BigTIFF path is the one exercised
-/// in practice.
-async fn sample_uint8_pixel(path: &Path, lat: f64, lng: f64) -> Result<u8, JrcTmfError> {
-    let value = sample_via_cog(path, lat, lng, 8).await?;
-    if !value.is_finite() || value < 0.0 || value > u8::MAX as f64 {
-        return Err(JrcTmfError::Decode(format!(
-            "uint8 pixel value {value} out of u8 range"
-        )));
-    }
-    Ok(value as u8)
-}
-
-/// Sample a uint16 pixel from a locally-cached JRC TMF tile. Same
-/// machinery as [`sample_uint8_pixel`] but for the 16-bit raster
-/// (DeforestationYear / DegradationYear ship year-of-event in uint16
-/// so we can carry the full 1990..=2025 range plus a `0` sentinel).
-async fn sample_uint16_pixel(path: &Path, lat: f64, lng: f64) -> Result<u16, JrcTmfError> {
-    let value = sample_via_cog(path, lat, lng, 16).await?;
-    if !value.is_finite() || value < 0.0 || value > u16::MAX as f64 {
-        return Err(JrcTmfError::Decode(format!(
-            "uint16 pixel value {value} out of u16 range"
-        )));
-    }
-    Ok(value as u16)
+) -> Result<Pixel<u8>, JrcTmfError> {
+    let p = read_pixel(client, DATASET_TRANSITION_SUBTYPES, lat, lng, 8).await?;
+    narrow(p, u8::MAX as f64)
 }
 
 /// Open the cached tile as a COG via the `file://` short-circuit in
@@ -574,8 +619,19 @@ async fn sample_via_cog(
     // circuit never touches the network) but the signature requires
     // it. Keep it dirt-cheap: `Client::new()` doesn't open any
     // sockets.
-    let client = Client::new();
-    let profile = cog::open_profile(&client, &url)
+    sample_cog(&Client::new(), &url, lat, lng, expected_bits).await
+}
+
+/// Sample one EPSG:4326 pixel of a single-band COG at `url` (`file://`
+/// or HTTP with Range), asserting the expected bit depth.
+async fn sample_cog(
+    client: &Client,
+    url: &str,
+    lat: f64,
+    lng: f64,
+    expected_bits: u16,
+) -> Result<f64, JrcTmfError> {
+    let profile = cog::open_profile(client, url)
         .await
         .map_err(|e| JrcTmfError::Decode(format!("cog::open_profile: {e}")))?;
     if profile.bits_per_sample != expected_bits {
@@ -595,7 +651,7 @@ async fn sample_via_cog(
     // for pixels outside the tile envelope; surface that as
     // `JrcTmfError::CoverageGap` so the materializer can sign Absence
     // honestly.
-    cog::sample_pixel(&client, &url, &profile, lng, lat)
+    cog::sample_pixel(client, url, &profile, lng, lat)
         .await
         .map_err(|e| match e {
             cog::CogError::Unsupported(msg) if msg.contains("outside image") => {
@@ -1006,7 +1062,8 @@ mod tests {
         let (lat, lng) = (-1.15_f64, -76.45_f64);
         let year = fetch_deforestation_year(&client, lat, lng)
             .await
-            .expect("Yasuni cell must materialize as a Primary fact");
+            .expect("Yasuni cell must materialize as a Primary fact")
+            .value;
         // `year == 0` is the no-event sentinel (most pixels in any
         // tropical tile); anything non-zero must be a calendar year
         // inside the dataset window.
@@ -1061,7 +1118,8 @@ mod tests {
         // year-of-event range matches the v2025 1982..=2025 window.
         let para = fetch_deforestation_year(&client, -3.5, -49.5)
             .await
-            .expect("Pará cell must materialize");
+            .expect("Pará cell must materialize")
+            .value;
         eprintln!("[jrc_tmf live] Pará (-3.500000, -49.500000) DeforestationYear pixel = {para}");
         assert!(
             para == 0 || (1982..=2025).contains(&para),

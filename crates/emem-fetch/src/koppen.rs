@@ -403,8 +403,7 @@ fn sample_tiff_bytes(buf: &[u8], lat: f64, lng: f64) -> Result<u8, KoppenError> 
     let (i0, j0, x, y) = tiepoint;
     let col_f = i0 + (lng - x) / sx;
     let row_f = j0 + (y - lat) / sy;
-    let col = col_f.round() as i64;
-    let row = row_f.round() as i64;
+    let (col, row) = crate::cog::pixel_index(col_f, row_f, false);
     if col < 0 || row < 0 || col >= width as i64 || row >= height as i64 {
         return Err(KoppenError::TiffLayout(format!(
             "world ({lat:.6},{lng:.6}) maps to pixel ({col},{row}) outside image {width}x{height}"

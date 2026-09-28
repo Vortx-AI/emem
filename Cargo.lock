@@ -2661,6 +2661,7 @@ dependencies = [
  "tokio",
  "tracing",
  "weezl",
+ "zstd",
 ]
 
 [[package]]

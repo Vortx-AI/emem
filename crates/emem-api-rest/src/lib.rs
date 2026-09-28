@@ -52766,6 +52766,16 @@ async fn materialize_esa_worldcover_2021(
             // Absence rather than a transport error so subsequent recalls
             // short-circuit.
             let es = e.to_string();
+            // An Absence only while the release is published: N00E099
+            // (Sumatra) is a tile v200 ships.
+            let canary = emem_fetch::esa_worldcover::tile_url_for(0.5, 99.5);
+            if (es.contains("404") || es.contains("Not Found"))
+                && !emem_fetch::cog::release_alive(&cli, &canary).await
+            {
+                return Err(format!(
+                    "open esa_worldcover cog {url}: 404, and so does the release's known tile {canary}: WorldCover v200 is no longer published there"
+                ));
+            }
             if es.contains("404") || es.contains("Not Found") {
                 let reason = format!(
                     "esa_worldcover_no_tile: ESA WorldCover 2021 v200 publishes no tile {lat_tag}{lng_tag} ({}). \
@@ -54225,7 +54235,12 @@ async fn build_fact_jrc_gfc2020(
     let cli = s2_http_client();
     // Provenance reflects the actual 10° tile read (not the legacy 41 GB
     // single-COG), see jrc_gfc2020 module docs for why we tile.
-    match jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await {
+    // Spawned, so a dispatch hard cap that drops this future leaves the
+    // cold tile open and the listing read: the next ask finds them warm.
+    let read = tokio::spawn(async move { jrc_gfc2020::fetch_forest_2020(&cli, lat, lng).await })
+        .await
+        .map_err(|e| format!("jrc_gfc2020.forest_2020 read task: {e}"))?;
+    match read {
         Ok(jrc_gfc2020::Reading {
             value,
             url,
@@ -54239,7 +54254,7 @@ async fn build_fact_jrc_gfc2020(
             confidence: 0.88,
             uncertainty: None,
             sources: vec![Source {
-                scheme: "jrc.gfc2020.v3".into(),
+                scheme: format!("jrc.gfc2020.v{version}"),
                 id: url.clone(),
                 cid: None,
                 hash: None,
@@ -54270,7 +54285,7 @@ async fn build_fact_jrc_gfc2020(
                 cell64,
                 band,
                 0,
-                "jrc.gfc2020.v3",
+                &jrc_gfc2020::listed_scheme(),
                 "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/",
                 signed_at,
                 &reason,
@@ -54289,7 +54304,7 @@ async fn build_fact_jrc_gfc2020(
                 cell64,
                 band,
                 0,
-                "jrc.gfc2020.v3",
+                &jrc_gfc2020::listed_scheme(),
                 &url,
                 signed_at,
                 &reason,
@@ -54351,61 +54366,71 @@ async fn build_fact_jrc_tmf(
         )
     };
 
-    let (value_int, unit, dataset_tag): (i64, &'static str, String) = match band {
-        "jrc_tmf.annual_change" => match jrc_tmf::fetch_annual_change(&cli, lat, lng, 2025).await {
-            Ok(v) => (
-                v as i64,
-                "annual_change_class",
-                "AnnualChange_2025".to_string(),
-            ),
-            Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                return Ok(absent(la, ln, "AnnualChange_2025"));
-            }
-            Err(e) => return Err(format!("jrc_tmf.annual_change fetch failed: {e}")),
-        },
-        "jrc_tmf.deforestation_year" => {
-            match jrc_tmf::fetch_deforestation_year(&cli, lat, lng).await {
-                Ok(v) => (
-                    v as i64,
-                    "year_of_deforestation",
-                    "DeforestationYear".to_string(),
-                ),
-                Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                    return Ok(absent(la, ln, "DeforestationYear"));
+    let (value_int, unit, dataset_tag, url, mirror): (i64, &'static str, String, String, bool) =
+        match band {
+            "jrc_tmf.annual_change" => {
+                match jrc_tmf::fetch_annual_change(&cli, lat, lng, 2025).await {
+                    Ok(v) => (
+                        v.value as i64,
+                        "annual_change_class",
+                        "AnnualChange_2025".to_string(),
+                        v.url,
+                        v.mirror,
+                    ),
+                    Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                        return Ok(absent(la, ln, "AnnualChange_2025"));
+                    }
+                    Err(e) => return Err(format!("jrc_tmf.annual_change fetch failed: {e}")),
                 }
-                Err(e) => return Err(format!("jrc_tmf.deforestation_year fetch failed: {e}")),
             }
-        }
-        "jrc_tmf.degradation_year" => match jrc_tmf::fetch_degradation_year(&cli, lat, lng).await {
-            Ok(v) => (
-                v as i64,
-                "year_of_degradation",
-                "DegradationYear".to_string(),
-            ),
-            Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                return Ok(absent(la, ln, "DegradationYear"));
-            }
-            Err(e) => return Err(format!("jrc_tmf.degradation_year fetch failed: {e}")),
-        },
-        "jrc_tmf.transition_subtype" => {
-            match jrc_tmf::fetch_transition_subtype(&cli, lat, lng).await {
-                Ok(v) => (
-                    v as i64,
-                    "transition_subtype_class",
-                    "TransitionMap_Subtypes".to_string(),
-                ),
-                Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
-                    return Ok(absent(la, ln, "TransitionMap_Subtypes"));
+            "jrc_tmf.deforestation_year" => {
+                match jrc_tmf::fetch_deforestation_year(&cli, lat, lng).await {
+                    Ok(v) => (
+                        v.value as i64,
+                        "year_of_deforestation",
+                        "DeforestationYear".to_string(),
+                        v.url,
+                        v.mirror,
+                    ),
+                    Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                        return Ok(absent(la, ln, "DeforestationYear"));
+                    }
+                    Err(e) => return Err(format!("jrc_tmf.deforestation_year fetch failed: {e}")),
                 }
-                Err(e) => return Err(format!("jrc_tmf.transition_subtype fetch failed: {e}")),
             }
-        }
-        _ => return Err(format!("jrc_tmf band {band} not registered")),
-    };
+            "jrc_tmf.degradation_year" => {
+                match jrc_tmf::fetch_degradation_year(&cli, lat, lng).await {
+                    Ok(v) => (
+                        v.value as i64,
+                        "year_of_degradation",
+                        "DegradationYear".to_string(),
+                        v.url,
+                        v.mirror,
+                    ),
+                    Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                        return Ok(absent(la, ln, "DegradationYear"));
+                    }
+                    Err(e) => return Err(format!("jrc_tmf.degradation_year fetch failed: {e}")),
+                }
+            }
+            "jrc_tmf.transition_subtype" => {
+                match jrc_tmf::fetch_transition_subtype(&cli, lat, lng).await {
+                    Ok(v) => (
+                        v.value as i64,
+                        "transition_subtype_class",
+                        "TransitionMap_Subtypes".to_string(),
+                        v.url,
+                        v.mirror,
+                    ),
+                    Err(jrc_tmf::JrcTmfError::CoverageGap { lat: la, lng: ln }) => {
+                        return Ok(absent(la, ln, "TransitionMap_Subtypes"));
+                    }
+                    Err(e) => return Err(format!("jrc_tmf.transition_subtype fetch failed: {e}")),
+                }
+            }
+            _ => return Err(format!("jrc_tmf band {band} not registered")),
+        };
 
-    let url = format!(
-        "https://ies-ows.jrc.ec.europa.eu/iforce/tmf_v1/download.py?type=tile&dataset={dataset_tag}&lat={lat:.6}&lon={lng:.6}"
-    );
     Ok(Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
@@ -54424,11 +54449,21 @@ async fn build_fact_jrc_tmf(
         }],
         derivation: Derivation {
             fn_key: "jrc_tmf_v2025_pixel@1".into(),
-            args: Some(ciborium::Value::Array(vec![
-                ciborium::Value::Float(lat),
-                ciborium::Value::Float(lng),
-                ciborium::Value::Text(dataset_tag),
-            ])),
+            args: Some(ciborium::Value::Array(
+                [
+                    ciborium::Value::Float(lat),
+                    ciborium::Value::Float(lng),
+                    ciborium::Value::Text(dataset_tag),
+                ]
+                .into_iter()
+                // A mirror read says so beside the file it names.
+                .chain(mirror.then(|| {
+                    ciborium::Value::Text(
+                        "via source.coop/epoch/jrc-tmf (JRC pixel values, COG re-encoding)".into(),
+                    )
+                }))
+                .collect(),
+            )),
         },
         privacy_class: "public".into(),
         schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -59448,14 +59483,22 @@ async fn materialize_bands_once(
             .await
             {
                 Ok(out) => out,
-                Err(_) => vec![MaterializeOutcome {
+                Err(_) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = "dispatch hard cap",
+                        "materialize_failed"
+                    );
+                    vec![MaterializeOutcome {
                     band: b.clone(),
                     fact_cid: None,
                     skip_reason: Some(format!(
                         "materialiser exceeded the {}s hard cap (dispatch-level timeout); upstream too slow on this call, retry to warm, or query a faster band",
                         materializer_timeout_secs()
                     )),
-                }],
+                }]
+                }
             }
             }
         }))
@@ -65264,6 +65307,59 @@ fn hs_in_annex_i(hs: &str) -> bool {
         .any(|p| cleaned.starts_with(p))
 }
 
+/// The forest datasets the verdict read, named from the signed facts' own
+/// sources, for printing on a filing: the `forest_baseline_computed` enum
+/// keeps its V3 spelling for callers after the JRC moved `LATEST/` to V4.
+async fn forest_baseline_dataset(s: &AppState, per_cell: &[EudrCellVerdict]) -> JsonValue {
+    let cids: Vec<emem_fact::FactCid> = per_cell
+        .iter()
+        .flat_map(|v| v.fact_cids.iter())
+        .collect::<std::collections::BTreeSet<_>>()
+        .into_iter()
+        .map(|c| emem_fact::FactCid::new(c.clone()))
+        .collect();
+    let facts = s
+        .storage
+        .get_facts_many_uncited(&cids)
+        .await
+        .unwrap_or_default();
+    let mut jrc = std::collections::BTreeSet::new();
+    let mut hansen = std::collections::BTreeSet::new();
+    for f in facts.into_iter().flatten() {
+        let emem_fact::Fact::Primary(p) = f else {
+            continue;
+        };
+        let Some(url) = p.sources.first().and_then(|src| src.url.clone()) else {
+            continue;
+        };
+        if p.band == "jrc_gfc2020.forest_2020" {
+            jrc.insert(dataset_version(&url, "JRC_GFC2020_V").map(|v| format!("V{v}")));
+        } else if p.band.starts_with("forest_change.") {
+            hansen.insert(
+                url.contains("GFC-2024-v1.12")
+                    .then(|| "v1.12 (2024)".to_string()),
+            );
+        }
+    }
+    let mut out = Vec::new();
+    for v in jrc {
+        out.push(json!({"name": "JRC Global Forest Cover 2020", "version": v,
+            "source": "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/"}));
+    }
+    for v in hansen {
+        out.push(json!({"name": "Hansen Global Forest Change", "version": v,
+            "source": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/"}));
+    }
+    JsonValue::Array(out)
+}
+
+/// The digits after `marker` in a source URL: the version a file names.
+fn dataset_version(url: &str, marker: &str) -> Option<u32> {
+    let rest = &url[url.find(marker)? + marker.len()..];
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    digits.parse().ok()
+}
+
 /// Aggregate per-cell verdicts to a single "forest_baseline" provenance
 /// label that honestly reflects which baseline(s) contributed. The
 /// shipped value can differ from the operator-requested override when
@@ -66250,7 +66346,7 @@ async fn batch_build_facts_via_window(
     // read a dead V3 path here after the JRC moved LATEST to V4.
     let jrc_url = if band == "jrc_gfc2020.forest_2020" {
         match emem_fetch::jrc_gfc2020::tile_url(&cli, centre_lat, centre_lng).await {
-            Ok((u, _)) => Some(u),
+            Ok(listed) => Some(listed),
             Err(e) => {
                 let why = format!("jrc_gfc2020 tile listing: {e}");
                 return (0..cells.len()).map(|i| (i, Err(why.clone()))).collect();
@@ -66263,7 +66359,7 @@ async fn batch_build_facts_via_window(
         "jrc_gfc2020.forest_2020" => (
             // 10° tile covering the polygon centre, small IFD, ~1 s cold.
             // The legacy 41 GB single-COG is never read on this path.
-            jrc_url.clone().unwrap_or_default(),
+            jrc_url.as_ref().map(|(u, _)| u.clone()).unwrap_or_default(),
             "jrc.gfc2020.v3",
             "jrc_gfc2020_v3_pixel@1",
             "forest_2020",
@@ -66453,7 +66549,10 @@ async fn batch_build_facts_via_window(
             },
             uncertainty: None,
             sources: vec![emem_fact::Source {
-                scheme: scheme.into(),
+                scheme: jrc_url
+                    .as_ref()
+                    .map(|(_, v)| format!("jrc.gfc2020.v{v}"))
+                    .unwrap_or_else(|| scheme.to_string()),
                 id: url.clone(),
                 cid: None,
                 hash: None,
@@ -66462,10 +66561,16 @@ async fn batch_build_facts_via_window(
             }],
             derivation: emem_fact::Derivation {
                 fn_key: fn_key.into(),
-                args: Some(ciborium::Value::Array(vec![
-                    ciborium::Value::Float(lat),
-                    ciborium::Value::Float(lng),
-                ])),
+                args: Some(ciborium::Value::Array(
+                    [ciborium::Value::Float(lat), ciborium::Value::Float(lng)]
+                        .into_iter()
+                        .chain(
+                            jrc_url
+                                .as_ref()
+                                .map(|(_, v)| ciborium::Value::Text(format!("v{v}"))),
+                        )
+                        .collect(),
+                )),
             },
             privacy_class: "public".into(),
             schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
@@ -66689,6 +66794,43 @@ fn eudr_verdict_for(
     (2, refinement)
 }
 
+/// How JRC TMF's deforestation year agrees with Hansen's loss year on the
+/// cells of one plot, after the cut-off. Reported beside the verdict so a
+/// filing that says "cross-checked against TMF" can show the check ran,
+/// and where the two products disagree (a TMF-only loss is often
+/// degradation-to-clearance Hansen missed; a Hansen-only loss is often
+/// plantation harvest outside TMF's moist-forest scope).
+fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue {
+    let (mut read, mut both, mut hansen_only, mut tmf_only, mut neither) = (0, 0, 0, 0, 0);
+    for c in per_cell {
+        let Some(tmf) = c.jrc_tmf_deforestation_year else {
+            continue;
+        };
+        read += 1;
+        let t = tmf > cutoff_year;
+        let h = matches!(c.hansen_lossyear, Some(v) if v > cutoff_year);
+        match (h, t) {
+            (true, true) => both += 1,
+            (true, false) => hansen_only += 1,
+            (false, true) => tmf_only += 1,
+            (false, false) => neither += 1,
+        }
+    }
+    json!({
+        "band": "jrc_tmf.deforestation_year",
+        "in_verdict": false,
+        "cells_read": read,
+        "cells_unread": per_cell.len() - read,
+        "post_cutoff_loss": {
+            "both": both,
+            "hansen_only": hansen_only,
+            "tmf_only": tmf_only,
+            "neither": neither,
+        },
+        "agreement": if read == 0 { JsonValue::Null } else { json!(((both + neither) as f64 / read as f64 * 1e4).round() / 1e4) },
+    })
+}
+
 /// Geospatial-batched per-plot evaluator: replaces the per-cell
 /// JoinSet over [`evaluate_eudr_cell`] with a per-band batched fan-out.
 /// Returns the same `Vec<EudrCellVerdict>` shape so callers don't see
@@ -66733,10 +66875,16 @@ async fn evaluate_eudr_plot_batched(
     // latency reason WRI GDM / RADD were dropped below. The verdict
     // computes from the JRC GFC2020 legal baseline + Hansen loss-year,
     // the authoritative post-cut-off loss signal.
-    let batchable: [&str; 3] = [
+    //
+    // It is back as a cross-check, read by range from a COG mirror of the
+    // same tiles (see `emem_fetch::jrc_tmf`), and reported beside the
+    // verdict, not in it: counting it as a loss signal would move filed
+    // verdicts, which is an algorithm change, not a latency fix.
+    let batchable: [&str; 4] = [
         "jrc_gfc2020.forest_2020",
         "forest_change.treecover2000",
         "forest_change.lossyear",
+        "jrc_tmf.deforestation_year",
     ];
     let batched: Vec<Vec<Result<EudrBandResult, String>>> =
         futures_util::future::join_all(
@@ -66819,10 +66967,8 @@ async fn evaluate_eudr_plot_batched(
         let mut jrc: Option<i64> = None;
         let mut hansen_tc: Option<i64> = None;
         let mut hansen_ly: Option<i64> = None;
-        // tmf_def_year is always None now (TMF removed from the hot path);
-        // kept as a field so the verdict signature / response shape are
-        // unchanged. wri_class / radd_date are likewise always None.
-        let tmf_def_year: Option<i64> = None;
+        // wri_class / radd_date are always None (off the hot path).
+        let mut tmf_def_year: Option<i64> = None;
         let mut wri_class: Option<i64> = None;
         let mut radd_date: Option<i64> = None;
 
@@ -66837,8 +66983,7 @@ async fn evaluate_eudr_plot_batched(
                         hansen_ly = r.int_value;
                         lossyear_fact_cid = Some(r.cid.as_str().to_string());
                     }
-                    // jrc_tmf.deforestation_year removed from the hot path;
-                    // tmf_def_year stays None (like wri_class / radd_date).
+                    "jrc_tmf.deforestation_year" => tmf_def_year = r.int_value,
                     _ => {}
                 }
             }
@@ -66861,11 +67006,12 @@ async fn evaluate_eudr_plot_batched(
         // the before-cut-off loss check entirely, false-passing a cell with
         // high treecover2000 that had been cleared before the cut-off.)
         let borderline_canopy = matches!(hansen_tc, Some(v) if (8..=12).contains(&v));
+        // TMF is reported, not voted: see `batchable` above.
         let (verdict, refinement) = eudr_verdict_for(
             jrc,
             hansen_tc,
             hansen_ly,
-            tmf_def_year,
+            None,
             wri_class,
             radd_date,
             cutoff_year,
@@ -68005,6 +68151,12 @@ async fn post_eudr_dds_inner(
             if let (Some(obj), Some(lh)) = (plot_obj.as_object_mut(), loss_year_histogram_json) {
                 obj.insert("loss_year_histogram".into(), lh);
             }
+            if let Some(obj) = plot_obj.as_object_mut() {
+                obj.insert(
+                    "tmf_cross_check".into(),
+                    tmf_cross_check(&per_cell, cutoff_year),
+                );
+            }
             if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
             }
@@ -68087,6 +68239,7 @@ async fn post_eudr_dds_inner(
     // Honest baseline provenance: surface what JRC and Hansen actually
     // contributed at request time, not what the algorithm spec says.
     let computed_baseline = aggregate_baseline_provenance(&all_cells_for_provenance);
+    let baseline_datasets = forest_baseline_dataset(&s, &all_cells_for_provenance).await;
     let baseline = match req.forest_baseline_override.as_deref() {
         Some(override_v) => override_v.to_string(),
         None => computed_baseline.to_string(),
@@ -68224,11 +68377,12 @@ async fn post_eudr_dds_inner(
         "regulation_status_note": "Application was deferred by Regulations (EU) 2024/3234 and 2025/2650: as of 2026-06-01 the obligations apply from 30 December 2026 for large operators and 30 June 2027 for micro/small enterprises. The 31 December 2020 deforestation cut-off is unchanged. Consult EUR-Lex for the current text and operator classification.",
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
-        "baseline_note":   "JRC GFC2020 V3 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored).",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR alerts are NOT in the current hot-path consensus, TMF is deferred off the hot path for latency (its dispatcher serves 119 MB whole tiles, ~78 s cold, and ignores HTTP Range; GFC2020's COGs do serve Range and are read by range), WRI/RADD are signed Absence today; the verdict is the JRC GFC2020 + Hansen consensus only.",
+        "forest_baseline_dataset": baseline_datasets,
+        "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); its value `jrc_gfc2020_v3` is a stable enum name, not the dataset version. The version read is `forest_baseline_dataset.version`.",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
-        "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request but is off the verdict hot path (119 MB/~78 s cold, no upstream HTTP Range).",
+        "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
         "schema_url":      "/v1/schemas/eudr_dds.json",
         "algorithm_key":   "eudr_dds@1",
         "underlying_per_cell_algorithm": "eudr_compliance@1",
@@ -85862,6 +86016,58 @@ mod tests {
                 "emittable verdict code {code} must have a label"
             );
         }
+    }
+
+    #[test]
+    fn tmf_cross_check_tallies_post_cutoff_agreement_and_skips_unread_cells() {
+        let cell = |hansen: i64, tmf: Option<i64>| EudrCellVerdict {
+            cell: "c".into(),
+            verdict: 1,
+            label: "pass",
+            jrc_forest_2020: Some(1),
+            hansen_treecover_2000: Some(90),
+            hansen_lossyear: Some(hansen),
+            jrc_tmf_deforestation_year: tmf,
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        let cells = vec![
+            cell(2022, Some(2023)),
+            cell(2022, Some(0)),
+            cell(0, Some(2021)),
+            cell(0, Some(0)),
+            // At or before the cut-off is not post-cut-off loss on either side.
+            cell(2019, Some(2020)),
+            cell(0, None),
+        ];
+        let x = tmf_cross_check(&cells, 2020);
+        assert_eq!(x["in_verdict"], false);
+        assert_eq!(x["cells_read"], 5);
+        assert_eq!(x["cells_unread"], 1);
+        assert_eq!(x["post_cutoff_loss"]["both"], 1);
+        assert_eq!(x["post_cutoff_loss"]["hansen_only"], 1);
+        assert_eq!(x["post_cutoff_loss"]["tmf_only"], 1);
+        assert_eq!(x["post_cutoff_loss"]["neither"], 2);
+        assert_eq!(x["agreement"], 0.6);
+        assert!(tmf_cross_check(&cells[5..], 2020)["agreement"].is_null());
+    }
+
+    #[test]
+    fn a_source_url_names_the_version_it_read() {
+        let v4 = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/JRC_GFC2020_V4_N10_E100.tif";
+        assert_eq!(dataset_version(v4, "JRC_GFC2020_V"), Some(4));
+        assert_eq!(
+            dataset_version("https://x/JRC_GFC2020_V12_N0_E0.tif", "JRC_GFC2020_V"),
+            Some(12)
+        );
+        assert_eq!(
+            dataset_version("https://x/other.tif", "JRC_GFC2020_V"),
+            None
+        );
     }
 
     #[test]

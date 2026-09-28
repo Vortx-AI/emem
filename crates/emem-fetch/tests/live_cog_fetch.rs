@@ -339,3 +339,33 @@ async fn chirps_daily_samples_pixel_via_anonymous_cog() {
         Err(other) => panic!("expected OutOfBounds, got {other}"),
     }
 }
+
+/// The TMF mirror returns the JRC's pixel values through our reader
+/// (ZSTD COG, HTTP Range). Expected values were read with GDAL from the
+/// JRC dispatcher's own `N10_E100` DeforestationYear tile on 2026-09-28.
+#[tokio::test]
+async fn jrc_tmf_mirror_reads_the_jrc_values() {
+    if skip_if_no_network() {
+        return;
+    }
+    let tmp = std::env::temp_dir().join("emem_tmf_mirror_live");
+    let _ = std::fs::create_dir_all(&tmp);
+    std::env::set_var("EMEM_DATA", &tmp);
+    let client = reqwest::Client::new();
+    for (lat, lng, want) in [
+        (0.573_080_235_499, 101.279_433_813_951, 2000_u16),
+        (1.075_418_142_379, 101.024_491_936_318, 2009),
+        (4.922_722_841_208, 102.352_022_263_190, 2013),
+        (7.373_237_104_759, 105.719_357_105_714, 0),
+    ] {
+        let p = match emem_fetch::jrc_tmf::fetch_deforestation_year(&client, lat, lng).await {
+            Ok(p) => p,
+            Err(e) => {
+                eprintln!("[tmf mirror] upstream unavailable, skipping: {e}");
+                return;
+            }
+        };
+        assert!(p.mirror, "read {} instead of the mirror", p.url);
+        assert_eq!(p.value, want, "({lat}, {lng}) from {}", p.url);
+    }
+}

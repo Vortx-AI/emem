@@ -509,6 +509,12 @@ fn shutdown_grace() -> std::time::Duration {
 /// keeps long sled scans and COG range-reads on that pool.
 async fn flush_and_exit(server: &Arc<Server>) -> ! {
     let t0 = std::time::Instant::now();
+    // Citation counts are coalesced in memory between 30 s writes.
+    if let Some(reg) = server.storage.attesters() {
+        if let Err(e) = reg.flush_citations() {
+            tracing::error!(error = %e, "citation flush failed");
+        }
+    }
     if let Some(db) = server.storage.hot_sled_db() {
         let db = db.clone();
         match tokio::time::timeout(std::time::Duration::from_secs(10), db.flush_async()).await {

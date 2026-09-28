@@ -306,7 +306,19 @@ async fn sample_layer_byte(
 
     let profile = match crate::cog::open_profile(client, &url).await {
         Ok(p) => p,
-        Err(e) => return Err(HansenGfcError::from_cog(e, tile, layer.into(), url)),
+        Err(e) => {
+            let err = HansenGfcError::from_cog(e, tile, layer.into(), url);
+            // A missing tile is an Absence only while the release is published.
+            if let HansenGfcError::TileNotFound { url, .. } = &err {
+                let canary = tile_url_for(5.0, 105.0, layer);
+                if !crate::cog::release_alive(client, &canary).await {
+                    return Err(HansenGfcError::Transport(format!(
+                        "{url} answered 404 and so does the release's known tile {canary}: the pinned release is no longer published"
+                    )));
+                }
+            }
+            return Err(err);
+        }
     };
     // EPSG:4326 — sample directly with (lng, lat) as world (x, y).
     // The Hansen rasters tag this in their GeoKeyDirectory; the
