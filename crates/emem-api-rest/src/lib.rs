@@ -195,6 +195,14 @@ const SKILL_AGENT_HANDOFF: &str =
     include_str!("../../../plugins/emem/skills/emem-agent-handoff/SKILL.md");
 const SKILL_VERIFY_BEFORE_PUBLISH: &str =
     include_str!("../../../plugins/emem/skills/emem-verify-before-publish/SKILL.md");
+const SKILL_FIELD_SIGNALS: &str =
+    include_str!("../../../plugins/emem/skills/emem-field-signals/SKILL.md");
+const SKILL_EUDR_DUE_DILIGENCE: &str =
+    include_str!("../../../plugins/emem/skills/emem-eudr-due-diligence/SKILL.md");
+const SKILL_DOCUMENT_EVIDENCE: &str =
+    include_str!("../../../plugins/emem/skills/emem-document-evidence/SKILL.md");
+const SKILL_TRANSPARENCY_LOG: &str =
+    include_str!("../../../plugins/emem/skills/emem-transparency-log/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 /// The MCP server descriptor. It lives at the repo root because that is
@@ -821,6 +829,22 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/skills/emem-verify-before-publish/SKILL.md",
             get(serve_skill_verify_before_publish),
+        )
+        .route(
+            "/skills/emem-field-signals/SKILL.md",
+            get(serve_skill_field_signals),
+        )
+        .route(
+            "/skills/emem-eudr-due-diligence/SKILL.md",
+            get(serve_skill_eudr_due_diligence),
+        )
+        .route(
+            "/skills/emem-document-evidence/SKILL.md",
+            get(serve_skill_document_evidence),
+        )
+        .route(
+            "/skills/emem-transparency-log/SKILL.md",
+            get(serve_skill_transparency_log),
         )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
@@ -3086,7 +3110,7 @@ async fn timeout_to_typed_504(
         "details": {
             "schema": "emem.error.v1",
             "budget_secs": secs,
-            "same_cause_over_mcp": "exceeded the {N}s call budget"
+            "same_cause_over_mcp": format!("exceeded the {secs}s call budget")
         }
     });
     (StatusCode::GATEWAY_TIMEOUT, Json(body)).into_response()
@@ -5061,6 +5085,18 @@ async fn serve_skill_agent_handoff() -> Response {
 }
 async fn serve_skill_verify_before_publish() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_VERIFY_BEFORE_PUBLISH)
+}
+async fn serve_skill_field_signals() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_FIELD_SIGNALS)
+}
+async fn serve_skill_eudr_due_diligence() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_EUDR_DUE_DILIGENCE)
+}
+async fn serve_skill_document_evidence() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_DOCUMENT_EVIDENCE)
+}
+async fn serve_skill_transparency_log() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_TRANSPARENCY_LOG)
 }
 async fn serve_llms_full() -> Response {
     // `/llms-full.txt` used to alias `/llms.txt` byte-for-byte, which
@@ -16799,7 +16835,7 @@ async fn get_v1_agent_quickref(State(s): State<AppState>) -> Json<JsonValue> {
             { "intent": "verify_claim",        "method": "POST", "path": "/v1/verify",         "use_when": "user makes a structured spatial claim ('elevation > 3000 m at X')" },
             { "intent": "knn_similar",         "method": "POST", "path": "/v1/find_similar",   "use_when": "'find places like X', k-NN over geotessera or any vector band" },
             { "intent": "place_to_cell64",     "method": "POST", "path": "/v1/locate",         "use_when": "you only have a place name or lat/lng and need cell64" },
-            { "intent": "state_vector",        "method": "POST", "path": "/v1/state",          "use_when": "want a single dense per-place embedding to drop into LLM context or feed to find_similar, view=encoder (128-D default) or view=cube (1792-D)" },
+            { "intent": "state_vector",        "method": "POST", "path": "/v1/state",          "use_when": "want a single dense per-place embedding to drop into LLM context or feed to find_similar, view=encoder (the live encoder's dimension, see GET /v1/state) or view=cube (1792-D)" },
             { "intent": "state_fan_out",       "method": "POST", "path": "/v1/state_multi",    "use_when": "want every foundation embedding this responder serves at one cell in one call" },
             { "intent": "state_delta",         "method": "POST", "path": "/v1/state_diff",     "use_when": "compare the same cell across two vintages (residual + L2 + cosine)" },
             { "intent": "compose_citation",    "method": "POST", "path": "/v1/memory_token",   "use_when": "wrap a (cell, fact_cid) pair as a single emem:fact: handle to paste across agents" },
@@ -67478,6 +67514,19 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
     // read: a 0.5 ha clearance (the Art. 2(4) floor) is a 71 m square, and a
     // grid no wider than that has a sample inside any such square.
     let spacing_m = (area_ha.max(0.0) * 10_000.0 / n).sqrt();
+    // Inside TMF's tropical belt a cross-check that read nothing is a
+    // missing input, not agreement.
+    let tmf_read = tmf["cells_read"].as_u64().unwrap_or(0);
+    let tmf_unread = tmf["cells_unread"].as_u64().unwrap_or(0);
+    let in_tmf_belt = per_cell
+        .first()
+        .and_then(|c| emem_codec::latlng_from_cell64(&c.cell).ok())
+        .is_some_and(|p| p.lat_deg.abs() < 30.0);
+    check(
+        false,
+        in_tmf_belt && tmf_read == 0 && tmf_unread > 0,
+        "TMF read no cell on this plot, so its cross-check did not run".to_string(),
+    );
     // A point is what Art. 2(28) allows for a plot of 4 ha or less, and it
     // sees one pixel: legitimate, but not coverage of the plot.
     check(
@@ -69125,7 +69174,7 @@ async fn post_eudr_dds_inner(
             "n_plots":      req.plots.len(),
         },
         "statement_of_compliance":     statement_of_compliance(overall_label),
-        "statement_of_compliance_signable": overall_label == "pass",
+        "statement_of_compliance_signable": overall_label == "pass" && !review_required && !weak_support,
         "traces_nt_envelope": traces_nt_envelope,
         "per_plot_results": per_plot_results,
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),

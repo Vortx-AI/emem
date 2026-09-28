@@ -480,24 +480,29 @@ pub fn parse_lab_report(text: &str) -> LabReport {
             .filter_map(|(i, l)| pred(l).map(|v| locate(v, &offs, i, l)))
             .collect()
     };
-    let sample_id = find_all(&|l: &str| {
-        let k = [
-            "sample id",
-            "sample no",
-            "sample number",
-            "sample code",
-            "lab no",
-            "report no",
-        ]
-        .iter()
-        .find_map(|w| find_ci(l, w).map(|(_, end)| end))?;
-        let v = l[k..]
-            .trim_start_matches(|c: char| c == ':' || c == '.' || c == '#' || c.is_whitespace());
-        let v = v.split_whitespace().next()?;
-        (v.chars().any(|c| c.is_ascii_digit())).then(|| v.to_string())
-    })
-    .into_iter()
-    .next();
+    // Labels in order of preference, each over the whole document: a
+    // "Test Report No" on an earlier line is not the sample's id.
+    let sample_id = [
+        "sample id",
+        "sample no",
+        "sample number",
+        "sample code",
+        "lab no",
+        "report no",
+    ]
+    .iter()
+    .find_map(|w| {
+        lines.iter().enumerate().find_map(|(i, l)| {
+            let (_, end) = find_ci(l, w)?;
+            let v = l[end..].trim_start_matches(|c: char| {
+                c == ':' || c == '.' || c == '#' || c.is_whitespace()
+            });
+            let v = v.split_whitespace().next()?;
+            v.chars()
+                .any(|c| c.is_ascii_digit())
+                .then(|| locate(v.to_string(), &offs, i, l))
+        })
+    });
     let dates = find_all(&|l: &str| date_in(l));
     let accreditation = find_all(&|l: &str| {
         let low = l.to_lowercase();
@@ -814,8 +819,14 @@ fn parse_area(v: &str) -> Area {
                 })
         })
     });
-    // A three-part 7/12 area is already hectares.
-    let three_part = a.chars().filter(|c| *c == '.').count() == 2 && unit.is_none();
+    // A three-part 7/12 area is already hectares; count the dots in the
+    // number itself, so a written "ha.are.m2" beside it does not hide it.
+    let numeric: String = a
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit())
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let three_part = numeric.trim_end_matches('.').matches('.').count() == 2 && unit.is_none();
     Area {
         raw: v.to_string(),
         unit: unit
@@ -959,6 +970,14 @@ Total                                          \n";
             );
         }
         assert_ne!(r.verdict, "within_printed_mrls");
+    }
+
+    #[test]
+    fn the_sample_id_beats_a_report_number_and_a_labelled_seven_twelve_area_reads() {
+        let r = parse_lab_report("Test Report No: TR-88121\nSample ID: S-2026-17\n");
+        assert_eq!(r.sample_id.map(|s| s.value).as_deref(), Some("S-2026-17"));
+        let a = parse_area("1.20.50 ha.are.m2");
+        assert!((a.hectares.unwrap() - 1.205).abs() < 1e-9, "{a:?}");
     }
 
     #[test]
