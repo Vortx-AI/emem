@@ -100,6 +100,14 @@
   --w-page:min(94vw, 1400px);
   --w-text:68ch;
   --w-narrow:min(94vw, 820px);
+
+  /* Inner pages (body.doc) use the whole screen up to 1800px, with a gutter of
+     1.667vw clamped to 16-32px: 24px at 1440, 32px at 1920. Prose inside is
+     capped at --measure so line length stays readable while tables, code and
+     figures take the full width. The landing page keeps --w-page. */
+  --w-doc:1800px;
+  --gutter-doc:clamp(1rem, 1.667vw, 2rem);
+  --measure:74ch;
 }
 
 /* The dark palette, selectable two ways.

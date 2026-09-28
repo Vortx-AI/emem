@@ -16,13 +16,13 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/verify">
 <meta property=og:title content="emem.dev/verify · receipts, signatures, sources">
-<meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an ed25519 responder key. This page recomputes the signature in your browser: no trust required, no server call.">
+<meta property=og:description content="Every fact on emem.dev is content-addressed and signed by an Ed25519 responder key. This page fetches the bytes and checks the hash and signature in your browser.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
 <meta name=twitter:card content="summary_large_image">
 <meta name=twitter:title content="emem.dev/verify · receipts, signatures, sources">
-<meta name=twitter:description content="Receipts verify offline in your browser. The protocol's trust layer, made visible.">
+<meta name=twitter:description content="Paste an emem token or receipt. Its hashes and Ed25519 signature are checked in your browser against the published key.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -45,10 +45,25 @@ a{color:var(--accent)}
 .skip{position:absolute;left:-999px;top:0}
 .skip:focus{left:1em;top:1em;background:var(--paper-2);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
-.vfy{max-width:52rem;margin:0 auto;padding:0 var(--pad-x) var(--s-6)}
-.hero{padding:var(--s-6) 0 var(--s-4);text-align:center}
-.hero h1{font-family:var(--display);font-weight:420;font-size:clamp(var(--t-2xl), 5.4vw, var(--t-4xl));line-height:1.06;letter-spacing:-.02em;margin:0 auto var(--s-2);text-wrap:balance;font-variation-settings:'opsz' 60}
-.hero .lede{margin:0 auto var(--s-4);font-family:var(--mono);font-size:var(--t-sm);color:var(--mute)}
+/* Tool on the left, reference on the right. The tool column is capped so a
+   pasted token and its steps stay readable; the reference fills the rest. */
+.vfy-head{grid-template-columns:minmax(0,1fr)}
+.vfy{display:grid;grid-template-columns:minmax(0,1fr) minmax(16rem,24rem);gap:var(--s-5);align-items:start;max-width:var(--w-page);margin:0 auto;padding-top:var(--s-4);padding-bottom:var(--s-6)}
+.vfy-main{min-width:0;max-width:64rem}
+.vfy-tool{padding:0}
+.vfy-label{margin:var(--s-3) 0 0;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute)}
+.vfy-ref{position:sticky;top:64px;font-family:var(--mono);font-size:var(--t-xs);line-height:1.5;color:var(--ink-2);border-left:1px solid var(--rule);padding-left:var(--s-4)}
+.vfy-ref h2{margin:var(--s-4) 0 var(--s-2);font:600 var(--t-3xs)/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.vfy-ref h2:first-child{margin-top:0}
+.vfy-verdicts{margin:0;display:grid;gap:var(--s-2)}
+.vfy-verdicts dt{font-weight:600}
+.vfy-verdicts dd{margin:0;color:var(--ink-2)}
+.vfy-small{margin:var(--s-2) 0 0;font-size:var(--t-2xs);color:var(--mute)}
+.vfy-kinds{width:100%;border-collapse:collapse;font-size:var(--t-2xs)}
+.vfy-kinds td{padding:var(--s-1) 0;border-bottom:1px solid var(--rule);vertical-align:top}
+.vfy-kinds td:first-child{padding-right:var(--s-2);color:var(--ink);overflow-wrap:anywhere;width:45%}
+.vfy-kinds td:last-child{color:var(--mute)}
+@media (max-width:960px){.vfy{grid-template-columns:minmax(0,1fr)}.vfy-ref{position:static;border-left:0;padding-left:0;border-top:1px solid var(--rule);padding-top:var(--s-4)}}
 
 /* the composer */
 .cmp-box{position:relative;display:flex;flex-direction:column;gap:var(--s-1);background:var(--field);border:1px solid var(--rule);border-radius:1.618rem;
@@ -67,12 +82,10 @@ a{color:var(--accent)}
 .cmp-send svg{width:18px;height:18px}
 .cmp-send[disabled]{cursor:default}
 .cmp-send[disabled] span{background:var(--rule);color:var(--mute)}
-.chips{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--s-1);margin:var(--s-3) 0 0;padding:0;list-style:none}
+.chips{display:flex;flex-wrap:wrap;justify-content:flex-start;gap:var(--s-1);margin:var(--s-2) 0 0;padding:0;list-style:none}
 .chips button{min-height:44px;padding:0 var(--s-3);border:1px solid var(--rule);border-radius:999px;background:transparent;color:var(--ink-2);font-size:var(--t-2xs);cursor:pointer}
 .chips button:hover{border-color:var(--accent);color:var(--accent)}
 .chips button[disabled]{opacity:.55;cursor:progress}
-.legend{display:flex;flex-wrap:wrap;justify-content:center;gap:var(--s-2) var(--s-4);margin:var(--s-4) 0 0;padding:0;list-style:none;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute)}
-.legend b{font-weight:600}
 
 /* a turn: what was pasted, and the verification under it */
 .thread{display:flex;flex-direction:column;gap:var(--s-5);margin-top:var(--s-5)}
@@ -153,7 +166,7 @@ a{color:var(--accent)}
 @media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.foot-grid{grid-template-columns:repeat(2,1fr)}.you{max-width:100%}}
 </style>
 </head>
-<body>
+<body class="doc">
 <a class=skip href="#main">Skip to verifier</a>
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -203,40 +216,83 @@ a{color:var(--accent)}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-developers"><span class="aud-for">for developers</span><span class="aud-what">paste a token, watch the proof run</span></div>
+<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li><span aria-current="page">Verify</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">paste a token, watch the proof run</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
-<main class=vfy id=main tabindex="-1">
-  <section class=hero aria-labelledby=vh>
-    <h1 id=vh>Check anything emem signed.</h1>
-    <p class=lede>paste a token, a name, a receipt or a log hash &middot; every check runs in this tab</p>
-    <form class=cmp id=cmp autocomplete=off>
-      <div class=cmp-box>
-        <label for=q class=sr-only>A token, name, link, receipt JSON or r1 line</label>
-        <textarea id=q class=cmp-in rows=2 spellcheck=false placeholder="emem:fact:…  emem:bundle:…  emem:tree:…  a note name, a receipt, an r1 line"></textarea>
-        <div class=cmp-row>
-          <button type=button class=cmp-icon id=paste title="paste from the clipboard" aria-label="paste from the clipboard"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.6 stroke-linecap=round stroke-linejoin=round aria-hidden=true><rect x=7 y=4 width=10 height=4 rx=1 /><path d="M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2"/></svg></button>
-          <span class=cmp-hint id=hint>reads the kind from what you paste</span>
-          <button type=submit class=cmp-send id=go aria-label="verify" disabled><span><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round aria-hidden=true><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></button>
+<header class="doc-head vfy-head">
+  <div>
+    <p class="eyebrow">Verify &middot; in-browser checker</p>
+    <h1>Verify</h1>
+    <p class="purpose">Paste an emem token, a note name, a receipt or a log hash. The page fetches the bytes and proofs from emem.dev, then checks the hashes and signatures in this tab against the published key.</p>
+    <dl class="facts">
+      <div><dt>key from</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>code</dt><dd><a href="/emem-verify-core.js">/emem-verify-core.js</a> (BLAKE3, Ed25519)</dd></div>
+      <div><dt>API equivalent</dt><dd>POST /v1/verify_receipt</dd></div>
+    </dl>
+  </div>
+</header>
+
+<main class="vfy page" id="main" tabindex="-1">
+  <div class="vfy-main">
+    <section class="vfy-tool" aria-labelledby="vh">
+      <h2 id="vh" class="sr-only">Check a token</h2>
+      <form class=cmp id=cmp autocomplete=off>
+        <div class=cmp-box>
+          <label for=q class=sr-only>A token, name, link, receipt JSON or r1 line</label>
+          <textarea id=q class=cmp-in rows=2 spellcheck=false placeholder="emem:fact:…  emem:bundle:…  emem:tree:…  a note name, a receipt, an r1 line"></textarea>
+          <div class=cmp-row>
+            <button type=button class=cmp-icon id=paste title="paste from the clipboard" aria-label="paste from the clipboard"><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=1.6 stroke-linecap=round stroke-linejoin=round aria-hidden=true><rect x=7 y=4 width=10 height=4 rx=1 /><path d="M8 6H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-2"/></svg></button>
+            <span class=cmp-hint id=hint>reads the kind from what you paste</span>
+            <button type=submit class=cmp-send id=go aria-label="verify" disabled><span><svg viewBox="0 0 24 24" fill=none stroke=currentColor stroke-width=2 stroke-linecap=round stroke-linejoin=round aria-hidden=true><path d="M12 19V5M5 12l7-7 7 7"/></svg></span></button>
+          </div>
         </div>
-      </div>
-    </form>
-    <ul class=chips id=chips aria-label="examples, each fetched live"></ul>
-    <ul class=legend aria-label="what the verdicts mean">
-      <li><b class=ok>&#10003; verified</b> a signature checked here against the key it names</li>
-      <li><b>&#9675; resolved</b> found, its bytes hash to its name, nobody signs it</li>
-      <li><b class=no>&#10007; failed</b> and the reason</li>
-    </ul>
-  </section>
-  <section class=thread id=thread aria-live=polite aria-label="verifications"></section>
+      </form>
+      <p class="vfy-label">Examples, each minted live when you click:</p>
+      <ul class=chips id=chips aria-label="examples, each fetched live"></ul>
+    </section>
+    <section class=thread id=thread aria-live=polite aria-label="verifications"></section>
+  </div>
+
+  <aside class="vfy-ref" aria-label="Reference">
+    <h2>What each result means</h2>
+    <dl class="vfy-verdicts">
+      <div><dt><b class=ok>&#10003; verified</b></dt><dd>A signature was checked in this tab against the key it names.</dd></div>
+      <div><dt><b>&#9675; resolved</b></dt><dd>The bytes were found and hash to their name. No signature covers them.</dd></div>
+      <div><dt><b class=no>&#10007; failed</b></dt><dd>A check did not pass. The failing step says which and why.</dd></div>
+    </dl>
+    <p class="vfy-small">Each step is marked <b class=ok>&#10003;</b> passed, <b class=no>&#10007;</b> failed, or &middot; for information. If the in-tab verifier fails its self-test, the page checks nothing and says so.</p>
+
+    <h2>What you can paste</h2>
+    <table class="vfy-kinds">
+      <tr><td><code>emem:fact:</code></td><td>one signed reading; the legacy <code>memt:</code> form too</td></tr>
+      <tr><td><code>emem:bundle:</code></td><td>a set of facts</td></tr>
+      <tr><td><code>emem:cell:</code></td><td>a place, about 10 m on a side</td></tr>
+      <tr><td><code>emem:entity:</code></td><td>an object's identity</td></tr>
+      <tr><td><code>emem:raster:</code> <code>emem:cube:</code> <code>emem:rasterset:</code></td><td>a signed field, a field over time, several fields</td></tr>
+      <tr><td><code>emem:tree:</code></td><td>one root over a note's units</td></tr>
+      <tr><td><code>emem:trace:</code></td><td>an attested run on a device</td></tr>
+      <tr><td><code>emem:state:</code></td><td>one stage of an answer's reasoning</td></tr>
+      <tr><td>26 characters</td><td>a signed note, by name</td></tr>
+      <tr><td>52 characters</td><td>a fact_cid or other content name</td></tr>
+      <tr><td><code>{"receipt":&hellip;}</code></td><td>a receipt JSON</td></tr>
+      <tr><td><code>/v1/log/sth</code></td><td>the signed log head</td></tr>
+      <tr><td><code>entry_hash=&hellip;</code></td><td>one log entry</td></tr>
+      <tr><td><code>r1 &hellip;</code></td><td>an r1 line, by its ref</td></tr>
+    </table>
+
+    <h2>What rests on whom</h2>
+    <p class="vfy-small">emem.dev supplies bytes and proofs. This tab decides whether they hold. A check that relies on the responder's word is labelled as such in its step.</p>
+    <p class="vfy-small">To check without this page, see <a href="/how-it-works#signing">How it works: hash and sign</a> or the <a href="/spec">wire format</a>.</p>
+  </aside>
 </main>
+
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
 <a class="pb-prev" href="/tools"><i>&larr;</i><b>MCP tools</b></a>
 <ol class="pb-steps">
 <li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run eight live calls"><span>2</span></a></li>
+<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
 <li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
 <li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>

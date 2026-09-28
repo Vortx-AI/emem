@@ -61,7 +61,7 @@ END = "<!--nav:end-->"
 #   kind "lab"   unfinished or experimental; kept reachable, marked, off the path
 SITE = [
     ("/",                     "Home",          "tokenise a file, read a place, ask", "Try",     "path"),
-    ("/demos",                "Demos",         "run eight live calls",               "Try",     "path"),
+    ("/demos",                "Demos",         "run live calls in the browser",      "Try",     "path"),
     ("/demos/ask-the-earth",  "Ask the Earth", "ask, get a signed answer",           "Try",     "demo"),
     ("/demos/signed-answer",  "Signed answer", "watch a receipt get built",          "Try",     "demo"),
     ("/demos/recall-polygon", "Recall an area","read a polygon at once",             "Try",     "demo"),
@@ -139,7 +139,7 @@ AUDIENCE = {
     "/docs":        ("developers","the book"),
     "/guard":       ("developers","a server you run, with the commands to run it"),
     "/verify":      ("developers","paste a token, watch the proof run"),
-    "/demos":       ("anyone",    "eight things you can click"),
+    "/demos":       ("anyone",    "live calls you can run and check"),
     "/tools":       ("agents",    "the full tool registry, generated, long"),
     "/a2a":         ("agents",    "how two agents agree before they start"),
     "/agents":      ("agents",    "who writes here, as data"),
@@ -196,6 +196,24 @@ AUDIENCE_NOTE = {
 GITHUB = "https://github.com/Vortx-AI/emem"
 
 
+def breadcrumb(current: str) -> str:
+    """emem / section / [Demos /] page, from SITE. Empty on the homepage.
+
+    A reader who arrives from a search result lands mid-site. The bar says
+    where they could go; this says where they are, in the same words the
+    footer columns use."""
+    row = ROW.get(current)
+    if current == "/" or not row:
+        return ""
+    items = ['<li><a href="/">emem</a></li>']
+    if row[3] != row[1]:
+        items.append(f'<li>{row[3]}</li>')
+    if current in DEMOS:
+        items.append('<li><a href="/demos">Demos</a></li>')
+    items.append(f'<li><span aria-current="page">{row[1]}</span></li>')
+    return f'<ol class="crumbs" aria-label="Breadcrumb">{"".join(items)}</ol>'
+
+
 def render(current: str) -> str:
     """`current` is the path of the page being rendered, for the on state."""
     out = [START, '<header class="sitebar"><nav class="sitebar-in" aria-label="Site">',
@@ -246,13 +264,14 @@ def render(current: str) -> str:
     # whose page this is before they start reading it.
     who, what = AUDIENCE.get(current, ("anyone", ""))
     row = ROW.get(current)
+    crumbs = breadcrumb(current)
     if row and row[4] == "lab":
         # A lab page stays reachable and says what it is before anything else.
-        out.append(f'<div class="audience aud-lab"><span class="aud-for">lab</span>'
+        out.append(f'<div class="audience aud-lab">{crumbs}<span class="aud-for">lab</span>'
                    f'<span class="aud-what">{what or row[2]}: unfinished, off the developer path</span>'
                    f'<a class="aud-note" href="/demos">start at the demos</a></div>')
     else:
-        out.append(f'<div class="audience aud-{who}">'
+        out.append(f'<div class="audience aud-{who}">{crumbs}'
                    f'<span class="aud-for">for {who}</span>'
                    f'<span class="aud-what">{what}</span>'
                    f'</div>')
@@ -367,6 +386,29 @@ def render_foot(current: str) -> str:
     out.append(PROOF_JS)
     out.append(FOOT_END)
     return "\n".join(out)
+
+
+_BODY = re.compile(r'<body\b([^>]*)>')
+
+
+def mark_doc(html: str) -> str:
+    """Put class="doc" on <body>, which is what nav.css keys the inner-page
+    width and gutter on. Idempotent; a page with no <body> tag is left alone."""
+    # Search after </head>: a <body mentioned in a head comment or a <style>
+    # block matched first once, and the class landed inside the comment.
+    head_end = html.find("</head>")
+    m = _BODY.search(html, head_end if head_end >= 0 else 0)
+    if not m:
+        return html
+    attrs = m.group(1)
+    cm = re.search(r'\bclass="([^"]*)"', attrs)
+    if cm:
+        if "doc" in cm.group(1).split():
+            return html
+        attrs = attrs[:cm.start()] + f'class="doc {cm.group(1)}"' + attrs[cm.end():]
+    else:
+        attrs = ' class="doc"' + attrs
+    return html[:m.start()] + f'<body{attrs}>' + html[m.end():]
 
 
 FOOT_GEN = re.compile(re.escape(FOOT_START) + r'.*?' + re.escape(FOOT_END), re.S)
@@ -585,6 +627,8 @@ def main():
                     continue
                 out = s[:m.start()] + "\n" + nav + s[m.start():]
         out = apply_foot(out, served_as(name))
+        if name != "index.html":
+            out = mark_doc(out)
         if name not in FOLD_SKIP:
             out = fold_prose(out)
         if "/nav.css" not in out:

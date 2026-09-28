@@ -40,7 +40,7 @@ canvas{position:fixed;inset:0;z-index:0;touch-action:none}
 @media (max-width:760px){.statusbar a.nav-sec{display:none}}
 
 .panel{position:fixed;background:color-mix(in oklch, var(--paper-2) 90%, transparent);border:1px solid var(--rule);border-radius:6px;backdrop-filter:blur(9px);box-shadow:0 6px 24px rgba(0,0,0,.35)}
-#hud{left:16px;top:52px;z-index:12;max-width:min(42ch,calc(100vw - 32px));padding:.7rem .85rem}
+#hud{left:16px;top:var(--wl-top,104px);z-index:12;max-width:min(42ch,calc(100vw - 32px));padding:.7rem .85rem}
 #hud .title{font-size:var(--t-base);font-weight:600;letter-spacing:.01em;color:var(--ink)}
 #hud .n{color:var(--ink-3);font-size:var(--t-xs);margin-top:.15rem}
 #hud .story{color:var(--ink-2);font-size:var(--t-sm);margin-top:.5rem;line-height:1.5}
@@ -92,7 +92,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 .sw-btn.on{background:var(--accent-bg);border-color:var(--accent)}
 .sw-btn.on::after{transform:translateX(16px);background:var(--accent)}
 
-#integrity{right:16px;top:52px;z-index:12;text-align:right;font-size:var(--t-xs);color:var(--ink-3);padding:.45rem .6rem}
+#integrity{right:16px;top:var(--wl-top,104px);z-index:12;text-align:right;font-size:var(--t-xs);color:var(--ink-3);padding:.45rem .6rem}
 #integrity .badge{display:inline-block;border:1px solid var(--rule);border-radius:4px;padding:.2em .55em;color:var(--ink-3)}
 #integrity .badge.ok{color:var(--accent);border-color:currentColor}
 #integrity .badge.bad{color:var(--warn);border-color:currentColor}
@@ -113,14 +113,20 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 #pick .x:hover{color:var(--ink)}
 
 /* first-run hint + empty */
-#hint{position:fixed;left:50%;top:calc(52px + 12px);transform:translateX(-50%);z-index:14;background:color-mix(in oklch,var(--paper-2) 90%,transparent);border:1px solid var(--rule);border-radius:20px;padding:.35rem 1rem;font-size:var(--t-xs);color:var(--ink-2);backdrop-filter:blur(8px);transition:opacity .5s;pointer-events:none}
+#hint{position:fixed;left:50%;top:calc(var(--wl-top,104px) + 12px);transform:translateX(-50%);z-index:14;background:color-mix(in oklch,var(--paper-2) 90%,transparent);border:1px solid var(--rule);border-radius:20px;padding:.35rem 1rem;font-size:var(--t-xs);color:var(--ink-2);backdrop-filter:blur(8px);transition:opacity .5s;pointer-events:none}
 #empty{position:fixed;inset:0;z-index:15;display:none;align-items:center;justify-content:center;padding:2rem}
 #empty .box{max-width:56ch;background:var(--paper-2);border:1px solid var(--rule);border-radius:6px;padding:1.4rem 1.6rem;font-size:var(--t-sm);color:var(--ink-2);line-height:1.6}
 #empty code{background:var(--paper);border:1px solid var(--rule);border-radius:3px;padding:.06em .35em}
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:30;background:var(--accent-bg);border:1px solid var(--accent);color:var(--ink);border-radius:6px;padding:.4rem .8rem;font-size:var(--t-xs);opacity:0;transition:opacity .2s;pointer-events:none}
 .toast.show{opacity:1}
 @media (max-width:760px){#ctl{width:190px}#hud{max-width:calc(100vw - 32px)}}
-.intro{max-width:38ch;line-height:1.5}
+/* On a phone the badge and the hint sat on top of the collapsed #hud. */
+@media (max-width:760px){#integrity{top:auto;bottom:4.5rem}#hint{display:none}}
+/* The intro had no offsets, so it sat at its static position behind #hud with
+   its first letters showing at the left edge. It sits under the integrity
+   badge now, and gives way below 1100px where it would cover the terrain. */
+.intro{right:16px;top:calc(var(--wl-top,104px) + 4.5rem);z-index:11;max-width:38ch;line-height:1.5;padding:var(--s-2) var(--s-3)}
+@media (max-width:1100px){.intro{display:none}}
 .intro p{margin:0 0 .6rem}
 .intro-do{opacity:.75}
 @media (max-width:760px){.intro{display:none}}
@@ -129,7 +135,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 .panel button.min-btn,.min-btn{min-width:24px;min-height:24px}
 </style>
 </head>
-<body>
+<body class="doc">
 
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -179,25 +185,20 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-lab"><span class="aud-for">lab</span><span class="aud-what">signed terrain you can fly through: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Worlds</span></li></ol><span class="aud-for">lab</span><span class="aud-what">signed terrain you can fly through: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <!-- A reader arriving here saw "loading..." and a wall of controls and was
      never told what they were looking at. /humans redirects to this page, so
      it was the least self-explanatory surface with the most naive traffic. -->
+<!-- The panels are fixed and the site chrome above them wraps to two or three
+     rows on a narrow screen, so their top edge is measured, not guessed. -->
+<script>(function(){function set(){var a=document.querySelector('.audience');if(!a)return;document.documentElement.style.setProperty('--wl-top',Math.ceil(a.getBoundingClientRect().bottom+8)+'px');}set();addEventListener('resize',set);addEventListener('load',set);})();</script>
 <div id="intro" class="panel intro">
-  <p><b>Every point you are about to orbit is one signed measurement.</b> Not a
-  rendering of a place and not a photograph: a cloud of individual facts, each
-  recorded at a fixed address on Earth, each carrying the signature of whoever
-  recorded it.</p>
-  <p>Click any point and you get the fact behind it: the value, the band it
-  belongs to, and the content address you can hand to someone else to check
-  independently.</p><details class="fold"><summary>more</summary><p class="rest">The satellite basemap underneath is <em>reference only and not
-  signed data</em>, which is why it says so rather than blending in.</p></details>
-  <p class="intro-do">Drag to orbit, scroll to zoom, click a point to read it.
-  <a href="/verify">Verify one yourself</a> or
-  <a href="/how-it-works">see how the memory is built</a>.</p>
+  <p><b>The measured points are signed facts.</b> Each sits at a fixed cell on Earth and carries the signature of the key that recorded it. The other points are derived from them, and the panel on the left counts both.</p>
+  <p>Click a point to read its value, its band and the content address another agent can check. The satellite basemap underneath is reference imagery and is not signed.</p>
+  <p class="intro-do">Drag to orbit, scroll to zoom. <a href="/verify">Verify one yourself</a> or <a href="/how-it-works">see how the memory is built</a>.</p>
 </div>
 
 <div id="hud" class="panel">

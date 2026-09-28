@@ -73,11 +73,13 @@ def example(t: dict) -> str:
 
 def row(t: dict) -> str:
     what = (t.get("when_to_use") or t.get("description") or "").split(". ")[0].rstrip(".")
+    name = html.escape(t['name'])
     return f"""
-<details class="tool" id="{html.escape(t['name'])}">
-  <summary><code>{html.escape(t['name'])}</code><span class="tt">{html.escape(t.get('title') or '')}</span><span class="tw">{html.escape(what)}.</span></summary>
+<details class="tool" id="{name}" data-q="{html.escape((t['name'] + ' ' + (t.get('title') or '') + ' ' + (t.get('description') or '')).lower())}">
+  <summary><code>{name}</code><span class="tt">{html.escape(t.get('title') or '')}</span><span class="tw">{html.escape(what)}.</span></summary>
   <p>{html.escape(t.get('description') or '')}</p>
   <pre><code>{html.escape(example(t))}</code></pre>
+  <p class="tl"><a href="#{name}">link to this tool</a></p>
 </details>"""
 
 
@@ -88,8 +90,8 @@ def main() -> int:
     rest = [t for t in tools if t.get("tier") != "core"]
     sections = [
         (
-            f"The core loop ({len(core)} tools)",
-            "What /mcp advertises by default: enough to name, ground, read, cite, and verify.",
+            f"Core loop ({len(core)})",
+            "What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. Every other tool stays callable by name.",
             core,
         )
     ]
@@ -103,13 +105,18 @@ def main() -> int:
     if leftover:
         sections.append((f"Other ({len(leftover)})", "", leftover))
 
-    parts = []
-    for title, sub, group in sections:
-        parts.append(f'<h2>{html.escape(title)}</h2>')
+    parts, toc = [], []
+    for k, (title, sub, group) in enumerate(sections):
+        sid = f"sec-{k}"
+        toc.append(f'<li><a href="#{sid}"><span>{k:02d}</span>{html.escape(title)}</a></li>')
+        parts.append(f'<section class="tgroup" id="{sid}" aria-labelledby="{sid}-h">')
+        parts.append(f'<h2 id="{sid}-h">{html.escape(title)}</h2>')
         if sub:
             parts.append(f'<p class="sub">{html.escape(sub)}</p>')
         parts.extend(row(t) for t in group)
+        parts.append('</section>')
     body = "\n".join(parts)
+    toc_html = "\n".join(toc)
 
     total = len(tools)
     site_nav = _gen_nav.render("/tools")
@@ -127,38 +134,77 @@ def main() -> int:
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <style>
-/* The muted levels clear WCAG AA on all three grounds. They did not: the
-   light --mute-2 measured 2.35:1 and the dark one 2.26:1 on --paper-3, both
-   carrying 10px text. Fixing web/tools.html alone would have been undone by
-   the next deploy, because this generator rewrites that file. */
-:root{{--paper:#f8f7f3;--paper-2:#f2f0ec;--paper-3:#eae8e3;--ink:#171613;--ink-2:#343330;--mute:#646360;--mute-2:#686664;--rule:#d3d1cb;--rule-strong:#a7a49e;--accent:#326234;--accent-bg:#d8efd8;}}
-@media (prefers-color-scheme:dark){{:root{{--paper:#0e0d0b;--paper-2:#151411;--paper-3:#1e1d1a;--ink:#e9e8e4;--ink-2:#bfbdba;--mute:#878683;--mute-2:#888682;--rule:#2b2924;--rule-strong:#4a4742;--accent:#80cd82;--accent-bg:#132a14}}}}
 *{{box-sizing:border-box}}body{{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55}}
-.wrap{{max-width:1080px;margin:0 auto;padding:2.2rem 1.5rem 4rem}}
-h1{{font-size:var(--t-xl);margin:.2rem 0 .4rem}}
-.lede{{color:var(--ink-2);max-width:70ch;margin:0 0 .4rem}}
 a{{color:var(--accent)}}
-.lede a,p a{{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}}
-.crumb{{font-size:var(--t-2xs)}}.crumb a{{color:var(--accent);display:inline-flex;align-items:center;min-height:24px}}
-h2{{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--ink);padding-bottom:.3rem}}
-.sub{{color:var(--mute);font-size:var(--t-xs);margin:.3rem 0 .6rem}}
-.tool{{border:1px solid var(--rule);background:var(--paper-2);margin:.4rem 0}}
-.tool summary{{display:flex;gap:.8rem;align-items:baseline;padding:.5rem .8rem;cursor:pointer;flex-wrap:wrap}}
-.tool summary code{{color:var(--accent);font-weight:600;flex:0 0 auto}}
-.tool .tt{{color:var(--ink-2);font-size:var(--t-xs)}}
+p a{{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.18em}}
+.btn{{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600}}
+.btn.ghost{{background:transparent;color:var(--ink)}}
+.btn:hover{{background:var(--ink-2);color:var(--paper)}}
+.tl-body{{display:grid;grid-template-columns:var(--col-meta) minmax(0,1fr);gap:var(--s-5);padding-top:var(--s-4);padding-bottom:var(--s-5)}}
+.tl-side{{position:sticky;top:64px;align-self:start;max-height:calc(100vh - 80px);overflow:auto}}
+.tl-side label{{display:block;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 var(--s-1)}}
+.tl-side input{{width:100%;min-height:44px;padding:0 var(--s-2);border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);font:inherit;font-size:var(--t-sm)}}
+.tl-side .count{{font-size:var(--t-2xs);color:var(--mute);margin:var(--s-1) 0 var(--s-4)}}
+.tl-side .doc-toc ol{{columns:1}}
+.tgroup{{margin:0 0 var(--s-5)}}
+.doc-head .tl-note{{font-family:var(--mono);font-size:var(--t-xs);line-height:1.55;border-left:1px solid var(--rule-strong);padding-left:var(--s-3)}}
+h2{{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height:1.1;margin:0 0 var(--s-2);padding-bottom:var(--s-2);border-bottom:1px solid var(--rule-strong)}}
+.sub{{color:var(--ink-2);font-size:var(--t-sm);margin:0 0 var(--s-3);max-width:var(--measure)}}
+.tool{{border:1px solid var(--rule);border-top:0;background:var(--paper)}}
+.tgroup h2+.tool,.tgroup .sub+.tool{{border-top:1px solid var(--rule)}}
+.tool[open]{{background:var(--paper-2)}}
+.tool summary{{display:grid;grid-template-columns:minmax(14rem,22rem) minmax(10rem,16rem) minmax(0,1fr);gap:var(--s-3);align-items:baseline;padding:var(--s-2) var(--s-3);cursor:pointer;min-height:44px}}
+.tool summary code{{color:var(--accent);font-weight:600;overflow-wrap:anywhere}}
+.tool .tt{{color:var(--ink);font-size:var(--t-xs)}}
 .tool .tw{{color:var(--mute);font-size:var(--t-xs)}}
-.tool p{{padding:0 .9rem;color:var(--ink-2);font-size:var(--t-xs);max-width:90ch}}
-.tool pre{{margin:.4rem .9rem .8rem;padding:.6rem .7rem;background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:var(--t-2xs)}}
+.tool p{{padding:0 var(--s-3);color:var(--ink-2);font-size:var(--t-sm);max-width:var(--measure)}}
+.tool pre{{margin:var(--s-2) var(--s-3);padding:var(--s-2) var(--s-3);background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:var(--t-2xs)}}
+.tool .tl{{font-size:var(--t-2xs);margin:0 0 var(--s-2)}}
+.tool:target{{outline:2px solid var(--accent);outline-offset:-2px}}
+.tool[hidden],.tgroup[hidden]{{display:none}}
+@media (max-width:900px){{.tl-body{{grid-template-columns:minmax(0,1fr)}}.tl-side{{position:static;max-height:none}}.tool summary{{grid-template-columns:minmax(0,1fr)}}.tool .tw{{display:none}}}}
 </style>
 </head>
-<body>
+<body class="doc">
 {site_nav}
-<div class="wrap">
-<p class="crumb"><a href="/">emem</a> / tools</p>
-<h1>Every tool, generated from the registry</h1>
-<p class="lede">All {total} MCP tools this responder dispatches, rendered from the same registry the server serves at <a href="/v1/tools">/v1/tools</a>, so this page cannot drift from the code. Every call below runs with no key. The same skills answer over the A2A protocol at <a href="/.well-known/agent-card.json">the agent card</a>.</p>
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Connect &middot; generated from /v1/tools</p>
+    <h1>MCP tools</h1>
+    <p class="purpose">All {total} tools this responder dispatches, each with what it answers and a call you can paste. The {len(core)}-tool core loop comes first.</p>
+    <div class="actions">
+      <a class="btn" href="#sec-0">Core loop</a>
+      <a class="btn ghost" href="/v1/tools">/v1/tools JSON</a>
+      <a class="btn ghost" href="/reference">API reference</a>
+    </div>
+    <dl class="facts">
+      <div><dt>endpoint</dt><dd>https://emem.dev/mcp</dd></div>
+      <div><dt>every tool</dt><dd>/mcp/full</dd></div>
+      <div><dt>reads</dt><dd>no account, no API key</dd></div>
+      <div><dt>A2A</dt><dd><a href="/.well-known/agent-card.json">agent card</a></dd></div>
+    </dl>
+  </div>
+  <p class="purpose tl-note">This page is rendered from the registry the server serves at <a href="/v1/tools">/v1/tools</a>. Every call below runs without a key. Tools not listed by /mcp stay callable by name through <code>tools/call</code>.</p>
+</header>
+<div class="page tl-body">
+<aside class="tl-side">
+  <label for="tl-q">Filter tools</label>
+  <input id="tl-q" type="search" placeholder="name or keyword" autocomplete="off" spellcheck="false">
+  <p class="count" id="tl-count" aria-live="polite">{total} tools</p>
+  <nav class="doc-toc" aria-label="On this page"><h2>Sections</h2><ol>
+{toc_html}
+  </ol></nav>
+</aside>
+<main class="tl-list">
 {body}
+</main>
 </div>
+<script>(function(){{var q=document.getElementById("tl-q"),c=document.getElementById("tl-count");if(!q)return;
+var tools=[].slice.call(document.querySelectorAll(".tool")),groups=[].slice.call(document.querySelectorAll(".tgroup"));
+q.addEventListener("input",function(){{var v=q.value.trim().toLowerCase(),n=0;
+tools.forEach(function(t){{var hit=!v||t.dataset.q.indexOf(v)>=0;t.hidden=!hit;if(hit)n++;}});
+groups.forEach(function(g){{g.hidden=!g.querySelector(".tool:not([hidden])");}});
+c.textContent=n+(n===1?" tool":" tools")+(v?" match":"");}});}})();</script>
 </body></html>
 """
     # the generated footer too, from the same site map as the bar

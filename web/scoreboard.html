@@ -2,7 +2,7 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>emem — the memory race, live</title>
+<title>emem scoreboard: the memory race, live</title>
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
@@ -28,10 +28,12 @@
 :root[data-theme="light"]{--paper:#fbfbf9;--paper-2:#f3f2ef;--paper-3:#e9e8e3;--rule:#dedcd5;
   --rule-2:#c5c3ba;--ink:#15161a;--ink-2:#3b4048;--mute:#616772;--ok:#267442;--warn:#875e23;--bad:#a33228;--pub:#326d90;}
 *{box-sizing:border-box}
-html,body{height:100%}
-body{margin:0;background:var(--paper);color:var(--ink);overflow:hidden;
-  font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif;
-  display:flex;flex-direction:column}
+/* The race fills the first screen under the site bar; the page then scrolls
+   on to the site footer. It used to be a 100%-height flex column with
+   overflow hidden, which was fine with no chrome. With the generated bar,
+   strip, path and footer as flex items too, the chart was left 10px tall. */
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.5 ui-sans-serif,-apple-system,Segoe UI,Roboto,sans-serif}
 
 .top{display:flex;align-items:center;gap:1rem;flex-wrap:wrap;padding:.6rem 1rem;
   border-bottom:1px solid var(--rule);background:var(--paper-2)}
@@ -54,8 +56,8 @@ body{margin:0;background:var(--paper);color:var(--ink);overflow:hidden;
   font-size:var(--t-xs);color:var(--ink-2);line-height:1.5}
 .why b{color:var(--ink)}
 
-.board{flex:1;display:grid;grid-template-columns:1fr 310px;min-height:0}
-@media (max-width:920px){.board{grid-template-columns:1fr;grid-template-rows:1fr auto}}
+.board{display:grid;grid-template-columns:1fr 310px;height:max(28rem,calc(100vh - 17rem))}
+@media (max-width:920px){.board{grid-template-columns:1fr;grid-template-rows:22rem auto;height:auto}}
 .chart{position:relative;min-width:0;min-height:0}
 svg{width:100%;height:100%;display:block}
 .lane{fill:none;stroke-width:2.4;stroke-linejoin:round;stroke-linecap:round}
@@ -132,7 +134,7 @@ svg{width:100%;height:100%;display:block}
 .top .brand a{display:inline-block;padding:4px 0}
 input.scrub{min-height:24px}
 </style>
-
+<body class="doc">
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
@@ -181,7 +183,7 @@ input.scrub{min-height:24px}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-lab"><span class="aud-for">lab</span><span class="aud-what">the benchmark, live: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Scoreboard</span></li></ol><span class="aud-for">lab</span><span class="aud-what">the benchmark, live: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 <div class="top">

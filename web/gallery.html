@@ -7,11 +7,11 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif"/>
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/>
 <meta name="color-scheme" content="light"/>
-<meta name="description" content="Pick a place and watch eight live numbers about it arrive in seconds, every one ed25519-signed. Weather, air, vegetation, heat, water, forest, elevation."/>
+<meta name="description" content="Pick a place and read seven live measurements (weather, air, vegetation, surface heat, water, tree cover, elevation), each with an Ed25519 receipt."/>
 <link rel="canonical" href="https://emem.dev/gallery"/>
 <meta property="og:type" content="article"/>
 <meta property="og:title" content="The emem atlas: every place on Earth, signed, live"/>
-<meta property="og:description" content="Pick a place. Eight live numbers arrive in seconds. Every one ed25519-signed."/>
+<meta property="og:description" content="Pick a place. Seven live measurements and similar places, each with an Ed25519 receipt."/>
 <meta property="og:image" content="https://emem.dev/og-image.png"/>
 <meta name="twitter:card" content="summary_large_image"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
@@ -42,7 +42,7 @@
     --serif: Georgia, 'Hoefler Text', 'Source Serif Pro', Cambria, 'Times New Roman', serif;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;padding:0;background:var(--cream);color:var(--ink);font-family:var(--mono);font-size:var(--t-xs);line-height:1.4;overflow:hidden}
+  html,body{margin:0;padding:0;background:var(--cream);color:var(--ink);font-family:var(--mono);font-size:var(--t-xs);line-height:1.4}
   body{
     background:
       radial-gradient(ellipse 90% 60% at 20% 0%, rgba(0,0,0,.04) 0%, transparent 60%),
@@ -71,16 +71,16 @@
   .statusbar .spacer{flex:1}
   @media (max-width:720px){.statusbar a.nav-sec{display:none}}
 
-  .shell{position:relative;z-index:1;display:grid;grid-template-rows:48px 1fr 56px;height:calc(100vh - 40px);max-height:calc(100vh - 40px)}
+  .shell{position:relative;z-index:1;display:grid;grid-template-rows:48px 1fr 56px;height:calc(100vh - 5.75rem);min-height:36rem}
 
-  header{
+  .shell > header{
     display:grid;grid-template-columns:140px 1fr 220px;align-items:center;gap:16px;
     padding:0 18px;border-bottom:1px solid var(--rule);background:rgba(244,236,216,.85);
     backdrop-filter:saturate(120%) blur(2px);
   }
-  .brand{font-family:var(--serif);font-size:var(--t-lg);font-style:italic;letter-spacing:-.01em;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;gap:8px}
-  .brand .dot{color:var(--ember);font-style:normal}
-  .brand .sub{font-style:normal;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
+  .shell .brand{font-family:var(--serif);font-size:var(--t-lg);font-style:italic;letter-spacing:-.01em;color:var(--ink);text-decoration:none;display:inline-flex;align-items:center;gap:8px}
+  .shell .brand .dot{color:var(--ember);font-style:normal}
+  .shell .brand .sub{font-style:normal;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);letter-spacing:.08em;text-transform:uppercase}
   .search-wrap{position:relative;display:flex;justify-content:center}
   .search{
     width:min(560px,100%);padding:8px 36px 8px 14px;border:1px solid var(--rule-strong);
@@ -226,7 +226,7 @@
   .tile.similar .chip:hover{background:var(--ink);color:var(--paper);border-color:var(--ink)}
   .tile.similar .chip:hover .d{color:var(--paper)}
 
-  footer{
+  .gal-bar{
     display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:18px;
     padding:0 18px;border-top:1px solid var(--rule);background:rgba(244,236,216,.85);
   }
@@ -245,10 +245,8 @@
     gap:5px;padding:0 8px;
   }
   .toggle .t-label{font-family:var(--mono);font-size:var(--t-3xs);color:var(--ink-2);letter-spacing:.02em}
-  .toggle .t-emoji{font-size:var(--t-2xs);line-height:1}
   .toggle:hover,.toggle.on{border-color:var(--ink);background:var(--paper)}
   .toggle:hover .t-label,.toggle.on .t-label{color:var(--ink)}
-  @media (max-width:560px){.toggle .t-label{display:none}}
   .stamp{
     font-family:var(--mono);font-size:var(--t-3xs);color:var(--ink-2);letter-spacing:.02em;
     display:flex;align-items:center;gap:8px;justify-self:end;
@@ -259,7 +257,6 @@
   .stamp #signer{color:var(--mute);border-bottom:0;font-size:var(--t-3xs);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
   @media (max-width: 820px){
-    html,body{overflow:auto}
     .shell{grid-template-rows:48px auto auto auto;min-height:100vh;max-height:none;height:auto}
     .atlas{grid-template-columns:1fr;border-bottom:none}
     .parchment{aspect-ratio:1.3/1;border-right:0;border-bottom:1px solid var(--rule)}
@@ -272,7 +269,11 @@
     }
     .tile{scroll-snap-align:start;border-right:1px solid var(--rule);border-bottom:0;min-height:130px}
     .tile:last-child{border-right:0}
-    footer{grid-template-columns:1fr;gap:8px;padding:8px 14px;height:auto}
+    .gal-bar{grid-template-columns:1fr;gap:8px;padding:8px 14px;height:auto}
+    .shell > header{grid-template-columns:auto minmax(0,1fr);padding:0 14px;gap:var(--s-2)}
+    .shell > header > :last-child{display:none}
+    .shell{overflow-x:hidden}
+    .parchment{overflow:hidden}
     .stamp{justify-self:start}
   }
 
@@ -289,7 +290,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
 </head>
-<body>
+<body class="doc">
 
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -339,7 +340,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-lab"><span class="aud-for">lab</span><span class="aud-what">the record, rendered: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Gallery</span></li></ol><span class="aud-for">lab</span><span class="aud-what">the record, rendered: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -349,10 +350,10 @@ input::placeholder{color:var(--mute,#7a7363)}
   <a href="/" class="brand">emem<span class="dot">·</span><span class="sub">atlas</span></a>
   <div class="search-wrap">
     <input id="search" class="search" type="text" autocomplete="off" spellcheck="false"
-           placeholder="see how a place feels right now, try a city, a mountain, your hometown">
+           placeholder="type a place: a city, a mountain, a river delta">
     <span class="search-hint">↵</span>
   </div>
-  <a href="/verify" class="verify-pill" title="every number on this page is cryptographically signed; click to verify in your browser"><span class="live"></span>live · verifiable</a>
+  <a href="/verify" class="verify-pill" title="each reading on this page carries a signed receipt; check one in your browser"><span class="live"></span>live · verifiable</a>
 </header>
 
 <main class="atlas">
@@ -380,7 +381,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       </div>
     </div>
 
-    <p class="headline" id="headline"><span class="strap">every number you see here came back cryptographically signed. tap any of the chips below to swap places, or type your own.</span></p>
+    <p class="headline" id="headline"><span class="strap">Each reading here comes from emem.dev with a signed receipt. Pick a place below or type one.</span></p>
   </section>
 
   <aside class="tiles" aria-label="live readings">
@@ -427,6 +428,40 @@ input::placeholder{color:var(--mute,#7a7363)}
     </div>
   </aside>
 </main>
+
+<!-- The atlas controls. This was the shell's own <footer> until the generated
+     site footer replaced "the last <footer> in the document" and took it with
+     it: no presets, so the search box booted with the text "undefined" and
+     the page promised chips that were not there. It is a <div> now so no
+     footer rewrite can match it, and the shell closes here, before the site
+     footer, instead of wrapping it in a fixed-height grid. -->
+<div class="gal-bar">
+  <div class="presets" id="presets">
+    <button class="preset" data-place="Bengaluru">Bengaluru</button>
+    <button class="preset" data-place="Amazon, Brazil">Amazon</button>
+    <button class="preset" data-place="Mount Fuji">Mount Fuji</button>
+    <button class="preset" data-place="Reykjavik">Reykjavik</button>
+    <button class="preset" data-place="Sundarbans">Sundarbans</button>
+    <button class="preset" data-place="Sahara">Sahara</button>
+    <button class="preset" data-place="Greenland">Greenland</button>
+    <button class="preset" data-place="Cape Town">Cape Town</button>
+    <button class="preset" data-place="Manhattan">Manhattan</button>
+    <button class="preset" data-place="Tokyo">Tokyo</button>
+    <button class="preset" data-place="Phoenix, AZ">Phoenix</button>
+  </div>
+  <div class="toggles" title="paint the parchment by:">
+    <button class="toggle on" data-band="indices.ndvi" title="paint by NDVI"><span class="t-label">green</span></button>
+    <button class="toggle" data-band="modis.lst_day_8day" title="paint by land surface temperature"><span class="t-label">heat</span></button>
+    <button class="toggle" data-band="copdem30m.elevation_mean" title="paint by elevation"><span class="t-label">height</span></button>
+    <button class="toggle" data-band="surface_water.recurrence" title="paint by surface-water recurrence"><span class="t-label">water</span></button>
+  </div>
+  <div class="stamp" title="every reading on this page carries a signed receipt; check one at /verify">
+    <a href="/verify" id="verify-link">verify</a>
+    <span class="dot-sep">&middot;</span>
+    <a href="/.well-known/emem.json" id="signer" title="public key of the responder that signed these readings">&hellip;</a>
+  </div>
+</div>
+</div>
 
 <!--foot:start-->
 <footer class="page foot sitefoot">
@@ -494,8 +529,6 @@ input::placeholder{color:var(--mute,#7a7363)}
 </footer>
 <script>(function(){var el=document.querySelector('[data-proof]');if(!el)return;var enc=new TextEncoder();function u32(o,n){o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);}function be8(n){var o=new Uint8Array(8),v=BigInt(n);for(var i=7;i>=0;i--){o[i]=Number(v&255n);v>>=8n;}return o;}function pre(d,segs){var o=[],b=enc.encode(d);o.push.apply(o,enc.encode('emem.preimage.v1\0'));u32(o,b.length);o.push.apply(o,b);segs.forEach(function(s){o.push(s[0]);u32(o,s[1].length);for(var i=0;i<s[1].length;i++)o.push(s[1][i]);});return new Uint8Array(o);}function say(ok,t){el.innerHTML=(ok?'<b class="ok">&#10003;</b> ':'<b class="no">&#10007;</b> ')+t;}function run(){var I=globalThis.ememVerifyInternals;if(!I)return say(false,'verifier did not load');Promise.all([fetch('/.well-known/emem.json').then(function(r){return r.json();}),fetch('/v1/log/sth').then(function(r){return r.json();})]).then(function(x){var k=x[0].responder&&x[0].responder.pubkey_b32,h=x[1].sth,pk=I.b32decode(h.responder_pubkey_b32);var d=I.blake3(pre('emem.translog.sth.v1',[[1,be8(h.tree_size)],[2,I.b32decode(h.root_b32)],[3,enc.encode(h.signed_at)],[4,pk]]));var ok=h.responder_pubkey_b32===k&&I.ed.verify(I.b32decode(h.signature_b32),d,pk);say(ok,'log head <a href="/verify?q=https%3A%2F%2Femem.dev%2Fv1%2Flog%2Fsth">'+Number(h.tree_size).toLocaleString('en')+' entries</a>, signed '+h.signed_at.slice(11,16)+'Z, '+(ok?'signature checked in this tab':'signature did NOT verify'));}).catch(function(){say(false,'log head unreachable');});}function go(){if(globalThis.ememVerifyInternals)return run();var s=document.createElement('script');s.src='/emem-verify-core.js';s.onload=run;s.onerror=function(){say(false,'verifier did not load');};document.head.appendChild(s);}(window.requestIdleCallback||function(f){setTimeout(f,1200);})(go);})();</script>
 <!--foot:end-->
-
-</div>
 
 <script>
 (() => {

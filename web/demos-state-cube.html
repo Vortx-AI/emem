@@ -73,7 +73,14 @@ button:disabled{opacity:.4;cursor:not-allowed}
 input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var(--bg-2);border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:var(--t-2xs)}
 input:focus,select:focus{border-color:var(--accent)}
 ::selection{background:var(--accent);color:var(--bg)}
-.app{max-width:960px;margin:0 auto;padding:1.4em 1.4em 4em}
+.app{max-width:var(--w-page);margin:0 auto;padding:var(--s-4) 0 var(--s-6)}
+.app .lede,.app .desc,.app .interp{max-width:var(--measure)}
+.doc-head a,.doc-toc a{border-bottom:none}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--fg);background:var(--fg);color:var(--bg);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
+.btn:hover{background:var(--fg-2);color:var(--bg)}
+.btn.ghost{background:transparent;color:var(--fg)}
+.btn.ghost:hover{background:var(--bg-2);color:var(--fg)}
+.doc-head .facts code{font-size:var(--t-2xs)}
 @media(max-width:760px){.app{padding:1em .8em 4em}}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
 header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:var(--t-base);color:var(--fg)}
@@ -200,11 +207,17 @@ input::placeholder{color:var(--mute,#7a7363)}
    In PIXELS, not on the phi scale: the root font-size here is 88%, so a rem
    value is a different number of CSS pixels than on the docs pages (62.5%) or
    the rest of the site (100%), and 24 is defined in CSS pixels. */
-ul li > a:only-child{display:inline-block;padding:5px 0}
+ul li > a:only-child:not(.port){display:inline-block;padding:5px 0}
 header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;text-align:center}
+@media (min-width:1100px){.steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}#step3{grid-column:1/-1}}
+/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
+.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
+.doc-head .purpose code{font-size:.82em}
+/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
+@media (max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
-<body>
+<body class="doc">
 <a class=skip href="#main">Skip to walk</a>
 
 <!--nav:start-->
@@ -255,34 +268,28 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">the full state vector of one place</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">State cube</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">the full state vector of one place</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<main class=app id=main tabindex="-1">
-<h1 class="sr-only">Demo: the state cube, many bands at one address</h1>
-  <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/state-cube</span></span>
-    <span class=tag>the 1792-D voxel at any place</span>
-    <span class=spacer></span>
-    <nav class=navlinks aria-label="protocol surfaces">
-      <a href="/demos">demos</a>
-      <a href="/verify">verify</a>
-      <a href="/openapi.json">openapi</a>
-      <a href="/spec.md">spec</a>
-    </nav>
-  </header>
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Demo &middot; 4 live calls</p>
+    <h1>State cube</h1>
+    <p class="purpose">One place as one vector. <code>POST /v1/state</code> returns either the 128-D Tessera embedding for a cell or the 1792-D cube that lays that embedding and every wired band side by side.</p>
+    <div class="actions">
+      <a class="btn" href="#steps">Go to the steps</a>
+      <a class="btn ghost" href="/demos/find-similar">Find similar places</a>
+    </div>
+    <dl class="facts">
+      <div><dt>view=encoder</dt><dd>128 dims, one fact_cid</dd></div>
+      <div><dt>view=cube</dt><dd>1792 dims, coverage[] per band</dd></div>
+      <div><dt>state_cid</dt><dd>BLAKE3 over the vector's bytes</dd></div>
+    </dl>
+  </div>
+</header>
 
-  <p class=lede>
-    One endpoint, two views.</p><details class="fold"><summary>more</summary><p class="rest"><code>POST /v1/state</code> with <code>view=encoder</code> returns one named foundation
-    embedding at its native dimension (Tessera 128-D).
-    <code>view=cube</code> returns the responder's full <b>1792-D voxel</b>, the fused fingerprint that lays that
-    embedding plus the raw sensor and derived bands into canonical offset order, with per-band
-    <code>coverage[]</code> so an agent can tell attested-zero from not-yet-materialised, and
-    <span class=accent>extras that preserve full fidelity</span> when a cube slot truncates a stored vector.
-    <b>The cube is a fixed-width fingerprint; the extras carry the full payload.</b>
-    Pick a place, hit run, watch a real responder fill the slots in front of you.
-  </p></details>
+<main class=app id=main tabindex="-1">
 
   <section class=controls aria-label="Inputs">
     <div>
@@ -315,9 +322,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>locate</h2>
         <span class=endpoint>POST /v1/locate</span>
       </div>
-      <p class=desc>
-        Resolve the place name to a single <code>cell64</code>. The next two steps key off this cell.
-      </p>
+      <p class=desc>Resolve the place name to one <code>cell64</code>. Steps 2 to 4 use this cell.</p>
       <div class=actions>
         <button id=btn1 class=primary type=button>run</button>
         <span id=tag1 class=muted></span>
@@ -332,10 +337,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>state · view=encoder</h2>
         <span class=endpoint>POST /v1/state</span>
       </div>
-      <p class=desc>
-        Single-encoder state vector at the cell. Returns the encoder's native vector, an L2 norm, a fact CID,
-        and a pre-composed memory token <code>emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</code> for citation.
-      </p>
+      <p class=desc>One encoder's vector at the cell, at its native width. The response carries the vector, its L2 norm, a fact_cid and a ready memory token <code>emem:fact:&lt;cell&gt;:&lt;fact_cid&gt;</code>.</p>
       <div class=actions>
         <button id=btn2 type=button>run</button>
         <span id=tag2 class=muted></span>
@@ -351,12 +353,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>state · view=cube</h2>
         <span class=endpoint>POST /v1/state</span>
       </div>
-      <p class=desc>
-        Full 1792-D voxel across every wired band, in canonical offset order. With <code>materialize=true</code>
-        cold bands trigger upstream fetches. The response carries <code>coverage[]</code> (per-band status),
-        <code>state_cid</code> (BLAKE3 over canonical LE f32 bytes), and <code>extras[]</code> for any encoder
-        whose native dim exceeds its cube slot.
-      </p>
+      <p class=desc>The 1792-D vector across every wired band, in fixed offset order. With <code>materialize=true</code>, bands not yet stored are fetched from upstream. The response carries <code>coverage[]</code> (status per band), <code>state_cid</code> (BLAKE3 over the little-endian f32 bytes) and <code>extras[]</code> for any encoder wider than its slot.</p>
       <div class=actions>
         <button id=btn3 type=button>run</button>
         <span id=tag3 class=muted></span>
@@ -380,10 +377,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>state_multi · cross-encoder fan-out</h2>
         <span class=endpoint>POST /v1/state_multi</span>
       </div>
-      <p class=desc>
-        Every wired foundation encoder at the same place, with a typed <code>missing[]</code> for any
-        encoder that cannot answer here.
-      </p>
+      <p class=desc>Every wired foundation encoder at the same cell. An encoder that cannot answer here is listed in <code>missing[]</code> with a reason.</p>
       <div class=actions>
         <button id=btn4 type=button>run</button>
         <span id=tag4 class=muted></span>
@@ -401,7 +395,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
 <a class="pb-prev" href="/demos/find-similar"><i>&larr;</i><b>Find similar</b></a>
 <ol class="pb-steps">
-<li><a href="/demos" title="Demos: run eight live calls"><span>1</span></a></li>
+<li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
 <li><a href="/demos/ask-the-earth" title="Ask the Earth: ask, get a signed answer"><span>2</span></a></li>
 <li><a href="/demos/signed-answer" title="Signed answer: watch a receipt get built"><span>3</span></a></li>
 <li><a href="/demos/recall-polygon" title="Recall an area: read a polygon at once"><span>4</span></a></li>

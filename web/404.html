@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>404 : emem.dev</title>
-<meta name=description content="The path you requested is not attested here. An unknown address resolves to a signed not_found, never to a fabricated answer.">
+<meta name=description content="emem.dev has no route for this path. The answer is a 404 with code not_found, and this page links the places you were most likely looking for.">
 <meta name=robots content="noindex">
 <meta name=color-scheme content="light dark">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
@@ -49,66 +49,51 @@ code,.mono{font-family:var(--mono)}
 .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
 @media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar .meta{display:none}.statusbar-inner{height:36px}}
 
-/* hero */
-main{max-width:880px;margin:0 auto;padding:3rem var(--pad-x) 5rem}
-.code-line{color:var(--mute);font-size:var(--t-xs);letter-spacing:.04em;text-transform:uppercase;margin-bottom:.382rem}
-h1{
-  font-family:var(--mono);
-  font-weight:700;
-  font-size:clamp(2.4rem, 6vw, 3.6rem);
-  line-height:1;
-  letter-spacing:-.02em;
-  margin:0 0 .6rem;
-  color:var(--ink);
-}
-h1 .sep{color:var(--rule);font-weight:400;margin:0 .35rem}
-h1 .verdict{color:var(--accent)}
-.lede{color:var(--ink-2);font-size:var(--t-md);max-width:60ch;margin:0 0 2.4rem}
-
-/* receipt-shaped block — the "agent-visible" rendering of the lookup */
+/* The header is the shared .doc-head; the lookup record sits in its right
+   column and the way out fills the width under it. */
+.nf{padding-top:var(--s-5);padding-bottom:var(--s-6)}
+.nf-head .purpose code{font-size:.8em;background:var(--paper-3);padding:0 var(--s-1)}
 .receipt{
   border:1px solid var(--rule);
   background:var(--paper-2);
-  padding:1.2rem 1.4rem;
-  margin:0 0 2.4rem;
-  font-size:var(--t-sm);
-  border-radius:2px;
+  padding:var(--s-3);
+  margin:0;
+  align-self:start;
+  font-size:var(--t-xs);
 }
-.receipt .row{display:flex;gap:.8rem;padding:.25rem 0;border-bottom:1px dashed transparent}
-.receipt .k{color:var(--mute);min-width:9rem;flex-shrink:0}
+.receipt .row{display:flex;gap:var(--s-3);padding:var(--s-1) 0;border-bottom:1px solid var(--rule)}
+.receipt .row:last-child{border-bottom:0}
+.receipt .k{color:var(--mute);min-width:8rem;flex-shrink:0}
 .receipt .v{color:var(--ink);word-break:break-all}
-.receipt .v.path{color:var(--accent-2);font-weight:600}
+.receipt .v.path{color:var(--accent);font-weight:600}
 .receipt .v.reason{color:var(--ink-2)}
-/* Mithila frame: double-line + accent diamond node on the receipt panel */
-.receipt{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
-.receipt::before{content:"";position:absolute;top:-3px;left:1.2rem;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.7;transform:rotate(45deg)}
 
-/* path list */
-section.paths{margin:0 0 2.4rem}
-section.paths h2{font-size:var(--t-sm);text-transform:uppercase;letter-spacing:.06em;color:var(--mute);font-weight:600;margin:0 0 .8rem}
-ul.path-list{list-style:none;padding:0;margin:0;border-top:1px solid var(--rule)}
-ul.path-list li{border-bottom:1px solid var(--rule)}
+section.paths{margin:0}
+section.paths h2{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);font-weight:600;margin:0 0 var(--s-3)}
+ul.path-list{list-style:none;padding:0;margin:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(19rem,1fr));gap:var(--s-2)}
 ul.path-list a{
-  display:flex;
-  align-items:baseline;
-  gap:1rem;
-  padding:.75rem .2rem;
+  display:grid;
+  grid-template-columns:3.5rem minmax(0,1fr);
+  gap:var(--s-1) var(--s-2);
+  min-height:44px;
+  padding:var(--s-2) var(--s-3);
+  border:1px solid var(--rule-strong);
+  background:var(--paper);
   text-decoration:none;
   color:var(--ink);
 }
-ul.path-list a:hover{background:var(--paper-2)}
-ul.path-list .method{font-size:var(--t-xs);color:var(--mute);min-width:3.5rem;font-weight:600}
-ul.path-list .url{color:var(--accent-2);font-weight:600}
-ul.path-list .desc{color:var(--ink-3);font-size:var(--t-sm);margin-left:auto;text-align:right}
-@media(max-width:640px){
-  ul.path-list .desc{display:none}
-}
+ul.path-list li{display:flex}
+ul.path-list li>a{flex:1}
+ul.path-list a:hover{border-color:var(--accent);background:var(--accent-bg)}
+ul.path-list .method{font-size:var(--t-2xs);color:var(--mute);font-weight:600;padding-top:2px}
+ul.path-list .url{color:var(--accent);font-weight:600;font-size:var(--t-sm)}
+ul.path-list .desc{grid-column:2;color:var(--mute);font-size:var(--t-xs)}
 
 /* redirect strip */
 .redirect{
   border-top:1px solid var(--rule);
-  margin-top:2.4rem;
-  padding-top:1.2rem;
+  margin-top:var(--s-5);
+  padding-top:var(--s-3);
   font-size:var(--t-sm);
   color:var(--mute);
   display:flex;
@@ -173,7 +158,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
 </head>
-<body>
+<body class="doc">
 
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -227,33 +212,33 @@ input::placeholder{color:var(--mute,#7a7363)}
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<main>
-  <p class="code-line">HTTP 404 · responder verdict · signed</p>
-  <h1><span>not</span><span class="sep">·</span><span class="verdict">attested</span></h1>
-  <p class="lede">
-    Every emem read is an address lookup against a content-addressed ledger
-    of <code>(cell × band × tslot) → fact</code>.</p><details class="fold"><summary>more</summary><p class="rest">The path you requested
-    isn't a route this responder serves and isn't a fact_cid it holds, so
-    the honest answer is a signed "not_found", never a fabricated page.
-  </p></details>
-
-  <div class="receipt" role="region" aria-label="lookup receipt">
-    <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">…</span></div>
-    <div class="row"><span class="k">responder</span><span class="v">emem.dev</span></div>
-    <div class="row"><span class="k">looked_up</span><span class="v reason">route registry, static surface, demo index, doc tree, fact cid index</span></div>
-    <div class="row"><span class="k">verdict</span><span class="v reason">no entry found · returned as an honest 404</span></div>
-    <div class="row"><span class="k">served_at</span><span class="v" id="served-at">…</span></div>
+<header class="doc-head nf-head">
+  <div>
+    <p class="eyebrow">HTTP 404 &middot; not_found</p>
+    <h1>No page at this address</h1>
+    <p class="purpose">emem.dev has no route for this path. A client that does not ask for HTML gets the same answer as JSON: <code>{"code":"not_found"}</code>, with the path and a pointer to <code>/openapi.json</code>.</p>
   </div>
+  <div class="receipt" role="region" aria-label="What was requested">
+    <div class="row"><span class="k">request_path</span><span class="v path" id="req-path">&hellip;</span></div>
+    <div class="row"><span class="k">responder</span><span class="v">emem.dev</span></div>
+    <div class="row"><span class="k">code</span><span class="v reason">not_found</span></div>
+    <div class="row"><span class="k">schema</span><span class="v reason">emem.error.v1</span></div>
+    <div class="row"><span class="k">served_at</span><span class="v" id="served-at">&hellip;</span></div>
+  </div>
+</header>
 
+<main class="page nf">
   <section class="paths">
-    <h2>try one of these instead</h2>
+    <h2>Go to</h2>
     <ul class="path-list">
-      <li><a href="/"><span class="method">GET</span><span class="url">/</span><span class="desc">landing · what emem is</span></a></li>
-      <li><a href="/docs/"><span class="method">GET</span><span class="url">/docs/</span><span class="desc">protocol + recipes</span></a></li>
-      <li><a href="/openapi.json"><span class="method">GET</span><span class="url">/openapi.json</span><span class="desc">OpenAPI spec</span></a></li>
-      <li><a href="/mcp"><span class="method">POST</span><span class="url">/mcp</span><span class="desc">Streamable HTTP MCP surface</span></a></li>
-      <li><a href="/v1/locate?place=mumbai"><span class="method">GET</span><span class="url">/v1/locate</span><span class="desc">place name → cell64</span></a></li>
-      <li><a href="/verify"><span class="method">GET</span><span class="url">/verify</span><span class="desc">offline receipt verifier</span></a></li>
+      <li><a href="/"><span class="method">GET</span><span class="url">/</span><span class="desc">home: tokenise a file, read a place</span></a></li>
+      <li><a href="/how-it-works"><span class="method">GET</span><span class="url">/how-it-works</span><span class="desc">one request, end to end</span></a></li>
+      <li><a href="/reference"><span class="method">GET</span><span class="url">/reference</span><span class="desc">every endpoint, grouped by role</span></a></li>
+      <li><a href="/docs/"><span class="method">GET</span><span class="url">/docs/</span><span class="desc">protocol and recipes</span></a></li>
+      <li><a href="/openapi.json"><span class="method">GET</span><span class="url">/openapi.json</span><span class="desc">the OpenAPI contract</span></a></li>
+      <li><a href="/mcp"><span class="method">POST</span><span class="url">/mcp</span><span class="desc">MCP over Streamable HTTP</span></a></li>
+      <li><a href="/v1/locate?place=mumbai"><span class="method">GET</span><span class="url">/v1/locate</span><span class="desc">place name to cell64</span></a></li>
+      <li><a href="/verify"><span class="method">GET</span><span class="url">/verify</span><span class="desc">check a token or receipt in the browser</span></a></li>
     </ul>
   </section>
 

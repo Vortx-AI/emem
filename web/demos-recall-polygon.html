@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>emem.dev/demos/recall-polygon: fan a single call out across a region</title>
-<meta name=description content="Recall a band across every cell inside a polygon. emem fans the call out, signs each cell's fact, and aggregates. One call in, per-cell receipts out.">
+<meta name=description content="Recall one band across a polygon in one call. emem samples cells inside the area, signs each cell's fact, and returns a receipt per cell.">
 <link rel=canonical href="https://emem.dev/demos/recall-polygon">
 <link rel=alternate type=application/json href="/openapi.json">
 <link rel="service mcp" href="/mcp">
@@ -13,7 +13,7 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/demos/recall-polygon">
 <meta property=og:title content="emem.dev/demos/recall-polygon: region recall">
-<meta property=og:description content="One call. Every cell in a polygon. Per-cell receipts.">
+<meta property=og:description content="One call over an area: sampled cells, one signed receipt per cell.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:image:width content="1200">
 <meta property=og:image:height content="630">
@@ -67,7 +67,14 @@ input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var
   border:1px solid var(--line-2);padding:.55em .75em;border-radius:3px;outline:none;width:100%;font-size:var(--t-2xs)}
 input:focus,select:focus{border-color:var(--accent)}
 
-.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+.app{max-width:var(--w-page);margin:0 auto;padding:var(--s-4) 0 var(--s-6)}
+.app .lede,.app .desc,.app .interp{max-width:var(--measure)}
+.doc-head a,.doc-toc a{border-bottom:none}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--fg);background:var(--fg);color:var(--bg);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
+.btn:hover{background:var(--fg-2);color:var(--bg)}
+.btn.ghost{background:transparent;color:var(--fg)}
+.btn.ghost:hover{background:var(--bg-2);color:var(--fg)}
+.doc-head .facts code{font-size:var(--t-2xs)}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
 header.top .brand{font-weight:600;letter-spacing:-.01em;font-size:var(--t-base)}
@@ -190,11 +197,17 @@ input::placeholder{color:var(--mute,#7a7363)}
    In PIXELS, not on the phi scale: the root font-size here is 88%, so a rem
    value is a different number of CSS pixels than on the docs pages (62.5%) or
    the rest of the site (100%), and 24 is defined in CSS pixels. */
-ul li > a:only-child{display:inline-block;padding:5px 0}
+ul li > a:only-child:not(.port){display:inline-block;padding:5px 0}
 header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;text-align:center}
+@media (min-width:1100px){.split{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:var(--s-4);align-items:start}.split .out{margin-top:0;position:sticky;top:72px}.split .out pre{max-height:70vh}}
+/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
+.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
+.doc-head .purpose code{font-size:.82em}
+/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
+@media (max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
-<body>
+<body class="doc">
 <a class=skip href="#main">Skip to demo</a>
 
 <!--nav:start-->
@@ -245,33 +258,30 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">read a whole area at once</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Recall an area</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">read a whole area at once</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Demo &middot; 1 live call</p>
+    <h1>Recall an area</h1>
+    <p class="purpose">Give a place name and a band. <code>POST /v1/recall_polygon</code> resolves the polygon, samples cells inside it and recalls the band at each. Every cell carries its own signed receipt.</p>
+    <div class="actions">
+      <a class="btn" href="#controls">Recall an area</a>
+      <a class="btn ghost" href="/demos/signed-answer">One cell, step by step</a>
+    </div>
+    <dl class="facts">
+      <div><dt>coverage</dt><dd><code>cells_sampled</code>, <code>is_exhaustive</code> in the response</dd></div>
+      <div><dt>receipts</dt><dd>one per cell, no region-wide receipt</dd></div>
+      <div><dt>statistics</dt><dd>count, mean and range computed in this page</dd></div>
+    </dl>
+  </div>
+</header>
+
 <main class=app id=main tabindex="-1">
-<h1 class="sr-only">Demo: recall every signed fact inside a polygon</h1>
-  <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/recall-polygon</span></span>
-    <span class=tag>fan a single call out across a region</span>
-    <span class=spacer></span>
-    <nav class=navlinks aria-label="protocol surfaces">
-      <a href="/demos">demos</a>
-      <a href="/docs/api/">api</a>
-      <a href="/verify">verify</a>
-    </nav>
-  </header>
 
-  <p class=lede>
-    Pass a place name (or GeoJSON polygon) and a band. emem resolves the polygon,
-    fans out to every <code>cell64</code> inside, recalls the band per cell, and
-    returns a flat <b>fact set</b> plus an <b>aggregate</b> (min / max / mean / count).
-    Each cell's fact has its own signed receipt; the response also carries one
-    batch receipt over the whole region.
-    <span class=accent>One call: <code>POST /v1/recall_polygon</code>.</span>
-  </p>
-
-  <section class=controls aria-label="Inputs">
+  <section class=controls id=controls aria-label="Inputs">
     <div>
       <label for=placeInput>place (admin area)</label>
       <input id=placeInput type=text spellcheck=false autocomplete=off value="Bengaluru" list=warmPlaces>
@@ -296,12 +306,13 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
   <div class=chips id=chips></div>
 
   <section class=summary aria-label="aggregate">
-    <div class=stat><div class=label>cells</div><div class=v id=statCount>—</div><div class=sub>inside the resolved polygon</div></div>
+    <div class=stat><div class=label>cells</div><div class=v id=statCount>—</div><div class=sub>sampled inside the polygon</div></div>
     <div class=stat><div class=label>mean</div><div class=v id=statMean>—</div><div class=sub id=statUnit></div></div>
     <div class=stat><div class=label>min → max</div><div class=v id=statRange>—</div><div class=sub>per-cell extremes</div></div>
     <div class=stat><div class=label>signed by</div><div class=v id=statSigner style="font-size:var(--t-xs);word-break:break-all">—</div><div class=sub>responder_pubkey_b32</div></div>
   </section>
 
+  <div class=split>
   <div class=heatmap aria-label="per-cell heat map">
     <p class=muted style="font-size:var(--t-3xs);margin:0 0 .6em;text-transform:uppercase;letter-spacing:.06em">per-cell values (geographic grid, lat × lng buckets)</p>
     <div class=grid id=grid></div>
@@ -319,6 +330,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
     <p class=muted style="font-size:var(--t-3xs);margin:1.2em 0 .4em;text-transform:uppercase;letter-spacing:.06em">raw response (first 1.5 KB)</p>
     <pre id=raw class=mono>—</pre>
   </section>
+  </div>
 
 </main>
 
@@ -326,7 +338,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
 <a class="pb-prev" href="/demos/signed-answer"><i>&larr;</i><b>Signed answer</b></a>
 <ol class="pb-steps">
-<li><a href="/demos" title="Demos: run eight live calls"><span>1</span></a></li>
+<li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
 <li><a href="/demos/ask-the-earth" title="Ask the Earth: ask, get a signed answer"><span>2</span></a></li>
 <li><a href="/demos/signed-answer" title="Signed answer: watch a receipt get built"><span>3</span></a></li>
 <li><a href="/demos/recall-polygon" title="Recall an area: read a polygon at once" aria-current="step"><span>4</span></a></li>
