@@ -291,24 +291,39 @@ def build() -> str:
     )
 
     site_nav = _gen_nav.render("/whitepaper")
+    # The edition date is the one the paper states on its second line, so the
+    # header cannot drift from the document it heads.
+    dm = re.search(r"^\*\*Whitepaper v2 / (\d{4}-\d{2}-\d{2})\*\*", md, re.M)
+    if not dm:
+        raise SystemExit("render: no '**Whitepaper v2 / YYYY-MM-DD**' line in the source")
+    dated = dm.group(1)
     return f"""{head}
 </head>
 <body class="doc">
 
 {site_nav}
 
-<div class="page">
-  <header class="hero">
-    <p class="kicker"><span class="seal"></span> Whitepaper v2 &middot; Vortx AI</p>
+<header class="doc-head wp-head">
+  <div>
+    <p class="eyebrow"><span class="seal"></span> Whitepaper &middot; edition 2 &middot; {dated}</p>
     <h1>{title_html}</h1>
-    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v2</b> &middot; 2026-07-14 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
-    <div class="hero-cta">
-      <a class="btn" href="/whitepaper.md">read as markdown</a>
+    <p class="purpose">The token grammar, cell64 and tslot addressing, Ed25519 receipts over a tagged preimage, and the RFC 6962 log, as this responder implements them.</p>
+    <div class="actions">
+      <a class="btn" href="/whitepaper.md">Read as markdown</a>
       <a class="btn ghost" href="/v1/verifier_spec">/v1/verifier_spec</a>
       <a class="btn ghost" href="/whitepaper/v1">v1 (archived)</a>
     </div>
-  </header>
-</div>
+  </div>
+  <dl class="wp-edition" aria-label="Edition">
+    <dt>edition</dt><dd>2</dd>
+    <dt>dated</dt><dd>{dated}</dd>
+    <dt>author</dt><dd>Vortx AI</dd>
+    <dt>licence</dt><dd>Apache-2.0</dd>
+    <dt>supersedes</dt><dd><a href="/whitepaper/v1">v1</a>, 0.1.0, 2026-06-14</dd>
+    <dt>responder</dt><dd><code>emem.dev</code></dd>
+    <dt>source</dt><dd><a href="https://github.com/Vortx-AI/emem/blob/main/docs/whitepaper-v2.md">docs/whitepaper-v2.md</a></dd>
+  </dl>
+</header>
 
 <div class="page">
 <div class="wrap">
@@ -320,7 +335,7 @@ def build() -> str:
     </ol>
   </nav>
 
-  <main class="doc">
+  <main class="wp-doc">
 
 {body}
 
@@ -337,12 +352,12 @@ def _assert_well_formed(doc: str) -> None:
     closes = len(_re.findall(r"</div>", doc))
     if opens != closes:
         raise SystemExit(f"render: unbalanced <div>: {opens} open, {closes} close")
-    order = [m.group(1) for m in _re.finditer(r'<(?:div|nav|main) class="(page|wrap|toc|doc)"', doc)]
+    order = [m.group(1) for m in _re.finditer(r'<(?:div|nav|main) class="(page|wrap|toc|wp-doc)"', doc)]
     # The sticky nav needs .wrap's grid column; .wrap must open before it.
     if "wrap" not in order or order.index("wrap") > order.index("toc"):
         raise SystemExit("render: .toc is not inside .wrap; the sticky nav will overlap the prose")
-    if order.index("toc") > order.index("doc"):
-        raise SystemExit("render: .toc must precede .doc inside .wrap")
+    if order.index("toc") > order.index("wp-doc"):
+        raise SystemExit("render: .toc must precede .wp-doc inside .wrap")
 
     # Every in-page link must land somewhere. A dead anchor is invisible:
     # the browser just does nothing, and the reader assumes the section is

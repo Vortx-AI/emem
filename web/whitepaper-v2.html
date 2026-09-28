@@ -64,20 +64,31 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .seal{width:6px;height:6px;background:var(--paper);border:1px solid var(--accent);opacity:.7;transform:rotate(45deg);flex:0 0 auto}
 .seal-row .line{flex:1;height:1px;background:var(--rule);max-width:7rem}
 
-/* ── hero ─────────────────────────────────────────────────────────────── */
-.hero{position:relative;padding:4rem 0 3rem;border-bottom:1px solid var(--rule)}
-.hero .kicker{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.14em;color:var(--mute);margin:0 0 1.2rem;display:flex;align-items:center;gap:.6rem}
-.hero .kicker .seal{opacity:.8}
-.hero h1{font-size:var(--t-3xl);font-weight:500;letter-spacing:-.03em;line-height:1.08;margin:0 0 1.4rem;color:var(--ink);max-width:24ch}
-.hero h1 .accent{color:var(--accent);font-weight:700}
-.hero .teaser{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;line-height:1.5;margin:0 0 1.6rem;font-weight:400}
-.hero .meta-line{font-size:var(--t-sm);color:var(--mute);margin:0 0 1.8rem;letter-spacing:.02em;display:flex;flex-wrap:wrap;gap:.4rem .9rem;align-items:center}
-.hero .meta-line b{color:var(--ink);font-weight:700}
-.hero .meta-line .dot{color:var(--rule-strong)}
-.hero-cta{display:flex;gap:.75rem;flex-wrap:wrap}
+/* ── header ─────────────────────────────────────────────────────────────
+   The shared .doc-head from /nav.css, with a smaller title: a paper's title
+   is a sentence, and at the shared 5xl it wrapped to four lines. The right
+   column carries the edition record (v2) or the archive notice (v1). */
+.wp-head h1{font-size:clamp(var(--t-2xl),3.2vw,var(--t-4xl));max-width:30ch}
+.wp-head h1 .accent{color:var(--accent)}
+.wp-head .purpose{max-width:66ch}
+.wp-head .purpose code{font-size:.8em;background:var(--paper-3);padding:0 var(--s-1)}
+.wp-head .meta-line{margin:var(--s-3) 0 0;font-size:var(--t-xs);color:var(--mute);display:flex;flex-wrap:wrap;gap:var(--s-1) var(--s-3);align-items:center}
+.wp-head .meta-line b{color:var(--ink);font-weight:700}
+.wp-head .meta-line .dot{color:var(--rule-strong)}
+.wp-head .eyebrow{display:flex;align-items:center;gap:var(--s-2)}
+.wp-head .archived-note{margin:0;align-self:start}
+.wp-edition{margin:0;align-self:start;display:grid;grid-template-columns:max-content minmax(0,1fr);gap:var(--s-1) var(--s-3);font-size:var(--t-xs);line-height:1.45;border-left:1px solid var(--rule-strong);padding-left:var(--s-3)}
+.wp-edition dt{color:var(--mute);text-transform:uppercase;letter-spacing:.06em;font-size:var(--t-3xs);padding-top:2px}
+.wp-edition dd{margin:0;color:var(--ink-2)}
+.wp-edition a{color:var(--accent)}
 
+/* The reading column is .wp-doc, not .doc: every inner page's body element is
+   class="doc" (nav.css keys the page width on it), so a bare .doc rule here
+   would style the whole page, nav included. */
 /* ── two-column scholarly layout ──────────────────────────────────────── */
-.wrap{display:grid;grid-template-columns:16rem 1fr;gap:2.618rem;padding:0 0 2rem;align-items:start}
+.wrap{display:grid;grid-template-columns:16rem minmax(0,1fr);gap:var(--s-5);padding:0 0 var(--s-5);align-items:start}
+/* nav.css gives .wrap the page gutter; here it sits inside .page, which already has it. */
+:root body .page > .wrap{padding-left:0;padding-right:0}
 
 /* sticky TOC */
 .toc{position:sticky;top:56px;align-self:start;max-height:calc(100vh - 72px);overflow:auto;font-size:var(--t-xs);border-right:1px solid var(--rule);padding:2rem 1.4rem 2rem 0;margin:0}
@@ -94,33 +105,36 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .toc a.sub:hover,.toc a.sub.on{color:var(--accent)}
 
 /* main reading column */
-.doc{min-width:0;padding:2rem 0 0;max-width:78ch}
-.doc section{padding:0 0 2.4rem;position:relative}
-.doc section+section{padding-top:.4rem}
-.doc h2{font-size:var(--t-2xl);font-weight:600;letter-spacing:-.02em;line-height:1.14;color:var(--ink);margin:2.6rem 0 1.1rem;scroll-margin-top:64px;padding-top:1.6rem;border-top:1px solid var(--rule);position:relative}
-.doc h2:first-child{border-top:0;padding-top:0;margin-top:0}
-.doc h2 .num{color:var(--mute-2);font-weight:300;margin-right:.7rem;font-variant-numeric:tabular-nums}
-.doc h2::before{content:"";position:absolute;top:-3px;left:0;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
-.doc h2:first-child::before{display:none}
-.doc h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2rem 0 .7rem;scroll-margin-top:64px}
-.doc h4{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:1.6rem 0 .6rem;scroll-margin-top:64px}
-.doc p{max-width:72ch;margin:0 0 1.15rem;color:var(--ink-2);font-size:var(--t-base)}
-.doc p.lede{font-size:var(--t-lg);color:var(--ink-2);max-width:64ch;margin:0 0 1.6rem;line-height:1.45}
-.doc strong{color:var(--ink);font-weight:700}
-.doc em{font-style:italic;color:var(--ink-2)}
-.doc a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
-.doc a:hover{background:var(--accent-bg)}
-.doc ul,.doc ol{max-width:72ch;margin:0 0 1.2rem;padding-left:1.2rem}
-.doc ul{list-style:none;padding-left:1.1rem}
-.doc ul>li{color:var(--ink-2);line-height:1.55;margin:0 0 .65rem;position:relative;padding-left:1rem}
-.doc ul>li::before{content:"";position:absolute;left:0;top:.6em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
-.doc ol{list-style:decimal;padding-left:1.6rem}
-.doc ol>li{color:var(--ink-2);line-height:1.55;margin:0 0 .6rem;padding-left:.3rem}
-.doc ul ul{margin:.5rem 0 .3rem}
+/* The column takes the full width. Prose, lists and headings stop at the
+   measure; code, formulas, tables and figures run to the right edge. */
+.wp-doc{min-width:0;padding:var(--s-5) 0 0;max-width:none}
+.wp-doc h3,.wp-doc h4{max-width:var(--measure)}
+.wp-doc section{padding:0 0 2.4rem;position:relative}
+.wp-doc section+section{padding-top:.4rem}
+.wp-doc h2{font-size:var(--t-2xl);font-weight:600;letter-spacing:-.02em;line-height:1.14;color:var(--ink);margin:2.6rem 0 1.1rem;scroll-margin-top:64px;padding-top:1.6rem;border-top:1px solid var(--rule);position:relative}
+.wp-doc h2:first-child{border-top:0;padding-top:0;margin-top:0}
+.wp-doc h2 .num{color:var(--mute-2);font-weight:300;margin-right:.7rem;font-variant-numeric:tabular-nums}
+.wp-doc h2::before{content:"";position:absolute;top:-3px;left:0;width:5px;height:5px;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
+.wp-doc h2:first-child::before{display:none}
+.wp-doc h3{font-size:var(--t-lg);font-weight:600;letter-spacing:-.01em;color:var(--ink);margin:2rem 0 .7rem;scroll-margin-top:64px}
+.wp-doc h4{font-size:var(--t-md);font-weight:700;color:var(--ink);margin:1.6rem 0 .6rem;scroll-margin-top:64px}
+.wp-doc p{max-width:var(--measure);margin:0 0 1.15rem;color:var(--ink-2);font-size:var(--t-base)}
+.wp-doc p.lede{font-size:var(--t-lg);color:var(--ink-2);max-width:var(--measure);margin:0 0 1.6rem;line-height:1.45}
+.wp-doc strong{color:var(--ink);font-weight:700}
+.wp-doc em{font-style:italic;color:var(--ink-2)}
+.wp-doc a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.wp-doc a:hover{background:var(--accent-bg)}
+.wp-doc ul,.wp-doc ol{max-width:var(--measure);margin:0 0 1.2rem;padding-left:1.2rem}
+.wp-doc ul{list-style:none;padding-left:1.1rem}
+.wp-doc ul>li{color:var(--ink-2);line-height:1.55;margin:0 0 .65rem;position:relative;padding-left:1rem}
+.wp-doc ul>li::before{content:"";position:absolute;left:0;top:.6em;width:.4rem;height:.4rem;background:var(--accent);border-radius:50%}
+.wp-doc ol{list-style:decimal;padding-left:1.6rem}
+.wp-doc ol>li{color:var(--ink-2);line-height:1.55;margin:0 0 .6rem;padding-left:.3rem}
+.wp-doc ul ul{margin:.5rem 0 .3rem}
 
 /* inline tokens / math spans */
-.doc code{font-family:var(--mono);font-size:.92em;background:var(--paper-3);color:var(--ink);padding:.05em .35em;border-radius:2px;word-break:break-word}
-.doc a code{background:transparent;padding:0}
+.wp-doc code{font-family:var(--mono);font-size:.92em;background:var(--paper-3);color:var(--ink);padding:.05em .35em;border-radius:2px;word-break:break-word}
+.wp-doc a code{background:transparent;padding:0}
 .m{font-family:var(--mono);font-style:normal;background:var(--paper-3);color:var(--ink-2);padding:.05em .4em;border:1px solid var(--rule);border-radius:2px;white-space:nowrap}
 
 /* block code / formula */
@@ -146,15 +160,12 @@ table.t tbody tr:hover td{background:var(--paper-2)}
 table.t td code,table.t th code{background:var(--paper-3);font-size:.9em}
 table.t td:first-child{color:var(--ink);font-weight:600}
 
-/* figures */
-figure.fig{margin:1.8rem 0;text-align:center}
-figure.fig img{display:block;width:100%;max-width:680px;height:auto;margin:0 auto;border:1px solid var(--rule);background:var(--paper);padding:.6rem;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
-figure.fig figcaption{margin:.9rem auto 0;font-size:var(--t-xs);color:var(--mute);max-width:60ch;line-height:1.5}
-figure.fig figcaption b{color:var(--ink-2);font-weight:700}
+/* figures: the frame and caption come from .fig in /nav.css */
+figure.fig img{display:block;width:100%;max-width:960px;height:auto;margin:0 auto;background:var(--paper)}
 
 /* references */
 .refs{list-style:none;margin:1.2rem 0;padding:0}
-.refs li{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;margin:0 0 .618rem;padding-left:1.4rem;position:relative;max-width:74ch}
+.refs li{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;margin:0 0 .618rem;padding-left:1.4rem;position:relative;max-width:var(--measure)}
 .refs li::before{content:"›";position:absolute;left:0;top:0;color:var(--mute-2);font-weight:700}
 .refs li em{font-style:italic}
 .refs li code{font-size:.88em}
@@ -181,23 +192,20 @@ figure.fig figcaption b{color:var(--ink-2);font-weight:700}
   .wrap{grid-template-columns:1fr;gap:0}
   .toc{position:static;max-height:none;border-right:0;border-bottom:1px solid var(--rule);padding:1.4rem 0;margin-bottom:1rem;overflow:visible;-webkit-column-count:2;column-count:2;column-gap:1.5rem}
   .toc .toc-h{-webkit-column-span:all;column-span:all}
-  .doc{padding-top:1rem;max-width:none}
+  .wp-doc{padding-top:1rem;max-width:none}
   .foot{grid-template-columns:1fr;gap:1.6rem}
   .foot-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media (max-width:560px){
-  .hero{padding:3rem 0 2.2rem}
-  .hero h1{font-size:var(--t-2xl);line-height:1.08}
-  .hero-cta{flex-direction:column;align-items:stretch}
-  .hero-cta .btn{justify-content:center}
+  .wp-head .actions{flex-direction:column;align-items:stretch}
+  .wp-head .actions .btn{justify-content:center}
   .toc{-webkit-column-count:1;column-count:1}
-  .doc h2{font-size:var(--t-xl)}
+  .wp-doc h2{font-size:var(--t-xl)}
   .code pre,.formula pre{font-size:var(--t-xs)}
   .statusbar a.nav-sec{display:none}
 }
 @media (max-width:480px){
   html{font-size:93.75%}
-  .page{padding:0 1rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 
@@ -278,18 +286,27 @@ input::placeholder{color:var(--mute,#7a7363)}
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<div class="page">
-  <header class="hero">
-    <p class="kicker"><span class="seal"></span> Whitepaper v2 &middot; Vortx AI</p>
+<header class="doc-head wp-head">
+  <div>
+    <p class="eyebrow"><span class="seal"></span> Whitepaper &middot; edition 2 &middot; 2026-07-16</p>
     <h1>emem: <span class="accent">an external identity layer for verifiable agent memory</span></h1>
-    <p class="meta-line"><b>Vortx AI</b> <span class="dot">&middot;</span> <b>v2</b> &middot; 2026-07-14 <span class="dot">&middot;</span> Apache-2.0 <span class="dot">&middot;</span> reference responder <code>emem.dev</code></p>
-    <div class="hero-cta">
-      <a class="btn" href="/whitepaper.md">read as markdown</a>
+    <p class="purpose">The token grammar, cell64 and tslot addressing, Ed25519 receipts over a tagged preimage, and the RFC 6962 log, as this responder implements them.</p>
+    <div class="actions">
+      <a class="btn" href="/whitepaper.md">Read as markdown</a>
       <a class="btn ghost" href="/v1/verifier_spec">/v1/verifier_spec</a>
       <a class="btn ghost" href="/whitepaper/v1">v1 (archived)</a>
     </div>
-  </header>
-</div>
+  </div>
+  <dl class="wp-edition" aria-label="Edition">
+    <dt>edition</dt><dd>2</dd>
+    <dt>dated</dt><dd>2026-07-16</dd>
+    <dt>author</dt><dd>Vortx AI</dd>
+    <dt>licence</dt><dd>Apache-2.0</dd>
+    <dt>supersedes</dt><dd><a href="/whitepaper/v1">v1</a>, 0.1.0, 2026-06-14</dd>
+    <dt>responder</dt><dd><code>emem.dev</code></dd>
+    <dt>source</dt><dd><a href="https://github.com/Vortx-AI/emem/blob/main/docs/whitepaper-v2.md" target="_blank" rel="noopener noreferrer">docs/whitepaper-v2.md</a></dd>
+  </dl>
+</header>
 
 <div class="page">
 <div class="wrap">
@@ -319,7 +336,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     </ol>
   </nav>
 
-  <main class="doc">
+  <main class="wp-doc">
 
       <p><strong>Whitepaper v2 / 2026-07-16</strong></p>
       <p><em>Superseded as the canonical paper by <a href="whitepaper.md">whitepaper.md</a> (2026-07-16), which carries this document forward with v1's protocol depth, formal notation, figures, an evaluation, and a threat model. This file remains the served v2 record.</em></p>
@@ -1009,7 +1026,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     var id = a.getAttribute('href').slice(1);
     if (id) byId[id] = a;
   });
-  var sections = Array.prototype.slice.call(document.querySelectorAll('.doc section[id]'));
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.wp-doc section[id]'));
   var current = null;
   function setOn(a){
     if (current === a) return;
