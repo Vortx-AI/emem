@@ -2633,7 +2633,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 </style>
 {(REPO / 'scripts/templates/arcade-channel.html').read_text()}
 </head>
-<body>
+<body class="doc">
 {gen_nav.render("/channel")}
 <div class=hd><div class="wrap in">
   {who_chips}

@@ -151,7 +151,7 @@ h2{{font-size:var(--t-md);margin:2rem 0 .2rem;border-bottom:1.6px solid var(--in
 .tool pre{{margin:.4rem .9rem .8rem;padding:.6rem .7rem;background:var(--paper-3);border:1px solid var(--rule);overflow-x:auto;font-size:var(--t-2xs)}}
 </style>
 </head>
-<body>
+<body class="doc">
 {site_nav}
 <div class="wrap">
 <p class="crumb"><a href="/">emem</a> / tools</p>

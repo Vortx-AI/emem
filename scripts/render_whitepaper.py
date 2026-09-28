@@ -293,7 +293,7 @@ def build() -> str:
     site_nav = _gen_nav.render("/whitepaper")
     return f"""{head}
 </head>
-<body>
+<body class="doc">
 
 {site_nav}
 

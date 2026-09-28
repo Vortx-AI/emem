@@ -194,7 +194,7 @@ ul li > a:only-child{display:inline-block;padding:5px 0}
 header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;text-align:center}
 </style>
 </head>
-<body>
+<body class="doc">
 <a class=skip href="#main">Skip to demo</a>
 
 <!--nav:start-->
@@ -245,7 +245,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">read a whole area at once</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Recall an area</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">read a whole area at once</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 

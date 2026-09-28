@@ -548,3 +548,160 @@ footer.page.foot.sitefoot {
   z-index: 59;
   background: var(--paper-2);
 }
+
+/* ---- Inner pages -----------------------------------------------------------
+   Every page except the landing page carries body.doc. The landing page is a
+   composed poster at --w-page; inner pages are working documents and use the
+   width of the screen, up to --w-doc, with a small gutter. Prose is capped at
+   --measure so a paragraph stays readable; tables, code and figures are not.
+
+   Measured before this block, at 1440px: the section grid (220px meta column
+   plus 68ch, centred) left 263px empty on each side of /how-it-works, /guard
+   and /a2a, and the demo pages left 295px. */
+body.doc { --w-page: var(--w-doc); --gutter: var(--gutter-doc); --pad-x: var(--gutter-doc) }
+body.doc .section { grid-template-columns: var(--col-meta) minmax(0, 1fr); justify-content: stretch }
+body.doc :is(.section-body, .doc-body) > :is(p, ul, ol, blockquote, h2, h3, h4, .lede, details.fold) { max-width: var(--measure) }
+@media (max-width: 900px) {
+  body.doc .section { grid-template-columns: minmax(0, 1fr) }
+}
+
+/* The page header: where you are, what this page is for, what is on it. */
+.doc-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 26rem);
+  gap: var(--s-4) var(--s-6);
+  align-items: end;
+  max-width: var(--w-page);
+  margin: 0 auto;
+  padding: var(--s-5) var(--gutter) var(--s-4);
+  border-bottom: 1px solid var(--rule);
+  box-sizing: border-box;
+}
+.doc-head > * { min-width: 0 }
+.doc-head .eyebrow {
+  margin: 0 0 var(--s-2);
+  font: 600 var(--t-2xs)/1.4 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.doc-head h1 {
+  margin: 0 0 var(--s-3);
+  font-family: var(--display);
+  font-weight: 400;
+  font-variation-settings: 'opsz' 60;
+  font-size: clamp(var(--t-3xl), 4vw, var(--t-5xl));
+  line-height: 1.02;
+  letter-spacing: -.02em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.doc-head .purpose {
+  margin: 0;
+  max-width: 62ch;
+  font-family: var(--display);
+  font-size: var(--t-lg);
+  line-height: 1.4;
+  color: var(--ink-2);
+}
+.doc-head .facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2) var(--s-4);
+  margin: var(--s-4) 0 0;
+  padding: 0;
+  font: var(--t-2xs)/1.4 var(--mono);
+  color: var(--mute);
+}
+.doc-head .facts div { display: flex; gap: var(--s-2) }
+.doc-head .facts dt { color: var(--mute) }
+.doc-head .facts dd { margin: 0; color: var(--ink-2) }
+.doc-head .actions { display: flex; flex-wrap: wrap; gap: var(--s-2); margin-top: var(--s-4) }
+
+/* In-page contents. Sits in the header's right column on a wide screen and
+   under the title on a narrow one. */
+.doc-toc { font-family: var(--mono); font-size: var(--t-xs); border-left: 1px solid var(--rule-strong); padding-left: var(--s-3) }
+.doc-toc h2 {
+  margin: 0 0 var(--s-2);
+  font: 600 var(--t-3xs)/1 var(--mono);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.doc-toc ol { margin: 0; padding: 0; list-style: none; columns: 2 12rem; column-gap: var(--s-4) }
+.doc-toc li { break-inside: avoid }
+.doc-toc a {
+  display: flex;
+  gap: var(--s-2);
+  min-height: 24px;
+  padding: 2px 0;
+  color: var(--ink-2);
+  text-decoration: none;
+  line-height: 1.35;
+}
+.doc-toc a span { color: var(--mute-2); font-variant-numeric: tabular-nums; flex: none }
+.doc-toc a:hover { color: var(--accent) }
+@media (max-width: 900px) {
+  .doc-head { grid-template-columns: minmax(0, 1fr); padding-top: var(--s-4) }
+  .doc-toc ol { columns: 1 }
+}
+
+/* Figures. One stroke weight, one palette, labels at 12.6-14px at 1x. An SVG
+   carries width= equal to its viewBox width so it is never scaled UP past the
+   size its labels were set at; max-width lets it shrink on a phone, where a
+   page should offer a tall variant rather than a shrunken wide one. */
+.fig { margin: var(--s-4) 0; padding: var(--s-3); border: 1px solid var(--rule); background: var(--paper-2) }
+.fig svg { display: block; max-width: 100%; height: auto; margin: 0 auto }
+.fig figcaption {
+  max-width: var(--measure);
+  margin-top: var(--s-3);
+  padding-top: var(--s-2);
+  border-top: 1px solid var(--rule);
+  font: var(--t-xs)/1.55 var(--mono);
+  color: var(--ink-2);
+}
+.fig figcaption b { color: var(--ink); font-weight: 600 }
+.dg { font-family: var(--mono); overflow: visible }
+.dg text { fill: var(--ink); font-size: var(--t-xs) }
+.dg .t-sub { fill: var(--mute); font-size: var(--t-2xs) }
+.dg .t-key { fill: var(--accent); font-weight: 600 }
+.dg .t-absent { fill: var(--absent) }
+.dg .t-strong { font-weight: 600 }
+.dg .n { fill: var(--paper); stroke: var(--rule-strong); stroke-width: 1.25 }
+.dg .n-key { fill: var(--accent-bg); stroke: var(--accent); stroke-width: 1.25 }
+.dg .n-absent { fill: var(--absent-bg); stroke: var(--absent); stroke-width: 1.25 }
+.dg .n-machine { fill: var(--paper); stroke: var(--machine); stroke-width: 1.25 }
+.dg .n-zone { fill: none; stroke: var(--rule-strong); stroke-width: 1; stroke-dasharray: 3 4 }
+.dg .e { fill: none; stroke: var(--ink-2); stroke-width: 1.25 }
+.dg .e-dash { fill: none; stroke: var(--mute); stroke-width: 1.25; stroke-dasharray: 4 4 }
+.dg .e-key { fill: none; stroke: var(--accent); stroke-width: 1.5 }
+.dg .ah { fill: var(--ink-2) }
+.dg .ah-key { fill: var(--accent) }
+.dg .ah-dash { fill: var(--mute) }
+.dg .step { fill: var(--ink); font-weight: 700; font-size: var(--t-2xs) }
+
+/* What to read next, at the end of a page. */
+.next-steps { max-width: var(--w-page); margin: var(--s-5) auto 0; padding: 0 var(--gutter); box-sizing: border-box }
+.next-steps h2 { margin: 0 0 var(--s-3); font: 600 var(--t-3xs)/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--mute) }
+.next-steps ul { display: grid; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); gap: var(--s-3); margin: 0; padding: 0; list-style: none }
+.next-steps a {
+  display: block;
+  height: 100%;
+  padding: var(--s-3);
+  border: 1px solid var(--rule-strong);
+  background: var(--paper);
+  color: var(--ink);
+  text-decoration: none;
+  box-sizing: border-box;
+}
+.next-steps a:hover { border-color: var(--accent); background: var(--accent-bg) }
+.next-steps b { display: block; font: 600 var(--t-sm)/1.3 var(--mono) }
+.next-steps span { display: block; margin-top: var(--s-1); font: var(--t-xs)/1.45 var(--mono); color: var(--mute) }
+
+/* Breadcrumb, generated into the audience strip. */
+.crumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s-1); margin: 0; padding: 0; list-style: none; color: var(--mute) }
+.crumbs li { display: inline-flex; gap: var(--s-1) }
+.crumbs li + li::before { content: "/"; color: var(--mute-2) }
+.crumbs a { color: var(--ink-2); text-decoration: none }
+.crumbs a:hover { color: var(--accent); text-decoration: underline }
+.crumbs [aria-current] { color: var(--ink); font-weight: 600 }

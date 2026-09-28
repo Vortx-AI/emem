@@ -224,7 +224,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 .archived-note a{color:var(--absent);text-decoration:underline}
 </style>
 </head>
-<body>
+<body class="doc">
 
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -274,7 +274,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-leaders"><span class="aud-for">for leaders</span><span class="aud-what">superseded, kept as it shipped</span></div>
+<div class="audience aud-leaders"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Learn</li><li><span aria-current="page">Whitepaper v1</span></li></ol><span class="aud-for">for leaders</span><span class="aud-what">superseded, kept as it shipped</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 

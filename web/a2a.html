@@ -232,7 +232,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 </style>
 </head>
-<body>
+<body class="doc">
 
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
@@ -282,7 +282,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-agents"><span class="aud-for">for agents</span><span class="aud-what">how two agents agree before they start</span></div>
+<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Connect</li><li><span aria-current="page">A2A</span></li></ol><span class="aud-for">for agents</span><span class="aud-what">how two agents agree before they start</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
