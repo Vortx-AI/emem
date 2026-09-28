@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- Boot no longer reads the whole fact store. The vector index's hydration fetched every fact (millions) to keep the ~51k that are embeddings: 9.5 minutes of IO after each restart, during which fact writes waited 107-158 s and DDS and ask calls timed out. It now samples one fact per band and reads only the bands whose values are vectors.
 - Overture facts carry `sources[0].hash`: blake3 over the sorted `key, etag, size` listing of the release's files for that theme, so a fact still names exactly which objects it was read from after Overture drops the release (it keeps about three). The release tag was already in `captured_at` and the derivation.
 - New band `overture.transportation.road_bearing_deg`: the axial bearing (0..180 degrees from north) of the nearest Overture road segment within 50 m, with the distance in its derivation; an Absence when the release holds none. 118 wired band names.
 - Four more skills are served at `/skills/<name>/SKILL.md`: field signals, EUDR due diligence, document evidence, transparency log.

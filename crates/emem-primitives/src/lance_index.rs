@@ -404,13 +404,32 @@ impl LanceIndex {
             .await
             .map_err(|e| LanceError::Storage(e.to_string()))?;
 
-        // Group cids by canonical key so we can resolve facts in bulk
-        // batches (sled's get_facts_many is much cheaper batched).
-        let mut keys: Vec<CanonicalKey> = Vec::with_capacity(entries.len());
-        let mut cids: Vec<FactCid> = Vec::with_capacity(entries.len());
+        // Only bands whose values are vectors. This read every fact in the
+        // store (millions) to keep the ~51k that are embeddings: 9.5 minutes
+        // of IO after every restart, during which writes waited 100 s and
+        // more. A band's facts share one value type, so one fact per band
+        // says whether to read the rest.
+        let mut by_band: HashMap<String, Vec<(CanonicalKey, FactCid)>> = HashMap::new();
         for (k, c) in entries {
-            keys.push(k);
-            cids.push(c);
+            by_band.entry(k.band.clone()).or_default().push((k, c));
+        }
+        let mut keys: Vec<CanonicalKey> = Vec::new();
+        let mut cids: Vec<FactCid> = Vec::new();
+        for (_, rows) in by_band {
+            let probe: Vec<FactCid> = rows.iter().take(16).map(|(_, c)| c.clone()).collect();
+            let sampled = storage
+                .get_facts_many_uncited(&probe)
+                .await
+                .map_err(|e| LanceError::Storage(e.to_string()))?;
+            let vector_band = sampled.into_iter().flatten().any(|f| {
+                matches!(&f, Fact::Primary(p) if as_vec_f32(&p.value).is_some_and(|v| v.len() > 1))
+            });
+            if vector_band {
+                for (k, c) in rows {
+                    keys.push(k);
+                    cids.push(c);
+                }
+            }
         }
 
         let mut grouped: HashMap<usize, Vec<PendingRow>> = HashMap::new();
