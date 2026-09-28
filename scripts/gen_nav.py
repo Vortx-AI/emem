@@ -205,7 +205,9 @@ def breadcrumb(current: str) -> str:
     row = ROW.get(current)
     if current == "/" or not row:
         return ""
-    items = ['<li><a href="/">emem</a></li>', f'<li>{row[3]}</li>']
+    items = ['<li><a href="/">emem</a></li>']
+    if row[3] != row[1]:
+        items.append(f'<li>{row[3]}</li>')
     if current in DEMOS:
         items.append('<li><a href="/demos">Demos</a></li>')
     items.append(f'<li><span aria-current="page">{row[1]}</span></li>')
