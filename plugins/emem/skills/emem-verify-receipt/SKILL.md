@@ -1,155 +1,128 @@
 ---
 name: emem-verify-receipt
-description: Verify an emem receipt's Ed25519 signature offline by rebuilding the canonical BLAKE3 preimage and checking against the responder's published pubkey. Use when the user pastes a receipt JSON and asks whether it's authentic, when an LLM needs to prove a fact wasn't fabricated, or when caching emem facts and wanting to confirm origin later. Runs without re-contacting the responder.
+description: Verifies an emem receipt's Ed25519 signature offline by rebuilding its canonical BLAKE3 preimage (v1 or v2) and checking it against the responder's published key. Use when the user pastes a receipt or an emem response and asks whether it is authentic, when an agent must prove a fact was not fabricated, or when checking a cached answer later without trusting or re-contacting the responder. Ships a small Python verifier; a server-side check is the fallback.
 ---
 
 # emem-verify-receipt
 
-This skill rebuilds the canonical preimage of an emem receipt
-byte-for-byte, BLAKE3s it, and runs Ed25519 verification — all
-locally. The math matches `emem-attest::receipt_preimage_v1` (crates/emem-attest/src/lib.rs)
-in the emem source; if your verification passes, the receipt was
-signed by the responder pubkey and has not been tampered with.
+Every emem response that serves facts carries a `receipt`. This skill
+rebuilds the receipt's preimage byte for byte, hashes it with BLAKE3,
+and checks the Ed25519 signature locally. The math matches
+`receipt_preimage_v1` and `receipt_preimage_v2` in
+`crates/emem-attest/src/lib.rs`, the one implementation the signer and
+every emem verifier share.
 
 ## When to invoke
 
 - "Is this emem receipt authentic?"
-- "Verify this fact_cid offline."
-- "I cached an emem response from last year — can I prove it's real
-  without calling the server?"
-- The user pastes a JSON blob with `request_id`, `served_at`,
-  `primitive`, `cells`, `fact_cids`, `signature`, `responder` (or
-  `responder_pubkey_b32`) fields.
+- "I cached an emem answer last month. Can I prove it is real without
+  calling the server?"
+- Any JSON with `request_id`, `served_at`, `primitive`, `cells`,
+  `fact_cids`, `signature` and `responder_pubkey_b32`.
 
-## How to invoke
-
-### Quick one-shot via the bundled Python script
-
-```sh
-python3 "$SKILL_DIR/verify.py" path/to/receipt.json
-```
-
-Or pipe a receipt directly:
+## Run the bundled verifier
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xoso.zcb6a","bands":["weather.temperature_2m"]}' \
-  | jq '.receipt' \
-  | python3 "$SKILL_DIR/verify.py" -
+  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
+  | python3 "${CLAUDE_SKILL_DIR}/verify.py" -
 ```
 
-`$SKILL_DIR` is this skill's own directory: the plugin ships `verify.py` beside this file, so nothing is fetched to run it.
+It accepts a bare receipt or a whole response with a top-level
+`receipt`, from a file path or `-` for stdin. `${CLAUDE_SKILL_DIR}` is
+this skill's directory, filled in by Claude Code; `verify.py` ships
+beside this file, so nothing is downloaded to run it. It needs
+`pip install blake3 cryptography`.
 
-The script prints `VALID` and the BLAKE3 digest hex if the signature
-checks out, or `INVALID` with the reason if not.
-
-### What the math does
-
-Receipts carry `preimage_version: 1`. The preimage is **domain-separated
-and length-prefixed** so no two different receipts can collide without a
-BLAKE3 collision:
+Output on success (recorded 2026-09-28 on a Bengaluru recall):
 
 ```
-blake3( "emem.preimage.v1\0"
-        || u32le(len("receipt")) || "receipt"
-        || segment*  )
+VALID
+preimage_v2:  889 bytes
+digest:       b7b6c4430312c1092f84054d08dcde6702ef2441a47610effdf3825f94fdeb60
+signer:       777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+primitive:    emem.recall
+cells:        1
+fact_cids:    11
 ```
 
-Each scalar segment is `tag || u32le(len) || bytes`; a list segment is
-`tag || u32le(count) || (u32le(len) || bytes)*`. Segments appear in this
-fixed order, and optional ones are emitted only when present:
+Exit codes: `0` VALID, `1` INVALID, `2` bad input (not JSON, or an
+`emem.error.v1` body), `3` a segment the script does not rebuild
+(scope, as_of or edges): send those to the server check below.
+
+Compare `signer` with the key at `https://emem.dev/.well-known/emem.json`
+(`responder.pubkey_b32`). A receipt that verifies under a key you did
+not expect proves only that the holder of that key signed it.
+
+## What the math does
+
+```
+digest = blake3( "emem.preimage.v1\0" || u32le(len("receipt")) || "receipt" || segment* )
+valid  = ed25519_verify(responder_pubkey, signature, digest)
+```
+
+A scalar segment is `tag || u32le(len) || bytes`; a list segment is
+`tag || u32le(count) || (u32le(len) || bytes)*`. In order, optional ones
+only when present:
 
 | tag | segment | when |
 |----|----------|------|
 | 1 | request_id | always |
 | 2 | served_at | always |
-| 3 | scope | scoped reads only |
-| 4 | as_of | bi-temporal reads only |
-| 5 | edges | `include:["edges"]` only |
-| 6 | manifest | `blake3(cbor(source_versions))`, when non-empty |
+| 3 | scope | scoped reads |
+| 4 | as_of | bi-temporal reads |
+| 5 | edges | `include:["edges"]` |
+| 6 | manifest: lowercase hex of `blake3(cbor(source_versions))`, map keys in plain string order | when non-empty |
 | 7 | primitive | always |
 | 8 | cells | always (list) |
 | 9 | fact_cids | always (list) |
-| 10 | field | field tokens (raster/cube): `blake3` of the `(aoi_cid, derivation_cid)` binding |
+| 10 | field: hex of the `(aoi_cid, derivation_cid)` binding | field tokens |
+| 11 | merkle: hex of the inclusion-proof binding, or of an explicit absence marker | v2 only, always |
 
-BLAKE3 over that stream produces the 32-byte digest; the responder's
-ed25519 key signs the digest, and
-`ed25519.verify(signature, digest, responder_pubkey)` checks it. The
-bundled `verify.py` rebuilds this exactly for the common cases (recall,
-field tokens); a receipt carrying a scope/as_of/edges segment is sent to
-the server verifier instead of guessed at.
-
-The pubkey decodes from `responder_pubkey_b32` via base32-nopad-lowercase.
-
-## Dependencies
-
-The script needs `blake3` and either `cryptography` or `nacl` for
-Ed25519. If they're missing:
-
-```sh
-pip install --user blake3 cryptography
-```
+Receipts served today carry `preimage_version: 2`. Tag 11 is what makes
+a stripped `merkle_proof` detectable: delete the proof and the digest
+changes, so the signature fails. Rewriting `preimage_version` to 1 does
+not help an attacker either, because the v1 digest differs from the v2
+stream that was signed. `GET /v1/verifier_spec` publishes these rules
+from the compiled constants, including a golden vector for the manifest
+encoding.
 
 ## Server fallback
 
-If the user can't run Python locally, point them at:
-
 ```sh
-curl -sf -X POST https://emem.dev/v1/verify_receipt \
-  -H 'content-type: application/json' \
-  -d '{"receipt": <receipt_json>}'
+jq '{receipt: .receipt}' response.json \
+  | curl -sf -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' -d @- \
+  | jq '{valid, preimage_version, merkle_proof_valid, signer_pubkey_b32}'
 ```
 
-This re-runs the same math server-side and returns
-`{valid: bool, preimage_blake3_hex, signer_pubkey_b32, ...}`.
-Fundamentally less trustworthy than the offline path (you're trusting
-the responder to be honest about the verification), but useful as a
-sanity check.
+`response.json` is any saved emem response. The server runs the same
+math and reports `merkle_proof_valid` beside `valid`. It is weaker than
+the offline path, because you are trusting the responder to report
+honestly on its own signature, but it handles every segment and every
+legacy version. The
+browser page `https://emem.dev/verify` does the check locally in
+JavaScript if you would rather paste than script.
 
-## Worked example
+## On a mismatch
 
-```
-USER: Here's an emem receipt I got last week — is it real?
-      {"request_id":"01JBQ...","served_at":"2026-05-01T10:00:00Z",
-       "primitive":"emem.recall","cells":["defi.zb493.xoso.zcb6a"],
-       "fact_cids":["qi3jo4...l2hgjtwm"],
-       "signature":[<64 bytes>],"responder":[<32 bytes>],
-       "responder_pubkey_b32":"777er3yihgifqmv5..."}
-
-CLAUDE invokes this skill:
-  python3 verify.py /tmp/receipt.json
-    → VALID
-    → preimage_v1: 260 bytes  (domain-separated, length-prefixed)
-    → digest:      c88485ab2a09...
-    → signer:      777er3yihgifqmv5... (matches /.well-known/emem.json)
-
-CLAUDE replies: "Yes — the signature verifies against the responder
-pubkey at /.well-known/emem.json. The receipt is authentic. The
-fact 'temperature_2m at Bengaluru' was signed by emem.dev at
-2026-05-01T10:00:00Z."
-```
-
-## What to do on a mismatch
-
-- **Signature does not verify** — receipt was tampered with, or it
-  was signed by a different responder than the one at the given
-  pubkey. Show the user both the expected pubkey and the one
-  embedded in the receipt; let them decide.
-- **Pubkey doesn't match `/.well-known/emem.json`** — the responder
-  rotated keys. Each receipt carries `responder_key_epoch`; an
-  out-of-date receipt was signed by an older epoch and can still be
-  verified against the historical pubkey if you have it.
-- **Preimage hash mismatch** — almost always a serialisation issue
-  (whitespace in the JSON, wrong byte order on `signature` /
-  `responder` arrays). Re-fetch the receipt with `jq -c` to
-  guarantee canonical JSON.
+- **INVALID**: the receipt was altered, or signed by a different key.
+  Show the user both keys and let them decide.
+- **Key differs from `/.well-known/emem.json`**: the responder may have
+  rotated keys. `responder_key_epoch` on the receipt says which epoch
+  signed it; an older epoch verifies against its historical key.
+- **Hash mismatch on a receipt you re-serialised**: `signature` and
+  `responder` are byte arrays; keep them as arrays (or use
+  `signature_b32`), and do not reorder `cells` or `fact_cids`.
 
 ## This is one of three checks
 
-Verifying the signature answers **did this responder really sign this**.
-It does not answer whether you quoted the value correctly, or whether the
-fact supports the sentence you wrote around it. Those are
-`emem_echo_verify` and `emem_guard_verdict`, and a draft can pass this
-check and fail either of them. See
+A valid signature answers **did this responder sign these fact cids**.
+It does not say you quoted the value correctly, or that the fact
+supports your sentence. Those are `emem_echo_verify` and
+`emem_guard_verdict`: see
 [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).
+For documents and the transparency log, which sign different objects,
+see [`emem-document-evidence`](../emem-document-evidence/SKILL.md) and
+[`emem-transparency-log`](../emem-transparency-log/SKILL.md).

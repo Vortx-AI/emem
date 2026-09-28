@@ -1,33 +1,39 @@
 #!/usr/bin/env python3
 """
-Offline verifier for emem receipts (preimage v1).
+Offline verifier for emem receipts (preimage v1 and v2).
 
 Usage:
     verify.py <path_to_receipt.json>
     verify.py -                  # read receipt JSON from stdin
 
+Accepts a bare receipt or a whole response with a top-level `receipt`.
 Exits 0 with "VALID" + diagnostic lines on success, 1 with "INVALID" on a
 signature mismatch, 3 when the receipt carries a segment this script does
 not rebuild (use POST /v1/verify_receipt for those).
 
-The math matches emem-attest's `receipt_preimage_v1`
-(crates/emem-attest/src/lib.rs): the single source of truth the signer
-(emem-storage) and every verifier (POST /v1/verify_receipt, the /verify
-page's JS) all call. If this passes, the receipt was signed by the
-responder pubkey and has not been tampered with since.
+The math matches emem-attest's `receipt_preimage_v1` and
+`receipt_preimage_v2` (crates/emem-attest/src/lib.rs): the single source
+of truth the signer (emem-storage) and every verifier (POST
+/v1/verify_receipt, the /verify page's JS) all call. If this passes, the
+receipt was signed by the responder pubkey and has not been tampered with
+since.
 
-Preimage v1 is domain-separated and length-prefixed: the whole stream is
+The preimage is domain-separated and length-prefixed: the whole stream is
 `blake3("emem.preimage.v1\\0" || u32le(len(domain)) || domain || segments)`,
 and ed25519 signs the resulting 32-byte digest. Each segment is
 `tag || u32le(len) || bytes`; a list segment is
 `tag || u32le(count) || (u32le(len) || bytes)*`. Segments, in order:
 REQUEST_ID 1, SERVED_AT 2, SCOPE 3, AS_OF 4, EDGES 5, MANIFEST 6,
-PRIMITIVE 7, CELLS 8, FACT_CIDS 9, FIELD 10. Optional segments are
-emitted only when present, so a plain recall receipt (manifest only) and
-a field-token receipt (manifest + field) both rebuild exactly.
+PRIMITIVE 7, CELLS 8, FACT_CIDS 9, FIELD 10, and under v2 MERKLE 11.
+Optional segments are emitted only when present. MERKLE is always
+written under v2: it binds the receipt's `merkle_proof`, or an explicit
+absence marker when there is none, so a stripped proof breaks the
+signature instead of passing silently. Receipts served today carry
+`preimage_version: 2`.
 """
 from __future__ import annotations
 
+import base64
 import json
 import struct
 import sys
@@ -60,6 +66,10 @@ def b32_nopad_decode(s: str) -> bytes:
     for i in range(0, len(bits) - len(bits) % 8, 8):
         out.append(int(bits[i : i + 8], 2))
     return bytes(out)
+
+
+def _b32(b: bytes) -> str:
+    return base64.b32encode(b).decode().rstrip("=").lower()
 
 
 def _u32(n: int) -> bytes:
@@ -129,8 +139,47 @@ def _field_hex(field: dict) -> str:
     return h.hexdigest()
 
 
-def build_preimage_v1(receipt: dict) -> bytes:
-    """Rebuild the v1 preimage stream (the bytes blake3 then hashes)."""
+def _sub_preimage(domain: bytes, segs) -> bytes:
+    h = blake3()
+    h.update(b"emem.preimage.v1\x00")
+    h.update(_u32(len(domain)))
+    h.update(domain)
+    for tag, data in segs:
+        h.update(_seg(tag, data))
+    return h.digest()
+
+
+def _bytes32(v) -> bytes:
+    if isinstance(v, (list, tuple)):
+        return bytes(v)
+    if isinstance(v, str):
+        try:
+            return bytes.fromhex(v)
+        except ValueError:
+            return b32_nopad_decode(v)
+    raise ValueError(f"cannot read a 32-byte hash from {v!r}")
+
+
+def _merkle_hex(proof) -> str:
+    """merkle_binding_v2: PreimageV1("merkle"), either ROOT 1, LEAF_INDEX 2
+    (u32le), PATH 3 (concatenated 32-byte siblings), RULE_VERSION 4, or the
+    ABSENT 5 marker alone when the receipt carries no proof."""
+    if not proof:
+        return _sub_preimage(b"merkle", [(0x05, b"")]).hex()
+    path = b"".join(_bytes32(p) for p in proof.get("path", []))
+    return _sub_preimage(
+        b"merkle",
+        [
+            (0x01, _bytes32(proof["root"])),
+            (0x02, _u32(int(proof.get("leaf_index", 0)))),
+            (0x03, path),
+            (0x04, bytes([int(proof.get("version", 0))])),
+        ],
+    ).hex()
+
+
+def build_preimage(receipt: dict, version: int) -> bytes:
+    """Rebuild the v1 or v2 preimage stream (the bytes blake3 then hashes)."""
     # Segments this script does not rebuild. If a receipt carries one, its
     # digest would silently mismatch, so refuse with a clear pointer instead.
     if receipt.get("scope"):
@@ -155,6 +204,8 @@ def build_preimage_v1(receipt: dict) -> bytes:
     field = receipt.get("field")
     if isinstance(field, dict) and field.get("aoi_cid") and field.get("derivation_cid"):
         out += _seg(0x0A, _field_hex(field).encode("utf-8"))
+    if version >= 2:
+        out += _seg(0x0B, _merkle_hex(receipt.get("merkle_proof")).encode("utf-8"))
     return out
 
 
@@ -189,23 +240,30 @@ def main() -> int:
         sys.stderr.write(__doc__)
         return 2
     raw = sys.stdin.read() if sys.argv[1] == "-" else Path(sys.argv[1]).read_text()
-    receipt = json.loads(raw)
-    if isinstance(receipt, dict) and "receipt" in receipt and "request_id" not in receipt:
+    try:
+        receipt = json.loads(raw)
+    except json.JSONDecodeError:
+        sys.stderr.write("input is not JSON (an empty body usually means the request itself failed)\n")
+        return 2
+    if isinstance(receipt, dict) and receipt.get("schema") == "emem.error.v1":
+        sys.stderr.write(f"input is an error, not a receipt: {receipt.get('code')}: {receipt.get('message')}\n")
+        return 2
+    if isinstance(receipt, dict) and isinstance(receipt.get("receipt"), dict) and "signature" not in receipt:
         receipt = receipt["receipt"]
 
     pv = receipt.get("preimage_version")
-    if pv not in (1, None):
+    if pv not in (1, 2, None):
         sys.stderr.write(f"unknown preimage_version {pv!r}; upgrade this script or use /v1/verify_receipt\n")
         return 3
     if pv is None:
         sys.stderr.write(
             "this receipt predates preimage v1 (no preimage_version field). This script "
-            "verifies v1 receipts; for a legacy receipt use POST /v1/verify_receipt.\n"
+            "verifies v1 and v2 receipts; for a legacy receipt use POST /v1/verify_receipt.\n"
         )
         return 3
 
     try:
-        preimage = build_preimage_v1(receipt)
+        preimage = build_preimage(receipt, pv)
     except Unsupported as u:
         sys.stderr.write(
             f"this receipt carries a `{u}` segment this offline script does not rebuild. "
@@ -230,13 +288,13 @@ def main() -> int:
         print("INVALID")
         print(f"preimage_len: {len(preimage)} bytes")
         print(f"digest:       {digest.hex()}")
-        print(f"signer:       {pubkey.hex()}")
+        print(f"signer:       {_b32(pubkey)}")
         return 1
 
     print("VALID")
-    print(f"preimage_v1:  {len(preimage)} bytes")
+    print(f"preimage_v{pv}:  {len(preimage)} bytes")
     print(f"digest:       {digest.hex()}")
-    print(f"signer:       {pubkey.hex()}")
+    print(f"signer:       {_b32(pubkey)}")
     print(f"primitive:    {receipt.get('primitive')}")
     print(f"cells:        {len(receipt.get('cells', []))}")
     print(f"fact_cids:    {len(receipt.get('fact_cids', []))}")
