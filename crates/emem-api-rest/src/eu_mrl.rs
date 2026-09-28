@@ -176,7 +176,13 @@ pub async fn current_mrls(product_id: u64) -> Result<Vec<Mrl>, String> {
         .filter_map(|r| {
             Some(Mrl {
                 residue: r["PESTICIDE_RESIDUE_NAME"].as_str()?.to_string(),
-                display: r["MRL_DISPLAY"].as_str().unwrap_or("").to_string(),
+                // Empty for an MRL set above the limit of determination.
+                display: r["MRL_DISPLAY"]
+                    .as_str()
+                    .filter(|d| !d.is_empty())
+                    .or(r["MRL_VALUE"].as_str())
+                    .unwrap_or("")
+                    .to_string(),
                 mg_kg: r["MRL_VALUE"].as_str().and_then(|v| v.trim().parse().ok()),
                 at_lod: r["MRL_LOD"].as_str() == Some("*"),
             })
