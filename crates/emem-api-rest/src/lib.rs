@@ -1359,14 +1359,6 @@ pub fn router(state: AppState) -> Router {
         // express. See crates/emem-api-rest/src/eo_runtime.rs.
         .route("/v1/spi", post(eo_runtime::post_spi))
         .route("/v1/burn_severity", post(eo_runtime::post_burn_severity))
-        .route(
-            "/v1/field_burn_scar",
-            post(field_signals::post_field_burn_scar),
-        )
-        .route(
-            "/v1/field_actual_et",
-            post(field_signals::post_field_actual_et),
-        )
         .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
         // ── Sentinel-1 VV backscatter-drop forest-disturbance scout
         //    (cloud-penetrating C-band SAR; the RADD-gap signal). ──────────
@@ -1705,6 +1697,16 @@ fn perception_router(state: AppState) -> Router {
 fn eudr_router(state: AppState) -> Router {
     Router::new()
         .route("/v1/eudr_dds", post(post_eudr_dds))
+        // The field signals warm a season of scenes before they answer, the
+        // same kind of work as a DDS: its ceiling and its concurrency cap.
+        .route(
+            "/v1/field_burn_scar",
+            post(field_signals::post_field_burn_scar),
+        )
+        .route(
+            "/v1/field_actual_et",
+            post(field_signals::post_field_actual_et),
+        )
         // DEDICATED, small concurrency cap for /v1/eudr_dds, far below the
         // main router's 128. EUDR is the heaviest endpoint (per-cell verdict
         // fan-out + optional Sentinel visual-evidence compile holding a
@@ -32712,8 +32714,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
-            "/v1/field_burn_scar":   {"post":{"summary":"field_burn_scar@1: residue burning on a field over a window. Warms indices.nbr, indices.ndti and modis.burned_area_monthly, then applies residue_burn_multisensor@1 between consecutive clear Sentinel-2 dates per cell; an event is max(2, 10 %) of the cells clear on one post-burn date at likely_burn or better. Returns verdict (burn | signal_only | no_burn | inconclusive), burn_events, per-cell signals with their fact_cids, and what it did not evaluate (CAMS).","operationId":"emem_field_burn_scar","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 45000)."}}}}}},"responses":{"200":json_ok}}},
-            "/v1/field_actual_et":   {"post":{"summary":"field_actual_et@1: actual evapotranspiration over a window at the field centre, the MOD16A2 8-day composites (modis.et_8day) pro-rated to the window edges. Returns et_mm, et_m3_per_ha (= mm x 10), coverage, the composites and their fact_cids; partial windows are summed, never extrapolated.","operationId":"emem_field_actual_et","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 45000)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/field_burn_scar":   {"post":{"summary":"field_burn_scar@1: residue burning on a field over a window. Warms indices.nbr, indices.ndti and modis.burned_area_monthly, then applies residue_burn_multisensor@1 between consecutive clear Sentinel-2 dates per cell; an event is max(2, 10 %) of the cells clear on one post-burn date at likely_burn or better. Returns verdict (burn | signal_only | no_burn | inconclusive), burn_events, per-cell signals with their fact_cids, and what it did not evaluate (CAMS).","operationId":"emem_field_burn_scar","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 90000, max 300000)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/field_actual_et":   {"post":{"summary":"field_actual_et@1: actual evapotranspiration over a window at the field centre, the MOD16A2 8-day composites (modis.et_8day) pro-rated to the window edges. Returns et_mm, et_m3_per_ha (= mm x 10), coverage, the composites and their fact_cids; partial windows are summed, never extrapolated.","operationId":"emem_field_actual_et","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 90000, max 300000)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/scene.png":         {"get":{"summary":"Sentinel-2 true-colour scene cropped to a plot: bbox=w,s,e,n (WGS-84) read at native 10 m, up to 1024 px a side (about 10 km). Same headers as /v1/cells/{cell64}/scene.png: scene id, capture time, cloud cover, EPSG and CRS bounds, pixel size, per-channel stretch, sun and view angles. max_cloud and datetime work as there.","operationId":"emem_scene_png_bbox","parameters":[{"name":"bbox","in":"query","required":true,"schema":{"type":"string"},"description":"w,s,e,n in degrees"},{"name":"max_cloud","in":"query","schema":{"type":"number"}},{"name":"datetime","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"image/png"}}}},
             "/v1/lab_report_parse":  {"post":{"summary":"lab_report_parse@1: a pesticide-residue lab report read row by row from OCR text: analyte, result (value, not detected, or below a limit), unit normalised to mg/kg, LOQ and the MRL the report prints, whether each exceeds it, plus sample id, dates, accreditation and method lines. Deterministic, every value with its line and byte offset; signed PreimageV1 emem.doc_parse.v1 over the text blake3 and result blake3. It does not look residues up in the EU MRL database.","operationId":"emem_lab_report_parse","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string","description":"The document text."},"ocr":{"type":"object","description":"A /v1/ocr response; its text must hash to its text_blake3_b32."},"url":{"type":"string","description":"An image to OCR here first."},"image_b64":{"type":"string"},"lang":{"type":"string","description":"Tesseract languages, e.g. eng+hin+mar."}}}}}},"responses":{"200":json_ok}}},
             "/v1/land_record_parse": {"post":{"summary":"land_record_parse@1: a land record's owners, parcel ids (survey, gat, khasra, CAR, matricula), areas in hectares where the unit has one meaning (ha.are.m2 7/12 extracts, acres, gunthas; bigha is reported raw), places and dates, from OCR text in the Indian scripts, Portuguese, Spanish, French or Indonesian. Every field with its line and byte offset; missing fields are listed, never filled. Signed like lab_report_parse.","operationId":"emem_land_record_parse","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string","description":"The document text."},"ocr":{"type":"object","description":"A /v1/ocr response; its text must hash to its text_blake3_b32."},"url":{"type":"string","description":"An image to OCR here first."},"image_b64":{"type":"string"},"lang":{"type":"string","description":"Tesseract languages, e.g. eng+hin+mar."}}}}}},"responses":{"200":json_ok}}},
@@ -67208,14 +67210,13 @@ fn eudr_verdict_for(
     (2, refinement)
 }
 
+/// Side of a 0.5 ha square, the Art. 2(4) minimum mapping unit.
+const MMU_SIDE_M: f64 = 70.710_678;
+
 /// What a plot's verdict rests on, and how firmly, by a stated rule rather
 /// than a probability: a calibrated one needs outcomes the responder does
 /// not hold. Each limit names itself, so a reviewer knows what to check.
-fn verdict_support(
-    per_cell: &[EudrCellVerdict],
-    tmf: &JsonValue,
-    sampled_fraction: f64,
-) -> JsonValue {
+fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) -> JsonValue {
     let n = per_cell.len().max(1) as f64;
     let both = per_cell
         .iter()
@@ -67261,21 +67262,22 @@ fn verdict_support(
             borderline * 100.0
         ),
     );
+    // What sampling can miss is set by spacing, not by the share of area
+    // read: a 0.5 ha clearance (the Art. 2(4) floor) is a 71 m square, and a
+    // grid no wider than that has a sample inside any such square.
+    let spacing_m = (area_ha.max(0.0) * 10_000.0 / n).sqrt();
     check(
-        sampled_fraction < 0.2,
-        sampled_fraction < 0.5,
-        format!(
-            "{:.0} % of the polygon's area was sampled",
-            sampled_fraction * 100.0
-        ),
+        spacing_m > 2.0 * MMU_SIDE_M,
+        spacing_m > MMU_SIDE_M,
+        format!("samples are {spacing_m:.0} m apart; a 0.5 ha clearance is a {MMU_SIDE_M:.0} m square and can fall between them"),
     );
     json!({
         "level": if weak { "weak" } else if moderate { "moderate" } else { "strong" },
-        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, >= 50 % of the polygon sampled); weak when any falls below 80 % / 70 % / above 30 % / below 20 %; moderate between. Not a calibrated probability.",
+        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them); weak when any falls below 80 % / 70 % / above 30 % / beyond 141 m; moderate between. Not a calibrated probability.",
         "cells_with_both_baselines": (both * 1e4).round() / 1e4,
         "borderline_canopy_fraction": (borderline * 1e4).round() / 1e4,
         "tmf_agreement": agreement,
-        "sampled_polygon_fraction": (sampled_fraction * 1e4).round() / 1e4,
+        "sample_spacing_m": (spacing_m * 10.0).round() / 10.0,
         "limits": limits,
     })
 }
@@ -68649,7 +68651,7 @@ async fn post_eudr_dds_inner(
                 let tmf = tmf_cross_check(&per_cell, cutoff_year);
                 obj.insert(
                     "verdict_support".into(),
-                    verdict_support(&per_cell, &tmf, sampled_polygon_fraction),
+                    verdict_support(&per_cell, &tmf, area_ha),
                 );
                 obj.insert("tmf_cross_check".into(), tmf);
             }
@@ -86611,6 +86613,37 @@ mod tests {
         assert!(scene_bbox(&std::collections::HashMap::new())
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn sampling_is_judged_by_spacing_against_the_mmu_square() {
+        let cell = |i: usize| EudrCellVerdict {
+            cell: format!("c{i}"),
+            verdict: 1,
+            label: "pass",
+            jrc_forest_2020: Some(1),
+            hansen_treecover_2000: Some(90),
+            hansen_lossyear: Some(0),
+            jrc_tmf_deforestation_year: Some(0),
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        let cells: Vec<_> = (0..16).map(cell).collect();
+        let tmf = tmf_cross_check(&cells, 2020);
+        // 16 samples over 4.9 ha are 55 m apart: no 71 m square fits between.
+        let v = verdict_support(&cells, &tmf, 4.9);
+        assert_eq!(v["level"], "strong", "{v}");
+        // The same 16 over 100 ha are 250 m apart.
+        let v = verdict_support(&cells, &tmf, 100.0);
+        assert_eq!(v["level"], "weak");
+        assert!(v["limits"][0]["why"]
+            .as_str()
+            .unwrap()
+            .contains("250 m apart"));
     }
 
     #[test]

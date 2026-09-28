@@ -47,7 +47,7 @@ pub struct FieldReq {
     /// Cells sampled inside the geometry (burn scar only; default 16, at most 64).
     #[serde(default)]
     pub max_cells: Option<usize>,
-    /// Warm-up budget in milliseconds (default 45000).
+    /// Warm-up budget in milliseconds (default 90000, at most 300000).
     #[serde(default)]
     pub budget_ms: Option<u64>,
 }
@@ -268,7 +268,7 @@ pub async fn post_field_burn_scar(
     let win = window(&req)?;
     let n = req.max_cells.unwrap_or(16).clamp(1, 64);
     let (cells, centre, area_ha) = field_cells(&req, n)?;
-    let budget = req.budget_ms.unwrap_or(45_000).clamp(1_000, 120_000);
+    let budget = req.budget_ms.unwrap_or(90_000).clamp(1_000, 300_000);
 
     let centre_v = vec![centre.clone()];
     let (w_nbr, w_ndti, w_ba) = tokio::join!(
@@ -449,7 +449,7 @@ pub async fn post_field_actual_et(
     let started = Instant::now();
     let win = window(&req)?;
     let (_, centre, area_ha) = field_cells(&req, 1)?;
-    let budget = req.budget_ms.unwrap_or(45_000).clamp(1_000, 120_000);
+    let budget = req.budget_ms.unwrap_or(90_000).clamp(1_000, 300_000);
     // A composite that starts up to 7 days before the window still covers its first days.
     let reach = (win.0 - 7 * DAY, win.1);
     let warmed = warm(
