@@ -58443,8 +58443,25 @@ async fn materialize_bands_once(
             // The permit is taken before the timer starts: waiting behind
             // other materializations here is local contention, and timing it
             // reported it as "upstream too slow".
-            let _mat_permit = materialize_global_permit().await;
-            let work = async {
+            let mat_permit = materialize_global_permit().await;
+            // A task of its own, so the hard cap below stops waiting for it
+            // without cancelling it: a cold tile keeps opening and the retry
+            // finds it warm. Dropped, the read started over from nothing on
+            // every attempt, and a tile slower than the cap never answered.
+            // Task-locals do not cross spawn; the request's are re-entered.
+            let ctx = ColdCtx {
+                area: S2_AREA.try_with(|a| *a).ok(),
+                requester: REQUESTER.try_with(|r| r.clone()).ok(),
+            };
+            let resign = force_resign();
+            let s_own = s.clone();
+            let cell_own = cell64.to_string();
+            let b_own = b.clone();
+            let work = async move {
+            let _mat_permit = mat_permit;
+            let s = &s_own;
+            let cell64 = cell_own.as_str();
+            let b = &b_own;
             let mut out: Vec<MaterializeOutcome> = Vec::with_capacity(1);
             match b.as_str() {
             "modis.ndvi_mean" => match materialize_modis_ndvi(cell64, s).await {
@@ -59666,13 +59683,31 @@ async fn materialize_bands_once(
             // budget, regardless of its own internal client timeout (JRC's COG
             // client was 90-120 s, that is what wedged us). On timeout emit an
             // honest skip so the fan-out completes fast and the connection frees.
+            // Bounded on its own too: it holds a global permit while it runs.
+            let b_bg = b.clone();
+            let work = tokio::spawn(ctx.scope(FORCE_RESIGN.scope(resign, async move {
+                tokio::time::timeout(std::time::Duration::from_secs(120), work)
+                    .await
+                    .unwrap_or_else(|_| {
+                        vec![MaterializeOutcome {
+                            band: b_bg,
+                            fact_cid: None,
+                            skip_reason: Some("materialiser gave up after 120 s in the background (timeout)".into()),
+                        }]
+                    })
+            })));
             match tokio::time::timeout(
                 std::time::Duration::from_secs(materializer_timeout_secs()),
                 work,
             )
             .await
             {
-                Ok(out) => out,
+                Ok(Ok(out)) => out,
+                Ok(Err(e)) => vec![MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(format!("materializer task ended without an answer: {e}")),
+                }],
                 Err(_) => {
                     tracing::warn!(
                         target: "emem::materialize",
@@ -59684,7 +59719,7 @@ async fn materialize_bands_once(
                     band: b.clone(),
                     fact_cid: None,
                     skip_reason: Some(format!(
-                        "materialiser exceeded the {}s hard cap (dispatch-level timeout); upstream too slow on this call, retry to warm, or query a faster band",
+                        "materialiser exceeded the {}s hard cap (dispatch-level timeout); the read continues in the background, so a retry in a few seconds usually answers warm",
                         materializer_timeout_secs()
                     )),
                 }]

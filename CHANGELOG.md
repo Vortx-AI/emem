@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- A band read that hits the 14 s dispatch cap is no longer cancelled: it runs as its own task (with the request's requester, Sentinel-2 area and refresh flag), finishes in the background within 120 s, and a retry answers warm. Cancelling it made a tile slower than the cap unanswerable no matter how often a caller retried.
 - `surface_water.occurrence`, `surface_water.seasonality` and `surface_water.transition_class` are wired: the same JRC GSW v1.4 tiles as `recurrence`, one pixel each, 255 signed as an Absence (open sea or no valid observation). All four keys the family advertises now answer (117 wired band names).
 - An unknown band that belongs to a family names the family's wired bands, in the error message and in `details.did_you_mean`; `/v1/bands` lists each family's `scalar_keys_wired` and `scalar_keys_unwired`.
 - Raster point reads take the pixel that contains the point. `cog::world_to_pixel` rounded the fractional pixel position, so any point in the right or lower half of a pixel read its south-east neighbour; GDAL takes the floor. Every COG-backed band (Hansen, JRC GFC2020 and TMF, WorldCover, Cop-DEM, CCI biomass, Sentinel scenes, and the hand-rolled DMSP-OLS and Köppen readers) did this from the first commit. The fn_keys are unchanged because their registry definition was always "the pixel at (lat, lng)"; facts signed before this release may carry the neighbouring pixel. PixelIsPoint rasters (GTRasterTypeGeoKey 2) still round, which is correct for them.
