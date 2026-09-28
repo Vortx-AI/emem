@@ -661,6 +661,11 @@ body.doc :is(.section-body, .doc-body) > :is(p, ul, ol, blockquote, h2, h3, h4, 
   color: var(--ink-2);
 }
 .fig figcaption b { color: var(--ink); font-weight: 600 }
+.fig .fig-tall { display: none; max-width: 360px }
+@media (max-width: 640px) {
+  .fig .fig-wide { display: none }
+  .fig .fig-tall { display: block }
+}
 .dg { font-family: var(--mono); overflow: visible }
 .dg text { fill: var(--ink); font-size: var(--t-xs) }
 .dg .t-sub { fill: var(--mute); font-size: var(--t-2xs) }

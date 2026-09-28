@@ -411,20 +411,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 </style>
 <style>
 /* how-it-works: the flow diagrams, the live run, the token table */
-.hw-hero h1{ margin-bottom:var(--s-2); }
-.hero.hero-lean.hw-hero{ padding-left:var(--pad-x); padding-right:var(--pad-x); }
-.hw-flow{ margin:var(--s-4) 0; }
-.hw-flow svg{ width:100%; height:auto; display:block; }
-.hw-flow .hw-tall{ display:none; max-width:360px; margin:0 auto; }
-@media (max-width:620px){ .hw-flow .hw-wide{ display:none; } .hw-flow .hw-tall{ display:block; } }
-.hw-n rect{ fill:var(--paper-2); stroke:var(--rule-strong); stroke-width:1.2; }
-.hw-n.hw-k rect{ fill:var(--accent-bg); stroke:var(--accent); }
-.hw-n.hw-u rect{ fill:var(--paper); stroke:var(--rule); }
-.hw-n text{ font-family:var(--mono); font-size:var(--t-sm); font-weight:600; fill:var(--ink); text-anchor:middle; }
-.hw-flow text.hw-s, .hw-n text.hw-s{ font-size:var(--t-2xs); font-weight:400; fill:var(--mute); text-anchor:middle; }
-.hw-e{ fill:none; stroke:var(--mute); stroke-width:1.4; }
-.hw-e.hw-d{ stroke-dasharray:4 4; }
-.hw-ah{ fill:var(--mute); }
+.hw-overview .fig{ margin-top:var(--s-4); }
 
 .hw-list{ list-style:none; margin:var(--s-3) 0; padding:0; display:grid; gap:var(--s-2); }
 .hw-list li{ padding-left:var(--s-3); border-left:2px solid var(--rule); line-height:1.55; }
@@ -542,42 +529,79 @@ input::placeholder{color:var(--mute,#7a7363)}
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<section class="hero page hero-lean hw-hero">
+<header class="doc-head">
   <div>
+    <p class="eyebrow">Learn &middot; 12 sections</p>
     <h1>How emem works</h1>
-    <p class="sub">Name a place. Fetch what was observed there. Sign it, log it, cite it. Anyone checks it offline, with no account and no trust in us. A file gets the same treatment: read as its parts, under one signed root.</p>
-    <figure class="hw-flow" aria-label="The path of one request: a place becomes a cell, the cell's reading is fetched or recalled, signed into a fact and a receipt, recorded in the transparency log, handed on as a token, and verified offline by anyone.">
-      <svg class="hw-wide" viewBox="0 0 760 132" role="img" aria-hidden="true">
-        <defs><marker id="hwa" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="hw-ah"/></marker></defs>
-        <g class="hw-n"><rect x="4" y="30" width="96" height="56" rx="8"/><text x="52" y="54">place</text><text x="52" y="72" class="hw-s">"Lusail"</text></g>
-        <g class="hw-n"><rect x="132" y="30" width="96" height="56" rx="8"/><text x="180" y="54">cell64</text><text x="180" y="72" class="hw-s">~10 m square</text></g>
-        <g class="hw-n"><rect x="260" y="30" width="96" height="56" rx="8"/><text x="308" y="54">fact</text><text x="308" y="72" class="hw-s">fetched or held</text></g>
-        <g class="hw-n hw-k"><rect x="388" y="30" width="96" height="56" rx="8"/><text x="436" y="54">signed</text><text x="436" y="72" class="hw-s">blake3 + ed25519</text></g>
-        <g class="hw-n"><rect x="516" y="30" width="96" height="56" rx="8"/><text x="564" y="54">logged</text><text x="564" y="72" class="hw-s">RFC 6962 head</text></g>
-        <g class="hw-n hw-k"><rect x="644" y="30" width="112" height="56" rx="8"/><text x="700" y="54">token</text><text x="700" y="72" class="hw-s">emem:fact:…</text></g>
-        <path class="hw-e" d="M100 58H130" marker-end="url(#hwa)"/><path class="hw-e" d="M228 58H258" marker-end="url(#hwa)"/><path class="hw-e" d="M356 58H386" marker-end="url(#hwa)"/><path class="hw-e" d="M484 58H514" marker-end="url(#hwa)"/><path class="hw-e" d="M612 58H642" marker-end="url(#hwa)"/>
-        <path class="hw-e hw-d" d="M700 88V112H52V90" marker-end="url(#hwa)"/>
-        <text x="376" y="126" class="hw-s">anyone verifies it offline, from the token alone</text>
-      </svg>
-      <svg class="hw-tall" viewBox="0 0 320 430" role="img" aria-hidden="true">
-        <defs><marker id="hwc" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="hw-ah"/></marker></defs>
-        <g class="hw-n"><rect x="60" y="4" width="200" height="46" rx="8"/><text x="160" y="24">place</text><text x="160" y="40" class="hw-s">"Lusail"</text></g>
-        <g class="hw-n"><rect x="60" y="76" width="200" height="46" rx="8"/><text x="160" y="96">cell64</text><text x="160" y="112" class="hw-s">~10 m square</text></g>
-        <g class="hw-n"><rect x="60" y="148" width="200" height="46" rx="8"/><text x="160" y="168">fact</text><text x="160" y="184" class="hw-s">fetched or held</text></g>
-        <g class="hw-n hw-k"><rect x="60" y="220" width="200" height="46" rx="8"/><text x="160" y="240">signed</text><text x="160" y="256" class="hw-s">blake3 + ed25519</text></g>
-        <g class="hw-n"><rect x="60" y="292" width="200" height="46" rx="8"/><text x="160" y="312">logged</text><text x="160" y="328" class="hw-s">RFC 6962 head</text></g>
-        <g class="hw-n hw-k"><rect x="60" y="364" width="200" height="46" rx="8"/><text x="160" y="384">token</text><text x="160" y="400" class="hw-s">verified offline by anyone</text></g>
-        <path class="hw-e" d="M160 50V74" marker-end="url(#hwc)"/><path class="hw-e" d="M160 122V146" marker-end="url(#hwc)"/><path class="hw-e" d="M160 194V218" marker-end="url(#hwc)"/><path class="hw-e" d="M160 266V290" marker-end="url(#hwc)"/><path class="hw-e" d="M160 338V362" marker-end="url(#hwc)"/>
-      </svg>
-    </figure>
-    <div class="hero-cta">
-      <a class="btn" href="#run">Run it live</a>
+    <p class="purpose">One request, end to end: a place name becomes an address, the address gets a reading, the reading is hashed, signed and logged, and the token that cites it can be checked offline by anyone.</p>
+    <div class="actions">
+      <a class="btn" href="#run">Run a request</a>
       <a class="btn ghost" href="/verify">Verify a token</a>
-      <a class="btn ghost" href="/">Tokenise a file</a>
+      <a class="btn ghost" href="/reference">API reference</a>
     </div>
-    <p class="hero-trust">open &middot; no keys &middot; Apache-2.0 &middot; ed25519-signed by <code id="hw-key">777er3yihg&#8230;womvka</code></p>
+    <dl class="facts">
+      <div><dt>responder key</dt><dd><code id="hw-key">777er3yihg&#8230;womvka</code></dd></div>
+      <div><dt>reads</dt><dd>no account, no API key</dd></div>
+      <div><dt>licence</dt><dd>Apache-2.0</dd></div>
+    </dl>
   </div>
-</section>
+  <nav class="doc-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#run"><span>00</span>Run a request</a></li>
+      <li><a href="#place"><span>01</span>Name the place</a></li>
+      <li><a href="#fetch"><span>02</span>Fetch or recall</a></li>
+      <li><a href="#signing"><span>03</span>Hash and sign</a></li>
+      <li><a href="#log"><span>04</span>Log</a></li>
+      <li><a href="#cite"><span>05</span>Cite</a></li>
+      <li><a href="#provenance"><span>06</span>Provenance</a></li>
+      <li><a href="#files"><span>07</span>Files</a></li>
+      <li><a href="#answer"><span>08</span>Answers</a></li>
+      <li><a href="#connect-evolve"><span>09</span>Link and supersede</a></li>
+      <li><a href="#reach"><span>10</span>Transports</a></li>
+      <li><a href="#liveness"><span>11</span>Liveness</a></li>
+    </ol>
+  </nav>
+</header>
+
+<div class="page hw-overview">
+  <figure class="fig" aria-labelledby="hw-fig1">
+    <svg class="dg fig-wide" width="1216" viewBox="0 0 1216 176" role="img" aria-labelledby="hw-fig1">
+      <defs><marker id="hwa" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker>
+      <marker id="hwa2" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah-dash"/></marker></defs>
+      <g text-anchor="middle">
+        <rect class="n" x="1" y="8" width="176" height="92" rx="4"/>
+        <text x="89" y="34" class="t-strong">place</text><text x="89" y="56" class="t-sub">"Lusail"</text><text x="89" y="84" class="t-sub">input</text>
+        <rect class="n" x="209" y="8" width="176" height="92" rx="4"/>
+        <text x="297" y="34" class="t-strong">cell64</text><text x="297" y="56" class="t-sub">~9.55 m square</text><text x="297" y="84" class="t-key">POST /v1/locate</text>
+        <rect class="n" x="417" y="8" width="176" height="92" rx="4"/>
+        <text x="505" y="34" class="t-strong">fact</text><text x="505" y="56" class="t-sub">fact_cid = BLAKE3</text><text x="505" y="84" class="t-key">POST /v1/recall</text>
+        <rect class="n-key" x="625" y="8" width="176" height="92" rx="4"/>
+        <text x="713" y="34" class="t-strong">receipt</text><text x="713" y="56" class="t-sub">Ed25519 signature</text><text x="713" y="84" class="t-sub">on every answer</text>
+        <rect class="n" x="833" y="8" width="176" height="92" rx="4"/>
+        <text x="921" y="34" class="t-strong">log</text><text x="921" y="56" class="t-sub">RFC 6962 tree</text><text x="921" y="84" class="t-key">GET /v1/log/sth</text>
+        <rect class="n-key" x="1041" y="8" width="174" height="92" rx="4"/>
+        <text x="1128" y="34" class="t-strong">token</text><text x="1128" y="56" class="t-sub">emem:fact:&#8230;</text><text x="1128" y="84" class="t-key">/v1/memory_token</text>
+      </g>
+      <path class="e" d="M177 54H207" marker-end="url(#hwa)"/><path class="e" d="M385 54H415" marker-end="url(#hwa)"/><path class="e" d="M593 54H623" marker-end="url(#hwa)"/><path class="e" d="M801 54H831" marker-end="url(#hwa)"/><path class="e" d="M1009 54H1039" marker-end="url(#hwa)"/>
+      <path class="e-dash" d="M1128 100V140H505V104" marker-end="url(#hwa2)"/>
+      <text x="816" y="164" text-anchor="middle" class="t-sub">a second agent checks the token offline: recompute the fact_cid, verify the signature against the published key</text>
+    </svg>
+    <svg class="dg fig-tall" width="320" viewBox="0 0 320 470" role="img" aria-hidden="true">
+      <defs><marker id="hwc" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker></defs>
+      <g text-anchor="middle">
+        <rect class="n" x="30" y="2" width="260" height="54" rx="4"/><text x="160" y="24" class="t-strong">place</text><text x="160" y="44" class="t-sub">"Lusail"</text>
+        <rect class="n" x="30" y="80" width="260" height="54" rx="4"/><text x="160" y="102" class="t-strong">cell64</text><text x="160" y="122" class="t-sub">POST /v1/locate</text>
+        <rect class="n" x="30" y="158" width="260" height="54" rx="4"/><text x="160" y="180" class="t-strong">fact</text><text x="160" y="200" class="t-sub">POST /v1/recall &#183; BLAKE3</text>
+        <rect class="n-key" x="30" y="236" width="260" height="54" rx="4"/><text x="160" y="258" class="t-strong">receipt</text><text x="160" y="278" class="t-sub">Ed25519 signature</text>
+        <rect class="n" x="30" y="314" width="260" height="54" rx="4"/><text x="160" y="336" class="t-strong">log</text><text x="160" y="356" class="t-sub">RFC 6962 tree</text>
+        <rect class="n-key" x="30" y="392" width="260" height="54" rx="4"/><text x="160" y="414" class="t-strong">token</text><text x="160" y="434" class="t-sub">verified offline by anyone</text>
+      </g>
+      <path class="e" d="M160 56V78" marker-end="url(#hwc)"/><path class="e" d="M160 134V156" marker-end="url(#hwc)"/><path class="e" d="M160 212V234" marker-end="url(#hwc)"/><path class="e" d="M160 290V312" marker-end="url(#hwc)"/><path class="e" d="M160 368V390" marker-end="url(#hwc)"/>
+    </svg>
+    <figcaption id="hw-fig1"><b>Figure 1.</b> The path of one reading, left to right. Only the responder's public key is needed to check the result: the token carries the fact_cid, and the fact_cid is recomputed from the bytes it names.</figcaption>
+  </figure>
+</div>
 
 <section class="section page" id="run">
   <aside class="section-meta">
@@ -589,8 +613,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">00</span>Encode, name, decode: followed through</h2>
-    <p class="lede">Pick a lane. Each step is a live call; each check runs in your tab.</p>
+    <h2><span class="num">00</span>Run one request</h2>
+    <p class="lede">Pick a lane and press run. Each step is a live call to emem.dev; each check runs in your browser.</p>
     <div class="hw-lanes" role="tablist" aria-label="what to follow">
       <button type="button" role="tab" aria-selected="true" data-lane="reading"><b>a reading</b><span>encode: a satellite band &rarr; decode: your tab</span></button>
       <button type="button" role="tab" aria-selected="false" data-lane="reasoning"><b>a reasoning step</b><span>encode: an answer's stages &rarr; decode: the chain</span></button>
@@ -673,8 +697,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">01</span>Name the place: one address</h2>
-    <p class="lede">Two agents describing one place drift apart. Two agents holding one address do not.</p>
+    <h2><span class="num">01</span>Name the place</h2>
+    <p class="lede">Two agents that describe a place in different words can disagree about which place they mean. Two agents holding the same cell64 cannot.</p>
     <ul class="hw-list">
       <li><b>Quantise.</b> A latitude and longitude become a cell64: a fixed square, the same string on every responder.</li>
       <li><b>Resolve a name.</b> Locate tries gazetteers first, then open geocoders. For a bare name it asks Wikidata which place people mean, by how many Wikipedias describe it and whether the name matches exactly.</li>
@@ -695,8 +719,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">02</span>Fetch on a miss, re-check when a slot passes</h2>
-    <p class="lede">emem does not ship a dataset. It reads open archives on demand and remembers what it read.</p>
+    <h2><span class="num">02</span>Fetch on a miss, re-fetch when a slot passes</h2>
+    <p class="lede">emem ships no dataset. It reads open archives on demand and stores what it read.</p>
     <ul class="hw-list">
       <li><b>Materialise.</b> A recall for a reading this node does not hold fetches it from the upstream of record, signs it and stores it, in the same call. The next agent gets it from memory.</li>
       <li><b>Stay current.</b> A stored reading answers "the latest" until one slot of its band has passed. After that a newer observation can exist, so the next recall asks again.</li>
@@ -726,12 +750,12 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">03</span>Sign it: a name for the bytes, a signature over the answer</h2>
-    <p class="lede">A fact is named by its own bytes. Change one byte and the name changes, so a quoted name pins the exact reading.</p>
+    <h2><span class="num">03</span>Hash the fact, sign the answer</h2>
+    <p class="lede">A fact is named by the hash of its bytes. Change one byte and the name changes, so a quoted name pins one exact reading.</p>
     <ul class="hw-list">
       <li><b>Name.</b> The fact body (cell, band, time slot, value, sources, how it was derived) is encoded as canonical CBOR and hashed with BLAKE3. That digest, base32, is the <span class="band">fact_cid</span>.</li>
       <li><b>Sign.</b> Every answer carries a receipt: ed25519 over a domain-separated, length-prefixed preimage naming the request, the time served, the primitive, every cell and every fact_cid. Version 2 also binds the fact's Merkle proof.</li>
-      <li><b>Verify anywhere.</b> Rebuild the preimage from the receipt's own fields, hash it, check the signature against the published key. No callback to us. The same code runs in <a href="/verify">/verify</a> and in step 03 above.</li>
+      <li><b>Verify anywhere.</b> Rebuild the preimage from the receipt's own fields, hash it, and check the signature against the published key. No call back to emem.dev is needed. The same code runs in <a href="/verify">/verify</a> and in step 03 of the run above.</li>
     </ul>
     <div class="code">
       <div class="code-head"><span class="lang">SH</span><span class="tab">a signed reading, outside the page</span><span class="spacer"></span><button class="copy" data-copy-target="#code-recall">copy</button></div>
@@ -755,12 +779,12 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">04</span>Log it: nothing is rewritten in the dark</h2>
-    <p class="lede">Every write lands in a public, append-only log. A signed tree head commits to all of it.</p>
+    <h2><span class="num">04</span>Append it to the log</h2>
+    <p class="lede">Every write is appended to a public log. A signed tree head commits to every entry so far.</p>
     <ul class="hw-list">
       <li><b>Prove inclusion.</b> <span class="band">/v1/log/inclusion</span> returns the audit path from an entry to the signed head, checkable with log2(n) hashes.</li>
       <li><b>Prove it only grew.</b> Pin a head, then ask <span class="band">/v1/log/consistency</span>: a later head must extend the earlier one exactly.</li>
-      <li><b>Get witnessed.</b> Other operators co-sign our heads, so a split view shown to different readers is detectable.</li>
+      <li><b>Get witnessed.</b> Other operators co-sign emem.dev's heads. A log that showed different histories to different readers would produce heads that disagree.</li>
     </ul>
     <div class="hw-stats">
       <div><span>signed head</span><b id="hw-sth">&hellip;</b></div>
@@ -812,8 +836,8 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">06</span>Say how it was made</h2>
-    <p class="lede">Every band carries a class. An agent that only wants numbers it can recompute itself filters for the first two.</p>
+    <h2><span class="num">06</span>Label how each value was made</h2>
+    <p class="lede">Every band carries a provenance class. An agent that accepts only values it can recompute keeps the first two rows.</p>
     <div class="scroll-x"><table class="absent-table">
       <tbody>
         <tr><td>direct_sensor</td><td>the instrument product, no algorithm in the path: Sentinel-2, Sentinel-1, Copernicus DEM, night lights</td><td>recomputable</td></tr>
@@ -840,32 +864,44 @@ input::placeholder{color:var(--mute,#7a7363)}
   <div class="section-body">
     <h2><span class="num">07</span>Remember a file as its parts</h2>
     <p class="lede">A file becomes one signed index over the units it is made of. An agent reads the index, then only the part it needs.</p>
-    <figure class="hw-flow" aria-label="A file is split into units in the browser. Units with text become their own notes. One index note lists every unit under one Merkle root and is signed by the browser's key. Its token proves any single unit with a short audit path.">
-      <svg class="hw-wide" viewBox="0 0 760 196" role="img" aria-hidden="true">
-        <defs><marker id="hwb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="hw-ah"/></marker></defs>
-        <g class="hw-n"><rect x="4" y="66" width="120" height="64" rx="8"/><text x="64" y="92">your file</text><text x="64" y="110" class="hw-s">stays in the tab</text></g>
-        <g class="hw-n hw-u"><rect x="176" y="8" width="150" height="34" rx="6"/><text x="251" y="30" class="hw-s">§ Install</text></g>
-        <g class="hw-n hw-u"><rect x="176" y="50" width="150" height="34" rx="6"/><text x="251" y="72" class="hw-s">def parse_args</text></g>
-        <g class="hw-n hw-u"><rect x="176" y="92" width="150" height="34" rx="6"/><text x="251" y="114" class="hw-s">page 4</text></g>
-        <g class="hw-n hw-u"><rect x="176" y="134" width="150" height="34" rx="6"/><text x="251" y="156" class="hw-s">tensor embed.weight</text></g>
-        <g class="hw-n"><rect x="378" y="30" width="150" height="54" rx="8"/><text x="453" y="52">section notes</text><text x="453" y="70" class="hw-s">one per unit with text</text></g>
-        <g class="hw-n hw-k"><rect x="378" y="110" width="150" height="54" rx="8"/><text x="453" y="132">index note</text><text x="453" y="150" class="hw-s">every row, one root</text></g>
-        <g class="hw-n hw-k"><rect x="580" y="66" width="176" height="64" rx="8"/><text x="668" y="92">emem:tree:&lt;index&gt;</text><text x="668" y="110" class="hw-s">any unit, log2(n) hashes</text></g>
-        <path class="hw-e" d="M124 98H174" marker-end="url(#hwb)"/><path class="hw-e" d="M326 25H352M326 67H352M326 109H352M326 151H352M352 25V151"/><path class="hw-e" d="M352 57H376" marker-end="url(#hwb)"/><path class="hw-e" d="M352 137H376" marker-end="url(#hwb)"/><path class="hw-e" d="M528 57H552V137M528 137H552"/><path class="hw-e" d="M552 98H578" marker-end="url(#hwb)"/>
-        <path class="hw-e hw-d" d="M453 84V108" marker-end="url(#hwb)"/>
+    <figure class="fig" aria-labelledby="hw-fig2">
+      <svg class="dg fig-wide" width="1040" viewBox="0 0 1040 232" role="img" aria-labelledby="hw-fig2">
+        <defs><marker id="hwb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker></defs>
+        <text x="1" y="14" class="t-sub">in your browser</text>
+        <text x="600" y="14" class="t-sub">published on emem.dev</text>
+        <rect class="n-zone" x="1" y="24" width="560" height="206" rx="4"/>
+        <g text-anchor="middle">
+          <rect class="n" x="20" y="92" width="150" height="70" rx="4"/><text x="95" y="120" class="t-strong">your file</text><text x="95" y="142" class="t-sub">bytes stay here</text>
+          <rect class="n" x="220" y="38" width="190" height="36" rx="4"/><text x="315" y="61" class="t-sub">&#167; Install</text>
+          <rect class="n" x="220" y="84" width="190" height="36" rx="4"/><text x="315" y="107" class="t-sub">def parse_args</text>
+          <rect class="n" x="220" y="130" width="190" height="36" rx="4"/><text x="315" y="153" class="t-sub">page 4</text>
+          <rect class="n" x="220" y="176" width="190" height="36" rx="4"/><text x="315" y="199" class="t-sub">tensor embed.weight</text>
+          <text x="519" y="114" class="t-sub">BLAKE3</text><text x="519" y="132" class="t-sub">per unit</text>
+          <rect class="n" x="600" y="40" width="190" height="64" rx="4"/><text x="695" y="66" class="t-strong">unit notes</text><text x="695" y="88" class="t-sub">one per unit with text</text>
+          <rect class="n-key" x="600" y="134" width="190" height="64" rx="4"/><text x="695" y="160" class="t-strong">index note</text><text x="695" y="182" class="t-sub">every row, one root</text>
+          <rect class="n-key" x="836" y="134" width="202" height="64" rx="4"/><text x="937" y="160" class="t-strong">emem:tree:&lt;index&gt;</text><text x="937" y="182" class="t-sub">proves any unit</text>
+        </g>
+        <path class="e" d="M170 127H218" marker-end="url(#hwb)"/>
+        <path class="e" d="M410 56H440M410 102H440M410 148H440M410 194H440M440 56V194"/>
+        <path class="e" d="M440 72H598" marker-end="url(#hwb)"/><path class="e" d="M440 166H598" marker-end="url(#hwb)"/>
+        <path class="e-dash" d="M695 104V132" marker-end="url(#hwb)"/>
+        <path class="e" d="M790 166H834" marker-end="url(#hwb)"/>
       </svg>
-      <svg class="hw-tall" viewBox="0 0 320 380" role="img" aria-hidden="true">
-        <defs><marker id="hwd" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L8 4L0 8z" class="hw-ah"/></marker></defs>
-        <g class="hw-n"><rect x="60" y="4" width="200" height="46" rx="8"/><text x="160" y="24">your file</text><text x="160" y="40" class="hw-s">stays in the tab</text></g>
-        <g class="hw-n hw-u"><rect x="20" y="78" width="134" height="30" rx="6"/><text x="87" y="98" class="hw-s">§ Install</text></g>
-        <g class="hw-n hw-u"><rect x="166" y="78" width="134" height="30" rx="6"/><text x="233" y="98" class="hw-s">def parse_args</text></g>
-        <g class="hw-n hw-u"><rect x="20" y="116" width="134" height="30" rx="6"/><text x="87" y="136" class="hw-s">page 4</text></g>
-        <g class="hw-n hw-u"><rect x="166" y="116" width="134" height="30" rx="6"/><text x="233" y="136" class="hw-s">tensor embed.weight</text></g>
-        <g class="hw-n"><rect x="60" y="176" width="200" height="46" rx="8"/><text x="160" y="196">section notes</text><text x="160" y="212" class="hw-s">one per unit with text</text></g>
-        <g class="hw-n hw-k"><rect x="60" y="248" width="200" height="46" rx="8"/><text x="160" y="268">index note</text><text x="160" y="284" class="hw-s">every row, one root</text></g>
-        <g class="hw-n hw-k"><rect x="40" y="320" width="240" height="46" rx="8"/><text x="160" y="340">emem:tree:&lt;index&gt;</text><text x="160" y="356" class="hw-s">any unit, log2(n) hashes</text></g>
-        <path class="hw-e" d="M160 50V76" marker-end="url(#hwd)"/><path class="hw-e" d="M160 146V174" marker-end="url(#hwd)"/><path class="hw-e" d="M160 222V246" marker-end="url(#hwd)"/><path class="hw-e" d="M160 294V318" marker-end="url(#hwd)"/>
+      <svg class="dg fig-tall" width="320" viewBox="0 0 320 400" role="img" aria-hidden="true">
+        <defs><marker id="hwd" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker></defs>
+        <g text-anchor="middle">
+          <rect class="n" x="30" y="2" width="260" height="50" rx="4"/><text x="160" y="23" class="t-strong">your file</text><text x="160" y="42" class="t-sub">bytes stay in the tab</text>
+          <rect class="n" x="10" y="78" width="145" height="32" rx="4"/><text x="82" y="99" class="t-sub">&#167; Install</text>
+          <rect class="n" x="165" y="78" width="145" height="32" rx="4"/><text x="237" y="99" class="t-sub">def parse_args</text>
+          <rect class="n" x="10" y="118" width="145" height="32" rx="4"/><text x="82" y="139" class="t-sub">page 4</text>
+          <rect class="n" x="165" y="118" width="145" height="32" rx="4"/><text x="237" y="139" class="t-sub">embed.weight</text>
+          <rect class="n" x="30" y="180" width="260" height="50" rx="4"/><text x="160" y="201" class="t-strong">unit notes</text><text x="160" y="220" class="t-sub">one per unit with text</text>
+          <rect class="n-key" x="30" y="256" width="260" height="50" rx="4"/><text x="160" y="277" class="t-strong">index note</text><text x="160" y="296" class="t-sub">every row, one root</text>
+          <rect class="n-key" x="30" y="332" width="260" height="50" rx="4"/><text x="160" y="353" class="t-strong">emem:tree:&lt;index&gt;</text><text x="160" y="372" class="t-sub">proves any unit</text>
+        </g>
+        <path class="e" d="M160 52V76" marker-end="url(#hwd)"/><path class="e" d="M160 150V178" marker-end="url(#hwd)"/><path class="e" d="M160 230V254" marker-end="url(#hwd)"/><path class="e" d="M160 306V330" marker-end="url(#hwd)"/>
       </svg>
+      <figcaption id="hw-fig2"><b>Figure 2.</b> A file is split and hashed in the browser. Only the notes cross to the server, and you choose whether they carry each unit's text or only its hash. One signed index covers every unit, so one token proves any single unit with an audit path of log2(n) hashes.</figcaption>
     </figure>
     <ul class="hw-list">
       <li><b>Read.</b> In your tab: markdown by heading, code by definition, JSON by key, CSV by row block, PDFs by page, Word and slides by heading and slide, safetensors and GGUF by tensor, zips by entry, video by box. Anything else by 4 MiB chunk.</li>
@@ -887,7 +923,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
   <div class="section-body">
     <h2><span class="num">08</span>Answer with the facts attached</h2>
-    <p class="lede">Ask in words. Every number in the answer is the newest reading of its band, named by the fact that holds it.</p>
+    <p class="lede">Ask in words. Each number in the answer is the newest stored reading of its band, cited by its fact_cid.</p>
     <ul class="hw-list">
       <li><b>Route.</b> <span class="band">/v1/ask</span> resolves the place, picks the bands a question needs, recalls or fetches them, and writes the answer from the signed readings.</li>
       <li><b>Cite each number.</b> The summary lists every stated value with its <span class="band">fact_cid</span> and age, and one receipt signs all of them. The prose itself is not signed; the facts are.</li>
@@ -906,11 +942,11 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">09</span>Connect, disagree, supersede</h2>
+    <h2><span class="num">09</span>Bundle, disagree, supersede</h2>
     <ul class="hw-list">
       <li><b>Bundle.</b> Group many facts under one <span class="band">emem:bundle:</span> an agent cites as a unit.</li>
-      <li><b>Disagree in the open.</b> When sources conflict, the contradiction is scored and kept with every conflicting fact_cid. Nothing wins silently.</li>
-      <li><b>Supersede, never erase.</b> A newer attestation supersedes on the transaction-time axis. The old bytes stay replayable with <span class="band">as_of_signed_at</span>.</li>
+      <li><b>Record disagreement.</b> When sources conflict, the contradiction is scored and stored with every conflicting fact_cid. No value is dropped.</li>
+      <li><b>Supersede, do not erase.</b> A newer attestation supersedes on the transaction-time axis. The old bytes stay replayable with <span class="band">as_of_signed_at</span>.</li>
     </ul>
   </div>
 </section>
@@ -926,7 +962,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     </dl>
   </aside>
   <div class="section-body">
-    <h2><span class="num">10</span>Reach it from anywhere</h2>
+    <h2><span class="num">10</span>Call it over MCP, A2A or REST</h2>
     <ul class="hw-list">
       <li><b>MCP.</b> <span class="band">/mcp</span> lists the <b id="hw-core">18</b> tools of the core loop; every one of the <b id="hw-total">114</b> stays callable by name, and <span class="band">/mcp/full</span> lists them all.</li>
       <li><b>A2A.</b> <span class="band">/a2a/tasks</span> runs the same tools as agent-to-agent tasks, from any origin.</li>
@@ -948,8 +984,8 @@ input::placeholder{color:var(--mute,#7a7363)}
   </aside>
 
   <div class="section-body">
-    <h2><span class="num">11</span>Signed ticks, signed binary</h2>
-    <p class="lede">Every stream tick is signed. The operator attestation binds the running binary's hash to its commit, under the same key.</p>
+    <h2><span class="num">11</span>Liveness: signed ticks, attested build</h2>
+    <p class="lede">Every stream tick is signed. The operator attestation binds the running binary's BLAKE3 hash to its git commit, signed with the same key.</p>
 
     <div class="live-grid">
       <div class="pane" id="stream-pane">
