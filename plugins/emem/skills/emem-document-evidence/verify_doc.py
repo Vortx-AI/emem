@@ -2,7 +2,7 @@
 """Verify emem OCR and document-parse responses offline.
 
     verify_doc.py RESPONSE.json [DOCUMENT]
-    verify_doc.py - [DOCUMENT]              # response JSON on stdin
+    verify_doc.py --self-test               # check the bundled crypto
 
 RESPONSE is the body of POST /v1/ocr (receipt domain emem.ocr.v1) or of
 POST /v1/lab_report_parse / POST /v1/land_record_parse (emem.doc_parse.v1).
@@ -18,8 +18,9 @@ a parser. Each check prints one line:
   ocr     for a parse that ran OCR first, the embedded OCR response is
           verified the same way and its text hash must equal the parse's
 
-Exit 0 when every check that ran passed, 1 otherwise, 2 on bad input or a
-missing dependency (pip install blake3 cryptography). No network calls.
+Exit 0 when every check that ran passed, 1 otherwise, 2 on bad input. No
+network calls; BLAKE3 and Ed25519 come from ../../lib/emem_crypto.py, plain
+Python that ships with the plugin.
 
 Preimages, from crates/emem-api-rest/src/reader.rs:
   emem.ocr.v1        {1: image_blake3, 2: source, 3: lang, 4: engine,
@@ -36,12 +37,12 @@ import struct
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 try:
-    from blake3 import blake3
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("missing dep: pip install blake3 cryptography\n")
+    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, two levels above this script\n")
     sys.exit(2)
 
 
@@ -73,13 +74,11 @@ def sig_ok(r: dict, segs, label: str = "sig") -> bool:
     rc = r["receipt"]
     pk = b32d(rc["responder_pubkey_b32"])
     digest = preimage_v1(rc["domain"], segs + [(len(segs) + 1, pk)])
-    try:
-        Ed25519PublicKey.from_public_bytes(pk).verify(b32d(rc["signature_b32"]), digest)
+    if ed25519_verify(pk, b32d(rc["signature_b32"]), digest):
         print(f"{label:7} VALID     domain={rc['domain']} signer={rc['responder_pubkey_b32']}")
         return True
-    except InvalidSignature:
-        print(f"{label:7} INVALID   domain={rc['domain']}")
-        return False
+    print(f"{label:7} INVALID   domain={rc['domain']}")
+    return False
 
 
 def verify_ocr(r: dict, image: bytes | None, label: str = "sig") -> bool:
@@ -125,6 +124,8 @@ def verify_parse(r: dict, text: bytes | None) -> bool:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--self-test"]:
+        return 0 if self_test() else 1
     if len(sys.argv) not in (2, 3):
         sys.stderr.write(__doc__)
         return 2

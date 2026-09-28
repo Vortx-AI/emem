@@ -4,7 +4,7 @@ Offline verifier for emem receipts (preimage v1 and v2).
 
 Usage:
     verify.py <path_to_receipt.json>
-    verify.py -                  # read receipt JSON from stdin
+    verify.py --self-test        # check the bundled crypto against test vectors
 
 Accepts a bare receipt or a whole response with a top-level `receipt`.
 Exits 0 with "VALID" + diagnostic lines on success, 1 with "INVALID" on a
@@ -16,7 +16,9 @@ The math matches emem-attest's `receipt_preimage_v1` and
 of truth the signer (emem-storage) and every verifier (POST
 /v1/verify_receipt, the /verify page's JS) all call. If this passes, the
 receipt was signed by the responder pubkey and has not been tampered with
-since.
+since. BLAKE3 and Ed25519 come from ../../lib/emem_crypto.py, plain
+Python with no third-party packages, so the script runs on a bare
+interpreter and never touches the network.
 
 The preimage is domain-separated and length-prefixed: the whole stream is
 `blake3("emem.preimage.v1\\0" || u32le(len(domain)) || domain || segments)`,
@@ -39,17 +41,12 @@ import struct
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 try:
-    from blake3 import blake3
+    from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("missing dep: pip install blake3\n")
-    sys.exit(2)
-
-try:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-    from cryptography.exceptions import InvalidSignature
-except ImportError:
-    sys.stderr.write("missing dep: pip install cryptography\n")
+    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, two levels above this script\n")
     sys.exit(2)
 
 
@@ -239,6 +236,8 @@ def main() -> int:
     if len(sys.argv) != 2:
         sys.stderr.write(__doc__)
         return 2
+    if sys.argv[1] == "--self-test":
+        return 0 if self_test() else 1
     raw = sys.stdin.read() if sys.argv[1] == "-" else Path(sys.argv[1]).read_text()
     try:
         receipt = json.loads(raw)
@@ -282,9 +281,7 @@ def main() -> int:
         sys.stderr.write(f"INVALID\nbad lengths: pubkey {len(pubkey)} (want 32), sig {len(sig)} (want 64)\n")
         return 1
 
-    try:
-        Ed25519PublicKey.from_public_bytes(pubkey).verify(sig, digest)
-    except InvalidSignature:
+    if not ed25519_verify(pubkey, sig, digest):
         print("INVALID")
         print(f"preimage_len: {len(preimage)} bytes")
         print(f"digest:       {digest.hex()}")

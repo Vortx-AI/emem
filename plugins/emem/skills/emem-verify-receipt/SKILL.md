@@ -22,30 +22,38 @@ every emem verifier share.
 
 ## Run the bundled verifier
 
+Save the response to a file, then run the shipped script on the file:
+
 ```sh
 curl -sf -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
-  | python3 "${CLAUDE_SKILL_DIR}/verify.py" -
+  -o recall.json
+python3 "${CLAUDE_SKILL_DIR}/verify.py" recall.json
 ```
 
 It accepts a bare receipt or a whole response with a top-level
-`receipt`, from a file path or `-` for stdin. `${CLAUDE_SKILL_DIR}` is
-this skill's directory, filled in by Claude Code; `verify.py` ships
-beside this file, so nothing is downloaded to run it. It needs
-`pip install blake3 cryptography`.
+`receipt`. `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in
+by Claude Code; `verify.py` ships beside this file and imports BLAKE3
+and Ed25519 from the plugin's `lib/emem_crypto.py`, plain Python with no
+third-party packages. Nothing is installed or downloaded to run it.
+`python3 "${CLAUDE_SKILL_DIR}/verify.py" --self-test` checks that module
+against the official BLAKE3 and RFC 8032 test vectors first.
 
 Output on success (recorded 2026-09-28 on a Bengaluru recall):
 
 ```
 VALID
-preimage_v2:  889 bytes
-digest:       b7b6c4430312c1092f84054d08dcde6702ef2441a47610effdf3825f94fdeb60
+preimage_v2:  385 bytes
+digest:       27d147e5b452b4292e2cc97f405e38fa0a45efecfbeefe00902c89dab5f31340
 signer:       777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
 primitive:    emem.recall
 cells:        1
-fact_cids:    11
+fact_cids:    2
 ```
+
+The same file with `served_at` edited, or with `merkle_proof` deleted,
+printed `INVALID` and exited 1.
 
 Exit codes: `0` VALID, `1` INVALID, `2` bad input (not JSON, or an
 `emem.error.v1` body), `3` a segment the script does not rebuild

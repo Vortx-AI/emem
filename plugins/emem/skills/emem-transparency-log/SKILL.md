@@ -26,8 +26,11 @@ lone nodes promoted rather than duplicated.
 ## Verify a head, an inclusion, and growth
 
 `verify_log.py` ships beside this file (`${CLAUDE_SKILL_DIR}` is filled
-in by Claude Code; it needs `pip install blake3 cryptography` and makes
-no network calls):
+in by Claude Code). It makes no network calls and imports nothing outside
+the standard library except the plugin's `lib/emem_crypto.py`, a
+plain-Python BLAKE3 and Ed25519 verifier; `--self-test` checks that
+module against the official test vectors. Save each response to a file
+and pass the file:
 
 ```sh
 V="${CLAUDE_SKILL_DIR}/verify_log.py"
@@ -47,9 +50,9 @@ python3 "$V" consistency old_sth.json new_sth.json cons.json
 Recorded on 2026-09-28:
 
 ```
-sth          VALID    tree_size=2459185 signed_at=2026-09-28T11:12:46Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+sth          VALID    tree_size=2466701 signed_at=2026-09-28T13:32:19Z signer=777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
 inclusion    VALID    leaf_index=12345 path=22 hashes
-consistency  VALID    2459185 -> 2459187, 11 hashes
+consistency  VALID    2466701 -> 2466702, 12 hashes
 ```
 
 With one byte changed (tree size bumped, an audit-path hash swapped, a

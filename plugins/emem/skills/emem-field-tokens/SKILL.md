@@ -55,12 +55,12 @@ jq '{raster: .tokens.raster, artifact: .artifact.url, cid: .artifact.artifact_ci
      grid: .grid, scene: .derivation.sources[0].id}' raster.json
 ```
 
-Fetch the bytes and re-hash them:
+Download the bytes to a file, then re-hash the file:
 
 ```sh
 CID=$(jq -r '.artifact.artifact_cid' raster.json)
-curl -sf "https://emem.dev/v1/artifacts/$CID" \
-  | python3 "${CLAUDE_SKILL_DIR}/rehash.py" "$CID"   # prints MATCH or MISMATCH
+curl -sf -o artifact.bin "https://emem.dev/v1/artifacts/$CID"
+python3 "${CLAUDE_SKILL_DIR}/rehash.py" "$CID" artifact.bin   # MATCH or MISMATCH
 ```
 
 Recorded on 2026-09-28: a 32 x 32 px B04 grid (EPSG:32643, scene
@@ -69,12 +69,13 @@ Recorded on 2026-09-28: a 32 x 32 px B04 grid (EPSG:32643, scene
 `sipykc4ewzt72gwa7ep2ginzxuxwp5eh6ei5e4szxfspopi2f2ca`. `rehash.py`
 printed `MATCH`, the receipt verified with its FIELD segment bound, and
 `/v1/raster/resolve` with `spot_check` re-read five anchors and passed.
+With one byte of `artifact.bin` flipped, `rehash.py` printed `MISMATCH`
+and exited 1.
 
 `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in by Claude
-Code; `rehash.py` ships beside this file and needs `pip install blake3`.
-Outside Claude Code, take it from the repository
-(`plugins/emem/skills/emem-field-tokens/rehash.py`) and read it before
-running it.
+Code. `rehash.py` ships beside this file and takes its BLAKE3 from the
+plugin's `lib/emem_crypto.py`, plain Python with no third-party
+packages; `--self-test` checks it against the official test vectors.
 
 The grid bytes are a little-endian f32 array behind a 64-byte header
 (`application/x.emem-grid-f32.v1`): magic `EMEMGRD1`, then `width`,
@@ -164,5 +165,5 @@ derivation and, through it, the bytes. `emem:cube:` does the same over a
 tslot range and its member slices; `emem:rasterset:` names a bundle cid
 plus its derivation. None of them signs a pixel as a measurement. When
 one reading matters, cite that cell's `emem:fact:` token too.
-[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md) has the whole
+[`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md) has the whole
 token table.

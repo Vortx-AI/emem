@@ -13,9 +13,13 @@
         (first = OLD size, second = NEW size) links OLD's root to NEW's root,
         i.e. the log only grew between them.
 
-Every argument is a file path, or `-` for stdin (at most one `-`). Nothing
-here touches the network. Exit 0 when every check passed, 1 when one failed,
-2 on bad input or a missing dependency (pip install blake3 cryptography).
+    verify_log.py --self-test
+        Check the bundled BLAKE3 and Ed25519 code against published vectors.
+
+Every argument is a file path. Nothing here touches the network, and the
+only import outside the standard library is ../../lib/emem_crypto.py, which
+ships with the plugin. Exit 0 when every check passed, 1 when one failed,
+2 on bad input.
 
 The rules are ported from crates/emem-attest/src/translog.rs and the STH
 signer in crates/emem-api-rest/src/lib.rs:
@@ -36,12 +40,12 @@ import struct
 import sys
 from pathlib import Path
 
+sys.dont_write_bytecode = True
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
 try:
-    from blake3 import blake3
-    from cryptography.exceptions import InvalidSignature
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("missing dep: pip install blake3 cryptography\n")
+    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, two levels above this script\n")
     sys.exit(2)
 
 
@@ -79,9 +83,7 @@ def verify_sth(sth: dict) -> bool:
         (4, pk),
     ):
         h.update(bytes([tag]) + struct.pack("<I", len(data)) + data)
-    try:
-        Ed25519PublicKey.from_public_bytes(pk).verify(b32d(sth["signature_b32"]), h.digest())
-    except InvalidSignature:
+    if not ed25519_verify(pk, b32d(sth["signature_b32"]), h.digest()):
         print(f"sth          INVALID  tree_size={sth['tree_size']}")
         return False
     print(f"sth          VALID    tree_size={sth['tree_size']} signed_at={sth['signed_at']} signer={sth['responder_pubkey_b32']}")
@@ -145,6 +147,8 @@ def consistent(first_size, first_root, second_size, second_root, proof) -> bool:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--self-test"]:
+        return 0 if self_test() else 1
     if len(sys.argv) < 3:
         sys.stderr.write(__doc__)
         return 2

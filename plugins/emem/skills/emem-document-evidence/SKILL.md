@@ -80,7 +80,9 @@ you can quote the exact line it came from.
 ## Step 3: verify offline
 
 `verify_doc.py` ships beside this file (`${CLAUDE_SKILL_DIR}`, filled in
-by Claude Code; needs `pip install blake3 cryptography`, no network):
+by Claude Code). It makes no network calls; its BLAKE3 and Ed25519 come
+from the plugin's `lib/emem_crypto.py`, plain Python with no third-party
+packages (`--self-test` checks it against the official vectors):
 
 ```sh
 python3 "${CLAUDE_SKILL_DIR}/verify_doc.py" ocr.json report.png

@@ -47,8 +47,13 @@ against emem.dev, rather than a description:
 
 Four skills ship a small Python script beside their `SKILL.md`
 (`verify.py`, `verify_log.py`, `verify_doc.py`, `rehash.py`). Each runs
-offline, reads only the files you pass it, and needs
-`pip install blake3 cryptography` (`rehash.py` needs only `blake3`).
+offline and reads only the files you pass it. Their BLAKE3 and Ed25519
+signature verification come from one shared module,
+`lib/emem_crypto.py`: plain Python 3 with no third-party packages, no
+compiled code and no network access, so nothing is installed to run
+them. Every script takes `--self-test`, which checks that module
+against the official BLAKE3 test vectors and RFC 8032 test vectors 1 to
+3, plus four signatures it must reject.
 
 ## Network use
 
