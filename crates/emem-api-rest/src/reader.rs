@@ -561,6 +561,49 @@ pub(crate) struct DocParseReq {
     image_b64: Option<String>,
     #[serde(default)]
     lang: Option<String>,
+    /// Lab reports: the EU product (a name like "sweet peppers" or its EU
+    /// code) whose MRLs in force each row is read against.
+    #[serde(default)]
+    product: Option<String>,
+}
+
+/// Check an `emem.ocr.v1` receipt: this responder's key, over the preimage
+/// rebuilt from the reply's own fields and `text`.
+fn verify_ocr_receipt(s: &AppState, o: &JsonValue, text: &str) -> Result<(), String> {
+    let dec = |f: &str| -> Result<Vec<u8>, String> {
+        let v = o
+            .pointer(f)
+            .and_then(|v| v.as_str())
+            .ok_or(format!("ocr{f} is missing"))?;
+        data_encoding::BASE32_NOPAD
+            .decode(v.to_ascii_uppercase().as_bytes())
+            .map_err(|e| format!("ocr{f}: {e}"))
+    };
+    let field = |f: &str| o[f].as_str().ok_or(format!("ocr.{f} is missing"));
+    let pk = dec("/receipt/responder_pubkey_b32")?;
+    if pk.as_slice() != s.identity.pubkey.0.as_slice() {
+        return Err("the OCR receipt is not signed by this responder".into());
+    }
+    let sig: [u8; 64] = dec("/receipt/signature_b32")?
+        .try_into()
+        .map_err(|_| "ocr.receipt.signature_b32 is not 64 bytes".to_string())?;
+    let image_b3 = dec("/image_blake3_b32")?;
+    let text_b3 = *blake3::hash(text.as_bytes()).as_bytes();
+    let mut pb = emem_attest::PreimageV1::new(OCR_DOMAIN);
+    pb.seg(ocr_tag::IMAGE_BLAKE3, &image_b3);
+    pb.seg(ocr_tag::SOURCE, field("source")?.as_bytes());
+    pb.seg(ocr_tag::LANG, field("lang")?.as_bytes());
+    pb.seg(ocr_tag::ENGINE, field("engine")?.as_bytes());
+    pb.seg(ocr_tag::TEXT_BLAKE3, &text_b3);
+    pb.seg(ocr_tag::READ_AT, field("read_at")?.as_bytes());
+    pb.seg(ocr_tag::RESPONDER_PUBKEY, &pk);
+    let vk = ed25519_dalek::VerifyingKey::from_bytes(&s.identity.pubkey.0)
+        .map_err(|e| format!("responder key: {e}"))?;
+    vk.verify_strict(&pb.finalize(), &ed25519_dalek::Signature::from_bytes(&sig))
+        .map_err(|_| {
+            "the OCR receipt's signature does not verify over its image, text, engine and time"
+                .to_string()
+        })
 }
 
 const DOC_PARSER: &str = "doc_parse@1";
@@ -597,6 +640,11 @@ async fn doc_parse(
         "eng"
     };
     let (text, ocr) = if let Some(t) = r.text {
+        // The text path does no OCR but still costs a parse: its own quota.
+        let quota = daily_quota("EMEM_DOC_PARSE_DAILY_QUOTA", 2_000);
+        if !crate::check_daily_quota(&ip, "doc_parse", quota) {
+            return quota_refused("doc_parse", quota);
+        }
         (t, None)
     } else if let Some(o) = r.ocr {
         let Some(t) = o["text"].as_str().map(str::to_string) else {
@@ -606,6 +654,12 @@ async fn doc_parse(
                 "ocr.text is missing".into(),
             );
         };
+        // The receipt must be one this responder signed over this text: a
+        // caller-built object with a made-up signature was echoed back
+        // under a real one, as though emem had read that image.
+        if let Err(why) = verify_ocr_receipt(&s, &o, &t) {
+            return refuse(StatusCode::UNPROCESSABLE_ENTITY, "ocr_receipt_invalid", why);
+        }
         if o["text_blake3_b32"].as_str()
             != Some(b32(blake3::hash(t.as_bytes()).as_bytes()).as_str())
         {
@@ -636,11 +690,28 @@ async fn doc_parse(
     if text.len() > TEXT_MAX_CHARS * 4 {
         return refuse(StatusCode::BAD_REQUEST, "too_large", "text too long".into());
     }
-    let result = match kind {
-        "lab_report_parse@1" => serde_json::to_value(crate::doc_parse::parse_lab_report(&text)),
-        _ => serde_json::to_value(crate::doc_parse::parse_land_record(&text)),
-    }
+    // CPU work off the async workers.
+    let parse_text = text.clone();
+    let mut result = tokio::task::spawn_blocking(move || match kind {
+        "lab_report_parse@1" => {
+            serde_json::to_value(crate::doc_parse::parse_lab_report(&parse_text))
+        }
+        _ => serde_json::to_value(crate::doc_parse::parse_land_record(&parse_text)),
+    })
+    .await
+    .ok()
+    .and_then(Result::ok)
     .unwrap_or(JsonValue::Null);
+    // The limit in force, not only the one the report prints.
+    if kind == "lab_report_parse@1" {
+        if let Some(product) = r.product.as_deref().filter(|p| !p.trim().is_empty()) {
+            let lookup = crate::eu_mrl::annotate(&mut result, product).await;
+            if lookup["exceedances"].as_u64().unwrap_or(0) > 0 {
+                result["verdict"] = json!("exceeds_eu_mrl");
+            }
+            result["eu_mrl_lookup"] = lookup;
+        }
+    }
     let text_b3 = *blake3::hash(text.as_bytes()).as_bytes();
     let result_b3 = *blake3::hash(&serde_json::to_vec(&result).unwrap_or_default()).as_bytes();
     let parsed_at = crate::chrono_iso8601_utc();

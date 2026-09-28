@@ -1946,6 +1946,20 @@ async fn http_range(
             status, start, end_inclusive, url
         )));
     }
+    // A whole-file answer is paid on every tile read of that file: fine for
+    // a small one, not for a multi-gigabyte raster behind a host that
+    // ignores Range.
+    const WHOLE_BODY_MAX: u64 = 64 << 20;
+    if status == reqwest::StatusCode::OK
+        && start > 0
+        && resp.content_length().is_some_and(|n| n > WHOLE_BODY_MAX)
+    {
+        return Err(CogError::Transport(format!(
+            "{url} ignores HTTP Range and would send {} MB for {} bytes",
+            resp.content_length().unwrap_or(0) >> 20,
+            end_inclusive - start + 1
+        )));
+    }
     let body = resp
         .bytes()
         .await

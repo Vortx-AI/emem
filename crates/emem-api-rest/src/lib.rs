@@ -53,6 +53,7 @@ mod doc_parse;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
+mod eu_mrl;
 mod field_signals;
 mod intents;
 mod physics;
@@ -9174,6 +9175,7 @@ async fn materializers(
                     obj.insert("temporal_kind".into(), JsonValue::from(m.kind.as_str()));
                     obj.insert("upstream_wire_path".into(), JsonValue::from(m.wire_path));
                 }
+                obj.insert("valid_range".into(), valid_range_json(&band));
                 obj.insert(
                     "responder_pubkey_b32".into(),
                     JsonValue::from(pubkey_b32.clone()),
@@ -9233,6 +9235,7 @@ async fn materializers(
             );
             obj.insert("temporal_kind".into(), JsonValue::from(meta.kind.as_str()));
             obj.insert("upstream_wire_path".into(), JsonValue::from(meta.wire_path));
+            obj.insert("valid_range".into(), valid_range_json(&band));
             obj.insert(
                 "responder_pubkey_b32".into(),
                 JsonValue::from(pubkey_b32.clone()),
@@ -12477,9 +12480,25 @@ const PIXEL_FIX_AT: &str = "2026-09-28T04:09:26Z";
 
 /// Releases a newer one replaced. A fact read from one is not the latest
 /// answer: Hansen v1.13 adds 2025 loss that v1.12 cannot show.
-const SUPERSEDED_RELEASES: &[&str] = &["/GFC-2024-v1.12/", "JRC_GFC2020_V3_"];
+const SUPERSEDED_RELEASES: &[&str] = &["/GFC-2024-v1.12/", "JRC_GFC2020_V3_", "/agb/maps/v6.0/"];
+
+/// Bands whose value or unit changed meaning at a fix, and when that fix
+/// went live (0fe1d4d): WorldPop signed people per pixel as per km², and
+/// SoilGrids labelled % as g/kg and g/kg as cg/kg. Facts before are re-read.
+const BAND_FIX_CUTS: &[(&str, &str)] = &[
+    ("population", "2026-09-28T08:42:41Z"),
+    ("soilgrids.clay_0_30cm", "2026-09-28T08:42:41Z"),
+    ("soilgrids.sand_0_30cm", "2026-09-28T08:42:41Z"),
+    ("soilgrids.nitrogen_0_30cm", "2026-09-28T08:42:41Z"),
+];
 
 fn superseded_read(p: &emem_fact::PrimaryFact) -> bool {
+    if BAND_FIX_CUTS
+        .iter()
+        .any(|(band, at)| p.band == *band && p.signed_at.as_str() < *at)
+    {
+        return true;
+    }
     p.sources.iter().any(|src| {
         let u = src.url.as_deref().unwrap_or(src.id.as_str());
         let u = u.split(['?', '#']).next().unwrap_or(u);
@@ -32740,7 +32759,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, `emem.ask_splat.v1`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 V3 baseline + Hansen GFC v1.12 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
@@ -32941,7 +32960,7 @@ fn openapi_spec() -> JsonValue {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 V3 legal baseline + Hansen GFC v1.12 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF v2025, WRI-Sims driver attribution and RADD SAR are deferred off the hot path for latency (TMF) / pending fast public endpoints (WRI, RADD). Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -47077,7 +47096,7 @@ fn static_release_date(band: &str) -> Option<&'static str> {
         | "soilgrids.nitrogen_0_30cm" => Some("2020-09-15T00:00:00Z"),
         // ESA WorldCover v200 release.
         "esa_worldcover.lc_2021" => Some("2022-10-28T00:00:00Z"),
-        // Hansen GFC v1.12 = GFC-2024 release.
+        // Hansen GFC v1.13 = GFC-2024 release.
         "forest_change.lossyear"
         | "forest_change.treecover2000"
         | "forest_change.gain"
@@ -54242,7 +54261,7 @@ async fn materialize_soilgrids_band(
 
 // ---------------- Hansen Global Forest Change materializer ----------------
 //
-// Source: Hansen et al. 2013 (Science 342, 850-853). v1.12 release
+// Source: Hansen et al. 2013 (Science 342, 850-853). v1.13 release
 // (covers 2000-2024, published 2025-05). Public bucket
 // `earthenginepartners-hansen` on GCS, anonymous HTTPS Range reads
 // against 10°×10° LZW-compressed uint8 tiles.
@@ -54255,7 +54274,7 @@ async fn materialize_soilgrids_band(
 //
 // Band keys:
 //   - `forest_change.lossyear`    , calendar year of forest loss
-//                                     2001..=2024 (`unit: year_of_loss`),
+//                                     2001..=2025 (`unit: year_of_loss`),
 //                                     `value: 0` for "no loss observed".
 //   - `forest_change.treecover2000`- year-2000 baseline canopy cover %
 //                                     (`unit: percent_canopy_cover`).
@@ -54263,10 +54282,10 @@ async fn materialize_soilgrids_band(
 //                                     (`unit: binary`).
 //
 // Legacy `hansen.*` keys are accepted as aliases for back-compat with
-// the original Hansen wiring (now migrated to GFC-2024-v1.12); the
+// the original Hansen wiring (now migrated to GFC-2025-v1.13); the
 // canonical keys agents should use are the `forest_change.*` ones
 // surfaced under `forest_change.scalar_keys` in `bands-v0.json`.
-/// Build a Hansen GFC v1.12 Fact for one (cell, band), Primary on
+/// Build a Hansen GFC v1.13 Fact for one (cell, band), Primary on
 /// hit, Absence on the TileNotFound coverage gap (Antarctica /
 /// oceanic / polar tiles), hard error on other transport / decode
 /// failure. Pure construction; pair with [`sign_and_persist`] or
@@ -54773,7 +54792,7 @@ async fn materialize_gmrt_band(
 
 // ---------------- ESA CCI Biomass v6 materializer ----------------
 //
-// Santoro et al. 2025. ESA CCI Biomass v6.0 from CEDA archive, open,
+// Santoro et al. 2025. ESA CCI Biomass v7.0 from CEDA archive, open,
 // anonymous HTTPS, range-readable. 100 m global pan-tropical to boreal
 // above-ground biomass density (AGB) + standard deviation, 10 epochs
 // (2007, 2010, 2015..=2022). Anchors `forest_carbon_loss_co2_flux@1`
@@ -54874,7 +54893,7 @@ async fn materialize_esa_cci_biomass_band(
                 confidence,
                 uncertainty,
                 sources: vec![Source {
-                    scheme: "esa.cci.biomass.v6".into(),
+                    scheme: "esa.cci.biomass.v7".into(),
                     id: url.clone(),
                     cid: None,
                     hash: None,
@@ -54882,7 +54901,7 @@ async fn materialize_esa_cci_biomass_band(
                     url: Some(url.clone()),
                 }],
                 derivation: Derivation {
-                    fn_key: "esa_cci_biomass_v6_pixel@1".into(),
+                    fn_key: "esa_cci_biomass_v7_pixel@1".into(),
                     args: Some(ciborium::Value::Array(vec![
                         ciborium::Value::Float(lat),
                         ciborium::Value::Float(lng),
@@ -54900,14 +54919,14 @@ async fn materialize_esa_cci_biomass_band(
         }
         Err(esa_cci_biomass::EsaCciBiomassError::CoverageGap { lat: la, lng: ln }) => {
             let reason = format!(
-                "esa_cci_biomass_coverage_gap: cell ({la:.6},{ln:.6}) lies outside ESA CCI Biomass v6.0 coverage envelope (-50°S to +80°N, plus 10°-tile non-existence over open ocean / barren interior)."
+                "esa_cci_biomass_coverage_gap: cell ({la:.6},{ln:.6}) lies outside ESA CCI Biomass v7.0 coverage envelope (-50°S to +80°N, plus 10°-tile non-existence over open ocean / barren interior)."
             );
             sign_band_absence(
                 cell64,
                 s,
                 band,
                 0,
-                "esa.cci.biomass.v6",
+                "esa.cci.biomass.v7",
                 &url,
                 &signed_at,
                 &reason,
@@ -54915,7 +54934,7 @@ async fn materialize_esa_cci_biomass_band(
             .await
         }
         Err(esa_cci_biomass::EsaCciBiomassError::YearNotAvailable { year: y }) => Err(format!(
-            "esa_cci_biomass.{band}: year {y} not in v6.0 epoch list (2007, 2010, 2015..=2022)"
+            "esa_cci_biomass.{band}: year {y} not in the v7.0 epoch list (2005..=2012, 2015..=2023)"
         )),
         Err(e) => Err(format!("esa_cci_biomass.{band} fetch failed: {e}")),
     }
@@ -56164,6 +56183,105 @@ fn contradictions_result_cache() -> &'static ResultCache<String> {
     CACHE.get_or_init(|| ResultCache::new(contradictions_cache_ttl_ms(), 1_024))
 }
 
+/// The raster reader a GeoTIFF read went through, stamped into its
+/// derivation so a consumer can tell from the fact alone which pixel rule
+/// produced it (reads before dba347b took the south-east neighbour).
+const COG_READER: &str = "reader=cog-pixel-floor@2";
+
+fn stamp_reader(f: &mut Fact) {
+    let Fact::Primary(p) = f else { return };
+    let tif = p.sources.iter().any(|src| {
+        let u = src.url.as_deref().unwrap_or(src.id.as_str());
+        let u = u.split(['?', '#']).next().unwrap_or(u).to_ascii_lowercase();
+        u.ends_with(".tif") || u.ends_with(".tiff") || u.starts_with("file://")
+    });
+    if !tif {
+        return;
+    }
+    let stamp = ciborium::Value::Text(COG_READER.into());
+    match &mut p.derivation.args {
+        Some(ciborium::Value::Array(a)) => {
+            if !a.contains(&stamp) {
+                a.push(stamp);
+            }
+        }
+        Some(other) => {
+            let prev = std::mem::replace(other, ciborium::Value::Null);
+            *other = ciborium::Value::Array(vec![prev, stamp]);
+        }
+        None => p.derivation.args = Some(ciborium::Value::Array(vec![stamp])),
+    }
+}
+
+/// What each band can physically be, in the unit its facts carry: a
+/// consumer's sanity check that no longer has to live in the consumer.
+/// Deliberately loose (the physical envelope, not the typical range).
+fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
+    Some(match band {
+        b if b.starts_with("indices.")
+            && [
+                "ndvi", "ndwi", "nbr", "nbr2", "ndti", "ndmi", "ndre", "ndbi", "mndwi", "ndsi",
+            ]
+            .iter()
+            .any(|k| b.ends_with(k)) =>
+        {
+            (-1.0, 1.0, "ratio")
+        }
+        "modis.ndvi_mean" => (-0.2, 1.0, "ratio"),
+        "modis.lst_day_8day" | "modis.lst_night_8day" => (180.0, 350.0, "K"),
+        "modis.et_8day" => (0.0, 100.0, "kg/m^2 per composite"),
+        "modis.lai_8day" => (0.0, 10.0, "m^2/m^2"),
+        "copdem30m.elevation_mean" => (-500.0, 9_000.0, "m"),
+        "gmrt.topobathy_mean" | "gmrt.topobathy_min" | "gmrt.topobathy_max" => {
+            (-11_100.0, 9_000.0, "m")
+        }
+        "surface_water.recurrence" | "surface_water.occurrence" => (0.0, 100.0, "percent"),
+        "surface_water.seasonality" => (0.0, 12.0, "months"),
+        "surface_water.transition_class" => (0.0, 10.0, "class"),
+        "jrc_gfc2020.forest_2020" | "forest_change.gain" => (0.0, 1.0, "boolean"),
+        "forest_change.treecover2000" => (0.0, 100.0, "percent"),
+        "forest_change.lossyear" | "jrc_tmf.deforestation_year" | "jrc_tmf.degradation_year" => {
+            (0.0, 2100.0, "year (0 = none)")
+        }
+        "esa_worldcover.lc_2021" => (0.0, 100.0, "class"),
+        "weather.temperature_2m" => (-95.0, 65.0, "degC"),
+        "weather.precipitation_mm" => (0.0, 500.0, "mm per hour"),
+        "weather.cloud_cover" => (0.0, 100.0, "percent"),
+        "soilgrids.clay_0_30cm" | "soilgrids.sand_0_30cm" => (0.0, 100.0, "percent"),
+        "soilgrids.phh2o_0_30cm" => (2.0, 11.0, "pH"),
+        "soilgrids.bdod_0_30cm" => (0.05, 2.8, "kg/dm^3"),
+        "soilgrids.soc_0_30cm" => (0.0, 1_000.0, "g/kg"),
+        "soilgrids.nitrogen_0_30cm" => (0.0, 100.0, "g/kg"),
+        "population" => (0.0, 250_000.0, "people/km^2"),
+        _ => return None,
+    })
+}
+
+fn valid_range_json(band: &str) -> JsonValue {
+    match band_valid_range(band) {
+        Some((lo, hi, unit)) => {
+            json!({"min": lo, "max": hi, "unit": unit, "enforced_at_signing": true})
+        }
+        None => JsonValue::Null,
+    }
+}
+
+fn out_of_valid_range(f: &Fact) -> Option<String> {
+    let Fact::Primary(p) = f else { return None };
+    let (lo, hi, unit) = band_valid_range(&p.band)?;
+    let v = match &p.value {
+        ciborium::Value::Float(x) => *x,
+        ciborium::Value::Integer(i) => i64::try_from(*i).ok()? as f64,
+        _ => return None,
+    };
+    (!(lo..=hi).contains(&v)).then(|| {
+        format!(
+            "{} = {v} at {} is outside what the band can be ({lo}..={hi} {unit}): not signed, the reader or the upstream's scale is wrong",
+            p.band, p.cell
+        )
+    })
+}
+
 async fn sign_and_persist(
     s: &AppState,
     fact: Fact,
@@ -56314,7 +56432,14 @@ async fn sign_and_persist_many(
     // `put_attestation` directly and are never mutated (that would break the
     // submitter's signature). Idempotent and a no-op for finite values.
     for f in facts.iter_mut() {
+        stamp_reader(f);
         f.canonicalize_floats();
+    }
+    // A value outside what the band can physically be is a reader or scale
+    // fault (a raw DN, a Celsius-for-Kelvin mix-up): refuse it here, where
+    // it is made, rather than leave each consumer to catch it.
+    if let Some(e) = facts.iter().find_map(out_of_valid_range) {
+        return Err(e);
     }
     // Compute per-fact merkle leaves over their canonical CBOR.
     // CRITICAL: sort the leaves before computing the root, the
@@ -56627,6 +56752,7 @@ async fn sign_band_absence(
 }
 
 /// Outcome of one materialization attempt.
+#[derive(Clone)]
 struct MaterializeOutcome {
     band: String,
     /// `Some(fact_cid_str)` on success.
@@ -57126,13 +57252,13 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: Some(days_from_civil(2022, 1, 1) * 86_400 - 1),
             wire_path: "esa-worldcover s3 (anonymous): v200 2021 10 m LCCS map",
         },
-        // Hansen Global Forest Change v1.12 (2025 release, covers
-        // 2000-2024). Three layers signed as sub-bands of the
+        // Hansen Global Forest Change v1.13 (GFC-2025, covers
+        // 2000-2025). Three layers signed as sub-bands of the
         // `forest_change` family:
-        //   - forest_change.lossyear      cumulative loss 2001..=2024
+        //   - forest_change.lossyear      cumulative loss 2001..=2025
         //   - forest_change.treecover2000 baseline canopy % at year 2000
         //   - forest_change.gain          2000-2012 binary gain mask
-        // All three are static-per-release facts; the v1.12 snapshot is
+        // All three are static-per-release facts; the v1.13 snapshot is
         // the canonical serving copy until the next annual update.
         // Legacy `hansen.*` keys remain wired as back-compat aliases so
         // already-cached attestations resolve.
@@ -57418,7 +57544,7 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("modis.burned_area_monthly".into());
     // ESA WorldCover 2021 (single release).
     out.push("esa_worldcover.lc_2021".into());
-    // Hansen Global Forest Change v1.12 (2025 release, covers 2000-2024).
+    // Hansen Global Forest Change v1.13 (GFC-2025, covers 2000-2025).
     // Canonical sub-bands of the `forest_change` family.
     out.push("forest_change.lossyear".into());
     out.push("forest_change.treecover2000".into());
@@ -57832,7 +57958,7 @@ async fn materialize_band_at(
         return materialize_esa_worldcover_2021(cell64, s).await;
     }
 
-    // Hansen GFC v1.12 layers, single release, static per cell.
+    // Hansen GFC v1.13 layers, single release, static per cell.
     // `forest_change.*` keys are the canonical agent-facing names;
     // `hansen.*` keys remain accepted as back-compat aliases.
     if matches!(
@@ -58428,6 +58554,40 @@ fn materialize_share() -> f64 {
         .unwrap_or(0.5)
 }
 
+type InflightRead = futures_util::future::Shared<
+    std::pin::Pin<Box<dyn std::future::Future<Output = Vec<MaterializeOutcome>> + Send>>,
+>;
+
+fn materialize_inflight(
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, InflightRead>> {
+    static M: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, InflightRead>>,
+    > = std::sync::OnceLock::new();
+    M.get_or_init(Default::default)
+}
+
+fn materialize_inflight_get(key: &str) -> Option<InflightRead> {
+    materialize_inflight()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(key)
+        .cloned()
+}
+
+fn materialize_inflight_put(key: &str, f: InflightRead) {
+    materialize_inflight()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(key.to_string(), f);
+}
+
+fn materialize_inflight_remove(key: &str) {
+    materialize_inflight()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(key);
+}
+
 async fn try_materialize_bands(
     cell64: &str,
     bands: &[String],
@@ -58516,7 +58676,37 @@ async fn materialize_bands_once(
             // The permit is taken before the timer starts: waiting behind
             // other materializations here is local contention, and timing it
             // reported it as "upstream too slow".
-            let mat_permit = materialize_global_permit().await;
+            let cap = std::time::Duration::from_secs(materializer_timeout_secs());
+            // One read per (cell, band, slot, refresh) at a time. A retry of a
+            // read still running joins it instead of starting a second one and
+            // taking a second permit: without this, every retry the hard-cap
+            // note invites stacked another 120 s read on the same tile.
+            let flight_key = format!("{cell64}|{b}|{bound_tslot:?}|{}", force_resign());
+            if let Some(running) = materialize_inflight_get(&flight_key) {
+                return match tokio::time::timeout(cap, running).await {
+                    Ok(out) => out,
+                    Err(_) => vec![MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(format!(
+                            "joined a read of this cell and band already running, still unfinished after the {}s hard cap (timeout); retry shortly",
+                            cap.as_secs()
+                        )),
+                    }],
+                };
+            }
+            // Waiting for a slot is bounded too: a request that cannot get one
+            // says so rather than queueing behind reads it did not start.
+            let Ok(mat_permit) = tokio::time::timeout(cap, materialize_global_permit()).await else {
+                return vec![MaterializeOutcome {
+                    band: b.clone(),
+                    fact_cid: None,
+                    skip_reason: Some(format!(
+                        "every materialisation slot stayed busy for {}s (timeout); retry shortly",
+                        cap.as_secs()
+                    )),
+                }];
+            };
             // A task of its own, so the hard cap below stops waiting for it
             // without cancelling it: a cold tile keeps opening and the retry
             // finds it warm. Dropped, the read started over from nothing on
@@ -59462,7 +59652,7 @@ async fn materialize_bands_once(
                     });
                 }
             },
-            // Hansen Global Forest Change v1.12. Canonical agent keys
+            // Hansen Global Forest Change v1.13. Canonical agent keys
             // are `forest_change.*`; `hansen.*` aliases remain wired
             // for back-compat with already-cached attestations.
             "forest_change.lossyear"
@@ -59769,18 +59959,27 @@ async fn materialize_bands_once(
                         }]
                     })
             })));
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(materializer_timeout_secs()),
-                work,
-            )
-            .await
+            let b_join = b.clone();
+            let shared = futures_util::FutureExt::shared(Box::pin(async move {
+                work.await.unwrap_or_else(|e| {
+                    vec![MaterializeOutcome {
+                        band: b_join,
+                        fact_cid: None,
+                        skip_reason: Some(format!("materializer task ended without an answer: {e}")),
+                    }]
+                })
+            })
+                as std::pin::Pin<Box<dyn std::future::Future<Output = Vec<MaterializeOutcome>> + Send>>);
+            materialize_inflight_put(&flight_key, shared.clone());
             {
-                Ok(Ok(out)) => out,
-                Ok(Err(e)) => vec![MaterializeOutcome {
-                    band: b.clone(),
-                    fact_cid: None,
-                    skip_reason: Some(format!("materializer task ended without an answer: {e}")),
-                }],
+                let (done, key) = (shared.clone(), flight_key.clone());
+                tokio::spawn(async move {
+                    let _ = done.await;
+                    materialize_inflight_remove(&key);
+                });
+            }
+            match tokio::time::timeout(cap, shared).await {
+                Ok(out) => out,
                 Err(_) => {
                     tracing::warn!(
                         target: "emem::materialize",
@@ -60585,10 +60784,15 @@ fn scene_bbox(qs: &std::collections::HashMap<String, String>) -> Result<Option<S
     let Some(raw) = qs.get("bbox") else {
         return Ok(None);
     };
-    let v: Vec<f64> = raw
+    // Every part must parse: dropping the ones that do not turned
+    // `75.70,x,30.10,75.71,30.11` into a different box.
+    let Ok(v) = raw
         .split(',')
-        .filter_map(|x| x.trim().parse().ok())
-        .collect();
+        .map(|x| x.trim().parse::<f64>())
+        .collect::<Result<Vec<f64>, _>>()
+    else {
+        return Err("bbox must be four numbers w,s,e,n in degrees".into());
+    };
     let [w, so, e, n] = v[..] else {
         return Err("bbox must be w,s,e,n in degrees".into());
     };
@@ -65988,7 +66192,7 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
             "fact_cids": lc_cids,
         },
         "forest_gain": {
-            "product": "Hansen GFC v1.12 gain mask (regrowth 2000–2012, 30 m)",
+            "product": "Hansen GFC v1.13 gain mask (regrowth 2000–2012, 30 m)",
             "cells_with_gain": gain_yes,
             "cells_sampled": gain_total,
             "gain_fraction": if gain_total > 0 { Some((gain_yes as f64 / gain_total as f64 * 1000.0).round() / 1000.0) } else { None },
@@ -66890,6 +67094,14 @@ async fn batch_build_facts_via_window(
         }
         let px = (col - win_col0) as usize;
         let py = (row - win_row0) as usize;
+        // Past the window's right edge the index would wrap into the next row.
+        if px >= win_w as usize || py >= win_h as usize {
+            out.push((
+                i,
+                Err(format!("pixel ({px},{py}) outside window {win_w}×{win_h}")),
+            ));
+            continue;
+        }
         let idx = py * (win_w as usize) + px;
         if idx >= pixels.len() {
             out.push((
@@ -67141,7 +67353,7 @@ async fn batch_materialize_eudr_band(
 /// 1. **forest-at-cut-off** = JRC GFC2020 says forest, OR Hansen treecover2000
 ///    ≥ 10 % AND the cell was *still forest at the cut-off*, i.e. it had NO
 ///    Hansen loss in 2001..=cutoff_year. `hansen_ly` is a CALENDAR year
-///    (2001..=2024; the materializer adds 2000) or 0 for "no loss". A cell
+///    (2001..=2025; the materializer adds 2000) or 0 for "no loss". A cell
 ///    cleared in e.g. 2008 was not forest at a 2020 cut-off, so it is
 ///    `not_in_scope`, never `pass`. (Previously the per-cell path compared
 ///    the calendar `hansen_ly > 20`, always true, a no-op, and the batched
@@ -67266,6 +67478,13 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
     // read: a 0.5 ha clearance (the Art. 2(4) floor) is a 71 m square, and a
     // grid no wider than that has a sample inside any such square.
     let spacing_m = (area_ha.max(0.0) * 10_000.0 / n).sqrt();
+    // A point is what Art. 2(28) allows for a plot of 4 ha or less, and it
+    // sees one pixel: legitimate, but not coverage of the plot.
+    check(
+        false,
+        per_cell.len() == 1,
+        "one point sample: a clearance elsewhere on the plot is not seen".to_string(),
+    );
     check(
         spacing_m > 2.0 * MMU_SIDE_M,
         spacing_m > MMU_SIDE_M,
@@ -67695,7 +67914,7 @@ async fn try_materialize_one_band(
         if band == "jrc_gfc2020.forest_2020" {
             return materialize_jrc_gfc2020_band(cell64, s, band).await;
         }
-        // Hansen GFC v1.12.
+        // Hansen GFC v1.13.
         if matches!(
             band,
             "forest_change.lossyear" | "forest_change.treecover2000" | "forest_change.gain"
@@ -67742,7 +67961,7 @@ async fn try_materialize_one_band(
 /// floor (Article 2(4)) applied downstream of this call, not by a
 /// fail-fraction threshold here.
 /// Per-year loss tally over a plot's sampled cells. Counts come from the
-/// signed per-cell `forest_change.lossyear` facts (Hansen GFC v1.12,
+/// signed per-cell `forest_change.lossyear` facts (Hansen GFC v1.13,
 /// value = calendar year of canopy loss, `0` = no loss, absent = no
 /// reading). This is the input to the SIGNED plot-level
 /// `forest_change.lossyear_histogram` derivative, so the report's
@@ -68053,7 +68272,7 @@ async fn post_eudr_dds(
                      sample cell with bands:[\"jrc_gfc2020.forest_2020\",\"forest_change.lossyear\",\
                      \"forest_change.treecover2000\"] first, or raise \
                      EMEM_EUDR_TIMEOUT_SECS. Band keys here are the EUDR hot-path consensus bands \
-                     (JRC GFC2020 now tiled 10°; JRC TMF deferred off the hot path for latency)."
+                     (JRC GFC2020 tiled 10°; JRC TMF read by range as a reported cross-check)."
                 ),
                 details: None,
             },
@@ -68521,7 +68740,7 @@ async fn post_eudr_dds_inner(
                     "basis": "sampled_cells",
                     "note": "Per-year counts are over the cells actually sampled in this plot \
                              (total_sampled_cells), derived from the signed per-cell \
-                             forest_change.lossyear facts (Hansen GFC v1.12). Weight by the plot's \
+                             forest_change.lossyear facts (Hansen GFC v1.13). Weight by the plot's \
                              sampled_polygon_fraction to extrapolate to the full polygon. The tally \
                              is itself signed as a forest_change.lossyear_histogram derivative whose \
                              CID is in this response's receipt.fact_cids.",
@@ -68721,6 +68940,10 @@ async fn post_eudr_dds_inner(
     let review_required = per_plot_results
         .iter()
         .any(|p| p["tmf_cross_check"]["review_required"] == json!(true));
+    // A pass whose inputs are weak is not a statement to sign unread.
+    let weak_support = per_plot_results
+        .iter()
+        .any(|p| p["verdict_support"]["level"] == json!("weak"));
     let overall_verdicts: Vec<u8> = plot_ctx
         .iter()
         .filter_map(|c| c.as_ref().map(|c| c.verdict_code))
@@ -68863,8 +69086,8 @@ async fn post_eudr_dds_inner(
         "geolocationConfidentiality": confidential,
         "commodities":               commodities,
         "statementOfCompliance":     statement_of_compliance(overall_label),
-        "statementOfComplianceSignable": overall_label == "pass" && !review_required,
-        "statementOfComplianceReviewRequired": review_required,
+        "statementOfComplianceSignable": overall_label == "pass" && !review_required && !weak_support,
+        "statementOfComplianceReviewRequired": review_required || weak_support,
     });
 
     let mut body = json!({
@@ -68881,7 +69104,7 @@ async fn post_eudr_dds_inner(
         "forest_baseline_computed": computed_baseline,
         "forest_baseline_dataset": baseline_datasets,
         "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); its value `jrc_gfc2020_v3` is a stable enum name, not the dataset version. The version read is `forest_baseline_dataset.version`.",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.12 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.",
+        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.",
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
@@ -69950,7 +70173,11 @@ fn ask_streamed(s: AppState, req: AskReq) -> Response {
     let trace = AskTrace::streaming(tx.clone());
     let state = s.clone();
     tokio::spawn(async move {
-        let out = match ask_inner_traced(state, req, trace).await {
+        let q = req.q.clone();
+        let out = match ask_inner_traced(state, req, trace).await.map(|mut v| {
+            attach_signal_next_steps(&mut v, &q);
+            v
+        }) {
             Ok(v) => json!({
                 "schema": "emem.ask_stage.v1",
                 "stage": "answer",
@@ -70556,7 +70783,96 @@ fn spatial_trace(
 }
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
-    ask_inner_traced(s, req, AskTrace::silent()).await
+    let q = req.q.clone();
+    let mut r = ask_inner_traced(s, req, AskTrace::silent()).await?;
+    attach_signal_next_steps(&mut r, &q);
+    Ok(r)
+}
+
+/// Questions a field-level signed signal answers better than a recall:
+/// (keywords, signal, endpoint, why, example body).
+type SignalRoute = (
+    &'static [&'static str],
+    &'static str,
+    &'static str,
+    &'static str,
+    fn() -> JsonValue,
+);
+
+const SIGNAL_ROUTES: &[SignalRoute] = &[
+    (
+        &["stubble", "residue burn", "crop burn", "field burn", "burn scar", "burnt field", "burned field", "parali", "crop residue"],
+        "field_burn_scar@1",
+        "/v1/field_burn_scar",
+        "residue burning on a field over a window, by residue_burn_multisensor@1 between clear Sentinel-2 dates, each signal citing its facts",
+        || json!({"geometry_geojson": "<GeoJSON Polygon of the field>", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}),
+    ),
+    (
+        &["evapotranspiration", "water use", "water footprint", "crop water", "actual et", "consumptive use", "irrigation water"],
+        "field_actual_et@1",
+        "/v1/field_actual_et",
+        "actual evapotranspiration over a window at the field, MOD16A2 composites pro-rated to its edges, in mm and m3/ha",
+        || json!({"geometry_geojson": "<GeoJSON Polygon of the field>", "start": "YYYY-MM-DD", "end": "YYYY-MM-DD"}),
+    ),
+    (
+        &["lab report", "residue report", "pesticide residue", "mrl", "maximum residue", "test report", "certificate of analysis"],
+        "lab_report_parse@1",
+        "/v1/lab_report_parse",
+        "a residue lab report read row by row (analyte, result, LOQ, the printed MRL) from signed OCR, each value with its line",
+        || json!({"url": "<image of the report>"}),
+    ),
+    (
+        &["land record", "7/12", "satbara", "khatauni", "jamabandi", "title deed", "land title", "cadastro ambiental", "car receipt", "record of rights"],
+        "land_record_parse@1",
+        "/v1/land_record_parse",
+        "a land record's owners, parcel ids, area in hectares and place, from signed OCR in the Indian scripts, Portuguese, Spanish, French or Indonesian",
+        || json!({"url": "<image of the record>", "lang": "eng+hin+mar"}),
+    ),
+    (
+        &["picture of the plot", "image of the plot", "satellite image", "photo of the field", "show me the field", "show me the plot", "true colour", "true color"],
+        "scene_bbox",
+        "/v1/scene.png?bbox=w,s,e,n",
+        "a Sentinel-2 true-colour scene cropped to the plot at native 10 m, with the scene id, date and stretch in its headers",
+        || json!(null),
+    ),
+    (
+        &["watercourse", "stream buffer", "distance to water", "near water", "riparian", "wetland buffer", "surface water occurrence"],
+        "surface_water.occurrence",
+        "/v1/recall",
+        "how often a 30 m pixel was water 1984-2021 (JRC GSW occurrence), with seasonality and transition class beside it",
+        || json!({"place": "<place or lat/lng>", "bands": ["surface_water.occurrence", "surface_water.seasonality", "surface_water.transition_class"]}),
+    ),
+];
+
+/// Point an ask at the signed signal that answers it, before whatever the
+/// general path produced. Never replaces an answer; prepends a next step.
+fn attach_signal_next_steps(body: &mut JsonValue, q: &str) {
+    let ql = q.to_lowercase();
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let steps: Vec<JsonValue> = SIGNAL_ROUTES
+        .iter()
+        .filter(|(keys, ..)| keys.iter().any(|k| ql.contains(k)))
+        .map(|(_, signal, path, why, body)| {
+            let method = if path.starts_with("/v1/scene.png") { "GET" } else { "POST" };
+            json!({"tool": signal, "why": why, "method": method, "path": path, "url": format!("{origin}{path}"), "body": body()})
+        })
+        .collect();
+    let Some(m) = body.as_object_mut() else {
+        return;
+    };
+    if steps.is_empty() {
+        return;
+    }
+    match m.get_mut("next_steps").and_then(|v| v.as_array_mut()) {
+        Some(arr) => {
+            for (i, st) in steps.into_iter().enumerate() {
+                arr.insert(i, st);
+            }
+        }
+        None => {
+            m.insert("next_steps".into(), JsonValue::Array(steps));
+        }
+    }
 }
 
 async fn ask_inner_traced(
@@ -86307,7 +86623,7 @@ mod tests {
 
     #[test]
     fn eudr_verdict_excludes_pre_cutoff_clearing_and_honours_cutoff_year() {
-        // hansen_ly is a CALENDAR year (2001..=2024); 0 = no loss.
+        // hansen_ly is a CALENDAR year (2001..=2025); 0 = no loss.
         // High canopy in 2000, cleared in 2008 (before the 2020 cut-off):
         // NOT forest at the cut-off → not_in_scope (3), never pass. This is
         // the bug the old `hansen_ly > 20` (always true on a calendar year)
@@ -86613,6 +86929,7 @@ mod tests {
         assert!(scene_bbox(&std::collections::HashMap::new())
             .unwrap()
             .is_none());
+        assert!(scene_bbox(&q("75.70,x,30.10,75.71,30.11")).is_err());
     }
 
     #[test]
@@ -86644,6 +86961,78 @@ mod tests {
             .as_str()
             .unwrap()
             .contains("250 m apart"));
+    }
+
+    #[test]
+    fn a_geotiff_read_names_its_reader_and_an_impossible_value_is_refused() {
+        let fact = |band: &str, v: f64, url: &str| {
+            Fact::Primary(PrimaryFact {
+                cell: "defi.zb493.yiwo.zcb4e".into(),
+                band: band.into(),
+                tslot: 0,
+                value: ciborium::Value::Float(v),
+                unit: None,
+                confidence: 0.9,
+                uncertainty: None,
+                sources: vec![Source {
+                    scheme: "x".into(),
+                    id: url.into(),
+                    cid: None,
+                    hash: None,
+                    captured_at: None,
+                    url: Some(url.into()),
+                }],
+                derivation: Derivation {
+                    fn_key: "x@1".into(),
+                    args: Some(ciborium::Value::Array(vec![ciborium::Value::Float(1.0)])),
+                },
+                privacy_class: "public".into(),
+                schema_cid: emem_fact::SchemaCid::new("s"),
+                signer: emem_core::AttesterKey([0u8; 32]),
+                signed_at: "2026-09-29T00:00:00Z".into(),
+                served_via: None,
+            })
+        };
+        let mut f = fact("forest_change.treecover2000", 80.0, "https://h/t.tif");
+        stamp_reader(&mut f);
+        stamp_reader(&mut f);
+        let Fact::Primary(p) = &f else { unreachable!() };
+        let ciborium::Value::Array(a) = p.derivation.args.as_ref().unwrap() else {
+            panic!()
+        };
+        assert_eq!(
+            a.iter()
+                .filter(|v| **v == ciborium::Value::Text(COG_READER.into()))
+                .count(),
+            1
+        );
+        let mut api = fact("weather.temperature_2m", 20.0, "https://api.example/x?y=1");
+        stamp_reader(&mut api);
+        let Fact::Primary(p) = &api else {
+            unreachable!()
+        };
+        assert!(
+            matches!(p.derivation.args.as_ref(), Some(ciborium::Value::Array(a)) if a.len() == 1)
+        );
+        assert!(out_of_valid_range(&f).is_none());
+        // A raw MODIS LST DN (15000) is not a temperature.
+        assert!(out_of_valid_range(&fact("modis.lst_day_8day", 15_000.0, "u")).is_some());
+        assert!(out_of_valid_range(&fact("indices.ndvi", 1.3, "u")).is_some());
+        assert!(out_of_valid_range(&fact("unranged.band", 1e9, "u")).is_none());
+    }
+
+    #[test]
+    fn an_ask_about_a_field_signal_names_its_endpoint_first() {
+        let mut r = json!({"next_steps": [{"tool": "recall"}]});
+        attach_signal_next_steps(&mut r, "Was there stubble burning on my field in October?");
+        assert_eq!(r["next_steps"][0]["tool"], "field_burn_scar@1");
+        assert_eq!(r["next_steps"][1]["tool"], "recall");
+        let mut r = json!({});
+        attach_signal_next_steps(&mut r, "parse this pesticide residue lab report");
+        assert_eq!(r["next_steps"][0]["path"], "/v1/lab_report_parse");
+        let mut r = json!({"answer": "x"});
+        attach_signal_next_steps(&mut r, "what is the NDVI near Mount Fuji?");
+        assert!(r.get("next_steps").is_none());
     }
 
     #[test]

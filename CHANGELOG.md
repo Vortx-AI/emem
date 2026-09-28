@@ -7,6 +7,13 @@ to verify.
 
 ## [Unreleased]
 
+- Materialisation is single-flight per (cell, band, slot, refresh): a retry joins the read already running instead of starting another and taking another permit, and waiting for a permit is bounded by the dispatch cap. Without it, re-reads of pre-fix facts piled up and a warm recall could wait 35 s.
+- Every GeoTIFF-read fact names its reader in its derivation (`reader=cog-pixel-floor@2`), so a consumer can tell a pre-fix read from the fact alone. `/v1/materializers` publishes a `valid_range` (min, max, unit) per band, and a value outside it is refused at signing.
+- `/v1/lab_report_parse` takes `product` (an EU product name or code) and reads each row against the MRL in force from the EU Pesticides Database (`eu_mrl_lookup`, `rows[].eu_mrl`); verdict `exceeds_eu_mrl`.
+- Document parsing: an `ocr` reply is accepted only when its emem.ocr.v1 signature verifies against this responder; offsets are CRLF-correct and linear-time; a "<LOQ" above the MRL and a thousands-style "1,000" never conclude "within" (`undetermined_rows`); short land-record labels match whole words; the text path has its own daily quota and parses off the async workers.
+- DDS: a single-point plot's support is qualified, and `statementOfComplianceSignable` is false while any plot's support is weak. field_burn_scar reads the burned-area month holding the window's first day. WorldPop and the relabelled SoilGrids bands signed before 0fe1d4d are re-read. `/v1/scene.png?bbox` rejects a malformed box. A host that ignores Range is refused past 64 MB.
+- ESA CCI biomass moves to v7.0 (epochs 2005..=2012, 2015..=2023). `/v1/ask` points questions about residue burning, water use, lab reports, land records, plot imagery and watercourses at the signal that answers them.
+
 - EUDR window reads open each cell's own tile. A plot across a 3° (WorldCover) or 10° (Hansen, GFC2020) tile line read only the centre tile and signed the far side's out-of-image pixels as 0: a forest-2020 of 0 or a loss year of 0, a pass. A pixel off its tile is now an error, not a zero.
 - Facts read from a GeoTIFF before the pixel fix (2026-09-28T04:09:26Z), or from a superseded release (Hansen v1.12, GFC2020 V3), no longer answer "latest": the next ask reads the tile again and signs the right pixel. Nothing signed is rewritten.
 - Hansen Global Forest Change moves to v1.13 (GFC-2025): loss through 2025 counts in EUDR verdicts. Sampled: v1.13 equals v1.12 except 2025 loss.

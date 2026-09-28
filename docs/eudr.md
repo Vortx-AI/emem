@@ -22,8 +22,8 @@ pins a count; the ceiling is 51,200 cells. The verdict consensus runs
 | Band | Role |
 |---|---|
 | `jrc_gfc2020.forest_2020`        | EUDR forest baseline at the 2020-12-31 cut-off (Bourgoin et al. 2026 ESSD); single-band uint8 `1`=forest |
-| `forest_change.treecover2000`    | Hansen GFC v1.12 canopy fraction (%) at year 2000 |
-| `forest_change.lossyear`         | Hansen GFC v1.12 first-loss year as a **calendar year** (`0`=no loss, else `2001..=2024`); loss strictly after the cut-off year is the failure signal |
+| `forest_change.treecover2000`    | Hansen GFC v1.13 canopy fraction (%) at year 2000 |
+| `forest_change.lossyear`         | Hansen GFC v1.13 first-loss year as a **calendar year** (`0`=no loss, else `2001..=2025`); loss strictly after the cut-off year is the failure signal |
 
 Both baselines are read with one `cog::sample_window` per band over the polygon bounding
 box and indexed per cell from the in-memory buffer (O(1) upstream reads, O(N) lookups),

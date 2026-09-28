@@ -1,9 +1,9 @@
-//! ESA Climate Change Initiative Biomass v6.0 connector.
+//! ESA Climate Change Initiative Biomass v7.0 connector.
 //!
 //! Source: **Santoro, M. et al. (2025). *ESA Biomass Climate Change
 //! Initiative (Biomass_cci): Global datasets of forest above-ground
 //! biomass for the years 2007, 2010, 2015, 2016, 2017, 2018, 2019, 2020,
-//! 2021 and 2022, v6.0*. NERC EDS Centre for Environmental Data
+//! 2021 and 2022, v7.0*. NERC EDS Centre for Environmental Data
 //! Analysis. doi:10.5285/95913ffb6467447ca72c4e9d8cf30501**. Produced
 //! by GAMMA Remote Sensing for ESA's CCI programme; published under the
 //! ESA CCI Data Policy ("free and open access"). The dataset fuses
@@ -13,12 +13,12 @@
 //!
 //! **Two rasters per epoch.** Every supported year ships two GeoTIFFs
 //! per 10° × 10° tile:
-//! - `*-AGB-MERGED-100m-{year}-fv6.0.tif` — above-ground biomass
+//! - `*-AGB-MERGED-100m-{year}-fv7.0.tif` — above-ground biomass
 //!   density in **t/ha (Mg/ha)**, uint16, 100 m equivalent
 //!   (0.000888889° at the equator). Pixel value `0` means
 //!   "no/very-low biomass" *or* "no-data" (the dataset does not carry
 //!   a GDAL_NODATA tag at the L4 product); see honesty notes below.
-//! - `*-AGB_SD-MERGED-100m-{year}-fv6.0.tif` — per-pixel **standard
+//! - `*-AGB_SD-MERGED-100m-{year}-fv7.0.tif` — per-pixel **standard
 //!   deviation** of the AGB estimate in t/ha, uint16. ESA labels the
 //!   layer "AGB_SD" (standard deviation); in geospatial usage this
 //!   serves as the per-pixel standard error / 1-σ uncertainty band.
@@ -44,7 +44,7 @@
 //! zero AGB.
 //!
 //! **Hosting.** The CEDA archive serves the rasters directly off
-//! `https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/{year}/…`
+//! `https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff/{year}/…`
 //! — anonymous, no auth, no token. Range requests verified
 //! `HTTP/2 206 Partial Content` on 2026-05-16 (`Accept-Ranges: bytes`,
 //! `Content-Range: bytes 0-1023/156280199`). The shared
@@ -71,26 +71,26 @@ use reqwest::Client;
 use crate::cog::CogError;
 
 /// Public version tag for the ESA CCI Biomass release this connector
-/// targets. Matches the CEDA archive's `v6.0/` directory and the
-/// `fv6.0` suffix on every published GeoTIFF filename. Bump when
-/// migrating to v7.0 (already published 2026-05-12) or later.
-pub const ESA_CCI_BIOMASS_VERSION_TAG: &str = "v6.0";
+/// targets. Matches the CEDA archive's `v7.0/` directory and the
+/// `fv7.0` suffix on every published GeoTIFF filename.
+pub const ESA_CCI_BIOMASS_VERSION_TAG: &str = "v7.0";
 
-/// The 10 epochs published in v6.0, in chronological order. The
-/// dataset is not annual: 2007 + 2010 are the original retrieval
-/// vintages, then a contiguous 2015..=2022 block was added in
-/// subsequent v3..v6 releases. `cog_url_for(year)` returns `None`
-/// for any year not in this list.
-pub const ESA_CCI_BIOMASS_EPOCHS: &[u16] =
-    &[2007, 2010, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022];
+/// The 17 epochs published in v7.0 (CEDA listing, 2026-09-28): 2005..=2012
+/// and 2015..=2023. 2013 and 2014 are not published; the `2010_2020` and
+/// `2019_2020` directories are change maps, not epochs. `cog_url_for(year)`
+/// returns `None` for any year not in this list.
+pub const ESA_CCI_BIOMASS_EPOCHS: &[u16] = &[
+    2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022,
+    2023,
+];
 
-/// CEDA DAP base URL for the `v6.0/geotiff/` directory tree. Anonymous
+/// CEDA DAP base URL for the `v7.0/geotiff/` directory tree. Anonymous
 /// HTTPS, range-readable (verified 2026-05-16; `dap.ceda.ac.uk` returns
 /// `HTTP/2 206` with `Content-Range`). The browser-facing
 /// `data.ceda.ac.uk` host issues a `302` to this DAP host; we point
 /// directly at the DAP host to avoid the redirect on every request.
 const ESA_CCI_BIOMASS_BASE_URL: &str =
-    "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff";
+    "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff";
 
 /// Layer-name segment used inside the AGB filename
 /// (`*-AGB-MERGED-100m-…`).
@@ -118,7 +118,7 @@ pub struct EsaCciBiomassSample {
     pub se_t_per_ha: f32,
 }
 
-/// Errors specific to the ESA CCI Biomass v6.0 connector.
+/// Errors specific to the ESA CCI Biomass v7.0 connector.
 ///
 /// Each variant carries enough context for a materializer to sign the
 /// correct fact shape (Primary, Absence, or hard error). Bubbled up
@@ -141,7 +141,7 @@ pub enum EsaCciBiomassError {
     /// `N80`). Materializers MUST sign this as an `Absence` — the cell
     /// is genuinely outside the dataset.
     #[error(
-        "coverage_gap: cell (lat={lat:.6}, lng={lng:.6}) maps to ESA CCI Biomass v6.0 tile that is not published"
+        "coverage_gap: cell (lat={lat:.6}, lng={lng:.6}) maps to ESA CCI Biomass v7.0 tile that is not published"
     )]
     CoverageGap {
         /// Cell latitude, for diagnostics.
@@ -151,11 +151,11 @@ pub enum EsaCciBiomassError {
     },
     /// Caller asked for a year outside the 10 documented epochs
     /// (2007, 2010, 2015..=2022). The dataset is **not annual** —
-    /// 2008, 2009, 2011..2014 simply do not exist in v6.0. Surface a
+    /// 2013 and 2014 simply do not exist in v7.0. Surface a
     /// hard error rather than silently falling back to the nearest
     /// year.
     #[error(
-        "year_not_available: {year} is not one of the 10 v6.0 epochs (2007, 2010, 2015..=2022)"
+        "year_not_available: {year} is not one of the 10 v7.0 epochs (2007, 2010, 2015..=2022)"
     )]
     YearNotAvailable {
         /// The year the caller requested.
@@ -216,7 +216,7 @@ pub fn tile_corner_tags(lat: f64, lng: f64) -> (String, String) {
     (lat_tag, lng_tag)
 }
 
-/// Return `true` iff `year` is one of the 10 documented v6.0 epochs.
+/// Return `true` iff `year` is one of the 10 documented v7.0 epochs.
 pub fn year_is_supported(year: u16) -> bool {
     ESA_CCI_BIOMASS_EPOCHS.contains(&year)
 }
@@ -229,7 +229,7 @@ fn tile_filename(lat_tag: &str, lng_tag: &str, year: u16, layer: &str) -> String
         layer == ESA_CCI_BIOMASS_LAYER_AGB || layer == ESA_CCI_BIOMASS_LAYER_AGB_SD,
         "esa_cci_biomass tile_filename called with unknown layer {layer:?}"
     );
-    format!("{lat_tag}{lng_tag}_ESACCI-BIOMASS-L4-{layer}-MERGED-100m-{year}-fv6.0.tif")
+    format!("{lat_tag}{lng_tag}_ESACCI-BIOMASS-L4-{layer}-MERGED-100m-{year}-fv7.0.tif")
 }
 
 /// Build the full HTTPS URL for a given `(lat, lng, year, layer)` quad.
@@ -248,7 +248,7 @@ fn tile_url(lat: f64, lng: f64, year: u16, layer: &str) -> String {
 /// URL with [`tile_url_for`] (or [`tile_url_se_for`] for the SD
 /// raster). Pure — no I/O.
 ///
-/// Example return: `"https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/2022"`.
+/// Example return: `"https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff/2022"`.
 pub fn cog_url_for(year: u16) -> Option<String> {
     if !year_is_supported(year) {
         return None;
@@ -346,7 +346,7 @@ async fn sample_one(
     Ok(raw.round() as u16 as f32)
 }
 
-/// Read one pixel from the ESA CCI Biomass v6.0 AGB + AGB_SD pair for
+/// Read one pixel from the ESA CCI Biomass v7.0 AGB + AGB_SD pair for
 /// the given `(lat, lng, year)` and return both as
 /// [`EsaCciBiomassSample`].
 ///
@@ -400,32 +400,23 @@ mod tests {
     /// segment on CEDA. Bumping to v7.0 (already published 2026-05-12)
     /// is intentionally a one-line, reviewable change.
     #[test]
-    fn version_tag_is_v6() {
-        assert_eq!(ESA_CCI_BIOMASS_VERSION_TAG, "v6.0");
+    fn version_tag_is_v7() {
+        assert_eq!(ESA_CCI_BIOMASS_VERSION_TAG, "v7.0");
     }
 
     /// The 10 documented epochs match the CEDA `geotiff/` directory
     /// listing exactly: 2007 + 2010 (original retrievals) and the
     /// contiguous 2015..=2022 block (added in v3..v6). Crucially this
-    /// list excludes 2008, 2009, and 2011..=2014 — the dataset is
+    /// list excludes 2013 and 2014 — the dataset is
     /// **not annual**.
     #[test]
     fn epochs_match_ceda_listing() {
-        assert_eq!(
-            ESA_CCI_BIOMASS_EPOCHS,
-            &[2007, 2010, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022],
-            "epochs MUST mirror the CEDA v6.0/geotiff/ directory tree"
-        );
-        assert_eq!(ESA_CCI_BIOMASS_EPOCHS.len(), 10);
-        // Spot-checks: gap years that do NOT exist in v6.0.
-        assert!(!year_is_supported(2008));
-        assert!(!year_is_supported(2009));
-        assert!(!year_is_supported(2011));
+        assert_eq!(ESA_CCI_BIOMASS_EPOCHS.len(), 17);
+        assert!(year_is_supported(2005) && year_is_supported(2023));
+        // Gap years that do NOT exist in v7.0.
+        assert!(!year_is_supported(2013));
         assert!(!year_is_supported(2014));
-        assert!(!year_is_supported(2023));
-        // Endpoints of the supported set.
-        assert!(year_is_supported(2007));
-        assert!(year_is_supported(2022));
+        assert!(!year_is_supported(2024));
     }
 
     /// `tile_corner_tags` honours the prefix-style 10° anchoring used
@@ -435,7 +426,7 @@ mod tests {
     /// - Central Congo Basin (lat=-1.0, lng=23.0) → `N00E020`. The
     ///   tile spans 0° down to -10° (north edge at 0°N) and 20° to
     ///   30° (west edge at 20°E), matching the file we probed live
-    ///   at `…/2022/N00E020_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2022-fv6.0.tif`.
+    ///   at `…/2022/N00E020_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2022-fv7.0.tif`.
     /// - Central Amazon (lat=-3.0, lng=-60.5) → `N00W070`.
     /// - Sumatra (lat=-1.0, lng=100.0) → `N00E100`.
     /// - Boreal Sweden (lat=63.0, lng=15.0) → `N70E010`.
@@ -489,22 +480,22 @@ mod tests {
     fn cog_url_for_directories() {
         let url = cog_url_for(2022).expect("year 2022 is in EPOCHS");
         assert_eq!(
-            url, "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/2022",
+            url, "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff/2022",
             "directory URL must be the CEDA DAP path for the year"
         );
         let url = cog_url_for(2007).expect("year 2007 is in EPOCHS");
-        assert!(url.ends_with("/v6.0/geotiff/2007"));
+        assert!(url.ends_with("/v7.0/geotiff/2007"));
         // Year not in the 10 published epochs → None (no fallback).
-        assert!(cog_url_for(2008).is_none(), "2008 is a gap year");
+        assert!(cog_url_for(2013).is_none(), "2013 is a gap year");
         assert!(
             cog_url_for(2024).is_none(),
-            "2024 is past v6.0 (covered by v7.0)"
+            "2024 is past v7.0 (covered by v7.0)"
         );
         // cog_url_se_for mirrors cog_url_for at the directory level —
         // AGB and AGB_SD share the same directory; the difference is
         // in each filename's layer segment.
         assert_eq!(cog_url_se_for(2022), cog_url_for(2022));
-        assert!(cog_url_se_for(2008).is_none());
+        assert!(cog_url_se_for(2013).is_none());
     }
 
     /// `tile_url_for` and `tile_url_se_for` compose the per-cell
@@ -516,14 +507,14 @@ mod tests {
         let url = tile_url_for(2022, -1.0, 23.0).expect("Congo Basin / 2022 must resolve");
         assert_eq!(
             url,
-            "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/2022/N00E020_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2022-fv6.0.tif",
+            "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff/2022/N00E020_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2022-fv7.0.tif",
             "Congo Basin / 2022 AGB tile must point at the live CEDA path"
         );
         // SE sibling: same path, AGB_SD layer segment.
         let sd = tile_url_se_for(2022, -1.0, 23.0).expect("Congo Basin / 2022 SD must resolve");
         assert_eq!(
             sd,
-            "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v6.0/geotiff/2022/N00E020_ESACCI-BIOMASS-L4-AGB_SD-MERGED-100m-2022-fv6.0.tif"
+            "https://dap.ceda.ac.uk/neodc/esacci/biomass/data/agb/maps/v7.0/geotiff/2022/N00E020_ESACCI-BIOMASS-L4-AGB_SD-MERGED-100m-2022-fv7.0.tif"
         );
         // The AGB and AGB_SD URLs must differ ONLY in the layer
         // segment — same year, same tile prefix, same suffix.
@@ -535,17 +526,17 @@ mod tests {
         // Same cell, 2007 → swap year segment + filename year.
         let url = tile_url_for(2007, -1.0, 23.0).expect("Congo Basin / 2007 must resolve");
         assert!(
-            url.contains("/2007/") && url.contains("-2007-fv6.0.tif"),
+            url.contains("/2007/") && url.contains("-2007-fv7.0.tif"),
             "year 2007 must change both the directory segment and the filename year — got {url}"
         );
         // Central Amazon, 2020 → N00W070 AGB tile.
         let url = tile_url_for(2020, -3.0, -60.5).expect("Central Amazon / 2020 must resolve");
         assert!(
-            url.ends_with("/N00W070_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2020-fv6.0.tif"),
-            "Central Amazon / 2020 must end at N00W070 / 2020 / fv6.0 — got {url}"
+            url.ends_with("/N00W070_ESACCI-BIOMASS-L4-AGB-MERGED-100m-2020-fv7.0.tif"),
+            "Central Amazon / 2020 must end at N00W070 / 2020 / fv7.0 — got {url}"
         );
         // Year not in the 10 published epochs → None (no fallback).
-        assert!(tile_url_for(2008, -1.0, 23.0).is_none());
+        assert!(tile_url_for(2013, -1.0, 23.0).is_none());
         // Bad lat/lng → None.
         assert!(tile_url_for(2022, 91.0, 0.0).is_none());
         assert!(tile_url_for(2022, 0.0, 181.0).is_none());
@@ -560,7 +551,7 @@ mod tests {
     #[tokio::test]
     async fn fetch_agb_year_not_available() {
         let client = Client::new();
-        for bad_year in [2006_u16, 2008, 2011, 2014, 2023, 2025] {
+        for bad_year in [2004_u16, 2013, 2014, 2024, 2025] {
             let err = fetch_agb(&client, -1.0, 23.0, bad_year).await.unwrap_err();
             match err {
                 EsaCciBiomassError::YearNotAvailable { year } => {
@@ -639,7 +630,7 @@ mod tests {
 
     /// Constants sanity: base URL points at the CEDA DAP host (the
     /// authenticated-only dap subdomain that returns range-readable
-    /// `image/tiff`), version tag matches the published v6.0 release,
+    /// `image/tiff`), version tag matches the published v7.0 release,
     /// and the layer segments are the exact strings ESA puts in their
     /// filenames.
     #[test]
@@ -649,8 +640,8 @@ mod tests {
             "base URL must point at the CEDA DAP host (range-readable, anonymous)"
         );
         assert!(
-            ESA_CCI_BIOMASS_BASE_URL.ends_with("/v6.0/geotiff"),
-            "base URL must end at the v6.0/geotiff directory"
+            ESA_CCI_BIOMASS_BASE_URL.ends_with("/v7.0/geotiff"),
+            "base URL must end at the v7.0/geotiff directory"
         );
         assert_eq!(ESA_CCI_BIOMASS_LAYER_AGB, "AGB");
         assert_eq!(ESA_CCI_BIOMASS_LAYER_AGB_SD, "AGB_SD");

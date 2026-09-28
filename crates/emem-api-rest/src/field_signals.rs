@@ -275,9 +275,18 @@ pub async fn post_field_burn_scar(
     let (w_nbr, w_ndti, w_ba) = tokio::join!(
         warm(&s, &cells, "indices.nbr", win, budget),
         warm(&s, &cells, "indices.ndti", win, budget),
-        warm(&s, &centre_v, "modis.burned_area_monthly", win, budget),
+        warm(
+            &s,
+            &centre_v,
+            "modis.burned_area_monthly",
+            (win.0 - 31 * DAY, win.1),
+            budget
+        ),
     );
-    let ba = series(&s, &centre, "modis.burned_area_monthly", win).await;
+    // A monthly fact is stamped the first of its month: the month holding
+    // the window's first day starts before the window does.
+    let ba_win = (win.0 - 31 * DAY, win.1);
+    let ba = series(&s, &centre, "modis.burned_area_monthly", ba_win).await;
 
     let mut cited: Vec<String> = ba.iter().map(|o| o.cid.clone()).collect();
     let mut events = Vec::new();
@@ -424,8 +433,8 @@ pub async fn post_field_burn_scar(
         },
         "sensors_evaluated": ["indices.nbr", "indices.ndti", "modis.burned_area_monthly"],
         "sensors_not_evaluated": [
-            {"band": "cams.aod_550", "why": "the algorithm's AOD spike needs a per-field seasonal baseline, not built yet"},
-            {"band": "cams.pm25", "why": "same: needs a baseline"},
+            {"band": "cams.aod_550", "why": "CAMS is a 0.4° (~40 km) model field: a smoke spike there says smoke was in the region, not that this field burned, so it cannot be a per-field vote"},
+            {"band": "cams.pm25", "why": "the same 0.4° field; useful for the regional air-quality story, not for attributing a fire to a field"},
         ],
         "reading": "An NBR drop alone is also what harvest looks like; the NDTI drop is what separates burning from tillage or mulch, and MCD64A1 is independent but 500 m and monthly. `single_sensor_signal` is triage, not evidence. `inconclusive` means fewer than two clear Sentinel-2 dates per cell in the window: widen it or retry after the warm-up converges.",
         "citation": citation,

@@ -1504,6 +1504,7 @@ responder key; `/v1/verifier_spec` lists every segment.
 | `emem.range_hash.v1` | `POST /v1/range_hash` | url, u64_be offset, u64_be length, blake3 (32 raw bytes), etag or `absent`, fetched_at, responder_pubkey, fetched_url |
 | `emem.read.v1` | `POST /v1/read` | url, fetched_url, body_blake3, body_sha256, etag or `absent`, text_blake3, fetched_at, responder_pubkey |
 | `emem.ocr.v1` | `POST /v1/ocr` | image_blake3, source url or `upload`, lang, engine version line, text_blake3, read_at, responder_pubkey |
+| `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map), which is how the response carries it |
 | `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
 
 The fetching routes share one set of egress bounds: https on port 443 only,

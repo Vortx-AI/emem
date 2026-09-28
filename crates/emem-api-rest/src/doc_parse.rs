@@ -26,9 +26,22 @@ pub struct Located<T> {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Measured {
-    Value { raw: String, number: f64 },
-    NotDetected { raw: String },
-    BelowLimit { raw: String, limit: Option<f64> },
+    Value {
+        raw: String,
+        number: f64,
+    },
+    NotDetected {
+        raw: String,
+    },
+    BelowLimit {
+        raw: String,
+        limit: Option<f64>,
+    },
+    /// "1,000": a decimal comma or a thousands separator. Read either way it
+    /// could be 1 or 1000, so it never concludes a row is within a limit.
+    Ambiguous {
+        raw: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -134,6 +147,14 @@ fn measured(tok: &str, next: Option<&str>) -> Option<(Measured, bool)> {
         }
         return None;
     }
+    if ambiguous_separator(raw) {
+        return Some((
+            Measured::Ambiguous {
+                raw: raw.to_string(),
+            },
+            false,
+        ));
+    }
     number(raw).map(|n| {
         (
             Measured::Value {
@@ -145,8 +166,24 @@ fn measured(tok: &str, next: Option<&str>) -> Option<(Measured, bool)> {
     })
 }
 
+/// "1,000": one comma, no dot, three digits after it.
+fn ambiguous_separator(tok: &str) -> bool {
+    let t = tok.trim_matches(|c: char| c == '(' || c == ')' || c == '*');
+    let Some((a, b)) = t.split_once(',') else {
+        return false;
+    };
+    !t.contains('.')
+        && !b.contains(',')
+        && (1..=3).contains(&a.len())
+        && b.len() == 3
+        && a.bytes().chain(b.bytes()).all(|c| c.is_ascii_digit())
+}
+
 /// A plain decimal, with `.` or `,` as the separator.
 fn number(tok: &str) -> Option<f64> {
+    if ambiguous_separator(tok) {
+        return None;
+    }
     let t = tok.trim_matches(|c: char| c == '(' || c == ')' || c == '*');
     if t.is_empty() || !t.chars().next()?.is_ascii_digit() {
         return None;
@@ -259,17 +296,27 @@ const NOT_ANALYTES: &[&str] = &[
     "moisture",
 ];
 
-fn locate<T>(value: T, text: &str, line_no: usize, line: &str) -> Located<T> {
-    let off = text
-        .lines()
-        .take(line_no)
-        .map(|l| l.len() + 1)
-        .sum::<usize>();
+/// Lines with their byte offsets in `text`, computed once. `str::lines`
+/// drops `\r\n` and `\n` alike, so a running `len + 1` fell a byte short
+/// per earlier line on CRLF text; and recomputing it per hit was quadratic.
+fn split_lines(text: &str) -> (Vec<&str>, Vec<usize>) {
+    let mut lines = Vec::new();
+    let mut offs = Vec::new();
+    let mut at = 0;
+    for raw in text.split_inclusive('\n') {
+        offs.push(at);
+        at += raw.len();
+        lines.push(raw.trim_end_matches('\n').trim_end_matches('\r'));
+    }
+    (lines, offs)
+}
+
+fn locate<T>(value: T, offs: &[usize], line_no: usize, line: &str) -> Located<T> {
     Located {
         value,
         line: line.to_string(),
         line_no,
-        byte_offset: off,
+        byte_offset: offs.get(line_no).copied().unwrap_or(0),
     }
 }
 
@@ -277,6 +324,13 @@ fn locate<T>(value: T, text: &str, line_no: usize, line: &str) -> Located<T> {
 /// itself: lowercasing can change a string's byte length, so positions in
 /// a lowercased copy do not slice the original.
 fn find_ci(hay: &str, needle: &str) -> Option<(usize, usize)> {
+    // ASCII on both sides: lowercasing keeps byte positions.
+    if hay.is_ascii() && needle.is_ascii() {
+        let p = hay
+            .to_ascii_lowercase()
+            .find(&needle.to_ascii_lowercase())?;
+        return Some((p, p + needle.len()));
+    }
     let n: Vec<char> = needle.chars().flat_map(char::to_lowercase).collect();
     if n.is_empty() {
         return None;
@@ -301,7 +355,7 @@ fn find_ci(hay: &str, needle: &str) -> Option<(usize, usize)> {
 }
 
 pub fn parse_lab_report(text: &str) -> LabReport {
-    let lines: Vec<&str> = text.lines().collect();
+    let (lines, offs) = split_lines(text);
     let header_line_no = lines.iter().position(|l| is_header(l));
     let columns = header_line_no
         .map(|i| header_columns(lines[i]))
@@ -362,7 +416,7 @@ pub fn parse_lab_report(text: &str) -> LabReport {
         let num = |m: &Measured| match m {
             Measured::Value { number, .. } => Some(*number),
             Measured::BelowLimit { limit, .. } => *limit,
-            Measured::NotDetected { .. } => None,
+            Measured::NotDetected { .. } | Measured::Ambiguous { .. } => None,
         };
         let order: Vec<&'static str> = if columns.is_empty() {
             vec!["result"]
@@ -380,6 +434,7 @@ pub fn parse_lab_report(text: &str) -> LabReport {
                 _ => unmapped.push(match &v {
                     Measured::Value { raw, .. }
                     | Measured::NotDetected { raw }
+                    | Measured::Ambiguous { raw }
                     | Measured::BelowLimit { raw, .. } => raw.clone(),
                 }),
             }
@@ -389,14 +444,21 @@ pub fn parse_lab_report(text: &str) -> LabReport {
             Measured::Value { number, .. } => to_mg(*number),
             _ => None,
         };
+        // A result under a limit is within the MRL only when that limit is:
+        // "<0.05" says nothing about an MRL of 0.01.
+        let under = match &result {
+            Measured::BelowLimit { limit, .. } => limit.and_then(to_mg).or(loq),
+            Measured::NotDetected { .. } => loq,
+            _ => None,
+        };
         let exceeds_printed_mrl = match (&result, result_mg_kg, mrl) {
             (_, Some(r), Some(m)) => Some(r > m),
-            (Measured::NotDetected { .. } | Measured::BelowLimit { .. }, None, Some(_)) => {
-                Some(false)
+            (Measured::NotDetected { .. } | Measured::BelowLimit { .. }, None, Some(m)) => {
+                under.filter(|l| *l <= m).map(|_| false)
             }
             _ => None,
         };
-        let at = locate((), text, no, line);
+        let at = locate((), &offs, no, line);
         rows.push(ResidueRow {
             analyte: analyte.to_string(),
             result,
@@ -415,7 +477,7 @@ pub fn parse_lab_report(text: &str) -> LabReport {
         lines
             .iter()
             .enumerate()
-            .filter_map(|(i, l)| pred(l).map(|v| locate(v, text, i, l)))
+            .filter_map(|(i, l)| pred(l).map(|v| locate(v, &offs, i, l)))
             .collect()
     };
     let sample_id = find_all(&|l: &str| {
@@ -463,6 +525,13 @@ pub fn parse_lab_report(text: &str) -> LabReport {
         "no_rows_found"
     } else if exceedances > 0 {
         "exceeds_printed_mrl"
+    } else if rows
+        .iter()
+        .any(|r| r.mrl_mg_kg.is_some() && r.exceeds_printed_mrl.is_none())
+    {
+        // A row the report gives a limit for but that cannot be decided
+        // (a "<LOQ" above the MRL, an ambiguous separator) blocks "within".
+        "undetermined_rows"
     } else if rows.iter().any(|r| r.mrl_mg_kg.is_some()) {
         "within_printed_mrls"
     } else {
@@ -644,9 +713,29 @@ const PLACE_LABELS: &[&str] = &[
 /// The value after a label on the same line.
 fn after_label(line: &str, labels: &[&str]) -> Option<String> {
     // The earliest label, and of labels starting there the longest.
+    // Short labels must be whole words: "desa" is inside "Desai".
+    let ascii_low = line.is_ascii().then(|| line.to_ascii_lowercase());
+    let bounded = |w: &str| {
+        let (p, e) = match &ascii_low {
+            Some(low) if w.is_ascii() => {
+                let p = low.find(&w.to_ascii_lowercase())?;
+                (p, p + w.len())
+            }
+            // An ASCII line cannot hold a non-ASCII label.
+            Some(_) => return None,
+            None => find_ci(line, w)?,
+        };
+        let short = w.chars().count() <= 5;
+        let before = line[..p]
+            .chars()
+            .next_back()
+            .is_some_and(char::is_alphanumeric);
+        let after = line[e..].chars().next().is_some_and(char::is_alphanumeric);
+        (!short || (!before && !after)).then_some((p, e))
+    };
     let (_, end) = labels
         .iter()
-        .filter_map(|w| find_ci(line, w))
+        .filter_map(|w| bounded(w))
         .min_by_key(|(p, e)| (*p, usize::MAX - e))?;
     let rest = &line[end..];
     let v = rest
@@ -688,7 +777,7 @@ fn parse_area(v: &str) -> Area {
             "ha",
             Some(1.0),
         ),
-        (&["acre", "एकर", "एकड़"], "acre", Some(0.404_685_6)),
+        (&["acre", "acres", "एकर", "एकड़"], "acre", Some(0.404_685_6)),
         (&["guntha", "गुंठे", "गुंठा"], "guntha", Some(0.010_117_1)),
         (&["are", "आर"], "are", Some(0.01)),
         (
@@ -721,7 +810,7 @@ fn parse_area(v: &str) -> Area {
             (multi && low.contains(n))
                 || words.iter().any(|w| {
                     let w = w.trim_matches('.');
-                    w == n.trim_matches('.') || (n.chars().count() >= 4 && w.starts_with(n))
+                    w == n.trim_matches('.') || (n.chars().count() >= 5 && w.starts_with(n))
                 })
         })
     });
@@ -741,7 +830,7 @@ fn parse_area(v: &str) -> Area {
 }
 
 pub fn parse_land_record(text: &str) -> LandRecord {
-    let lines: Vec<&str> = text.lines().collect();
+    let (lines, offs) = split_lines(text);
     let mut rec = LandRecord {
         owners: vec![],
         parcel_ids: vec![],
@@ -760,27 +849,27 @@ pub fn parse_land_record(text: &str) -> LandRecord {
                 .unwrap_or("")
                 .trim_end_matches([',', ';']);
             if id.chars().any(|c| c.is_ascii_digit()) {
-                rec.parcel_ids.push(locate(id.to_string(), text, i, l));
+                rec.parcel_ids.push(locate(id.to_string(), &offs, i, l));
             }
         }
         if let Some(v) = after_label(l, AREA_LABELS) {
             let a = parse_area(&v);
             if ascii_digits(&v).chars().any(|c| c.is_ascii_digit()) {
-                rec.areas.push(locate(a, text, i, l));
+                rec.areas.push(locate(a, &offs, i, l));
             }
         }
         if let Some(v) = after_label(l, OWNER_LABELS) {
             if v.chars().filter(|c| c.is_alphabetic()).count() >= 3 {
-                rec.owners.push(locate(v, text, i, l));
+                rec.owners.push(locate(v, &offs, i, l));
             }
         }
         if let Some(v) = after_label(l, PLACE_LABELS) {
             if v.chars().filter(|c| c.is_alphabetic()).count() >= 2 {
-                rec.places.push(locate(v, text, i, l));
+                rec.places.push(locate(v, &offs, i, l));
             }
         }
         if let Some(d) = date_in(&ascii_digits(l)) {
-            rec.dates.push(locate(d, text, i, l));
+            rec.dates.push(locate(d, &offs, i, l));
         }
     }
     for (name, found) in [
@@ -843,6 +932,55 @@ Total                                          \n";
         // The offset points at the line in the text.
         let row = &r.rows[0];
         assert!(REPORT[row.byte_offset..].starts_with("Chlorpyrifos"));
+    }
+
+    #[test]
+    fn a_limit_above_the_mrl_proves_nothing_and_a_thousands_comma_is_ambiguous() {
+        let t = "Analyte   Result   Unit   LOQ   MRL\r\nChlorpyrifos   <0.05   mg/kg   0.05   0.01\r\nImidacloprid   1,000   µg/kg   10   500\r\nAcetamiprid   n.d.   mg/kg   0.01   0.3\r\n";
+        let r = parse_lab_report(t);
+        assert_eq!(r.rows.len(), 3, "{:#?}", r.rows);
+        assert_eq!(
+            r.rows[0].exceeds_printed_mrl, None,
+            "<0.05 cannot show it is under 0.01"
+        );
+        assert!(matches!(r.rows[1].result, Measured::Ambiguous { .. }));
+        assert_eq!(r.rows[1].exceeds_printed_mrl, None);
+        assert_eq!(
+            r.rows[2].exceeds_printed_mrl,
+            Some(false),
+            "n.d. at LOQ 0.01 is under 0.3"
+        );
+        // CRLF offsets point at the line itself.
+        for row in &r.rows {
+            assert!(
+                t[row.byte_offset..].starts_with(row.line.as_str()),
+                "{}",
+                row.line
+            );
+        }
+        assert_ne!(r.verdict, "within_printed_mrls");
+    }
+
+    #[test]
+    fn short_labels_are_whole_words_and_cent_is_not_centiare() {
+        let r = parse_land_record("Owner: Ravi Desai\nDesa: Sukamaju\n");
+        assert_eq!(r.places.len(), 1, "{:?}", r.places);
+        assert_eq!(r.places[0].value, "Sukamaju");
+        assert!(parse_area("12 centiare").hectares.is_none());
+    }
+
+    #[test]
+    fn many_lines_parse_in_linear_time() {
+        let time = |n: usize| {
+            let t = "01.01.2020 Village: X\n".repeat(n);
+            let start = std::time::Instant::now();
+            let r = parse_land_record(&t);
+            assert_eq!(r.dates.len(), n);
+            start.elapsed().as_secs_f64()
+        };
+        let (a, b) = (time(10_000), time(40_000));
+        // Four times the lines: about four times the work, not sixteen.
+        assert!(b < a * 8.0 + 0.05, "10k lines {a:.3}s, 40k lines {b:.3}s");
     }
 
     #[test]
