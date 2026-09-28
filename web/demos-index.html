@@ -179,7 +179,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a class="port" href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0"><span class="port-pin" aria-hidden="true"></span>GitHub</a></li>
 </ul>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><span aria-current="page">Demos</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">eight things you can click</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><span aria-current="page">Demos</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">live calls you can run and check</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -268,7 +268,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <article class="card status-live">
         <a class="title" href="/demos/recall-polygon">Recall an area</a>
         <span class="endpoint">GET /demos/recall-polygon</span>
-        <p class="desc">Give a place name and a band. emem reads every cell inside the resolved polygon and returns per-cell facts, an aggregate and a heatmap.</p>
+        <p class="desc">Give a place name and a band. emem samples cells inside the resolved polygon (64 for Cubbon Park) and returns a signed fact per cell. The page draws the heatmap and the aggregate.</p>
         <div class="meta"><span class="tag status">live</span><span class="tag">/v1/recall_polygon</span></div>
       </article>
     </div>
@@ -365,7 +365,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="pb-prev" href="/"><i>&larr;</i><b>Home</b></a>
 <ol class="pb-steps">
 <li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run eight live calls" aria-current="step"><span>2</span></a></li>
+<li><a href="/demos" title="Demos: run live calls in the browser" aria-current="step"><span>2</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
 <li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
 <li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>

@@ -595,7 +595,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td class="method post">POST</td><td class="path">/v1/locate</td><td>emem_locate</td><td class="desc">place name &rarr; cell64, neighbourhood and live band inventory</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/recall</td><td>emem_recall</td><td class="desc">{cell, bands?, tslot?, include?, deterministic?, provenance?} &rarr; signed facts; fetches and signs on a miss; include:[&quot;edges&quot;,&quot;freshness&quot;] adds typed edges and a staleness score</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/recall_many</td><td>emem_recall_many</td><td class="desc">up to 256 cells per call; one receipt per cell, no aggregate receipt</td></tr>
-        <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">every cell inside a polygon; budget_ms returns a typed partial result</td></tr>
+        <tr><td class="method post">POST</td><td class="path">/v1/recall_polygon</td><td>emem_recall_polygon</td><td class="desc">sampled cells inside a polygon (cells_sampled, is_exhaustive); budget_ms returns a typed partial result</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/find_similar</td><td>emem_find_similar</td><td class="desc">k-NN over 128-D Tessera embeddings; cosine, hamming or hamming_then_rerank; k from 1 to 1000</td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/ask</td><td>emem_ask</td><td class="desc">question about a place &rarr; answer, reasoning stages and receipts; topics at <a href="/v1/topics">/v1/topics</a></td></tr>
         <tr><td class="method post">POST</td><td class="path">/v1/hunt</td><td>emem_hunt</td><td class="desc">event + region &rarr; top 8 of up to 32 sampled cells</td></tr>
@@ -881,7 +881,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="pb-prev" href="/how-it-works"><i>&larr;</i><b>How it works</b></a>
 <ol class="pb-steps">
 <li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run eight live calls"><span>2</span></a></li>
+<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
 <li><a href="/reference" title="Reference: call every endpoint" aria-current="step"><span>4</span></a></li>
 <li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>

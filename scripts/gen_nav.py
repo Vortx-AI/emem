@@ -61,7 +61,7 @@ END = "<!--nav:end-->"
 #   kind "lab"   unfinished or experimental; kept reachable, marked, off the path
 SITE = [
     ("/",                     "Home",          "tokenise a file, read a place, ask", "Try",     "path"),
-    ("/demos",                "Demos",         "run eight live calls",               "Try",     "path"),
+    ("/demos",                "Demos",         "run live calls in the browser",      "Try",     "path"),
     ("/demos/ask-the-earth",  "Ask the Earth", "ask, get a signed answer",           "Try",     "demo"),
     ("/demos/signed-answer",  "Signed answer", "watch a receipt get built",          "Try",     "demo"),
     ("/demos/recall-polygon", "Recall an area","read a polygon at once",             "Try",     "demo"),
@@ -139,7 +139,7 @@ AUDIENCE = {
     "/docs":        ("developers","the book"),
     "/guard":       ("developers","a server you run, with the commands to run it"),
     "/verify":      ("developers","paste a token, watch the proof run"),
-    "/demos":       ("anyone",    "eight things you can click"),
+    "/demos":       ("anyone",    "live calls you can run and check"),
     "/tools":       ("agents",    "the full tool registry, generated, long"),
     "/a2a":         ("agents",    "how two agents agree before they start"),
     "/agents":      ("agents",    "who writes here, as data"),
