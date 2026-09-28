@@ -1,113 +1,119 @@
 ---
 name: emem-field-tokens
-description: Get a native-resolution raster field over an area from emem, or a field over time, as a signed, verifiable artifact rather than a set of per-cell scalars. Use when the user needs the actual grid of values over an area of interest (a world model input, an NDVI/band drape, change analysis over a scene window, exportable pixels a third party can re-derive) rather than one number at one point. Returns content-addressed grid artifacts plus a signed derivation record and an emem:raster: or emem:cube: token. Reads are public — no auth required.
+description: Fetches a native-resolution raster field over an area from emem, or the same field over several dates, as a signed and re-derivable artifact rather than a set of per-cell scalars. Use when the user needs the actual grid of values over an area of interest (a world-model input, a band or NDVI drape, change analysis over a scene window, pixels a third party can re-hash) rather than one number at one point. Returns content-addressed grid artifacts, a signed derivation record, and an emem:raster, emem:cube or emem:rasterset token. Reads need no key.
 ---
 
 # emem-field-tokens
 
-A world model is a **field over an area across time**, not a set of points.
-This skill fetches that field from emem as a signed, re-derivable artifact:
+A world model reads a **field over an area across time**, not a set of
+points. This skill fetches that field from emem as a signed artifact
+anyone can re-derive.
 
-- `POST /v1/band_raster` — one native-resolution field over a bbox at one
-  time, as a content-addressed grid plus an `emem:raster:` token. Four
-  recipes share this shape: a raw satellite band (`band_raster@1`), a
-  cloud-free median composite (`s2_median_composite@1`), static terrain
-  (`dem_raster@1`), and a foundation-model embedding, 128-D per cell
-  (`embedding_raster@1`) — this last one only where the embedding was
-  already materialised, since the encoder bands are retired on emem.dev
-  and no new vectors are computed.
-- `POST /v1/band_cube` — the same field over several dates, a signed manifest
-  over the raster slices, as an `emem:cube:` token (the field-over-time token).
-- `POST /v1/raster_bundle` — several rasters as one re-derivable set, as an
-  `emem:rasterset:` token; `POST /v1/raster_bundle/resolve` walks it back to
-  its members, which outlive the bundle and re-derive on their own.
-- `POST /v1/raster/resolve` with `{"spot_check": true}` — re-fetch the pixels
-  and re-hash them for you, and cross-check sampled cells against the signed
-  facts at those addresses. Use it to prove an artifact you were handed is
-  the one its token names.
-- `POST /v1/cells_in_bbox` — enumerate the cell64s in a bbox, paged, when you
-  want the per-cell address list instead of the packed grid.
+| Call | Returns |
+|---|---|
+| `POST /v1/band_raster` | one native-resolution field over a bbox at one time, plus an `emem:raster:` token |
+| `POST /v1/band_composite` | a cloud-free median composite over a date window (`s2_median_composite@1`), same shape |
+| `POST /v1/band_cube` | the same field over several dates: a signed manifest over raster slices, as an `emem:cube:` token |
+| `POST /v1/raster_bundle` | several rasters as one set, as an `emem:rasterset:` token |
+| `POST /v1/raster/resolve`, `/v1/cube/resolve`, `/v1/raster_bundle/resolve` | walk a token back to its record; `{"spot_check": true}` also re-hashes the pixels for you |
+| `POST /v1/cells_in_bbox` | the cell64 addresses in a bbox, paged, when you want addresses rather than a grid |
 
-The receipt does not attest a value, it attests a **derivation**: this
-responder computed the artifact whose blake3 is `artifact_cid`, from a pinned
-Sentinel-2 scene, over a content-addressed area (`aoi_cid`) and time. Anyone
-can re-fetch the bytes and re-hash them, or re-run the recipe from the pinned
-scene, and get the same artifact.
+The receipt does not attest a value. It attests a **derivation**: this
+responder computed the artifact whose blake3 is `artifact_cid`, from a
+pinned Sentinel-2 scene, over a content-addressed area (`aoi_cid`) and
+time. Re-fetch the bytes and re-hash them, or re-run the recipe from the
+pinned scene, and you get the same artifact.
 
 ## When to invoke
 
-The user wants an area's field of values, not a point reading:
+- "Give me the 10 m red-band grid over this farm, not per-cell scalars."
+- "Build a time series of near-infrared over this AOI across the summer."
+- "I need pixels over this area that a stranger can re-derive."
 
-- "Give me the 10 m NDVI grid over this farm, not per-cell scalars."
-- "Get the red band (B04) as a raster over this bbox."
-- "Build a time series of the near-infrared band over this AOI across the summer."
-- "I need the actual pixels over this area that a stranger can re-derive."
+For one value at one place use
+[`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md). For
+per-cell facts inside an area use
+[`emem-recall-polygon`](../emem-recall-polygon/SKILL.md). For a picture
+to look at, `GET /v1/scene.png?bbox=w,s,e,n` (see
+[`emem-field-signals`](../emem-field-signals/SKILL.md)); that is a view,
+not a signed artifact.
 
-For a single value at one place use **emem-locate-and-recall**. For similar
-places use **emem-find-similar**. For per-cell facts inside a polygon use
-**emem-recall-polygon**.
+## One field (a raster)
 
-## How to invoke
-
-The endpoint is `https://emem.dev`. Reads are public. Bands: `s2.B02`,
-`s2.B03`, `s2.B04`, `s2.B08`, `s2.B11`, `s2.B12`. Window cap: 512 px per side.
-
-### One field (a raster)
+Bands: `s2.B02`, `s2.B03`, `s2.B04`, `s2.B08`, `s2.B11`, `s2.B12`, or
+`copdem30m.elevation` for terrain (one 1-degree DEM tile, no open
+ocean). Window cap: 512 px a side, about 5.1 km at 10 m; page larger
+areas. `observed_on` (YYYY-MM-DD) targets a capture date; the chosen
+scene is pinned either way.
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/band_raster \
   -H 'content-type: application/json' \
   -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},
-       "band":"s2.B04"}' \
-  | jq '{raster: .tokens.raster, artifact: .artifact.url, grid: .grid,
-         scene: .derivation.sources[0].id, docs: .docs}'
+       "band":"s2.B04"}' > raster.json
+jq '{raster: .tokens.raster, artifact: .artifact.url, cid: .artifact.artifact_cid,
+     grid: .grid, scene: .derivation.sources[0].id}' raster.json
 ```
 
-The response carries the `emem:raster:` token, the artifact URL
-(`GET /v1/artifacts/{cid}`, immutable), the grid georeferencing, and the
-pinned scene. Fetch the bytes and re-hash to verify:
+Fetch the bytes and re-hash them:
 
 ```sh
-CID=$(curl -sf ... | jq -r '.artifact.artifact_cid')     # from the response
+CID=$(jq -r '.artifact.artifact_cid' raster.json)
 curl -sf "https://emem.dev/v1/artifacts/$CID" \
-  | python3 "$SKILL_DIR/rehash.py" "$CID"   # prints MATCH or MISMATCH
+  | python3 "${CLAUDE_SKILL_DIR}/rehash.py" "$CID"   # prints MATCH or MISMATCH
 ```
 
-`$SKILL_DIR` is this skill's own directory; the plugin ships `rehash.py` beside this file (it needs `pip install blake3`).
+Recorded on 2026-09-28: a 32 x 32 px B04 grid (EPSG:32643, scene
+`S2A_MSIL2A_20260925T054251_R005_T43SFS_20260925T090015`), token
+`emem:raster:tllufj6j...:s2.B04:20721:ucosdg5p...`, artifact
+`sipykc4ewzt72gwa7ep2ginzxuxwp5eh6ei5e4szxfspopi2f2ca`. `rehash.py`
+printed `MATCH`, the receipt verified with its FIELD segment bound, and
+`/v1/raster/resolve` with `spot_check` re-read five anchors and passed.
 
-The grid bytes are a canonical little-endian f32 array with a 64-byte header
-(`application/x.emem-grid-f32.v1`): magic `EMEMGRD1`, then `width`, `height`,
-`epsg`, `nodata`, and the lat/lng origin + steps. A NaN is nodata.
+`${CLAUDE_SKILL_DIR}` is this skill's directory, filled in by Claude
+Code; `rehash.py` ships beside this file and needs `pip install blake3`.
+Outside Claude Code, take it from the repository
+(`plugins/emem/skills/emem-field-tokens/rehash.py`) and read it before
+running it.
 
-### A field over time (a cube)
+The grid bytes are a little-endian f32 array behind a 64-byte header
+(`application/x.emem-grid-f32.v1`): magic `EMEMGRD1`, then `width`,
+`height`, `epsg`, `nodata`, and the origin and steps. NaN is nodata.
+
+## A field over time (a cube)
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/band_cube \
   -H 'content-type: application/json' \
   -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},
        "band":"s2.B08",
-       "observed_on":["2026-05-15","2026-06-15","2026-07-15"]}' \
-  | jq '{cube: .tokens.cube, count: .member_count,
+       "observed_on":["2026-05-15","2026-06-15","2026-07-15"]}' > cube.json
+jq '{cube: .tokens.cube, count: .member_count,
          members: [.derivation.members[] | {tslot, scene: .scene_id,
                     requested_dates, distance: .requested_date_distance_days,
-                    raster: .raster_token}]}'
+                    raster: .raster_token}]}' cube.json
 ```
 
-A cube is **not** new pixels: it is a signed manifest over `member_count`
-independently resolvable `emem:raster:` slices, one per date (dates that hit
-the same scene collapse; each member echoes which `requested_dates` mapped to
-it). `cube_cid` is the blake3 of the ordered member derivation cids. Resolve a
-member independently, or the whole cube:
+A cube is not new pixels. It is a signed manifest over `member_count`
+independently resolvable `emem:raster:` slices, one per scene. Dates
+that hit the same scene collapse into one member, and each member says
+which `requested_dates` mapped to it and how far away the scene was.
+`cube_cid` is the blake3 of the ordered member derivation cids.
+
+Recorded on 2026-09-28: three members, and the nearest usable scene for
+the `2026-05-15` request was 10 June, 26 days away
+(`requested_date_distance_days: 26`). Report that distance with the
+date the user asked for; a cube member is not a reading on the
+requested day.
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/cube/resolve \
-  -H 'content-type: application/json' -d '{"token":"emem:cube:..."}' | jq '.resolved, .member_tokens'
+jq '{token: .tokens.cube}' cube.json \
+  | curl -sf -X POST https://emem.dev/v1/cube/resolve \
+      -H 'content-type: application/json' -d @- \
+  | jq '.resolved, .member_tokens'
 ```
 
-### Enumerate the cells in an area (paged)
-
-When you want the address list rather than the packed grid — a dense recall,
-a sample frame, a world build:
+## Enumerate the cells in an area
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/cells_in_bbox \
@@ -117,44 +123,46 @@ curl -sf -X POST https://emem.dev/v1/cells_in_bbox \
   | jq '{total, count, next_cursor, first: .cells[0]}'
 ```
 
-Page with `next_cursor` until it is null, and feed each page's `cells` to
-`POST /v1/recall_many` with a `budget_ms` to read them under the
-partial-results contract. Pure geometry: no facts read, no receipt.
+Page with `next_cursor` until it is null, and feed each page to
+`POST /v1/recall_many` with a `budget_ms`. Pure geometry: no facts read,
+no receipt.
 
 ## Verify a token you were handed
 
-Resolve first, then re-hash the artifact and check its receipt with the
-**emem-verify-receipt** skill:
-
 ```sh
-curl -sf -X POST https://emem.dev/v1/raster/resolve \
-  -H 'content-type: application/json' -d '{"token":"emem:raster:..."}' \
-  | jq '{bound: .resolved, artifact: .artifact.url, receipt: .receipt.field}'
+jq '{token: .tokens.raster, spot_check: true}' raster.json \
+  | curl -sf -X POST https://emem.dev/v1/raster/resolve \
+      -H 'content-type: application/json' -d @- \
+  | jq '{bound: .resolved, artifact: .artifact.url, field: .receipt.field,
+         spot_check_passed: .spot_check.passed}'
 ```
 
 Every claim in the token binds to the signed record before anything
-dereferences: a mismatched area, band, or date is a typed `409`, never a
-silent wrong answer.
+dereferences: a mismatched area, band or date is a typed 409, never a
+silent wrong answer. Then check the receipt with
+[`emem-verify-receipt`](../emem-verify-receipt/SKILL.md); its FIELD
+segment binds `(aoi_cid, derivation_cid)`.
 
 ## Notes
 
-- The artifact is **evictable by design**: the small derivation record
-  persists and pins the scene, recipe, and geometry, so an evicted artifact is
-  a rebuild recipe (re-POST with the same bbox/band/date), never a broken
-  citation.
-- For NDVI specifically, `POST /v1/band_raster` gives you B08 and B04 as two
-  rasters; NDVI = (B08 − B04) / (B08 + B04) per pixel. Or use
-  **emem-locate-and-recall** for the pre-computed, cloud-gated `indices.ndvi`
-  scalar at one cell.
-- Reads are public; no key. The reference for the whole token family is
-  [`https://emem.dev/reference#tokens`](https://emem.dev/reference#tokens).
+- The artifact is evictable by design. The derivation record persists
+  and pins scene, recipe and geometry, so an evicted artifact is a
+  rebuild recipe (re-POST the same body), never a broken citation.
+- NDVI from rasters: fetch B08 and B04 and compute
+  (B08 - B04) / (B08 + B04) per pixel. For one cell, the cloud-gated
+  `indices.ndvi` fact from recall is already computed.
+- A cold area costs one scene read. Under load the first call can pass
+  the 40 s transport budget and answer `compute_timeout`; retry once.
 
 ## What the token proves, and what it does not
 
-`emem:raster:`, `emem:cube:` and `emem:rasterset:` name artifacts and the
-signed derivation record beside them. Like `emem:bundle:`, they are
-handles to a set: strong enough to re-derive and re-verify, and not a
-digest of every value inside. When a specific reading matters, cite the
-`emem:fact:` token for that cell as well — the fact token is the one that
-binds a body. [`emem-agent-handoff`](../emem-agent-handoff/SKILL.md) has
-the full table.
+An `emem:raster:` token spells out its claims:
+`emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>`. The
+`derivation_cid` names the signed derivation record, which pins the
+scene, the recipe and the artifact's blake3, so the token binds the
+derivation and, through it, the bytes. `emem:cube:` does the same over a
+tslot range and its member slices; `emem:rasterset:` names a bundle cid
+plus its derivation. None of them signs a pixel as a measurement. When
+one reading matters, cite that cell's `emem:fact:` token too.
+[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md) has the whole
+token table.
