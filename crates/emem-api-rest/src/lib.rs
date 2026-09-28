@@ -49,9 +49,11 @@ mod band_raster;
 mod change_attribution;
 mod decide;
 mod deforestation_alert;
+mod doc_parse;
 mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
+mod field_signals;
 mod intents;
 mod physics;
 mod range_hash;
@@ -1212,6 +1214,7 @@ pub fn router(state: AppState) -> Router {
             get(get_cell_recall_geojson),
         )
         .route("/v1/cells/:cell64/scene.png", get(get_cell_scene_png))
+        .route("/v1/scene.png", get(get_scene_png_bbox))
         .route("/v1/cells/:cell64/scene.rgb", get(get_cell_scene_rgb))
         .route(
             "/v1/places/scene_overlay.svg",
@@ -1327,6 +1330,11 @@ pub fn router(state: AppState) -> Router {
         // bounds. See crates/emem-api-rest/src/reader.rs.
         .route("/v1/read", post(reader::post_read))
         .route("/v1/ocr", post(reader::post_ocr))
+        .route("/v1/lab_report_parse", post(reader::post_lab_report_parse))
+        .route(
+            "/v1/land_record_parse",
+            post(reader::post_land_record_parse),
+        )
         // Typed decisions from a small open-weights model. See decide.rs.
         .route("/v1/decide", post(decide::post_decide))
         // A field as a signed derivation: docs/plans/field-tokens.md.
@@ -1351,6 +1359,14 @@ pub fn router(state: AppState) -> Router {
         // express. See crates/emem-api-rest/src/eo_runtime.rs.
         .route("/v1/spi", post(eo_runtime::post_spi))
         .route("/v1/burn_severity", post(eo_runtime::post_burn_severity))
+        .route(
+            "/v1/field_burn_scar",
+            post(field_signals::post_field_burn_scar),
+        )
+        .route(
+            "/v1/field_actual_et",
+            post(field_signals::post_field_actual_et),
+        )
         .route("/v1/rice_ch4", post(eo_runtime::post_rice_ch4))
         // ── Sentinel-1 VV backscatter-drop forest-disturbance scout
         //    (cloud-penetrating C-band SAR; the RADD-gap signal). ──────────
@@ -8920,7 +8936,7 @@ async fn materializers(
                 "value_shape":       [128],
                 "coverage":          "global terrestrial; 0.1° tile grid; v1 vintage 2024",
                 "upstream_scheme":   "geotessera",
-                "upstream_endpoint": "https://dl2.geotessera.org/v1/global_0.1_degree_representation",
+                "upstream_endpoint": "https://data.source.coop/tessera/tessera/npy/v1",
                 "derivation_fn_key": "geotessera_v1@2",
                 "confidence":        0.85,
                 "tempo":             "slow",
@@ -8936,7 +8952,7 @@ async fn materializers(
                 "value_shape":       [1024],
                 "coverage":          "global terrestrial; 0.1° tile grid; 8-year stack 2017-2024",
                 "upstream_scheme":   "geotessera",
-                "upstream_endpoint": "https://dl2.geotessera.org/v1/global_0.1_degree_representation",
+                "upstream_endpoint": "https://data.source.coop/tessera/tessera/npy/v1",
                 "derivation_fn_key": "geotessera_multi_year@2",
                 "confidence":        0.85,
                 "tempo":             "slow",
@@ -9320,7 +9336,7 @@ fn project_materializer_entry(entry: &JsonValue, summary: bool) -> JsonValue {
 ///   "history_available_to_unix":   1609459199,
 ///   "history_available_from_iso":  "2020-01-01T00:00:00Z",
 ///   "history_available_to_iso":    "2020-12-31T23:59:59Z",
-///   "upstream_wire_path": "dl2.geotessera.org per-year .npy HTTPS-Range",
+///   "upstream_wire_path": "data.source.coop/tessera per-year .npy HTTPS-Range",
 ///   "backfill_supported": true,
 ///   "tslot_grid_seconds": 31556952
 /// }
@@ -9889,7 +9905,7 @@ async fn fleet() -> Json<JsonValue> {
                 "native_res_m":  10,
                 "tempo":         "slow",
                 "bands":         ["geotessera"],
-                "wire_path":     "dl2.geotessera.org HTTPS range → Primary fact",
+                "wire_path":     "data.source.coop/tessera HTTPS range → Primary fact",
                 "notes":         "128-D foundation embedding ingested via HTTPS range reads against the public bucket; ~640 B per cell instead of 91 MiB per tile. Native CRS is per-tile UTM."
             },
             {
@@ -12408,7 +12424,9 @@ fn answered_bands<'a>(
     for f in &resp.facts {
         if let emem_fact::Fact::Primary(p) = f {
             let e = newest.entry(p.band.as_str()).or_insert(p);
-            if p.tslot > e.tslot {
+            // Same slot re-signed (a static band read again): the later
+            // signature is the answer, or a superseded read never retires.
+            if p.tslot > e.tslot || (p.tslot == e.tslot && p.signed_at > e.signed_at) {
                 *e = p;
             }
         }
@@ -12448,7 +12466,34 @@ fn answered_bands<'a>(
 /// hour for hourly weather, a year for annual products; never for static).
 /// Before this, any stored reading answered forever, so a June NDVI stood
 /// as the newest while a clear September scene sat unasked upstream.
+/// When the raster reader started taking the pixel that contains the
+/// point (dba347b went live). A GeoTIFF read signed before then may carry
+/// the south-east neighbour's value, so it is not the latest answer: the
+/// next ask reads the tile again and signs the right pixel. The old fact
+/// stays in the log and still verifies.
+const PIXEL_FIX_AT: &str = "2026-09-28T04:09:26Z";
+
+/// Releases a newer one replaced. A fact read from one is not the latest
+/// answer: Hansen v1.13 adds 2025 loss that v1.12 cannot show.
+const SUPERSEDED_RELEASES: &[&str] = &["/GFC-2024-v1.12/", "JRC_GFC2020_V3_"];
+
+fn superseded_read(p: &emem_fact::PrimaryFact) -> bool {
+    p.sources.iter().any(|src| {
+        let u = src.url.as_deref().unwrap_or(src.id.as_str());
+        let u = u.split(['?', '#']).next().unwrap_or(u);
+        let tif = {
+            let l = u.to_ascii_lowercase();
+            l.ends_with(".tif") || l.ends_with(".tiff")
+        };
+        (tif && p.signed_at.as_str() < PIXEL_FIX_AT)
+            || SUPERSEDED_RELEASES.iter().any(|r| u.contains(r))
+    })
+}
+
 fn primary_answers_latest(p: &emem_fact::PrimaryFact) -> bool {
+    if superseded_read(p) {
+        return false;
+    }
     let slot = band_tempo_for_key(&p.band).map_or(0, |t| t.slot_seconds() as i64);
     let since = now_unix_s() - slot;
     slot == 0
@@ -30281,7 +30326,7 @@ fn mcp_prompts() -> Vec<JsonValue> {
         json!({
             "name":        "forest_loss",
             "title":       "Has this place lost forest?",
-            "description": "Hansen Global Forest Change v1.12 layers: tree cover 2000, year of loss (2001–2024), gain mask.",
+            "description": "Hansen Global Forest Change v1.13 layers: tree cover 2000, year of loss (2001–2025), gain mask.",
             "arguments": [{ "name": "place", "description": "Place name or 'lat,lng'.", "required": true }],
         }),
         json!({
@@ -30507,11 +30552,11 @@ fn mcp_render_prompt(name: &str, args: &JsonValue) -> Result<JsonValue, (i64, St
         "forest_loss" => {
             let place = s("place")?;
             (
-                "Hansen Global Forest Change v1.12 read",
+                "Hansen Global Forest Change v1.13 read",
                 format!(
                     "Has {place} lost forest since 2000? \
                      emem_locate then emem_recall bands=['forest_change.treecover2000','forest_change.lossyear','forest_change.gain']. \
-                     `forest_change.lossyear` is the calendar year of loss (2001…2024; 0 = no loss). \
+                     `forest_change.lossyear` is the calendar year of loss (2001…2025; 0 = no loss). \
                      Pair with esa_worldcover.lc_2021 to confirm the current state. \
                      Use the algorithm `carbon.deforestation_alert_proxy@1` if you want a composite score across years."
                 ),
@@ -32667,6 +32712,11 @@ fn openapi_spec() -> JsonValue {
             "/v1/sar_forest_disturbance":{"post":{"summary":"Sentinel-1 VV backscatter-drop forest-disturbance scout (cloud- and night-independent). Samples VV at a baseline-year July-1 anchor and the latest scene; vv_drop_db = baseline − recent, disturbed when drop ≥ 3 dB (Reiche et al. 2018). Both VV reads are signed Primary facts (cited fact_cids); honest `inconclusive` when either S1 vintage is unavailable. ADDITIVE scout signal, NOT a standalone legal verdict, confirm with the optical JRC GFC2020/Hansen consensus (/v1/eudr_dds, /v1/deforestation_alert). Source: MPC sentinel-1-rtc (anonymous SAS, no requester-pays).","operationId":"emem_sar_forest_disturbance","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"baseline_year":{"type":"integer","description":"Baseline calendar year the VV drop is measured against (default 2020)."}}}}}},"responses":{"200":json_ok}}},
             "/v1/spi":               {"post":{"summary":"McKee-1993 Standardized Precipitation Index drought metric: fits a gamma to the same-window precipitation-accumulation history and standardizes the current accumulation to a z-score + drought class. Honest `inconclusive` (no z-score) when fewer than the minimum samples exist. Supply `precip_history_mm` + `current_accumulation_mm` directly, or omit to read the stored `weather.precipitation_mm` trajectory.","operationId":"emem_spi","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"window_days":{"type":"integer","description":"Accumulation window (SPI-3 = 90 d default; SPI-1 = 30 d; SPI-12 = 360 d)."},"precip_history_mm":{"type":"array","items":{"type":"number"},"description":"Optional explicit same-window precipitation accumulations (mm)."},"current_accumulation_mm":{"type":"number","description":"Current-window accumulation (mm); required when precip_history_mm is supplied."}}}}}},"responses":{"200":json_ok}}},
             "/v1/burn_severity":     {"post":{"summary":"Key & Benson dNBR burn severity: dNBR = nbr_pre − nbr_post, mapped to USGS severity classes. Supply `nbr_pre` + `nbr_post` (pin the scenes bracketing the fire date) or omit to use the two most-recent stored `indices.nbr` scenes.","operationId":"emem_burn_severity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"nbr_pre":{"type":"number","description":"Pre-fire NBR."},"nbr_post":{"type":"number","description":"Post-fire NBR."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/field_burn_scar":   {"post":{"summary":"field_burn_scar@1: residue burning on a field over a window. Warms indices.nbr, indices.ndti and modis.burned_area_monthly, then applies residue_burn_multisensor@1 between consecutive clear Sentinel-2 dates per cell; an event is max(2, 10 %) of the cells clear on one post-burn date at likely_burn or better. Returns verdict (burn | signal_only | no_burn | inconclusive), burn_events, per-cell signals with their fact_cids, and what it did not evaluate (CAMS).","operationId":"emem_field_burn_scar","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 45000)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/field_actual_et":   {"post":{"summary":"field_actual_et@1: actual evapotranspiration over a window at the field centre, the MOD16A2 8-day composites (modis.et_8day) pro-rated to the window edges. Returns et_mm, et_m3_per_ha (= mm x 10), coverage, the composites and their fact_cids; partial windows are summed, never extrapolated.","operationId":"emem_field_actual_et","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start","end"],"properties":{"geometry_geojson":{"type":"object","description":"GeoJSON Polygon or MultiPolygon of the field, or {bbox:[w,s,e,n]}."},"cells":{"type":"array","items":{"type":"string"},"description":"Or the field's cell64s."},"start":{"type":"string","description":"First day, YYYY-MM-DD."},"end":{"type":"string","description":"Last day, YYYY-MM-DD (inclusive, window at most 400 days)."},"max_cells":{"type":"integer","description":"Cells sampled inside the geometry (burn scar; default 16, max 64)."},"budget_ms":{"type":"integer","description":"Warm-up budget (default 45000)."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/scene.png":         {"get":{"summary":"Sentinel-2 true-colour scene cropped to a plot: bbox=w,s,e,n (WGS-84) read at native 10 m, up to 1024 px a side (about 10 km). Same headers as /v1/cells/{cell64}/scene.png: scene id, capture time, cloud cover, EPSG and CRS bounds, pixel size, per-channel stretch, sun and view angles. max_cloud and datetime work as there.","operationId":"emem_scene_png_bbox","parameters":[{"name":"bbox","in":"query","required":true,"schema":{"type":"string"},"description":"w,s,e,n in degrees"},{"name":"max_cloud","in":"query","schema":{"type":"number"}},{"name":"datetime","in":"query","schema":{"type":"string"}}],"responses":{"200":{"description":"image/png"}}}},
+            "/v1/lab_report_parse":  {"post":{"summary":"lab_report_parse@1: a pesticide-residue lab report read row by row from OCR text: analyte, result (value, not detected, or below a limit), unit normalised to mg/kg, LOQ and the MRL the report prints, whether each exceeds it, plus sample id, dates, accreditation and method lines. Deterministic, every value with its line and byte offset; signed PreimageV1 emem.doc_parse.v1 over the text blake3 and result blake3. It does not look residues up in the EU MRL database.","operationId":"emem_lab_report_parse","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string","description":"The document text."},"ocr":{"type":"object","description":"A /v1/ocr response; its text must hash to its text_blake3_b32."},"url":{"type":"string","description":"An image to OCR here first."},"image_b64":{"type":"string"},"lang":{"type":"string","description":"Tesseract languages, e.g. eng+hin+mar."}}}}}},"responses":{"200":json_ok}}},
+            "/v1/land_record_parse": {"post":{"summary":"land_record_parse@1: a land record's owners, parcel ids (survey, gat, khasra, CAR, matricula), areas in hectares where the unit has one meaning (ha.are.m2 7/12 extracts, acres, gunthas; bigha is reported raw), places and dates, from OCR text in the Indian scripts, Portuguese, Spanish, French or Indonesian. Every field with its line and byte offset; missing fields are listed, never filled. Signed like lab_report_parse.","operationId":"emem_land_record_parse","tags":["compliance"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"text":{"type":"string","description":"The document text."},"ocr":{"type":"object","description":"A /v1/ocr response; its text must hash to its text_blake3_b32."},"url":{"type":"string","description":"An image to OCR here first."},"image_b64":{"type":"string"},"lang":{"type":"string","description":"Tesseract languages, e.g. eng+hin+mar."}}}}}},"responses":{"200":json_ok}}},
             "/v1/rice_ch4":          {"post":{"summary":"IPCC-2019 Tier-2 rice-cultivation CH4 (Eq 5.1): integrates the daily emission factor over the cultivation period with water-regime (SFp/SFo) and optional Yan-2005 Q10 temperature scaling. `cultivation_period_days` and the regional `efc_kg_ch4_ha_day` (Table 5.11) are REQUIRED, no defensible global default.","operationId":"emem_rice_ch4","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell","cultivation_period_days","efc_kg_ch4_ha_day"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"cultivation_period_days":{"type":"number","description":"Cultivation-period length in days (typically 110–150)."},"efc_kg_ch4_ha_day":{"type":"number","description":"Regional baseline EFc (kg CH4/ha/day) from IPCC 2019 Table 5.11."},"ndwi_series":{"type":"array","items":{"type":"number"},"description":"Optional explicit NDWI series across the cultivation period."},"sfp":{"type":"number","description":"Pre-season water-regime scaling factor SFp (Table 5.13); default 0.68."},"sfo":{"type":"number","description":"Organic-amendment scaling factor SFo (Table 5.14); default 1.00."},"t_paddy_c":{"type":"number","description":"Mean paddy-water temperature (°C) for the Yan-2005 Q10 modifier; omit to disable."}}}}}},"responses":{"200":json_ok}}},
             "/v1/terrain":           {"post":{"summary":"DEM terrain triad over a 3×3 copdem30m.elevation_mean neighbourhood: Horn-1981 slope (deg), Riley-1999 ruggedness (TRI), Weiss-2001 topographic position (TPI). The 8 neighbour cell64s are derived by perturbing lat/lng step_cells pitches per axis (default 3 ≈ 28.7 m, matching the ~30 m Cop-DEM resolution). Slope/TRI need the full 8-ring; TPI degrades to ≥1 neighbour. Ocean/coast cells return a signed inconclusive (Cop-DEM is bathymetry-free), never a fabricated value.","operationId":"emem_terrain","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cell"],"properties":{"cell":{"type":"string","description":"cell64 or place name"},"step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (~9.55 m each). Default 3 ≈ 28.7 m matches the Cop-DEM native resolution; 1 reads flat inside one source pixel."}}}}}},"responses":{"200":json_ok}}},
             "/v1/region_similarity": {"post":{"summary":"How alike are two places? Mean-pool the 128-D GeoTessera embedding across each region's cells, then return cosine(centroid_a, centroid_b) in [-1,1]. CPU-fetched (no GPU). Each region is {place} | {polygon_bbox} | {cells}. Signed inconclusive when a region has no embedding-covered cell.","operationId":"emem_region_similarity","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["region_a","region_b"],"properties":{"region_a":{"type":"object","description":"{place} | {polygon_bbox:{min_lat,max_lat,min_lng,max_lng}} | {cells:[cell64,...]}"},"region_b":{"type":"object","description":"same shape as region_a"},"max_cells":{"type":"integer","minimum":1,"maximum":256,"default":64}}}}}},"responses":{"200":json_ok}}},
@@ -47104,6 +47154,16 @@ async fn materialize_elevation_mean(
         Ok(p) => p,
         Err(e) => {
             let es = e.to_string();
+            // An Absence only while the release is published: N27E086
+            // (Everest) is a tile it ships.
+            let canary = emem_fetch::copernicus_dem::tile_url_for(27.5, 86.5);
+            if (es.contains("404") || es.contains("Not Found"))
+                && !emem_fetch::cog::release_alive(&cli, &canary).await
+            {
+                return Err(format!(
+                    "open copdem cog {url}: 404, and so does the release's known tile {canary}: Cop-DEM GLO-30 is no longer published there"
+                ));
+            }
             if es.contains("404") || es.contains("Not Found") {
                 let reason = format!(
                     "copdem_coverage_gap: AWS Open Data Cop-DEM GLO-30 publishes no tile at ({lat:.6},{lng:.6}); the tile URL {url} returned 404. This is the documented behaviour over open ocean (Cop-DEM is a land DEM) and at certain unmapped Antarctic interiors. Recorded as a confirmed absence."
@@ -47119,14 +47179,29 @@ async fn materialize_elevation_mean(
     //    EPSG:4326, so world_x = lng, world_y = lat directly. On a
     //    sampling error we again sign Absence with `copdem_coverage_gap`
     //    rather than silently fall back to a different source.
-    let elev_m = match emem_fetch::cog::sample_pixel(&cli, &url, &profile, lng, lat).await {
-        Ok(v) => v,
-        Err(e) => {
-            let reason = format!(
-                "copdem_coverage_gap: AWS Open Data Cop-DEM GLO-30 sample at ({lat:.6},{lng:.6}) on tile {url} failed: {e}. Recorded as a confirmed absence."
-            );
-            let cid = sign_elevation_absence(cell64, s, &url, &signed_at, &reason).await?;
-            return Ok(ElevationMaterialization::Absence(cid));
+    // A tile is named by the floor of its SW corner but its pixels are
+    // points, so it spans half a pixel past each degree line: a cell in the
+    // last ~15 m of a tile's south or east edge is in the neighbour's image.
+    // A failed read is the upstream's trouble, never an absence of land.
+    let (elev_m, url) = match emem_fetch::cog::sample_pixel(&cli, &url, &profile, lng, lat).await {
+        Ok(v) => (v, url),
+        Err(first) => {
+            let px = 1.0 / 3600.0;
+            let mut found = None;
+            for (dla, dln) in [(-px, 0.0), (0.0, px), (-px, px), (px, 0.0), (0.0, -px)] {
+                let other = emem_fetch::copernicus_dem::tile_url_for(lat + dla, lng + dln);
+                if other == url {
+                    continue;
+                }
+                let Ok(p) = emem_fetch::cog::open_profile(&cli, &other).await else {
+                    continue;
+                };
+                if let Ok(v) = emem_fetch::cog::sample_pixel(&cli, &other, &p, lng, lat).await {
+                    found = Some((v, other));
+                    break;
+                }
+            }
+            found.ok_or_else(|| format!("sample copdem {url} at ({lat:.6},{lng:.6}): {first}"))?
         }
     };
 
@@ -47732,8 +47807,7 @@ async fn materialize_geotessera_multi_year(
         uncertainty: None,
         sources: vec![Source {
             scheme: "geotessera".into(),
-            id: "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{2017..2025}"
-                .into(),
+            id: "https://data.source.coop/tessera/tessera/npy/v1/{2017..2025}".into(),
             cid: None,
             hash: None,
             // latest covered vintage; covered-years list lives in derivation.args
@@ -47881,7 +47955,7 @@ struct TesseraTileHeader {
 /// holds the parsed [`TesseraTileHeader`] once the first caller finishes
 /// the two `bytes=0-511` probes. Concurrent callers for the same
 /// `(year, tile)` park on this cell (single-flight) so exactly ONE pair
-/// of header probes hits dl2.geotessera.org per tile.
+/// of header probes hits data.source.coop/tessera per tile.
 type TesseraHeaderSlot = Arc<tokio::sync::OnceCell<TesseraTileHeader>>;
 
 /// `(year, grid_name)` cache key. The npy headers are immutable upstream
@@ -47958,9 +48032,8 @@ async fn get_or_fetch_tessera_header(
 
     let hdr = cell
         .get_or_try_init(|| async {
-            let base = format!(
-                "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/{grid_name}"
-            );
+            let base =
+                format!("https://data.source.coop/tessera/tessera/npy/v1/{year}/{grid_name}");
             let emb_url = format!("{base}/{grid_name}.npy");
             let scales_url = format!("{base}/{grid_name}_scales.npy");
             let cli = reqwest_client();
@@ -48046,7 +48119,7 @@ async fn get_or_fetch_tessera_header(
 }
 
 /// Per-year Tessera pixel fetch, pure HTTP-range NumPy reader against the
-/// public dl2.geotessera.org bucket. Returns the 128-D dequantised
+/// public data.source.coop/tessera bucket. Returns the 128-D dequantised
 /// embedding for the exact (lat, lng) tile pixel, or an error string.
 ///
 /// The tile-invariant npy header (shape/dtype/data-offset) is resolved
@@ -48839,11 +48912,20 @@ async fn materialize_geotessera_for_year(
             // directly, no upstream re-probe, and the agent gets a
             // citable "tried, no data here" Fact instead of an empty
             // result.
-            if e.contains("status 404") || e.contains("404 Not Found") {
+            // Only while the host still publishes: the old host answered 410
+            // to everything, and a moved bucket would 404 everything.
+            let canary = "https://data.source.coop/tessera/tessera/npy/v1/2024/grid_101.55_0.95/grid_101.55_0.95_scales.npy";
+            let is_404 = e.contains("status 404") || e.contains("404 Not Found");
+            if is_404 && !emem_fetch::cog::release_alive(&s2_http_client(), canary).await {
+                return Err(format!(
+                    "{e}; the host's known tile {canary} is gone too, so this says nothing about the cell"
+                ));
+            }
+            if is_404 {
                 let signed_at = chrono_iso8601_utc();
                 let reason = format!(
                     "geotessera_no_tile: no Tessera embedding tile published upstream \
-                     at dl2.geotessera.org for ({lat:.6},{lng:.6}) in year {year} \
+                     at data.source.coop/tessera for ({lat:.6},{lng:.6}) in year {year} \
                      (HEAD returned 404). Coverage is regional per year, many cells \
                      ship in some vintages and not others. The 1024-D fused \
                      `geotessera.multi_year` band NaN-masks absent years and is the \
@@ -48858,9 +48940,7 @@ async fn materialize_geotessera_for_year(
                     confidence: 1.0,
                     sources: vec![Source {
                         scheme: "geotessera".into(),
-                        id: format!(
-                            "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/..."
-                        ),
+                        id: format!("https://data.source.coop/tessera/tessera/npy/v1/{year}/..."),
                         cid: None,
                         hash: None,
                         // vintage-year stamp; see derivation.args (year field) for the slice
@@ -48887,9 +48967,7 @@ async fn materialize_geotessera_for_year(
         uncertainty: None,
         sources: vec![Source {
             scheme: "geotessera".into(),
-            id: format!(
-                "https://dl2.geotessera.org/v1/global_0.1_degree_representation/{year}/..."
-            ),
+            id: format!("https://data.source.coop/tessera/tessera/npy/v1/{year}/..."),
             cid: None,
             hash: None,
             // vintage-year stamp; see derivation.args (year field) for the slice
@@ -49319,25 +49397,14 @@ async fn materialize_power_band(
     .map_err(|e| format!("nasa power https: {e}"))?;
     let target_tslot = emem_core::tslot::Tslot::from_unix(target, emem_core::tslot::Tempo::Fast).0;
     let absence_signed_at = chrono_iso8601_utc();
+    // POWER answers the open ocean with a 200 and a value, so a non-2xx
+    // is the service's own trouble (a 422 on a bad date, a 5xx), never a
+    // fact that the place has no data.
     if !resp.status().is_success() {
-        // POWER returns 422 for points outside its land-only mask
-        // (open ocean, polar). Sign Absence so the agent gets a citable
-        // "no POWER data here" rather than a transport error that gets
-        // re-fetched on every recall.
-        return sign_band_absence(
-            cell64,
-            s,
-            band,
-            target_tslot,
-            "nasa_power",
-            &url,
-            &absence_signed_at,
-            &format!(
-                "nasa power status {} for {band} (POWER is land-only; ocean/polar cells return non-200)",
-                resp.status()
-            ),
-        )
-        .await;
+        return Err(format!(
+            "nasa power status {} for {band} at {url}",
+            resp.status()
+        ));
     }
     let body: JsonValue = resp.json().await.map_err(|e| format!("power json: {e}"))?;
     // Response shape: properties.parameter.<PARAM>.<YYYYMMDD> = number.
@@ -49571,7 +49638,7 @@ async fn materialize_era5_band(
     let date = unix_to_yyyymmdd(target_unix);
     let date_iso = format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]);
     let url = format!(
-        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC"
+        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC&models=era5"
     );
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let resp = tokio::time::timeout(
@@ -49727,23 +49794,19 @@ async fn materialize_marine_band(
             .await
         }
     };
+    // A non-2xx here is a date past the model's horizon or the service's
+    // own trouble; an inland point answers 200 with nulls (signed below).
     if !resp.status().is_success() {
-        return sign_marine_absence(
-            format!(
-                "marine status {} for {band} (Open-Meteo marine model is coastal-only; inland or polar cells return non-200)",
-                resp.status()
-            ),
-            absence_signed_at,
-        )
-        .await;
+        return Err(format!(
+            "marine status {} for {band} at {url}",
+            resp.status()
+        ));
     }
     let body: JsonValue = resp.json().await.map_err(|e| format!("marine json: {e}"))?;
     let Some(times) = body.pointer("/hourly/time").and_then(|v| v.as_array()) else {
-        return sign_marine_absence(
-            "marine response missing hourly.time array".into(),
-            absence_signed_at,
-        )
-        .await;
+        return Err(format!(
+            "marine response for {band} has no hourly.time array"
+        ));
     };
     let Some(values) = body
         .pointer(&format!("/hourly/{om_field}"))
@@ -50277,13 +50340,13 @@ async fn materialize_ornl_modis_band(
         //   MOD17A2H GPP: 32760+ fill, also negative gpp on water.
         //   MOD15A2H LAI: 249..255 reserved (water/cloud/etc).
         //   MCD64A1 Burn_Date: 0 = no burn that month (valid observation,
-        //     emit as 0.0); -1 = unmapped/water (NOT a valid observation,
-        //     skip and let the caller sign Absence if every entry is -1).
+        //     emit as 0.0); -1 unmapped, -2 water: neither is a day of
+        //     year, and signed as one a -2 read as a burn.
         let is_nodata = match product {
             "MOD11A2" => r == 0,
             "MOD16A2" | "MOD17A2H" => r >= 32700,
             "MOD15A2H" => !(0..=100).contains(&r),
-            "MCD64A1" => r == -1,
+            "MCD64A1" => r < 0,
             _ => false,
         };
         if is_nodata {
@@ -53642,17 +53705,22 @@ async fn materialize_firms_active_fires(
     // The cell's centre + ~10m square half-extent. Use one tslot grain
     // for the bbox latitude tolerance, the cell is so small at 10 m
     // that we just scan a small bbox around the centre.
-    let half_lat_deg = (info.bbox_deg.max_lat - info.bbox_deg.min_lat) * 0.5;
-    let half_lng_deg = (info.bbox_deg.max_lng - info.bbox_deg.min_lng) * 0.5;
+    // A detection is the centre of a 375 m (VIIRS) or 1 km (MODIS) pixel,
+    // so a fire inside a 10 m cell is reported up to ~500 m away: search
+    // that far, not the cell itself.
+    let half_lat_deg = 0.0045;
+    let half_lng_deg = 0.0045 / info.lat_deg.to_radians().cos().abs().max(0.05);
     let bbox_min_lat = info.bbox_deg.min_lat - half_lat_deg;
     let bbox_max_lat = info.bbox_deg.max_lat + half_lat_deg;
     let bbox_min_lng = info.bbox_deg.min_lng - half_lng_deg;
     let bbox_max_lng = info.bbox_deg.max_lng + half_lng_deg;
 
-    // Tslot grain is one hour (Tempo::Fast). Build [t, t+3600) window.
-    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::Fast).0;
-    let tslot_start = (tslot as i64) * 3600;
-    let tslot_end = tslot_start + 3600 - 1;
+    // The band's own slot: Fast is a day. Multiplying the slot by 3600
+    // put every window in 1972, outside the 24 h file, on every call.
+    let tempo = emem_core::tslot::Tempo::Fast;
+    let tslot = emem_core::tslot::Tslot::from_unix(target_unix, tempo).0;
+    let tslot_start = emem_core::tslot::Tslot(tslot).to_unix_start(tempo);
+    let tslot_end = tslot_start + tempo.slot_seconds() as i64 - 1;
 
     let cli = s2_http_client();
     let signed_at = chrono_iso8601_utc();
@@ -53866,14 +53934,15 @@ async fn materialize_soilgrids_band(
 ) -> Result<emem_fact::FactCid, String> {
     // Map emem band → (REST property key, source scheme, output unit, confidence).
     // The output `unit` is what's persisted on the fact AFTER applying ISRIC's
-    // d_factor, i.e. the human-readable unit, not SoilGrids' internal scaling.
+    // d_factor, i.e. ISRIC's `target_units` (clay and sand %, nitrogen g/kg),
+    // not SoilGrids' internal scaling.
     let (property, scheme, unit, confidence): (&str, &str, &str, f32) = match band {
         "soilgrids.soc_0_30cm" => ("soc", "soilgrids.v2.soc", "g/kg", 0.55),
         "soilgrids.phh2o_0_30cm" => ("phh2o", "soilgrids.v2.phh2o", "pH", 0.60),
-        "soilgrids.clay_0_30cm" => ("clay", "soilgrids.v2.clay", "g/kg", 0.55),
-        "soilgrids.sand_0_30cm" => ("sand", "soilgrids.v2.sand", "g/kg", 0.55),
+        "soilgrids.clay_0_30cm" => ("clay", "soilgrids.v2.clay", "%", 0.55),
+        "soilgrids.sand_0_30cm" => ("sand", "soilgrids.v2.sand", "%", 0.55),
         "soilgrids.bdod_0_30cm" => ("bdod", "soilgrids.v2.bdod", "kg/dm^3", 0.55),
-        "soilgrids.nitrogen_0_30cm" => ("nitrogen", "soilgrids.v2.nitrogen", "cg/kg", 0.55),
+        "soilgrids.nitrogen_0_30cm" => ("nitrogen", "soilgrids.v2.nitrogen", "g/kg", 0.55),
         _ => return Err(format!("soilgrids band not wired: {band}")),
     };
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
@@ -53925,11 +53994,15 @@ async fn materialize_soilgrids_band(
     .map_err(|_| format!("soilgrids timeout after {}s", timeout.as_secs()))?
     .map_err(|e| format!("soilgrids https: {e}"))?;
     let status = resp.status();
+    // A rebuild's 5xx or a 429 says nothing about the soil here: signed as
+    // an Absence it answered "no soil data" for the place until re-asked.
+    if !status.is_success() && status != reqwest::StatusCode::NOT_FOUND {
+        return Err(format!(
+            "soilgrids status {status} for {band} at lat={lat:.4} lng={lng:.4}"
+        ));
+    }
     if !status.is_success() {
-        // ISRIC returns 404 for cells outside their land mask (open ocean
-        // tile gaps) and 5xx during occasional rebuilds. Both should sign
-        // Absence so the agent gets a citable answer rather than a
-        // transport error that re-fetches on every recall.
+        // ISRIC returns 404 for cells outside its land mask (open ocean).
         return sign_band_absence(
             cell64,
             s,
@@ -54225,14 +54298,14 @@ async fn build_fact_hansen(
     // upstream artifact.
     let absent = |layer_str: String, tile: String, url: String| -> Fact {
         let reason = format!(
-            "Hansen GFC v1.12 tile {tile} not present for layer {layer_str}: cell at ({lat:.6},{lng:.6}) is outside the dataset's 60°S–80°N land coverage or in an all-zero oceanic tile that the bucket omits."
+            "Hansen GFC v1.13 tile {tile} not present for layer {layer_str}: cell at ({lat:.6},{lng:.6}) is outside the dataset's 60°S–80°N land coverage or in an all-zero oceanic tile that the bucket omits."
         );
         build_absence_fact(
             s,
             cell64,
             band,
             0,
-            "hansen.gfc.v1_12.2024",
+            "hansen.gfc.v1_13.2025",
             &url,
             signed_at,
             &reason,
@@ -54280,7 +54353,7 @@ async fn build_fact_hansen(
         confidence: 0.93,
         uncertainty: None,
         sources: vec![Source {
-            scheme: "hansen.gfc.v1_12.2024".into(),
+            scheme: "hansen.gfc.v1_13.2025".into(),
             id: url.clone(),
             cid: None,
             hash: None,
@@ -54288,7 +54361,7 @@ async fn build_fact_hansen(
             url: Some(url.clone()),
         }],
         derivation: Derivation {
-            fn_key: "hansen_gfc_v1_12_pixel@1".into(),
+            fn_key: "hansen_gfc_v1_13_pixel@1".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
@@ -54943,10 +55016,12 @@ async fn materialize_wri_gdm_band(
             .await
         }
         Err(wri_gdm_drivers::WriGdmError::NotImplemented { reason }) => {
-            let full = format!(
-                "wri_gdm_not_implemented: per-cell driver-class fetch not yet wired at this responder. Reason: {reason}. The connector's class-label helpers ship today; the per-cell sampler awaits a range-readable mirror that supports the LZW + 8 samples-per-pixel encoding."
-            );
-            sign_band_absence(cell64, s, band, 0, "wri.gdm.v1_2", &url, &signed_at, &full).await
+            // Not built is not "no driver here": an Absence would read as a
+            // statement about the cell.
+            let _ = (&url, &signed_at);
+            Err(format!(
+                "no materializer wired for {band} at this responder: {reason}. The per-cell sampler awaits a range-readable mirror that supports the LZW + 8 samples-per-pixel encoding."
+            ))
         }
         Err(e) => Err(format!("wri_gdm.driver_class fetch failed: {e}")),
     }
@@ -55048,10 +55123,10 @@ async fn materialize_radd_band(
             sign_band_absence(cell64, s, band, 0, &radd_scheme, &url, &signed_at, &reason).await
         }
         Err(radd_alerts::RaddError::NotImplemented { reason }) => {
-            let full = format!(
-                "radd_not_implemented: per-cell SAR-alert fetch not yet wired at this responder. Reason: {reason}. The GFW raster is on a Requester-Pays S3 bucket with no anonymous range-readable HTTPS mirror; humid-tropics geofencing and tile-name math ship today."
-            );
-            sign_band_absence(cell64, s, band, 0, &radd_scheme, &url, &signed_at, &full).await
+            // Not built is not "no alert here".
+            Err(format!(
+                "no materializer wired for {band} at this responder: {reason}. The GFW raster is on a Requester-Pays S3 bucket with no anonymous range-readable HTTPS mirror."
+            ))
         }
         Err(e) => Err(format!("{band} fetch failed: {e}")),
     }
@@ -55158,21 +55233,16 @@ async fn materialize_opera_dist_band(
             );
             sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
         }
-        Err(opera_dist::OperaDistError::NotEnabled) => {
-            // The no-regression default: optional NRT not provisioned.
-            let reason = format!("{}", opera_dist::OperaDistError::NotEnabled);
-            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
-        }
-        Err(opera_dist::OperaDistError::NotImplemented(why)) => {
-            let reason = format!("opera_dist_not_implemented: {why}");
-            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
-        }
-        Err(e) => {
-            // Transport / discovery / decode, honest Absence carrying the
-            // structured reason, never a fabricated pixel.
-            let reason = format!("opera_dist_unavailable: {e}");
-            sign_band_absence(cell64, s, band, 0, &scheme, &url, &signed_at, &reason).await
-        }
+        // None of these is a statement about the place: not provisioned,
+        // not built, or the upstream failed. Only `Ok(None)` is "no alert".
+        Err(opera_dist::OperaDistError::NotEnabled) => Err(format!(
+            "no materializer wired for {band} at this responder: {}",
+            opera_dist::OperaDistError::NotEnabled
+        )),
+        Err(opera_dist::OperaDistError::NotImplemented(why)) => Err(format!(
+            "no materializer wired for {band} at this responder: {why}"
+        )),
+        Err(e) => Err(format!("opera_dist unavailable: {e}")),
     }
 }
 
@@ -56851,14 +56921,14 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::AnnualSnapshot,
             history_from_unix: Some(jan1_unix(*TESSERA_YEARS_RANGE.end())),
             history_to_unix: Some(tessera_window_end),
-            wire_path: "dl2.geotessera.org per-year .npy HTTPS-Range",
+            wire_path: "data.source.coop/tessera per-year .npy HTTPS-Range",
         },
         "geotessera.multi_year" => MaterializerMeta {
             tempo: Tempo::Slow,
             kind: BandKind::AnnualStack,
             history_from_unix: Some(tessera_window_start),
             history_to_unix: Some(tessera_window_end),
-            wire_path: "dl2.geotessera.org × 8 vintages, fused 1024-D",
+            wire_path: "data.source.coop/tessera × 8 vintages, fused 1024-D",
         },
         "geotessera.bin128" => MaterializerMeta {
             // Derived band, no upstream tempo of its own. Mirrors
@@ -56883,7 +56953,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
                 kind: BandKind::AnnualSnapshot,
                 history_from_unix: Some(jan1_unix(y)),
                 history_to_unix: Some(jan1_unix(y + 1) - 1),
-                wire_path: "dl2.geotessera.org per-year .npy HTTPS-Range",
+                wire_path: "data.source.coop/tessera per-year .npy HTTPS-Range",
             }
         }
         // Static climatologies / single-snapshot products, no per-tslot
@@ -57075,7 +57145,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_from_unix: Some(days_from_civil(2000, 1, 1) * 86_400),
             history_to_unix: Some(days_from_civil(2025, 1, 1) * 86_400 - 1),
             wire_path:
-                "storage.googleapis.com/earthenginepartners-hansen GFC-2024-v1.12 30 m tiles",
+                "storage.googleapis.com/earthenginepartners-hansen GFC-2025-v1.13 30 m tiles",
         },
         // JRC Global Forest Cover 2020 (EC Joint Research Centre), the EUDR
         // Article 2(13) cut-off-date forest baseline. One 2020 vintage, one
@@ -57926,6 +57996,7 @@ async fn existing_same_acquisition(
     match fact {
         Fact::Primary(p)
             if p.signer == s.identity.pubkey
+                && !superseded_read(&p)
                 && p.sources.iter().any(|src| {
                     src.captured_at.as_deref() == Some(captured_at)
                         || (want.is_some()
@@ -60241,6 +60312,16 @@ async fn build_cell_scene_rgb(
     max_cloud_pct: f64,
     datetime_window: Option<&str>,
 ) -> Result<SceneRgb, String> {
+    build_scene_rgb(cell64, max_cloud_pct, datetime_window, (256, 256)).await
+}
+
+/// The scene around `cell64`, `size` pixels at the band's native 10 m.
+async fn build_scene_rgb(
+    cell64: &str,
+    max_cloud_pct: f64,
+    datetime_window: Option<&str>,
+    size: (u32, u32),
+) -> Result<SceneRgb, String> {
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
@@ -60324,8 +60405,7 @@ async fn build_cell_scene_rgb(
     let utm = emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
         .ok_or_else(|| format!("epsg {epsg} not a UTM code"))?;
 
-    const W: u32 = 256;
-    const H: u32 = 256;
+    let (w_px, h_px) = size;
 
     let red_prof = emem_fetch::cog::open_profile(&cli, &red_url)
         .await
@@ -60336,18 +60416,25 @@ async fn build_cell_scene_rgb(
     let blue_prof = emem_fetch::cog::open_profile(&cli, &blue_url)
         .await
         .map_err(|e| format!("open blue COG: {e}"))?;
-    let red_pix =
-        emem_fetch::cog::sample_window(&cli, &red_url, &red_prof, utm.easting, utm.northing, W, H)
-            .await
-            .map_err(|e| format!("sample red: {e}"))?;
+    let red_pix = emem_fetch::cog::sample_window(
+        &cli,
+        &red_url,
+        &red_prof,
+        utm.easting,
+        utm.northing,
+        w_px,
+        h_px,
+    )
+    .await
+    .map_err(|e| format!("sample red: {e}"))?;
     let green_pix = emem_fetch::cog::sample_window(
         &cli,
         &green_url,
         &green_prof,
         utm.easting,
         utm.northing,
-        W,
-        H,
+        w_px,
+        h_px,
     )
     .await
     .map_err(|e| format!("sample green: {e}"))?;
@@ -60357,8 +60444,8 @@ async fn build_cell_scene_rgb(
         &blue_prof,
         utm.easting,
         utm.northing,
-        W,
-        H,
+        w_px,
+        h_px,
     )
     .await
     .map_err(|e| format!("sample blue: {e}"))?;
@@ -60391,7 +60478,7 @@ async fn build_cell_scene_rgb(
     let stretch = |chan: &[f64], name: &str| -> Result<(f64, f64), String> {
         let lo = percentile(chan, 0.02).ok_or_else(|| {
             format!(
-                "scene has no valid {name} pixels in the 256×256 window, \
+                "scene has no valid {name} pixels in the {w_px}×{h_px} window, \
                  cloud, water, or off-coverage; try a different datetime_window or raise max_cloud"
             )
         })?;
@@ -60403,8 +60490,8 @@ async fn build_cell_scene_rgb(
     let (g_lo, g_hi) = stretch(&green_pix, "green")?;
     let (b_lo, b_hi) = stretch(&blue_pix, "blue")?;
 
-    let mut rgb = vec![0u8; (W as usize) * (H as usize) * 3];
-    for i in 0..(W * H) as usize {
+    let mut rgb = vec![0u8; (w_px as usize) * (h_px as usize) * 3];
+    for i in 0..(w_px * h_px) as usize {
         let r = ((red_pix[i] - r_lo) / (r_hi - r_lo)).clamp(0.0, 1.0);
         let g = ((green_pix[i] - g_lo) / (g_hi - g_lo)).clamp(0.0, 1.0);
         let b = ((blue_pix[i] - b_lo) / (b_hi - b_lo)).clamp(0.0, 1.0);
@@ -60418,7 +60505,7 @@ async fn build_cell_scene_rgb(
 
     let mut png_bytes: Vec<u8> = Vec::new();
     {
-        let mut encoder = png::Encoder::new(&mut png_bytes, W, H);
+        let mut encoder = png::Encoder::new(&mut png_bytes, w_px, h_px);
         encoder.set_color(png::ColorType::Rgb);
         encoder.set_depth(png::BitDepth::Eight);
         let mut writer = encoder
@@ -60432,14 +60519,14 @@ async fn build_cell_scene_rgb(
     Ok(SceneRgb {
         png: png_bytes,
         rgb,
-        w: W,
-        h: H,
+        w: w_px,
+        h: h_px,
         item_id: item.id,
         item_datetime: item.datetime,
         cloud_cover: item.cloud_cover,
         epsg,
         stretch_p2_p98: ((r_lo, r_hi), (g_lo, g_hi), (b_lo, b_hi)),
-        bbox_crs: red_prof.window_bbox(utm.easting, utm.northing, W, H),
+        bbox_crs: red_prof.window_bbox(utm.easting, utm.northing, w_px, h_px),
         pixel_size: red_prof.pixel_scale,
         sun: (item.sun_azimuth, item.sun_elevation),
         view: (item.view_azimuth, item.view_incidence),
@@ -60482,6 +60569,66 @@ fn scene_search_rungs(explicit: bool) -> &'static [(f64, i64, Option<&'static st
     }
 }
 
+/// A scene cropped to `bbox=w,s,e,n` (WGS-84): its centre cell and its
+/// size at Sentinel-2's native 10 m.
+struct SceneBbox {
+    centre: String,
+    size: (u32, u32),
+}
+
+/// The widest crop, 10.24 km a side: one Sentinel-2 read, not a mosaic.
+const SCENE_BBOX_MAX_PX: u32 = 1024;
+
+fn scene_bbox(qs: &std::collections::HashMap<String, String>) -> Result<Option<SceneBbox>, String> {
+    let Some(raw) = qs.get("bbox") else {
+        return Ok(None);
+    };
+    let v: Vec<f64> = raw
+        .split(',')
+        .filter_map(|x| x.trim().parse().ok())
+        .collect();
+    let [w, so, e, n] = v[..] else {
+        return Err("bbox must be w,s,e,n in degrees".into());
+    };
+    if !(e > w
+        && n > so
+        && (-180.0..=180.0).contains(&w)
+        && (-180.0..=180.0).contains(&e)
+        && (-85.0..=85.0).contains(&so)
+        && (-85.0..=85.0).contains(&n))
+    {
+        return Err("bbox must be w,s,e,n with w < e and s < n, inside ±180 / ±85".into());
+    }
+    let lat = (so + n) / 2.0;
+    let width_m = (e - w) * 111_320.0 * lat.to_radians().cos();
+    let height_m = (n - so) * 110_574.0;
+    let px = |m: f64| ((m / 10.0).ceil() as u32).max(32);
+    let size = (px(width_m), px(height_m));
+    if size.0 > SCENE_BBOX_MAX_PX || size.1 > SCENE_BBOX_MAX_PX {
+        return Err(format!(
+            "bbox is {}x{} px at 10 m; the cap is {SCENE_BBOX_MAX_PX} a side (about 10 km). Shrink it.",
+            size.0, size.1
+        ));
+    }
+    Ok(Some(SceneBbox {
+        centre: emem_codec::cell64_from_latlng(lat, (w + e) / 2.0),
+        size,
+    }))
+}
+
+/// `GET /v1/scene.png?bbox=w,s,e,n`: the scene cropped to a plot, with the
+/// same provenance headers as the per-cell route.
+async fn get_scene_png_bbox(
+    qs: axum::extract::Query<std::collections::HashMap<String, String>>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Response {
+    match scene_bbox(&qs.0) {
+        Ok(Some(b)) => get_cell_scene_png(axum::extract::Path(b.centre), qs, req).await,
+        Ok(None) => (StatusCode::BAD_REQUEST, "bbox=w,s,e,n is required").into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
+}
+
 /// Run the scene search a REST or MCP request asks for, as the ladder above.
 /// `Err` is a finished typed response: 404 `no_clear_scene` when every rung
 /// missed, 502 `scene_upstream_failed` when a fetch failed.
@@ -60493,6 +60640,11 @@ async fn scene_for_request(
 ) -> Result<(SceneRgb, Option<&'static str>), Response> {
     let datetime_window =
         resolve_scene_window(qs).map_err(|e| (StatusCode::BAD_REQUEST, e).into_response())?;
+    let size = match scene_bbox(qs) {
+        Ok(Some(b)) => b.size,
+        Ok(None) => (256, 256),
+        Err(e) => return Err((StatusCode::BAD_REQUEST, e).into_response()),
+    };
     let explicit_cloud = qs.get("max_cloud").and_then(|v| v.parse::<f64>().ok());
     let explicit = explicit_cloud.is_some() || datetime_window.is_some();
     let now_unix = std::time::SystemTime::now()
@@ -60516,7 +60668,7 @@ async fn scene_for_request(
             .collect()
     };
     for (cloud, window, label) in attempts {
-        match build_cell_scene_rgb(cell, cloud, window.as_deref()).await {
+        match build_scene_rgb(cell, cloud, window.as_deref(), size).await {
             Ok(scene) => return Ok((scene, label)),
             Err(e) if e.starts_with(SCENE_MISS_PREFIX) => {
                 tried.push(json!({"max_cloud": cloud, "window": window, "result": e}));
@@ -65561,8 +65713,9 @@ async fn forest_baseline_dataset(s: &AppState, per_cell: &[EudrCellVerdict]) -> 
             jrc.insert(dataset_version(&url, "JRC_GFC2020_V").map(|v| format!("V{v}")));
         } else if p.band.starts_with("forest_change.") {
             hansen.insert(
-                url.contains("GFC-2024-v1.12")
-                    .then(|| "v1.12 (2024)".to_string()),
+                dataset_version(&url, "/GFC-")
+                    .and_then(|y| url.split("-v1.").nth(1).map(|v| (y, v)))
+                    .map(|(y, v)| format!("v1.{} ({y})", v.split(['/', '_']).next().unwrap_or(v))),
             );
         }
     }
@@ -65573,7 +65726,7 @@ async fn forest_baseline_dataset(s: &AppState, per_cell: &[EudrCellVerdict]) -> 
     }
     for v in hansen {
         out.push(json!({"name": "Hansen Global Forest Change", "version": v,
-            "source": "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/"}));
+            "source": "https://storage.googleapis.com/earthenginepartners-hansen/"}));
     }
     JsonValue::Array(out)
 }
@@ -66595,8 +66748,8 @@ async fn batch_build_facts_via_window(
                 centre_lng,
                 emem_fetch::hansen_gfc::LAYER_TREECOVER_2000,
             ),
-            "hansen.gfc.v1_12.2024",
-            "hansen_gfc_v1_12_pixel@1",
+            "hansen.gfc.v1_13.2025",
+            "hansen_gfc_v1_13_pixel@1",
             emem_fetch::hansen_gfc::LAYER_TREECOVER_2000,
         ),
         "forest_change.lossyear" => (
@@ -66605,8 +66758,8 @@ async fn batch_build_facts_via_window(
                 centre_lng,
                 emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
             ),
-            "hansen.gfc.v1_12.2024",
-            "hansen_gfc_v1_12_pixel@1",
+            "hansen.gfc.v1_13.2025",
+            "hansen_gfc_v1_13_pixel@1",
             emem_fetch::hansen_gfc::LAYER_LOSSYEAR,
         ),
         // Forest-context bands (built when request_visual_evidence=true).
@@ -66620,8 +66773,8 @@ async fn batch_build_facts_via_window(
                 centre_lng,
                 emem_fetch::hansen_gfc::LAYER_GAIN,
             ),
-            "hansen.gfc.v1_12.2024",
-            "hansen_gfc_v1_12_pixel@1",
+            "hansen.gfc.v1_13.2025",
+            "hansen_gfc_v1_13_pixel@1",
             emem_fetch::hansen_gfc::LAYER_GAIN,
         ),
         "esa_worldcover.lc_2021" => (
@@ -66716,6 +66869,23 @@ async fn batch_build_facts_via_window(
             }
         };
         let (col, row) = profile.world_to_pixel(lng, lat);
+        // Off the tile the window reads zeros, and a zero is a real value
+        // for every band here: say so instead of signing it.
+        if col < 0
+            || row < 0
+            || col >= profile.width as i64
+            || row >= profile.height as i64
+            || col < win_col0
+            || row < win_row0
+        {
+            out.push((
+                i,
+                Err(format!(
+                    "cell ({lat:.6},{lng:.6}) is outside the tile {url}"
+                )),
+            ));
+            continue;
+        }
         let px = (col - win_col0) as usize;
         let py = (row - win_row0) as usize;
         let idx = py * (win_w as usize) + px;
@@ -66843,8 +67013,27 @@ async fn batch_materialize_eudr_band(
             | "esa_worldcover.lc_2021"
     );
 
+    // One window reads one tile, the one under its cells' centre: a plot
+    // across a tile line signed the far side's out-of-image pixels as 0, a
+    // forest-2020 of 0 or a loss year of 0, which passes. So each tile's
+    // cells get their own window.
     let facts_res: Vec<(usize, Result<Fact, String>)> = if geospatial_window {
-        batch_build_facts_via_window(&s, &cells, band, signed_at).await
+        let mut groups: std::collections::BTreeMap<String, Vec<usize>> = Default::default();
+        for (i, c) in cells.iter().enumerate() {
+            let key = emem_codec::latlng_from_cell64(c)
+                .ok()
+                .and_then(|p| static_cog_url_for_band(band, p.lat_deg, p.lng_deg))
+                .unwrap_or_default();
+            groups.entry(key).or_default().push(i);
+        }
+        let mut out = Vec::with_capacity(n_cells);
+        for idxs in groups.into_values() {
+            let group: Vec<String> = idxs.iter().map(|&i| cells[i].clone()).collect();
+            for (j, r) in batch_build_facts_via_window(&s, &group, band, signed_at).await {
+                out.push((idxs[j], r));
+            }
+        }
+        out
     } else {
         futures_util::stream::iter(cells.into_iter().enumerate().map(|(i, cell)| {
             let band = band.to_string();
@@ -67019,6 +67208,78 @@ fn eudr_verdict_for(
     (2, refinement)
 }
 
+/// What a plot's verdict rests on, and how firmly, by a stated rule rather
+/// than a probability: a calibrated one needs outcomes the responder does
+/// not hold. Each limit names itself, so a reviewer knows what to check.
+fn verdict_support(
+    per_cell: &[EudrCellVerdict],
+    tmf: &JsonValue,
+    sampled_fraction: f64,
+) -> JsonValue {
+    let n = per_cell.len().max(1) as f64;
+    let both = per_cell
+        .iter()
+        .filter(|c| c.jrc_forest_2020.is_some() && c.hansen_lossyear.is_some())
+        .count() as f64
+        / n;
+    let borderline = per_cell.iter().filter(|c| c.borderline_canopy).count() as f64 / n;
+    let agreement = tmf["agreement"].as_f64();
+    let mut limits = Vec::new();
+    let (mut weak, mut moderate) = (false, false);
+    let mut check = |bad: bool, soft: bool, why: String| {
+        if bad {
+            weak = true;
+            limits.push(json!({"severity": "weakens", "why": why}));
+        } else if soft {
+            moderate = true;
+            limits.push(json!({"severity": "qualifies", "why": why}));
+        }
+    };
+    check(
+        both < 0.8,
+        both < 0.95,
+        format!(
+            "{:.0} % of cells have both the JRC baseline and the Hansen loss year",
+            both * 100.0
+        ),
+    );
+    if let Some(a) = agreement {
+        check(
+            a < 0.7,
+            a < 0.9,
+            format!(
+                "TMF and Hansen agree on post-cut-off loss at {:.0} % of the cells TMF covers",
+                a * 100.0
+            ),
+        );
+    }
+    check(
+        borderline > 0.3,
+        borderline > 0.1,
+        format!(
+            "{:.0} % of cells sit within 2 points of the 10 % canopy threshold",
+            borderline * 100.0
+        ),
+    );
+    check(
+        sampled_fraction < 0.2,
+        sampled_fraction < 0.5,
+        format!(
+            "{:.0} % of the polygon's area was sampled",
+            sampled_fraction * 100.0
+        ),
+    );
+    json!({
+        "level": if weak { "weak" } else if moderate { "moderate" } else { "strong" },
+        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, >= 50 % of the polygon sampled); weak when any falls below 80 % / 70 % / above 30 % / below 20 %; moderate between. Not a calibrated probability.",
+        "cells_with_both_baselines": (both * 1e4).round() / 1e4,
+        "borderline_canopy_fraction": (borderline * 1e4).round() / 1e4,
+        "tmf_agreement": agreement,
+        "sampled_polygon_fraction": (sampled_fraction * 1e4).round() / 1e4,
+        "limits": limits,
+    })
+}
+
 /// How JRC TMF's deforestation year agrees with Hansen's loss year on the
 /// cells of one plot, after the cut-off. Reported beside the verdict so a
 /// filing that says "cross-checked against TMF" can show the check ran,
@@ -67027,6 +67288,7 @@ fn eudr_verdict_for(
 /// plantation harvest outside TMF's moist-forest scope).
 fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue {
     let (mut read, mut both, mut hansen_only, mut tmf_only, mut neither) = (0, 0, 0, 0, 0);
+    let mut review_cells: Vec<&str> = Vec::new();
     for c in per_cell {
         let Some(tmf) = c.jrc_tmf_deforestation_year else {
             continue;
@@ -67037,7 +67299,10 @@ fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue 
         match (h, t) {
             (true, true) => both += 1,
             (true, false) => hansen_only += 1,
-            (false, true) => tmf_only += 1,
+            (false, true) => {
+                tmf_only += 1;
+                review_cells.push(c.cell.as_str());
+            }
             (false, false) => neither += 1,
         }
     }
@@ -67053,6 +67318,10 @@ fn tmf_cross_check(per_cell: &[EudrCellVerdict], cutoff_year: i64) -> JsonValue 
             "neither": neither,
         },
         "agreement": if read == 0 { JsonValue::Null } else { json!(((both + neither) as f64 / read as f64 * 1e4).round() / 1e4) },
+        // Loss only TMF sees is not negligible risk (Art. 10): the verdict
+        // stands, but the statement is not signable until someone looks.
+        "review_required": tmf_only > 0,
+        "review_cells": review_cells,
     })
 }
 
@@ -68377,10 +68646,12 @@ async fn post_eudr_dds_inner(
                 obj.insert("loss_year_histogram".into(), lh);
             }
             if let Some(obj) = plot_obj.as_object_mut() {
+                let tmf = tmf_cross_check(&per_cell, cutoff_year);
                 obj.insert(
-                    "tmf_cross_check".into(),
-                    tmf_cross_check(&per_cell, cutoff_year),
+                    "verdict_support".into(),
+                    verdict_support(&per_cell, &tmf, sampled_polygon_fraction),
                 );
+                obj.insert("tmf_cross_check".into(), tmf);
             }
             if let (Some(obj), Some(ve)) = (plot_obj.as_object_mut(), visual_evidence_json) {
                 obj.insert("visual_evidence".into(), ve);
@@ -68445,6 +68716,9 @@ async fn post_eudr_dds_inner(
         }
     }
     let per_plot_results: Vec<JsonValue> = per_plot_results.into_iter().flatten().collect();
+    let review_required = per_plot_results
+        .iter()
+        .any(|p| p["tmf_cross_check"]["review_required"] == json!(true));
     let overall_verdicts: Vec<u8> = plot_ctx
         .iter()
         .filter_map(|c| c.as_ref().map(|c| c.verdict_code))
@@ -68587,7 +68861,8 @@ async fn post_eudr_dds_inner(
         "geolocationConfidentiality": confidential,
         "commodities":               commodities,
         "statementOfCompliance":     statement_of_compliance(overall_label),
-        "statementOfComplianceSignable": overall_label == "pass",
+        "statementOfComplianceSignable": overall_label == "pass" && !review_required,
+        "statementOfComplianceReviewRequired": review_required,
     });
 
     let mut body = json!({
@@ -86309,7 +86584,33 @@ mod tests {
         assert_eq!(x["post_cutoff_loss"]["tmf_only"], 1);
         assert_eq!(x["post_cutoff_loss"]["neither"], 2);
         assert_eq!(x["agreement"], 0.6);
+        assert_eq!(x["review_required"], true);
+        assert_eq!(x["review_cells"].as_array().map(|v| v.len()), Some(1));
         assert!(tmf_cross_check(&cells[5..], 2020)["agreement"].is_null());
+    }
+
+    #[test]
+    fn a_plot_bbox_becomes_a_native_resolution_crop() {
+        let q = |b: &str| std::collections::HashMap::from([("bbox".to_string(), b.to_string())]);
+        // A 25 ha plot near the equator: 0.0045° ≈ 500 m ≈ 50 px each way.
+        let b = scene_bbox(&q("-6.7025,5.6875,-6.6980,5.6920"))
+            .unwrap()
+            .unwrap();
+        assert!(
+            (49..=52).contains(&b.size.0) && (49..=52).contains(&b.size.1),
+            "{:?}",
+            b.size
+        );
+        // Tiny plots still get a readable image.
+        assert_eq!(
+            scene_bbox(&q("0,0,0.0001,0.0001")).unwrap().unwrap().size,
+            (32, 32)
+        );
+        assert!(scene_bbox(&q("0,0,1,1")).is_err(), "11 km is past the cap");
+        assert!(scene_bbox(&q("1,0,0,1")).is_err(), "w < e");
+        assert!(scene_bbox(&std::collections::HashMap::new())
+            .unwrap()
+            .is_none());
     }
 
     #[test]
@@ -88836,16 +89137,37 @@ mod tests {
             privacy_class: "public".into(),
             schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
             signer: s.identity.pubkey,
-            signed_at: "2026-09-02T00:00:00Z".into(),
+            signed_at: "2026-09-29T00:00:00Z".into(),
             served_via: None,
         });
-        let cid = sign_and_persist(&s, fact, "2026-09-02T00:00:00Z")
+        let cid = sign_and_persist(&s, fact.clone(), "2026-09-29T00:00:00Z")
             .await
             .expect("persist");
         let found =
             existing_same_acquisition(&s, cell, "indices.ndvi", 20000, "2026-09-01T05:20:11Z")
                 .await;
         assert_eq!(found.as_ref().map(|c| c.as_str()), Some(cid.as_str()));
+        // The same acquisition read before the pixel fix is read again.
+        let Fact::Primary(mut old) = fact else {
+            unreachable!()
+        };
+        old.cell = "defi.zb493.yiwo.zcb4f".into();
+        old.signed_at = "2026-09-02T00:00:00Z".into();
+        sign_and_persist(&s, Fact::Primary(old), "2026-09-02T00:00:00Z")
+            .await
+            .expect("persist");
+        assert!(
+            existing_same_acquisition(
+                &s,
+                "defi.zb493.yiwo.zcb4f",
+                "indices.ndvi",
+                20000,
+                "2026-09-01T05:20:11Z"
+            )
+            .await
+            .is_none(),
+            "a GeoTIFF read signed before the pixel fix is not reused"
+        );
         assert!(
             existing_same_acquisition(&s, cell, "indices.ndvi", 20000, "2026-09-06T05:20:11Z")
                 .await

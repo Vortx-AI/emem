@@ -163,6 +163,11 @@ struct OverpassEnvelope {
     /// PA contains the point (which is the canonical "Ok(None)" path).
     #[serde(default)]
     elements: Vec<OverpassElement>,
+    /// Overpass reports its own failure (a timeout, running out of memory)
+    /// as HTTP 200 with empty `elements` and this set: an empty list then
+    /// means the query did not finish, not that nothing is protected here.
+    #[serde(default)]
+    remark: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -307,6 +312,14 @@ fn element_to_match(el: OverpassElement) -> WdpaMatch {
 pub fn parse_overpass_response(body: &str) -> Result<Option<WdpaMatch>, WdpaError> {
     let env: OverpassEnvelope = serde_json::from_str(body)
         .map_err(|e| WdpaError::Malformed(format!("{e} (body head: {})", head(body, 200))))?;
+    if let Some(r) = env.remark.as_deref().filter(|r| {
+        let r = r.to_ascii_lowercase();
+        r.contains("error") || r.contains("timed out") || r.contains("out of memory")
+    }) {
+        return Err(WdpaError::Transport(format!(
+            "overpass did not finish: {r}"
+        )));
+    }
     Ok(select_match(env))
 }
 
@@ -446,6 +459,16 @@ mod tests {
         assert_eq!(m.designation, "national_park");
         assert_eq!(m.country_iso3, "USA");
         assert!(!m.marine);
+    }
+
+    /// Overpass's own failure arrives as HTTP 200 with a remark.
+    #[test]
+    fn a_failed_query_is_an_error_not_an_empty_answer() {
+        let body = r#"{"version":0.6,"elements":[],"remark":"runtime error: Query ran out of memory in \"query\" at line 1."}"#;
+        assert!(matches!(
+            parse_overpass_response(body),
+            Err(WdpaError::Transport(_))
+        ));
     }
 
     /// North Pacific gyre fixture — empty `elements` array. The fetcher

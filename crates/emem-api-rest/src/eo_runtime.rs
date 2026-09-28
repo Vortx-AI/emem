@@ -515,7 +515,13 @@ pub async fn spi(req: SpiReq, s: &AppState) -> Result<JsonValue, ApiError> {
                 cids.push(p.fact_cid.clone());
             }
         }
-        let span = window_days.saturating_mul(TSLOT_DAY).max(1);
+        // A tslot counts the band's own slots (hours for hourly weather),
+        // not seconds: a span in seconds put every sample in one bucket.
+        let slot_s = crate::band_tempo_for_key("weather.precipitation_mm")
+            .map(|t| t.slot_seconds())
+            .filter(|s| *s > 0)
+            .unwrap_or(3600);
+        let span = (window_days.saturating_mul(TSLOT_DAY) / slot_s).max(1);
         // Bucket points into consecutive `span`-wide windows by tslot.
         let mut buckets: std::collections::BTreeMap<u64, f64> = Default::default();
         for p in &tr.series {

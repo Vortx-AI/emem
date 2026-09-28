@@ -66,7 +66,7 @@ pub fn latlng_to_utm(lat_deg: f64, lon_deg: f64, force_zone: Option<u8>) -> UtmC
     let (e, n) = forward_tm_wgs84(lat_deg, lon_deg, zone);
     UtmCoord {
         easting: e,
-        northing: n,
+        northing: n + false_northing(hemi),
         zone,
         hemi,
         epsg,
@@ -78,15 +78,14 @@ pub fn latlng_to_utm(lat_deg: f64, lon_deg: f64, force_zone: Option<u8>) -> UtmC
 /// zone boundary).
 pub fn latlng_to_utm_with_epsg(lat_deg: f64, lon_deg: f64, epsg: u32) -> Option<UtmCoord> {
     let (zone, hemi) = epsg_to_zone(epsg)?;
-    let (e, n_pre) = forward_tm_wgs84(lat_deg, lon_deg, zone);
-    // forward_tm_wgs84 returns a hemisphere-aware northing by including the
-    // 10 000 000 m false-northing for negative latitudes. If the caller forced
-    // a hemisphere via EPSG (e.g. AOI just south of equator but Sentinel tile
-    // is in the northern zone), we just trust the math.
-    let _ = hemi;
+    let (e, n) = forward_tm_wgs84(lat_deg, lon_deg, zone);
+    // The false northing belongs to the CRS, not the point: a Sentinel-2
+    // tile in a northern zone (326xx) reaches ~10 km south of the equator,
+    // and a point there has a small negative northing in it. Adding it by
+    // the point's latitude put those reads 10 000 km off the image.
     Some(UtmCoord {
         easting: e,
-        northing: n_pre,
+        northing: n + false_northing(hemi),
         zone,
         hemi,
         epsg,
@@ -130,22 +129,40 @@ fn forward_tm_wgs84(lat_deg: f64, lon_deg: f64, zone: u8) -> (f64, f64) {
             + (5.0 - 18.0 * t + t * t + 72.0 * c - 58.0 * ep2) * aa.powi(5) / 120.0)
         + 500_000.0;
 
-    let mut northing = k0
+    let northing = k0
         * (m + n_rad
             * tan_phi
             * (aa * aa / 2.0
                 + (5.0 - t + 9.0 * c + 4.0 * c * c) * aa.powi(4) / 24.0
                 + (61.0 - 58.0 * t + t * t + 600.0 * c - 330.0 * ep2) * aa.powi(6) / 720.0));
-    if lat_deg < 0.0 {
-        northing += 10_000_000.0; // false northing for southern hemisphere
-    }
     let _ = PI; // keep the import even if not directly used after refactors
     (easting, northing)
+}
+
+fn false_northing(hemi: Hemi) -> f64 {
+    match hemi {
+        Hemi::North => 0.0,
+        Hemi::South => 10_000_000.0,
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Sentinel-2 northern tiles (e.g. 36NVF, EPSG:32636) reach ~0.09°S.
+    #[test]
+    fn the_false_northing_follows_the_crs_not_the_point() {
+        let n = latlng_to_utm_with_epsg(-0.05, 33.0, 32636)
+            .unwrap()
+            .northing;
+        assert!((-5_600.0..-5_400.0).contains(&n), "{n}");
+        let sth = latlng_to_utm_with_epsg(-0.05, 33.0, 32736)
+            .unwrap()
+            .northing;
+        assert!((sth - (10_000_000.0 + n)).abs() < 1e-6);
+        assert!(latlng_to_utm(-0.05, 33.0, None).northing > 9_990_000.0);
+    }
 
     fn approx(a: f64, b: f64, tol: f64) -> bool {
         (a - b).abs() < tol

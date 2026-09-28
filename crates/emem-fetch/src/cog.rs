@@ -1939,25 +1939,60 @@ async fn http_range(
         .send()
         .await
         .map_err(|e| CogError::Transport(e.to_string()))?;
-    if !(resp.status() == reqwest::StatusCode::PARTIAL_CONTENT
-        || resp.status() == reqwest::StatusCode::OK)
-    {
+    let status = resp.status();
+    if !(status == reqwest::StatusCode::PARTIAL_CONTENT || status == reqwest::StatusCode::OK) {
         return Err(CogError::Transport(format!(
             "status {} for range {}-{} on {}",
-            resp.status(),
-            start,
-            end_inclusive,
-            url
+            status, start, end_inclusive, url
         )));
     }
-    resp.bytes()
+    let body = resp
+        .bytes()
         .await
-        .map_err(|e| CogError::Transport(e.to_string()))
+        .map_err(|e| CogError::Transport(e.to_string()))?;
+    if status == reqwest::StatusCode::OK {
+        // A host that ignores Range sends the whole file. Its first bytes
+        // are not the range asked for, except when the range starts at 0.
+        return whole_body_range(body, start, end_inclusive, url);
+    }
+    Ok(body)
+}
+
+/// The requested range out of a whole-file 200 body.
+fn whole_body_range(
+    body: Bytes,
+    start: u64,
+    end_inclusive: u64,
+    url: &str,
+) -> Result<Bytes, CogError> {
+    let (s, e) = (start as usize, end_inclusive as usize);
+    if s >= body.len() {
+        return Err(CogError::Transport(format!(
+            "{url} ignored Range and sent {} bytes, short of offset {start}",
+            body.len()
+        )));
+    }
+    Ok(body.slice(s..(e + 1).min(body.len())))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A host that ignores Range sends the whole file with a 200: the
+    /// range must still be the bytes at the offset asked for.
+    #[test]
+    fn a_whole_body_answers_with_the_requested_range() {
+        let body = Bytes::from((0u8..=99).collect::<Vec<u8>>());
+        let r = whole_body_range(body.clone(), 40, 43, "u").unwrap();
+        assert_eq!(&r[..], &[40, 41, 42, 43]);
+        assert_eq!(whole_body_range(body.clone(), 0, 3, "u").unwrap().len(), 4);
+        assert_eq!(
+            whole_body_range(body.clone(), 98, 120, "u").unwrap().len(),
+            2
+        );
+        assert!(whole_body_range(body, 100, 110, "u").is_err());
+    }
 
     /// Build a minimal valid BigTIFF byte buffer in memory with exactly
     /// the IFD tags `parse_profile` needs to succeed. The layout is:

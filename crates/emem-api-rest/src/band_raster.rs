@@ -287,15 +287,17 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     .map_err(|e| upstream_error(format!("sample_window: {e}")))?;
 
     // The window's own origin in pixel space is what sample_window used:
-    // centred on the point, half the dims each way. Its world origin
-    // (centre of the first pixel) inverts world_to_pixel exactly.
+    // centred on the point, half the dims each way.
     let (centre_col, centre_row) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
     let col0 = centre_col - (width_px as i64) / 2;
     let row0 = centre_row - (height_px as i64) / 2;
     let (ti, tj, tx, ty) = prof.tiepoint;
     let (sx, sy) = prof.pixel_scale;
-    let x0 = tx + (col0 as f64 - ti) * sx;
-    let y0 = ty - (row0 as f64 - tj) * sy.abs();
+    // The header names the first pixel's centre; on a PixelIsArea raster
+    // the tiepoint is its corner, half a pixel up and to the left.
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let x0 = tx + (col0 as f64 - ti + half) * sx;
+    let y0 = ty - (row0 as f64 - tj + half) * sy.abs();
 
     // ── the canonical artifact. ────────────────────────────────────────
     let header = GridHeader {
@@ -557,8 +559,10 @@ async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiEr
     let col0 = centre_col - (width_px as i64) / 2;
     let row0 = centre_row - (height_px as i64) / 2;
     let (ti, tj, tx, ty) = prof.tiepoint;
-    let x0 = tx + (col0 as f64 - ti) * sx;
-    let y0 = ty - (row0 as f64 - tj) * sy.abs();
+    // First pixel's centre. Cop-DEM tiles are PixelIsPoint, already centred.
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let x0 = tx + (col0 as f64 - ti + half) * sx;
+    let y0 = ty - (row0 as f64 - tj + half) * sy.abs();
 
     let header = GridHeader {
         width: width_px,
@@ -2291,13 +2295,20 @@ async fn read_masked_scene(
         return None;
     }
     let band_m = band_native_m;
-    let w_scl = ((w as f64 * band_m / scl_m).ceil() as u32).max(1);
-    let h_scl = ((h as f64 * band_m / scl_m).ceil() as u32).max(1);
+    // One SCL pixel of margin: each window centres on its own floored pixel,
+    // so their corners differ by up to a pixel of the coarser grid.
+    let w_scl = ((w as f64 * band_m / scl_m).ceil() as u32).max(1) + 2;
+    let h_scl = ((h as f64 * band_m / scl_m).ceil() as u32).max(1) + 2;
     let scl_raw = emem_fetch::cog::sample_window(cli, &scl_url, &scl_prof, cx, cy, w_scl, h_scl)
         .await
         .ok()?;
-    let bm = band_m.round() as i64;
-    let sm = scl_m.round().max(1.0) as i64;
+    // Each window's world corner, from the origin sample_window used.
+    let corner = |prof: &emem_fetch::cog::CogProfile, ww: u32, hh: u32| {
+        let (c, r) = prof.world_to_pixel(cx, cy);
+        prof.pixel_to_world(c - (ww as i64) / 2, r - (hh as i64) / 2)
+    };
+    let (bx0, by0) = corner(&band_prof, w, h);
+    let (sx0, sy0) = corner(&scl_prof, w_scl, h_scl);
     let mut out = vec![f32::NAN; (w as usize) * (h as usize)];
     for r in 0..h as i64 {
         for c in 0..w as i64 {
@@ -2305,9 +2316,15 @@ async fn read_masked_scene(
             if !bv.is_finite() {
                 continue;
             }
-            let sr = ((r * bm) / sm).clamp(0, h_scl as i64 - 1) as usize;
-            let sc = ((c * bm) / sm).clamp(0, w_scl as i64 - 1) as usize;
-            let sclv = scl_raw[sr * (w_scl as usize) + sc];
+            // The band pixel's centre, located in the SCL grid.
+            let x = bx0 + (c as f64 + 0.5) * band_m;
+            let y = by0 - (r as f64 + 0.5) * band_m;
+            let sc = ((x - sx0) / scl_m).floor() as i64;
+            let sr = ((sy0 - y) / scl_m).floor() as i64;
+            if sc < 0 || sr < 0 || sc >= w_scl as i64 || sr >= h_scl as i64 {
+                continue; // no SCL under it -> treat as occluded
+            }
+            let sclv = scl_raw[(sr as usize) * (w_scl as usize) + (sc as usize)];
             if !sclv.is_finite() {
                 continue; // unknown class -> treat as occluded
             }
@@ -2465,8 +2482,10 @@ pub async fn band_composite(req: BandCompositeReq, s: &AppState) -> Result<JsonV
     let row0 = centre_row - (height_px as i64) / 2;
     let (ti, tj, tx, ty) = anchor_prof.tiepoint;
     let (sx, sy_scale) = anchor_prof.pixel_scale;
-    let x0 = tx + (col0 as f64 - ti) * sx;
-    let y0 = ty - (row0 as f64 - tj) * sy_scale.abs();
+    // First pixel's centre, as the header states (see the single-scene path).
+    let half = if anchor_prof.pixel_is_point { 0.0 } else { 0.5 };
+    let x0 = tx + (col0 as f64 - ti + half) * sx;
+    let y0 = ty - (row0 as f64 - tj + half) * sy_scale.abs();
 
     // ── read + mask each same-grid member concurrently, then median. ───────
     let members: Vec<&emem_fetch::stac::StacItem> = items

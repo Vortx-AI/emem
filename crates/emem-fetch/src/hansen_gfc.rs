@@ -5,12 +5,12 @@
 //! Loveland, A. Kommareddy, A. Egorov, L. Chini, C. O. Justice, J. R. G.
 //! Townshend (2013). *High-Resolution Global Maps of 21st-Century Forest
 //! Cover Change*. Science 342, 850-853. doi:10.1126/science.1244693** —
-//! version v1.12 (the **2000-2024** annual update, released 2025-05).
+//! version v1.13 (the **2000-2025** annual update).
 //! Hosted on Google Earth Engine's public GCS bucket
 //! `earthenginepartners-hansen` at no cost and with no auth.
 //!
 //! Three sub-bands of the `forest_change` family wire here:
-//! - `forest_change.lossyear`     (uint8, 0=no loss, 1..=24 = 2001..=2024)
+//! - `forest_change.lossyear`     (uint8, 0=no loss, 1..=25 = 2001..=2025)
 //! - `forest_change.treecover2000` (uint8, 0..=100 % canopy cover at 30 m)
 //! - `forest_change.gain`          (uint8 0/1, dataset-frozen 2000-2012 mask)
 //!
@@ -25,7 +25,7 @@
 //! lng=-60.5 lives in tile `00N_070W` (top edge at 0°N, west edge at
 //! 70°W). This convention is documented authoritatively in the
 //! download.html JavaScript at
-//! `https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/download.html`
+//! `https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html`
 //! (`set_paths(x, y)` builds the URL list given a 10°-spaced corner).
 //!
 //! The TIFFs themselves are stripped (one strip per row, 40 000 strips
@@ -35,7 +35,7 @@
 //!
 //! Honest defaults (firm protocol contract):
 //! - lossyear=0 means "this on-land pixel had no canopy loss observed
-//!   2001–2024" — a meaningful Primary fact, not an Absence.
+//!   2001–2025" — a meaningful Primary fact, not an Absence.
 //! - When the upstream tile does not exist (Antarctica below 60°S; the
 //!   dataset is bounded ±60° to ~80°N) we surface
 //!   [`HansenGfcError::TileNotFound`] so the materializer can sign an
@@ -47,21 +47,21 @@ use reqwest::Client;
 
 use crate::cog::CogError;
 
-/// GCS bucket / version path. The v1.12 release is the 2025-05-issued
-/// annual update covering loss through calendar year 2024.
+/// GCS bucket / version path. The v1.13 release (GFC-2025) covers loss
+/// through calendar year 2025; v1.12 stopped at 2024.
 const GFC_BASE_URL: &str =
-    "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12";
+    "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13";
 
 /// Filename prefix used inside the bucket — matches the version path.
-const GFC_FILENAME_PREFIX: &str = "Hansen_GFC-2024-v1.12";
+const GFC_FILENAME_PREFIX: &str = "Hansen_GFC-2025-v1.13";
 
 /// First calendar year encoded by `lossyear=1`. The full mapping is
-/// `lossyear=k → 2000 + k`, so k=1→2001 and k=24→2024 in v1.12.
+/// `lossyear=k → 2000 + k`, so k=1→2001 and k=25→2025 in v1.13.
 pub const HANSEN_LOSSYEAR_BASE: u16 = 2000;
 
-/// Highest `lossyear` integer value present in the v1.12 raster
-/// (calendar year 2024). Bumped to 25, 26, … as new vintages publish.
-pub const HANSEN_LOSSYEAR_MAX_VALUE: u8 = 24;
+/// Highest `lossyear` integer value present in the v1.13 raster
+/// (calendar year 2025). Bumped to 26, … as new vintages publish.
+pub const HANSEN_LOSSYEAR_MAX_VALUE: u8 = 25;
 
 /// Known layers exposed by this connector. The strings match the
 /// upstream filename's `<layer>` segment.
@@ -85,7 +85,7 @@ pub enum HansenGfcError {
     /// open-ocean tiles. Materializers MUST sign this as an `Absence`
     /// — the cell is genuinely outside the dataset's coverage.
     #[error(
-        "tile_not_found: GFC v1.12 tile {tile} ({layer}) at {url} returned 404 (cell outside dataset coverage)"
+        "tile_not_found: GFC v1.13 tile {tile} ({layer}) at {url} returned 404 (cell outside dataset coverage)"
     )]
     TileNotFound {
         /// Tile name component (e.g. "10S_010W").
@@ -116,7 +116,7 @@ pub enum HansenGfcError {
         /// Raw pixel byte read from the COG.
         value: u8,
         /// Documented maximum for this layer (100 for treecover, 24 for
-        /// lossyear in v1.12, 1 for gain).
+        /// lossyear in v1.13, 1 for gain).
         max: u8,
         /// Cell latitude, for diagnostics.
         lat: f64,
@@ -149,7 +149,7 @@ impl HansenGfcError {
 /// load-bearing helper for unit-testing the naming convention.
 ///
 /// The result is the `<filename>` portion that goes after the version
-/// path: `Hansen_GFC-2024-v1.12_<layer>_<lat3>_<lon4>.tif`. Use
+/// path: `Hansen_GFC-2025-v1.13_<layer>_<lat3>_<lon4>.tif`. Use
 /// [`tile_url_for`] when you need the full https://… URL.
 ///
 /// Tiles are anchored at integer 10° multiples to the **north and
@@ -203,7 +203,7 @@ pub fn tile_corner_tags(lat: f64, lng: f64) -> (String, String) {
 ///
 /// The mapping is **always** `value=0 → None`, `value=k → Some(2000 +
 /// k)` for k in 1..=HANSEN_LOSSYEAR_MAX_VALUE. The base year (2000)
-/// and max value (24 in v1.12) are dataset constants; bumping to a
+/// and max value (25 in v1.13) are dataset constants; bumping to a
 /// future v1.13 with k=25 → 2025 is a one-line edit to
 /// [`HANSEN_LOSSYEAR_MAX_VALUE`].
 pub fn lossyear_byte_to_calendar_year(byte: u8) -> Option<u16> {
@@ -219,7 +219,7 @@ pub fn lossyear_byte_to_calendar_year(byte: u8) -> Option<u16> {
 /// pixel had no loss event 2001..=current.
 ///
 /// Returns:
-/// - `Ok(Some(year))` for a real loss event (2001..=2024 in v1.12).
+/// - `Ok(Some(year))` for a real loss event (2001..=2025 in v1.13).
 /// - `Ok(None)` for a confirmed on-land pixel with no observed loss
 ///   — a meaningful Primary fact (year_of_loss=0).
 /// - `Err(TileNotFound)` for cells outside the dataset's tile
@@ -339,7 +339,7 @@ async fn sample_layer_byte(
 mod tests {
     use super::*;
 
-    /// `tile_name_for` produces the documented `Hansen_GFC-2024-v1.12_<layer>_<lat>_<lng>.tif`
+    /// `tile_name_for` produces the documented `Hansen_GFC-2025-v1.13_<layer>_<lat>_<lng>.tif`
     /// pattern across Northern, Southern, Eastern, and Western
     /// hemispheres. Reference cells:
     ///
@@ -359,7 +359,7 @@ mod tests {
         // -119.54 → floor(-11.954)*10=-120 → 120W.
         assert_eq!(
             tile_name_for(37.86, -119.54, LAYER_LOSSYEAR),
-            "Hansen_GFC-2024-v1.12_lossyear_40N_120W.tif",
+            "Hansen_GFC-2025-v1.13_lossyear_40N_120W.tif",
             "Yosemite NP must map to 40N_120W"
         );
         // Central Amazon at -3, -60.5 → 00N_070W (the spec's worked
@@ -368,27 +368,27 @@ mod tests {
         // the tile whose west edge is on the lower-magnitude side.
         assert_eq!(
             tile_name_for(-3.0, -60.5, LAYER_LOSSYEAR),
-            "Hansen_GFC-2024-v1.12_lossyear_00N_070W.tif",
+            "Hansen_GFC-2025-v1.13_lossyear_00N_070W.tif",
             "Central Amazon (-3, -60.5) must map to 00N_070W"
         );
         // Greenwich + small offset north of equator. lat 0.5 →
         // ceil(0.05)*10=10 → 10N. lng 0.5 → floor(0.05)*10=0 → 000E.
         assert_eq!(
             tile_name_for(0.5, 0.5, LAYER_TREECOVER_2000),
-            "Hansen_GFC-2024-v1.12_treecover2000_10N_000E.tif",
+            "Hansen_GFC-2025-v1.13_treecover2000_10N_000E.tif",
             "Greenwich+north must map to 10N_000E"
         );
         // Sumatra at -1.0, +100.0. lat -1 → ceil(-0.1)*10=0 → 00N.
         // lng 100 → floor(10)*10=100 → 100E.
         assert_eq!(
             tile_name_for(-1.0, 100.0, LAYER_GAIN),
-            "Hansen_GFC-2024-v1.12_gain_00N_100E.tif",
+            "Hansen_GFC-2025-v1.13_gain_00N_100E.tif",
             "Sumatra (-1, 100) must map to 00N_100E"
         );
         // Siberia at 65, 120 → 70N_120E.
         assert_eq!(
             tile_name_for(65.0, 120.0, LAYER_LOSSYEAR),
-            "Hansen_GFC-2024-v1.12_lossyear_70N_120E.tif",
+            "Hansen_GFC-2025-v1.13_lossyear_70N_120E.tif",
             "Siberia (65, 120) must map to 70N_120E"
         );
     }
@@ -401,7 +401,7 @@ mod tests {
         let url = tile_url_for(-3.0, -60.5, LAYER_LOSSYEAR);
         assert_eq!(
             url,
-            "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2024-v1.12/Hansen_GFC-2024-v1.12_lossyear_00N_070W.tif"
+            "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/Hansen_GFC-2025-v1.13_lossyear_00N_070W.tif"
         );
     }
 
@@ -435,16 +435,16 @@ mod tests {
             Some(2012),
             "byte=12 must map to calendar year 2012"
         );
-        // Last valid year published in v1.12 (2025-05 release).
+        // Last valid year published in v1.13.
         assert_eq!(
             lossyear_byte_to_calendar_year(HANSEN_LOSSYEAR_MAX_VALUE),
-            Some(2024),
-            "byte={} must map to 2024 (v1.12 end-of-record)",
+            Some(2025),
+            "byte={} must map to 2025 (v1.13 end-of-record)",
             HANSEN_LOSSYEAR_MAX_VALUE
         );
         // Sanity: the constants line up.
         assert_eq!(HANSEN_LOSSYEAR_BASE, 2000);
-        assert_eq!(HANSEN_LOSSYEAR_MAX_VALUE, 24);
+        assert_eq!(HANSEN_LOSSYEAR_MAX_VALUE, 25);
     }
 
     /// `HansenGfcError::from_cog` translates a 404-shaped transport
@@ -469,7 +469,7 @@ mod tests {
             } => {
                 assert_eq!(t, &tile, "tile field must round-trip");
                 assert_eq!(layer, LAYER_LOSSYEAR, "layer field must round-trip");
-                assert!(u.contains("Hansen_GFC-2024-v1.12_lossyear_"));
+                assert!(u.contains("Hansen_GFC-2025-v1.13_lossyear_"));
             }
             other => panic!("expected TileNotFound, got {other:?}"),
         }

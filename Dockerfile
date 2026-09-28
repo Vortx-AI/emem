@@ -128,11 +128,18 @@ RUN --mount=type=cache,id=cargo-registry-${TARGETARCH}-trixie-r2,target=/usr/loc
 # binary's __isoc23_* references resolve at runtime.
 FROM debian:trixie-slim AS runtime
 # tesseract-ocr: open-source OCR (Apache-2.0) for POST /v1/ocr; without it the route answers 501.
+# The other languages are the documents a commodity supply chain carries: land
+# records in the Indian scripts, Portuguese, Spanish, French and Indonesian;
+# lab and trade papers in the EU operators' languages (~40 MB).
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        ca-certificates libcap2-bin bash tesseract-ocr tesseract-ocr-eng && \
+        ca-certificates libcap2-bin bash tesseract-ocr tesseract-ocr-eng \
+        tesseract-ocr-hin tesseract-ocr-mar tesseract-ocr-ben tesseract-ocr-guj tesseract-ocr-pan \
+        tesseract-ocr-tam tesseract-ocr-tel tesseract-ocr-kan tesseract-ocr-mal \
+        tesseract-ocr-por tesseract-ocr-spa tesseract-ocr-fra tesseract-ocr-ind tesseract-ocr-msa \
+        tesseract-ocr-vie tesseract-ocr-tha tesseract-ocr-deu tesseract-ocr-nld tesseract-ocr-ita && \
     rm -rf /var/lib/apt/lists/* && \
     useradd --system --uid 65532 --no-create-home --shell /usr/sbin/nologin emem
 

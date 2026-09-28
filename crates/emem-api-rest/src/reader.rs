@@ -23,7 +23,7 @@ use axum::response::{IntoResponse, Response};
 use axum::Json;
 use ed25519_dalek::Signer;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{json, Value as JsonValue};
 use sha2::Digest;
 
 use crate::range_hash::{admit_url, fetch_following, refuse};
@@ -51,6 +51,17 @@ pub(crate) mod ocr_tag {
     pub const TEXT_BLAKE3: u8 = 5;
     pub const READ_AT: u8 = 6;
     pub const RESPONDER_PUBKEY: u8 = 7;
+}
+
+pub(crate) const DOC_PARSE_DOMAIN: &str = "emem.doc_parse.v1";
+
+pub(crate) mod doc_tag {
+    pub const KIND: u8 = 1;
+    pub const TEXT_BLAKE3: u8 = 2;
+    pub const RESULT_BLAKE3: u8 = 3;
+    pub const PARSER: u8 = 4;
+    pub const PARSED_AT: u8 = 5;
+    pub const RESPONDER_PUBKEY: u8 = 6;
 }
 
 const READ_MAX_BYTES: usize = 4 << 20;
@@ -428,72 +439,80 @@ pub(crate) async fn post_ocr(
             )
         }
     };
+    match ocr_value(&s, &ip, r).await {
+        Ok(v) => Json(v).into_response(),
+        Err(resp) => resp,
+    }
+}
+
+/// Run OCR for `r` as `post_ocr` does (quota, engine, signed receipt).
+pub(crate) async fn ocr_value(s: &AppState, ip: &str, r: OcrReq) -> Result<JsonValue, Response> {
     let lang = r.lang.clone().unwrap_or_else(|| "eng".into());
     if !lang_ok(&lang) {
-        return refuse(
+        return Err(refuse(
             StatusCode::BAD_REQUEST,
             "invalid_argument",
             format!("lang {lang:?} is not a tesseract language code"),
-        );
+        ));
     }
     let Some(engine) = tesseract_version().await else {
-        return refuse(
+        return Err(refuse(
             StatusCode::NOT_IMPLEMENTED,
             "ocr_unavailable",
             "this responder has no OCR engine installed".into(),
-        );
+        ));
     };
     let quota = daily_quota("EMEM_OCR_DAILY_QUOTA", 200);
-    if !crate::check_daily_quota(&ip, "ocr", quota) {
-        return quota_refused("ocr", quota);
+    if !crate::check_daily_quota(ip, "ocr", quota) {
+        return Err(quota_refused("ocr", quota));
     }
     let (image, source) = match (r.url.as_deref(), r.image_b64.as_deref()) {
         (Some(u), None) => match fetch_bytes(u, OCR_MAX_BYTES).await {
             Ok((b, fetched, _, _, _)) => (b, fetched.to_string()),
-            Err(e) => return e,
+            Err(e) => return Err(e),
         },
         (None, Some(b64)) => match data_encoding::BASE64.decode(b64.trim().as_bytes()) {
             Ok(b) if b.len() <= OCR_MAX_BYTES => (b, "upload".to_string()),
             Ok(_) => {
-                return refuse(
+                return Err(refuse(
                     StatusCode::BAD_REQUEST,
                     "too_large",
                     format!("image over {OCR_MAX_BYTES} bytes"),
-                )
+                ))
             }
             Err(e) => {
-                return refuse(
+                return Err(refuse(
                     StatusCode::BAD_REQUEST,
                     "invalid_argument",
                     format!("image_b64: {e}"),
-                )
+                ))
             }
         },
         _ => {
-            return refuse(
+            return Err(refuse(
                 StatusCode::BAD_REQUEST,
                 "invalid_argument",
                 "pass exactly one of url or image_b64".into(),
-            )
+            ))
         }
     };
     let Some(kind) = image_kind(&image) else {
-        return refuse(
+        return Err(refuse(
             StatusCode::UNPROCESSABLE_ENTITY,
             "not_an_image",
             "not a png, jpeg, tiff, webp, gif or bmp".into(),
-        );
+        ));
     };
     let Ok(_permit) = ocr_permits().acquire().await else {
-        return refuse(
+        return Err(refuse(
             StatusCode::SERVICE_UNAVAILABLE,
             "busy",
             "no OCR slot".into(),
-        );
+        ));
     };
     let text = match run_tesseract(&image, &lang).await {
         Ok(t) => t,
-        Err(e) => return refuse(StatusCode::UNPROCESSABLE_ENTITY, "ocr_failed", e),
+        Err(e) => return Err(refuse(StatusCode::UNPROCESSABLE_ENTITY, "ocr_failed", e)),
     };
     let image_b3 = *blake3::hash(&image).as_bytes();
     let text_b3 = *blake3::hash(text.as_bytes()).as_bytes();
@@ -508,7 +527,7 @@ pub(crate) async fn post_ocr(
     pb.seg(ocr_tag::READ_AT, read_at.as_bytes());
     pb.seg(ocr_tag::RESPONDER_PUBKEY, &pk);
     let sig = s.identity.signing.sign(&pb.finalize()).to_bytes();
-    Json(json!({
+    Ok(json!({
         "source": source,
         "image_kind": kind,
         "image_bytes": image.len(),
@@ -527,7 +546,146 @@ pub(crate) async fn post_ocr(
             "note": "model_output: this signs which image, engine and language produced this text, not that the text is a correct reading",
         },
     }))
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct DocParseReq {
+    #[serde(default)]
+    text: Option<String>,
+    /// A `/v1/ocr` response: its text is checked against its own blake3.
+    #[serde(default)]
+    ocr: Option<JsonValue>,
+    #[serde(default)]
+    url: Option<String>,
+    #[serde(default)]
+    image_b64: Option<String>,
+    #[serde(default)]
+    lang: Option<String>,
+}
+
+const DOC_PARSER: &str = "doc_parse@1";
+
+/// `lab_report_parse@1` and `land_record_parse@1`: the document's text,
+/// from the caller, a signed `/v1/ocr` reply, or OCR run here, parsed
+/// deterministically and signed over the text's hash and the result's.
+async fn doc_parse(
+    s: AppState,
+    req: axum::http::Request<axum::body::Body>,
+    kind: &'static str,
+) -> Response {
+    let ip = crate::client_ip(&req).unwrap_or_else(|| "unknown".to_string());
+    let Ok(body) = axum::body::to_bytes(req.into_body(), OCR_MAX_BYTES * 4 / 3 + 4096).await else {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "invalid_argument",
+            "body too large".into(),
+        );
+    };
+    let r: DocParseReq = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(e) => {
+            return refuse(
+                StatusCode::BAD_REQUEST,
+                "invalid_argument",
+                format!("expected {{text}}, {{ocr}}, {{url}} or {{image_b64}}: {e}"),
+            )
+        }
+    };
+    let default_lang = if kind == "land_record_parse@1" {
+        "eng+hin+mar"
+    } else {
+        "eng"
+    };
+    let (text, ocr) = if let Some(t) = r.text {
+        (t, None)
+    } else if let Some(o) = r.ocr {
+        let Some(t) = o["text"].as_str().map(str::to_string) else {
+            return refuse(
+                StatusCode::BAD_REQUEST,
+                "invalid_argument",
+                "ocr.text is missing".into(),
+            );
+        };
+        if o["text_blake3_b32"].as_str()
+            != Some(b32(blake3::hash(t.as_bytes()).as_bytes()).as_str())
+        {
+            return refuse(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "text_hash_mismatch",
+                "ocr.text does not hash to ocr.text_blake3_b32, so it is not the text that receipt signs".into(),
+            );
+        }
+        (t, Some(o))
+    } else if r.url.is_some() || r.image_b64.is_some() {
+        let o = OcrReq {
+            url: r.url,
+            image_b64: r.image_b64,
+            lang: Some(r.lang.unwrap_or_else(|| default_lang.to_string())),
+        };
+        match ocr_value(&s, &ip, o).await {
+            Ok(v) => (v["text"].as_str().unwrap_or("").to_string(), Some(v)),
+            Err(resp) => return resp,
+        }
+    } else {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "invalid_argument",
+            "pass text, ocr, url or image_b64".into(),
+        );
+    };
+    if text.len() > TEXT_MAX_CHARS * 4 {
+        return refuse(StatusCode::BAD_REQUEST, "too_large", "text too long".into());
+    }
+    let result = match kind {
+        "lab_report_parse@1" => serde_json::to_value(crate::doc_parse::parse_lab_report(&text)),
+        _ => serde_json::to_value(crate::doc_parse::parse_land_record(&text)),
+    }
+    .unwrap_or(JsonValue::Null);
+    let text_b3 = *blake3::hash(text.as_bytes()).as_bytes();
+    let result_b3 = *blake3::hash(&serde_json::to_vec(&result).unwrap_or_default()).as_bytes();
+    let parsed_at = crate::chrono_iso8601_utc();
+    let pk = s.identity.pubkey.0;
+    let mut pb = emem_attest::PreimageV1::new(DOC_PARSE_DOMAIN);
+    pb.seg(doc_tag::KIND, kind.as_bytes());
+    pb.seg(doc_tag::TEXT_BLAKE3, &text_b3);
+    pb.seg(doc_tag::RESULT_BLAKE3, &result_b3);
+    pb.seg(doc_tag::PARSER, DOC_PARSER.as_bytes());
+    pb.seg(doc_tag::PARSED_AT, parsed_at.as_bytes());
+    pb.seg(doc_tag::RESPONDER_PUBKEY, &pk);
+    let sig = s.identity.signing.sign(&pb.finalize()).to_bytes();
+    Json(json!({
+        "schema": "emem.doc_parse.v1",
+        "signal": kind,
+        "parser": DOC_PARSER,
+        "text_blake3_b32": b32(&text_b3),
+        "result_blake3_b32": b32(&result_b3),
+        "result": result,
+        "ocr": ocr,
+        "parsed_at": parsed_at,
+        "provenance_class": "deterministic_index",
+        "reading": "Each value carries its line and byte offset in the text; the text hashes to text_blake3_b32, which the OCR receipt signs against the image. The parser reads what the document prints. It does not check a residue against the EU MRL database, a land record against its registry, or a signature for authenticity.",
+        "receipt": {
+            "domain": DOC_PARSE_DOMAIN,
+            "preimage": "PreimageV1(\"emem.doc_parse.v1\"){1:kind, 2:text_blake3, 3:result_blake3 (blake3 of the serialised result), 4:parser, 5:parsed_at, 6:responder_pubkey}",
+            "responder_pubkey_b32": b32(&pk),
+            "signature_b32": b32(&sig),
+        },
+    }))
     .into_response()
+}
+
+pub(crate) async fn post_lab_report_parse(
+    axum::extract::State(s): axum::extract::State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Response {
+    doc_parse(s, req, "lab_report_parse@1").await
+}
+
+pub(crate) async fn post_land_record_parse(
+    axum::extract::State(s): axum::extract::State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+) -> Response {
+    doc_parse(s, req, "land_record_parse@1").await
 }
 
 async fn run_tesseract(image: &[u8], lang: &str) -> Result<String, String> {

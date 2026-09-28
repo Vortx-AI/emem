@@ -299,14 +299,10 @@ pub async fn fetch_population_density_via_cog(
             "non-finite pixel value {raw} from {url}"
         )));
     }
-    // WorldPop's per-country UNadj 1 km rasters encode persons per
-    // pixel. The 1 km pixel area equals 1 km² at the WGS84 equator and
-    // ~cos(lat) · 1 km² further north/south; the product's published
-    // semantics are "persons per 1 km² grid cell", with WorldPop
-    // documenting the 1 km grid as the analytic unit. We surface the
-    // raw cell value as people · km⁻² to match the existing stats-API
-    // semantics (the stats-API integrates over a 1 km² AOI window and
-    // returns the same scalar).
+    // `ppp` rasters hold persons per pixel, and a 30-arc-second pixel is
+    // about 0.86 km² at the equator and cos(lat) of that further out
+    // (0.565 km² at Paris). Signing the count as a density understated
+    // Paris 1.77x; the density is the count over the pixel's own area.
     let nodata_sentinel = profile
         .nodata
         .as_deref()
@@ -317,15 +313,45 @@ pub async fn fetch_population_density_via_cog(
         // even when the tag is missing or unparsable.
         _ => raw <= -99_998.0,
     };
-    if is_nodata || raw <= 0.0 {
+    // No-data is outside the country mask; a 0 is an inhabited-nowhere
+    // pixel inside it, a real measurement.
+    if is_nodata {
         return Err(WorldPopError::EmptyAoi { lat, lng });
     }
+    if raw < 0.0 {
+        return Err(WorldPopError::Malformed(format!(
+            "negative population {raw} from {url}"
+        )));
+    }
+    let area_km2 = pixel_area_km2(
+        lat,
+        profile.pixel_scale.0.abs(),
+        profile.pixel_scale.1.abs(),
+    );
+    if !area_km2.is_finite() || area_km2 <= 0.0 {
+        return Err(WorldPopError::Malformed(format!(
+            "pixel scale {:?} gives no area at lat {lat}",
+            profile.pixel_scale
+        )));
+    }
     Ok(WorldPopSample {
-        people_per_km2: raw,
+        people_per_km2: raw / area_km2,
         upstream_url: url,
         dataset: "wpgppop",
         year,
     })
+}
+
+/// Area in km² of a `dx` by `dy` degree pixel centred at `lat` on WGS84:
+/// the meridian and parallel arc lengths there, which is exact enough at a
+/// pixel's size (under 0.1 % against the ellipsoid integral at 1 km).
+pub fn pixel_area_km2(lat: f64, dx_deg: f64, dy_deg: f64) -> f64 {
+    let phi = lat.to_radians();
+    let (a, e2) = (6378.137_f64, 0.006_694_379_990_14_f64);
+    let w = (1.0 - e2 * phi.sin().powi(2)).sqrt();
+    let meridian_km_per_rad = a * (1.0 - e2) / w.powi(3);
+    let parallel_km_per_rad = a * phi.cos() / w;
+    (dy_deg.to_radians() * meridian_km_per_rad) * (dx_deg.to_radians() * parallel_km_per_rad)
 }
 
 /// Translate a `cog::CogError` into the appropriate `WorldPopError`
@@ -485,6 +511,17 @@ fn url_encode(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    /// A 30-arc-second pixel: ~0.855 km² at the equator, ~0.565 km² at
+    /// Paris, where the count 7657.6 is ~13,550 people per km².
+    #[test]
+    fn a_pixel_count_becomes_a_density_by_its_own_area() {
+        let d = 1.0 / 120.0;
+        assert!((pixel_area_km2(0.0, d, d) - 0.855).abs() < 0.005);
+        let paris = pixel_area_km2(48.8566, d, d);
+        assert!((paris - 0.565).abs() < 0.005, "{paris}");
+        assert!(((7657.6 / paris) - 13_550.0).abs() < 150.0);
+    }
+
     use super::*;
 
     /// AOI polygon must be a closed CCW ring of the right size at the

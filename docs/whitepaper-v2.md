@@ -1246,7 +1246,7 @@ needs are open work. The roadmap carries it.
 ## 11. The agent-discoverable surface
 
 `emem-server` serves HTTP/REST and MCP JSON-RPC on one port (default
-`0.0.0.0:5051`): **172 documented REST paths under `/v1/*`** (183 total
+`0.0.0.0:5051`): **177 documented REST paths under `/v1/*`** (188 total
 in OpenAPI) and **114 MCP tools (18 core, 96 extended)**.
 
 Discovery on first contact:
