@@ -1,176 +1,100 @@
 ---
 name: emem-find-similar
-description: Return the top-K most similar places on Earth by cosine over a stored 128-D surface-texture embedding. Use when the user asks for analogues, look-alikes or counterparts ("find cities like Bangalore", "where else looks like the Sundarbans"). IMPORTANT, changed 2026-09-15: the embedding band is RETIRED on emem.dev — the index is frozen, no new vectors are computed, and a cell without one cannot get one. The skill tells you how to check coverage before promising an answer.
+description: Returns the top-K places most similar to a seed place by cosine over a stored 128-D surface-texture embedding (Sentinel-1 plus Sentinel-2, annual). Use when the user asks for analogues or look-alikes ("find places like Bangalore", "where else looks like the Sundarbans"). The embedding band is retired on emem.dev, so the index is frozen at what was already stored; the skill says how to tell "no analogue" from "this seed has no vector and cannot get one".
 ---
 
 # emem-find-similar
 
-This skill runs a nearest-neighbour search over a stored 128-D
-embedding of surface texture (Sentinel-1 SAR plus Sentinel-2 optical,
-aggregated annually per cell). Two cells above about 0.85 cosine are
-usually the same physical archetype.
+A nearest-neighbour search over a stored 128-D embedding of surface
+texture (Sentinel-1 SAR plus Sentinel-2 optical, aggregated per year).
+Two cells above about 0.85 cosine are usually the same physical
+archetype.
 
 ## Read this before you promise an answer
 
-**The embedding band is retired on emem.dev as of 2026-09-15.** The
-responder no longer computes new vectors: it serves the ones already
-stored and refuses to make more. The consequences are concrete:
+The embedding band (`geotessera`) is **retired on emem.dev**. The
+responder serves vectors it already stored and computes no new ones:
 
-- A cell that already carries a vector works exactly as before.
-- A cell that does not **cannot be given one**. `/v1/find_similar`
-  returns `cid_not_found`, and calling `/v1/recall` to materialise the
-  band returns a note with reason `band_retired_at_this_responder`.
-  That is a deployment decision, not an outage, and retrying never
-  succeeds.
-- So coverage is whatever was materialised before the retirement. It is
-  dense around places that have been asked about and empty elsewhere.
+- A seed that has a stored vector works as before.
+- A seed without one **cannot be given one**. `/v1/find_similar` answers
+  `cid_not_found`, and `/v1/recall` on the band answers a note with
+  reason `band_retired_at_this_responder`. That is a deployment decision,
+  and retrying never changes it.
+- Coverage is whatever was stored before the retirement: dense around
+  places people asked about, empty elsewhere.
 
-Say that to the user when it happens. "No analogue found" and "this
-place has no vector and cannot get one" are different answers, and only
-the second is true here.
-
-The direction of travel is deterministic indices computed from Sentinel-1
-and Sentinel-2 directly rather than a learned encoder, because a
-reproducible index can be recomputed by anyone and a frozen model's
-weights cannot.
+"No analogue found" and "this place has no vector" are different
+answers. Only report the one that happened.
 
 ## When to invoke
 
-The user asks for analogues:
-
 - "Find cities globally that look like Bangalore."
-- "What other places have an urban canopy similar to Singapore?"
-- "Show me regions with the same forest signature as the Western Ghats."
-- "Compare Mumbai and Lagos by their surface-texture embedding."
+- "Where else has the same forest signature as the Western Ghats?"
 
-If the user wants exact-band matching (e.g., "all places with NDVI >
-0.7"), this is the wrong skill — use `query_region` or
-`compare_bands` instead. This skill is *vector cosine*, not
-predicate filtering.
+For predicate matching ("all places with NDVI above 0.7") this is the
+wrong tool: use `POST /v1/query_region` or `POST /v1/compare_bands`.
+For climate similarity, compare `koppen` classes from recall instead;
+this embedding aliases very different climates that share a texture.
 
-## How to invoke
-
-### Step 1 — resolve the seed place to cell64
+## Step 1: resolve the seed
 
 ```sh
-SEED_CELL=$(curl -sf -X POST https://emem.dev/v1/locate \
+SEED=$(curl -sf -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
-  -d '{"q":"Bangalore, India"}' | jq -r '.cell64')
-echo "seed cell: $SEED_CELL"
+  -d '{"q":"Bengaluru, India"}' | jq -r '.cell64')
 ```
 
-### Step 2 — check the seed HAS a vector (you can no longer create one)
-
-`/v1/find_similar` returns `cid_not_found` when the seed cell carries
-no embedding. The old version of this skill told you to materialise it
-with `/v1/recall`; that no longer works and the attempt returns
-`band_retired_at_this_responder`.
-
-Check instead, and branch honestly:
+## Step 2: query, and branch on the answer
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall \
+curl -s -X POST https://emem.dev/v1/find_similar \
   -H 'content-type: application/json' \
-  -d "{\"cell\":\"$SEED_CELL\",\"bands\":[\"geotessera\"]}" \
-  | jq '{has_vector: ((.facts // []) | length > 0),
-         retired: ((.materialize_notes // [])
-                   | map(select(.reason == "band_retired_at_this_responder"))
-                   | length > 0)}'
+  -d "{\"key\":\"$SEED\",\"k\":12}" > sim.json
+jq 'if .code then {code, message}
+    else [.neighbors[] | {cell, score, place: .place_label_cached, lat, lng}] end' sim.json
 ```
 
-`has_vector: true` — proceed. `retired: true` with `has_vector: false` —
-stop and tell the user this place has no stored vector and the responder
-cannot compute one, rather than reporting an empty result as if the
-search had run.
+Call it directly rather than probing with recall first. On 2026-09-28 a
+Timbuktu seed returned no `geotessera` fact from `/v1/recall` (a
+retired-band note) yet `/v1/find_similar` answered from its stored
+vector, so recall is not a reliable coverage test. `cid_not_found` from
+find_similar is.
 
-### Step 3 — query top-K neighbours
+Each neighbour carries `cell`, `score` (cosine), `lat`, `lng`,
+`place_label_cached`, `band_used`, `similarity_method`, `scene_png_url`
+and `deep_recall_url`. The response also carries a signed `receipt`
+over the neighbours' fact cids and an `interpretation` block that says
+what the similarity does and does not mean. Pass that on.
 
-```sh
-curl -sf -X POST https://emem.dev/v1/find_similar \
-  -H 'content-type: application/json' \
-  -d "{\"key\":\"$SEED_CELL\",\"k\":12}" \
-  | jq '.neighbors[] | {cell, score, place: .place_label_cached, lat, lng}'
-```
+Recorded on 2026-09-28: seed `defi.zb493.zezo.zcb35` (Bengaluru) with
+`k: 5` returned four neighbours, all in Bengaluru, top score 0.926. A
+seed at 44.123 S, 120.456 W (open Pacific) returned `cid_not_found`.
 
-The response includes:
+## Options
 
-- `neighbors[].cell` — cell64 of the neighbour
-- `neighbors[].score` — cosine similarity in [0, 1]
-- `neighbors[].lat`, `.lng` — centre coords
-- `neighbors[].place_label_cached` — cached human label if known
-- `neighbors[].band_used` — almost always `geotessera`
-- `neighbors[].similarity_method` — `cosine` (default) or `hamming`
-  (if you set `band: "geotessera.bin128"`)
-- `neighbors[].deep_recall_url` — the `/v1/recall` payload that
-  fetches the neighbour's full embedding for further drill-down
-
-## Picking the right vintage
-
-The same retirement applies per vintage: a vintage answers only where it
-was already materialised, and a miss cannot be filled. Check before you
-offer a year, do not promise one.
-
-The default is the 2024 vintage. If the user asks "what looked like X in
-2018?", you can change the band:
-
-```sh
-curl -sf -X POST https://emem.dev/v1/find_similar \
-  -H 'content-type: application/json' \
-  -d '{"key":"defi.zb493.xoso.zcb6a","k":12,"band":"geotessera.2018"}'
-```
-
-Available vintages: `geotessera.{2017..2024}` plus
-`geotessera.multi_year` (1024-D = 8×128 stacked, fuses all years).
-The multi-year vector picks up *trajectory* similarity — places that
-changed in similar ways.
+- `band: "geotessera.2018"` (any year 2017 to 2024) searches that
+  vintage; `geotessera.multi_year` searches the stacked 1024-D vector,
+  which picks up places that changed in similar ways. Each vintage
+  answers only where it was stored.
+- `mode: "hamming"` runs the binary sign-bit index instead of cosine
+  (`similarity_method: "hamming"` on each neighbour). Do not pass
+  `band: "geotessera.bin128"`: on 2026-09-28 that returned an `internal`
+  error.
 
 ## Pitfalls
 
-- **Coverage is frozen.** The index holds what was materialised before
-  the band was retired. An empty result may mean "no analogue" or "this
-  cell was never embedded"; `cid_not_found` means the second. Never
-  report the second as the first.
-- **Cosine reflects physical archetype, not socioeconomic
-  features.** A "similar" city may look the same from space (urban
-  density, vegetation, water proximity) but be socially very
-  different. Be honest with the user about what the similarity
-  measures.
-- **Score thresholds are heuristic.** >0.85 is "same archetype",
-  0.7–0.85 is "related", <0.7 is "weak". The actual cutoff depends
-  on the seed cell's environment.
-- **First call may be slow** if the seed needs materialisation; the
-  second is cache-warm.
-
-## Worked example
-
-```
-USER: Find cities globally that look most like Bangalore.
-
-CLAUDE invokes this skill:
-  POST /v1/locate {"q":"Bangalore"}    → defi.zb493.xoso.zcb6a
-  POST /v1/recall {"cell":..., "bands":["geotessera"]}    → has_vector: true
-  POST /v1/find_similar {"key":"defi.zb493.xoso.zcb6a","k":8}
-    → neighbors:
-       defi.zb5cf.nura.zd83c  0.91  New York City, USA
-       defi.zb563.noxo.xAvu   0.89  Shanghai, China
-       defi.zb541.…           0.87  Lagos, Nigeria
-       …
-
-CLAUDE replies: "By cosine over the stored 2024 embedding,
-Bangalore's nearest neighbours globally are New York (0.91),
-Shanghai (0.89), Lagos (0.87), and …. The similarity captures
-shared physical archetype — dense urban core with patches of
-green and surrounding peri-urban — not social or economic
-features. Each result is content-addressed; click 'recall' on
-any to fetch the underlying vector and verify it offline."
-```
+- **Nearby is not similar.** The top neighbours of a city cell are often
+  other cells of the same city. Ask for a larger `k` and filter by
+  distance if the user wants places elsewhere.
+- **Archetype, not society.** A "similar" city looks the same from
+  space (density, vegetation, water) and may be nothing alike otherwise.
+- **Thresholds are heuristic.** Above 0.85 same archetype, 0.7 to 0.85
+  related, below 0.7 weak; the cutoff depends on the seed.
 
 ## Before you report the neighbours
 
-Similarity is a ranking, not a measurement, and it carries no receipt of
-its own. When you name a neighbour, cite the band facts that make the
-claim checkable, and say the embedding is a frozen index rather than a
-live computation. [`emem-referential-drift`](../emem-referential-drift/SKILL.md)
-covers carrying values as tokens;
-[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)
-covers the draft.
+Similarity is a ranking over a frozen index, not a measurement. Name
+the neighbours with their cell64 and score, say the index is frozen,
+and cite band facts (recall at each neighbour) for anything you claim
+about them. See [`emem-referential-drift`](../emem-referential-drift/SKILL.md)
+and [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).

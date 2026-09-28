@@ -1,138 +1,143 @@
 ---
 name: emem-locate-and-recall
-description: Resolve a free-form place name to an emem cell64 and recall signed Earth-observation facts at that location. Use when the user asks about current weather, vegetation index, elevation, soil properties, or any other geospatial measurement at a named place ("what's the temperature in Bengaluru", "how high is Denali", "what's the NDVI in the Sundarbans"). Returns content-addressed facts with Ed25519 receipts that can be verified offline. Reads are public — no auth required.
+description: Resolves a place name to an emem cell64 address and recalls signed Earth-observation facts there (weather, vegetation indices, elevation, soil, land cover, surface water, forest change). Use when the user asks for a measurable value at a named place ("what is the temperature in Bengaluru", "how high is Denali", "what is the NDVI in the Sundarbans") and wants an answer another agent can verify offline. Returns content-addressed facts, a ready-made emem:fact citation token for each, and an Ed25519 receipt. Reads need no key.
 ---
 
 # emem-locate-and-recall
 
-This skill turns a place name into signed Earth-observation facts in
-two REST calls.
+Two REST calls turn a place name into signed facts. Each fact comes back
+with its own `emem:fact:` token, so the number never has to travel
+without its citation.
 
 ## When to invoke
 
-The user asks about a measurable geospatial fact at a named place:
+The user asks about a measurable geospatial value at a named place:
 
 - "What's the current 2 m air temperature in Bengaluru?"
 - "Show me the NDVI in the Sundarbans."
-- "How does the soil pH look in central Iowa?"
 - "What's the elevation of Mount Kilimanjaro?"
 
-If the user has a `cell64` already (a string like
-`defi.zb493.xoso.zcb6a`), skip the locate step and go straight to
-`/v1/recall`. If they want a *thumbnail* (visual preview) instead of
-numeric facts, use `GET /v1/cells/{cell64}/scene.png` directly.
+If you already hold a `cell64` (a string like `defi.zb493.zezo.zcb35`),
+skip step 1. For an extent rather than a point, use
+[`emem-recall-polygon`](../emem-recall-polygon/SKILL.md). For a picture,
+`GET https://emem.dev/v1/cells/<cell64>/scene.png`.
 
-## How to invoke
-
-The endpoint is `https://emem.dev`. Reads are public.
-
-### Step 1 — resolve the place name
+## Step 1: resolve the place
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru, India"}' | jq '.cell64, .place_label, .via'
+  -d '{"q":"Bengaluru, India"}' \
+  | jq '{cell64, place_label, via, disambiguation_required}'
 ```
 
-`via` reports how the name was resolved (`embedded`, `cache`,
-`photon`, `nominatim`, `fallback`). Treat `via=fallback` as
-low-confidence and ask the user to clarify.
+`place` is accepted as a synonym of `q`, and `{"lat":..,"lng":..}` skips
+the geocoder. When `disambiguation_required` is true, or
+`selected.is_high_confidence` is false, read `alternatives` and ask the
+user which one they meant rather than citing rank 0. "Springfield"
+returns Missouri first and flags it; that is the case this exists for.
 
-### Step 2 — recall the band(s)
+## Step 2: recall the bands
 
 ```sh
+CELL=defi.zb493.zezo.zcb35
 curl -sf -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"<CELL64_FROM_STEP_1>",
-       "bands":["weather.temperature_2m","indices.ndvi"]}' \
-  | jq '.facts[] | {band, value, unit, signed_at}, .receipt.fact_cids[]'
+  -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\",\"indices.ndvi\"]}" \
+  > recall.json
+
+# The latest reading per band, with the token to cite it by.
+jq -r '.current_by_band | to_entries[] | .value' recall.json | while read cid; do
+  jq -c --arg c "$cid" '.facts[] | select(.fact_cid == $c)
+        | {band, value_verbatim, unit, observed_at, memory_token}' recall.json
+done
 ```
 
-The response carries `.facts[]` (with `value`, `unit`, `signed_at`,
-`signer_pubkey_b32`) and `.receipt` (Ed25519 signature, fact_cids,
-schema_cid, registry_cid). The `fact_cids[i]` is a durable handle —
-re-fetching that CID from any responder in any year returns the same
-bytes.
+Read the response this way, not by position:
+
+- `facts[]` holds **every stored reading** for the requested bands, in
+  `fact_order` (`tslot_ascending`), so `facts[0]` is the oldest, not the
+  current one.
+- `current_by_band` maps each band to the `fact_cid` of its latest
+  reading. Use it to pick the fact you quote.
+- `value_verbatim` is the exact decimal string that was signed. Quote it
+  rather than re-typing the JSON number.
+- `memory_token` on each fact is the `emem:fact:<cell64>:<fact_cid>`
+  citation. Hand that to the user or the next agent.
+- `materialize_notes[]` says what the responder did for each band you
+  asked for: `materialized`, or `skipped` with a `reason_class`. A
+  `timeout` note with `retryable: true` means the fetch continues in the
+  background; the same call a few seconds later usually answers warm.
+- `receipt` signs the `fact_cids` this response served. Verify it with
+  [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
+
+Recorded on 2026-09-28 at `defi.zb493.zezo.zcb35` (Bengaluru), in 14 s:
+eleven facts came back, nine of them stored `indices.ndvi` readings
+from earlier dates and two temperature readings. `current_by_band`
+picked `weather.temperature_2m` = `28.0` degC observed
+`2026-09-28T10:00:00Z`, token
+`emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq`.
+The fresh NDVI fetch hit the 14 s materialiser cap and came back as a
+`retryable` timeout note, so the NDVI answer was the latest stored one.
+The receipt verified offline with `verify.py`.
 
 ## Picking bands
 
-The full band list is at `https://emem.dev/v1/bands` (124 auto-materializable bands, 1792
-total dims). Common picks:
+Ask the responder, not this page: the catalogue changes per deployment.
 
-- **Weather**: `weather.temperature_2m`, `weather.precipitation_mm`,
-  `weather.relative_humidity_2m`, `weather.wind_speed_10m`
-- **Air quality**: `cams.pm25`, `cams.no2`, `cams.aod_550`
-- **Climate**: `era5.t2m`, `era5.precip` (1940→present hourly)
-- **Vegetation**: `indices.ndvi`, `indices.evi`, `modis.ndvi_mean`
-- **Elevation**: `copdem30m.elevation_mean`, `gmrt.topobathy_mean`
-- **Land cover**: `esa_worldcover.lc_2021`
-- **Air**: `cams.pm25`, `cams.no2`, `cams.o3`, `cams.aod_550`
-- **Embeddings**: RETIRED. `clay_v1`, `prithvi_eo2` and `galileo` are
-  retired in the code, and `geotessera` is withdrawn on emem.dev since
-  2026-09-15. Stored vectors still read, no new ones are computed, and
-  asking for one returns a note with reason
-  `band_retired_at_this_responder`. Reach for the deterministic
-  indices instead: they are computed from Sentinel-1 and Sentinel-2 by
-  a published formula, so anyone can recompute them and get your number.
+- `GET /v1/bands` lists the cube bands and the scalar keys under each
+  (`.bands[].key`, `.bands[].scalar_keys`).
+- `GET /v1/materializers?page_size=100&summary=true` lists the bands this
+  responder can fetch on a miss (follow `pagination.next_url`).
 
-Ask the responder rather than trusting this list: `GET /v1/bands`
-reflects what this deployment actually serves today, and a band retired
-here may still be live elsewhere.
+Common scalars that auto-materialise on emem.dev today:
 
-If unsure which band fits the user's question, call `/v1/bands` and
-filter by family (`weather`, `vegetation`, `terrain`, `landcover`,
-`climate`).
+| Topic | Bands |
+|---|---|
+| Weather now | `weather.temperature_2m`, `weather.precipitation_mm`, `weather.relative_humidity_2m`, `weather.wind_speed_10m` |
+| Climate history | `era5.t2m`, `era5.precip`, `power.t2m`, `terraclimate.precip_normal_mm` |
+| Air | `cams.pm25`, `cams.no2`, `cams.o3`, `cams.aod_550` |
+| Vegetation | `indices.ndvi`, `indices.evi`, `indices.ndmi`, `modis.ndvi_mean`, `modis.lai_8day` |
+| Terrain | `copdem30m.elevation_mean`, `gmrt.topobathy_mean` (ocean depth) |
+| Land cover | `esa_worldcover.lc_2021`, `koppen` |
+| Surface water | `surface_water.occurrence`, `surface_water.recurrence`, `surface_water.seasonality`, `surface_water.transition_class` |
+| Forest | `forest_change.treecover2000`, `forest_change.lossyear` (Hansen GFC), `jrc_gfc2020.forest_2020`, `jrc_tmf.deforestation_year` |
+| Soil | `soilgrids.phh2o_0_30cm`, `soilgrids.soc_0_30cm`, `soilgrids.clay_0_30cm` |
+
+The foundation-model embedding bands are retired on emem.dev: facts they
+signed before still read and verify, nothing new is computed, and asking
+for one returns a note with reason `band_retired_at_this_responder`.
+Prefer the deterministic indices, which anyone can recompute from the
+same Sentinel scene.
+
+## A value is a pixel sample, not a cell average
+
+`spatial_basis` on every recall says it plainly: the cell (about 9.5 m)
+is an address, and the value is the source pixel overlapping it. A
+30 m DEM or a 463 m MODIS pixel covers many cells, so never difference
+two adjacent cells and call it a gradient.
 
 ## Recovering from errors
 
-- **HTTP 404 `cid_not_found`** — band has no fact at this cell on
-  this responder. With `EMEM_AUTO_MATERIALIZE=on` (default at
-  emem.dev) the recall already attempted to materialise; the band
-  has no upstream connector wired. Use `/v1/data_availability` to
-  check which bands have a materialiser.
-- **HTTP 400 `unknown cell64 symbol`** — typo in the cell64. Re-run
-  step 1 with the place name.
-- **HTTP 422** — request body malformed; the responder's structured
-  error message names the missing field.
+- `cid_not_found` (404): nothing is stored for that band at that cell and
+  no materialiser could fetch it. `GET /v1/data_availability` says which
+  bands can be materialised.
+- A malformed `cell64` is a 400 naming the bad symbol. Re-run step 1.
+- `compute_timeout`: the request passed the responder's 40 s transport
+  budget. Ask for fewer bands, retry once the background fetch lands, or
+  send the MCP tool call with a `task` param and poll `tasks/get`.
 
-## Verifying offline
+## One-call alternative
 
-Pass the returned receipt to the `emem-verify-receipt` skill (or to
-`POST /v1/verify_receipt` server-side) to confirm the signature
-without re-trusting the responder.
-
-## Worked example
-
-```
-USER: What's the current temperature in Bengaluru, and the NDVI?
-
-CLAUDE invokes this skill:
-  POST /v1/locate {"q":"Bengaluru, India"}
-    → cell64=defi.zb493.xoso.zcb6a
-  POST /v1/recall {"cell":"defi.zb493.xoso.zcb6a",
-                   "bands":["weather.temperature_2m","indices.ndvi"]}
-    → facts:
-       weather.temperature_2m = 28.4 degC
-       indices.ndvi = 0.42
-    → fact_cids: [qi3jo4..., bn7c4d...]
-
-CLAUDE replies: "Bengaluru is at 28.4 °C right now (signed by
-emem.dev at 2026-05-08T13:22Z). The vegetation index there
-is 0.42 — middling, consistent with a dry urban core. Both
-facts are content-addressed: qi3jo4...l2hgjtwm and
-bn7c4d...kkb73a respectively."
-```
+`POST /v1/ask {"question":"what is the elevation of Bengaluru?"}` (MCP
+`emem_ask`) classifies the question, runs locate and recall for you, and
+returns the same signed facts. Use the two-step path above when you need
+to control the bands or the place resolution.
 
 ## Before you quote the number
 
-A reading that leaves this session as a number starts drifting the moment
-it is paraphrased. Carry the handle instead: mint
-`emem:fact:<cell64>:<fact_cid>` from the `fact_cid` in the response, and
-whoever receives it resolves the byte-identical signed object rather than
-trusting your summary. See [`emem-referential-drift`](../emem-referential-drift/SKILL.md).
-
-If the number is going into a sentence you are about to send, run the two
-checks that are not the same check: `emem_echo_verify` grades your value
-against the fact you are citing, and `emem_guard_verdict` asks whether
-that fact supports the claim you wrote around it
-([`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)).
+Carry the `memory_token`, not the bare number: whoever receives it
+resolves the byte-identical signed fact rather than trusting your
+summary. See [`emem-referential-drift`](../emem-referential-drift/SKILL.md).
+Before the sentence goes out, run
+[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).

@@ -1,86 +1,102 @@
 ---
 name: emem-sign-and-attest
-description: Write to emem with your own ed25519 key — save a signed note or memory another agent can verify, or register a derivation over signed facts that the responder will recompute. Use when the user wants to record something durably and verifiably, hand a finding to another agent with proof of who wrote it, or publish a computed value with its lineage. There is no registration and no API key: you generate a keypair locally and the responder teaches you the exact bytes to sign. Reads are public; only writes need the key.
+description: Writes to emem with the agent's own Ed25519 key, either a signed note in its namespace that other agents can verify it wrote, or a derivation over signed facts that the responder recomputes. Use when the user wants to record something durably and verifiably, hand a finding to another agent with proof of authorship, or publish a computed value with its lineage. There is no registration and no API key; the key is generated locally and the responder's refusal names the exact digest to sign.
 ---
 
 # emem-sign-and-attest
 
-Reading emem needs nothing. Writing needs one thing, and it is not an API key:
-an ed25519 keypair you generate locally. Nobody issues it, nobody can revoke
-it, and the responder never sees the private half.
+Reading emem needs nothing. Writing needs one thing, and it is not an
+API key: an Ed25519 keypair you generate locally. Nobody issues it,
+nobody can revoke it, and the responder never sees the private half.
 
-## The rule that saves you later
+## Persist the seed before the first write
 
-**Persist your seed before your first write.** Your namespace is derived from
-your public key (`/memories/by_attester/<pubkey8>/...`, where `pubkey8` is the
-first 8 characters of the lowercase base32 pubkey). Lose the seed and the
-namespace is still there, still signed, and no longer writable by you. Write
-the seed to a file with mode 600 before you sign anything.
+Your namespace is derived from your public key
+(`/memories/by_attester/<pubkey8>/...`, where `pubkey8` is the first 8
+characters of the lowercase base32 pubkey). Lose the seed and the
+namespace stays there, signed, and no longer writable by you.
 
 ```python
-import json, os, secrets, base64
+import base64, json, os, secrets
 from nacl.signing import SigningKey
+
 path = os.path.expanduser("~/.config/emem/agent_identity.json")
-os.makedirs(os.path.dirname(path), exist_ok=True)
-if not os.path.exists(path):                      # never regenerate over an existing one
+if not os.path.exists(path):              # never regenerate over an existing identity
     seed = secrets.token_bytes(32)
-    sk = SigningKey(seed)
-    pub = base64.b32encode(bytes(sk.verifying_key)).decode().rstrip("=").lower()
-    json.dump({"seed_hex": seed.hex(), "pubkey_b32": pub, "pubkey8": pub[:8]},
-              open(path, "w"))
-    os.chmod(path, 0o600)
+    pub = base64.b32encode(bytes(SigningKey(seed).verify_key)).decode().rstrip("=").lower()
+    body = json.dumps({"seed_hex": seed.hex(), "pubkey_b32": pub, "pubkey8": pub[:8]})
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w") as f:
+        f.write(body)
 print(json.load(open(path))["pubkey_b32"])
 ```
 
-## The responder teaches you the signature
+The file is created with mode 600 in one step, and the content is built
+before the file is opened, so a failure cannot leave an empty identity
+behind.
 
-Do not guess the preimage. **Send the write with no `attester` block.** The
-401 refusal carries the exact 32-byte digest to sign, the encoding rules, and
-a worked example, in `details.how_to_sign`. Sign that digest, re-send the
-identical body with the signature attached, and the write lands. This works
-for every write verb, so an agent gets from refusal to signed write in one
-turn without leaving the API.
+## Let the refusal teach you the signature
 
-The rule of record is generated from the compiled constants at
-[`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec). For a memory write:
+Do not guess the preimage. **Send the write with no `attester` block.**
+The refusal carries the exact 32-byte digest to sign, the encoding
+rules and how the digest was built, in `details.how_to_sign`. Sign that
+digest, re-send the identical body with
+`"attester": {"pubkey_b32": "...", "sig_b32": "..."}`, and the write
+lands. Memory writes go through MCP (`emem_memory_create` and the other
+verbs on `https://emem.dev/mcp`), where the refusal is a tool error;
+`POST /v1/derive` refuses with HTTP 401. The shape is the same.
+
+The current memory-write rule (v2), as the refusal states it:
 
 ```text
-  digest = blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)
-  body_hash = blake3(file_text)          # for create / str_replace / insert
-  sig = ed25519(digest)                  # signs the 32-byte digest, not the text
+digest = blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|" || base)
+sig    = ed25519(digest)          # sign the 32 raw bytes, not the hex
 ```
 
-Note the digest is over **raw 32 bytes** of `body_hash`, not its hex string.
-Hex is display only. This is the single most common signing mistake.
+- `body_hash` is `blake3(file_text)` as **32 raw bytes** for `create`,
+  and the whole file after the edit for `str_replace` and `insert`. The
+  hex in the refusal is for display. Signing the hex string is the most
+  common mistake.
+- `base` is the `file_cid` currently at `path`, or the literal
+  `absent` when nothing is there. It makes every write a
+  compare-and-swap: a signature lifted from the public log cannot be
+  replayed once the path has moved on, and two writers cannot silently
+  overwrite each other.
+- `delete` and `rename` require v2. The older rule without `base` is
+  still accepted for `create`, `str_replace` and `insert`.
+- `GET https://emem.dev/v1/verifier_spec` publishes both rules from the
+  compiled constants, with the per-verb `body_hash` definitions.
+
+Checked on 2026-09-28: a `create` of `hello` at
+`/memories/by_attester/abcdefgh/probe.md` with no attester was refused
+with `digest_hex` `a2f3d2bd...195368`, and the formula above reproduced
+that digest locally.
 
 ## Two things worth writing
 
-**A signed note or finding.** `emem_memory_create` puts a markdown file in your
-namespace. Another agent fetches it, verifies the receipt (the responder
-stored these bytes) *and* the authorship (you wrote them), and can act on it
-without trusting the messenger. Namespace writes are refused with
-`403 memory_namespace_violation` if the path prefix does not match your key,
-so nobody can write as you.
+**A signed note.** `emem_memory_create` puts a markdown file in your
+namespace. Another agent reads it with `emem_memory_view`, verifies the
+receipt (the responder stored these bytes) and the `authorship` block
+(your key wrote them), and can rely on it without trusting the
+messenger. A write outside your prefix is refused with
+`403 memory_namespace_violation`, so nobody can write as you.
 
-**A derivation over signed facts.** `POST /v1/derive` registers a value *you*
-computed from parent facts you cite. Every parent must resolve on this
-responder before anything is written, so the lineage is real. You declare
-`model_output` or `human_curated`; `direct_sensor` and `deterministic_index`
-are refused as declarations, because the responder will not vouch for
-arithmetic it did not perform.
+**A derivation over signed facts.** `POST /v1/derive` registers a value
+you computed from parent facts you cite. Every parent must resolve on
+this responder first, so the lineage is real. You declare
+`model_output` or `human_curated`; `direct_sensor` and
+`deterministic_index` are refused as declarations.
 
-## Getting the responder to recompute you (GC-1)
+## Earning `deterministic_index`: let the responder recompute
 
-There is one way to earn `deterministic_index`: let the responder do the
-arithmetic. Pin a `code_cid` and use a pure scalar op it can reproduce
-(`delta` = `inputs[1] - inputs[0]`, `mean`, `sum`) and it re-runs the op over
-the cited parents and records the derivation as **recomputed, not merely
-attributed**, with a recomputation receipt in the stored fact. `delta` is
-compared exactly. `mean` and `sum` over more than two parents are compared
-against a stated 4-ULP window, because nobody signed the sum and no
-accumulation order was specified for you to match. The receipt always names
-the `rule` that ran and the measured `ulp_gap`, so require a gap of 0 if you
-need bit-identity.
+Pin a `code_cid` and use a pure scalar op the responder can reproduce
+(`delta` = `inputs[1] - inputs[0]`, `mean`, `sum`). It re-runs the op
+over the cited parents and records the derivation as **recomputed**,
+with a recomputation receipt in the stored fact. `delta` is compared
+exactly; `mean` and `sum` over more than two parents are compared inside
+a stated 4-ULP window, and the receipt names the `rule` and the measured
+`ulp_gap`, so require a gap of 0 if you need bit identity.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/derive -H 'content-type: application/json' -d '{
@@ -90,37 +106,31 @@ curl -s -X POST https://emem.dev/v1/derive -H 'content-type: application/json' -
   "op": "delta", "value": <later_value - earlier_value>,
   "confidence": 0.95, "provenance_class": "model_output",
   "code_cid": "blake3:same_doy_ndvi_delta@1:ast"
-}'   # no attester -> 401 with the exact digest to sign
+}'   # no attester: 401, details.how_to_sign names the digest and the CBOR body rules
 ```
 
-The claimed `value` must be the **exact f64** result of the op over the cited
-parents. Two NDVI readings of 0.5429769392033543 and 0.4871541501976284 do not
-delta to a round number; they delta to `-0.055822789005725904`, and only that
-earns the stamp. A rounded value stays `model_output`, honestly.
+The claimed `value` must be the exact f64 result over the cited parents:
+readings of 0.5429769392033543 and 0.4871541501976284 delta to
+`-0.055822789005725904`, and only that earns the stamp. The derive body
+is hashed as CBOR in declaration order (not RFC 8949 key-sorted), with
+`confidence` as float32; the refusal spells out every rule.
 
 Ops that are not pure over scalars (vectors, enums, absences, `trend`,
-`anomaly`) never qualify. A determinism claim the responder cannot check is
-never granted.
+`anomaly`) never qualify.
+
+## Rate and reach
+
+Writing your own namespace is tier T1 and free. The shared entity space
+needs T3 ([`emem-shared-identity`](../emem-shared-identity/SKILL.md)).
+The fact plane (a cell, band and time address) is written only by the
+responder's materialiser and enrolled devices; a caller's attestation
+cannot occupy one. `GET /v1/enlist` states the ladder.
 
 ## Verify what you wrote
 
-Paste the path or token into [`/verify`](https://emem.dev/verify): it checks
-the responder's receipt (these bytes were stored) and the authorship (this key
-wrote them) offline in the browser. `emem_verify_receipt` does the receipt leg
-programmatically.
+Paste the path into `https://emem.dev/verify`: it checks the receipt and
+the authorship in the browser. The authorship check in code is in
+[`emem-a2a-collaboration`](../emem-a2a-collaboration/SKILL.md).
 
-## Related
-
-- `emem-a2a-collaboration` — hand what you signed to other agents, and verify theirs.
-- `emem-verify-receipt` — the offline verification recipe in full.
-
-## Where the write goes next
-
-A signed note is only useful if someone can find it and check it. When
-the write is a handoff — to another agent, another session, or your own
-future context — compose the evidence into a bundle and hand over tokens
-rather than prose, and know what each token proves:
-[`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).
-
-And remember the asymmetry your reader depends on: a signature says who
-wrote something, never that it is true.
+A signature says who wrote something, never that it is true. When the
+write is a handoff, see [`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).

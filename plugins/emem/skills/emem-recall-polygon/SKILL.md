@@ -1,149 +1,111 @@
 ---
 name: emem-recall-polygon
-description: Recall signed Earth-observation facts at every cell inside a user-supplied polygon. Use when the user asks about an extent rather than a point — "what's the average NDVI inside this watershed", "show me precipitation across the Western Ghats", "what's the elevation profile of this region". Accepts a polygon as [lng, lat] coordinate pairs and returns per-cell facts plus a summary. Each cell carries its own Ed25519 receipt.
+description: Recalls signed Earth-observation facts at sampled cells inside an area (a named region, a bounding box, or a GeoJSON boundary) in one call. Use when the user asks about an extent rather than a point, such as "average NDVI inside this watershed", "precipitation across the Western Ghats", or "elevation across this admin boundary". Returns per-cell facts, each cell with its own Ed25519 receipt, plus the sampling it actually did so the agent can state coverage honestly.
 ---
 
 # emem-recall-polygon
 
-This skill calls `/v1/recall_polygon` to fetch facts inside an
-arbitrary polygon. The responder samples every cell64 whose centre
-falls inside the polygon (cap: 1024 cells per request, `max_cells`, default 64), recalls the
-requested band(s) at each, and returns a structured response with a
-per-cell receipt for verification.
+`POST /v1/recall_polygon` samples cells inside an area, recalls the
+requested bands at each, and returns them per cell with per-cell
+receipts. It is `locate`, then a sample of the area's cells, then
+`recall_many`, collapsed into one call.
 
 ## When to invoke
 
-The user defines a *region* rather than a *point*:
+- "What's the average NDVI inside this watershed?"
+- "Show me precipitation across the area bounded by ..."
+- The user pastes a bbox or a GeoJSON polygon.
 
-- "What's the average NDVI inside this watershed: [coords]?"
-- "Show me precipitation across the area bounded by …"
-- "Recall elevation across this admin boundary."
-- The user pastes GeoJSON or a list of `[lng, lat]` pairs.
-
-If the user just wants a single cell, use `emem-locate-and-recall`.
-If they want a *similar-cells* list rather than a polygon, use
-`emem-find-similar`.
+For one point use [`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md).
+For the full-resolution pixel grid over an area use
+[`emem-field-tokens`](../emem-field-tokens/SKILL.md).
 
 ## How to invoke
 
-The polygon is a closed ring: `[[lng0, lat0], [lng1, lat1], …,
-[lng0, lat0]]`. Coordinates are WGS-84 decimal degrees, longitude
-first (GeoJSON convention).
+Pass exactly one of `place` (free text, geocoded) or `polygon_bbox` (an
+object with named corners; an array is refused, because bbox array
+orders disagree between conventions). Add `polygon_geojson` beside a
+bbox to mask the sample to a real boundary; on its own it is not enough.
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/recall_polygon \
   -H 'content-type: application/json' \
-  -d '{
-    "polygon": [
-      [77.55, 12.95],
-      [77.65, 12.95],
-      [77.65, 13.05],
-      [77.55, 13.05],
-      [77.55, 12.95]
-    ],
-    "bands": ["indices.ndvi", "weather.precipitation_mm"]
-  }' | jq '{
-    cells_returned: (.by_cell | length),
-    facts_total:    (.by_cell | to_entries | map(.value.facts | length) | add),
-    area_km2:       .area_km2
-  }'
+  -d '{"polygon_bbox":{"min_lat":12.95,"max_lat":13.05,"min_lng":77.55,"max_lng":77.65},
+       "bands":["copdem30m.elevation_mean"],
+       "max_cells":16, "budget_ms":20000}' \
+  > poly.json
+jq '{cells_sampled, facts_returned, area_km2, converged, coverage_fraction,
+     pending: (.pending | length)}' poly.json
 ```
 
-### Picking the band
+- `max_cells` defaults to 64 and caps at 1024; out of range is a 400,
+  not a silent clamp.
+- `budget_ms` is a soft materialisation budget. When it expires the
+  answer is a partial 200 with `converged: false` and a typed
+  `pending[]` (each entry says why and what to do). Pending fetches are
+  detached, not aborted, so the identical request retried returns
+  strictly more. Pending entries are unsigned; they are not signed
+  absences.
+- Recorded on 2026-09-28: this exact call returned 200 with
+  `cells_sampled: 16`, `facts_returned: 0`, `converged: false` and 16
+  `pending` entries (`state: "materializing"`), and nine identical
+  retries over 30 minutes stayed at zero while the responder's fetch
+  path was saturated. Retry a few times with a pause; if `pending` does
+  not shrink, tell the user the upstream fetch is stalled rather than
+  looping, and never report the empty answer as "no data here".
+- A request with many cold cells and several bands can still pass the
+  responder's 40 s transport budget and return `compute_timeout`.
+  Narrow it: fewer bands, fewer cells, or retry once the first pass has
+  warmed the cache.
 
-If the user asked about *precipitation*, use
-`weather.precipitation_mm` (current 24 h) or `era5.precip` (1940→
-present hourly). If they asked about *vegetation*, use
-`indices.ndvi` (computed live from S2) or `modis.ndvi_mean` (16-day
-MODIS composite, larger pixels but global). If they asked about
-*elevation*, use `copdem30m.elevation_mean` (30 m, terrestrial only;
-`gmrt.topobathy_mean` for ocean depths). Full band list at
-`https://emem.dev/v1/bands`.
+## Aggregating
 
-### Computing aggregates
-
-The response is per-cell facts; the agent does the rollup:
+The response is per cell; the rollup is yours. Skip absences (a
+`null` value is a signed statement that the upstream had no data) and
+guard the empty case:
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall_polygon \
-  -H 'content-type: application/json' \
-  -d '<polygon_payload>' \
-  | jq '
-    [.by_cell | to_entries[].value.facts[] | select(.band == "indices.ndvi") | .value]
-    | { count: length, mean: (add / length), min: min, max: max }
-  '
+jq '[.by_cell[].facts[] | select(.band == "copdem30m.elevation_mean" and .value != null) | .value]
+    | if length == 0 then {count: 0}
+      else {count: length, mean: (add / length), min: min, max: max} end' poly.json
 ```
 
-For more sophisticated geometry (point-in-polygon with holes,
-intersection with admin boundaries), pull the full response and
-process locally.
-
-## Response shape
+## Response shape (abridged)
 
 ```jsonc
 {
   "by_cell": {
-    "defi.zb493.xoso.zcb6a": {
-      "facts": [{ "band": "indices.ndvi", "value": 0.42, ... }],
-      "receipt": { "request_id": "...", "fact_cids": [...], "signature": [...] },
-      "bands_already_attested_at_cell": ["weather.temperature_2m", "indices.ndvi", ...]
-    },
-    "defi.zb493.xoso.zcb70": { /* ... */ }
+    "<cell64>": { "facts": [ ... ], "receipt": { ... }, "fact_order": "tslot_ascending",
+                  "bands_already_attested_at_cell": [ ... ] }
   },
-  "polygon_vertices": 5,
-  "cells_sampled": 12,
-  "facts_returned": 24,
-  "area_km2": 1.2,
+  "cells": [ ... ], "cells_sampled": 16, "facts_returned": 16,
+  "area_km2": 120.05, "coverage_fraction": 0.0000133, "is_exhaustive": false,
+  "converged": true, "pending": [], "polygon_bbox": { ..., "source": "..." },
   "schema": "emem.recall_polygon.v1"
 }
 ```
 
+`polygon_bbox.source` says where the extent came from when you passed a
+`place`: `centre_cell_bbox` means the geocoder found no polygon and fell
+back to one cell, so say that rather than presenting a one-cell answer
+as a regional one.
+
 ## Pitfalls
 
-- **Polygon must be closed** — the first and last `[lng, lat]` pair
-  must be identical. Open polygons return `400 invalid_polygon`.
-- **Cap at 1024 cells** (`max_cells`, raised from 256 in May 2026; default 64). Very large regions return `413 polygon_too_large`
-  with a hint about subdividing. The `/humans` page's lasso uses
-  this cap as the geometric guide.
-- **Counter-clockwise orientation** is conventional for outer rings;
-  most responders accept either, but the area calculation flips
-  sign on clockwise input.
-- **Per-cell receipts** — each cell's receipt verifies independently.
-  There is no aggregate receipt; verifying any one cell verifies
-  that cell only. To audit the bulk call, iterate `by_cell` and
-  pass each `.receipt` to the `emem-verify-receipt` skill.
-
-## Worked example
-
-```
-USER: What's the average NDVI inside this watershed:
-      [[77.5,12.9],[77.7,12.9],[77.7,13.1],[77.5,13.1],[77.5,12.9]]?
-
-CLAUDE invokes this skill:
-  POST /v1/recall_polygon
-    body: { polygon: [[77.5,12.9],...], bands: ["indices.ndvi"] }
-    → cells_sampled: 12
-    → facts_returned: 12
-    → area_km2: ~5
-
-  jq aggregation:
-    → mean NDVI: 0.41
-
-CLAUDE replies: "Across the 12 cells inside that polygon (~5 km²
-in central Bengaluru), the average NDVI is 0.41 — typical for a
-mixed urban core with pockets of vegetation. The lowest cell
-returned 0.18 (heavily built up), the highest 0.62 (the
-Cubbon Park area). All twelve facts are signed individually;
-re-fetching any fact_cid returns the same bytes."
-```
+- **A sample is not the area.** `coverage_fraction` and `is_exhaustive`
+  state how much of the area the sample covers. Sixteen cells over
+  120 km² is a sample; report it as one.
+- **No aggregate receipt.** Each cell's receipt verifies that cell only.
+  To audit the call, pass each `by_cell[].receipt` to
+  [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
+- **History, not just the latest.** Each cell's `facts[]` can carry
+  several readings of one band, oldest first. For "current" take the
+  last per band, or the one whose `tslot` you mean.
 
 ## Before you quote the summary
 
-A per-cell answer aggregated into one figure is the easiest thing in this
-protocol to misreport, because the aggregate has no receipt of its own —
-each cell does. Say which cells, say the statistic, and carry the cells'
-tokens rather than the mean alone. See
-[`emem-referential-drift`](../emem-referential-drift/SKILL.md) for
-pinning values, and
-[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md)
-before the summary goes out.
+An aggregate has no receipt of its own. Say which cells and which
+statistic, and carry the cells' `memory_token`s (or bundle them with
+`POST /v1/memory_bundle {"fact_cids":[...]}`) rather than the mean alone.
+See [`emem-referential-drift`](../emem-referential-drift/SKILL.md) and
+[`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).
