@@ -457,7 +457,7 @@ curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
 
 The plugin at
 [`plugins/emem/`](https://github.com/Vortx-AI/emem/tree/main/plugins/emem)
-wires the MCP server and adds fifteen skills. Install it in Claude Code:
+wires the MCP server and adds nineteen skills. Install it in Claude Code:
 
 ```sh
 /plugin marketplace add Vortx-AI/emem
@@ -470,29 +470,38 @@ Or copy the skills without the plugin:
 git clone https://github.com/Vortx-AI/emem.git
 mkdir -p .claude/skills
 cp -r emem/plugins/emem/skills/emem-* .claude/skills/
+cp -r emem/plugins/emem/lib .claude/
 ```
 
 | Skill | For |
 |---|---|
 | `emem-locate-and-recall` | a place name to a cell, then signed facts and their citation tokens |
 | `emem-recall-polygon` | the same over an area, with the sampling stated |
-| `emem-field-tokens` | the raster field over an area, or over time, as a signed artifact |
+| `emem-field-tokens` | the raster field over an area, or over time, as a signed artifact (`rehash.py`) |
+| `emem-urban` | buildings, places, roads, population, built-up and water signals, and what each measures |
 | `emem-field-signals` | a farm field: boundaries, residue burning, evapotranspiration, a picture |
 | `emem-eudr-due-diligence` | a signed EUDR deforestation statement for plots |
-| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
 | `emem-find-similar` | analogues over the frozen embedding index; read its coverage note |
-| `emem-verify-receipt` | check a receipt's signature offline (`verify.py`) |
-| `emem-transparency-log` | prove the log only grew, and that an entry is in it (`verify_log.py`) |
-| `emem-sign-and-attest` | write with your own key; the refusal names the bytes to sign |
+| `emem-research-grade-citation` | the estimand behind a fact, its units and ranges, and a methods paragraph |
+| `emem-tokenise-files` | a file cut into units under one signed Merkle root; prove one unit (`tree_proof.py`) |
+| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed (`verify_doc.py`) |
+| `emem-sign-and-attest` | write with your own key; the refusal names the bytes to sign (`sign_write.py`) |
+| `emem-long-horizon-memory` | signed working state that survives a context reset, and the inbox |
+| `emem-multi-agent-handoff` | hand findings to other agents as tokens, and check who wrote a note (`verify_note.py`) |
 | `emem-shared-identity` | make two agents refer to one object, and know what each token proves |
 | `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
+| `emem-verify-receipt` | check a receipt's signature offline (`verify.py`) |
+| `emem-transparency-log` | prove the log only grew, and that an entry is in it (`verify_log.py`) |
 | `emem-verify-before-publish` | check a draft's citations and the numbers beside them |
-| `emem-agent-handoff` | cross a trust boundary with bytes that verify |
-| `emem-a2a-collaboration` | verify another agent's authorship offline and join the channel |
+| `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
+
+The scripts need only Python 3. Their BLAKE3 and Ed25519 verification
+come from the plugin's `lib/emem_crypto.py`, which each script finds two
+directories above itself, hence the second `cp` above.
 
 Each `SKILL.md` is readable directly in the repository under
-`plugins/emem/skills/<name>/SKILL.md`, and the first eleven above are
-also served at `https://emem.dev/skills/<name>/SKILL.md`. The
+`plugins/emem/skills/<name>/SKILL.md`, and every one above is also
+served at `https://emem.dev/skills/<name>/SKILL.md`. The
 self-hosting procedure for the guard, as an agent-runnable skill, is
 `crates/emem-guard/SKILL.md`, also served by `GET /v1/guard/selfhost`.
 

@@ -5,7 +5,7 @@
     "email": "avijeet@vortx.ai",
     "url": "https://emem.dev"
   },
-  "description": "The emem plugin: verifiable shared memory for AI agents, as an MCP server plus fifteen worked skills.",
+  "description": "The emem plugin: verifiable shared memory for AI agents, as an MCP server plus nineteen worked skills.",
   "plugins": [
     {
       "name": "emem",

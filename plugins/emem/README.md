@@ -24,36 +24,58 @@ HTTP, no auth. One `tools/list` returns the 18-tool core loop in a
 single page; `emem_tools` maps the rest, and `tools/call` dispatches any
 tool by name.
 
-**Fifteen skills**, each a worked procedure with an example that was run
-against emem.dev, rather than a description:
+**Nineteen skills**, each a worked procedure with an example that was
+run against emem.dev, rather than a description:
 
 | Skill | For |
 |---|---|
+| **Signed facts about places** | |
 | `emem-locate-and-recall` | a place name to a canonical cell, then signed facts and their citation tokens |
 | `emem-recall-polygon` | the same over an area, with the sampling stated |
 | `emem-field-tokens` | the actual raster field over an area, or over time, as a signed artifact |
+| `emem-urban` | buildings, places, roads, population, built-up and water signals, and what each measures |
 | `emem-field-signals` | one farm field: boundaries, residue burning, evapotranspiration, a picture |
 | `emem-eudr-due-diligence` | a signed EUDR deforestation statement for plots, and what it does not cover |
-| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
 | `emem-find-similar` | analogues by cosine over a stored embedding; read its coverage warning first |
+| `emem-research-grade-citation` | the estimand behind a fact, its units and ranges, and a methods paragraph |
+| **Files and documents** | |
+| `emem-tokenise-files` | a file cut into units under one signed Merkle root; cite and prove one unit |
+| `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
+| **Memory and other agents** | |
+| `emem-sign-and-attest` | write with your own key; the responder's refusal names the bytes to sign |
+| `emem-long-horizon-memory` | signed working state that survives a context reset, and the inbox |
+| `emem-multi-agent-handoff` | hand findings to other agents as tokens they can verify, and verify theirs |
+| `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
+| `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
+| **Checking** | |
 | `emem-verify-receipt` | check a receipt's Ed25519 signature offline, without re-contacting the responder |
 | `emem-transparency-log` | prove the log only grew, and that an entry or note is in it |
-| `emem-sign-and-attest` | write with your own key; the responder's refusal names the bytes to sign |
-| `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
-| `emem-a2a-collaboration` | hand findings to other agents as tokens they can verify, and verify theirs |
-| `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
-| `emem-agent-handoff` | cross a trust boundary with bytes that verify rather than prose someone must believe |
 | `emem-verify-before-publish` | check a draft's citations and the numbers written beside them |
+| `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
 
-Four skills ship a small Python script beside their `SKILL.md`
-(`verify.py`, `verify_log.py`, `verify_doc.py`, `rehash.py`). Each runs
-offline and reads only the files you pass it. Their BLAKE3 and Ed25519
-signature verification come from one shared module,
-`lib/emem_crypto.py`: plain Python 3 with no third-party packages, no
-compiled code and no network access, so nothing is installed to run
-them. Every script takes `--self-test`, which checks that module
-against the official BLAKE3 test vectors and RFC 8032 test vectors 1 to
-3, plus four signatures it must reject.
+Seven skills ship a small Python script beside their `SKILL.md`:
+
+| Script | Does |
+|---|---|
+| `emem-verify-receipt/verify.py` | rebuilds a receipt's preimage and checks its signature |
+| `emem-transparency-log/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
+| `emem-document-evidence/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
+| `emem-field-tokens/rehash.py` | re-hashes a downloaded artifact against its cid |
+| `emem-multi-agent-handoff/verify_note.py` | checks which key wrote a memory note |
+| `emem-tokenise-files/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
+| `emem-sign-and-attest/sign_write.py` | holds the agent's key and signs a write it composed |
+
+Each reads only the files you pass it (and `sign_write.py` its identity
+file) and makes no network call. BLAKE3
+and Ed25519 verification come from one shared module,
+`lib/emem_crypto.py`: plain Python 3 with no third-party packages and
+no compiled code, so nothing is installed to run them. Every verifier
+takes `--self-test`, which checks that module against the official
+BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
+signatures it must reject. `sign_write.py` is the one script that
+touches a secret key; it signs with the `cryptography` package
+(OpenSSL's constant-time Ed25519) and reports when that package is
+absent rather than installing it.
 
 ## Network use
 

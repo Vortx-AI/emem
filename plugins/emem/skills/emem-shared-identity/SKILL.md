@@ -118,4 +118,4 @@ your signature" are different problems.
 "These two phrasings denote one object" is a claim like any other; check
 the draft that makes it with
 [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).
-Handing the identity on is [`emem-agent-handoff`](../emem-agent-handoff/SKILL.md).
+Handing the identity on is [`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md).

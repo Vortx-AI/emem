@@ -185,14 +185,12 @@ const SKILL_FIELD_TOKENS: &str =
     include_str!("../../../plugins/emem/skills/emem-field-tokens/SKILL.md");
 const SKILL_SIGN_AND_ATTEST: &str =
     include_str!("../../../plugins/emem/skills/emem-sign-and-attest/SKILL.md");
-const SKILL_A2A_COLLABORATION: &str =
-    include_str!("../../../plugins/emem/skills/emem-a2a-collaboration/SKILL.md");
+const SKILL_MULTI_AGENT_HANDOFF: &str =
+    include_str!("../../../plugins/emem/skills/emem-multi-agent-handoff/SKILL.md");
 const SKILL_SHARED_IDENTITY: &str =
     include_str!("../../../plugins/emem/skills/emem-shared-identity/SKILL.md");
 const SKILL_REFERENTIAL_DRIFT: &str =
     include_str!("../../../plugins/emem/skills/emem-referential-drift/SKILL.md");
-const SKILL_AGENT_HANDOFF: &str =
-    include_str!("../../../plugins/emem/skills/emem-agent-handoff/SKILL.md");
 const SKILL_VERIFY_BEFORE_PUBLISH: &str =
     include_str!("../../../plugins/emem/skills/emem-verify-before-publish/SKILL.md");
 const SKILL_FIELD_SIGNALS: &str =
@@ -203,6 +201,15 @@ const SKILL_DOCUMENT_EVIDENCE: &str =
     include_str!("../../../plugins/emem/skills/emem-document-evidence/SKILL.md");
 const SKILL_TRANSPARENCY_LOG: &str =
     include_str!("../../../plugins/emem/skills/emem-transparency-log/SKILL.md");
+const SKILL_TOKENISE_FILES: &str =
+    include_str!("../../../plugins/emem/skills/emem-tokenise-files/SKILL.md");
+const SKILL_LONG_HORIZON_MEMORY: &str =
+    include_str!("../../../plugins/emem/skills/emem-long-horizon-memory/SKILL.md");
+const SKILL_URBAN: &str = include_str!("../../../plugins/emem/skills/emem-urban/SKILL.md");
+const SKILL_RESEARCH_CITATION: &str =
+    include_str!("../../../plugins/emem/skills/emem-research-grade-citation/SKILL.md");
+const SKILL_DEVICE_TRACES: &str =
+    include_str!("../../../plugins/emem/skills/emem-device-traces/SKILL.md");
 const AI_PLUGIN_JSON: &str = include_str!("../../../web/ai-plugin.json");
 const AGENT_JSON: &str = include_str!("../../../web/agent.json");
 /// The MCP server descriptor. It lives at the repo root because that is
@@ -811,8 +818,8 @@ pub fn router(state: AppState) -> Router {
             get(serve_skill_sign_and_attest),
         )
         .route(
-            "/skills/emem-a2a-collaboration/SKILL.md",
-            get(serve_skill_a2a_collaboration),
+            "/skills/emem-multi-agent-handoff/SKILL.md",
+            get(serve_skill_multi_agent_handoff),
         )
         .route(
             "/skills/emem-shared-identity/SKILL.md",
@@ -821,10 +828,6 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/skills/emem-referential-drift/SKILL.md",
             get(serve_skill_referential_drift),
-        )
-        .route(
-            "/skills/emem-agent-handoff/SKILL.md",
-            get(serve_skill_agent_handoff),
         )
         .route(
             "/skills/emem-verify-before-publish/SKILL.md",
@@ -845,6 +848,23 @@ pub fn router(state: AppState) -> Router {
         .route(
             "/skills/emem-transparency-log/SKILL.md",
             get(serve_skill_transparency_log),
+        )
+        .route(
+            "/skills/emem-tokenise-files/SKILL.md",
+            get(serve_skill_tokenise_files),
+        )
+        .route(
+            "/skills/emem-long-horizon-memory/SKILL.md",
+            get(serve_skill_long_horizon_memory),
+        )
+        .route("/skills/emem-urban/SKILL.md", get(serve_skill_urban))
+        .route(
+            "/skills/emem-research-grade-citation/SKILL.md",
+            get(serve_skill_research_grade_citation),
+        )
+        .route(
+            "/skills/emem-device-traces/SKILL.md",
+            get(serve_skill_device_traces),
         )
         .route("/agents", get(agents_page))
         .route("/agents.md", get(serve_agents_md))
@@ -5065,8 +5085,10 @@ async fn serve_skill_field_tokens() -> Response {
 async fn serve_skill_sign_and_attest() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_SIGN_AND_ATTEST)
 }
-async fn serve_skill_a2a_collaboration() -> Response {
-    text_response("text/markdown; charset=utf-8", SKILL_A2A_COLLABORATION)
+/// The agent-to-agent standard and the handoff procedure were two skills
+/// that repeated each other's trust rules; they are one now.
+async fn serve_skill_multi_agent_handoff() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_MULTI_AGENT_HANDOFF)
 }
 /// The identity surface had skills for everything it measures and none
 /// for the thing that makes two agents agree what they are measuring.
@@ -5079,9 +5101,6 @@ async fn serve_skill_shared_identity() -> Response {
 /// draft before it is sent.
 async fn serve_skill_referential_drift() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_REFERENTIAL_DRIFT)
-}
-async fn serve_skill_agent_handoff() -> Response {
-    text_response("text/markdown; charset=utf-8", SKILL_AGENT_HANDOFF)
 }
 async fn serve_skill_verify_before_publish() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_VERIFY_BEFORE_PUBLISH)
@@ -5097,6 +5116,21 @@ async fn serve_skill_document_evidence() -> Response {
 }
 async fn serve_skill_transparency_log() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_TRANSPARENCY_LOG)
+}
+async fn serve_skill_tokenise_files() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_TOKENISE_FILES)
+}
+async fn serve_skill_long_horizon_memory() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_LONG_HORIZON_MEMORY)
+}
+async fn serve_skill_urban() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_URBAN)
+}
+async fn serve_skill_research_grade_citation() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_RESEARCH_CITATION)
+}
+async fn serve_skill_device_traces() -> Response {
+    text_response("text/markdown; charset=utf-8", SKILL_DEVICE_TRACES)
 }
 async fn serve_llms_full() -> Response {
     // `/llms-full.txt` used to alias `/llms.txt` byte-for-byte, which
