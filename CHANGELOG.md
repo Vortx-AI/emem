@@ -7,6 +7,8 @@ to verify.
 
 ## [Unreleased]
 
+- `surface_water.occurrence`, `surface_water.seasonality` and `surface_water.transition_class` are wired: the same JRC GSW v1.4 tiles as `recurrence`, one pixel each, 255 signed as an Absence (open sea or no valid observation). All four keys the family advertises now answer (117 wired band names).
+- An unknown band that belongs to a family names the family's wired bands, in the error message and in `details.did_you_mean`; `/v1/bands` lists each family's `scalar_keys_wired` and `scalar_keys_unwired`.
 - Raster point reads take the pixel that contains the point. `cog::world_to_pixel` rounded the fractional pixel position, so any point in the right or lower half of a pixel read its south-east neighbour; GDAL takes the floor. Every COG-backed band (Hansen, JRC GFC2020 and TMF, WorldCover, Cop-DEM, CCI biomass, Sentinel scenes, and the hand-rolled DMSP-OLS and Köppen readers) did this from the first commit. The fn_keys are unchanged because their registry definition was always "the pixel at (lat, lng)"; facts signed before this release may carry the neighbouring pixel. PixelIsPoint rasters (GTRasterTypeGeoKey 2) still round, which is correct for them.
 - JRC TMF reads by HTTP Range from a ZSTD COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf), falling back to the JRC dispatcher; the COG reader decodes ZSTD (compression 50000). Pixel values checked equal to the JRC's on 1200 random pixels across two tiles. Facts name the file read, and a mirror read says so in its derivation.
 - `/v1/eudr_dds` reads TMF DeforestationYear on every cell again and reports `tmf_cross_check` per plot (post-cut-off loss agreement with Hansen). It is not counted in the verdict.

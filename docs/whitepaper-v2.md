@@ -1106,7 +1106,7 @@ is the hardest honest test available: open, adversarially large, and
 already full of the drift the protocol exists to stop.
 
 Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
-demand: **46 declared source schemes** and **114 materializer-wired
+demand: **46 declared source schemes** and **117 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
 foundation embedding. **168 algorithms** and **27 topics** are
@@ -1128,7 +1128,7 @@ new bands without breaking existing offsets.
      704    10  sentinel2_raw      optical      fast    public
 ```
 
-The gap between 43 slots and 114 wired names is parametric expansion:
+The gap between 43 slots and 117 wired names is parametric expansion:
 every Sentinel-2 reflectance band, every spectral index, every Tessera
 vintage, and every Open-Meteo variant rides a fixed underlying slot.
 

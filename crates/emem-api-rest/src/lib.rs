@@ -8780,6 +8780,15 @@ async fn bands(State(s): State<AppState>) -> Json<JsonValue> {
                     })
                 };
                 obj.insert("materializer".into(), status);
+                // Say which listed scalar keys answer: a list that mixed
+                // wired and unwired keys read as a promise for all of them.
+                if let Some(keys) = obj.get("scalar_keys").and_then(|v| v.as_array()).cloned() {
+                    let (on, off): (Vec<JsonValue>, Vec<JsonValue>) = keys
+                        .into_iter()
+                        .partition(|k| k.as_str().is_some_and(|k| wired.iter().any(|w| w == k)));
+                    obj.insert("scalar_keys_wired".into(), JsonValue::Array(on));
+                    obj.insert("scalar_keys_unwired".into(), JsonValue::Array(off));
+                }
             }
         }
     }
@@ -9563,6 +9572,12 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             &["Sentinel-1A/C C-band SAR (RTC γ0 VV in dB) via Microsoft Planetary Computer"]),
         ("surface_water.recurrence", "static", "water",
             &["JRC Global Surface Water v1.4 (Pekel et al. 2016, Landsat-derived 1984-2021 inter-annual recurrence climatology)"]),
+        ("surface_water.occurrence", "static", "water",
+            &["JRC Global Surface Water v1.4 (Pekel et al. 2016): % of valid Landsat observations 1984-2021 that were water"]),
+        ("surface_water.seasonality", "static", "water",
+            &["JRC Global Surface Water v1.4 (Pekel et al. 2016): months per year water is present, 0..12"]),
+        ("surface_water.transition_class", "static", "water",
+            &["JRC Global Surface Water v1.4 (Pekel et al. 2016): first-to-last-year water transition class, 0..10"]),
         ("koppen", "static", "climate",
             &["Beck Köppen-Geiger v1 1-km present-day classification (Beck et al. 2018, Sci Data 5:180214; CC-BY-4.0)"]),
         ("weather.temperature_2m", "ultra_fast", "climate",
@@ -12946,10 +12961,11 @@ async fn post_recall(
                     message: format!(
                         "none of the requested bands are known to this responder: {}. \
                          Call /v1/bands (or emem_bands) for the catalog. Common mix-up: the \
-                         canonical NDVI band is `indices.ndvi`, not `s2.ndvi`.",
-                        unknown_bands.join(", ")
+                         canonical NDVI band is `indices.ndvi`, not `s2.ndvi`.{}",
+                        unknown_bands.join(", "),
+                        wired_siblings_hint(&unknown_bands)
                     ),
-                    details: None,
+                    details: wired_siblings(&unknown_bands),
                 },
             ));
         }
@@ -13665,7 +13681,7 @@ fn band_input_resolution_m(band: &str) -> Option<u32> {
         b if b.starts_with("modis.") => Some(500),
         "copdem30m.elevation_mean" => Some(30),
         "gmrt.topobathy_mean" => Some(100),
-        "surface_water.recurrence" => Some(30),
+        b if b.starts_with("surface_water.") => Some(30),
         b if b.starts_with("hansen.") => Some(30),
         // `forest_change.*` are the canonical agent-facing names for
         // the same Hansen GFC layers, 30 m native pixel grid.
@@ -46994,7 +47010,10 @@ fn static_release_date(band: &str) -> Option<&'static str> {
         | "gmrt.topobathy_max"
         | "gmrt.topobathy_std" => Some("2024-11-01T00:00:00Z"),
         // JRC GSW v1.4, Pekel et al. update through 2021-12.
-        "surface_water.recurrence" => Some("2022-01-01T00:00:00Z"),
+        "surface_water.recurrence"
+        | "surface_water.occurrence"
+        | "surface_water.seasonality"
+        | "surface_water.transition_class" => Some("2022-01-01T00:00:00Z"),
         // Beck et al. 2018, Sci Data 5:180214.
         "koppen" => Some("2018-10-30T00:00:00Z"),
         // ISRIC SoilGrids 2.0 release.
@@ -52429,6 +52448,95 @@ async fn post_sar_forest_disturbance(
     })))
 }
 
+/// The JRC GSW v1.4 layers beside recurrence: one pixel of occurrence (%
+/// of valid observations that were water), seasonality (months a year
+/// water is present) or transition class (first-to-last-year change,
+/// codes 0..=10). Same product, tiles and grid as recurrence.
+async fn materialize_jrc_gsw_layer(
+    cell64: &str,
+    s: &AppState,
+    band: &str,
+) -> Result<emem_fact::FactCid, String> {
+    let (layer, max, unit, integer) = match band {
+        "surface_water.occurrence" => ("occurrence", 100.0, "percent", false),
+        "surface_water.seasonality" => ("seasonality", 12.0, "months_water_present", true),
+        "surface_water.transition_class" => ("transitions", 10.0, "gsw_transition_class", true),
+        _ => return Err(format!("jrc gsw band {band} not registered")),
+    };
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let (lat, lng) = (info.lat_deg, info.lng_deg);
+    let (lon_left, lat_top) = emem_fetch::jrc_gsw::tile_corner_tags(lat, lng);
+    let url = emem_fetch::jrc_gsw::layer_tile_url_for(layer, lat, lng);
+    let cli = s2_http_client();
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| format!("open jrc gsw cog {url}: {e}"))?;
+    let raw = emem_fetch::cog::sample_pixel(&cli, &url, &prof, lng, lat)
+        .await
+        .map_err(|e| format!("sample jrc gsw {url}: {e}"))?;
+    let signed_at = chrono_iso8601_utc();
+    let source = Source {
+        scheme: format!("jrc.gsw.v1_4.{layer}"),
+        id: url.clone(),
+        cid: None,
+        hash: None,
+        captured_at: static_release_date(band).map(str::to_string),
+        url: Some(url.clone()),
+    };
+    // 255 is the tiles' unmapped value: open sea (outside the inland and
+    // coastal domain the JRC classified) or no valid observation.
+    if raw == 255.0 || !raw.is_finite() {
+        let reason = format!(
+            "jrc_gsw_unmapped: {band} at ({lat:.6},{lng:.6}) is 255 in {url}, the value JRC Global Surface Water v1.4 gives pixels outside its mapped domain (open sea) or with no valid observation."
+        );
+        let fact = Fact::Absence(NegativeFact {
+            cell: cell64.to_string(),
+            band: band.into(),
+            tslot: 0,
+            reason_cid: reason_cid_for(&reason),
+            confidence: 1.0,
+            sources: vec![source],
+            schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+            signer: s.identity.pubkey,
+            signed_at: signed_at.clone(),
+        });
+        return sign_and_persist(s, fact, &signed_at).await;
+    }
+    if !(0.0..=max).contains(&raw) || raw.fract() != 0.0 {
+        return Err(format!(
+            "jrc gsw {layer} pixel out of range: raw={raw} at ({lat:.6},{lng:.6}) tile {lon_left}_{lat_top}; expected 0..={max} or 255"
+        ));
+    }
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.into(),
+        tslot: 0,
+        value: if integer {
+            ciborium::Value::Integer((raw as i64).into())
+        } else {
+            ciborium::Value::Float(raw)
+        },
+        unit: Some(unit.into()),
+        confidence: 0.95,
+        uncertainty: None,
+        sources: vec![source],
+        derivation: Derivation {
+            fn_key: format!("jrc_gsw_{layer}_pixel@1"),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Text(format!("{lon_left}_{lat_top}")),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+        served_via: None,
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
 /// JRC Global Surface Water v1.4 recurrence at a single pixel.
 ///
 /// Recurrence is the inter-annual variability of water, a u8 percentage
@@ -56794,7 +56902,10 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             history_to_unix: None,
             wire_path: "GMRT PointServer (multibeam-fused topobathy)",
         },
-        "surface_water.recurrence" => MaterializerMeta {
+        "surface_water.recurrence"
+        | "surface_water.occurrence"
+        | "surface_water.seasonality"
+        | "surface_water.transition_class" => MaterializerMeta {
             tempo: Tempo::Static,
             kind: BandKind::Static,
             // JRC GSW v1.4 climatology: 1984-03-16 to 2021-12-31. The
@@ -57128,6 +57239,9 @@ fn all_materializable_bands() -> Vec<String> {
         "copdem30m.elevation_mean".into(),
         "gmrt.topobathy_mean".into(),
         "surface_water.recurrence".into(),
+        "surface_water.occurrence".into(),
+        "surface_water.seasonality".into(),
+        "surface_water.transition_class".into(),
         "koppen".into(),
         // Per-tslot historical archives.
         "modis.ndvi_mean".into(),
@@ -57412,6 +57526,48 @@ fn band_storage_alias(name: &str) -> Option<&'static str> {
     }
 }
 
+/// For each unknown band, the bands of its family (the part before the
+/// first `.`) that this responder does answer. A family's catalogue entry
+/// can list scalar keys that are not wired, and a caller who tries the one
+/// that is not otherwise concludes the whole family is unconnected.
+fn wired_siblings(unknown: &[String]) -> Option<JsonValue> {
+    let wired = all_materializable_bands();
+    let mut out = serde_json::Map::new();
+    for b in unknown {
+        let family = b.split('.').next().unwrap_or(b);
+        let prefix = format!("{family}.");
+        let sib: Vec<&String> = wired
+            .iter()
+            .filter(|w| w.starts_with(&prefix) || w.as_str() == family)
+            .collect();
+        if !sib.is_empty() {
+            out.insert(b.clone(), json!(sib));
+        }
+    }
+    (!out.is_empty()).then(|| json!({ "did_you_mean": out }))
+}
+
+fn wired_siblings_hint(unknown: &[String]) -> String {
+    match wired_siblings(unknown).and_then(|d| d.get("did_you_mean").cloned()) {
+        Some(JsonValue::Object(m)) => m
+            .iter()
+            .map(|(b, sib)| {
+                let names: Vec<&str> = sib
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|v| v.as_str())
+                    .collect();
+                format!(
+                    " `{b}` is not wired here; its family answers {}.",
+                    names.join(", ")
+                )
+            })
+            .collect(),
+        _ => String::new(),
+    }
+}
+
 /// True when `name` is a band this responder knows how to materialize or
 /// recall, i.e. it's enumerated in `all_materializable_bands()`. Used to
 /// distinguish "unknown band (not in registry)" from "known band, no data
@@ -57477,6 +57633,11 @@ async fn materialize_band_at(
             };
         }
         "surface_water.recurrence" => return materialize_jrc_gsw_recurrence(cell64, s).await,
+        "surface_water.occurrence"
+        | "surface_water.seasonality"
+        | "surface_water.transition_class" => {
+            return materialize_jrc_gsw_layer(cell64, s, band).await
+        }
         // Beck Köppen-Geiger 1-km, static, one signed class per cell.
         "koppen" => return materialize_koppen(cell64, s).await,
         // WorldPop wpgppop, slow-tempo annual people/km² via Stats REST.
@@ -58635,6 +58796,35 @@ async fn materialize_bands_once(
                     });
                 }
             },
+            "surface_water.occurrence" | "surface_water.seasonality" | "surface_water.transition_class" => match materialize_jrc_gsw_layer(cell64, s, b).await {
+                Ok(cid) => {
+                    tracing::info!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_fact_cid = %cid.as_str(),
+                        materialize_kind = "primary_or_absence",
+                        "materialize_ok"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: Some(cid.as_str().to_string()),
+                        skip_reason: None,
+                    });
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "emem::materialize",
+                        materialize_cell = %cell64, materialize_band = %b,
+                        materialize_error = %e,
+                        "materialize_failed"
+                    );
+                    out.push(MaterializeOutcome {
+                        band: b.clone(),
+                        fact_cid: None,
+                        skip_reason: Some(e),
+                    });
+                }
+            },
             // Beck Köppen-Geiger 1-km present-day, static climate-zone
             // class. Returns Primary (with the canonical class string)
             // for land cells, Absence for oceanic / out-of-mask cells.
@@ -59459,7 +59649,7 @@ async fn materialize_bands_once(
                     // band that simply doesn't exist). Distinct from a known
                     // band that just has no data/connector here. (Audit
                     // user/dev lens: the two used to look identical.)
-                    format!("unknown_band: '{b}' is not in the band registry at this responder. This is NOT 'no data here', the band key itself is unrecognized (check for a typo or missing namespace, e.g. `copdem30m.elevation_mean` not `elevation_mean`). See GET /v1/bands for the canonical list.")
+                    format!("unknown_band: '{b}' is not in the band registry at this responder. This is NOT 'no data here', the band key itself is unrecognized (check for a typo or missing namespace, e.g. `copdem30m.elevation_mean` not `elevation_mean`). See GET /v1/bands for the canonical list.{}", wired_siblings_hint(std::slice::from_ref(b)))
                 } else {
                     format!("no_auto_materializer_registered: '{b}' is a known band but no upstream connector is wired at this responder, so there is no data here yet; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.")
                 };
@@ -86016,6 +86206,37 @@ mod tests {
                 "emittable verdict code {code} must have a label"
             );
         }
+    }
+
+    #[test]
+    fn every_surface_water_scalar_key_answers_and_an_unwired_one_names_its_siblings() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../emem-core/data/bands-v0.json"
+        );
+        let manifest: JsonValue =
+            serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+        let bands = manifest
+            .get("bands")
+            .unwrap_or(&manifest)
+            .as_array()
+            .unwrap();
+        let sw = bands.iter().find(|b| b["key"] == "surface_water").unwrap();
+        for k in sw["scalar_keys"].as_array().unwrap() {
+            let k = k.as_str().unwrap();
+            assert!(band_is_known(k), "{k} is advertised but not wired");
+            assert!(tempo_for_band(k).is_some(), "{k} has no tempo");
+        }
+        let hint = wired_siblings(&["surface_water.max_extent".to_string()]).unwrap();
+        let sib = hint["did_you_mean"]["surface_water.max_extent"]
+            .as_array()
+            .unwrap();
+        assert!(sib.iter().any(|v| v == "surface_water.occurrence"));
+        assert!(
+            wired_siblings_hint(&["surface_water.max_extent".to_string()])
+                .contains("surface_water.recurrence")
+        );
+        assert!(wired_siblings(&["nosuchfamily.x".to_string()]).is_none());
     }
 
     #[test]

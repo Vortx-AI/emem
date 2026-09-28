@@ -64,6 +64,16 @@ pub fn recurrence_tile_url_for(lat: f64, lng: f64) -> String {
     format!("{JRC_GSW_RECURRENCE_BASE_URL}/recurrence_{lon_left}_{lat_top}v1_4_2021.tif")
 }
 
+/// URL of the JRC GSW v1.4 tile of `layer` (`occurrence`, `seasonality`,
+/// `transitions`, `recurrence`) covering `(lat, lng)`: every layer shares
+/// the recurrence tile grid and naming. Pure, no I/O.
+pub fn layer_tile_url_for(layer: &str, lat: f64, lng: f64) -> String {
+    let (lon_left, lat_top) = tile_corner_tags(lat, lng);
+    format!(
+        "https://storage.googleapis.com/global-surface-water/downloads2021/{layer}/{layer}_{lon_left}_{lat_top}v1_4_2021.tif"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
