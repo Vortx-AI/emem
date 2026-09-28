@@ -198,6 +198,9 @@ pub struct WarmStartStats {
     pub elapsed_ms: u64,
 }
 
+/// (release, theme, type) to the blake3 of that listing.
+type ListingDigests = std::collections::HashMap<(String, &'static str, &'static str), [u8; 32]>;
+
 /// Anonymous S3 reader for the latest Overture release. The release tag
 /// is auto-discovered on first use and re-checked every `RELEASE_TTL`.
 /// On a refresh failure we log + reuse the cached value (the only
@@ -246,6 +249,12 @@ pub struct OvertureClient {
     /// process restarts lives in the sled geocoder cache via the
     /// `polygon_bbox` round-trip in `nominatim_cache_put`.
     division_cache: Mutex<DivisionCache>,
+    /// Per (release, theme, type): blake3 over the sorted `key\tetag\tsize`
+    /// lines of the files that release holds. Overture keeps about three
+    /// releases, so a fact's source URL stops answering; this digest still
+    /// says exactly which objects it was read from, checkable against any
+    /// copy of the release.
+    listing_digests: Mutex<ListingDigests>,
 }
 
 impl OvertureClient {
@@ -269,6 +278,7 @@ impl OvertureClient {
             footers: Mutex::new(Default::default()),
             persistent_cache: OnceLock::new(),
             division_cache: Mutex::new(Default::default()),
+            listing_digests: Mutex::new(Default::default()),
         })
     }
 
@@ -406,6 +416,7 @@ impl OvertureClient {
         let prefix = format!("release/{}/theme={}/type={}/", release, tt.theme, tt.typ);
         let prefix_path = ObjectPath::from(prefix.clone());
         let mut out = Vec::new();
+        let mut lines = Vec::new();
         let mut stream = self.store.list(Some(&prefix_path));
         while let Some(meta) = stream
             .try_next()
@@ -414,9 +425,20 @@ impl OvertureClient {
         {
             let key = meta.location.to_string();
             if key.ends_with(".parquet") {
+                lines.push(format!(
+                    "{key}\t{}\t{}\n",
+                    meta.e_tag.as_deref().unwrap_or(""),
+                    meta.size
+                ));
                 out.push(key);
             }
         }
+        lines.sort();
+        let digest = *blake3::hash(lines.concat().as_bytes()).as_bytes();
+        self.listing_digests
+            .lock()
+            .await
+            .insert((release.clone(), tt.theme, tt.typ), digest);
         if out.is_empty() {
             return Err(OvertureError::S3List(format!(
                 "no parquet files under prefix {prefix} (wrong release tag?)"
@@ -425,6 +447,24 @@ impl OvertureClient {
         let mut g = self.file_lists.lock().await;
         g.insert((release, tt.theme, tt.typ), out.clone());
         Ok(out)
+    }
+
+    /// The digest of the files a theme/type held in the active release (see
+    /// `listing_digests`), listing it first if needed.
+    pub async fn listing_digest(&self, theme: &str) -> Result<[u8; 32], OvertureError> {
+        let tt = match theme {
+            "transportation" => SEGMENTS,
+            "buildings" => BUILDINGS,
+            _ => PLACES,
+        };
+        self.list_files(tt).await?;
+        let release = self.release().await?;
+        self.listing_digests
+            .lock()
+            .await
+            .get(&(release, tt.theme, tt.typ))
+            .copied()
+            .ok_or_else(|| OvertureError::S3List("listing digest missing after list".into()))
     }
 
     /// Get cached footer for one parquet, fetching if absent.
@@ -713,6 +753,81 @@ impl OvertureClient {
             }
         }
         Ok(total)
+    }
+
+    /// The road nearest `(lat, lng)` within `radius_m`, from transportation
+    /// segments: its axial bearing (0..180 degrees clockwise from north; a
+    /// road runs both ways) at the closest point, and how far that is.
+    pub async fn nearest_road_bearing(
+        &self,
+        lat: f64,
+        lng: f64,
+        radius_m: f64,
+    ) -> Result<Option<RoadBearing>, OvertureError> {
+        let m_lat = 111_320.0_f64;
+        let m_lng = 111_320.0_f64 * lat.to_radians().cos().max(1e-6);
+        let (dlat, dlng) = (radius_m / m_lat, radius_m / m_lng);
+        let (s_lat, n_lat, w_lng, e_lng) = (lat - dlat, lat + dlat, lng - dlng, lng + dlng);
+        let files = self.list_files(SEGMENTS).await?;
+        let parallel = scan_parallelism();
+        let found: Vec<Option<RoadBearing>> = futures_util::stream::iter(files)
+            .map(|key| async move {
+                let meta = self.footer(&key).await?;
+                let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
+                if rgs.is_empty() {
+                    return Ok::<_, OvertureError>(None);
+                }
+                let mut stream = self.open_stream(&key, rgs, &[]).await?;
+                let mut best: Option<RoadBearing> = None;
+                while let Some(batch) =
+                    stream
+                        .try_next()
+                        .await
+                        .map_err(|e| OvertureError::Parquet {
+                            key: key.clone(),
+                            detail: format!("next batch: {e}"),
+                        })?
+                {
+                    let (Some(bbox_col), Some(geom_col)) = (
+                        batch.column_by_name("bbox"),
+                        batch.column_by_name("geometry"),
+                    ) else {
+                        continue;
+                    };
+                    let bb =
+                        BBoxAccess::new(bbox_col.as_ref()).map_err(|e| OvertureError::Schema {
+                            key: key.clone(),
+                            detail: e,
+                        })?;
+                    let geoms =
+                        WkbAccess::new(geom_col.as_ref()).map_err(|e| OvertureError::Schema {
+                            key: key.clone(),
+                            detail: e,
+                        })?;
+                    for i in 0..batch.num_rows() {
+                        if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                            continue;
+                        }
+                        let Some(lines) = geoms.get(i).and_then(wkb_linestring_or_multi) else {
+                            continue;
+                        };
+                        if let Some(c) = nearest_on_lines(&lines, lat, lng, m_lat, m_lng) {
+                            if best.as_ref().is_none_or(|b| c.distance_m < b.distance_m) {
+                                best = Some(c);
+                            }
+                        }
+                    }
+                }
+                Ok(best)
+            })
+            .buffer_unordered(parallel)
+            .try_collect()
+            .await?;
+        Ok(found
+            .into_iter()
+            .flatten()
+            .filter(|b| b.distance_m <= radius_m)
+            .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m)))
     }
 
     /// The cache key `division_polygon_with_subtype` would use for these
@@ -2481,6 +2596,48 @@ fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64, f64), u
         return None;
     }
     Some(((cx / total as f64, cy / total as f64), total))
+}
+
+/// The nearest road to a point and its direction there.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoadBearing {
+    /// Axial bearing, degrees clockwise from north, in [0, 180).
+    pub bearing_deg: f64,
+    pub distance_m: f64,
+}
+
+/// Closest point on a set of `(lng, lat)` polylines to `(lat, lng)`, in a
+/// local tangent plane (metres), with the bearing of the segment it is on.
+pub fn nearest_on_lines(
+    lines: &[Vec<(f64, f64)>],
+    lat: f64,
+    lng: f64,
+    m_lat: f64,
+    m_lng: f64,
+) -> Option<RoadBearing> {
+    let mut best: Option<RoadBearing> = None;
+    for line in lines {
+        for w in line.windows(2) {
+            let (ax, ay) = ((w[0].0 - lng) * m_lng, (w[0].1 - lat) * m_lat);
+            let (bx, by) = ((w[1].0 - lng) * m_lng, (w[1].1 - lat) * m_lat);
+            let (dx, dy) = (bx - ax, by - ay);
+            let len2 = dx * dx + dy * dy;
+            if len2 < 1e-12 {
+                continue;
+            }
+            let t = (-(ax * dx + ay * dy) / len2).clamp(0.0, 1.0);
+            let (px, py) = (ax + t * dx, ay + t * dy);
+            let d = (px * px + py * py).sqrt();
+            if best.as_ref().is_none_or(|b| d < b.distance_m) {
+                let bearing = dx.atan2(dy).to_degrees().rem_euclid(180.0);
+                best = Some(RoadBearing {
+                    bearing_deg: bearing,
+                    distance_m: d,
+                });
+            }
+        }
+    }
+    best
 }
 
 /// Decode a LineString or MultiLineString into a vector of polylines.

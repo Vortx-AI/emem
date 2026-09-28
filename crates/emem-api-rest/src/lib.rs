@@ -9659,6 +9659,8 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
             &["Overture Maps Foundation places parquet (anonymous S3)"]),
         ("overture.transportation.road_length_m", "slow", "human",
             &["Overture Maps Foundation transportation parquet (anonymous S3)"]),
+        ("overture.transportation.road_bearing_deg", "slow", "human",
+            &["Overture Maps Foundation transportation parquet (anonymous S3): nearest segment within 50 m"]),
         // WDPA-equivalent protected-area lookup. Source-of-record is
         // OpenStreetMap `boundary=protected_area` polygons via the public
         // Overpass API (point-in-polygon `is_in()` filter); OSM mirrors
@@ -52806,6 +52808,9 @@ async fn materialize_overture_buildings_count(
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=buildings/type=building/"
     );
+    // The release rolls off Overture's bucket within months; the digest of
+    // its file listing still names exactly which objects were read.
+    let listing = cli.listing_digest("buildings").await.ok();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.buildings.count".into(),
@@ -52820,7 +52825,7 @@ async fn materialize_overture_buildings_count(
             scheme: "overture.maps.foundation.v1".into(),
             id: upstream,
             cid: None,
-            hash: None,
+            hash: listing,
             captured_at: Some(release.clone()),
             url: Some(upstream_url),
         }],
@@ -52864,6 +52869,9 @@ async fn materialize_overture_places_count(
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=places/type=place/"
     );
+    // The release rolls off Overture's bucket within months; the digest of
+    // its file listing still names exactly which objects were read.
+    let listing = cli.listing_digest("places").await.ok();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.places.count".into(),
@@ -52878,7 +52886,7 @@ async fn materialize_overture_places_count(
             scheme: "overture.maps.foundation.v1".into(),
             id: upstream,
             cid: None,
-            hash: None,
+            hash: listing,
             captured_at: Some(release.clone()),
             url: Some(upstream_url),
         }],
@@ -52889,6 +52897,90 @@ async fn materialize_overture_places_count(
                 ciborium::Value::Float(bb.max_lat),
                 ciborium::Value::Float(bb.min_lng),
                 ciborium::Value::Float(bb.max_lng),
+                ciborium::Value::Text(release),
+            ])),
+        },
+        privacy_class: "public".into(),
+        schema_cid: SchemaCid::new(s.manifests.schema_cid.as_str()),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+        served_via: None,
+    });
+    sign_and_persist(s, fact, &signed_at).await
+}
+
+/// The nearest road's direction at a cell: the axial bearing (0..180
+/// degrees from north) of the closest Overture transportation segment
+/// within 50 m, with its distance in the derivation. Versioned and
+/// pinnable where an Overpass query is neither. An Absence says the
+/// release holds no segment within 50 m.
+async fn materialize_overture_road_bearing(
+    cell64: &str,
+    s: &AppState,
+) -> Result<emem_fact::FactCid, String> {
+    const RADIUS_M: f64 = 50.0;
+    let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
+    let (lat, lng) = (info.lat_deg, info.lng_deg);
+    let band = "overture.transportation.road_bearing_deg";
+    let cli = emem_fetch::overture::OvertureClient::shared();
+    let found = cli
+        .nearest_road_bearing(lat, lng, RADIUS_M)
+        .await
+        .map_err(|e| format!("overture transportation: {e}"))?;
+    let signed_at = chrono_iso8601_utc();
+    let release = cli
+        .release()
+        .await
+        .map_err(|e| format!("overture release discovery: {e}"))?;
+    let upstream_url = format!(
+        "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=transportation/type=segment/"
+    );
+    let listing = cli.listing_digest("transportation").await.ok();
+    let tslot = overture_release_unix(&release)
+        .map(|u| tslot_at_band(u, band))
+        .unwrap_or(0);
+    let source = Source {
+        scheme: "overture.maps.foundation.v1".into(),
+        id: format!(
+            "s3://overturemaps-us-west-2/release/{release}/theme=transportation/type=segment/"
+        ),
+        cid: None,
+        hash: listing,
+        captured_at: Some(release.clone()),
+        url: Some(upstream_url.clone()),
+    };
+    let Some(road) = found else {
+        let reason = format!(
+            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no transportation segment within {RADIUS_M} m of ({lat:.6},{lng:.6})."
+        );
+        return sign_band_absence(
+            cell64,
+            s,
+            band,
+            tslot,
+            "overture.maps.foundation.v1",
+            &upstream_url,
+            &signed_at,
+            &reason,
+        )
+        .await;
+    };
+    let fact = Fact::Primary(PrimaryFact {
+        cell: cell64.to_string(),
+        band: band.into(),
+        tslot,
+        value: ciborium::Value::Float((road.bearing_deg * 100.0).round() / 100.0),
+        unit: Some("deg_axial".into()),
+        confidence: 0.8,
+        uncertainty: None,
+        sources: vec![source],
+        derivation: Derivation {
+            fn_key: "overture_road_bearing_nearest@1".into(),
+            args: Some(ciborium::Value::Array(vec![
+                ciborium::Value::Float(lat),
+                ciborium::Value::Float(lng),
+                ciborium::Value::Float(RADIUS_M),
+                ciborium::Value::Text(format!("distance_m={:.1}", road.distance_m)),
                 ciborium::Value::Text(release),
             ])),
         },
@@ -52922,6 +53014,9 @@ async fn materialize_overture_road_length_m(
     let upstream_url = format!(
         "https://overturemaps-us-west-2.s3.amazonaws.com/release/{release}/theme=transportation/type=segment/"
     );
+    // The release rolls off Overture's bucket within months; the digest of
+    // its file listing still names exactly which objects were read.
+    let listing = cli.listing_digest("transportation").await.ok();
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: "overture.transportation.road_length_m".into(),
@@ -52936,7 +53031,7 @@ async fn materialize_overture_road_length_m(
             scheme: "overture.maps.foundation.v1".into(),
             id: upstream,
             cid: None,
-            hash: None,
+            hash: listing,
             captured_at: Some(release.clone()),
             url: Some(upstream_url),
         }],
@@ -56273,6 +56368,7 @@ fn band_valid_range(band: &str) -> Option<(f64, f64, &'static str)> {
         }
         "surface_water.recurrence" | "surface_water.occurrence" => (0.0, 100.0, "percent"),
         "surface_water.seasonality" => (0.0, 12.0, "months"),
+        "overture.transportation.road_bearing_deg" => (0.0, 180.0, "deg_axial"),
         "surface_water.transition_class" => (0.0, 10.0, "class"),
         "jrc_gfc2020.forest_2020" | "forest_change.gain" => (0.0, 1.0, "boolean"),
         "forest_change.treecover2000" => (0.0, 100.0, "percent"),
@@ -57532,6 +57628,7 @@ fn all_materializable_bands() -> Vec<String> {
     out.push("overture.buildings.count".into());
     out.push("overture.places.count".into());
     out.push("overture.transportation.road_length_m".into());
+    out.push("overture.transportation.road_bearing_deg".into());
     // Met.no nowcast bands.
     out.push("weather.temperature_2m".into());
     out.push("weather.cloud_cover".into());
@@ -57931,6 +58028,9 @@ async fn materialize_band_at(
         "overture.places.count" => return materialize_overture_places_count(cell64, s).await,
         "overture.transportation.road_length_m" => {
             return materialize_overture_road_length_m(cell64, s).await
+        }
+        "overture.transportation.road_bearing_deg" => {
+            return materialize_overture_road_bearing(cell64, s).await
         }
         _ => {}
     }
@@ -59025,6 +59125,37 @@ async fn materialize_bands_once(
             },
             "overture.transportation.road_length_m" => {
                 match materialize_overture_road_length_m(cell64, s).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            "overture.transportation.road_bearing_deg" => {
+                match materialize_overture_road_bearing(cell64, s).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -74163,6 +74294,7 @@ fn band_display_label(band: &str) -> String {
         "overture.buildings.count" => "buildings".into(),
         "overture.places.count" => "places".into(),
         "overture.transportation.road_length_m" => "road length".into(),
+        "overture.transportation.road_bearing_deg" => "road bearing".into(),
         _ => band.rsplit('.').next().unwrap_or(band).replace('_', " "),
     }
 }

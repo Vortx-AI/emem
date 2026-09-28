@@ -90,7 +90,7 @@ CANON = {
     # longer fanned out by /v1/state_multi. Their cube slots stay reserved at
     # their offsets, because stored vectors and issued emem:cube: tokens decode
     # by offset; reclaiming them is a bands-v1 layout, not an edit to v0.
-    "materializer_wired": 117,
+    "materializer_wired": 118,
     "source_schemes": 46,
     "topics": 27,
     # 0 since 2026-09-15. Four were declared and none is wired: the GPU was

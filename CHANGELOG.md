@@ -7,6 +7,10 @@ to verify.
 
 ## [Unreleased]
 
+- Overture facts carry `sources[0].hash`: blake3 over the sorted `key, etag, size` listing of the release's files for that theme, so a fact still names exactly which objects it was read from after Overture drops the release (it keeps about three). The release tag was already in `captured_at` and the derivation.
+- New band `overture.transportation.road_bearing_deg`: the axial bearing (0..180 degrees from north) of the nearest Overture road segment within 50 m, with the distance in its derivation; an Absence when the release holds none. 118 wired band names.
+- Four more skills are served at `/skills/<name>/SKILL.md`: field signals, EUDR due diligence, document evidence, transparency log.
+
 - Materialisation is single-flight per (cell, band, slot, refresh): a retry joins the read already running instead of starting another and taking another permit, and waiting for a permit is bounded by the dispatch cap. Without it, re-reads of pre-fix facts piled up and a warm recall could wait 35 s.
 - Every GeoTIFF-read fact names its reader in its derivation (`reader=cog-pixel-floor@2`), so a consumer can tell a pre-fix read from the fact alone. `/v1/materializers` publishes a `valid_range` (min, max, unit) per band, and a value outside it is refused at signing.
 - `/v1/lab_report_parse` takes `product` (an EU product name or code) and reads each row against the MRL in force from the EU Pesticides Database (`eu_mrl_lookup`, `rows[].eu_mrl`); verdict `exceeds_eu_mrl`.
