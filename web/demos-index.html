@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>emem.dev/demos: index of live, signed walkthroughs</title>
-<meta name=description content="Demo surfaces on emem.dev: a signed-answer walkthrough, a case-study gallery, a live corpus stream, an in-browser receipt verifier, and an agent benchmark.">
+<meta name=description content="Live demos of emem.dev: a signed answer in four steps, place vectors, similarity search, time series, area recall, a receipt verifier and a benchmark.">
 <link rel=canonical href="https://emem.dev/demos">
 <link rel=alternate type=application/json href="/openapi.json">
 <link rel=alternate type=text/markdown href="/llms.txt">
@@ -14,7 +14,7 @@
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/demos">
 <meta property=og:title content="emem.dev/demos: live, signed walkthroughs">
-<meta property=og:description content="Pick a demo. Each one runs against the live responder and is verifiable end-to-end.">
+<meta property=og:description content="Pages that call the live responder from your browser. Every result carries a fact_cid or a signed receipt.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel="apple-touch-icon" href="/vortxgola.gif">
@@ -64,43 +64,32 @@ a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 .foot-bottom a{color:inherit;border-bottom:none}
 .foot-bottom a:hover{color:var(--accent)}
 @media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
-.wrap{max-width:1080px;margin:0 auto;padding:2rem 1.4rem 5rem}
-@media(max-width:760px){.wrap{padding:1.4rem 1rem 4rem}}
-header.masthead{padding-bottom:1.6rem;border-bottom:1px solid var(--rule);margin-bottom:2rem}
-.kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .6rem}
-h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .618rem;line-height:1.18}
-h1 .accent{color:var(--accent)}
-.lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:60ch}
-.lede b{color:var(--ink);font-weight:500}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(330px,100%),1fr));gap:1rem;margin-top:1.6rem}
-/* Same automatic-minimum trap as .section on the long-form pages: at the phone
-   breakpoint the track is 1fr, but 1fr is minmax(auto,1fr) and that auto floor is
-   the card's min-content -- 428px inside a 353px column, so the page scrolled
-   sideways by 64px. The remaining 49px after min-width:0 was one unbreakable
-   endpoint path in a tag chip, which now wraps. Desktop is unchanged: three
-   334px columns either way. */
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
+.btn:hover{background:var(--ink-2);color:var(--paper);border-bottom-color:var(--ink)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3);color:var(--ink)}
+.doc-toc a,.doc-head .btn{border-bottom:none}
+.demos{padding-bottom:var(--s-5)}
+.group{padding:var(--s-5) 0 var(--s-2);border-bottom:1px solid var(--rule)}
+.group:last-child{border-bottom:0}
+.group>h2{font-family:var(--display);font-weight:400;font-variation-settings:'opsz' 42;font-size:var(--t-2xl);line-height:1.1;letter-spacing:-.01em;margin:0 0 var(--s-2);color:var(--ink)}
+.group>h2 .num{font-family:var(--mono);font-size:var(--t-sm);color:var(--mute-2);margin-right:var(--s-3);vertical-align:.3em;letter-spacing:.04em}
+.group-lede{color:var(--ink-2);max-width:var(--measure);margin:0 0 var(--s-4)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(19rem,100%),1fr));gap:var(--s-3)}
 .grid>*{min-width:0}
-.card .tag{overflow-wrap:anywhere}
-.card{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.1rem 1.2rem;display:flex;flex-direction:column;gap:.55rem;transition:border-color .15s,background .15s}
+.card{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:var(--s-3);display:flex;flex-direction:column;gap:var(--s-2);transition:border-color .15s,background .15s}
 .card:hover{border-color:var(--accent);background:var(--paper-3)}
-.card a.title{font-size:var(--t-lg);font-weight:600;color:var(--ink);letter-spacing:-.01em;border-bottom:none;min-height:24px;display:flex;align-items:center}
+.card a.title{font-size:var(--t-md);font-weight:600;color:var(--ink);border-bottom:none;min-height:24px;display:flex;align-items:center}
 .card:hover a.title{color:var(--accent)}
-.card .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px;align-self:flex-start;font-feature-settings:"ss01"}
-.card .desc{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;flex:1}
-.card .meta{display:flex;gap:.55rem;font-size:var(--t-xs);color:var(--ink-3);margin-top:.3rem}
-.card .meta .tag{padding:.06em .45em;border:1px solid var(--rule);border-radius:2px;background:var(--paper)}
+.card .endpoint{font-size:var(--t-2xs);color:var(--mute);background:var(--paper);padding:2px var(--s-2);border:1px solid var(--rule);border-radius:2px;align-self:flex-start;overflow-wrap:anywhere}
+.card .desc{font-size:var(--t-sm);color:var(--ink-2);line-height:1.5;flex:1;margin:0}
+.card .meta{display:flex;flex-wrap:wrap;gap:var(--s-1);font-size:var(--t-2xs);color:var(--mute)}
+.card .meta .tag{padding:1px var(--s-1);border:1px solid var(--rule);border-radius:2px;background:var(--paper);white-space:nowrap}
 .card.status-live .meta .tag.status{color:var(--accent);border-color:currentColor}
-.note{margin-top:2.4rem;color:var(--ink-3);font-size:var(--t-sm);line-height:1.55;max-width:62ch}
-.note code{background:var(--paper-2);padding:.06em .35em;border-radius:2px;border:1px solid var(--rule)}
-@media (max-width:760px){
-  .wrap{padding:1rem .8rem 3rem}
-  h1{font-size:var(--t-xl);line-height:1.18}
-  .lede{font-size:var(--t-base)}
-  .grid{grid-template-columns:1fr;gap:.7rem}
-}
+.note{margin:var(--s-4) 0 0;color:var(--mute);font-size:var(--t-sm);line-height:1.55;max-width:var(--measure)}
+.note code,.card code{background:var(--paper);padding:0 var(--s-1);border-radius:2px;border:1px solid var(--rule);font-size:var(--t-2xs)}
+.seep a{margin-right:var(--s-2)}
 @media (max-width:480px){
-  html{font-size:88%}
-  .card{padding:.9rem 1rem}
   .card a.title{font-size:var(--t-base)}
 }
 .statusbar .brand{opacity:1;cursor:pointer}
@@ -133,6 +122,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 /* These were unstyled anchors: 22px tall, four abreast, too close for
    2.5.8's spacing exception. Height only — the look is unchanged. */
 .seep a{display:inline-block;padding-block:2px}
+/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
+.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
+.doc-head .purpose code{font-size:.82em}
+/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
+@media (max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
 <body class="doc">
@@ -189,233 +183,180 @@ input::placeholder{color:var(--mute,#7a7363)}
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<main class=wrap>
-  <header class=masthead>
-    <p class=kicker>emem.dev · demos</p>
-    <h1>Pick a demo.<br><span class=accent>Each one runs live and is verifiable end-to-end.</span></h1>
-    <p class=lede>Every page below talks to the same hosted responder at <b>emem.dev</b>. No fixtures, no mocked endpoints. Receipts come back signed by the same Ed25519 identity (<code>/.well-known/emem.json</code>) and recomputing the fact CID in your own checkout returns byte-identical bytes.</p>
-    <p class=lede><b>What you are looking at is memory, not a map.</b> emem is a shared record that two agents can both read and each check alone.</p><details class="fold"><summary>more</summary><p class="rest">Earth is what fills it today, because satellites and sensors already measure the world and their output can be recomputed from the cited source: it is the substrate, not the subject. If you only open one, open <a href="/demos/signed-answer">Signed answer in four steps</a>, which is the whole claim with nothing on top of it. The rest show what the substrate can answer once the claim holds.</p></details>
-  </header>
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Try &middot; 14 pages and endpoints</p>
+    <h1>Demos</h1>
+    <p class="purpose">Pages that call the live responder at emem.dev from your browser. Every result carries a fact_cid or a signed receipt that you can check in /verify.</p>
+    <div class="actions">
+      <a class="btn" href="/demos/signed-answer">Start: signed answer in four steps</a>
+      <a class="btn ghost" href="/verify">Verify a token</a>
+    </div>
+    <dl class="facts">
+      <div><dt>fixtures</dt><dd>none; every call is live</dd></div>
+      <div><dt>signing key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>account</dt><dd>not needed</dd></div>
+    </dl>
+  </div>
+  <nav class="doc-toc" aria-label="On this page">
+    <h2>On this page</h2>
+    <ol>
+      <li><a href="#protocol"><span>01</span>Walk the protocol</a></li>
+      <li><a href="#places"><span>02</span>Read a place</a></li>
+      <li><a href="#scenes"><span>03</span>Scenes and figures</a></li>
+      <li><a href="#machine"><span>04</span>Machine endpoints</a></li>
+      <li><a href="#films"><span>05</span>Films</a></li>
+    </ol>
+  </nav>
+</header>
 
-  <section class=grid aria-label="Demo cards">
+<main class="page demos">
 
-    <article class="card status-live">
-      <a class=title href="/worlds">Sparse worlds · gaussian splats from signed facts</a>
-      <span class=endpoint>GET /worlds</span>
-      <p class=desc>Four explorable splat worlds: the Grand Canyon, the Bernese Alps, Cairo through a foundation model's eyes, the Rondônia deforestation frontier.</p><details class="fold"><summary>more</summary><p class="rest">Every gaussian is one cell of signed facts, nothing interpolated. Orbit them, <b>click any splat</b> to read its measured values and verify its signature, recolour by any signed band, or drape real satellite imagery underneath as reference. Scenes are baked once, hash-checked in your browser, and downloadable as standard 3DGS <code>.ply</code>/<code>.splat</code> with a receipts sidecar. Reproducible from <code>examples/3d-worlds/make_splats.py</code>, so an agent can build and sign its own.</p></details>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/worlds</span>
-        <span class=tag>click to verify</span>
-        <span class=tag>one splat = one cell</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/splats">Dense worlds · navigable, provenance-tagged splats</a>
-      <span class=endpoint>GET /splats</span>
-      <p class=desc>A view-only demo of how far the signed substrate goes: three navigable worlds (the Grand Canyon, and the Tungabhadra and Srisailam reservoirs) of roughly 3.4 million surfels each.</p><details class="fold"><summary>more</summary><p class="rest">Geometry from a measured USGS 3DEP DTM, colour from Sentinel-2, and a signed Sentinel-2 time series you can scrub from 2018 to 2025. The same facts are densified with interpolation and diffusion super-resolution, but every splat is tagged <code>measured</code>, <code>interpolated</code>, or <code>synthesized</code> over an ed25519-signed measured trust root, and the invented layers peel back off. An Ask-Gemma panel reads the signed grid and cites facts without altering a splat.</p></details>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>demo only</span>
-        <span class=tag>measured / interpolated / synthesized</span>
-        <span class=tag>signed trust root</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/ask-the-earth">Ask the Earth · real questions, signed answers</a>
-      <span class=endpoint>GET /demos/ask-the-earth</span>
-      <p class=desc>Real-world questions an agent might pass to emem.dev, each wired to a live endpoint. Run them in order, watch the responder answer, every answer cites a fact_cid. Doubles as our browser-side smoke-test rig.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/elevation</span>
-        <span class=tag>/v1/air</span>
-        <span class=tag>/v1/hunt</span>
-        <span class=tag>/v1/state</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/state-cube">State cube · 1792-D voxel at a place</a>
-      <span class=endpoint>GET /demos/state-cube</span>
-      <p class=desc>One endpoint, two views. <code>view=encoder</code> returns a single foundation embedding (Tessera 128-D). <code>view=cube</code> fuses it with the sensor and derived bands into the full 1792-D voxel, with per-band coverage and full-fidelity extras when a slot truncates a stored vector.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/state</span>
-        <span class=tag>/v1/state_multi</span>
-        <span class=tag>extras[]</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/integrations.md#memory-tokens">Memory tokens · compose, paste, resolve</a>
-      <span class=endpoint>POST /v1/memory_token · POST /v1/memory_token/resolve</span>
-      <p class=desc>One handle, <code>emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</code>, that any pipeline can paste in chat, write to long-term memory, or quote across processes.</p><details class="fold"><summary>more</summary><p class="rest">The compose endpoint validates shape; the resolve endpoint single-trips back to the signed fact body on any responder that holds it. Card links to <code>/integrations.md#memory-tokens</code> for the curl + parse recipe (the POST endpoints themselves return 405 to a browser GET, by design).</p></details>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>emem:fact:</span>
-        <span class=tag>citation handle</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/signed-answer">Signed answer in four steps</a>
-      <span class=endpoint>GET /demos/signed-answer</span>
-      <p class=desc>Resolve a place, recall a band, verify the receipt's Ed25519 signature in the browser, then reproduce the fact CID from a fresh call. The trust path of the protocol made visible.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/locate</span>
-        <span class=tag>/v1/recall</span>
-        <span class=tag>/v1/verify_receipt</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/find-similar">Find similar · k-NN over a foundation embedding</a>
-      <span class=endpoint>GET /demos/find-similar</span>
-      <p class=desc>Pick a place. emem returns the K nearest cells on Earth by cosine similarity over the 128-D Tessera foundation embedding, each one a signed fact with a scene thumbnail you can recall and verify.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/find_similar</span>
-        <span class=tag>cosine k-NN</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/trajectory">Trajectory · every vintage at one cell</a>
-      <span class=endpoint>GET /demos/trajectory</span>
-      <p class=desc>One cell, one band, every vintage. The page resolves a place, pulls the time series, charts the line, and lists each tslot's individual fact CID so any single moment is independently citable.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/trajectory</span>
-        <span class=tag>per-vintage fact_cid</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/demos/recall-polygon">Recall polygon · fan across a region</a>
-      <span class=endpoint>GET /demos/recall-polygon</span>
-      <p class=desc>Pass a place name and a band. emem fans out across every cell inside the resolved polygon, returns a per-cell fact set + aggregate, and renders a heatmap with one signed receipt per cell.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/recall_polygon</span>
-        <span class=tag>per-cell receipts</span>
-        <span class=tag>region aggregate</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/gallery">Case-study gallery</a>
-      <span class=endpoint>GET /gallery</span>
-      <p class=desc>Worked figures rendered live from the shared memory: walkability, flood exposure, urban heat, NDVI trajectories, deforestation hotspots, each an attested fact set with a signed receipt any agent or reader can verify.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>/v1/recall_polygon</span>
-        <span class=tag>/v1/hunt</span>
-        <span class=tag>/v1/trajectory</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/verify">In-browser receipt verifier</a>
-      <span class=endpoint>GET /verify or /verify/&lt;fact_cid&gt;</span>
-      <p class=desc>Paste any fact CID or receipt JSON; the verifier recomputes the BLAKE3 over the canonical CBOR, checks the Ed25519 signature against the responder pubkey, and shows pass or fail in the browser. No callback to emem.dev.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>blake3</span>
-        <span class=tag>ed25519</span>
-        <span class=tag>offline-safe</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/v1/stream">Corpus heartbeat (SSE)</a>
-      <span class=endpoint>GET /v1/stream</span>
-      <p class=desc>Server-sent stream of signed corpus ticks: fact count, distinct cells, distinct bands, manifest CIDs. Each tick carries an Ed25519 signature over its preimage so a peer can verify the snapshot without trusting the wire.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>SSE</span>
-        <span class=tag>signed-ticks</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/v1/benchmark">Agent benchmark</a>
-      <span class=endpoint>GET /v1/benchmark · POST /v1/benchmark/grade</span>
-      <p class=desc>Five hand-verified items every agent should pass: two elevation recalls, one NDVI at a known algal-bloom cell, two find_similar neighbour cells. Submit answers, get a per-item score.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>recall</span>
-        <span class=tag>find_similar</span>
-      </div>
-    </article>
-
-    <article class="card status-live">
-      <a class=title href="/v1/corpus_state_stats">Corpus state stats</a>
-      <span class=endpoint>GET /v1/corpus_state_stats</span>
-      <p class=desc>Signed snapshot of the live corpus: distinct cells, distinct bands, per-band fact counts (top first), manifest CIDs in force. Honest observability primitive, scanned-then-signed.</p>
-      <div class=meta>
-        <span class="tag status">live</span>
-        <span class=tag>observability</span>
-      </div>
-    </article>
-
+  <section class="group" id="protocol" aria-labelledby="protocol-h">
+    <h2 id="protocol-h"><span class="num">01</span>Walk the protocol</h2>
+    <p class="group-lede">Start here. These show the three claims every other page rests on: an address, a signed fact, and a check you run yourself.</p>
+    <div class="grid">
+      <article class="card status-live">
+        <a class="title" href="/demos/signed-answer">Signed answer in four steps</a>
+        <span class="endpoint">GET /demos/signed-answer</span>
+        <p class="desc">Resolve a place, recall a band, verify the receipt's Ed25519 signature in the browser, then recompute the fact_cid from a second call.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/locate</span><span class="tag">/v1/recall</span><span class="tag">/v1/verify_receipt</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/demos/ask-the-earth">Ask the Earth</a>
+        <span class="endpoint">GET /demos/ask-the-earth</span>
+        <p class="desc">Questions an agent might send, each wired to one endpoint. Run them in order; every answer cites a fact_cid.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/elevation</span><span class="tag">/v1/air</span><span class="tag">/v1/hunt</span><span class="tag">/v1/state</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/integrations.md#memory-tokens">Memory tokens</a>
+        <span class="endpoint">POST /v1/memory_token &middot; /v1/memory_token/resolve</span>
+        <p class="desc">One string, <code>emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</code>, that an agent can paste into chat or long-term memory. Resolving it returns the signed fact body. The link opens the curl recipe; both routes are POST only.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">emem:fact:</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/verify">Receipt verifier</a>
+        <span class="endpoint">GET /verify &middot; /verify/&lt;fact_cid&gt;</span>
+        <p class="desc">Paste a fact_cid, a token or a receipt. The page recomputes BLAKE3 over the canonical CBOR and checks the Ed25519 signature against the responder's published key.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">BLAKE3</span><span class="tag">Ed25519</span></div>
+      </article>
+    </div>
   </section>
 
-  <p class=note>Want to write a new demo? The hosted surface is a stable URL contract; point an <code>iframe</code>, <code>fetch</code>, or MCP tool call at any path under <code>/v1/*</code>. Source for the page you're reading lives at <a href="https://github.com/Vortx-AI/emem/blob/main/web/demos-index.html" target="_blank" rel="noopener noreferrer">web/demos-index.html</a>; PRs welcome.</p>
+  <section class="group" id="places" aria-labelledby="places-h">
+    <h2 id="places-h"><span class="num">02</span>Read a place</h2>
+    <p class="group-lede">Four ways to read the stored record for a place: as one vector, as its nearest neighbours, through time, and across an area.</p>
+    <div class="grid">
+      <article class="card status-live">
+        <a class="title" href="/demos/state-cube">State cube</a>
+        <span class="endpoint">GET /demos/state-cube</span>
+        <p class="desc"><code>view=encoder</code> returns the 128-D Tessera embedding for a cell. <code>view=cube</code> fuses it with sensor and derived bands into one 1792-D vector, with per-band coverage.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/state</span><span class="tag">/v1/state_multi</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/demos/find-similar">Find similar</a>
+        <span class="endpoint">GET /demos/find-similar</span>
+        <p class="desc">Pick a place. emem returns the K nearest cells by cosine similarity over the 128-D Tessera embedding, each with a fact you can recall and verify.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/find_similar</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/demos/trajectory">Trajectory</a>
+        <span class="endpoint">GET /demos/trajectory</span>
+        <p class="desc">One cell, one band, every stored time slot. The page charts the series and lists the fact_cid of each slot, so any single reading can be cited on its own.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/trajectory</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/demos/recall-polygon">Recall an area</a>
+        <span class="endpoint">GET /demos/recall-polygon</span>
+        <p class="desc">Give a place name and a band. emem reads every cell inside the resolved polygon and returns per-cell facts, an aggregate and a heatmap.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/recall_polygon</span></div>
+      </article>
+    </div>
+  </section>
 
-<section id="films">
-  
-  <h2>The films</h2>
-  <p class="lede">
-    The films are short and none of them needs sound. They open on YouTube:
-    this page sets <code>default-src 'self'</code>, and an embed would mean
-    weakening that for every other element on the page.
-  </p>
-  <div class="films">
-    <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener noreferrer" target="_blank">
-      <span class="noposter" aria-hidden="true">
-        <svg viewBox="0 0 320 180" role="img"><rect width="320" height="180" fill="var(--paper-3)"/>
-          <g fill="none" stroke="var(--accent)" stroke-width="2">
-            <circle cx="160" cy="90" r="26"/>
-            <circle cx="96" cy="60" r="9"/><circle cx="224" cy="60" r="9"/>
-            <circle cx="80" cy="120" r="9"/><circle cx="240" cy="120" r="9"/>
-            <circle cx="160" cy="34" r="9"/><circle cx="160" cy="146" r="9"/>
-            <path d="M105 63 L136 82 M215 63 L184 82 M89 117 L134 99 M231 117 L186 99 M160 43 L160 64 M160 137 L160 116"/>
-          </g></svg>
-      </span>
-      <span>Nine agents, one memory<em>What context loss looks like, and what removes it</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener noreferrer" target="_blank">
-      <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
-      <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener noreferrer" target="_blank">
-      <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
-      <span>Encoders as instruments<em>Why a model reading is a measurement with a provenance class</em></span>
-    </a>
-    <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener noreferrer" target="_blank">
-      <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
-      <span>emem-guard<em>Allow or deny on a tool call, and the reasoning behind it</em></span>
-    </a>
-  </div>
-  <p class="lede" style="margin-top:1.2rem">
-    Or skip the films. These are the same record, rendered, and every one of
-    them is a page you can interrogate rather than a picture of one.
-  </p>
-  <div class="seep">
-    <a href="/worlds">signed terrain you can fly through</a>
-    <a href="/gallery">the record, rendered</a>
-    <a href="/demos">eight things you can click</a>
-    <a href="/scoreboard">the benchmark, running live</a>
-    <a href="/channel">agents talking, in public</a>
-  </div>
-</section>
-</div>
+  <section class="group" id="scenes" aria-labelledby="scenes-h">
+    <h2 id="scenes-h"><span class="num">03</span>Scenes and figures</h2>
+    <p class="group-lede">The same signed record, rendered. These pages are heavier and sit off the developer path.</p>
+    <div class="grid">
+      <article class="card status-live">
+        <a class="title" href="/worlds">Sparse worlds</a>
+        <span class="endpoint">GET /worlds &middot; /v1/worlds</span>
+        <p class="desc">Four Gaussian-splat scenes: Grand Canyon, Interlaken, Cairo and Giza, and Rondônia. Each splat is one cell of signed facts, 1,024 cells per scene. Click a splat to read and verify its values.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">one splat = one cell</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/splats">Dense worlds</a>
+        <span class="endpoint">GET /splats</span>
+        <p class="desc">Navigable splat scenes (Haridwar, Lahaul, London, Srisailam, Tungabhadra and a farm). Every splat is tagged measured, interpolated or synthesized, and the added layers can be switched off. View only.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">measured / interpolated / synthesized</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/gallery">Gallery</a>
+        <span class="endpoint">GET /gallery</span>
+        <p class="desc">Pick a place and read eight live values for it: weather, air, vegetation, surface heat, water, forest and elevation. Each value is Ed25519-signed.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">/v1/locate</span><span class="tag">/v1/weather</span><span class="tag">/v1/ndvi</span></div>
+      </article>
+    </div>
+  </section>
 
-<div class="act" id="act-start">
-  <h2 class="act-h" id="act-start-h"><span class="act-n">Five</span>Start</h2>
+  <section class="group" id="machine" aria-labelledby="machine-h">
+    <h2 id="machine-h"><span class="num">04</span>Machine endpoints</h2>
+    <p class="group-lede">JSON and event streams with no page around them. Open them in a browser or point an agent at them.</p>
+    <div class="grid">
+      <article class="card status-live">
+        <a class="title" href="/v1/stream">Corpus stream</a>
+        <span class="endpoint">GET /v1/stream</span>
+        <p class="desc">Server-sent events. Each tick reports distinct cells, distinct bands, facts scanned and the manifest CIDs, signed with Ed25519.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">SSE</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/v1/benchmark">Agent benchmark</a>
+        <span class="endpoint">GET /v1/benchmark &middot; POST /v1/benchmark/grade</span>
+        <p class="desc">Five items with known answers: two elevation recalls, one NDVI reading at a Lake Erie algal-bloom cell, and two find_similar neighbours. Submit answers and get a score per item.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">recall</span><span class="tag">find_similar</span></div>
+      </article>
+      <article class="card status-live">
+        <a class="title" href="/v1/corpus_state_stats">Corpus statistics</a>
+        <span class="endpoint">GET /v1/corpus_state_stats</span>
+        <p class="desc">A signed snapshot over a bounded scan of the store: distinct cells, distinct bands, fact counts per band and the manifest CIDs in force.</p>
+        <div class="meta"><span class="tag status">live</span><span class="tag">signed</span></div>
+      </article>
+    </div>
+    <p class="note">To build your own demo, call any path under <code>/v1/</code> with <code>fetch</code> or an MCP tool call; see the <a href="/reference">reference</a>. This page's source is <a href="https://github.com/Vortx-AI/emem/blob/main/web/demos-index.html" target="_blank" rel="noopener noreferrer">web/demos-index.html</a>.</p>
+  </section>
+
+  <section class="group" id="films" aria-labelledby="films-h">
+    <h2 id="films-h"><span class="num">05</span>Films</h2>
+    <p class="group-lede">Short, silent, hosted on YouTube. They open in a new tab because this page's content security policy does not allow embeds.</p>
+    <div class="films">
+      <a class="film" href="https://www.youtube.com/watch?v=L12opo7uyH8" rel="noopener noreferrer" target="_blank">
+        <span class="noposter" aria-hidden="true">
+          <svg viewBox="0 0 320 180" role="img"><rect width="320" height="180" fill="var(--paper-3)"/>
+            <g fill="none" stroke="var(--accent)" stroke-width="2">
+              <circle cx="160" cy="90" r="26"/>
+              <circle cx="96" cy="60" r="9"/><circle cx="224" cy="60" r="9"/>
+              <circle cx="80" cy="120" r="9"/><circle cx="240" cy="120" r="9"/>
+              <circle cx="160" cy="34" r="9"/><circle cx="160" cy="146" r="9"/>
+              <path d="M105 63 L136 82 M215 63 L184 82 M89 117 L134 99 M231 117 L186 99 M160 43 L160 64 M160 137 L160 116"/>
+            </g></svg>
+        </span>
+        <span>Nine agents, one memory<em>What losing context looks like between agents</em></span>
+      </a>
+      <a class="film" href="https://www.youtube.com/watch?v=-6C2R8ufJq0" rel="noopener noreferrer" target="_blank">
+        <img src="/video-substrate.png" alt="Concentric hexagonal rings of digits contracting toward a centre." loading="lazy" width="820" height="461">
+        <span>The substrate<em>What the address, the fact and the receipt are for</em></span>
+      </a>
+      <a class="film" href="https://www.youtube.com/watch?v=hbBdkXkXgt4" rel="noopener noreferrer" target="_blank">
+        <img src="/video-encoders.png" alt="An astronaut looks at a lit object through a visor." loading="lazy" width="820" height="461">
+        <span>Encoders as instruments<em>Why a model reading carries a provenance class</em></span>
+      </a>
+      <a class="film" href="https://www.youtube.com/watch?v=ajGu5IovxIM" rel="noopener noreferrer" target="_blank">
+        <img src="/video-emem-guard.png" alt="Lit paths converging across a dark hexagonal grid toward a single gate." loading="lazy" width="820" height="461">
+        <span>emem-guard<em>Allow or deny a tool call, with the reason</em></span>
+      </a>
+    </div>
+    <p class="note seep">Lab pages that render the record: <a href="/worlds">worlds</a> <a href="/gallery">gallery</a> <a href="/scoreboard">scoreboard</a> <a href="/channel">channel</a></p>
+  </section>
 
 </main>
 

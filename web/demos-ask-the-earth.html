@@ -68,7 +68,12 @@ button:disabled{opacity:.4;cursor:not-allowed}
 .foot-bottom a{color:inherit;border-bottom:none}
 .foot-bottom a:hover{color:var(--accent)}
 
-.wrap{max-width:1040px;margin:0 auto;padding:2rem 1.4rem 5rem}
+.wrap{margin:0 auto;padding-top:0;padding-bottom:var(--s-6)}
+.doc-head a,.doc-toc a{border-bottom:none}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
+.btn:hover{background:var(--ink-2);color:var(--paper)}
+.btn.ghost{background:transparent;color:var(--ink)}
+.btn.ghost:hover{background:var(--paper-3);color:var(--ink)}
 header.masthead{padding-bottom:1.4rem;border-bottom:1px solid var(--rule);margin-bottom:1.6rem}
 .kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .55rem}
 h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .65rem;line-height:1.18}
@@ -77,7 +82,7 @@ h1 .accent{color:var(--accent)}
 .lede b{color:var(--ink);font-weight:500}
 .lede .accent{color:var(--accent);font-weight:500}
 
-.run-all{display:flex;align-items:center;gap:.7rem;margin:1.4rem 0 1.4rem;padding:.7rem .9rem;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}
+.run-all{display:flex;align-items:center;gap:var(--s-3);margin:var(--s-4) 0;padding:.7rem .9rem;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}
 .run-all .status{flex:1;font-size:var(--t-xs);color:var(--ink-3)}
 
 .cards{display:grid;grid-template-columns:1fr;gap:1rem}
@@ -155,6 +160,12 @@ input::placeholder{color:var(--mute,#7a7363)}
   h1{font-size:var(--t-xl);line-height:1.18}
   .lede{font-size:var(--t-sm)}
 }
+@media (min-width:1100px){.cards{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
+.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
+.doc-head .purpose code{font-size:.82em}
+/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
+@media (max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
 <body class="doc">
@@ -212,21 +223,25 @@ input::placeholder{color:var(--mute,#7a7363)}
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<main class=wrap id=main tabindex="-1">
-  <header class=masthead>
-    <p class=kicker>emem.dev · demos · 2026</p>
-    <h1>Ask the Earth.<br><span class=accent>Live calls, signed answers.</span></h1>
-    <p class=lede>
-      Real-world questions an agent might pass to <b>emem.dev</b>, each wired to a live endpoint.</p><details class="fold"><summary>more</summary><p class="rest">Hit
-      <span class=accent>run all</span> and watch the responder answer in order. Every answer carries a
-      fact CID and the responder pubkey signature; nothing is mocked. <b>This page is also our test rig.</b>
-      It's how we hammer the endpoints from a user's seat instead of from a unit test.
-    </p></details>
-  </header>
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Demo &middot; 9 live calls</p>
+    <h1>Ask the Earth</h1>
+    <p class="purpose">Nine questions an agent might send, each wired to one endpoint on emem.dev. Run them one at a time or in order. Every answer shows the fact_cid it rests on.</p>
+    <div class="actions">
+      <a class="btn" href="#cards">Go to the questions</a>
+      <a class="btn ghost" href="/reference">API reference</a>
+    </div>
+    <dl class="facts">
+      <div><dt>endpoints</dt><dd>/v1/elevation, /v1/air, /v1/ndvi, /v1/find_similar, /v1/hunt, /v1/field_boundaries, /v1/state, /v1/corpus_state_stats, /v1/ask</dd></div>
+    </dl>
+  </div>
+</header>
 
+<main class="wrap page" id=main tabindex="-1">
   <div class=run-all>
     <button id=runAll class=primary type=button>run all in order</button>
-    <span id=allStatus class=status>idle. each card also has its own run button.</span>
+    <span id=allStatus class=status>Idle. Each card also has its own run button.</span>
   </div>
 
   <section class=cards id=cards aria-label="Questions"></section>
@@ -396,7 +411,7 @@ const Q=[
        ].filter(Boolean)
      };
    }},
-  {title:"Field polygons in Salinas, California (each carries cell64)", endpoint:"/v1/field_boundaries", method:"POST",
+  {title:"Field polygons in Salinas, California", endpoint:"/v1/field_boundaries", method:"POST",
    payload:{place:"Salinas, California"},
    render(d){
      const feats=(d.geojson?.features||[]).slice().sort((a,b)=>b.properties.area_m2-a.properties.area_m2).slice(0,3);
@@ -405,7 +420,7 @@ const Q=[
        citations: feats.map(f=>({kind:'cell',text:'cell '+f.properties.cell64_centroid+' · '+ (f.properties.area_m2/1e4).toFixed(1)+' ha'}))
      };
    }},
-  {title:"State cube at Bengaluru (1792-D voxel)", endpoint:"/v1/state", method:"POST",
+  {title:"State cube at Bengaluru (1792-D)", endpoint:"/v1/state", method:"POST",
    payload:{cell:"Bengaluru",view:"cube",materialize:true},
    render(d){
      const pct=Math.round(100*(d.filled_dims||0)/(d.dim||1792));
@@ -430,7 +445,7 @@ const Q=[
        ]
      };
    }},
-  {title:"Free-text: what is the elevation in South Mumbai? (the intent router)", endpoint:"/v1/ask", method:"POST",
+  {title:"Free text: what is the elevation in South Mumbai?", endpoint:"/v1/ask", method:"POST",
    payload:{q:"What is the elevation in South Mumbai?"},
    render(d){
      // /v1/ask is the four-classifier intent router. Verified fields:

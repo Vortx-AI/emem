@@ -68,7 +68,14 @@ input,select{font:inherit;font-family:var(--mono);color:var(--fg);background:var
 input:focus,select:focus{border-color:var(--accent)}
 ::selection{background:var(--accent);color:var(--bg)}
 
-.app{max-width:920px;margin:0 auto;padding:1.4em 1.4em 4em}
+.app{max-width:var(--w-page);margin:0 auto;padding:var(--s-4) 0 var(--s-6)}
+.app .lede,.app .desc,.app .interp{max-width:var(--measure)}
+.doc-head a,.doc-toc a{border-bottom:none}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--fg);background:var(--fg);color:var(--bg);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
+.btn:hover{background:var(--fg-2);color:var(--bg)}
+.btn.ghost{background:transparent;color:var(--fg)}
+.btn.ghost:hover{background:var(--bg-2);color:var(--fg)}
+.doc-head .facts code{font-size:var(--t-2xs)}
 header.top{display:flex;align-items:baseline;gap:.6em;padding-bottom:1.1em;
   border-bottom:1px solid var(--line);margin-bottom:1.4em;flex-wrap:wrap}
 header.top .brand{font-family:var(--mono);font-weight:600;letter-spacing:-.01em;font-size:var(--t-base);color:var(--fg)}
@@ -198,7 +205,7 @@ input::placeholder{color:var(--mute,#7a7363)}
    In PIXELS, not on the phi scale: the root font-size here is 88%, so a rem
    value is a different number of CSS pixels than on the docs pages (62.5%) or
    the rest of the site (100%), and 24 is defined in CSS pixels. */
-ul li > a:only-child{display:inline-block;padding:5px 0}
+ul li > a:only-child:not(.port){display:inline-block;padding:5px 0}
 header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;text-align:center}
 
 /* ── Conditional blocks, last ───────────────────────────────────────────────
@@ -234,6 +241,12 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 }
 @media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
 @media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
+@media (min-width:1100px){.steps{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
+/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
+.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
+.doc-head .purpose code{font-size:.82em}
+/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
+@media (max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
 <body class="doc">
@@ -291,27 +304,25 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
-<main class=app id=main tabindex="-1">
-<h1 class="sr-only">Demo: a signed answer, every value carrying its citation</h1>
-  <header class=top role=banner>
-    <span class=brand><a href="/" title="Return to emem.dev" style="color:inherit;text-decoration:none;border-bottom:none">emem.dev</a><span class=slash>/</span><span class=leaf>demos/signed-answer</span></span>
-    <span class=tag>the trust path in four steps</span>
-    <span class=spacer></span>
-    <nav class=navlinks aria-label="protocol surfaces">
-      <a href="/verify">verify</a>
-      <a href="/openapi.json">openapi</a>
-      <a href="/spec.md">spec</a>
-    </nav>
-  </header>
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Demo &middot; 4 live calls</p>
+    <h1>Signed answer in four steps</h1>
+    <p class="purpose">Locate a place, recall one band, check the receipt's signature, then call again and compare the fact_cid. The JSON under each step is what an agent receives.</p>
+    <div class="actions">
+      <a class="btn" href="#steps">Go to the steps</a>
+      <a class="btn ghost" href="/verify">Verify in your browser</a>
+      <a class="btn ghost" href="/how-it-works#signing">How signing works</a>
+    </div>
+    <dl class="facts">
+      <div><dt>fact_cid</dt><dd>BLAKE3 of canonical CBOR, 52 chars</dd></div>
+      <div><dt>receipt</dt><dd>Ed25519 over a versioned preimage</dd></div>
+      <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+    </dl>
+  </div>
+</header>
 
-  <p class=lede>
-    Every recall this protocol serves comes back wrapped in a receipt the responder signs with its Ed25519 key.
-    The receipt commits to <b>content-addressed fact CIDs</b> over a canonical preimage, so the same question
-    asked years apart, at any responder, returns the same bytes, or a verifiable absence.
-    <span class=accent>This page walks the trust path live</span>: locate a place, recall a band, verify the signature,
-    and reproduce the CID.</p><details class="fold"><summary>more</summary><p class="rest">Each step issues a real HTTP call against this responder; the JSON you see is what
-    your agent would see. <span class=accent>At the end you didn't trust us, you checked the math.</span>
-  </p></details>
+<main class=app id=main tabindex="-1">
 
   <section class=controls aria-label="Inputs">
     <div>
@@ -342,11 +353,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>locate</h2>
         <span class=endpoint>POST /v1/locate</span>
       </div>
-      <p class=desc>
-        Resolve free text into a single <code>cell64</code>, the protocol's spatial primary key. The locator
-        is a five-layer cascade (wide-bbox table → embedded gazetteer → GeoNames 68 k → sled cache → Photon →
-        Nominatim). It returns the resolved label, lat/lng, and the path it took.
-      </p>
+      <p class=desc>Turn free text into one <code>cell64</code>, the key every fact is stored under. Locate tries gazetteers first, then open geocoders. It returns the label, the centre coordinates and a <code>decision</code> block saying which candidate it chose.</p>
       <div class=actions>
         <button id=btn1 class=primary type=button>run</button>
         <span id=tag1 class=muted></span>
@@ -361,11 +368,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>recall</h2>
         <span class=endpoint>POST /v1/recall</span>
       </div>
-      <p class=desc>
-        Pull the named band at that cell. The response carries the value, the band's metadata, the source URLs
-        the responder fetched from, and a <b>signed receipt</b> with <code>fact_cids[]</code>, a merkle root,
-        and an Ed25519 signature over the canonical preimage.
-      </p>
+      <p class=desc>Read the chosen band at that cell. The response carries the value, the band's metadata, the upstream sources, and a receipt: <code>fact_cids[]</code>, a Merkle proof and an Ed25519 signature.</p>
       <div class=actions>
         <button id=btn2 class=primary type=button disabled>run</button>
         <span id=tag2 class=muted></span>
@@ -380,13 +383,8 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>verify</h2>
         <span class=endpoint>POST /v1/verify_receipt</span>
       </div>
-      <p class=desc>
-        Recompute the canonical preimage <code>blake3(request_id ‖ served_at ‖ primitive ‖ cells ‖
-        fact_cids)</code> (sections joined by <code>|</code>, list elements followed by <code>,</code>)
-        and check the Ed25519 signature against the responder's public key.</p><details class="fold"><summary>more</summary><p class="rest">The responder does it here for
-        convenience; the <a href=/verify>/verify</a> page does the same math client-only with
-        <code>@noble/ed25519</code> so you don't have to trust this server.
-      </p></details>
+      <p class=desc>Rebuild the receipt's preimage (a domain-separated, length-prefixed segment list; its version is in <code>preimage_version</code>) and check the Ed25519 signature against the responder's public key.</p>
+      <p class=desc>Here the server runs the check. <a href=/verify>/verify</a> runs the same check in your browser, so you do not have to trust this server's answer.</p>
       <div class=actions>
         <button id=btn3 class=primary type=button disabled>run</button>
         <span id=tag3 class=muted></span>
@@ -405,11 +403,7 @@ header.top nav.navlinks a{display:inline-block;padding:5px 4px;min-width:24px;te
         <h2>reproduce</h2>
         <span class=endpoint>POST /v1/recall</span>
       </div>
-      <p class=desc>
-        Call recall a second time. The fact CID is BLAKE3 over canonical CBOR: same cell, same band, same
-        tslot, same derivation key → same 32-character base32 address. If the bytes you receive don't hash
-        to the original CID, something tampered with the response.
-      </p>
+      <p class=desc>Call recall a second time. The fact_cid is BLAKE3 over canonical CBOR, so the same cell, band, time slot and derivation give the same 52-character base32 address. If the bytes do not hash to the first fact_cid, the response was changed.</p>
       <div class=actions>
         <button id=btn4 class=primary type=button disabled>run</button>
         <span id=tag4 class=muted></span>
