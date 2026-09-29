@@ -62,12 +62,17 @@ END = "<!--nav:end-->"
 SITE = [
     ("/",                     "Home",          "tokenise a file, read a place, ask", "Try",     "path"),
     ("/demos",                "Demos",         "run live calls in the browser",      "Try",     "path"),
-    ("/demos/ask-the-earth",  "Ask the Earth", "ask, get a signed answer",           "Try",     "demo"),
-    ("/demos/signed-answer",  "Signed answer", "watch a receipt get built",          "Try",     "demo"),
-    ("/demos/recall-polygon", "Recall an area","read a polygon at once",             "Try",     "demo"),
-    ("/demos/find-similar",   "Find similar",  "find places like this one",          "Try",     "demo"),
-    ("/demos/state-cube",     "State cube",    "one place as one vector",            "Try",     "demo"),
-    ("/demos/trajectory",     "Trajectory",    "one cell through time",              "Try",     "demo"),
+    # The demo walk, one page per plugin skill it shows (plugins/emem/skills/).
+    # The five older demo pages still answer at their URLs; each says where
+    # its demo went, and is off the walk (see AUDIENCE below).
+    ("/demos/signed-answer",  "Signed answer", "read a place, check the receipt",    "Try",     "demo"),
+    ("/demos/verify-before-publish", "Check a draft", "catch a wrong number",        "Try",     "demo"),
+    ("/demos/handoff",        "Handoff",       "check who wrote a note",             "Try",     "demo"),
+    ("/demos/transparency-log", "Log only grows", "prove history was not rewritten", "Try",     "demo"),
+    ("/demos/tokenise-files", "Tokenise a file", "cite one section by its hash",     "Try",     "demo"),
+    ("/demos/document-evidence", "Document evidence", "parse a report, check the chain", "Try", "demo"),
+    ("/demos/field",          "One field",     "edges, pixels, NDVI you compute",    "Try",     "demo"),
+    ("/demos/eudr",           "EUDR plot",     "check a plot against the cut-off",   "Try",     "demo"),
     ("/how-it-works",         "How it works",  "follow one request end to end",      "Learn",   "path"),
     ("/reference",            "Reference",     "call every endpoint",                "Connect", "path"),
     ("/tools",                "MCP tools",     "browse all tools, copy a call",      "Connect", "path"),
@@ -155,12 +160,21 @@ AUDIENCE = {
     "/404":           ("anyone",    "the page you asked for is not here"),
     # The demos are the one place a reader of any kind can just press a button,
     # so none of them is marked for a specialist.
-    "/demos/ask-the-earth":   ("anyone", "ask a question, get a signed answer"),
-    "/demos/find-similar":    ("anyone", "find places that resemble this one"),
-    "/demos/recall-polygon":  ("anyone", "read a whole area at once"),
-    "/demos/signed-answer":   ("anyone", "watch a receipt get built in four steps"),
-    "/demos/state-cube":      ("anyone", "the full state vector of one place"),
-    "/demos/trajectory":      ("anyone", "one cell, seven steps through its history"),
+    "/demos/signed-answer":   ("anyone", "a place, a signed number, a receipt checked here"),
+    "/demos/verify-before-publish": ("anyone", "a draft sentence, checked against what was signed"),
+    "/demos/handoff":         ("anyone", "what another agent handed you, checked here"),
+    "/demos/transparency-log": ("anyone", "a signed log head, and proof it only grew"),
+    "/demos/tokenise-files":  ("anyone", "a file cut into units under one root"),
+    "/demos/document-evidence": ("anyone", "report text to signed fields, every step hashed"),
+    "/demos/field":           ("anyone", "one farm field: its edges and its pixels"),
+    "/demos/eudr":            ("anyone", "one plot against the EUDR cut-off"),
+    # Older demo pages, kept so their links keep working. Each now points to
+    # the demo that replaced it; none is on the walk.
+    "/demos/ask-the-earth":   ("anyone", "moved: see the signed answer demo"),
+    "/demos/find-similar":    ("anyone", "moved: the similarity index is frozen"),
+    "/demos/recall-polygon":  ("anyone", "moved: see the one field demo"),
+    "/demos/state-cube":      ("anyone", "moved: its embedding band is retired"),
+    "/demos/trajectory":      ("anyone", "moved: see the signed answer demo"),
 }
 
 # Rows above that no page in web/ is served at, so render() never reads them.

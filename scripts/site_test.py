@@ -75,7 +75,9 @@ SEEDS = [
     "/channel", "/collaboration", "/worlds", "/card", "/docs/gallery",
     "/gallery", "/demos", "/demos/ask-the-earth", "/demos/signed-answer",
     "/demos/state-cube", "/demos/find-similar", "/demos/trajectory",
-    "/demos/recall-polygon", "/whitepaper", "/docs/", "/docs/diagrams",
+    "/demos/recall-polygon", "/demos/verify-before-publish", "/demos/handoff",
+    "/demos/transparency-log", "/demos/tokenise-files", "/demos/document-evidence",
+    "/demos/field", "/demos/eudr", "/whitepaper", "/docs/", "/docs/diagrams",
 ]
 
 # Served, useful, and deliberately not HTML. Listed so a future reader does not
