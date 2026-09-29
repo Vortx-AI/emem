@@ -200,13 +200,21 @@ From zero to a signed, cite-able answer in three calls:
 
 1. **Ask in plain language.** `POST /v1/ask {"question":"what is the
    NDVI near Mount Fuji?"}` (MCP tool `emem_ask`). The classifier routes
-   it to the right primitive and returns the answer with a signed
-   receipt. `POST /v1/intent` (`emem_intent`) is the structured
-   equivalent. This single call is the fastest path; use it first.
+   it to one of four paths, named in `routed_to`: `self_describe` for a
+   question about emem itself, `corpus_audit` for a question about the
+   corpus (a `redirect_to` list of coverage endpoints, with no receipt),
+   `hunter` for an event sweep over a region, and `answer` for a point
+   question. The hunter sweep and the point answer carry a signed
+   receipt. Ask answers a point question with the current value, so a
+   change question ("how has NDVI changed here") is better sent to
+   `emem_intent` with `{type:"did_change"}` or to `emem_diff`.
+   `POST /v1/intent` (`emem_intent`) is the structured equivalent. This
+   single call is the fastest path; use it first.
 2. **Want control instead?** `POST /v1/locate {"place":"Mount Fuji"}`
    → `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` for the signed
    facts (it auto-materialises on a miss, so any cell on Earth answers).
-3. **Cite it.** Every response carries a `receipt`. Verify it offline at
+3. **Cite it.** Every signed read (recall, a point answer, a hunter
+   sweep) carries a `receipt`. Verify it offline at
    `/verify` or with `POST /v1/verify_receipt`: `{valid: true,
    signer_pubkey_b32}` makes the answer portable across sessions and
    audits. To hand a fact to another agent, compose a token with
@@ -534,12 +542,14 @@ the introspection endpoints directly:
 | "which bands are wired here" | `GET /v1/materializers` | per-band auto-fetch registry |
 | "what does this responder know about" | `GET /v1/discover` | typed bootstrap that names every catalog |
 
-These are corpus meta-questions, not band recalls. `/v1/ask` has no
-dedicated topic for them by design (a "where do you have data" query
-isn't a question about any cell, and routing it through the topic
-embedder will produce noise like `vegetation_condition` + `scene_classification`
-on whatever the geocoder guesses). The dedicated introspection
-endpoints answer in one round-trip with signed receipts where applicable.
+These are corpus meta-questions, not band recalls. `/v1/ask` does not
+route them through the topic embedder. When no place is pinned, a corpus
+classifier catches them first and answers with `routed_to:
+"corpus_audit"`: an envelope with no receipt whose `redirect_to` list
+names the endpoints in this table (coverage map, coverage totals,
+coverage matrix, manifests). Call those endpoints directly and you skip
+the redirect; they answer in one round-trip with signed receipts where
+applicable.
 
    ### REST endpoints by category
 
@@ -791,8 +801,11 @@ vintage; historical backfill is partial. Source: `dl2.geotessera.org`.
 
 ## Asking a model to read the signed answer
 
-`/v1/ask` never calls a language model. Every number in `answer` traces to a
-`fact_cid`, which is what makes the envelope citable. Pass `model` and you get a
+`/v1/ask` writes `answer` with no generative model. Topics are routed by a
+fixed embedding encoder (`BAAI/bge-base-en-v1.5` under onnxruntime), which
+scores the question against the topic registry and writes no text. Every
+number in `answer` traces to a `fact_cid`, which is what makes the envelope
+citable. Pass `model` and you get a
 second field, `model_answer`, holding one model's prose reading of that same
 envelope, beside the deterministic answer rather than instead of it.
 
@@ -1097,6 +1110,12 @@ EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference lea
 `remove_reference`: the citation cannot be made to verify, so drop the claim.
 `contact_admin`: a person restricted this, not the evidence. `cite_observation`:
 resolve the observation through emem and cite the token it returns.
+`correct_value`: comes with `PROV_VALUE`, when the text states a number the
+cited fact does not hold; quote the signed value instead. Two more exist only
+on a self-hosted guard: `GEO_ZONE` (a cited cell in a zone the operator
+restricted) and `redact_and_retry` (from a policy module the operator loaded).
+The hosted route enforces no zones and loads no modules, so it never emits
+them.
 
 **A citation this responder does not hold is an allow, never a deny.** It is
 indistinguishable from one minted by another responder, and blocking on it

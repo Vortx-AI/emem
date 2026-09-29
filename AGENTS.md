@@ -14,8 +14,13 @@ signed answer in three calls:
 
 1. **Ask.** `POST /v1/ask {"question":"what is the NDVI near Mount Fuji?"}`
    (MCP tool `emem_ask`, or `emem_intent` / `POST /v1/intent` for a
-   structured single-shot). The classifier picks the primitive and
-   returns a signed receipt. This is the fastest path.
+   structured single-shot). The classifier routes the question to one of
+   four paths: a self-description of emem, a corpus audit (a redirect to
+   the coverage endpoints, with no receipt), a hunter sweep over a region,
+   or a point answer. The hunter sweep and the point answer carry a signed
+   receipt. Ask answers point questions with a current value, so send a
+   change question ("how has X changed") to `emem_intent` with
+   `did_change`, or to `emem_diff`. This is the fastest path.
 2. **Or take control.** `POST /v1/locate {"place":"Mount Fuji"}` → a
    `cell64`, then `POST /v1/recall {"cell":"<cell64>"}` (auto-materialises
    on a miss).
