@@ -374,7 +374,9 @@ def list_entries(short: str) -> tuple[list[dict], int | None, bool]:
         for f in ((doc.get("_emem_truncation") or {}).get("omitted_fields") or []):
             if f.get("field") == "entries":
                 stub = f.get("stub") or {}
-        if stub.get("_len") is not None:
+        # `_len` is the length of this page's array, which is the whole
+        # listing only on the first page; the listing's own `total` wins.
+        if total is None and stub.get("_len") is not None:
             total = stub["_len"]
         nxt = stub.get("_next_offset")
         if not stub.get("_truncated") or nxt is None or nxt <= offset:

@@ -89,3 +89,4 @@ examples/3d-worlds/out/
 
 # Agent scratch notes belong in .well-known/agent-notes/, never the repo root.
 /AGENT_*.md
+web/channel.json

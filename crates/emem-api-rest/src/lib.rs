@@ -777,6 +777,7 @@ pub fn router(state: AppState) -> Router {
         .route("/a2a", get(serve_a2a_html))
         .route("/guard", get(serve_guard_html))
         .route("/channel", get(serve_channel_html))
+        .route("/channel.json", get(serve_channel_json))
         .route("/tools", get(serve_tools_html))
         .route("/data/relay-recording.json", get(serve_relay_recording))
         .route("/collaboration", get(serve_channel_html))
@@ -4206,7 +4207,7 @@ async fn serve_scoreboard_html() -> Response {
 /// retractions and the published nulls.
 ///
 /// Disk-first: `scripts/build_channel.py` regenerates `web/channel.html`
-/// (the emem-channel-bake timer runs it every ten minutes; the deploy
+/// (the emem-channel-bake timer runs it every five minutes; the deploy
 /// ritual runs it before every build), and serving the file makes a
 /// regeneration live on the next request with no rebuild or restart. The
 /// page froze at 2026-07-21 for a week precisely because it could only
@@ -4215,6 +4216,33 @@ async fn serve_scoreboard_html() -> Response {
 /// lists hashes of pages compiled into the binary, so a disk-served page
 /// grants its own inline hashes from the exact bytes it is about to send;
 /// cached by (mtime, len) so steady-state requests do not re-hash ~475 KB.
+/// The channel as data: what `scripts/build_channel.py` renders into /channel,
+/// written beside it on every bake and served from disk the same way, so an
+/// agent and a person reading the channel read one build. The page linked it
+/// while nothing served it.
+async fn serve_channel_json() -> Response {
+    match tokio::fs::read("web/channel.json").await {
+        Ok(bytes) => (
+            [
+                (axum::http::header::CONTENT_TYPE, "application/json"),
+                (axum::http::header::CACHE_CONTROL, "public, max-age=60"),
+            ],
+            bytes,
+        )
+            .into_response(),
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "code": "not_found",
+                "message": "channel.json has not been built on this node yet; /channel is the rendered record",
+                "path": "/channel.json",
+                "schema": "emem.error.v1",
+            })),
+        )
+            .into_response(),
+    }
+}
+
 async fn serve_channel_html() -> Response {
     const PATH: &str = "web/channel.html";
     struct Cached {
@@ -7269,7 +7297,7 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
                 "page":            format!("{origin}/channel"),
                 "live_events_sse": format!("{origin}/v1/memory/sse"),
                 "agora":           format!("{origin}/splats/spark/"),
-                "note":            "memory_view `/memories/by_attester/` lists every agent and message; the page renders the whole record and re-bakes from the ledger every ten minutes; `/v1/memory/sse` streams writes live (filter by path_prefix); the agora renders the channel inside the 3D worlds with in-browser authorship verification.",
+                "note":            "memory_view `/memories/by_attester/` lists every agent and message; the page renders the whole record and re-bakes from the ledger every five minutes; `/v1/memory/sse` streams writes live (filter by path_prefix); the agora renders the channel inside the 3D worlds with in-browser authorship verification.",
             },
             // Self-serve answers, so a question on the channel does not
             // have to wait for a peer: ask returns a signed, fact-cited
@@ -24251,10 +24279,16 @@ fn mcp_slim_inner_to_budget_keeping(
                     kept = kept * 9 / 10;
                 }
                 if kept > 0 && kept < a.len() {
+                    // The cursor is absolute. A page that started at `offset`
+                    // resumes at offset + kept; it said `kept` alone, so page
+                    // two pointed back into page one, and a caller walking a
+                    // long listing re-read the same notes and never reached the
+                    // rest (the channel builder saw 322 reads of 150 notes).
+                    let base = map.get("offset").and_then(JsonValue::as_u64).unwrap_or(0) as usize;
                     let stub = json!({
                         "_truncated": true, "_kind": "array",
                         "_kept": kept, "_len": a.len(),
-                        "_next_offset": kept,
+                        "_next_offset": base + kept,
                         "_how": "the first _kept elements are complete and usable; \
                                  re-request with offset=_next_offset for the rest",
                     });
@@ -95657,6 +95691,24 @@ mod slimmer_degrade_tests {
         assert_eq!(stub["_len"], json!(135));
         assert_eq!(stub["_kept"], json!(entries.len()));
         assert_eq!(stub["_next_offset"], json!(entries.len()));
+    }
+
+    /// A later page resumes after itself, not at the page-relative count. The
+    /// cursor said `kept` alone, so page two sent a caller back into page one.
+    #[test]
+    fn a_later_page_resumes_after_itself() {
+        let mut page = big_listing(135);
+        page["offset"] = json!(270);
+        let (slim, note) = mcp_slim_inner_to_budget(page, 24_000);
+        let kept = slim["entries"].as_array().unwrap().len();
+        let stub = note["omitted_fields"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|d| d["field"] == "entries")
+            .expect("entries reported")["stub"]
+            .clone();
+        assert_eq!(stub["_next_offset"], json!(270 + kept));
     }
 
     #[test]
