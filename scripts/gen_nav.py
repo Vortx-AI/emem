@@ -260,7 +260,7 @@ def render(current: str) -> str:
     # /reference#client-setup, not /clients: /clients serves the agent guide as
     # raw markdown, which is right for an agent and wrong for a button.
     out.append('<a class="navcta" href="/reference#client-setup">Connect</a>')
-    out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>')
+    out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>')
     out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.

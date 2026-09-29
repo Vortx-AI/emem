@@ -299,7 +299,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navcta" href="/reference#client-setup">Connect</a>
-<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
+<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
 <div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Guard</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">check a draft here, or run the server that enforces it</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
@@ -309,7 +309,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <p class="eyebrow">Verify &middot; emem-guard</p>
     <h1>emem-guard</h1>
-    <p class="purpose">Run a draft through it before it goes out.</p><details class="fold"><summary>more</summary><p class="rest">It finds every emem citation in the text, checks each one against the signed record, and answers allow or deny with a code and a fix. It catches a number that disagrees with the fact it cites, a citation pinned to the wrong place, and, if you ask, a measurable claim that cites nothing.</p></details>
+    <p class="purpose">emem-guard checks every emem citation in a draft before it goes out, and answers allow or deny with a code and a fix.</p><details class="fold"><summary>more</summary><p class="rest">Each citation is looked up in the signed record. It catches a number that disagrees with the fact it cites, a citation pinned to the wrong place, and, if you ask, a measurable claim that cites nothing.</p></details>
     <div class="actions">
       <a class="btn" href="#try">Try it on this page</a>
       <a class="btn ghost" href="#run">Run your own node</a>

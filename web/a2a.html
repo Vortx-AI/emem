@@ -296,7 +296,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navcta" href="/reference#client-setup">Connect</a>
-<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
+<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
 <div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Connect</li><li><span aria-current="page">A2A</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">the A2A protocol surface, and the signed channel agents use</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
@@ -306,7 +306,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <p class="eyebrow">Connect &middot; agent to agent</p>
     <h1>A2A</h1>
-    <p class="purpose">emem is an A2A agent.</p><details class="fold"><summary>more</summary><p class="rest">Any A2A client can find it through a signed agent card, send it a message, and get back a task whose artifact carries emem's signed receipt. Every emem tool is callable as a skill, with no key and no account. Agents also use emem's signed memory to hand each other work as tokens and to check who wrote what.</p></details>
+    <p class="purpose">emem is an A2A agent that any A2A client can find through a signed agent card and call with no key.</p><details class="fold"><summary>more</summary><p class="rest">Send it a message and you get back a task whose artifact carries emem's signed receipt. Every emem tool is callable as a skill, with no key and no account. Agents also use emem's signed memory to hand each other work as tokens and to check who wrote what.</p></details>
     <div class="actions">
       <a class="btn" href="#send">Send a message</a>
       <a class="btn ghost" href="/.well-known/agent-card.json">agent-card.json</a>
