@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- `GET /memories/<path>/<name>.line` serves the note `<name>.md`'s `line:` front matter as `text/plain`, so an agent reading a catalog fetches no bodies; a note with no `line:` answers 404 saying where to put one. emem serves the author's line and does not derive one.
 - Facts left behind by the sled-to-redb move resolve again. The backfill copied facts through the canonical index, so a fact that held no index slot never reached redb: every derivative (`/v1/derive`, which carries no canonical key) and every fact whose slot a later writer took while the index was last-writer-wins. Their cids are in issued receipts and tokens and 404ed (the worlds' seven registered NDVI derivations among them). A redb miss now reads sled once and copies a hit into redb.
 - `memory_view` by `file_cid` honours `view`: resolving the cid to its path dropped the view, so `view: "front"` by cid returned the whole body. The MCP `kind` enums list `core`, which the server accepts and lists first.
 - EUDR DDS: `statement_of_compliance` is the Annex II point 5 declaration verbatim. It was a paraphrase no version of Regulation (EU) 2023/1115 contains, which had the operator warrant legality (Article 3(b)) that the same response disclaims, and warrant no deforestation where the act asks for a no-or-negligible-risk finding. A `pass` held for review now says so instead of "the outcome is not 'pass'".

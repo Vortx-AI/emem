@@ -43391,6 +43391,40 @@ struct MemoryListByKindReq {
     limit: Option<usize>,
 }
 
+/// `<name>.line` answers the note `<name>.md`'s one-line summary as text,
+/// so an agent reading a catalog fetches no bodies. The line is the
+/// author's own `line:` front matter: emem serves it, it does not derive
+/// one, because the grammar that maps a note to a line is the author's.
+async fn memory_line_response(s: &AppState, stem: &str, path: &str) -> Result<Response, ApiError> {
+    let md = format!("/memories/{}.md", stem.trim_start_matches('/'));
+    let doc = memory_view_inner(
+        s,
+        MemoryViewReq {
+            path: md.clone(),
+            view: Some("line".into()),
+            ..Default::default()
+        },
+    )
+    .await?;
+    Ok(match doc.get("line").and_then(|l| l.as_str()) {
+        Some(line) => (
+            [(axum::http::header::CONTENT_TYPE, "text/plain; charset=utf-8")],
+            format!("{line}\n"),
+        )
+            .into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "code": "not_found",
+                "message": format!("{md} has no `line:` in its front matter; write one there and this URL serves it"),
+                "path": format!("/memories/{}", path.trim_start_matches('/')),
+                "schema": "emem.error.v1",
+            })),
+        )
+            .into_response(),
+    })
+}
+
 /// Serve a memory's full body at its own canonical path.
 ///
 /// Until now the only way to read a note's markdown was the MCP `memory_view`
@@ -43412,6 +43446,9 @@ async fn get_memory_markdown(
     Path(path): Path<String>,
     headers: HeaderMap,
 ) -> Result<Response, ApiError> {
+    if let Some(stem) = path.strip_suffix(".line") {
+        return memory_line_response(&s, stem, &path).await;
+    }
     let full = format!("/memories/{}", path.trim_start_matches('/'));
     let doc = memory_view_inner(
         &s,
@@ -89891,6 +89928,52 @@ mod tests {
         .expect("front by cid");
         assert_eq!(by_cid["front_matter"]["emem"], "pointer.v1");
         assert!(by_cid["content"].is_null(), "{by_cid}");
+    }
+
+    #[tokio::test]
+    async fn a_dot_line_url_serves_the_authors_line_as_text() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        for (name, body) in [
+            ("with", "---\nline: r1 mapped grid a/b n=144\n---\n\nbody\n"),
+            ("without", "---\nemem: grid.v1\n---\n\nbody\n"),
+        ] {
+            let path = format!("/memories/by_attester/{short}/{name}.md");
+            let att = sign_attester_v2(
+                &sk,
+                "create",
+                &path,
+                body.as_bytes(),
+                emem_primitives::BASE_ABSENT,
+            );
+            memory_create_inner(
+                &s,
+                MemoryCreateReq {
+                    path,
+                    file_text: body.into(),
+                    kind: None,
+                    attester: Some(att),
+                },
+            )
+            .await
+            .expect("create");
+        }
+        let get = |name: &str| {
+            get_memory_markdown(
+                State(s.clone()),
+                Path(format!("by_attester/{short}/{name}.line")),
+                HeaderMap::new(),
+            )
+        };
+        let r = get("with").await.expect("line");
+        assert_eq!(r.status(), StatusCode::OK);
+        let text = axum::body::to_bytes(r.into_body(), 4096).await.unwrap();
+        assert_eq!(&text[..], b"r1 mapped grid a/b n=144\n");
+        let r = get("without")
+            .await
+            .expect("no line is a 404, not an error");
+        assert_eq!(r.status(), StatusCode::NOT_FOUND);
     }
 
     #[test]
