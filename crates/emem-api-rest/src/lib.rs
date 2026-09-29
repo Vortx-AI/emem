@@ -14106,6 +14106,8 @@ const BAND_TEXT_ERRATA: &[(&str, &str, &str)] = &[
     ("forest_change", "units", "mixed (percent canopy cover, year [2001..2025], boolean gain mask)"),
     ("forest_change", "interpretation", "`forest_change.lossyear > 0` flags pixels that lost canopy since 2001 — the canonical deforestation signal; the value is the calendar year (2001..=2025 in v1.13). Pair with `mangrove` or `protected` to score 'illegal deforestation in a protected area'. `forest_change.treecover2000` carries the year-2000 baseline canopy cover %; `forest_change.gain` carries the dataset-frozen 2000-2012 gain mask."),
     ("forest_change", "references", "Hansen et al. 2013 (Science 342, 850-853) + annual updates at https://glad.umd.edu/dataset/global-2010-tree-cover-30-m and https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/download.html"),
+    ("jrc_gfc2020", "description", "JRC Global Forest Cover map for the year 2020, read at the version the JRC publishes under LATEST/: V4 since 2026-09 (V3, the 2026-03 release, is withdrawn and its URLs answer 404). EUDR-aligned forest definition per Regulation (EU) 2023/1115 Article 2(4): >0.5 ha, >5 m tree height, >10 % canopy cover, excluding land predominantly under agricultural or urban land use. 10 m native resolution (1/12000 degree). Read one pixel at a time from the 10-degree COG tiles JRC_GFC2020_V4_{N|S}{lat}_{E|W}{lon}.tif, named by their top-left corner; each fact's source names the file read, so a fact signed from V3 still says V3."),
+    ("jrc_gfc2020", "references", "Bourgoin, C. et al. 2026. GFC2020: A Global Map of Forest Land Use for year 2020 to support the EU Deforestation Regulation. ESSD 18:1331. DOI 10.5194/essd-2025-351. Data: https://forobs.jrc.ec.europa.eu/GFC ; tiles read: https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/ ; single COG (not read, 40.5 GB): https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif"),
 ];
 
 fn apply_band_errata(band_key: &str, obj: &mut serde_json::Map<String, JsonValue>) {
@@ -20084,6 +20086,16 @@ async fn backfill_prepare(
         collected.insert(raw.clone());
         match r {
             Ok(v) => {
+                // Stopped at max_facts: the rest of the window was not
+                // attempted, and a converged answer would end the retry loop.
+                if v["complete"] == json!(false) {
+                    pending.push(json!({
+                        "cell": raw,
+                        "band": req.band,
+                        "state": "budget_exhausted",
+                        "reason": "max_facts reached before the end of the window; the identical retry skips the slots now on file and continues",
+                    }));
+                }
                 by_cell.insert(raw, v);
             }
             Err(e) => {
@@ -20114,7 +20126,7 @@ async fn backfill_prepare(
         "band": req.band,
         "cells_requested": cells.len(),
         "converged": converged,
-        "progress": { "ready": by_cell.len(), "pending": pending.len() },
+        "progress": { "ready": by_cell.values().filter(|v| v["complete"] != json!(false)).count(), "pending": pending.len() },
         "units_by_band": units_by_band(&by_cell),
         "by_cell": JsonValue::Object(by_cell),
         "pending": pending,
@@ -50099,6 +50111,12 @@ fn unix_to_yyyymmdd(unix: i64) -> String {
     format!("{y:04}{m:02}{d:02}")
 }
 
+/// How recent a POWER day must be for a fill value to mean "not published
+/// yet" rather than "no data here". POWER runs about 2 days behind for
+/// temperature and longer for its CERES-fed radiation, so a month covers
+/// every parameter wired below with room to spare.
+const POWER_PUBLICATION_WINDOW_SECS: i64 = 30 * 86_400;
+
 /// Materialize a NASA POWER reanalysis fact at a single lat/lng. Free, no
 /// auth, public-domain (US Gov), global, 0.5° MERRA-2 grid downscaled.
 ///
@@ -50164,11 +50182,21 @@ async fn materialize_power_band(
         ));
     }
     let body: JsonValue = resp.json().await.map_err(|e| format!("power json: {e}"))?;
+    // POWER fills the days it has not published yet with -999. Signed as an
+    // Absence, such a day went into the canonical index, so every later
+    // backfill found it "cached" and never asked again: a series topped up
+    // daily at its newest days stored only fill, and its values stopped at
+    // the first top-up. Inside the publication window a fill is "not yet",
+    // an error nothing stores, so the next call asks again.
+    let unpublished = now_unix - target < POWER_PUBLICATION_WINDOW_SECS;
     // Response shape: properties.parameter.<PARAM>.<YYYYMMDD> = number.
     let Some(v) = body
         .pointer(&format!("/properties/parameter/{param}/{date}"))
         .and_then(|v| v.as_f64())
     else {
+        if unpublished {
+            return Err(format!("nasa power has not published {param} for {date} yet (no value in the response); POWER publishes about 2 days behind, ask again later"));
+        }
         return sign_band_absence(
             cell64,
             s,
@@ -50181,6 +50209,9 @@ async fn materialize_power_band(
         )
         .await;
     };
+    if v <= -990.0 && unpublished {
+        return Err(format!("nasa power has not published {param} for {date} yet (fill value {v}); POWER publishes about 2 days behind, ask again later"));
+    }
     if v <= -990.0 {
         // POWER's nodata sentinel is -999. Sign Absence, the upstream
         // explicitly says "we have nothing here", which is a verifiable
@@ -52478,7 +52509,7 @@ async fn s2_backfill_by_pass(
         if seen.contains(&tslot) {
             continue;
         }
-        if materialized + cached >= max_facts {
+        if materialized >= max_facts {
             notes.push(format!(
                 "max_facts={max_facts} reached; call again with start_unix >= {at} to continue"
             ));
@@ -58137,8 +58168,7 @@ fn band_materializer_meta(band: &str) -> Option<MaterializerMeta> {
             kind: BandKind::PerRelease,
             history_from_unix: Some(days_from_civil(2020, 1, 1) * 86_400),
             history_to_unix: Some(days_from_civil(2021, 1, 1) * 86_400 - 1),
-            wire_path:
-                "jeodpp.jrc.ec.europa.eu JRC GFC2020 V3 10-degree COG tiles (HTTPS-range)",
+            wire_path: "jeodpp.jrc.ec.europa.eu JRC GFC2020 10-degree COG tiles at the version LATEST/ lists, V4 since 2026-09 (HTTPS-range)",
         },
         // JRC Tropical Moist Forest (TMF, EC JRC), annual deforestation- and
         // degradation-year plus change maps, the Article 2(13) authority beside
@@ -59154,14 +59184,11 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
             notes.extend(n);
         }
         let calendar = (!by_pass).then_some(start_t..=end_t);
+        // The cap spends on upstream fetches only. Counting cached slots
+        // against it made the identical retry stop at the same cached
+        // prefix, so a long window never filled past its first max_facts.
+        let mut fetches = 0usize;
         for t in calendar.into_iter().flatten() {
-            if steps.len() >= max_facts {
-                notes.push(format!(
-                    "max_facts={max_facts} reached at tslot {t}; partial backfill, call again with start_unix > {} to continue",
-                    (t as i64) * (slot_secs as i64),
-                ));
-                break;
-            }
             let target_unix = (t as i64) * (slot_secs as i64);
             if target_unix > now_unix {
                 steps.push(json!({
@@ -59183,6 +59210,13 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
                 }));
                 continue;
             }
+            if fetches >= max_facts {
+                notes.push(format!(
+                    "max_facts={max_facts} reached at tslot {t}; partial backfill, repeat the call (slots on file are skipped) or call again with start_unix >= {target_unix} to continue"
+                ));
+                break;
+            }
+            fetches += 1;
             match materialize_band_at(&req.cell, &req.band, target_unix, s).await {
                 Ok(cid) => {
                     materialized += 1;
@@ -59220,6 +59254,7 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
         }
     }
 
+    let stopped_at_cap = notes.iter().any(|n| n.starts_with("max_facts="));
     let pubkey = data_encoding::BASE32_NOPAD
         .encode(&s.identity.pubkey.0)
         .to_lowercase();
@@ -59237,6 +59272,7 @@ async fn backfill_inner_scoped(req: BackfillReq, s: &AppState) -> Result<JsonVal
         "materialized_count": materialized,
         "cached_count": cached,
         "skipped_count": skipped,
+        "complete": !stopped_at_cap,
         "responder_pubkey_b32": pubkey,
         "steps": steps,
         "notes": notes,
@@ -68408,20 +68444,75 @@ fn verdict_support(per_cell: &[EudrCellVerdict], tmf: &JsonValue, area_ha: f64) 
         per_cell.len() == 1,
         "one point sample: a clearance elsewhere on the plot is not seen".to_string(),
     );
-    check(
-        spacing_m > 2.0 * MMU_SIDE_M,
-        spacing_m > MMU_SIDE_M,
-        format!("samples are {spacing_m:.0} m apart; a 0.5 ha clearance is a {MMU_SIDE_M:.0} m square and can fall between them"),
-    );
+    if let Some((weakens, why)) = spacing_limit(area_ha, spacing_m) {
+        check(weakens, !weakens, why);
+    }
     json!({
         "level": if weak { "weak" } else if moderate { "moderate" } else { "strong" },
-        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them); weak when any falls below 80 % / 70 % / above 30 % / beyond 141 m; moderate between. Not a calibrated probability.",
+        "rule": "strong when every input is complete (>= 95 % of cells with both baselines, TMF agreement >= 90 % where TMF reads, <= 10 % borderline canopy, samples no more than 71 m apart so a 0.5 ha clearance cannot fall between them); weak when any falls below 80 % / 70 % / above 30 % / beyond 141 m; moderate between. The spacing limit applies only to a plot of 0.5 ha or more: a smaller plot holds no 0.5 ha clearance, so its size is a qualifier, never a weakener. Not a calibrated probability.",
+        "plot_area_ha": (area_ha * 1e4).round() / 1e4,
         "cells_with_both_baselines": (both * 1e4).round() / 1e4,
         "borderline_canopy_fraction": (borderline * 1e4).round() / 1e4,
         "tmf_agreement": agreement,
         "sample_spacing_m": (spacing_m * 10.0).round() / 10.0,
         "limits": limits,
     })
+}
+
+/// The sample-spacing limit, as `(weakens, why)`. It can only bite on a plot
+/// at least as large as the 0.5 ha clearance it must not miss (Art. 2(4));
+/// a smaller plot gets a qualifier saying so instead.
+fn spacing_limit(plot_area_ha: f64, spacing_m: f64) -> Option<(bool, String)> {
+    if plot_area_ha < EUDR_MMU_THRESHOLD_HA {
+        return Some((
+            false,
+            format!("the plot is {plot_area_ha:.2} ha, under the 0.5 ha minimum mapping unit (Art. 2(4)), so no clearance of that size fits in it and none can fall between samples"),
+        ));
+    }
+    (spacing_m > MMU_SIDE_M).then(|| {
+        (
+            spacing_m > 2.0 * MMU_SIDE_M,
+            format!("samples are {spacing_m:.0} m apart; a 0.5 ha clearance is a {MMU_SIDE_M:.0} m square and can fall between them"),
+        )
+    })
+}
+
+/// A GeoJSON Polygon's own area in hectares (outer ring less holes,
+/// equirectangular at the ring's mid-latitude). The bbox area that drives
+/// the Art. 2(28) dispatch overstates a diagonal or irregular plot many
+/// times, enough to put a 0.2 ha field over the 0.5 ha floor.
+fn polygon_area_ha(geojson: &JsonValue) -> Option<f64> {
+    if geojson.get("type").and_then(|v| v.as_str()) != Some("Polygon") {
+        return None;
+    }
+    let rings = geojson.get("coordinates")?.as_array()?;
+    let ring_m2 = |ring: &JsonValue| -> Option<f64> {
+        let pts: Vec<(f64, f64)> = ring
+            .as_array()?
+            .iter()
+            .filter_map(|p| Some((p.get(0)?.as_f64()?, p.get(1)?.as_f64()?)))
+            .collect();
+        if pts.len() < 3 {
+            return None;
+        }
+        let mid_lat = pts.iter().map(|p| p.1).sum::<f64>() / pts.len() as f64;
+        let kx = 111_000.0 * mid_lat.to_radians().cos().abs();
+        let ky = 111_000.0;
+        // Relative to the first vertex, so metre-scale plots keep their
+        // digits against coordinates in the millions of metres.
+        let (ox, oy) = pts[0];
+        let mut twice = 0.0;
+        for i in 0..pts.len() {
+            let (x0, y0) = ((pts[i].0 - ox) * kx, (pts[i].1 - oy) * ky);
+            let j = (i + 1) % pts.len();
+            let (x1, y1) = ((pts[j].0 - ox) * kx, (pts[j].1 - oy) * ky);
+            twice += x0 * y1 - x1 * y0;
+        }
+        Some((twice * 0.5).abs())
+    };
+    let outer = ring_m2(rings.first()?)?;
+    let holes: f64 = rings.iter().skip(1).filter_map(ring_m2).sum();
+    Some(((outer - holes).max(0.0)) / 10_000.0)
 }
 
 /// How JRC TMF's deforestation year agrees with Hansen's loss year on the
@@ -69817,7 +69908,11 @@ async fn post_eudr_dds_inner(
                 let tmf = tmf_cross_check(&per_cell, cutoff_year);
                 obj.insert(
                     "verdict_support".into(),
-                    verdict_support(&per_cell, &tmf, area_ha),
+                    verdict_support(
+                        &per_cell,
+                        &tmf,
+                        polygon_area_ha(&plot.geometry_geojson).unwrap_or(area_ha),
+                    ),
                 );
                 obj.insert("tmf_cross_check".into(), tmf);
             }
@@ -88113,6 +88208,65 @@ mod tests {
     }
 
     #[test]
+    fn the_spacing_limit_only_weakens_a_plot_of_half_a_hectare_or_more() {
+        let (weakens, why) = spacing_limit(0.2, 192.0).unwrap();
+        assert!(!weakens, "a 0.2 ha plot holds no 0.5 ha clearance");
+        assert!(why.contains("0.20 ha"), "{why}");
+        assert_eq!(spacing_limit(30.0, 192.0).map(|l| l.0), Some(true));
+        assert_eq!(spacing_limit(30.0, 60.0), None);
+
+        let cell = EudrCellVerdict {
+            cell: "c0".into(),
+            verdict: 3,
+            label: "not_in_scope",
+            jrc_forest_2020: Some(0),
+            hansen_treecover_2000: Some(0),
+            hansen_lossyear: Some(0),
+            jrc_tmf_deforestation_year: Some(0),
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        let cells = vec![cell];
+        let tmf = tmf_cross_check(&cells, 2020);
+        let v = verdict_support(&cells, &tmf, 0.2);
+        assert_ne!(v["level"], "weak", "{v}");
+        let limits = v["limits"].as_array().unwrap();
+        assert!(limits.iter().all(|l| l["severity"] == "qualifies"), "{v}");
+        assert!(limits
+            .iter()
+            .any(|l| l["why"].as_str().unwrap().starts_with("one point sample")));
+        assert!(limits
+            .iter()
+            .any(|l| l["why"].as_str().unwrap().contains("under the 0.5 ha")));
+        // One sample on 3.69 ha is 192 m of spacing, and that still weakens.
+        let v = verdict_support(&cells, &tmf, 3.69);
+        assert_eq!(v["level"], "weak", "{v}");
+    }
+
+    #[test]
+    fn a_diagonal_plot_is_measured_by_its_polygon_not_its_bbox() {
+        // A 0.39 ha strip laid corner to corner across a 4 ha box.
+        let d = 200.0 / 111_000.0;
+        let w = 10.0 / 111_000.0;
+        let geo = json!({"type": "Polygon", "coordinates": [[
+            [0.0, 0.0], [w, 0.0], [d, d - w], [d, d], [d - w, d], [0.0, w], [0.0, 0.0]
+        ]]});
+        let ha = polygon_area_ha(&geo).unwrap();
+        let (bbox, _, bbox_ha) = extract_plot_geometry(&geo).unwrap();
+        assert!(bbox.1 > bbox.0);
+        assert!(bbox_ha > 3.9, "{bbox_ha}");
+        assert!((ha - 0.39).abs() < 0.02, "{ha}");
+        assert_eq!(
+            polygon_area_ha(&json!({"type": "Point", "coordinates": [0.0, 0.0]})),
+            None
+        );
+    }
+
+    #[test]
     fn a_geotiff_read_names_its_reader_and_an_impossible_value_is_refused() {
         let fact = |band: &str, v: f64, url: &str| {
             Fact::Primary(PrimaryFact {
@@ -90237,6 +90391,64 @@ mod tests {
             raw.description.as_deref().unwrap().contains("v1.12"),
             "the registry keeps its hashed bytes"
         );
+    }
+
+    /// A daily top-up repeats one window. When slots on file counted
+    /// against max_facts, the repeat stopped at the same cached prefix and
+    /// the series never grew past its first max_facts days.
+    #[tokio::test]
+    async fn a_backfill_cap_spends_on_fetches_not_on_slots_on_file() {
+        let s = test_app_state();
+        let band = "weather.temperature_2m";
+        let tempo = tempo_for_band(band).unwrap();
+        let slot = tempo.slot_seconds() as i64;
+        let cell = emem_codec::cell64_from_latlng(18.2612, 75.0799);
+        let first = now_unix_s() / slot - 40;
+        for t in first..first + 20 {
+            sign_band_absence(
+                &cell,
+                &s,
+                band,
+                t as u64,
+                "test",
+                "https://example.invalid/",
+                &chrono_iso8601_utc(),
+                "seeded",
+            )
+            .await
+            .unwrap();
+        }
+        let req = |max| BackfillReq {
+            cell: cell.clone(),
+            cells: None,
+            band: band.into(),
+            start_unix: Some(first * slot),
+            end_unix: Some((first + 25) * slot),
+            max_facts: Some(max),
+            budget_ms: None,
+            refresh: false,
+        };
+        let v = backfill_inner(req(16), &s).await.unwrap();
+        assert_eq!(v["cached_count"], 20, "{v}");
+        let steps = v["steps"].as_array().unwrap();
+        assert_eq!(steps[20]["tslot"], json!(first + 20), "{v}");
+        assert_eq!(steps[20]["status"], "present_only", "{v}");
+        assert_eq!(v["complete"], json!(true), "a now-only stop is not the cap");
+    }
+
+    #[test]
+    fn gfc2020_text_names_the_version_the_connector_reads() {
+        let m = band_metadata_for_response("jrc_gfc2020.forest_2020");
+        let refs = m["references"].as_str().unwrap();
+        assert!(refs.contains("JRC_GFC2020_V4_COG.tif"), "{m}");
+        assert!(!refs.contains("JRC_GFC2020_V3_COG.tif"), "{m}");
+        assert!(m["description"].as_str().unwrap().contains("V4"), "{m}");
+        assert!(!band_materializer_meta("jrc_gfc2020.forest_2020")
+            .unwrap()
+            .wire_path
+            .contains("V3"));
+        let raw = emem_core::bands::DEFAULT.lookup("jrc_gfc2020").unwrap();
+        assert!(raw.references.as_deref().unwrap().contains("V3_COG"));
     }
 
     #[test]

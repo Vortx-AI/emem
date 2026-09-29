@@ -2309,7 +2309,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "live network test against jeodpp.jrc.ec.europa.eu — run with --ignored"]
     async fn open_profile_jrc_gfc2020_v3_second_call_is_fast() {
-        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif";
+        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif";
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(120))
             .build()
@@ -2353,7 +2353,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "live network test against jeodpp.jrc.ec.europa.eu — run with --ignored"]
     async fn jrc_gfc2020_header_parses() {
-        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif";
+        let url = "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif";
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(60))
             .build()
@@ -2405,8 +2405,8 @@ mod tests {
             prof.height
         );
         // Single-band uint8 forest mask.
-        assert_eq!(prof.bits_per_sample, 8, "GFC2020 V3 is 8-bit");
-        assert_eq!(prof.samples_per_pixel, 1, "GFC2020 V3 is single-band");
+        assert_eq!(prof.bits_per_sample, 8, "GFC2020 is 8-bit");
+        assert_eq!(prof.samples_per_pixel, 1, "GFC2020 is single-band");
         // 1024×1024 tiles are typical for global JRC COGs (we observed
         // tile_w=1024 in the 1024-byte header probe). Allow any power
         // of two ≥ 256 to avoid false failures if JRC bumps the tile size.

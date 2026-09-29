@@ -7,6 +7,12 @@ to verify.
 
 ## [Unreleased]
 
+- EUDR DDS: the sample-spacing limit applies only to a plot of 0.5 ha or more (Art. 2(4)). A smaller plot cannot hold a 0.5 ha clearance, so its size is stated as a qualifier and no longer makes `verdict_support.level` weak or holds `statement_of_compliance_signable` back. The spacing is measured on the polygon's own area, not its bbox, which overstated a diagonal plot many times; `verdict_support.plot_area_ha` says which area was used. The "one point sample" qualifier stays.
+- NASA POWER: a fill value (-999) or a missing value for a day inside POWER's publication window (the last 30 days) is an error nothing stores, not a signed Absence. Signed, it entered the index as "cached", so a series topped up daily at its newest days stored only fill and its values stopped at the first top-up. Absences already stored for those days need one `refresh` backfill.
+- Backfill: `max_facts` counts upstream fetches, as documented, not slots already on file. Counted, the identical retry stopped at the same cached prefix and a long window never filled. Each result says `complete`, and the preparer lists a cell stopped at the cap as `budget_exhausted` instead of reporting `converged`.
+- JRC GFC2020: `/v1/bands` serves text for V4, the version the connector reads from the publisher's listing, with the V4 single-COG reference; the registry's V3 text stays hashed in `bands_cid` and is marked `text_erratum`. Error and Absence reasons no longer name V3.
+- `lab_report_parse`: every date on a line is read, each with its label and a day-first ISO reading (null for 31/02), and `report_date` is the one labelled as the report's. `land_record_parse`: a 7/12 area written with a `ha.are` or `हे.आर.चौ.मी` unit converts to hectares with unit `ha.are.m2`, and `village`, `taluka` and `district` are separate fields.
+
 ## [2.4.2] - 2026-09-29
 
 A patch release: no wire change to receipts or the fact preimage. The plugin, the workspace and the SDKs move to 2.4.2 together.

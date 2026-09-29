@@ -64,14 +64,19 @@ jq '{verdict: .result.verdict, exceedances: .result.exceedances,
 Lab report `result`: `rows[]` (analyte, `result.kind` of `value`,
 `not_detected` or `below_limit`, `result_mg_kg`, `loq_mg_kg`,
 `mrl_mg_kg`, `exceeds_printed_mrl`), `verdict`, `exceedances`,
-`sample_id`, `dates`, `accreditation`, `methods`. It compares against
+`sample_id`, `dates` (every date on every line, each with its `label`
+and a day-first `iso` reading, null for a date that does not exist),
+`report_date` (the date labelled as the report's or issue date, null
+when none says so), `accreditation`, `methods`. It compares against
 the MRL the report prints; it does not look anything up in the EU MRL
 database.
 
 Land record `result`: `owners`, `parcel_ids` (survey, gat, khasra, CAR,
 matricula), `areas` (`hectares` where the unit has one meaning: acres,
-gunthas, and an unlabelled three-part `1.20.50` 7/12 area read as
-ha.are.m2; bigha is reported raw), `places`, `dates`, and
+gunthas, and a three-part `1.20.50` 7/12 area, with or without a
+`ha.are` or `हे.आर` unit, read as ha.are.m2; bigha is reported raw),
+`places` (one per label), `village`, `taluka` and `district` as separate
+fields, `dates`, and
 `fields_missing`, which lists what it did not find rather than filling
 it. Text in the Indian scripts, Portuguese, Spanish, French and
 Indonesian is read.

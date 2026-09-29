@@ -61,13 +61,32 @@ pub struct ResidueRow {
     pub byte_offset: usize,
 }
 
+/// A date as printed, with the words in front of it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct LabelledDate {
+    /// The date's own digits, joined with `-` in the order printed.
+    pub value: String,
+    /// `YYYY-MM-DD`, reading d/m/y day first as Indian and European labs
+    /// print it; `None` for a date that does not exist (31/02).
+    pub iso: Option<String>,
+    /// The label before it on the line ("date of report"), lowercased.
+    pub label: Option<String>,
+    pub line: String,
+    pub line_no: usize,
+    pub byte_offset: usize,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct LabReport {
     pub rows: Vec<ResidueRow>,
     pub columns: Vec<&'static str>,
     pub header_line_no: Option<usize>,
     pub sample_id: Option<Located<String>>,
-    pub dates: Vec<Located<String>>,
+    /// Every date on every line, each with its label.
+    pub dates: Vec<LabelledDate>,
+    /// The date the report is dated by: the one labelled as the report's
+    /// or issue date. `None` when no date says so; never the first date.
+    pub report_date: Option<LabelledDate>,
     pub accreditation: Vec<Located<String>>,
     pub methods: Vec<Located<String>>,
     pub verdict: &'static str,
@@ -503,7 +522,29 @@ pub fn parse_lab_report(text: &str) -> LabReport {
                 .then(|| locate(v.to_string(), &offs, i, l))
         })
     });
-    let dates = find_all(&|l: &str| date_in(l));
+    let dates: Vec<LabelledDate> = lines
+        .iter()
+        .enumerate()
+        .flat_map(|(i, l)| {
+            let at = offs.get(i).copied().unwrap_or(0);
+            labelled_dates(l)
+                .into_iter()
+                .map(move |(value, iso, label)| LabelledDate {
+                    value,
+                    iso,
+                    label,
+                    line: l.to_string(),
+                    line_no: i,
+                    byte_offset: at,
+                })
+        })
+        .collect();
+    let report_date = ["report", "issue"].iter().find_map(|w| {
+        dates
+            .iter()
+            .find(|d| d.label.as_deref().is_some_and(|l| l.contains(w)))
+            .cloned()
+    });
     let accreditation = find_all(&|l: &str| {
         let low = l.to_lowercase();
         [
@@ -548,6 +589,7 @@ pub fn parse_lab_report(text: &str) -> LabReport {
         header_line_no,
         sample_id,
         dates,
+        report_date,
         accreditation,
         methods,
         verdict,
@@ -555,21 +597,79 @@ pub fn parse_lab_report(text: &str) -> LabReport {
     }
 }
 
+/// Every date on a line, with its day-first ISO reading and its label: the
+/// words between the previous date (or a gap of two spaces, `|`, `,`, `;`)
+/// and this one. "Date of receipt: 01/09/2026   Date of report: 05/09/2026"
+/// is two dates, and the report is dated by the second.
+fn labelled_dates(l: &str) -> Vec<(String, Option<String>, Option<String>)> {
+    let ascii = ascii_digits(l);
+    let mut out = Vec::new();
+    let mut from = 0;
+    while let Some((start, end, value)) = date_at(&ascii, from) {
+        let before = ascii[from..start].trim_end();
+        let label = before
+            .rsplit(['|', ',', ';'])
+            .next()
+            .unwrap_or("")
+            .rsplit("  ")
+            .next()
+            .unwrap_or("")
+            .trim_matches(|c: char| matches!(c, ':' | '-' | '–' | '=' | '.') || c.is_whitespace())
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .to_lowercase();
+        let label = label.chars().any(char::is_alphabetic).then_some(label);
+        out.push((value.clone(), iso_day_first(&value), label));
+        from = end;
+    }
+    out
+}
+
+/// `YYYY-MM-DD` for a `d-m-yyyy` or `yyyy-m-d` value, when that day exists.
+fn iso_day_first(v: &str) -> Option<String> {
+    let p: Vec<u32> = v
+        .split('-')
+        .map(|x| x.parse().ok())
+        .collect::<Option<_>>()?;
+    let [a, b, c] = p[..] else { return None };
+    let (y, m, d) = if a > 999 { (a, b, c) } else { (c, b, a) };
+    let leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return None,
+    };
+    (1..=days)
+        .contains(&d)
+        .then(|| format!("{y:04}-{m:02}-{d:02}"))
+}
+
 /// The first date on a line: dd.mm.yyyy, dd/mm/yyyy, dd-mm-yyyy or yyyy-mm-dd.
 fn date_in(l: &str) -> Option<String> {
+    date_at(l, 0).map(|(_, _, v)| v)
+}
+
+/// The first date at or after byte `from`, with its byte span.
+fn date_at(l: &str, from: usize) -> Option<(usize, usize, String)> {
     let b = l.as_bytes();
-    for (i, _) in l.char_indices() {
+    for (i, _) in l.char_indices().filter(|(i, _)| *i >= from) {
         let rest = &l[i..];
         let mut parts = Vec::new();
         let mut cur = String::new();
         let mut seps = 0;
+        let mut len = 0;
         for c in rest.chars().take(10) {
+            len += c.len_utf8();
             if c.is_ascii_digit() {
                 cur.push(c);
             } else if matches!(c, '.' | '/' | '-') && !cur.is_empty() && seps < 2 {
                 parts.push(std::mem::take(&mut cur));
                 seps += 1;
             } else {
+                len -= c.len_utf8();
                 break;
             }
         }
@@ -580,7 +680,7 @@ fn date_in(l: &str) -> Option<String> {
             let lens: Vec<usize> = parts.iter().map(|p| p.len()).collect();
             let ok = matches!(lens[..], [1..=2, 1..=2, 4] | [4, 1..=2, 1..=2]);
             if ok && (i == 0 || !b[i - 1].is_ascii_digit()) {
-                return Some(parts.join("-"));
+                return Some((i, i + len, parts.join("-")));
             }
         }
     }
@@ -594,7 +694,13 @@ pub struct LandRecord {
     pub owners: Vec<Located<String>>,
     pub parcel_ids: Vec<Located<String>>,
     pub areas: Vec<Located<Area>>,
+    /// Each labelled place on each line, cut where the next label starts.
     pub places: Vec<Located<String>>,
+    /// The first village, taluka (tehsil, mandal) and district named, so a
+    /// record can be checked against the farm field by field.
+    pub village: Option<Located<String>>,
+    pub taluka: Option<Located<String>>,
+    pub district: Option<Located<String>>,
     pub dates: Vec<Located<String>>,
     pub fields_found: Vec<&'static str>,
     pub fields_missing: Vec<&'static str>,
@@ -694,14 +800,42 @@ const AREA_LABELS: &[&str] = &[
     "superficie",
     "luas",
 ];
-const PLACE_LABELS: &[&str] = &[
+const VILLAGE_LABELS: &[&str] = &[
     "village",
-    "tehsil",
-    "taluka",
-    "mandal",
-    "district",
+    "mauje",
+    "mouje",
     "गाव",
     "गांव",
+    "मौजे",
+    "ग्राम",
+    "desa",
+];
+const TALUKA_LABELS: &[&str] = &[
+    "taluka",
+    "taluk",
+    "tehsil",
+    "tahsil",
+    "mandal",
+    "तालुका",
+    "तहसील",
+];
+const DISTRICT_LABELS: &[&str] = &["district", "dist.", "jilha", "जिल्हा", "जिला", "kabupaten"];
+const PLACE_LABELS: &[&str] = &[
+    "village",
+    "mauje",
+    "mouje",
+    "tehsil",
+    "tahsil",
+    "taluka",
+    "taluk",
+    "mandal",
+    "district",
+    "dist.",
+    "jilha",
+    "गाव",
+    "गांव",
+    "मौजे",
+    "ग्राम",
     "तालुका",
     "तहसील",
     "जिल्हा",
@@ -715,32 +849,42 @@ const PLACE_LABELS: &[&str] = &[
     "kabupaten",
 ];
 
-/// The value after a label on the same line.
-fn after_label(line: &str, labels: &[&str]) -> Option<String> {
-    // The earliest label, and of labels starting there the longest.
-    // Short labels must be whole words: "desa" is inside "Desai".
-    let ascii_low = line.is_ascii().then(|| line.to_ascii_lowercase());
-    let bounded = |w: &str| {
-        let (p, e) = match &ascii_low {
-            Some(low) if w.is_ascii() => {
-                let p = low.find(&w.to_ascii_lowercase())?;
-                (p, p + w.len())
-            }
+/// Where `w` first occurs in `line` at or after byte `from`, as a label: a
+/// label starts a word ("taluka" is inside "Testtaluka"), and a short one
+/// is a whole word, since "desa" is inside "Desai".
+fn label_at(line: &str, w: &str, from: usize) -> Option<(usize, usize)> {
+    let mut at = from;
+    loop {
+        let hay = line.get(at..)?;
+        let (p, e) = if hay.is_ascii() && w.is_ascii() {
+            let p = hay.to_ascii_lowercase().find(&w.to_ascii_lowercase())?;
+            (p, p + w.len())
+        } else if hay.is_ascii() {
             // An ASCII line cannot hold a non-ASCII label.
-            Some(_) => return None,
-            None => find_ci(line, w)?,
+            return None;
+        } else {
+            find_ci(hay, w)?
         };
+        let (p, e) = (at + p, at + e);
         let short = w.chars().count() <= 5;
         let before = line[..p]
             .chars()
             .next_back()
             .is_some_and(char::is_alphanumeric);
         let after = line[e..].chars().next().is_some_and(char::is_alphanumeric);
-        (!short || (!before && !after)).then_some((p, e))
-    };
+        if !before && (!short || !after) {
+            return Some((p, e));
+        }
+        at = p + line[p..].chars().next().map_or(1, char::len_utf8);
+    }
+}
+
+/// The value after a label on the same line.
+fn after_label(line: &str, labels: &[&str]) -> Option<String> {
+    // The earliest label, and of labels starting there the longest.
     let (_, end) = labels
         .iter()
-        .filter_map(|w| bounded(w))
+        .filter_map(|w| label_at(line, w, 0))
         .min_by_key(|(p, e)| (*p, usize::MAX - e))?;
     let rest = &line[end..];
     let v = rest
@@ -777,6 +921,22 @@ fn parse_area(v: &str) -> Area {
         }
     };
     let unit_table: &[(&[&str], &str, Option<f64>)] = &[
+        // A 7/12 extract prints its area as hectare.are.square-metre and
+        // names the unit that way; "1.20" in it is also 1 ha 20 are.
+        (
+            &[
+                "ha.are.m2",
+                "ha.are.sq.m",
+                "ha.are",
+                "h.are",
+                "h.r",
+                "h.a.r",
+                "हे.आर.चौ.मी",
+                "हे.आर",
+            ],
+            "ha.are.m2",
+            Some(1.0),
+        ),
         (
             &["hectare", "hect", "ha", "हेक्टर", "हे.", "हे", "hektar"],
             "ha",
@@ -840,6 +1000,41 @@ fn parse_area(v: &str) -> Area {
     }
 }
 
+/// Each place label on a line with its value, the value ending where the
+/// next label starts, at a gap of two spaces, or at `,` `;` `|`:
+/// "Village: Testgaon  Taluka: Testtaluka  District: Jalgaon" is three.
+fn place_values(line: &str) -> Vec<(&'static str, String)> {
+    let mut hits: Vec<(usize, usize, &'static str)> = Vec::new();
+    for &w in PLACE_LABELS {
+        let mut from = 0;
+        while let Some((p, e)) = label_at(line, w, from) {
+            hits.push((p, e, w));
+            from = e;
+        }
+    }
+    // At one position the longest label; a label inside another is not one.
+    hits.sort_by_key(|(p, e, _)| (*p, usize::MAX - e));
+    let mut kept: Vec<(usize, usize, &'static str)> = Vec::new();
+    for h in hits {
+        if kept.last().is_none_or(|k| h.0 >= k.1) {
+            kept.push(h);
+        }
+    }
+    let mut out = Vec::new();
+    for (k, (_, e, w)) in kept.iter().enumerate() {
+        let stop = kept.get(k + 1).map_or(line.len(), |n| n.0);
+        let v = line[*e..stop].trim_start_matches(|c: char| {
+            matches!(c, ':' | '-' | '–' | '.' | '#' | '=') || c.is_whitespace()
+        });
+        let v = v.split("  ").next().unwrap_or("");
+        let v = v.split([',', ';', '|']).next().unwrap_or("").trim();
+        if v.chars().filter(|c| c.is_alphabetic()).count() >= 2 {
+            out.push((*w, v.to_string()));
+        }
+    }
+    out
+}
+
 pub fn parse_land_record(text: &str) -> LandRecord {
     let (lines, offs) = split_lines(text);
     let mut rec = LandRecord {
@@ -847,6 +1042,9 @@ pub fn parse_land_record(text: &str) -> LandRecord {
         parcel_ids: vec![],
         areas: vec![],
         places: vec![],
+        village: None,
+        taluka: None,
+        district: None,
         dates: vec![],
         fields_found: vec![],
         fields_missing: vec![],
@@ -874,10 +1072,20 @@ pub fn parse_land_record(text: &str) -> LandRecord {
                 rec.owners.push(locate(v, &offs, i, l));
             }
         }
-        if let Some(v) = after_label(l, PLACE_LABELS) {
-            if v.chars().filter(|c| c.is_alphabetic()).count() >= 2 {
-                rec.places.push(locate(v, &offs, i, l));
+        for (label, v) in place_values(l) {
+            let slot = if VILLAGE_LABELS.contains(&label) {
+                Some(&mut rec.village)
+            } else if TALUKA_LABELS.contains(&label) {
+                Some(&mut rec.taluka)
+            } else if DISTRICT_LABELS.contains(&label) {
+                Some(&mut rec.district)
+            } else {
+                None
+            };
+            if let Some(slot) = slot.filter(|s| s.is_none()) {
+                *slot = Some(locate(v.clone(), &offs, i, l));
             }
+            rec.places.push(locate(v, &offs, i, l));
         }
         if let Some(d) = date_in(&ascii_digits(l)) {
             rec.dates.push(locate(d, &offs, i, l));
@@ -1031,6 +1239,65 @@ Total                                          \n";
         assert!(!r.places.is_empty());
         assert_eq!(r.dates[0].value, "05-08-2024");
         assert!(r.fields_missing.is_empty(), "{:?}", r.fields_missing);
+    }
+
+    #[test]
+    fn every_labelled_date_on_a_line_is_read_and_the_report_date_dates_the_report() {
+        let r = parse_lab_report(
+            "Sample ID: S-1   Date of receipt: 01/09/2026   Date of report: 05/09/2026\n",
+        );
+        let labels: Vec<_> = r.dates.iter().map(|d| d.label.as_deref()).collect();
+        assert_eq!(
+            labels,
+            vec![Some("date of receipt"), Some("date of report")]
+        );
+        assert_eq!(r.dates[0].iso.as_deref(), Some("2026-09-01"));
+        assert_eq!(r.dates[1].iso.as_deref(), Some("2026-09-05"));
+        let rd = r.report_date.unwrap();
+        assert_eq!(rd.value, "05-09-2026");
+        assert_eq!(rd.iso.as_deref(), Some("2026-09-05"));
+        // A date that does not exist is kept as printed and never read.
+        let r = parse_lab_report("Date of report: 31/02/2026\n");
+        assert_eq!(r.dates.len(), 1);
+        assert_eq!(r.dates[0].iso, None);
+        // No date says it is the report's: none is picked for it.
+        let r = parse_lab_report("Received: 12.09.2026\n");
+        assert_eq!(r.dates[0].label.as_deref(), Some("received"));
+        assert!(r.report_date.is_none());
+        let r = parse_lab_report("Report date:  02-10-2026 | Sampled on 28.09.2026\n");
+        assert_eq!(r.report_date.unwrap().iso.as_deref(), Some("2026-10-02"));
+        assert_eq!(r.dates[1].label.as_deref(), Some("sampled on"));
+    }
+
+    #[test]
+    fn a_seven_twelve_area_in_ha_are_converts_to_hectares() {
+        for (t, want) in [
+            ("Area: 1.20.00 ha.are", 1.2),
+            ("क्षेत्र 0.81.50 हे.आर.चौ.मी", 0.815),
+            ("Area: 2.05.00", 2.05),
+            ("Area: 1.20.00 H.R.", 1.2),
+        ] {
+            let r = parse_land_record(t);
+            let a = &r.areas[0].value;
+            assert!((a.hectares.unwrap() - want).abs() < 1e-9, "{t}: {a:?}");
+            assert_eq!(a.unit.as_deref(), Some("ha.are.m2"), "{t}");
+        }
+    }
+
+    #[test]
+    fn village_taluka_and_district_are_separate_fields() {
+        let r = parse_land_record(
+            "7/12 Extract  Village: Testgaon  Taluka: Testtaluka  District: Jalgaon\n",
+        );
+        assert_eq!(r.village.as_ref().unwrap().value, "Testgaon");
+        assert_eq!(r.taluka.as_ref().unwrap().value, "Testtaluka");
+        assert_eq!(r.district.as_ref().unwrap().value, "Jalgaon");
+        let v: Vec<_> = r.places.iter().map(|p| p.value.as_str()).collect();
+        assert_eq!(v, vec!["Testgaon", "Testtaluka", "Jalgaon"]);
+        let r = parse_land_record("गाव: करमाळा, तालुका: करमाळा, जिल्हा: सोलापूर\n");
+        assert_eq!(r.village.unwrap().value, "करमाळा");
+        assert_eq!(r.taluka.unwrap().value, "करमाळा");
+        assert_eq!(r.district.unwrap().value, "सोलापूर");
     }
 
     #[test]

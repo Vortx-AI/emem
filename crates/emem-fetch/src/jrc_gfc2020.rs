@@ -1,7 +1,8 @@
 //! JRC Global Forest Cover 2020 connector, at whichever version `LATEST/` publishes (V4 since 2026-09; the tile listing decides).
 //!
 //! Source: **Bourgoin, C., et al. (2026). *JRC Global map of forest
-//! cover for year 2020 — version 3* (GFC2020 V3). Earth System Science
+//! cover for year 2020* (GFC2020; the paper describes V3, `LATEST/` has
+//! served V4 since 2026-09). Earth System Science
 //! Data 18, 1331. doi:10.5194/essd-2025-351**. Produced by the European
 //! Commission's Joint Research Centre and published as the expected
 //! (non-legally-binding) baseline raster for **EUDR Due Diligence
@@ -10,7 +11,7 @@
 //!
 //! ## Why tiles, not the single global COG
 //!
-//! The JRC publishes GFC2020 V3 in three forms under
+//! The JRC publishes GFC2020 in three forms under
 //! `…/GFC2020/LATEST/`: `single/` (per-region uncompressed), `single-cog/`
 //! (one **41 GB** global Cloud-Optimized BigTIFF), and `tiles/`
 //! (10°×10° COG tiles, ~280 MB each). **We read the tiles.**
@@ -35,7 +36,8 @@
 //! ## Tile naming
 //!
 //! Tiles are 10°×10°, anchored to the **top-left (north-west) corner** and
-//! named `JRC_GFC2020_V3_<lat><LAT>_<lon><LON>.tif`, where the tiling
+//! named `JRC_GFC2020_V<n>_<lat><LAT>_<lon><LON>.tif` (`<n>` = 4 today),
+//! where the tiling
 //! starts at 80°N / 180°W (`N80`, `W180`). Unlike Hansen (suffix-letter,
 //! zero-padded: `00N_070W`), the JRC scheme is **prefix-letter, no
 //! padding**: `N0_E0`, `N10_W10`, `N20_E30`, `S10_E20`, `N80_W180`. A cell
@@ -63,7 +65,7 @@ use reqwest::Client;
 
 use crate::cog::CogError;
 
-/// Base directory for the 10°×10° GFC2020 V3 COG tiles on the JRC's
+/// Base directory for the 10°×10° GFC2020 COG tiles on the JRC's
 /// JEODPP public open-data bucket. Range-readable (HTTP 206 verified),
 /// no auth, no signed URL, no proxy required. Each tile is ~280 MB with
 /// a small IFD that opens in ~1 s cold — see the module docs for why we
@@ -76,21 +78,24 @@ const JRC_GFC2020_TILES_BASE_URL: &str =
 /// test in [`crate::cog`]. See the module docs for why per-cell sampling
 /// must never read this file.
 const JRC_GFC2020_SINGLE_COG_URL: &str =
-    "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif";
+    "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif";
 
-/// Public version tag for the GFC2020 V3 release as documented in the
-/// ESSD paper (Bourgoin et al., 2026) and the JEODPP `LATEST/` symlink
-/// target. Bumped only when the JRC issues a new V (V4 …) — patch
-/// updates re-publish under the same V3 tag.
-pub const JRC_GFC2020_VERSION_TAG: &str = "v3.2026-03";
+/// The version `LATEST/` published when this was last checked
+/// (2026-09-29: 355 V4 tiles, no V3). Readers take the version from the
+/// listing; this only names files before the listing has been read.
+const JRC_GFC2020_KNOWN_VERSION: u32 = 4;
 
-/// Maximum latitude (deg, absolute) at which GFC2020 V3 is defined.
+/// Public version tag for the GFC2020 release `LATEST/` points at (V4,
+/// single COG last modified 2026-09-14).
+pub const JRC_GFC2020_VERSION_TAG: &str = "v4.2026-09";
+
+/// Maximum latitude (deg, absolute) at which GFC2020 is defined.
 /// The raster extends to ±82° in the EPSG:4326 product; sampling
 /// beyond that latitude returns a coverage gap so the dispatcher can
 /// sign an Absence rather than fabricate a zero.
 const JRC_GFC2020_LAT_BOUND: f64 = 82.0;
 
-/// Errors specific to the GFC2020 V3 connector.
+/// Errors specific to the GFC2020 connector.
 ///
 /// Bubbled up through [`crate::FetchError::Transport`] at the
 /// dispatcher boundary so callers do not have to thread two error
@@ -112,7 +117,7 @@ pub enum JrcGfc2020Error {
     /// a tile is genuinely absent rather than an upstream failure.
     /// Materializers MUST sign this as an `Absence`.
     #[error(
-        "tile_not_found: GFC2020 V3 tile {tile} at {url} returned 404 (cell outside published tile coverage)"
+        "tile_not_found: GFC2020 tile {tile} at {url} is not published (cell outside published tile coverage)"
     )]
     TileNotFound {
         /// Tile name component (e.g. "N10_W10").
@@ -125,7 +130,7 @@ pub enum JrcGfc2020Error {
     /// sign this as an `Absence` — the cell is genuinely outside the
     /// dataset's coverage.
     #[error(
-        "coverage_gap: lat={lat:.6} lng={lng:.6} is outside GFC2020 V3 ±82° latitude envelope"
+        "coverage_gap: lat={lat:.6} lng={lng:.6} is outside the GFC2020 ±82° latitude envelope"
     )]
     CoverageGap {
         /// Cell latitude that triggered the gap.
@@ -189,12 +194,12 @@ pub fn tile_corner_tags(lat: f64, lng: f64) -> (String, String) {
     (lat_tag, lng_tag)
 }
 
-/// Filename of the 10° tile covering `(lat, lng)`:
-/// `JRC_GFC2020_V3_<lat>_<lon>.tif`. Pure — no I/O — so it's the
+/// Filename of the 10° tile covering `(lat, lng)` at the last known
+/// version: `JRC_GFC2020_V4_<lat>_<lon>.tif`. Pure — no I/O — so it's the
 /// load-bearing helper for unit-testing the naming convention.
 pub fn tile_name_for(lat: f64, lng: f64) -> String {
     let (lat_tag, lng_tag) = tile_corner_tags(lat, lng);
-    format!("JRC_GFC2020_V3_{lat_tag}_{lng_tag}.tif")
+    format!("JRC_GFC2020_V{JRC_GFC2020_KNOWN_VERSION}_{lat_tag}_{lng_tag}.tif")
 }
 
 /// The version the tile listing last named (0 until it has been read).
@@ -202,8 +207,8 @@ static LAST_VERSION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32
 
 /// URL of the 10° tile covering `(lat, lng)` at the version the listing
 /// last named. For synchronous callers (cache prewarm) only: before the
-/// listing has been read it falls back to the V3 name, which is a cache
-/// miss, never a fact. Readers use [`tile_url`].
+/// listing has been read it falls back to the last known version's name,
+/// which at worst is a cache miss, never a fact. Readers use [`tile_url`].
 pub fn tile_url_for(lat: f64, lng: f64) -> String {
     match LAST_VERSION.load(std::sync::atomic::Ordering::Relaxed) {
         0 => format!("{JRC_GFC2020_TILES_BASE_URL}/{}", tile_name_for(lat, lng)),
@@ -223,10 +228,11 @@ pub fn listed_version() -> Option<u32> {
 }
 
 /// Source scheme naming the version the listing last named, for facts
-/// signed without a reading (an Absence). V3 until the listing is read.
+/// signed without a reading (an Absence). The last known version until
+/// the listing is read.
 pub fn listed_scheme() -> String {
     match LAST_VERSION.load(std::sync::atomic::Ordering::Relaxed) {
-        0 => "jrc.gfc2020.v3".to_string(),
+        0 => format!("jrc.gfc2020.v{JRC_GFC2020_KNOWN_VERSION}"),
         v => format!("jrc.gfc2020.v{v}"),
     }
 }
@@ -330,7 +336,7 @@ pub struct Reading {
     pub version: u32,
 }
 
-/// Read one pixel from the GFC2020 V3 raster and return the EUDR
+/// Read one pixel from the GFC2020 raster and return the EUDR
 /// forest indicator (`1` = forest at 2020-12-31, `0` = non-forest).
 ///
 /// Reads the 10° COG tile containing `(lat, lng)` — a small-IFD, ~1 s
@@ -394,7 +400,7 @@ pub async fn fetch_forest_2020(
     let byte = raw.round() as u8;
     if byte > 1 {
         return Err(JrcGfc2020Error::Decode(format!(
-            "pixel out of range: value={byte} (GFC2020 V3 is single-band uint8 0/1) at lat={lat:.6} lng={lng:.6}"
+            "pixel out of range: value={byte} (GFC2020 is single-band uint8 0/1) at lat={lat:.6} lng={lng:.6} in {url}"
         )));
     }
     Ok(Reading {
@@ -423,7 +429,7 @@ mod tests {
     }
 
     /// `tile_name_for` produces the documented
-    /// `JRC_GFC2020_V3_<lat>_<lon>.tif` pattern across all four
+    /// `JRC_GFC2020_V4_<lat>_<lon>.tif` pattern across all four
     /// hemispheres, with **no zero padding** (the JRC convention).
     /// Reference cells:
     /// - Côte d'Ivoire cocoa (5.69°N, -6.70°W) → top-left corner 10°N,
@@ -439,31 +445,31 @@ mod tests {
         // → N10; lng -6.70 → floor(-0.67)*10=-10 → W10.
         assert_eq!(
             tile_name_for(5.69, -6.70),
-            "JRC_GFC2020_V3_N10_W10.tif",
+            "JRC_GFC2020_V4_N10_W10.tif",
             "CIV cocoa (5.69, -6.70) must map to N10_W10"
         );
         // Central Amazon at -3, -60.5 → N0_W70.
         assert_eq!(
             tile_name_for(-3.0, -60.5),
-            "JRC_GFC2020_V3_N0_W70.tif",
+            "JRC_GFC2020_V4_N0_W70.tif",
             "Central Amazon (-3, -60.5) must map to N0_W70"
         );
         // Greenwich + small offset north of equator → N10_E0.
         assert_eq!(
             tile_name_for(0.5, 0.5),
-            "JRC_GFC2020_V3_N10_E0.tif",
+            "JRC_GFC2020_V4_N10_E0.tif",
             "Greenwich+north must map to N10_E0"
         );
         // Sumatra at -1.0, +100.0 → N0_E100.
         assert_eq!(
             tile_name_for(-1.0, 100.0),
-            "JRC_GFC2020_V3_N0_E100.tif",
+            "JRC_GFC2020_V4_N0_E100.tif",
             "Sumatra (-1, 100) must map to N0_E100"
         );
         // Tiling origin corner.
         assert_eq!(
             tile_name_for(75.0, -175.0),
-            "JRC_GFC2020_V3_N80_W180.tif",
+            "JRC_GFC2020_V4_N80_W180.tif",
             "(75, -175) must map to the origin tile N80_W180"
         );
     }
@@ -474,7 +480,7 @@ mod tests {
         let url = tile_url_for(5.69, -6.70);
         assert_eq!(
             url,
-            "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/JRC_GFC2020_V3_N10_W10.tif"
+            "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/JRC_GFC2020_V4_N10_W10.tif"
         );
     }
 
@@ -502,15 +508,35 @@ mod tests {
     fn cog_url_is_single_global_cog() {
         assert_eq!(
             cog_url(),
-            "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V3_COG.tif",
+            "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/single-cog/JRC_GFC2020_V4_COG.tif",
         );
         assert_eq!(cog_url(), JRC_GFC2020_SINGLE_COG_URL);
     }
 
-    /// `JRC_GFC2020_VERSION_TAG` pins the V3 release the tiles point at.
+    /// `JRC_GFC2020_VERSION_TAG` pins the V4 release `LATEST/` points at.
     #[test]
-    fn version_tag_is_v3() {
-        assert_eq!(JRC_GFC2020_VERSION_TAG, "v3.2026-03");
+    fn version_tag_is_v4() {
+        assert_eq!(JRC_GFC2020_VERSION_TAG, "v4.2026-09");
+        assert_eq!(listed_scheme(), "jrc.gfc2020.v4");
+    }
+
+    /// The tiles of three EUDR plots, as the publisher names them: a
+    /// V4 tile's tie point is its top-left corner (N20_E70 ties at
+    /// lon 70, lat 20).
+    #[test]
+    fn plots_land_in_the_tiles_the_publisher_names() {
+        assert_eq!(
+            tile_corner_tags(18.2612, 75.0799),
+            ("N20".into(), "E70".into())
+        );
+        assert_eq!(
+            tile_corner_tags(-0.3689, 35.2863),
+            ("N0".into(), "E30".into())
+        );
+        assert_eq!(
+            tile_corner_tags(5.7833, -6.6000),
+            ("N10".into(), "W10".into())
+        );
     }
 
     /// `fetch_forest_2020` MUST surface `CoverageGap` (not Transport,
@@ -570,7 +596,7 @@ mod tests {
         match &err {
             JrcGfc2020Error::TileNotFound { tile, url: u } => {
                 assert_eq!(tile, "N0_W30", "tile field must round-trip");
-                assert!(u.contains("JRC_GFC2020_V3_N0_W30.tif"));
+                assert!(u.contains("JRC_GFC2020_V4_N0_W30.tif"));
             }
             other => panic!("expected TileNotFound, got {other:?}"),
         }
@@ -591,7 +617,7 @@ mod tests {
     }
 
     /// End-to-end materializer round-trip against the live 10° JRC
-    /// GFC2020 V3 COG tiles. Gated behind `#[ignore]` so CI doesn't hit
+    /// GFC2020 COG tiles. Gated behind `#[ignore]` so CI doesn't hit
     /// the JEODPP bucket. Verifies the tiled path returns a real
     /// EUDR-baseline forest indicator at known sample points.
     ///
