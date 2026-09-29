@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- Claim gating reads `degC`, `deg C` and `degrees C` as temperature. `degC` is the unit emem's own temperature facts carry, so an agent quoting one ("40 degC in Bengaluru") went ungated while "40 °C" was caught. Unitless claims (an NDVI of 0.9) are still not gated.
 - Overture road bands count carriageways only. `road_bearing_deg` and `road_length_m` read every transportation segment, so footways, pedestrian plazas, steps, rail and waterways counted as road: at a Doha point every segment within 50 m was pedestrian or footway and the nearest carriageway was 88 m away. Both now keep `subtype = road` with a vehicle class (motorway through service), sign `class=` (bearing) or `classes=` (length), and move to `@2`; facts signed by `@1` stop answering "latest" and are re-read.
 - Memory search names each note's author: hits carried the receipt's responder key (this server's) for every note, so `attester_pubkey_b32` named emem.dev as author and filtering on it matched all notes or none. Hits also carry the note's real `kind`.
 - `GET /memories/<path>` sends the note's `file_cid` as its `ETag` (with `Vary: Accept`), the `base` a v2 edit or delete names.

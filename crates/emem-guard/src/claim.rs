@@ -331,6 +331,25 @@ pub const UNITS: &[MeasurableUnit] = &[
         quantity: Quantity::Temperature,
         source_band: Some("weather.temperature_2m"),
     },
+    // `degC` is the unit emem's own temperature facts carry, so an agent
+    // quoting one writes "20.4 degC"; without these rows that sentence went
+    // ungated. Bare "C" stays out: after a number it is as often a grade or
+    // a label as a temperature.
+    MeasurableUnit {
+        symbol: "degrees c",
+        quantity: Quantity::Temperature,
+        source_band: Some("weather.temperature_2m"),
+    },
+    MeasurableUnit {
+        symbol: "degc",
+        quantity: Quantity::Temperature,
+        source_band: Some("weather.temperature_2m"),
+    },
+    MeasurableUnit {
+        symbol: "deg c",
+        quantity: Quantity::Temperature,
+        source_band: Some("weather.temperature_2m"),
+    },
     // Lengths. `dem` reports metres relative to mean sea level; the SI
     // multiples of a metre are the same quantity by definition, not by guess.
     MeasurableUnit {
@@ -1201,6 +1220,19 @@ mod tests {
         );
         // G4 gone: it is a config line.
         assert!(claims("sumatra_height_m = 31").is_empty());
+    }
+
+    /// emem's own unit spelling is a temperature claim, like the symbol.
+    #[test]
+    fn the_units_emem_facts_carry_are_claims() {
+        for s in [
+            "The air temperature in Bengaluru is 40 degC today.",
+            "The air temperature in Bengaluru was 40 deg C on 2026-09-28.",
+            "The air temperature in Bengaluru is 40 °C today.",
+        ] {
+            assert_eq!(claims(s).len(), 1, "must fire: {s}");
+        }
+        assert!(claims("Bengaluru got a 40 C grade in 2026.").is_empty());
     }
 
     /// The exclusion that keeps the gate quiet in engineering prose. None of
