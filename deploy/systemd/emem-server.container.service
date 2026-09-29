@@ -1,0 +1,113 @@
+[Unit]
+Description=emem.dev — Earth memory protocol server (aarch64 container, r8g.2xlarge)
+Documentation=https://emem.dev
+After=network-online.target docker.service
+Requires=docker.service
+Wants=network-online.target
+
+[Service]
+Type=exec
+Restart=on-failure
+RestartSec=5
+# 150, because the stop now has real work to do: the drain, the sled flush,
+# and a redb close that waits for any write transaction still live so redb
+# actually writes its shut-down header instead of deferring it. A SIGKILL
+# inside that close costs an 84-minute allocator rebuild on the next boot
+# (measured 2026-09-15). Must stay above the docker stop timeout below.
+TimeoutStopSec=150
+
+# --user 1000:1000 rather than the image's default 65532, so the 98 GB store
+# rsynced in as `ubuntu` needs no recursive chown and no ownership surprises
+# on a later delta. The binary runs fine as any uid; it only needs r/w on /data.
+#
+# The x86-64 ORT paths from the old unit are deliberately dropped: this host is
+# aarch64 and the image carries its own onnxruntime. LD_LIBRARY_PATH and
+# ORT_DYLIB_PATH pointing at /opt/onnxruntime-*-cuda12 would be wrong twice
+# over -- wrong architecture, and a CUDA build on a box with no GPU.
+ExecStartPre=-/usr/bin/docker rm -f emem-server
+ExecStart=/usr/bin/docker run --rm --name emem-server \
+  # This process holds ~38 GB, so the OOM killer's default heuristic picks it
+  # first: the one restart that costs minutes of storage_open. A systemd
+  # OOMScoreAdjust= cannot reach it, because the container runs under
+  # docker-<id>.scope and not this unit's cgroup, where MemoryCurrent reads 0.
+  --oom-score-adj=-500 \
+  --user 1000:1000 \
+  --network host \
+  -v /home/ubuntu/emem/var/emem:/data \
+  -v /home/ubuntu/emem/var/demos:/demos:ro \
+  -v /home/ubuntu/navigatable_worlds:/navigatable_worlds:ro \
+  -v /home/ubuntu/emem/web:/web:ro \
+  # Baked splat worlds for /v1/worlds. The default EMEM_WORLDS_DIR is the
+  # relative var/worlds, which resolves against WORKDIR / in this container and
+  # finds nothing, so /v1/worlds answered count 0 while four worlds sat here.
+  -v /home/ubuntu/emem/var/worlds:/worlds:ro \
+  -e EMEM_WORLDS_DIR=/worlds \
+  # EMEM_SPLATS_DIR defaults to /home/ubuntu/splats-site, a HOST path this
+  # container cannot see, so every /splats/* path 404s and /splats itself
+  # redirects into one. web/llms.txt advertises it, which route_truth
+  # correctly calls a page overclaiming a route that does not run.
+  # Bind the stable PARENT, not the content directory. A bind mount binds an
+  # INODE: when a sync replaced /home/ubuntu/splats-site the container kept
+  # pointing at the old, orphaned one and served an empty tree while the
+  # host path looked correct (host inode 9981110 vs container 301188,
+  # measured 2026-09-07). /srv/emem-splats is never replaced, so a rebuilt
+  # site/ inside it is picked up without a restart.
+  -v /srv/emem-splats:/splats:ro \
+  -e EMEM_SPLATS_DIR=/splats/site \
+  # A tokio worker panicked at boot on 2026-09-14 06:28:03 (http PathAndQuery::from_static:
+  # 'static str is not valid path'), immediately after the ACME DeployedCachedCert event,
+  # and the server carried on. Without a backtrace the site cannot be found from our code,
+  # which builds no Uri from a static string. One line of env is the cheapest instrument.
+  -e RUST_BACKTRACE=1 \
+  -e EMEM_RETIRED_BANDS=geotessera,clay_v1,prithvi_eo2,galileo \
+  -e EMEM_SHUTDOWN_GRACE_S=15 \
+  # sled now holds only small live trees (facts moved to redb), and at 200 ms
+  # its flusher fsynced 5 times a second on the disk redb commits to.
+  -e EMEM_SLED_FLUSH_MS=1000 \
+  # Declares, in the node's own /.well-known/emem.json, which peers it
+  # witnesses. The witness UNIT already had this; the SERVER did not, so the
+  # federation block reported peers: [] and the topology was discoverable only
+  # by reading someone's systemd config. Joining is voluntary and a peer is a
+  # node whose log this one co-signs, nothing more -- but it should be legible
+  # to a third party.
+  -e EMEM_PEERS=https://geo.qa/emem \
+  -e EMEM_DATA=/data \
+  -e EMEM_OPERATOR_ENDORSEMENTS=/data/operator-endorsements.json \
+  -e EMEM_DEMOS_DIR=/demos \
+  -e EMEM_BIND=127.0.0.1:5051 \
+  -e EMEM_TLS_BIND=0.0.0.0:443 \
+  -e EMEM_TLS_DOMAINS=emem.dev,www.emem.dev \
+  -e EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai \
+  -e EMEM_CONTACT=avijeet@vortx.ai \
+  -e EMEM_ENLISTMENT_ENFORCE=1 \
+  -e EMEM_MEMORY_REQUIRE_ATTESTER=1 \
+  -e "EMEM_OPERATOR_NAME=Vortx AI Private Limited" \
+  -e EMEM_OPERATOR_VENDOR=Vortx-AI \
+  -e EMEM_OPERATOR_COUNTRY=India \
+  -e EMEM_OPERATOR_URL=https://vortx.ai \
+  -e EMEM_WITNESS_PUBKEY_B32=k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia \
+  -e EMEM_WRI_GDM_CACHE=/data/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif \
+  -e EMEM_EUDR_BATCH_PATH=1 \
+  -e EMEM_MATERIALIZER_TIMEOUT_SECS=14 \
+  -e EMEM_MATERIALIZER_RETRIES=1 \
+  -e EMEM_MATERIALIZE_CONCURRENCY=12 \
+  -e EMEM_MATERIALIZE_GLOBAL_LIMIT=16 \
+  -e EMEM_ASK_TIMEOUT_SECS=40 \
+  -e EMEM_ASK_TEMPORAL_BUDGET_SECS=16 \
+  -e EMEM_ASK_COLD_BAND_CAP=12 \
+  -e EMEM_SCENE_DAILY_QUOTA=60000 \
+  # The densification warmer: its list is config/warm_priority.json in the
+  # repo. Bind the DIRECTORY (a file bind pins an inode a git pull replaces),
+  # so the next pass reads a pulled list with no restart. Every 6 h, 30 s per
+  # entry, kept across restarts in /data/warm_state.json, waits out IO pressure.
+  -v /home/ubuntu/emem/config:/config:ro \
+  -e EMEM_WARM_PRIORITY=/config/warm_priority.json \
+  -e EMEM_WARM_INTERVAL_SECS=21600 \
+  -e EMEM_WARM_BUDGET_MS=30000 \
+  -e EMEM_SCOREBOARD_JSONL=/navigatable_worlds/runs/longrun.steps.jsonl \
+  -e RUST_LOG=info,rustls_acme=info,emem::latency=debug \
+  ghcr.io/vortx-ai/emem:latest
+ExecStop=/usr/bin/docker stop -t 120 emem-server
+
+[Install]
+WantedBy=multi-user.target
