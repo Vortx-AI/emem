@@ -90,7 +90,7 @@ def surfaces(version: str, crates: int):
          "the version citations are minted against"),
         ("AGENTS.md", r"version ([0-9]+\.[0-9]+\.[0-9]+), MSRV", version,
          "the version the agent guide states"),
-        ("README.md", r"Version ([0-9]+\.[0-9]+\.[0-9]+), a minor", version,
+        ("README.md", r"Version ([0-9]+\.[0-9]+\.[0-9]+), a (?:major|minor|patch)", version,
          "the version README's Honest limits opens with"),
         ("SECURITY.md", r"\|\s*([0-9]+\.[0-9]+)\.x\s*\|\s*Yes\. Current", major_minor,
          "the supported-version row of the security policy"),
@@ -111,7 +111,7 @@ SELF_TEST = [
      r"edition 2021, ([0-9]+) crates", "19"),
     # and the shape that must NOT be picked up: a historical statement
     ("The receipt preimage last changed in 2.0.0, which was a major",
-     r"Version ([0-9]+\.[0-9]+\.[0-9]+), a minor", None),
+     r"Version ([0-9]+\.[0-9]+\.[0-9]+), a (?:major|minor|patch)", None),
 ]
 
 

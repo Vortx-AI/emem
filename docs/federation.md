@@ -701,7 +701,7 @@ latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
 
 **Missing.**
 
-- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.4.0 and its tests run
+- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.4.2 and its tests run
   in CI. It is not on PyPI and not in `run-llama/llama_index`, which is where
   LlamaHub lists from. Publish it, then open the upstream PR.
 - **n8n.** Not started, per `docs/registries/integration-targets.md`. n8n has

@@ -7,6 +7,10 @@ to verify.
 
 ## [Unreleased]
 
+## [2.4.2] - 2026-09-29
+
+A patch release: no wire change to receipts or the fact preimage. The plugin, the workspace and the SDKs move to 2.4.2 together.
+
 - `GET /memories/<path>/<name>.line` serves the note `<name>.md`'s `line:` front matter as `text/plain`, so an agent reading a catalog fetches no bodies; a note with no `line:` answers 404 saying where to put one. emem serves the author's line and does not derive one.
 - Facts left behind by the sled-to-redb move resolve again. The backfill copied facts through the canonical index, so a fact that held no index slot never reached redb: every derivative (`/v1/derive`, which carries no canonical key) and every fact whose slot a later writer took while the index was last-writer-wins. Their cids are in issued receipts and tokens and 404ed (the worlds' seven registered NDVI derivations among them). A redb miss now reads sled once and copies a hit into redb.
 - `memory_view` by `file_cid` honours `view`: resolving the cid to its path dropped the view, so `view: "front"` by cid returned the whole body. The MCP `kind` enums list `core`, which the server accepts and lists first.

@@ -79,7 +79,7 @@ Each of these was checked to resolve at the time this file was generated.
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
 - Smithery: https://smithery.ai/servers/vortxai/emem
 - Hugging Face Space: https://huggingface.co/spaces/vortx-ai/emem
-- GHCR: `ghcr.io/vortx-ai/emem:v2.4.0` (also `:latest`)
+- GHCR: `ghcr.io/vortx-ai/emem:v2.4.2` (also `:latest`)
 
 ## Technical
 

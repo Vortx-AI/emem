@@ -117,9 +117,9 @@ def build():
     s.text(78, 274, "verifiable memory for", 25, M.INK, font=M.MONO)
     s.text(78, 308, "agents and machines.", 25, M.INK, font=M.MONO)
 
-    s.text(78, 366, "+ an intent registry: a need maps to one call", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 392, "+ A2A message/stream, tasks, a signed mailbox", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 418, "\u00b7 only emem:fact: binds the whole body", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 366, "+ facts the store move stranded resolve again", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 392, "+ EUDR statement: Annex II point 5, verbatim", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 418, "\u00b7 19 plugin skills, each self-contained", 15, M.INK_SOFT, font=M.MONO)
 
     s.seal(90, 486, 10, fill=M.LEAF)
     s.text(112, 492, "emem.dev", 22, M.INK, font=M.MONO, weight="bold")
