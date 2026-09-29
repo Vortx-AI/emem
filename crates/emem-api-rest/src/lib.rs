@@ -53382,8 +53382,18 @@ async fn materialize_overture_road_bearing(
     };
     let row_groups = format!("row_groups={}", found.row_groups.join(";"));
     let Some(road) = found.nearest else {
+        let seen = if found.not_carriageway.is_empty() {
+            "none".to_string()
+        } else {
+            found
+                .not_carriageway
+                .iter()
+                .map(|(class, n)| format!("{class}={n}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         let reason = format!(
-            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no carriageway segment (class in {}) within {RADIUS_M} m of ({lat:.6},{lng:.6}); footways, paths and pedestrian areas are not counted; {row_groups}.", emem_fetch::overture::CARRIAGEWAY_CLASSES.join(",")
+            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no carriageway segment (class in {}) within {RADIUS_M} m of ({lat:.6},{lng:.6}); footways, paths and pedestrian areas are not counted; seen and not counted: {seen}; {row_groups}.", emem_fetch::overture::CARRIAGEWAY_CLASSES.join(",")
         );
         return sign_band_absence(
             cell64,

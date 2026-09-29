@@ -32,6 +32,7 @@
 
 #![allow(clippy::result_large_err)]
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -774,12 +775,13 @@ impl OvertureClient {
         let (s_lat, n_lat, w_lng, e_lng) = (lat - dlat, lat + dlat, lng - dlng, lng + dlng);
         let files = self.list_files(SEGMENTS).await?;
         let parallel = scan_parallelism();
-        let found: Vec<(Option<RoadBearing>, Option<String>)> = futures_util::stream::iter(files)
+        type FileRead = (Option<RoadBearing>, Option<String>, BTreeMap<String, u32>);
+        let found: Vec<FileRead> = futures_util::stream::iter(files)
             .map(|key| async move {
                 let meta = self.footer(&key).await?;
                 let rgs = self.pick_row_groups(&meta, s_lat, n_lat, w_lng, e_lng);
                 if rgs.is_empty() {
-                    return Ok::<_, OvertureError>((None, None));
+                    return Ok::<_, OvertureError>((None, None, BTreeMap::new()));
                 }
                 let read = format!(
                     "{}#{}",
@@ -791,6 +793,7 @@ impl OvertureClient {
                 );
                 let mut stream = self.open_stream(&key, rgs, &["subtype", "class"]).await?;
                 let mut best: Option<RoadBearing> = None;
+                let mut not_carriageway: BTreeMap<String, u32> = BTreeMap::new();
                 while let Some(batch) =
                     stream
                         .try_next()
@@ -821,13 +824,23 @@ impl OvertureClient {
                         if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
                             continue;
                         }
-                        let cls = str_at(&class, i);
-                        if !is_carriageway(str_at(&subtype, i), cls) {
-                            continue;
-                        }
+                        let (sub, cls) = (str_at(&subtype, i), str_at(&class, i));
                         let Some(lines) = geoms.get(i).and_then(wkb_linestring_or_multi) else {
                             continue;
                         };
+                        if !is_carriageway(sub, cls) {
+                            // Counted so an Absence can tell a pedestrian plaza
+                            // from a place with no mapped ways at all.
+                            if sub == Some("road")
+                                && nearest_on_lines(&lines, lat, lng, m_lat, m_lng)
+                                    .is_some_and(|c| c.distance_m <= radius_m)
+                            {
+                                *not_carriageway
+                                    .entry(cls.unwrap_or("unclassed").to_string())
+                                    .or_default() += 1;
+                            }
+                            continue;
+                        }
                         if let Some(mut c) = nearest_on_lines(&lines, lat, lng, m_lat, m_lng) {
                             c.class = cls.unwrap_or_default().to_string();
                             if best.as_ref().is_none_or(|b| c.distance_m < b.distance_m) {
@@ -836,21 +849,28 @@ impl OvertureClient {
                         }
                     }
                 }
-                Ok((best, Some(read)))
+                Ok((best, Some(read), not_carriageway))
             })
             .buffer_unordered(parallel)
             .try_collect()
             .await?;
-        let mut row_groups: Vec<String> = found.iter().filter_map(|(_, r)| r.clone()).collect();
+        let mut row_groups: Vec<String> = found.iter().filter_map(|(_, r, _)| r.clone()).collect();
         row_groups.sort();
+        let mut not_carriageway: BTreeMap<String, u32> = BTreeMap::new();
+        for (_, _, counts) in &found {
+            for (k, v) in counts {
+                *not_carriageway.entry(k.clone()).or_default() += v;
+            }
+        }
         let nearest = found
             .into_iter()
-            .filter_map(|(b, _)| b)
+            .filter_map(|(b, _, _)| b)
             .filter(|b| b.distance_m <= radius_m)
             .min_by(|a, b| a.distance_m.total_cmp(&b.distance_m));
         Ok(RoadBearingRead {
             nearest,
             row_groups,
+            not_carriageway,
         })
     }
 
@@ -2661,6 +2681,9 @@ pub struct RoadBearingRead {
     /// `part-file#rg,rg` for every row group read, sorted: with the release,
     /// the exact bytes a reader needs to re-derive the answer, absence included.
     pub row_groups: Vec<String>,
+    /// Road segments within the radius that are not carriageways, by
+    /// Overture `class`: what was seen and not counted.
+    pub not_carriageway: BTreeMap<String, u32>,
 }
 
 /// The nearest road to a point and its direction there.
