@@ -64706,6 +64706,12 @@ fn enrich_facts_with_cid(v: &mut JsonValue) {
                     map.insert("value_verbatim".into(), JsonValue::String(vv));
                 }
             }
+            if !map.contains_key("reason") {
+                if let Some(rc) = map.get("reason_cid").and_then(|c| c.as_str()) {
+                    let reason = absence_reason_text(rc);
+                    map.insert("reason".into(), json!(reason));
+                }
+            }
             // A fact that arrived with its cid (the typed recall response)
             // still gets the CIDv1 form; only the token is skipped, since
             // the struct already set it.
