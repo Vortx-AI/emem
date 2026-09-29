@@ -470,7 +470,6 @@ Or copy the skills without the plugin:
 git clone https://github.com/Vortx-AI/emem.git
 mkdir -p .claude/skills
 cp -r emem/plugins/emem/skills/emem-* .claude/skills/
-cp -r emem/plugins/emem/lib .claude/
 ```
 
 | Skill | For |
@@ -496,8 +495,8 @@ cp -r emem/plugins/emem/lib .claude/
 | `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
 
 The scripts need only Python 3. Their BLAKE3 and Ed25519 verification
-come from the plugin's `lib/emem_crypto.py`, which each script finds two
-directories above itself, hence the second `cp` above.
+come from `emem_crypto.py`, which ships in each skill's `scripts/`
+directory, so any one skill copied on its own still runs.
 
 Each `SKILL.md` is readable directly in the repository under
 `plugins/emem/skills/<name>/SKILL.md`, and every one above is also

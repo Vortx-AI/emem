@@ -17,7 +17,7 @@
         Check the bundled BLAKE3 and Ed25519 code against published vectors.
 
 Every argument is a file path. Nothing here touches the network, and the
-only import outside the standard library is ../../../lib/emem_crypto.py, which
+only import outside the standard library is emem_crypto.py beside this script, which
 ships with the plugin. Exit 0 when every check passed, 1 when one failed,
 2 on bad input.
 
@@ -41,11 +41,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
     sys.exit(2)
 
 

@@ -16,7 +16,7 @@ The math matches emem-attest's `receipt_preimage_v1` and
 of truth the signer (emem-storage) and every verifier (POST
 /v1/verify_receipt, the /verify page's JS) all call. If this passes, the
 receipt was signed by the responder pubkey and has not been tampered with
-since. BLAKE3 and Ed25519 come from ../../../lib/emem_crypto.py, plain
+since. BLAKE3 and Ed25519 come from emem_crypto.py beside this script, plain
 Python with no third-party packages, so the script runs on a bare
 interpreter and never touches the network.
 
@@ -42,11 +42,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
     sys.exit(2)
 
 

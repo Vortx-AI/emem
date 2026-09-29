@@ -29,7 +29,7 @@ lone nodes promoted rather than duplicated.
 
 `scripts/verify_log.py` ships with this skill (`${CLAUDE_SKILL_DIR}` is filled
 in by Claude Code). It makes no network calls and imports nothing outside
-the standard library except the plugin's `lib/emem_crypto.py`, a
+the standard library except `scripts/emem_crypto.py`, shipped with this skill, a
 plain-Python BLAKE3 and Ed25519 verifier; `--self-test` checks that
 module against the official test vectors. Save each response to a file
 and pass the file:

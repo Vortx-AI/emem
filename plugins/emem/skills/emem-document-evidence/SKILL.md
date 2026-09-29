@@ -83,7 +83,7 @@ you can quote the exact line it came from.
 
 `scripts/verify_doc.py` ships with this skill (`${CLAUDE_SKILL_DIR}`, filled in
 by Claude Code). It makes no network calls; its BLAKE3 and Ed25519 come
-from the plugin's `lib/emem_crypto.py`, plain Python with no third-party
+from `scripts/emem_crypto.py`, shipped with this skill, plain Python with no third-party
 packages (`--self-test` checks it against the official vectors):
 
 ```sh

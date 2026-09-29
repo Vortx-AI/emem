@@ -37,7 +37,7 @@ python3 "${CLAUDE_SKILL_DIR}/scripts/verify.py" recall.json
 It accepts a bare receipt or a whole response with a top-level
 `receipt`. `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in
 by Claude Code; `scripts/verify.py` ships with this skill and imports BLAKE3
-and Ed25519 from the plugin's `lib/emem_crypto.py`, plain Python with no
+and Ed25519 from `scripts/emem_crypto.py`, shipped with this skill, plain Python with no
 third-party packages. Nothing is installed or downloaded to run it.
 `python3 "${CLAUDE_SKILL_DIR}/scripts/verify.py" --self-test` checks that module
 against the official BLAKE3 and RFC 8032 test vectors first.

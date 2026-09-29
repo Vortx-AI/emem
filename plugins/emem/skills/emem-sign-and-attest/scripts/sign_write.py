@@ -26,8 +26,8 @@
 The identity lives at $EMEM_IDENTITY or ~/.config/emem/agent_identity.json
 as {"seed_hex","pubkey_b32","pubkey8"}, created with mode 600. Signing uses
 the `cryptography` package (OpenSSL's constant-time Ed25519), because a
-secret key deserves a vetted implementation; hashing uses the plugin's
-lib/emem_crypto.py. No network calls.
+secret key deserves a vetted implementation; hashing uses
+emem_crypto.py beside this script. No network calls.
 """
 from __future__ import annotations
 
@@ -39,11 +39,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
     sys.exit(2)
 try:
     from cryptography.hazmat.primitives import serialization

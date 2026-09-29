@@ -37,11 +37,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
     sys.exit(2)
 
 

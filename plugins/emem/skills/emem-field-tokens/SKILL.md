@@ -76,7 +76,7 @@ and exited 1.
 
 `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in by Claude
 Code. `scripts/rehash.py` ships with this skill and takes its BLAKE3 from the
-plugin's `lib/emem_crypto.py`, plain Python with no third-party
+`scripts/emem_crypto.py`, shipped with this skill, plain Python with no third-party
 packages; `--self-test` checks it against the official test vectors.
 
 The grid bytes are a little-endian f32 array behind a 64-byte header

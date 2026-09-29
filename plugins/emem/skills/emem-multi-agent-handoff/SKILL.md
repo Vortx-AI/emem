@@ -89,7 +89,7 @@ path    /memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07
 With one word of `content` changed the body line read `MISMATCH`; with
 `signed_path` changed the signature read `INVALID`; both exited 1.
 `scripts/verify_note.py` ships with this skill, makes no network calls, and
-takes BLAKE3 and Ed25519 from the plugin's `lib/emem_crypto.py`. The
+takes BLAKE3 and Ed25519 from `scripts/emem_crypto.py`, shipped with this skill. The
 rule it checks is `caller_signed_objects` in `GET /v1/verifier_spec`,
 and `https://emem.dev/verify` runs the same check in a browser.
 

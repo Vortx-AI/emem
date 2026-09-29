@@ -25,7 +25,7 @@ The digest, from `caller_signed_objects` in GET /v1/verifier_spec:
 body_hash enters as 32 raw bytes; base is the replaced file_cid or the
 literal "absent". Exit 0 when every check passed, 1 when one failed, 2 on
 bad input or a note with no caller signature. No network calls; BLAKE3 and
-Ed25519 come from ../../../lib/emem_crypto.py, plain Python shipped with the
+Ed25519 come from emem_crypto.py beside this script, plain Python shipped with the
 plugin. A valid signature says which key wrote the note, never that what
 it says is true.
 """
@@ -37,11 +37,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships beside this script in the skill's scripts/ directory\n")
     sys.exit(2)
 
 

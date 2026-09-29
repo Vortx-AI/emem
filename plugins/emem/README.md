@@ -57,18 +57,18 @@ Seven skills ship a small Python script beside their `SKILL.md`:
 
 | Script | Does |
 |---|---|
-| `emem-verify-receipt/verify.py` | rebuilds a receipt's preimage and checks its signature |
-| `emem-transparency-log/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
-| `emem-document-evidence/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
-| `emem-field-tokens/rehash.py` | re-hashes a downloaded artifact against its cid |
-| `emem-multi-agent-handoff/verify_note.py` | checks which key wrote a memory note |
-| `emem-tokenise-files/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
-| `emem-sign-and-attest/sign_write.py` | holds the agent's key and signs a write it composed |
+| `emem-verify-receipt/scripts/verify.py` | rebuilds a receipt's preimage and checks its signature |
+| `emem-transparency-log/scripts/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
+| `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
+| `emem-field-tokens/scripts/rehash.py` | re-hashes a downloaded artifact against its cid |
+| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note |
+| `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
+| `emem-sign-and-attest/scripts/sign_write.py` | holds the agent's key and signs a write it composed |
 
 Each reads only the files you pass it (and `sign_write.py` its identity
 file) and makes no network call. BLAKE3
-and Ed25519 verification come from one shared module,
-`lib/emem_crypto.py`: plain Python 3 with no third-party packages and
+and Ed25519 verification come from one module, `emem_crypto.py`, shipped
+in each skill's `scripts/` so a skill copied on its own still runs: plain Python 3 with no third-party packages and
 no compiled code, so nothing is installed to run them. Every verifier
 takes `--self-test`, which checks that module against the official
 BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
