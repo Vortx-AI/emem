@@ -161,6 +161,27 @@ fn main() -> Result<()> {
     }
     println!();
 
+    // Row counts cannot see a fact that is in sled and not in redb, and the
+    // redb backfill did strand some (derivatives and index-displaced facts;
+    // read-repair has been recovering them one read at a time). So before a
+    // tree is dropped from the copy, every one of its keys is checked in redb
+    // and anything missing is copied there first. Only missing keys are
+    // written: a key redb already holds is never overwritten from sled.
+    for tree in migrated.clone() {
+        let missing = reconcile(&db, &redb, tree, apply)?;
+        println!(
+            "reconcile: {tree} missing_in_redb={missing}{}",
+            if missing == 0 {
+                ""
+            } else if apply {
+                " (copied into redb)"
+            } else {
+                " (would be copied with --apply)"
+            }
+        );
+    }
+    println!();
+
     let mut keep: Vec<(String, usize)> = Vec::new();
     let mut drop_: Vec<(String, usize)> = Vec::new();
     for name in db.tree_names() {
@@ -248,4 +269,111 @@ fn main() -> Result<()> {
     println!("   mv {} {}", out_path.display(), cache_path.display());
     println!("Roll back by reversing those two moves.");
     Ok(())
+}
+
+/// Copy into redb every row of `tree` that redb does not already hold, and
+/// return how many there were. With `apply` false it only counts.
+fn reconcile(
+    db: &sled::Db,
+    redb: &emem_cache::redb_facts::RedbFacts,
+    tree: &str,
+    apply: bool,
+) -> Result<usize> {
+    const BATCH: usize = 1000;
+    let src = db.open_tree(tree.as_bytes())?;
+    let kv_table = MIGRATING.iter().find(|(n, _)| *n == tree).map(|(_, t)| *t);
+    let mut missing = 0usize;
+    let mut fact_rows: Vec<emem_cache::redb_facts::FactRow> = Vec::new();
+    let mut kv_rows: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    for kv in src.iter() {
+        let (k, v) = kv?;
+        let present = match (tree, kv_table) {
+            ("emem.facts", _) => redb.contains_fact(&k)?,
+            ("emem.canonical_index", _) => redb.contains_index(&k)?,
+            (_, Some(t)) => redb.kv_get(t, &k)?.is_some(),
+            _ => true,
+        };
+        if present {
+            continue;
+        }
+        missing += 1;
+        if !apply {
+            continue;
+        }
+        match (tree, kv_table) {
+            ("emem.facts", _) => fact_rows.push((k.to_vec(), v.to_vec(), None)),
+            // An index row points at a fact by cid. It is written with that
+            // fact's bytes from redb; the facts pass runs first, so a fact
+            // only sled held is already there.
+            ("emem.canonical_index", _) => {
+                if let Some(cbor) = redb.get_fact(&v)? {
+                    fact_rows.push((v.to_vec(), cbor, Some(k.to_vec())));
+                } else {
+                    println!("   WARNING: index key points at a fact redb does not hold; left in the sled original");
+                }
+            }
+            (_, Some(_)) => kv_rows.push((k.to_vec(), v.to_vec())),
+            _ => {}
+        }
+        if fact_rows.len() >= BATCH {
+            redb.put_batch(&fact_rows, false)?;
+            fact_rows.clear();
+        }
+        if kv_rows.len() >= BATCH {
+            if let Some(t) = kv_table {
+                redb.kv_put_batch(t, &kv_rows, false)?;
+            }
+            kv_rows.clear();
+        }
+    }
+    if apply {
+        redb.put_batch(&fact_rows, true)?;
+        if let Some(t) = kv_table {
+            redb.kv_put_batch(t, &kv_rows, true)?;
+        }
+    }
+    Ok(missing)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reconcile_copies_only_what_redb_lacks_and_dry_run_writes_nothing() {
+        let dir = std::env::temp_dir().join(format!("emem-slim-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let redb = emem_cache::redb_facts::RedbFacts::open(dir.join("facts.redb")).unwrap();
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let facts = db.open_tree("emem.facts").unwrap();
+        facts
+            .insert(b"only-in-sled", b"sled-bytes".to_vec())
+            .unwrap();
+        facts
+            .insert(b"in-both", b"stale-sled-bytes".to_vec())
+            .unwrap();
+        redb.put_batch(&[(b"in-both".to_vec(), b"redb-bytes".to_vec(), None)], true)
+            .unwrap();
+
+        assert_eq!(reconcile(&db, &redb, "emem.facts", false).unwrap(), 1);
+        assert!(
+            !redb.contains_fact(b"only-in-sled").unwrap(),
+            "a dry run must not write"
+        );
+
+        assert_eq!(reconcile(&db, &redb, "emem.facts", true).unwrap(), 1);
+        assert_eq!(
+            redb.get_fact(b"only-in-sled").unwrap().as_deref(),
+            Some(&b"sled-bytes"[..])
+        );
+        assert_eq!(
+            redb.get_fact(b"in-both").unwrap().as_deref(),
+            Some(&b"redb-bytes"[..]),
+            "redb's copy must never be overwritten from sled"
+        );
+        assert_eq!(reconcile(&db, &redb, "emem.facts", false).unwrap(), 0);
+        drop(redb);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

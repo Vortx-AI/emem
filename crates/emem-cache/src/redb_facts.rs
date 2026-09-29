@@ -84,6 +84,44 @@ const META_DONE: &str = "backfill_done";
 
 /// (fact cid bytes, canonical CBOR, canonical key bytes if the fact has one)
 pub type FactRow = (Vec<u8>, Vec<u8>, Option<Vec<u8>>);
+
+/// Commits over this are logged with what they carried and the kernel's dirty
+/// and writeback memory at that moment. 130-340 s Immediate commits came in one
+/// window on 2026-09-29 and did not reproduce under tracing; the next one
+/// should arrive with its own evidence.
+const SLOW_COMMIT: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn log_slow_commit(
+    table: &str,
+    rows: usize,
+    bytes: usize,
+    durable: bool,
+    took: std::time::Duration,
+) {
+    if took < SLOW_COMMIT {
+        return;
+    }
+    let meminfo = std::fs::read_to_string("/proc/meminfo").unwrap_or_default();
+    let kb = |name: &str| {
+        meminfo
+            .lines()
+            .find(|l| l.starts_with(name))
+            .and_then(|l| l.split_whitespace().nth(1))
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(0)
+    };
+    tracing::warn!(
+        target: "emem::redb",
+        table,
+        rows,
+        bytes,
+        durable,
+        commit_ms = took.as_millis() as u64,
+        dirty_kb = kb("Dirty:"),
+        writeback_kb = kb("Writeback:"),
+        "slow redb commit"
+    );
+}
 /// index rows as (key bytes, cid bytes)
 pub type IndexRows = Vec<(Vec<u8>, Vec<u8>)>;
 /// Raw rows of a byte-to-byte table.
@@ -469,7 +507,13 @@ impl RedbFacts {
                 }
             }
         }
+        let bytes: usize = items
+            .iter()
+            .map(|(c, b, k)| c.len() + b.len() + k.as_ref().map_or(0, Vec::len))
+            .sum();
+        let t = std::time::Instant::now();
         w.commit().map_err(rb)?;
+        log_slow_commit("facts", items.len(), bytes, durable, t.elapsed());
         Ok(())
     }
 
@@ -503,7 +547,16 @@ impl RedbFacts {
                 tb.insert(k.as_slice(), v.as_slice()).map_err(rb)?;
             }
         }
+        let bytes: usize = items.iter().map(|(k, v)| k.len() + v.len()).sum();
+        let started = std::time::Instant::now();
         w.commit().map_err(rb)?;
+        log_slow_commit(
+            t.table_name(),
+            items.len(),
+            bytes,
+            durable,
+            started.elapsed(),
+        );
         Ok(())
     }
 
