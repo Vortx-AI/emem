@@ -14,7 +14,7 @@ Reads need no key and no account. None of emem's write verbs is exposed in this 
 
 ## `emem_ask`
 
-Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope. When to use: Call when the question is about a specific place and the answer should carry its own evidence. Send the user's question verbatim as `q` plus a location as `place` (free text), `cell` (cell64), or `lat`+`lng`. One envelope comes back: `answer`, `spatial_trace` (the readings as primitives, each point indexing `fact_cids`),…
+Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope. When to use: Call when the question is about a specific place and the answer should carry its own evidence. Send the question verbatim as `q` plus `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection: `answer`, `receipt` (cite `receipt.fact_cids`), `place_resolved`, `routed_to`, `facts_summary`, `algorithm_outcomes_summary`,…
 
 **Read-only:** no. ask_inner reads through recall_with_auto_materialize, and for questions whose algorithm has a temporal recipe it also calls materialize_band_at. Both fetch a missing band, sign the fact and persist it to emem's publicly readable store, so the call can change what later readers see.
 
@@ -145,7 +145,7 @@ Required: `cell`, `fact_cid`
 
 ## `emem_find_similar`
 
-k-NN over the corpus by cell embedding or inline vector. Returns `neighbours` ordered nearest-first, each with `cell64`, `score` and the `band` scanned, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never materialised,…
+k-NN over the corpus by cell embedding or inline vector. Returns `neighbors` ordered nearest-first, each with `cell`, `score`, `lat`/`lng` and `band_used`, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never…
 
 **Read-only:** no. The handler is find_similar_with_auto_materialize. When the seed cell has no vector fact, it materialises that band and the signed fact is persisted to emem's publicly readable store. The similarity search itself writes nothing.
 
@@ -294,7 +294,7 @@ The map of emem's tool surface, and the only tool you need to find the rest: the
 
 ## `emem_guard_verdict`
 
-Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin,…
+Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), PROV_VALUE (a stated value disagrees with the cited fact), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -334,8 +334,8 @@ Give a real-world object (a bridge, a farm plot, a river, a named place) a singl
   "cell": "<cell>", // optional
   "lat": 0,         // optional
   "lng": 0,         // optional
-  "external_ids": {}, // optional
-  "kind": "<kind>"  // optional
+  "attester": {},   // optional
+  "external_ids": {} // optional
 }
 ```
 
@@ -358,6 +358,7 @@ Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wiki
 ```json
 {
   "alias": "<alias>",             // optional
+  "attester": {},                 // optional
   "entity_cid": "<entity_cid>",   // optional
   "entity_token": "<entity_token>", // optional
   "external_ids": {},             // optional
@@ -420,7 +421,7 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 
 ## `search`
 
-Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false. When to use: Call first when a question is about a place and the…
+Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false. When to use: Call first when a question is about a…
 
 **Read-only:** no. openai_search is a projection of emem_recall and calls recall_with_auto_materialize, so on a cold cell it fetches the missing band, signs the fact and persists it to emem's publicly readable store before returning citations.
 
