@@ -308,16 +308,14 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
   <h2 id="gaps-h"><span class="num">04</span>What is unfinished</h2>
   <p>Both dense viewers are partly built. This is what a visitor will run into, as checked against the served files and emem.dev on 2026-09-29. The ledger buttons above re-run the token checks live.</p>
   <ul class="gaps">
-    <li><b>The derived tokens do not resolve.</b>Seven of the eight ledgers name a derived NDVI token (<code>same_doy_ndvi_delta@1</code>) with status <code>registered</code>. Each returns 404 from <code>/v1/memory_token/resolve</code> today, while the Sentinel-2 facts under it resolve. The Keylong ledger's cube and raster field tokens return 404 the same way. The lineage stops one step short of the world.</li>
     <li><b>The Pattan farm has no ledger.</b>Its derivation is <code>pending</code> with the note "no resolvable NDVI facts at centre", so it lists no parent tokens. Its per-cell facts in the scene digest do resolve.</li>
-    <li><b>Soubr&eacute; is partial.</b>4 of its 15 parent tokens return 404. It has one Sentinel-2 date, so the timeline has nothing to scrub. It is missing from the classic viewer's world menu and opens there only by URL.</li>
-    <li><b>The world signature is a label, not a check.</b>Each manifest carries an Ed25519 signature, made by a different key for each world. None of those keys is emem's responder key or the builder key the ledgers name, and neither viewer verifies the signature in the page. "ed25519 signed" in the provenance panel is text.</li>
-    <li><b>The classic readout shows the wrong fact id.</b>In the five worlds whose cells carry Sentinel-2 facts, the readout looks the fact up by date, but those cells key their facts by band. It falls back to the last one in the list, which for nearly every cell is the water-recurrence fact, whichever value you were reading. Its link opens <code>/verify</code> without the id. The three Sentinel-1 worlds (Grand Canyon, Srisailam, Tungabhadra) key their facts by date, and the ids sampled from them resolve.</li>
-    <li><b>Spark calls every splat signed.</b>Its place card reads "1,582,934 signed splats" for Srisailam while its own layer panel counts 9,216 measured.</li>
-    <li><b>One overlay is missing.</b><code>world_intel.png</code> returns 404 for Keylong and Soubr&eacute;, and the classic viewer asks for it.</li>
+    <li><b>Soubr&eacute; has one date.</b>All 15 of its parent tokens resolve, but it has one Sentinel-2 date, so the timeline has nothing to scrub.</li>
+    <li><b>A manifest signature names no one.</b>Each world's manifest is signed with a key derived from the manifest itself, so anyone holding the manifest can make the same signature. The viewers now say content-addressed rather than ed25519 signed. What a reader can check is the root cid and the chain to emem-signed facts, which the ledger buttons above do.</li>
+    <li><b>One overlay is missing.</b><code>world_intel.png</code> does not exist for Keylong and Soubr&eacute;. The classic viewer asks for it and carries on without it.</li>
     <li><b>The downloads are large.</b>The classic viewer fetches a <code>.splat</code> of 2.9 MB (Soubr&eacute;) to 119 MB (Grand Canyon). Spark streams a paged <code>.rad</code> first, but the big worlds are still tens of megabytes.</li>
     <li><b>The Ask panel is model text.</b>Both viewers can put a question to a local model over the scene's facts. What it writes is not a fact; only the fact ids it cites can be checked.</li>
   </ul>
+  <p>Fixed on 2026-09-29: every ledger's derived NDVI token and Keylong's cube and raster tokens resolve again (they had been left out of a storage move), Soubr&eacute;'s four missing parents resolve, the classic readout lists each band's fact with its own check, Soubr&eacute; is in the classic menu, and Spark counts measured splats apart from the rest.</p>
   <p class="checked">Re-derive: <code>POST /v1/memory_token/resolve {"token": "&lt;emem:fact:...&gt;"}</code> for each token in <code>/splats/&lt;world&gt;/emem_provenance.json</code>.</p>
 </section>
 </main>
@@ -413,28 +411,28 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
   var DENSE = [
     { dir: "world_haridwar", name: "Har Ki Pauri, Haridwar",
       story: "The Ganges at the Har Ki Pauri ghats. Cells carry signed elevation, water recurrence, and vegetation, water and turbidity indices.",
-      gap: "Derived token returns 404; parent facts resolve." },
+      gap: "Ledger resolves: parent facts and the derived NDVI token." },
     { dir: "world_london", name: "Westminster, London",
       story: "Piccadilly to Big Ben, with the Thames. Cells carry elevation, water recurrence, and vegetation, water and built-up indices.",
-      gap: "Derived token returns 404; parent facts resolve." },
+      gap: "Ledger resolves: parent facts and the derived NDVI token." },
     { dir: "world_srisailam", name: "Srisailam reservoir",
       story: "The reservoir behind the Srisailam dam on the Krishna. Per-cell facts are a dated Sentinel-1 radar series.",
-      gap: "Derived token returns 404; parent facts resolve." },
+      gap: "Ledger resolves: parent facts and the derived NDVI token." },
     { dir: "world_tungabhadra", name: "Tungabhadra reservoir",
       story: "A reservoir whose water line moves through the year. Per-cell facts are a dated Sentinel-1 radar series.",
-      gap: "Derived token returns 404; parent facts resolve." },
+      gap: "Ledger resolves: parent facts and the derived NDVI token." },
     { dir: "world3d", name: "Grand Canyon",
       story: "Geometry from USGS 3DEP bare-earth elevation at 1.67 m, fetched from USGS rather than through emem. Per-cell facts are a dated Sentinel-1 series.",
-      gap: "Derived token returns 404. The largest download: a 119 MB .splat." },
+      gap: "The largest download: a 119 MB .splat." },
     { dir: "world_farm", name: "Pattan valley farm, Lahaul",
       story: "Fields with a season verdict per plot. Cells carry twelve signed bands, from vegetation indices to soil and tree cover.",
       gap: "No ledger yet: the derivation is pending, so no parent tokens are listed." },
     { dir: "world_lahaul", name: "Keylong hillside, Lahaul",
       story: "A 320 m hillside at true 10 m, with no super-resolution. The ledger also names cube and raster field tokens.",
-      gap: "Derived, cube and raster tokens return 404. world_intel.png is missing." },
+      gap: "Ledger, cube and raster tokens resolve. world_intel.png is missing." },
     { dir: "world_soubre", name: "Soubré cocoa plot, Côte d'Ivoire",
       story: "Built as deforestation evidence: cells carry forest-loss and forest-cover facts from Hansen, JRC and TMF.",
-      gap: "4 of 15 parent tokens return 404. One Sentinel-2 date. Not in the classic viewer's menu. world_intel.png is missing." },
+      gap: "One Sentinel-2 date. world_intel.png is missing." },
   ];
   var $ = function (id) { return document.getElementById(id); };
   function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
