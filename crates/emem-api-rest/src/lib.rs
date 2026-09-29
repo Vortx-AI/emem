@@ -40444,6 +40444,17 @@ fn entity_alias_read(tree: &sled::Tree, key: &str) -> Vec<String> {
 /// disagreement is a new row, never an edit of an old one.
 fn alias_claim_append(tree: &sled::Tree, key: &str, claim: &emem_primitives::entity::AliasClaim) {
     let mut claims = alias_claims_read(tree, key);
+    // A key repeating a claim it already made adds nothing: same entity, same
+    // stance, same author. Without this every retry appended another signed
+    // row, so the tool's idempotentHint was false in practice. A changed
+    // stance is a new claim and is kept, so a later dispute still lands.
+    if claims.iter().any(|c| {
+        c.entity_cid == claim.entity_cid
+            && c.stance == claim.stance
+            && c.attester_pubkey_b32 == claim.attester_pubkey_b32
+    }) {
+        return;
+    }
     claims.push(claim.clone());
     if let Ok(buf) = serde_json::to_vec(&claims) {
         let _ = tree.insert(key.as_bytes(), buf);
@@ -89928,6 +89939,34 @@ mod tests {
         .expect("front by cid");
         assert_eq!(by_cid["front_matter"]["emem"], "pointer.v1");
         assert!(by_cid["content"].is_null(), "{by_cid}");
+    }
+
+    #[test]
+    fn repeating_the_same_alias_claim_adds_no_row() {
+        use emem_primitives::entity::{AliasClaim, AliasStance};
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let t = db.open_tree("claims").unwrap();
+        let claim = |stance, at: &str| AliasClaim {
+            entity_cid: "e1".into(),
+            stance,
+            attester_pubkey_b32: Some("k1".into()),
+            signed_at: at.into(),
+            request_id: at.into(),
+            receipt_signature_b32: "s".into(),
+        };
+        alias_claim_append(&t, "mount fuji", &claim(AliasStance::Asserts, "t1"));
+        alias_claim_append(&t, "mount fuji", &claim(AliasStance::Asserts, "t2"));
+        assert_eq!(
+            alias_claims_read(&t, "mount fuji").len(),
+            1,
+            "a retry is a no-op"
+        );
+        alias_claim_append(&t, "mount fuji", &claim(AliasStance::Disputes, "t3"));
+        assert_eq!(
+            alias_claims_read(&t, "mount fuji").len(),
+            2,
+            "a changed stance is kept"
+        );
     }
 
     #[tokio::test]
