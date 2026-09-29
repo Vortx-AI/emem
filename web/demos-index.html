@@ -163,7 +163,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
 </div>
 <div class="navsec"><h6>lab</h6>
-<a href="/worlds"><b>Worlds<i class="labtag">lab</i></b><span>fly signed terrain</span></a>
+<a href="/worlds"><b>Worlds<i class="labtag">lab</i></b><span>fly places built on signed facts</span></a>
 <a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
 <a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
 <a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
@@ -279,11 +279,11 @@ input::placeholder{color:var(--mute,#7a7363)}
         <p class="desc">Four Gaussian-splat scenes: Grand Canyon, Interlaken, Cairo and Giza, and Rondônia. Each splat is one cell of signed facts, 1,024 cells per scene. Click a splat to read and verify its values.</p>
         <div class="meta"><span class="tag status">live</span><span class="tag">one splat = one cell</span></div>
       </article>
-      <article class="card status-live">
-        <a class="title" href="/splats">Dense worlds</a>
+      <article class="card status-partial">
+        <a class="title" href="/worlds#dense">Dense worlds</a>
         <span class="endpoint">GET /splats</span>
-        <p class="desc">Navigable splat scenes (Haridwar, Lahaul, London, Srisailam, Tungabhadra and a farm). Every splat is tagged measured, interpolated or synthesized, and the added layers can be switched off. View only.</p>
-        <div class="meta"><span class="tag status">live</span><span class="tag">measured / interpolated / synthesized</span></div>
+        <p class="desc">Eight flyable splat scenes, most with a Sentinel-2 time series: Haridwar, London, Srisailam, Tungabhadra, Grand Canyon, a Lahaul farm, a Keylong hillside and a Soubr&eacute; cocoa plot. Every splat is tagged measured, interpolated or synthesized. Partly built: the catalogue lists what is missing.</p>
+        <div class="meta"><span class="tag status">partial</span><span class="tag">measured / interpolated / synthesized</span></div>
       </article>
       <article class="card status-live">
         <a class="title" href="/gallery">Gallery</a>

@@ -9,11 +9,12 @@
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="Interactive 3-D gaussian splat worlds where every splat is one cell of signed Earth facts. Click any splat to read its values and re-check its signature.">
+<script>if(/[?&]world=/.test(location.search))document.documentElement.classList.add("viewer");</script>
+<meta name="description" content="Real places rebuilt as 3-D Gaussian-splat worlds. Each splat is tagged measured, interpolated or synthesized, and the measured layer resolves to signed emem facts. Twelve worlds, three viewers, and a list of what is unfinished.">
 <link rel="canonical" href="https://emem.dev/worlds">
 <link rel="icon" type="image/gif" href="/vortxgola.gif">
 <meta property="og:title" content="3-D worlds from signed facts: emem">
-<meta property="og:description" content="Orbit a world built entirely from signed Earth facts. Click any splat to read its measured values and verify its signature. Real satellite imagery drapes underneath as reference.">
+<meta property="og:description" content="Real places rebuilt as 3-D Gaussian-splat worlds. The measured layer of each one resolves to signed emem facts you can check yourself.">
 <meta property="og:url" content="https://emem.dev/worlds">
 <meta property="og:image" content="https://emem.dev/og-image.png">
 <meta name="twitter:card" content="summary_large_image">
@@ -21,8 +22,14 @@
 <style>
 :root{ /* tokens come from /tokens.css */ }
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;height:100%;overflow:hidden}
-body{background:#0b0a08;color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.5;-webkit-font-smoothing:antialiased}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.5;-webkit-font-smoothing:antialiased}
+/* Two modes on one route. /worlds is a readable catalogue; /worlds?world=<preset>
+   is the full-screen viewer, which is the only mode that locks scrolling. */
+html.viewer,html.viewer body{height:100%;overflow:hidden}
+html.viewer body{background:#0b0a08}
+html:not(.viewer) #viewer{display:none}
+html.viewer #catalog{display:none}
 a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
 a:hover{color:var(--accent);border-bottom-color:var(--accent)}
 button{font-family:var(--mono);cursor:pointer}
@@ -133,6 +140,56 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 /* The panel's minimise control is an icon with no text, so nothing sized it.
    min(width,height) >= 24 is the criterion, not height alone. */
 .panel button.min-btn,.min-btn{min-width:24px;min-height:24px}
+
+/* ---- catalogue (/worlds without ?world=) ---- */
+#catalog a{border-bottom:0}
+#catalog .doc-head{border-bottom:1px solid var(--rule)}
+#catalog .doc-head .facts dd{font-variant-numeric:tabular-nums}
+.wsec{max-width:var(--w-page);margin:0 auto;padding:var(--s-5) var(--gutter);border-bottom:1px solid var(--rule);box-sizing:border-box}
+.wsec > h2{margin:0 0 var(--s-3);font-family:var(--display);font-weight:420;font-variation-settings:'opsz' 42;font-size:var(--t-2xl);line-height:1.1;letter-spacing:-.012em;color:var(--ink);text-wrap:balance}
+.wsec > h2 .num{font-family:var(--mono);font-size:var(--t-sm);color:var(--mute-2);margin-right:var(--s-3);font-weight:500;vertical-align:.3em}
+.wsec > p,.wsec > ul.prose > li{font-family:var(--display);font-size:var(--t-md);line-height:1.6;color:var(--ink-2);max-width:66ch;font-variation-settings:'opsz' 18}
+.wsec > p{margin:0 0 var(--s-3)}
+.wsec > ul.prose{margin:0 0 var(--s-3);padding-left:1.2em;max-width:70ch}
+.wsec > ul.prose > li{margin:0 0 var(--s-3)}
+.wsec > ul.prose > li > b:first-child{font-family:var(--mono);font-size:.84em;font-weight:600;color:var(--ink)}
+.wsec :is(p,li) code{font-family:var(--mono);font-size:.84em;color:var(--ink);overflow-wrap:anywhere}
+.wsec p a,.wsec li a{color:var(--accent);text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px}
+.tags3{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,15rem),1fr));gap:var(--s-3);margin:var(--s-4) 0;max-width:70rem}
+.tags3 div{border:1px solid var(--rule-strong);padding:var(--s-3);background:var(--paper-2)}
+.tags3 b{display:block;font:600 var(--t-sm)/1.3 var(--mono);color:var(--ink)}
+.tags3 span{display:block;margin-top:var(--s-1);font:var(--t-xs)/1.5 var(--mono);color:var(--ink-2)}
+.tags3 .m b{color:var(--accent)}.tags3 .i b{color:var(--machine)}.tags3 .s b{color:var(--warn)}
+.sparse{list-style:none;margin:var(--s-4) 0 0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,17rem),1fr));gap:var(--s-3)}
+#catalog .sparse a{display:block;text-decoration:none;height:100%;padding:var(--s-3);border:1px solid var(--rule-strong);background:var(--paper-2);color:var(--ink);box-sizing:border-box}
+.sparse a:hover{border-color:var(--accent);background:var(--accent-bg)}
+.sparse b{display:block;font:600 var(--t-sm)/1.3 var(--mono)}
+.sparse span{display:block;margin-top:var(--s-1);font:var(--t-xs)/1.45 var(--mono);color:var(--mute)}
+.wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,20rem),1fr));gap:var(--s-4);margin-top:var(--s-4)}
+.wcard{display:flex;flex-direction:column;border:1px solid var(--rule-strong);background:var(--paper-2);min-width:0}
+.wcard figure{margin:0;position:relative;background:var(--paper-3)}
+.wcard img{display:block;width:100%;aspect-ratio:16/10;object-fit:cover}
+.wcard figcaption{position:absolute;left:0;bottom:0;padding:.15rem .45rem;font:var(--t-3xs)/1.4 var(--mono);color:#eee;background:rgba(0,0,0,.55)}
+.wcard .wb{padding:var(--s-3);display:flex;flex-direction:column;gap:var(--s-2);flex:1}
+.wcard h3{margin:0;font-family:var(--display);font-weight:500;font-size:var(--t-lg);line-height:1.2;color:var(--ink)}
+.wcard .where{margin:0;font:var(--t-2xs)/1.4 var(--mono);color:var(--mute)}
+.wcard .story{margin:0;font-family:var(--display);font-size:var(--t-base);line-height:1.5;color:var(--ink-2)}
+.wcard dl{display:grid;grid-template-columns:auto minmax(0,1fr);gap:.2rem var(--s-3);margin:0;font:var(--t-xs)/1.45 var(--mono)}
+.wcard dt{color:var(--mute)}
+.wcard dd{margin:0;color:var(--ink);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.wcard .gap{margin:0;padding:var(--s-2);border-left:2px solid var(--warn);background:var(--paper);font:var(--t-xs)/1.5 var(--mono);color:var(--ink-2)}
+.wcard .go{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-top:auto;padding-top:var(--s-2)}
+#catalog .wcard .go a,.wcard .go button{text-decoration:none;display:inline-flex;align-items:center;min-height:36px;padding:0 .8rem;border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);font:var(--t-xs) var(--mono);cursor:pointer}
+.wcard .go a.pri{border-color:var(--accent);color:var(--accent)}
+.wcard .go a:hover,.wcard .go button:hover{border-color:var(--accent);background:var(--accent-bg)}
+.wcard .ledger{margin:0;font:var(--t-xs)/1.5 var(--mono);color:var(--ink-2);overflow-wrap:anywhere}
+.wcard .ledger .ok{color:var(--accent)}.wcard .ledger .no{color:var(--warn)}
+.wcard .ledger a{color:var(--accent)}
+.gaps{margin:var(--s-4) 0 0;padding:0;list-style:none;display:grid;gap:var(--s-3);max-width:78ch}
+.gaps li{padding:var(--s-3);border:1px solid var(--rule);border-left:3px solid var(--warn);background:var(--paper-2);font-family:var(--display);font-size:var(--t-base);line-height:1.55;color:var(--ink-2)}
+.gaps li b:first-child{display:block;margin-bottom:var(--s-1);font:600 var(--t-sm)/1.3 var(--mono);color:var(--ink)}
+.gaps code{font-family:var(--mono);font-size:.84em;color:var(--ink);overflow-wrap:anywhere}
+.checked{font:var(--t-2xs)/1.5 var(--mono);color:var(--mute);margin-top:var(--s-3)}
 </style>
 </head>
 <body class="doc">
@@ -169,7 +226,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 <a href="/v1/log/sth"><b>Log head</b><span>pin a signed head</span></a>
 </div>
 <div class="navsec"><h6>lab</h6>
-<a href="/worlds" aria-current="page"><b>Worlds<i class="labtag">lab</i></b><span>fly signed terrain</span></a>
+<a href="/worlds" aria-current="page"><b>Worlds<i class="labtag">lab</i></b><span>fly places built on signed facts</span></a>
 <a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
 <a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
 <a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
@@ -180,7 +237,7 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Worlds</span></li></ol><span class="aud-for">lab</span><span class="aud-what">signed terrain you can fly through: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Worlds</span></li></ol><span class="aud-for">lab</span><span class="aud-what">real places in 3-D, built on signed facts: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -190,6 +247,82 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 <!-- The panels are fixed and the site chrome above them wraps to two or three
      rows on a narrow screen, so their top edge is measured, not guessed. -->
 <script>(function(){function set(){var a=document.querySelector('.audience');if(!a)return;document.documentElement.style.setProperty('--wl-top',Math.ceil(a.getBoundingClientRect().bottom+8)+'px');}set();addEventListener('resize',set);addEventListener('load',set);})();</script>
+<main id="catalog">
+<header class="doc-head">
+  <div>
+    <p class="eyebrow">Lab &middot; partly built</p>
+    <h1>Worlds: real places in 3&#8209;D, built on signed facts</h1>
+    <p class="purpose">A world is a Gaussian-splat reconstruction of a real place that you can orbit and fly through. The picture is not the evidence: the measurements under it are emem facts you can resolve by token and check yourself.</p>
+    <dl class="facts">
+      <div><dt>sparse worlds</dt><dd id="n-sparse">4</dd></div>
+      <div><dt>dense worlds</dt><dd>8</dd></div>
+      <div><dt>viewers</dt><dd>3</dd></div>
+      <div><dt>status</dt><dd>unfinished, see <a href="#gaps">what is missing</a></dd></div>
+    </dl>
+  </div>
+  <nav class="doc-toc" aria-label="On this page"><h2>On this page</h2><ol>
+    <li><a href="#what"><span>01</span>What a world is</a></li>
+    <li><a href="#sparse"><span>02</span>Sparse worlds</a></li>
+    <li><a href="#dense"><span>03</span>Dense worlds</a></li>
+    <li><a href="#gaps"><span>04</span>What is unfinished</a></li>
+  </ol></nav>
+</header>
+
+<section class="wsec" id="what" aria-labelledby="what-h">
+  <h2 id="what-h"><span class="num">01</span>What a world is</h2>
+  <p>Each splat in a world carries one of three tags, and the viewers can colour or hide splats by tag.</p>
+  <div class="tags3">
+    <div class="m"><b>measured</b><span>sits on a signed elevation node, coloured from a Sentinel-2 scene</span></div>
+    <div class="i"><b>interpolated</b><span>fills the surface between measured nodes</span></div>
+    <div class="s"><b>synthesized</b><span>invented texture (rock, water, fields) so the place reads as a place; marked and removable</span></div>
+  </div>
+  <p>A photoreal scene is cheap to generate and cannot be trusted by looking at it.</p>
+  <p>A world here is meant to be the opposite. Its measured layer points back to facts with a content address and a signature, so a person or an agent can check what the scene stands on instead of believing the pixels.</p>
+  <p>Mind the proportions. In the dense worlds the measured splats are a small share: 9,216 of 1,623,721 at Haridwar, about 0.6 percent. The rest is densification and texture.</p>
+  <p>So what you can verify is the measured base and the facts it came from, not the look of the whole scene.</p>
+</section>
+
+<section class="wsec" id="sparse" aria-labelledby="sparse-h">
+  <h2 id="sparse-h"><span class="num">02</span>Sparse worlds: one splat, one cell</h2>
+  <p>These are drawn by this page's own viewer. Each splat is one cell of signed facts at a fixed place on Earth, at most 1,024 cells per scene.</p>
+  <p>Click a splat to read its values and open its fact in <a href="/verify">/verify</a>. The page hashes the scene file in your browser and shows whether its SHA-256 matches the baked metadata.</p>
+  <ul class="sparse" id="sparse-list">
+    <li><a href="/worlds?world=canyon"><b>Grand Canyon</b><span>elevation</span></a></li>
+    <li><a href="/worlds?world=interlaken"><b>Interlaken</b><span>elevation, vegetation, water</span></a></li>
+    <li><a href="/worlds?world=semantic"><b>Cairo and Giza</b><span>elevation, GeoTessera embedding</span></a></li>
+    <li><a href="/worlds?world=carbon"><b>Rond&ocirc;nia</b><span>biomass, forest loss year</span></a></li>
+  </ul>
+</section>
+
+<section class="wsec" id="dense" aria-labelledby="dense-h">
+  <h2 id="dense-h"><span class="num">03</span>Dense worlds: flyable scenes with a time series</h2>
+  <p>Eight scenes built in a separate project and served from disk under <code>/splats</code>. They hold 91 thousand to 3.7 million splats each, and most carry a dated Sentinel-2 series you can scrub through.</p>
+  <p>Two viewers read the same files: the <b>classic</b> viewer and a newer one built on the <b>Spark</b> renderer. Spark also replays recorded agent runs and verifies them in the page.</p>
+  <p>Each world ships a token ledger, <code>emem_provenance.json</code>, listing the emem fact tokens its NDVI lineage stands on. The button on each card resolves those tokens against emem.dev now, from your browser.</p>
+  <p>The image on each card is the world's own Sentinel-2 input as served, <code>input_s2.png</code>, cropped to fit.</p>
+  <div class="wgrid" id="wgrid"></div>
+  <noscript><p>The cards need JavaScript. The viewers are at <a href="/splats/viewer/temporal.html">/splats/viewer/temporal.html</a> and <a href="/splats/spark/">/splats/spark/</a>.</p></noscript>
+</section>
+
+<section class="wsec" id="gaps" aria-labelledby="gaps-h">
+  <h2 id="gaps-h"><span class="num">04</span>What is unfinished</h2>
+  <p>Both dense viewers are partly built. This is what a visitor will run into, as checked against the served files and emem.dev on 2026-09-29. The ledger buttons above re-run the token checks live.</p>
+  <ul class="gaps">
+    <li><b>The derived tokens do not resolve.</b>Seven of the eight ledgers name a derived NDVI token (<code>same_doy_ndvi_delta@1</code>) with status <code>registered</code>. Each returns 404 from <code>/v1/memory_token/resolve</code> today, while the Sentinel-2 facts under it resolve. The Keylong ledger's cube and raster field tokens return 404 the same way. The lineage stops one step short of the world.</li>
+    <li><b>The Pattan farm has no ledger.</b>Its derivation is <code>pending</code> with the note "no resolvable NDVI facts at centre", so it lists no parent tokens. Its per-cell facts in the scene digest do resolve.</li>
+    <li><b>Soubr&eacute; is partial.</b>4 of its 15 parent tokens return 404. It has one Sentinel-2 date, so the timeline has nothing to scrub. It is missing from the classic viewer's world menu and opens there only by URL.</li>
+    <li><b>The world signature is a label, not a check.</b>Each manifest carries an Ed25519 signature, made by a different key for each world. None of those keys is emem's responder key or the builder key the ledgers name, and neither viewer verifies the signature in the page. "ed25519 signed" in the provenance panel is text.</li>
+    <li><b>The classic readout shows the wrong fact id.</b>In the five worlds whose cells carry Sentinel-2 facts, the readout looks the fact up by date, but those cells key their facts by band. It falls back to the last one in the list, which for nearly every cell is the water-recurrence fact, whichever value you were reading. Its link opens <code>/verify</code> without the id. The three Sentinel-1 worlds (Grand Canyon, Srisailam, Tungabhadra) key their facts by date, and the ids sampled from them resolve.</li>
+    <li><b>Spark calls every splat signed.</b>Its place card reads "1,582,934 signed splats" for Srisailam while its own layer panel counts 9,216 measured.</li>
+    <li><b>One overlay is missing.</b><code>world_intel.png</code> returns 404 for Keylong and Soubr&eacute;, and the classic viewer asks for it.</li>
+    <li><b>The downloads are large.</b>The classic viewer fetches a <code>.splat</code> of 2.9 MB (Soubr&eacute;) to 119 MB (Grand Canyon). Spark streams a paged <code>.rad</code> first, but the big worlds are still tens of megabytes.</li>
+    <li><b>The Ask panel is model text.</b>Both viewers can put a question to a local model over the scene's facts. What it writes is not a fact; only the fact ids it cites can be checked.</li>
+  </ul>
+  <p class="checked">Re-derive: <code>POST /v1/memory_token/resolve {"token": "&lt;emem:fact:...&gt;"}</code> for each token in <code>/splats/&lt;world&gt;/emem_provenance.json</code>.</p>
+</section>
+</main>
+
+<div id="viewer">
 <div id="intro" class="panel intro">
   <p><b>The measured points are signed facts.</b> Each sits at a fixed cell on Earth and carries the signature of the key that recorded it. The other points are derived from them, and the panel on the left counts both.</p>
   <p>Click a point to read its value, its band and the content address another agent can check. The satellite basemap underneath is reference imagery and is not signed.</p>
@@ -268,6 +401,155 @@ input[type=range]{width:100%;accent-color:var(--accent);height:16px}
 <div id="hint">drag to orbit · scroll to zoom · click a splat to read it</div>
 <div id="empty"><div class="box" id="empty-box"></div></div>
 <div class="toast" id="toast"></div>
+</div><!-- /#viewer -->
+
+<script>
+// The catalogue. Names and known gaps are written here; every number on a card
+// is read from the world's own served files when the page opens, so a
+// republished world never disagrees with this page.
+(function () {
+  "use strict";
+  if (document.documentElement.classList.contains("viewer")) return;
+  var DENSE = [
+    { dir: "world_haridwar", name: "Har Ki Pauri, Haridwar",
+      story: "The Ganges at the Har Ki Pauri ghats. Cells carry signed elevation, water recurrence, and vegetation, water and turbidity indices.",
+      gap: "Derived token returns 404; parent facts resolve." },
+    { dir: "world_london", name: "Westminster, London",
+      story: "Piccadilly to Big Ben, with the Thames. Cells carry elevation, water recurrence, and vegetation, water and built-up indices.",
+      gap: "Derived token returns 404; parent facts resolve." },
+    { dir: "world_srisailam", name: "Srisailam reservoir",
+      story: "The reservoir behind the Srisailam dam on the Krishna. Per-cell facts are a dated Sentinel-1 radar series.",
+      gap: "Derived token returns 404; parent facts resolve." },
+    { dir: "world_tungabhadra", name: "Tungabhadra reservoir",
+      story: "A reservoir whose water line moves through the year. Per-cell facts are a dated Sentinel-1 radar series.",
+      gap: "Derived token returns 404; parent facts resolve." },
+    { dir: "world3d", name: "Grand Canyon",
+      story: "Geometry from USGS 3DEP bare-earth elevation at 1.67 m, fetched from USGS rather than through emem. Per-cell facts are a dated Sentinel-1 series.",
+      gap: "Derived token returns 404. The largest download: a 119 MB .splat." },
+    { dir: "world_farm", name: "Pattan valley farm, Lahaul",
+      story: "Fields with a season verdict per plot. Cells carry twelve signed bands, from vegetation indices to soil and tree cover.",
+      gap: "No ledger yet: the derivation is pending, so no parent tokens are listed." },
+    { dir: "world_lahaul", name: "Keylong hillside, Lahaul",
+      story: "A 320 m hillside at true 10 m, with no super-resolution. The ledger also names cube and raster field tokens.",
+      gap: "Derived, cube and raster tokens return 404. world_intel.png is missing." },
+    { dir: "world_soubre", name: "Soubré cocoa plot, Côte d'Ivoire",
+      story: "Built as deforestation evidence: cells carry forest-loss and forest-cover facts from Hansen, JRC and TMF.",
+      gap: "4 of 15 parent tokens return 404. One Sentinel-2 date. Not in the classic viewer's menu. world_intel.png is missing." },
+  ];
+  var $ = function (id) { return document.getElementById(id); };
+  function el(tag, cls, text) { var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function n(v) { return Number(v).toLocaleString("en"); }
+  function row(dl, k, v) { var dt = el("dt", null, k), dd = el("dd", null, v); dl.appendChild(dt); dl.appendChild(dd); return dd; }
+  function getJSON(u) { return fetch(u).then(function (r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); }); }
+  // A 429 is the responder's rate limit, not an answer about the token, so it is
+  // retried after a pause and never counted as "does not resolve".
+  function resolve(tok, tries) {
+    tries = tries || 0;
+    return fetch("/v1/memory_token/resolve", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ token: tok }) })
+      .then(function (r) { return r.json().then(function (b) { return { status: r.status, body: b }; }, function () { return { status: r.status, body: {} }; }); })
+      .catch(function () { return { status: 0, body: {} }; })
+      .then(function (r) {
+        if (r.status !== 429 || tries >= 4) return r;
+        return new Promise(function (ok) { setTimeout(ok, 1500 * (tries + 1)); }).then(function () { return resolve(tok, tries + 1); });
+      });
+  }
+
+  var grid = $("wgrid");
+  DENSE.forEach(function (w) {
+    var base = "/splats/" + w.dir + "/";
+    var card = el("article", "wcard");
+    var fig = el("figure");
+    var img = el("img"); img.loading = "lazy"; img.decoding = "async"; img.width = 384; img.height = 240;
+    img.src = base + "input_s2.png"; img.alt = "Sentinel-2 true-colour input for " + w.name;
+    fig.appendChild(img); fig.appendChild(el("figcaption", null, "input_s2.png"));
+    card.appendChild(fig);
+    var b = el("div", "wb");
+    b.appendChild(el("h3", null, w.name));
+    var where = el("p", "where", w.dir); b.appendChild(where);
+    b.appendChild(el("p", "story", w.story));
+    var dl = el("dl");
+    var ddS = row(dl, "splats", "reading…"), ddM = row(dl, "measured", "…"), ddT = row(dl, "S2 dates", "…"), ddL = row(dl, "ledger", "…");
+    b.appendChild(dl);
+    b.appendChild(el("p", "gap", w.gap));
+    var out = el("p", "ledger"); out.setAttribute("aria-live", "polite"); b.appendChild(out);
+    var go = el("div", "go");
+    var a1 = el("a", "pri", "classic viewer"); a1.href = "/splats/viewer/temporal.html?world=../" + w.dir + "/";
+    var a2 = el("a", null, "Spark viewer"); a2.href = "/splats/spark/?world=../" + w.dir + "/";
+    var btn = el("button", null, "check the ledger"); btn.type = "button"; btn.disabled = true;
+    go.appendChild(a1); go.appendChild(a2); go.appendChild(btn);
+    b.appendChild(go);
+    card.appendChild(b);
+    grid.appendChild(card);
+
+    getJSON(base + "manifest.web.json").then(function (m) {
+      var wd = m.world || {};
+      where.textContent = w.dir + " · " + (wd.span_m ? n(wd.span_m) + " m across" : "") +
+        (wd.center ? " · " + wd.center[0].toFixed(3) + ", " + wd.center[1].toFixed(3) : "");
+      ddS.textContent = m.total_splats ? n(m.total_splats) : "not stated";
+      var meas = (m.layers || []).filter(function (L) { return L["class"] === "measured"; })[0];
+      ddM.textContent = meas && m.total_splats ? n(meas.count) + " (" + (100 * meas.count / m.total_splats).toFixed(1) + "%)" : "not stated";
+    }).catch(function (e) { ddS.textContent = "manifest: " + e.message; ddM.textContent = "-"; });
+    getJSON(base + "s2temporal.json").then(function (t) {
+      var d = t.dates || [];
+      ddT.textContent = d.length ? d.length + (d.length > 1 ? ", " + d[0] + " to " + d[d.length - 1] : ", " + d[0] + " (nothing to scrub)") : "none";
+    }).catch(function (e) { ddT.textContent = e.message; });
+    getJSON(base + "emem_provenance.json").then(function (p) {
+      var parents = p.parent_tokens || [], dv = p.derivation || {};
+      ddL.textContent = parents.length + " parent token" + (parents.length === 1 ? "" : "s") + " · derivation " + (dv.status || "none");
+      if (!parents.length && !dv.token) { btn.textContent = "nothing to check"; return; }
+      btn.disabled = false;
+      btn.onclick = function () {
+        btn.disabled = true; out.textContent = "resolving " + parents.length + " tokens against emem.dev…";
+        var ok = 0, limited = 0, first = null, i = 0, done = 0;
+        function next() {
+          if (i >= parents.length) return Promise.resolve();
+          var tok = parents[i++];
+          return resolve(tok).then(function (r) {
+            done++;
+            if (r.status === 200 && r.body.resolved) { ok++; if (!first) first = r.body; }
+            else if (r.status === 429 || r.status === 0) limited++;
+            out.textContent = "resolved " + ok + " of " + done + "…";
+            return next();
+          });
+        }
+        Promise.all([next(), next()]).then(function () {
+          return dv.token ? resolve(dv.token) : null;
+        }).then(function (d) {
+          out.textContent = "";
+          var s1 = el("span", ok === parents.length ? "ok" : "no", "parents resolved " + ok + "/" + parents.length);
+          out.appendChild(s1);
+          if (limited) out.appendChild(document.createTextNode(" (" + limited + " not answered: rate limit or network, try again)"));
+          if (d) {
+            out.appendChild(document.createTextNode(" · "));
+            out.appendChild(el("span", d.status === 200 && d.body.resolved ? "ok" : "no",
+              "derived token " + (d.status === 200 && d.body.resolved ? "resolves" : d.status === 404 ? "not found (404)" : "not answered (HTTP " + d.status + ")")));
+          }
+          if (first) {
+            out.appendChild(document.createElement("br"));
+            var src = (first.fact && first.fact.sources && first.fact.sources[0]) || {};
+            out.appendChild(document.createTextNode("first: " + first.band + " = " + Number(first.value).toFixed(4) +
+              (src.captured_at ? ", captured " + src.captured_at.slice(0, 10) : "") + " "));
+            var v = el("a", null, "verify " + first.fact_cid.slice(0, 10) + "…");
+            v.href = "/verify/" + first.fact_cid; out.appendChild(v);
+          }
+          btn.disabled = false; btn.textContent = "check again";
+        });
+      };
+    }).catch(function (e) { ddL.textContent = "ledger: " + e.message; });
+  });
+
+  getJSON("/v1/worlds").then(function (r) {
+    var ws = r.worlds || [];
+    if (ws.length) $("n-sparse").textContent = String(ws.length);
+    ws.forEach(function (w) {
+      var a = document.querySelector('#sparse-list a[href="/worlds?world=' + w.preset + '"]');
+      if (!a) return;
+      var s = a.querySelector("span");
+      s.textContent += " · " + n(w.splats) + " splats from " + n(w.facts) + " facts · baked " + String(w.baked_at || "").slice(0, 10);
+    });
+  }).catch(function () {});
+})();
+</script>
 
 <script>
 // Human-readable metadata for every band any world uses: name, unit, and
@@ -438,6 +720,7 @@ function semanticPCA(rows) {
 
 (function () {
   "use strict";
+  if (!document.documentElement.classList.contains("viewer")) return;
   var params = new URLSearchParams(location.search);
   var preset = params.get("world");
   if (!WORLDS[preset]) preset = "canyon";
@@ -453,6 +736,9 @@ function semanticPCA(rows) {
     a.href = "/worlds?world=" + p; a.style.borderBottom = "1px solid transparent";
     chips.appendChild(a);
   });
+  var all = document.createElement("a"); all.className = "chip"; all.href = "/worlds";
+  all.textContent = "all worlds"; all.style.borderBottom = "1px solid transparent";
+  chips.appendChild(all);
 
   $("w-title").textContent = W.title;
   $("w-story").textContent = W.story;
