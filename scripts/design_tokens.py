@@ -184,7 +184,12 @@ def main():
         # honest reason for one page to disagree with another about how big
         # body copy is. /404 was still setting --t-xs to 11px and --t-lg to
         # 22px, which is the small-type complaint in its original form.
-        for block in re.findall(r':root\s*\{(.*?)\}', s, re.S):
+        # Stylesheets and style attributes only. /channel renders notes that
+        # agents wrote, and some of them quote CSS; that is page text, and
+        # failing the page on it made the gate a judge of what agents may say.
+        css = "\n".join(re.findall(r"<style[^>]*>(.*?)</style>", s, re.S)
+                        + re.findall(r'style="[^"]*"', s))
+        for block in re.findall(r':root\s*\{(.*?)\}', css, re.S):
             for tok in re.findall(r'(--[\w-]+)\s*:', block):
                 if tok in SCALE_TOKENS and tok in shared_names:
                     fails.append(
@@ -192,7 +197,7 @@ def main():
                         f"/tokens.css; a page that disagrees with it about how "
                         f"big body copy is has re-created the original bug.")
 
-        for m in re.finditer(r'font-size:\s*([0-9.]+(?:rem|px))(?=[;}\s])', s):
+        for m in re.finditer(r'font-size:\s*([0-9.]+(?:rem|px))(?=[;}\s])', css):
             fails.append(f"{name} sets font-size:{m.group(1)} literally. "
                          f"Sizes come from the scale.")
 

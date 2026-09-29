@@ -142,11 +142,11 @@ AUDIENCE = {
     "/spec":        ("developers","the wire format, byte by byte"),
     "/reference":   ("developers","every endpoint, with worked calls"),
     "/docs":        ("developers","the book"),
-    "/guard":       ("developers","a server you run, with the commands to run it"),
+    "/guard":       ("developers","check a draft here, or run the server that enforces it"),
     "/verify":      ("developers","paste a token, watch the proof run"),
     "/demos":       ("anyone",    "live calls you can run and check"),
     "/tools":       ("agents",    "the full tool registry, generated, long"),
-    "/a2a":         ("agents",    "how two agents agree before they start"),
+    "/a2a":         ("developers","the A2A protocol surface, and the signed channel agents use"),
     "/agents":      ("agents",    "who writes here, as data"),
     "/worlds":      ("anyone",    "real places in 3-D, built on signed facts"),
     "/gallery":     ("anyone",    "the record, rendered"),
@@ -274,7 +274,7 @@ def render(current: str) -> str:
     # /reference#client-setup, not /clients: /clients serves the agent guide as
     # raw markdown, which is right for an agent and wrong for a button.
     out.append('<a class="navcta" href="/reference#client-setup">Connect</a>')
-    out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>')
+    out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>')
     out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.

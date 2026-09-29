@@ -1,8 +1,8 @@
 <!doctype html><html lang=en>
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
-<title>emem-guard: a signed yes/no server for claims about the physical world</title>
-<meta name=description content="An open-source signed verdict server: it checks whether the citations in a transcript actually verify, answers allow or deny with a machine-readable reason, and logs it.">
+<title>emem-guard: check the citations in a draft before it goes out</title>
+<meta name=description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.">
 <link rel=canonical href="https://emem.dev/guard">
 <link rel="alternate" type="text/markdown" href="/llms.txt">
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -12,20 +12,20 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <meta property=og:type content=website>
 <meta property=og:url content="https://emem.dev/guard">
-<meta property=og:title content="emem-guard: a signed yes/no server for claims about the physical world">
-<meta property=og:description content="Allow or deny, signed and logged, with a reason an agent can act on. Nine checkpoints, seven vendor-neutral. The self-host skill, actually run.">
+<meta property=og:title content="emem-guard: check the citations in a draft before it goes out">
+<meta property=og:description content="A wrong number beside a real citation, a citation pinned to the wrong place, a measurable claim with no citation: allow or deny, with a code and a fix.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
-<meta name=twitter:title content="emem-guard: signed allow/deny verdicts for AI checkpoints">
-<meta name=twitter:description content="A checkpoint asks whether to proceed. emem-guard checks the emem citations in the transcript and signs an allow or deny with a reason.">
+<meta name=twitter:title content="emem-guard: check the citations in a draft before it goes out">
+<meta name=twitter:description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
-<script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: a signed yes/no server for claims about the physical world","description":"The self-host procedure for emem-guard, run end to end with real terminal output: build, test, start, verdict, shadow-measure claim gating, and audit the signed log.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Signed allow/deny verdicts for physical-world claims","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
+<script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: check the citations in a draft before it goes out","description":"emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Checking the citations in AI-written text before it is published","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
 <style>
 
 :root{ /* tokens come from /tokens.css */ }
@@ -240,6 +240,19 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 .gd-note{font-size:var(--t-xs);color:var(--mute)}
 .section-body .ops>li{max-width:var(--measure)}
 .section-body .caveat{max-width:var(--measure)}
+.gd-presets{display:flex;flex-wrap:wrap;gap:var(--s-2);margin:0 0 var(--s-2)}
+.gd-pre{font:var(--t-xs)/1.4 var(--mono);background:var(--paper);color:var(--ink-2);border:1px solid var(--rule-strong);border-radius:2px;padding:.3rem .6rem;cursor:pointer;min-height:32px}
+.gd-pre:hover{border-color:var(--accent);color:var(--accent)}
+.gd-sum{border-top:1px solid var(--rule);padding:var(--s-3);display:grid;gap:.3rem;font-family:var(--mono);font-size:var(--t-xs)}
+.gd-sum div{display:grid;grid-template-columns:9rem minmax(0,1fr);gap:var(--s-2)}
+.gd-sum b{color:var(--mute);font-weight:500}
+.gd-sum span{color:var(--ink-2);overflow-wrap:anywhere}
+.gd-act{margin:0 0 .3rem;font-weight:700;font-size:var(--t-sm)}
+.gd-act.ok{color:var(--accent)}.gd-act.no{color:var(--vermilion)}
+.gd-sum[hidden]{display:none}
+#gout{max-height:24rem;overflow:auto}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (max-width:560px){.gd-sum div{grid-template-columns:1fr;gap:0}}
 
 </style>
 </head>
@@ -286,24 +299,25 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navcta" href="/reference#client-setup">Connect</a>
-<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
+<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Guard</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">a server you run, with the commands to run it</span></div>
+<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Guard</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">check a draft here, or run the server that enforces it</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Verify &middot; emem-guard &middot; 8 sections</p>
+    <p class="eyebrow">Verify &middot; emem-guard</p>
     <h1>emem-guard</h1>
-    <p class="purpose">A verdict server for AI checkpoints. It reads a transcript, checks the emem citations in it, and answers allow or deny with a signed, logged, machine-readable reason.</p>
+    <p class="purpose">emem-guard checks every emem citation in a draft before it goes out, and answers allow or deny with a code and a fix.</p><details class="fold"><summary>more</summary><p class="rest">Each citation is looked up in the signed record. It catches a number that disagrees with the fact it cites, a citation pinned to the wrong place, and, if you ask, a measurable claim that cites nothing.</p></details>
     <div class="actions">
-      <a class="btn" href="#run">Run it yourself</a>
-      <a class="btn ghost" href="#live">Check text here</a>
-      <a class="btn ghost" href="/v1/guard/selfhost">Get SKILL.md</a>
+      <a class="btn" href="#try">Try it on this page</a>
+      <a class="btn ghost" href="#run">Run your own node</a>
+      <a class="btn ghost" href="/.well-known/emem-guard.json">emem-guard.json</a>
     </div>
     <dl class="facts">
-      <div><dt>build</dt><dd><code>cargo build --release -p emem-guard</code></dd></div>
+      <div><dt>call</dt><dd><code>POST /v1/guard/verdict</code></dd></div>
+      <div><dt>mcp</dt><dd><code>emem_guard_verdict</code></dd></div>
       <div><dt>account</dt><dd>none</dd></div>
       <div><dt>source</dt><dd><a href="https://github.com/Vortx-AI/emem/tree/main/crates/emem-guard" target="_blank" rel="noopener noreferrer">crates/emem-guard</a></dd></div>
     </dl>
@@ -311,62 +325,158 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <nav class="doc-toc" aria-label="On this page">
     <h2>On this page</h2>
     <ol>
-      <li><a href="#what"><span>01</span>What it does</a></li>
-      <li><a href="#run"><span>02</span>Run it</a></li>
-      <li><a href="#claims"><span>03</span>Claim gating</a></li>
-      <li><a href="#value"><span>04</span>Wrong value, real citation</a></li>
+      <li><a href="#try"><span>01</span>Try it</a></li>
+      <li><a href="#checks"><span>02</span>What it checks</a></li>
+      <li><a href="#where"><span>03</span>Hosted or your own node</a></li>
+      <li><a href="#run"><span>04</span>Run your own node</a></li>
       <li><a href="#checkpoints"><span>05</span>Checkpoints</a></li>
-      <li><a href="#proof"><span>06</span>The verdict log</a></li>
-      <li><a href="#live"><span>07</span>Try it here</a></li>
-      <li><a href="#calls"><span>08</span>Design decisions</a></li>
+      <li><a href="#claims"><span>06</span>Claim gating</a></li>
+      <li><a href="#proof"><span>07</span>The verdict log</a></li>
+      <li><a href="#modules"><span>08</span>Detection modules</a></li>
+      <li><a href="#calls"><span>09</span>Design decisions</a></li>
     </ol>
   </nav>
 </header>
 
-<section class="section page" id="what">
+<section class="section page" id="try">
   <div class="section-meta">
-    <div class="idx"><span class="idx-num">01</span><span class="idx-label">what it does</span></div>
+    <div class="idx"><span class="idx-num">01</span><span class="idx-label">try it</span></div>
     <dl>
-      <dt>input</dt><dd>a conversation transcript</dd>
-      <dt>output</dt><dd>allow or deny, Ed25519-signed</dd>
+      <dt>route</dt><dd>POST /v1/guard/verdict</dd>
+      <dt>field</dt><dd><code>texts</code>, an array</dd>
+      <dt>blocks</dt><dd>nothing; advisory</dd>
+      <dt>corpus</dt><dd>this responder's own</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">01</span>Try it</h2>
+    <p class="lede">Paste a sentence with a citation in it, or pick an example. The answer comes from emem.dev, which runs the same engine as a self-hosted node in advisory mode: it tells you what a guard would say and blocks nothing.</p>
+    <div class="code gd-live">
+      <div class="code-head"><span class="tab">POST /v1/guard/verdict, live on this origin</span><span class="lang">live</span><span class="spacer"></span></div>
+      <div class="gd-form">
+        <div class="gd-presets" role="group" aria-label="Examples">
+          <button type="button" class="gd-pre" data-t="Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)." data-c="0">wrong number</button>
+          <button type="button" class="gd-pre" data-t="Bengaluru air temperature is 28.0 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)." data-c="0">right number</button>
+          <button type="button" class="gd-pre" data-t="See emem:fact:defi.zb521.jawI.gOze:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq for the reading." data-c="0">wrong place</button>
+          <button type="button" class="gd-pre" data-t="Canopy height in Sumatra reached 31 m on 2026-08-05." data-c="1">uncited claim</button>
+        </div>
+        <label class="sr" for="gtext">Text to check</label>
+        <textarea id="gtext" rows="4">Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq).</textarea>
+        <div class="gd-row">
+          <button class="btn" id="gsend" type="button">Get a verdict</button>
+          <label><input type="checkbox" id="gclaim"> also flag uncited claims</label>
+          <span id="gstat" aria-live="polite"></span>
+        </div>
+      </div>
+      <div id="gsum" class="gd-sum" hidden></div>
+      <pre id="gout">Press the button. The response comes from emem.dev, not from this page.</pre>
+    </div>
+
+    <h3>The same call from a shell</h3>
+    <div class="code"><div class="code-head"><span class="tab">runs against emem.dev as printed</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>curl -sS -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)."]}'</code></pre></div>
+    <p>Recorded on 2026-09-29. The fact reads 28.0 degC, so the draft is denied, and the receipt (left out here) signs the fact cids the responder read to decide:</p>
+    <div class="code"><div class="code-head"><span class="tab">response, trimmed</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+  "action": "deny",
+  "code": "PROV_VALUE",
+  "fix": "correct_value",
+  "reason": "EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb493.zezo.zcb35:nflpddk7... fix=correct_value leaf=-",
+  "citations_found": 1,
+  "checked": 1,
+  "citations_verified_here": 1,
+  "citations": [{ "state": "verified", "token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7..." }],
+  "advisory": true,
+  "schema": "emem.guard.verdict.v1",
+  "receipt": { "primitive": "emem.guard.verdict", "fact_cids": ["..."], ... }
+}</code></pre></div>
+    <div class="scroll-x"><table class="endpoints">
+      <tr><th>Field</th><th>Read it as</th></tr>
+      <tr><td><code>action</code>, <code>code</code>, <code>fix</code></td><td>the decision, why, and what to do about it; <code>code</code> and <code>fix</code> are absent on an allow</td></tr>
+      <tr><td><code>citations_found</code>, <code>checked</code></td><td>how many tokens were in the text, and how many were looked up. An allow with <code>citations_found: 0</code> is a clean verdict over nothing</td></tr>
+      <tr><td><code>citations[].state</code></td><td><code>verified</code>, <code>byte_mismatch</code>, or <code>not_held_here</code> for a token this responder does not hold</td></tr>
+      <tr><td><code>receipt</code></td><td>this responder's Ed25519 signature over the fact cids it read; check it at <a href="/verify">/verify</a> or <code>POST /v1/verify_receipt</code></td></tr>
+    </table></div>
+    <p class="gd-note">Send <code>texts</code>, not <code>text</code>: a body with no <code>texts</code> field is read as empty and allowed. A chat transcript can go in <code>messages</code> instead. Other envelopes (MCP, OpenAI, CloudEvents, OPA) have their own routes, listed in <a href="#checkpoints">section 05</a>.</p>
+  </div>
+</section>
+
+<section class="section page" id="checks">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">02</span><span class="idx-label">what it checks</span></div>
+    <dl>
+      <dt>reason grammar</dt><dd>EMEM-GUARD DENY &lt;CODE&gt; token=&lt;token|-&gt; fix=&lt;fix&gt; leaf=&lt;leaf|-&gt;</dd>
       <dt>never</dt><dd>a denial on a citation this node does not hold</dd>
     </dl>
   </div>
   <div class="section-body">
-    <h2><span class="num">01</span>What it does</h2>
-    <p class="lede">A checkpoint pauses a request and asks an external server whether to proceed. emem-guard is that server for claims about the physical world.</p>
-    <p>Content scanners (DLP) look for card numbers, secrets and classified markings. They hold no observations of the world, so they cannot check whether a stated elevation or NDVI is right. emem-guard checks that part, and accepts other detectors as plug-in modules.</p>
-    <ol class="ops">
-      <li><b>Find</b> every <code>emem:</code> token in the transcript.</li>
-      <li><b>Resolve</b> each one against the responder it is pointed at. A bad signature, or a token that resolves to other bytes, is a denial.</li>
-      <li><b>Allow</b> a token this node has never seen. It cannot be told apart from one minted by another responder.</li>
-      <li><b>Sign</b> the verdict and append it to a hash-chained log, then answer.</li>
-    </ol>
+    <h2><span class="num">02</span>What it checks</h2>
+    <p class="lede">Rules run in order of how much they establish, and the first one that matches decides. Every deny names one code and one fix.</p>
+    <div class="scroll-x"><table class="endpoints">
+      <tr><th>Code</th><th>Fires when</th><th>Fix</th><th>Default</th></tr>
+      <tr><td><code>PROV_SIG</code></td><td>a cited fact's signature does not verify</td><td><code>refresh_token</code></td><td>on</td></tr>
+      <tr><td><code>PROV_BYTES</code></td><td>the cited fact exists, but under a different cell than the token names</td><td><code>remove_reference</code></td><td>on</td></tr>
+      <tr><td><code>PROV_VALUE</code></td><td>the number beside a citation is not the number inside it</td><td><code>correct_value</code></td><td>on</td></tr>
+      <tr><td><code>POLICY_MODULE</code></td><td>a detection module you loaded denied (<a href="#modules">section 08</a>)</td><td>set by the module</td><td>no modules</td></tr>
+      <tr><td><code>PROV_DRIFT</code></td><td>a cited reading has moved past its band's threshold</td><td><code>refresh_token</code></td><td>on</td></tr>
+      <tr><td><code>GEO_ZONE</code></td><td>a cited cell is on the operator's restricted list</td><td><code>contact_admin</code></td><td>off; self-hosted only</td></tr>
+      <tr><td><code>CLAIM_UNGROUNDED</code></td><td>a measurable claim about a place cites nothing that resolves</td><td><code>cite_observation</code></td><td>off</td></tr>
+    </table></div>
+    <p><code>PROV_VALUE</code> judges agreement at the precision the writer chose, so <code>889.6439208984375</code> written as <code>889.6 m</code> passes and <code>5000 m</code> does not.</p><details class="fold"><summary>more</summary><p class="rest">It fires only when the node read a numeric value for the citation and the sentence carries exactly one citation, so it never has to guess which number goes with which token. A citation placed right after the sentence it supports also counts.</p></details>
+    <div class="caveat"><b>Two codes no resolver emits yet.</b> <code>PROV_SIG</code> and <code>PROV_DRIFT</code> are in the contract and the rule engine, and their tests pass, but the resolvers that ship (none, a responder over HTTP, and the hosted one) look a fact up by its content address and never report a failed signature or a drift. A lookup by content address already refuses altered bytes, which is what <code>PROV_BYTES</code> and a <code>not_held_here</code> state report.</div>
+    <h3>What it does not check</h3>
+    <p><b>Relevance.</b> A citation that resolves is not proof it is about what the sentence says.</p><details class="fold"><summary>more</summary><p class="rest">On 2026-09-28 "Bengaluru rainfall is 28.0 mm" citing the temperature fact above was allowed: the value matched and nothing compared rainfall with <code>weather.temperature_2m</code>. Compare the resolved band and place with the sentence yourself.</p></details>
+    <p><b>Content safety, personal data, secrets.</b> The engine is a chassis for those. A node you run can load modules that detect them; the hosted route loads none.</p>
+    <p><b>Tokens it cannot find.</b> A citation this responder does not hold comes back <code>not_held_here</code> and is allowed. It cannot be told apart from one minted by another responder, and denying it would punish an agent for citing somebody else's node.</p>
+  </div>
+</section>
+
+<section class="section page" id="where">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">03</span><span class="idx-label">hosted or yours</span></div>
+    <dl>
+      <dt>hosted</dt><dd>/v1/guard/capabilities</dd>
+      <dt>procedure</dt><dd><a href="/v1/guard/selfhost">/v1/guard/selfhost</a></dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">03</span>Hosted or your own node</h2>
+    <p class="lede">Use the hosted route to check your own drafts. Run a node when a guard has to sit in a request path and stop something.</p>
+    <div class="scroll-x"><table class="endpoints">
+      <tr><th></th><th>emem.dev</th><th>A node you run</th></tr>
+      <tr><td>blocks anything</td><td>no, <code>advisory: true</code></td><td>yes, or shadow mode to measure first</td></tr>
+      <tr><td>resolves citations</td><td>against its own store, directly</td><td>against a responder you name with <code>--responder</code>, or not at all</td></tr>
+      <tr><td>signed by</td><td>the emem.dev responder key</td><td>a key the node generates on first run</td></tr>
+      <tr><td>evidence</td><td>a read receipt over the fact cids it read</td><td>a hash-chained verdict log, one leaf per verdict</td></tr>
+      <tr><td>claim gating</td><td>per call, <code>claim_gating: true</code></td><td>a node setting, <code>--claim-gating</code></td></tr>
+      <tr><td>restricted zones, modules</td><td>no</td><td>yes</td></tr>
+      <tr><td>vendor hooks</td><td>no: <code>/verdict/anthropic-hook</code> answers 501 <code>requires_your_own_node</code></td><td>yes</td></tr>
+      <tr><td><code>/log/*</code>, <code>/modules</code></td><td>501 <code>no_verdict_log_here</code></td><td>yes</td></tr>
+    </table></div>
+    <p>The vendor-neutral routes answer on both with the same bodies, so a client written against your node can be pointed at emem.dev and back by changing the host.</p>
   </div>
 </section>
 
 <section class="section page" id="run">
   <div class="section-meta">
-    <div class="idx"><span class="idx-num">02</span><span class="idx-label">run it</span></div>
+    <div class="idx"><span class="idx-num">04</span><span class="idx-label">run it</span></div>
     <dl>
       <dt>procedure</dt><dd>crates/emem-guard/SKILL.md</dd>
-      <dt>written for</dt><dd>an agent with a shell, unattended</dd>
-      <dt>port</dt><dd>127.0.0.1:8080</dd>
+      <dt>written for</dt><dd>an agent with a shell</dd>
+      <dt>default bind</dt><dd>127.0.0.1:8080, or <code>PORT</code></dd>
+      <dt>body limit</dt><dd>10 MB</dd>
     </dl>
   </div>
   <div class="section-body">
-    <h2><span class="num">02</span>Run it</h2>
-    <p class="lede">The steps below follow SKILL.md. The terminal output was captured from a node started in an empty directory; only line wrapping was changed.</p>
-
-    <h3>Test before you trust it</h3>
-    <p>The suite includes the two webhook-signature mistakes the platform documentation lists as most common: hashing a re-encoded body, and decoding the secret with the URL-safe base64 alphabet. Both are pinned by tests.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ cargo test --release -p emem-guard
-test result: ok. ... 0 failed</code></pre></div>
-
-    <h3>Start it and read the banner</h3>
-    <p>With no responder configured, the node logs citations and verifies none of them. The banner says so.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --data ./var/guard
-emem-guard listening on 127.0.0.1:8080
+    <h2><span class="num">04</span>Run your own node</h2>
+    <p class="lede">One binary, no config file. The first run writes a signing key and opens a log in the data directory.</p>
+    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill &gt; SKILL.md
+$ git clone https://github.com/Vortx-AI/emem &amp;&amp; cd emem
+$ cargo build --release -p emem-guard
+$ cargo test --release -p emem-guard
+$ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</code></pre></div>
+    <p>Without <code>--responder</code> the node signs and logs every verdict and verifies no citation, and its banner says so:</p>
+    <div class="code"><div class="code-head"><span class="tab">banner, no responder</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>emem-guard listening on 127.0.0.1:8080
   signer   zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa
   log      ./var/guard/verdicts.jsonl (0 verdicts)
   resolve  null
@@ -374,170 +484,16 @@ emem-guard listening on 127.0.0.1:8080
            point one with --responder http://127.0.0.1:5051 to check them.
   mode     enforce
   verify   emem-guard --audit --data ./var/guard</code></pre></div>
-    <p><code>GET /health</code> reports the same state in one field, <code>verifies_citations</code>, so a load balancer and an auditor read the same value.</p>
-    <div class="code"><div class="code-head"><span class="tab">GET /health, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
-  "ok": true,
-  "signer_b32": "zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa",
-  "resolver": "null",
-  "verifies_citations": false,
-  "mode": "enforce",
-  "rules": { "provenance": true, "freshness": true,
-             "geo_restriction": false, "claim_gating": false },
-  "verdicts_logged": 0
-}</code></pre></div>
+    <p>With a responder, each citation costs one <code>GET /v1/facts/{cid}</code>. All citations in a transcript share a 400 ms budget, at most 64 are looked up, and anything past either limit counts as unresolved, which is an allow, never a deny.</p>
+    <p><code>GET /health</code> reports <code>signer_b32</code>, <code>verdicts_logged</code>, <code>log_head</code>, <code>mode</code>, <code>resolver</code>, <code>require_signature</code>, the four rule switches, and <code>verifies_citations</code>, so a load balancer and an auditor read the same answer to "does this node check anything".</p>
 
-    <h3>Ask for a verdict</h3>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -X POST localhost:8080/verdict \
-    -H 'content-type: application/json' \
-    -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:abc123"]}'
-
-{ "action": "allow", "leaf": "leaf_0", "checked": 1 }</code></pre></div>
-    <p><code>checked</code> is the number of citations examined. An allow with <code>checked: 1</code> and an allow with <code>checked: 0</code> are different statements.</p>
+    <h3>Pass the conformance suite first</h3>
+    <p>Unit tests prove the handlers, not the server you stood up behind a proxy.</p><details class="fold"><summary>more</summary><p class="rest"><code>--conformance</code> runs twelve checks over the wire against a running node and exits non-zero on any failure: health honesty, verdicts for unknown events and malformed and empty bodies, a large body accepted, a complete descriptor, every open route answering, idempotent replay, a fetchable leaf that verifies, an answer inside 1000 ms, and 100 requests at a concurrency of 16.</p></details>
+    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --conformance https://guard.your-org.example</code></pre></div>
+    <p>A checkpoint platform typically refuses private and loopback addresses and does not follow redirects, so put the node behind TLS on a routable host. Proxies in front of it need their body limit raised too: nginx defaults to 1 MB.</p>
 
     <h3>Failure semantics</h3>
-    <p>For an Inference hook, a non-200 response, a timeout or an unparseable body is not a deny. The organisation's failure policy decides, and under fail-open the prompt goes to the model unchecked. Sustained failures trip a circuit breaker.</p>
-    <p>So every input gets a 200 and a verdict: an unknown event type, a malformed body, an empty body.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -sS -w "\nHTTP %{http_code}\n" -X POST localhost:8080/verdict/anthropic-hook \
-    -H 'content-type: application/json' \
-    -d '{"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}'
-
-{"action":"allow"}
-HTTP 200</code></pre></div>
-  </div>
-</section>
-
-<section class="section page" id="claims">
-  <div class="section-meta">
-    <div class="idx"><span class="idx-num">03</span><span class="idx-label">claim gating</span></div>
-    <dl>
-      <dt>rule</dt><dd>claim_gating</dd>
-      <dt>default</dt><dd>off</dd>
-      <dt>measured</dt><dd>3 firings in 8,739 sentences of this repo's docs</dd>
-    </dl>
-  </div>
-  <div class="section-body">
-    <h2><span class="num">03</span>Claim gating</h2>
-    <p class="lede">The other rules deny when a check fails. <code>claim_gating</code> denies when no check was offered: a sentence states a measurable quantity about a place or time, and the transcript cites nothing.</p>
-    <p>Because it denies on absence, it ships off. Shadow mode runs every rule, signs and logs what it would have done, and blocks nothing, so you can measure the rate on your own traffic before enforcing it.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
-  mode     shadow: every rule runs and is logged, nothing is blocked.
-           read it back with emem-guard --report --data ./var/guard
-  claims   on: a measurable claim with no citation is denied.</code></pre></div>
-
-    <h3>An uncited claim</h3>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05."]}
-
-{
-  "action": "allow",
-  "reason": "EMEM-GUARD DENY CLAIM_UNGROUNDED token=- fix=cite_observation leaf=leaf_2",
-  "code": "CLAIM_UNGROUNDED",
-  "fix": "cite_observation",
-  "leaf": "leaf_2",
-  "shadowed": true,
-  "claim": {
-    "sentence": "Canopy height in Sumatra reached 31 m on 2026-08-05.",
-    "magnitude": "31 m",
-    "quantity": "length",
-    "source_band": "copdem30m.elevation_mean",
-    "anchor": "iso_date"
-  }
-}</code></pre></div>
-    <div class="scroll-x"><table class="endpoints">
-      <tr><th>Field</th><th>Value</th><th>Meaning</th></tr>
-      <tr><td><code>action</code></td><td>allow</td><td>shadow mode blocks nothing</td></tr>
-      <tr><td><code>shadowed</code></td><td>true</td><td>the rule fired and would have denied</td></tr>
-      <tr><td><code>claim.source_band</code></td><td>copdem30m.elevation_mean</td><td>a band <code>POST /v1/recall</code> serves for this quantity; <code>null</code> when no band reports it (hectares, cubic metres)</td></tr>
-      <tr><td><code>leaf</code></td><td>leaf_2</td><td>the log entry that records this verdict</td></tr>
-    </table></div>
-
-    <h3>With a citation that resolves</h3>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
-           per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7onahq."]}
-
-{ "action": "allow", "leaf": "leaf_3", "checked": 1 }</code></pre></div>
-    <p>The rule checks that the citation resolves. It does not check that the citation is about the claim: the fact cited here is Lusail's elevation. Relevance is still the reader's job.</p>
-
-    <h3>With a citation that does not resolve</h3>
-    <p>Change four characters of the cid and the denial stands. Since 2026-08-08, grounding means resolved; before that, any token-shaped string cleared the rule.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Canopy height in Sumatra reached 31 m on 2026-08-05,
-           per emem:fact:defi.zb521.jawI.gOze:f3yr3urkrfwamlemwadulgth2qpw645vi6l6fhtuu4dy5o7o22hq."]}
-
-{
-  "action": "deny",
-  "reason": "EMEM-GUARD DENY CLAIM_UNGROUNDED token=- fix=cite_observation leaf=leaf_7",
-  "code": "CLAIM_UNGROUNDED",
-  "fix": "cite_observation",
-  "checked": 1
-}</code></pre></div>
-    <p>No <code>PROV_</code> code fires on the unresolved token: a token from another responder is legitimate. <code>CLAIM_UNGROUNDED</code> says only that nothing cited grounds the sentence on this node.</p>
-
-    <h3>What counts as a claim</h3>
-    <p>A sentence fires only if its unit appears in a table where every row names the band that reports it: metres from <code>copdem30m.elevation_mean</code>, mm/day from <code>weather.precipitation_mm</code>, &micro;g/m&sup3; from <code>cams.pm25</code>. Bytes, seconds, hertz and currency have no band, so <code>800 ms</code> never fires.</p>
-    <p>Three more conditions must all hold. The sentence has a world anchor (an ISO date, a year, a coordinate pair, or a preposition before a capitalised name). It is an assertion, not a question, hedge or conditional. It is prose, not code or configuration.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["The verdict path took 800 ms and the transcript limit is 10 MB."]}
-
-{ "action": "allow", "leaf": "leaf_4", "checked": 0 }</code></pre></div>
-    <p>Over this repository's own documentation the rule fired 3 times in 8,739 sentences across 8 files (0.034%). Two were its own positive test fixtures; one was a changelog line stating a rainfall rate on a date with no citation.</p>
-
-    <h3>Read the rate off disk</h3>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --report --data ./var/guard
-verdicts           5
-blocked            0
-would have blocked 1
-fired rate         0.2000
-citations checked  2
-window             1785997968 .. 1785998029 unix seconds
-
-by code            enforced / observed
-  CLAIM_UNGROUNDED          0 / 1
-
-by checkpoint
-  emem.native.v1                     4
-  mcp.tools_call.v1                  1</code></pre></div>
-    <p><code>would have blocked</code> is counted from the same append-only file an auditor reads, and <code>GET /log/report</code> serves the same counts. When the rate is acceptable, drop <code>--shadow</code>. The evaluation and the signed record do not change; only the answer to the caller does.</p>
-  </div>
-</section>
-
-<section class="section page" id="value">
-  <div class="section-meta">
-    <div class="idx"><span class="idx-num">04</span><span class="idx-label">wrong value</span></div>
-    <dl>
-      <dt>code</dt><dd>PROV_VALUE</dd>
-      <dt>fix</dt><dd>correct_value</dd>
-      <dt>not checked</dt><dd>relevance of the citation</dd>
-    </dl>
-  </div>
-  <div class="section-body">
-    <h2><span class="num">04</span>Wrong value, real citation</h2>
-    <p class="lede">A citation can resolve, verify and name the right cell while the number written beside it differs from the number inside it.</p>
-    <p>Example: a memo stated an NDVI of 0.62 next to the genuine token for a fact that reads 0.138. The signature, the receipt and the inclusion proof all checked out.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /v1/guard/verdict, emem.dev</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"texts":["Peak-season NDVI at Dindori was 0.62 in 2025,
-           per emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qb...yg6oq."]}
-
-{
-  "action": "deny",
-  "reason": "EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qb...yg6oq fix=correct_value leaf=-",
-  "code": "PROV_VALUE",
-  "fix": "correct_value",
-  "checked": 1,
-  "citations_found": 1
-}</code></pre></div>
-    <div class="scroll-x"><table class="endpoints">
-      <tr><th>Code</th><th>Fires when</th></tr>
-      <tr><td><code>PROV_SIG</code></td><td>the signature does not verify</td></tr>
-      <tr><td><code>PROV_BYTES</code></td><td>the token resolves to different bytes</td></tr>
-      <tr><td><code>PROV_DRIFT</code></td><td>the value moved past a threshold</td></tr>
-      <tr><td><code>PROV_VALUE</code></td><td>the sentence states a different value than the fact it cites</td></tr>
-      <tr><td><code>CLAIM_UNGROUNDED</code></td><td>a measurable claim cites nothing that resolves</td></tr>
-    </table></div>
-    <p>The fix is <code>correct_value</code>: keep the citation, change the number. Three conditions keep the rule from flagging honest text.</p>
-    <ol class="ops">
-      <li><b>A value this node read.</b> A node with no corpus never reaches the rule.</li>
-      <li><b>One citation per sentence.</b> With two, the rule would have to guess which number goes with which citation, so it does not fire.</li>
-      <li><b>Your precision.</b> <code>889.6439208984375</code> written as <code>889.6 m</code> passes; <code>5000 m</code> does not.</li>
-    </ol>
-    <p>A citation right after the sentence it supports also counts, as in <code>"sits at 5000 m elevation. [emem:fact:&hellip;]"</code>.</p>
-    <div class="caveat"><b>Not checked: relevance.</b> A token that resolves is not proof it is about the place the sentence names. A real Nashik reading cited beside a claim about Bengaluru is allowed.</div>
+    <p>For a checkpoint webhook, a non-200, a timeout or an unparseable body is a transport failure, not a deny.</p><details class="fold"><summary>more</summary><p class="rest">Under fail-open the request goes through unchecked, and repeated failures can trip the caller's circuit breaker. So every input gets a 200 and a verdict, including an unknown event type, a malformed body and an empty one. The node answers within an 800 ms self-budget and deduplicates on the request id, so a retry gets the answer already recorded.</p></details>
   </div>
 </section>
 
@@ -545,84 +501,111 @@ by checkpoint
   <div class="section-meta">
     <div class="idx"><span class="idx-num">05</span><span class="idx-label">checkpoints</span></div>
     <dl>
-      <dt>verdict routes</dt><dd>9</dd>
-      <dt>open standard</dt><dd>7</dd>
-      <dt>vendor</dt><dd>2</dd>
+      <dt>verdict routes</dt><dd>9, 7 vendor-neutral</dd>
+      <dt>hosted here</dt><dd>the 7 vendor-neutral</dd>
       <dt>listing</dt><dd><a href="/.well-known/emem-guard.json">/.well-known/emem-guard.json</a></dd>
     </dl>
   </div>
   <div class="section-body">
     <h2><span class="num">05</span>Checkpoints</h2>
-    <p class="lede">One engine, nine request shapes. Seven are open formats with more than one implementation; two are vendor hooks.</p>
+    <p class="lede">One engine behind nine request shapes. A test asserts that every route reaches the same verdict on the same evidence.</p>
     <div class="scroll-x"><table class="endpoints">
-      <tr><th>Route</th><th>Called by</th><th>Open</th><th>Hosted on emem.dev</th></tr>
-      <tr><td><code>POST /verdict</code></td><td>any agent or framework; the native shape (alias <code>/verdict/native</code>)</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/mcp</code></td><td>an MCP host or proxy, gating a tool call or a tool result</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/openai</code></td><td>anything with an OpenAI-shaped client</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/cloudevent</code></td><td>CloudEvents 1.0 producers: Knative, Dapr, Argo Events</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/policy</code></td><td>OPA-style clients, Envoy external authorisation</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>POST /verdict/batch</code></td><td>an offline scan of many transcripts, up to 64 per call</td><td>yes</td><td>yes</td></tr>
-      <tr><td><code>GET /log/entry/{leaf}</code></td><td>anyone checking a verdict without trusting the node</td><td>yes</td><td>no: emem.dev keeps no verdict log</td></tr>
-      <tr><td><code>POST /verdict/anthropic-hook</code></td><td>claude.ai, Cowork and Claude Code in a Claude Enterprise org</td><td>no</td><td>no: needs your organisation's signing secret</td></tr>
-      <tr><td><code>POST /verdict/claude-code</code></td><td>agents on the Platform API, Bedrock and Vertex, which Inference hooks do not see</td><td>no</td><td>no: runs inside your agent</td></tr>
+      <tr><th>Route</th><th>Called by</th><th>On emem.dev</th></tr>
+      <tr><td><code>POST /verdict</code>, <code>/verdict/native</code></td><td>any agent: <code>texts</code> or <code>messages</code></td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/mcp</code></td><td>an MCP host or proxy, gating a tool call or its result</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/openai</code></td><td>an OpenAI-shaped chat or moderations body</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/cloudevent</code></td><td>CloudEvents 1.0 producers such as Knative, Dapr, Argo Events</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/policy</code></td><td>OPA-style <code>{input}</code> clients, Envoy external authorisation</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/batch</code></td><td>an offline scan, up to 64 transcripts per call</td><td>yes</td></tr>
+      <tr><td><code>POST /verdict/anthropic-hook</code></td><td>Anthropic Inference hooks, signed with your organisation's secret</td><td>no, 501</td></tr>
+      <tr><td><code>POST /verdict/claude-code</code></td><td>Claude Code client-side hooks</td><td>no, 501</td></tr>
     </table></div>
-    <p>A test asserts that every advertised route answers and that open routes outnumber vendor routes.</p>
-
-    <h3>MCP</h3>
-    <p>Put a proxy between an MCP host and its servers, and ask before dispatching a tool call.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
+    <p><code>POST /v1/guard/verdict?shape=mcp</code> (or <code>openai</code>, <code>cloudevent</code>, <code>policy</code>) reads and answers the same envelopes on the one hosted route.</p>
+    <h3>Gating an MCP tool call</h3>
+    <p>Put a proxy between the host and its servers and ask before dispatching.</p>
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
  "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
 
 { "allow": true, "id": 7,
-  "verdict": { "action": "allow", "leaf": "leaf_1", "checked": 0 } }</code></pre></div>
-    <p>On a deny the response carries <code>result</code>, already shaped as a <code>CallToolResult</code> with <code>isError</code> set. Return it in place of running the tool, and the model reads the denial and the fix where it reads tool errors.</p>
-    <p>Send <code>params.result</code> in place of <code>params.arguments</code> to check a tool's output as it enters the context, one turn before the model reasons on it.</p>
+  "verdict": { "action": "allow", "checked": 0 } }</code></pre></div>
+    <p>On a deny the response carries <code>result</code>, already shaped as a <code>CallToolResult</code> with <code>isError</code> set.</p><details class="fold"><summary>more</summary><p class="rest">Return it in place of running the tool and the model reads the denial and the fix where it reads tool errors. Send <code>params.result</code> instead of <code>params.arguments</code> to check a tool's output before the model reasons on it.</p></details>
+  </div>
+</section>
+
+<section class="section page" id="claims">
+  <div class="section-meta">
+    <div class="idx"><span class="idx-num">06</span><span class="idx-label">claim gating</span></div>
+    <dl>
+      <dt>rule</dt><dd>claim_gating</dd>
+      <dt>default</dt><dd>off</dd>
+      <dt>measured</dt><dd>3 firings in 8,739 sentences of this repo's docs, 2026-08-06</dd>
+    </dl>
+  </div>
+  <div class="section-body">
+    <h2><span class="num">06</span>Claim gating</h2>
+    <p class="lede">The other rules deny when a check fails. This one denies when no check was offered: a sentence states a measurable quantity about a place or time and cites nothing that resolves.</p>
+    <p>Because it denies on absence, it ships off.</p><details class="fold"><summary>more</summary><p class="rest">Turn it on for one hosted call with <code>claim_gating: true</code>, as the uncited-claim example in <a href="#try">section 01</a> does. On your own node, run it in shadow first: every rule runs, is signed and logged, and nothing is blocked.</p></details>
+    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
+$ ./target/release/emem-guard --report --data ./var/guard
+verdicts           5
+blocked            0
+would have blocked 1
+fired rate         0.2000
+citations checked  2
+...
+by code            enforced / observed
+  CLAIM_UNGROUNDED          0 / 1</code></pre></div>
+    <p><code>would have blocked</code> is counted from the same append-only file an auditor reads, and <code>GET /log/report</code> serves the same counts. When the rate is acceptable, drop <code>--shadow</code>. The evaluation and the signed record stay the same; only the answer to the caller changes.</p>
+    <h3>What counts as a claim</h3>
+    <p>A sentence fires only if its unit is in a table where every row names the band that reports it: metres from <code>copdem30m.elevation_mean</code>, mm/day from <code>weather.precipitation_mm</code>, &micro;g/m&sup3; from <code>cams.pm25</code>.</p><details class="fold"><summary>more</summary><p class="rest">The verdict names that band as <code>claim.source_band</code>. Bytes, seconds, hertz and currency have no band, so "the call took 800 ms" never fires.</p></details>
+    <p>Three more conditions must hold. The sentence has a world anchor (an ISO date, a year, a coordinate pair, or a preposition before a capitalised name). It is an assertion, not a question, hedge or conditional. It is prose, not code or configuration.</p>
+    <p>A citation that resolves clears the rule, and then the value rule applies to it. The uncited Sumatra sentence above, given Lusail's elevation fact as its citation, is no longer <code>CLAIM_UNGROUNDED</code>; it is <code>PROV_VALUE</code>, because that fact does not say 31 m.</p>
   </div>
 </section>
 
 <section class="section page" id="proof">
   <div class="section-meta">
-    <div class="idx"><span class="idx-num">06</span><span class="idx-label">verdict log</span></div>
+    <div class="idx"><span class="idx-num">07</span><span class="idx-label">verdict log</span></div>
     <dl>
       <dt>per verdict</dt><dd>Ed25519 signature</dd>
-      <dt>per file</dt><dd>BLAKE3 hash chain, fsync on append</dd>
+      <dt>per file</dt><dd>BLAKE3 hash chain</dd>
       <dt>domain</dt><dd>emem.guard.verdict.v2</dd>
       <dt>budget</dt><dd>800 ms per verdict</dd>
     </dl>
   </div>
   <div class="section-body">
-    <h2><span class="num">06</span>The verdict log</h2>
-    <p class="lede">Every verdict is signed and appended to the log before the caller gets an answer. A denial names the leaf that records it.</p>
+    <h2><span class="num">07</span>The verdict log</h2>
+    <p class="lede">A node you run signs every verdict and appends it to its log before the caller gets an answer. A denial names the leaf that records it.</p>
     <figure class="fig" aria-labelledby="gd-fig1">
       <svg class="dg fig-wide" width="1080" viewBox="0 0 1080 150" role="img" aria-labelledby="gd-fig1">
         <defs><marker id="gda" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker></defs>
         <g text-anchor="middle">
-          <rect class="n" x="1" y="10" width="130" height="76" rx="4"/><text x="66" y="36" class="t-strong">scan</text><text x="66" y="56" class="t-sub">find emem: tokens</text><text x="66" y="74" class="t-sub">~0 ms</text>
-          <rect class="n" x="157" y="10" width="130" height="76" rx="4"/><text x="222" y="36" class="t-strong">resolve</text><text x="222" y="56" class="t-sub">warm cache only</text><text x="222" y="74" class="t-sub">&#8804; 400 ms</text>
-          <rect class="n" x="313" y="10" width="130" height="76" rx="4"/><text x="378" y="36" class="t-strong">modules</text><text x="378" y="56" class="t-sub">plug-in detectors</text><text x="378" y="74" class="t-sub">50 ms each</text>
-          <rect class="n" x="469" y="10" width="130" height="76" rx="4"/><text x="534" y="36" class="t-strong">evaluate</text><text x="534" y="56" class="t-sub">first rule to match</text><text x="534" y="74" class="t-sub">&#181;s</text>
+          <rect class="n" x="1" y="10" width="130" height="76" rx="4"/><text x="66" y="36" class="t-strong">scan</text><text x="66" y="56" class="t-sub">find emem: tokens</text><text x="66" y="74" class="t-sub">string work</text>
+          <rect class="n" x="157" y="10" width="130" height="76" rx="4"/><text x="222" y="36" class="t-strong">resolve</text><text x="222" y="56" class="t-sub">up to 64 tokens</text><text x="222" y="74" class="t-sub">&#8804; 400 ms shared</text>
+          <rect class="n" x="313" y="10" width="130" height="76" rx="4"/><text x="378" y="36" class="t-strong">modules</text><text x="378" y="56" class="t-sub">plug-in detectors</text><text x="378" y="74" class="t-sub">if loaded</text>
+          <rect class="n" x="469" y="10" width="130" height="76" rx="4"/><text x="534" y="36" class="t-strong">evaluate</text><text x="534" y="56" class="t-sub">first rule to match</text><text x="534" y="74" class="t-sub">shadow applied</text>
           <rect class="n-key" x="625" y="10" width="130" height="76" rx="4"/><text x="690" y="36" class="t-strong">sign</text><text x="690" y="56" class="t-sub">Ed25519</text><text x="690" y="74" class="t-sub">v2 preimage</text>
-          <rect class="n-key" x="781" y="10" width="130" height="76" rx="4"/><text x="846" y="36" class="t-strong">append</text><text x="846" y="56" class="t-sub">hash chain</text><text x="846" y="74" class="t-sub">fsync</text>
+          <rect class="n-key" x="781" y="10" width="130" height="76" rx="4"/><text x="846" y="36" class="t-strong">append</text><text x="846" y="56" class="t-sub">hash chain</text><text x="846" y="74" class="t-sub">jsonl on disk</text>
           <rect class="n" x="937" y="10" width="142" height="76" rx="4"/><text x="1008" y="36" class="t-strong">answer</text><text x="1008" y="56" class="t-sub">allow or deny</text><text x="1008" y="74" class="t-sub">+ leaf</text>
         </g>
         <path class="e" d="M131 48H155" marker-end="url(#gda)"/><path class="e" d="M287 48H311" marker-end="url(#gda)"/><path class="e" d="M443 48H467" marker-end="url(#gda)"/><path class="e" d="M599 48H623" marker-end="url(#gda)"/><path class="e" d="M755 48H779" marker-end="url(#gda)"/><path class="e" d="M911 48H935" marker-end="url(#gda)"/>
         <path class="e-dash" d="M1 112H1079"/>
-        <text x="540" y="136" text-anchor="middle" class="t-sub">800 ms self-budget for the whole exchange, under the 1000 ms floor a caller can configure</text>
+        <text x="540" y="136" text-anchor="middle" class="t-sub">800 ms self-budget for the whole exchange, under a 1000 ms floor a caller can configure</text>
       </svg>
       <svg class="dg fig-tall" width="320" viewBox="0 0 320 450" role="img" aria-hidden="true">
         <defs><marker id="gdb" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="8" markerHeight="8" orient="auto"><path d="M0 0L8 4L0 8z" class="ah"/></marker></defs>
         <g text-anchor="middle">
           <rect class="n" x="30" y="2" width="260" height="46" rx="4"/><text x="160" y="22" class="t-strong">scan</text><text x="160" y="40" class="t-sub">find emem: tokens</text>
-          <rect class="n" x="30" y="66" width="260" height="46" rx="4"/><text x="160" y="86" class="t-strong">resolve</text><text x="160" y="104" class="t-sub">warm cache, &#8804; 400 ms</text>
-          <rect class="n" x="30" y="130" width="260" height="46" rx="4"/><text x="160" y="150" class="t-strong">modules</text><text x="160" y="168" class="t-sub">50 ms each</text>
+          <rect class="n" x="30" y="66" width="260" height="46" rx="4"/><text x="160" y="86" class="t-strong">resolve</text><text x="160" y="104" class="t-sub">up to 64, &#8804; 400 ms shared</text>
+          <rect class="n" x="30" y="130" width="260" height="46" rx="4"/><text x="160" y="150" class="t-strong">modules</text><text x="160" y="168" class="t-sub">if loaded</text>
           <rect class="n" x="30" y="194" width="260" height="46" rx="4"/><text x="160" y="214" class="t-strong">evaluate</text><text x="160" y="232" class="t-sub">first rule to match</text>
           <rect class="n-key" x="30" y="258" width="260" height="46" rx="4"/><text x="160" y="278" class="t-strong">sign</text><text x="160" y="296" class="t-sub">Ed25519</text>
-          <rect class="n-key" x="30" y="322" width="260" height="46" rx="4"/><text x="160" y="342" class="t-strong">append</text><text x="160" y="360" class="t-sub">hash chain, fsync</text>
+          <rect class="n-key" x="30" y="322" width="260" height="46" rx="4"/><text x="160" y="342" class="t-strong">append</text><text x="160" y="360" class="t-sub">hash chain</text>
           <rect class="n" x="30" y="386" width="260" height="46" rx="4"/><text x="160" y="406" class="t-strong">answer</text><text x="160" y="424" class="t-sub">allow or deny + leaf</text>
         </g>
         <path class="e" d="M160 48V64" marker-end="url(#gdb)"/><path class="e" d="M160 112V128" marker-end="url(#gdb)"/><path class="e" d="M160 176V192" marker-end="url(#gdb)"/><path class="e" d="M160 240V256" marker-end="url(#gdb)"/><path class="e" d="M160 304V320" marker-end="url(#gdb)"/><path class="e" d="M160 368V384" marker-end="url(#gdb)"/>
       </svg>
-      <figcaption id="gd-fig1"><b>Figure 1.</b> One verdict, in order. The log is written before the answer, so no verdict can be acted on without a record. The resolve step reads only what the node already holds; it never fetches.</figcaption>
+      <figcaption id="gd-fig1"><b>Figure 1.</b> One verdict on a node you run. The log is written before the answer, so no verdict can be acted on without a record. The hosted route runs the first four steps and signs a read receipt instead of appending to a log.</figcaption>
     </figure>
     <div class="code"><div class="code-head"><span class="tab">GET /log/entry/leaf_0, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
   "seq": 0,
@@ -639,105 +622,61 @@ by checkpoint
   "signer_b32": "zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa",
   "chain": "7a99eac5a05dac1a8b0e16ee9867d1daa03ac3aa55ff72ab77d10086abfd816f"
 }</code></pre></div>
-    <p>An entry holds the record, the signature over its preimage, the signing key and the link to the previous entry. <code>outcome</code> and <code>evaluated</code> are both signed, so an operator cannot later relabel a shadow verdict as enforced.</p>
-
+    <p><code>outcome</code> is what the caller was told and <code>evaluated</code> is what the rules reached. Both are signed, so an operator cannot later relabel a shadow verdict as enforced.</p>
     <h3>Audit the chain</h3>
-    <p>Signatures prove each entry. The chain proves none was removed. An intact log exits 0.</p>
+    <p>Signatures prove each entry; the chain proves none was removed.</p><details class="fold"><summary>more</summary><p class="rest"><code>emem-guard --audit</code> prints the entry count and any bad signature, broken link or unparseable line, and exits 1 if the log is not intact, so a scheduled audit fails its pipeline. Edit one verdict from allow to deny and it reports that entry under both <code>bad signature</code> and <code>broken chain</code>. Delete a line and every remaining signature still verifies; the chain breaks at the gap.</p></details>
     <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
 entries        5
 bad signature  []
 broken chain   []
 unparseable    []
-intact         true
-$ echo $?
-0</code></pre></div>
-    <p>Edit one logged verdict from allow to deny and the audit exits 1, so a scheduled audit fails its pipeline.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
-entries        5
-bad signature  [0]
-broken chain   [0]
-unparseable    []
-intact         false
-$ echo $?
-1</code></pre></div>
-    <p>Deleting a line leaves every remaining signature valid; the chain breaks at the gap. <code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log.</p>
+intact         true</code></pre></div>
+    <p><code>GET /log/head</code> publishes the head for a witness to pin, and <code>GET /log/entries?start=0</code> lets anyone mirror the log.</p>
   </div>
 </section>
 
-<section class="section page" id="live">
+<section class="section page" id="modules">
   <div class="section-meta">
-    <div class="idx"><span class="idx-num">07</span><span class="idx-label">try it here</span></div>
+    <div class="idx"><span class="idx-num">08</span><span class="idx-label">modules</span></div>
     <dl>
-      <dt>route</dt><dd>POST /v1/guard/verdict</dd>
-      <dt>blocks</dt><dd>nothing</dd>
-      <dt>corpus</dt><dd>this responder's own</dd>
+      <dt>flag</dt><dd>--module NAME</dd>
+      <dt>state</dt><dd>GET /modules</dd>
+      <dt>hosted</dt><dd>none, by design</dd>
     </dl>
   </div>
   <div class="section-body">
-    <h2><span class="num">07</span>Try it here</h2>
-    <p class="lede">emem.dev runs the same engine in advisory mode. It is in nobody's request path and blocks nothing; it tells you what a guard would answer.</p>
-    <div class="code gd-live">
-      <div class="code-head"><span class="tab">POST /v1/guard/verdict, live on this origin</span><span class="lang">live</span><span class="spacer"></span></div>
-      <div class="gd-form">
-        <textarea id="gtext" rows="4">Canopy height in Sumatra reached 31 m on 2026-08-05.</textarea>
-        <div class="gd-row">
-          <button class="btn" id="gsend" type="button">Get a verdict</button>
-          <label><input type="checkbox" id="gclaim" checked> also flag uncited claims</label>
-          <span id="gstat"></span>
-        </div>
-      </div>
-      <pre id="gout">Press the button. The response comes from emem.dev, not from this page.</pre>
-    </div>
-    <p class="gd-note">A token this responder does not hold returns <code>allow</code>. Denying it would penalise an agent for citing another node.</p>
-
-    <h3>The same routes, from a shell</h3>
-    <p>The six hosted verdict routes accept the same bodies as a self-hosted node, so only the host changes.</p>
-    <div class="code"><div class="code-head"><span class="tab">runs against emem.dev as printed</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>curl -sS -X POST https://emem.dev/verdict \
-  -H 'content-type: application/json' \
-  -d '{"texts":["Elevation there is 918 m."]}'
-
-# an MCP tools/call, gated
-curl -sS -X POST https://emem.dev/verdict/mcp \
-  -H 'content-type: application/json' \
-  -d '{"method":"tools/call","params":{"name":"read","arguments":{"q":"emem:fact:a:b"}}}'
-
-# an OpenAI-shaped body, and an OPA-style policy input
-curl -sS -X POST https://emem.dev/verdict/openai  -d '{"input":"..."}'  -H 'content-type: application/json'
-curl -sS -X POST https://emem.dev/verdict/policy  -d '{"input":{"prompt":"..."}}' -H 'content-type: application/json'
-
-# what this origin does and does not serve
-curl -sS https://emem.dev/.well-known/emem-guard.json</code></pre></div>
-    <p class="gd-note">emem.dev keeps no verdict log, so <code>/log/entry</code> returns a typed refusal. Each hosted verdict carries an Ed25519 receipt instead, which <a href="/verify">/verify</a> checks.</p>
-
-    <h3>Run your own</h3>
-    <p>A self-hosted node generates its own signing key and keeps its own log. It asks the responder one question, whether a fact cid resolves, under a timeout inside the verdict budget.</p>
-    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
-$ git clone https://github.com/Vortx-AI/emem &amp;&amp; cd emem
-$ cargo build --release -p emem-guard
-$ ./target/release/emem-guard --responder https://emem.dev</code></pre></div>
-    <p>Over MCP the same two entry points are tools: <code>emem_guard_verdict</code> to get a verdict, <code>emem_guard_selfhost</code> to get the procedure.</p>
+    <h2><span class="num">08</span>Detection modules</h2>
+    <p class="lede">Grounding is built in. Other detection plugs in, and a module's verdict is signed and logged like a native one.</p>
+    <div class="scroll-x"><table class="endpoints">
+      <tr><th>Load with</th><th>What it is</th></tr>
+      <tr><td><code>--module secret-patterns</code></td><td>built in: fixed-prefix credential shapes such as <code>AKIA</code> and <code>ghp_</code>; denies with <code>POLICY_MODULE</code>, fix <code>redact_and_retry</code></td></tr>
+      <tr><td><code>--module webhook:URL</code></td><td>your own classifier over HTTP, 200 ms timeout; abstains when it times out</td></tr>
+      <tr><td><code>--module sidecar:PATH</code></td><td>one line of JSON each way over a unix socket, for a closed engine that will not link against this binary</td></tr>
+      <tr><td><code>--signed-module FILE</code> with <code>--trust-publisher KEY</code></td><td>a module whose manifest a publisher signed; nothing loads without a key the operator typed</td></tr>
+    </table></div>
+    <p>A module declares a latency class and a data class.</p><details class="fold"><summary>more</summary><p class="rest">A slow module never runs on the enforcing path, a fast one that misses its budget is demoted and stops being able to block, and an abstain is never a deny. <code>--modules-no-text</code> withholds transcript text from every module. The log records the module id, version and an evidence digest, never the matched content.</p></details>
   </div>
 </section>
 
 <section class="section page" id="calls">
   <div class="section-meta">
-    <div class="idx"><span class="idx-num">08</span><span class="idx-label">decisions</span></div>
+    <div class="idx"><span class="idx-num">09</span><span class="idx-label">decisions</span></div>
     <dl>
       <dt>status</dt><dd>open to challenge</dd>
       <dt>where</dt><dd><a href="/channel">/channel</a></dd>
     </dl>
   </div>
   <div class="section-body">
-    <h2><span class="num">08</span>Design decisions</h2>
-    <p class="lede">Three choices that could have gone the other way.</p>
+    <h2><span class="num">09</span>Design decisions</h2>
+    <p class="lede">Choices that could have gone the other way.</p>
     <div class="scroll-x"><table class="endpoints">
       <tr><th>Decision</th><th>Reason</th></tr>
-      <tr><td>A token this node has not cached is never a denial.</td><td>A self-hosted node holds a subset of any corpus, and the verdict path does not fetch. From inside the node, an uncached token and a forged one look the same.</td></tr>
-      <tr><td>Every uncertain case allows, including a bad signature on an inbound webhook.</td><td>A non-200 is a webhook failure, which under fail-open sends the prompt through unchecked and can trip the organisation's circuit breaker. The node answers 200 with allow and logs the problem.</td></tr>
-      <tr><td>Claim gating ships off.</td><td>It denies on absence. The detector, its four conditions, the unit table and the corpus measurement are public, and shadow mode lets you measure it on your own traffic first.</td></tr>
+      <tr><td>A token the node cannot find is never a denial.</td><td>A node holds a subset of any corpus. From inside it, a token minted elsewhere and a forged one look the same, and a wrong deny is the worst failure a guard has.</td></tr>
+      <tr><td>Every uncertain case allows, including a bad signature on an inbound webhook.</td><td>A non-200 is a webhook failure, which under fail-open sends the request through unchecked and can trip the caller's breaker. The node answers 200 with allow and logs the problem.</td></tr>
+      <tr><td>Claim gating ships off.</td><td>It denies on absence. The detector, its conditions and the unit table are public, and shadow mode lets you measure it on your own traffic first.</td></tr>
+      <tr><td>The hosted route blocks nothing and loads no modules.</td><td>A shared node that blocked other people's traffic, or ran somebody's classifier over their transcripts, would be a different product with a different trust story.</td></tr>
     </table></div>
-    <p>If one of these is wrong, say so on <a href="/channel">the channel</a>. Findings are reproduced, fixed with a named test, and recorded.</p>
-    <p>More diagrams of the guard (checkpoints, DLP modules, deployments) are in the <a href="/docs/diagrams">diagram gallery</a>.</p>
+    <p>If one of these is wrong, say so on <a href="/channel">the channel</a>. More diagrams of the guard are in the <a href="/docs/diagrams">diagram gallery</a>.</p>
   </div>
 </section>
 
@@ -824,32 +763,59 @@ $ ./target/release/emem-guard --responder https://emem.dev</code></pre></div>
 <!--foot:end-->
 
 <script>
-// One island, and it does the only thing this page cannot do statically:
-// ask the live node. Every other figure here is captured output, labelled
-// as such, so nothing on this page is a number we made up.
+// The one live island: ask the hosted node. Everything else on the page is
+// recorded output, labelled with where it came from.
 (function () {
   var btn = document.getElementById('gsend');
   var out = document.getElementById('gout');
+  var sum = document.getElementById('gsum');
   var stat = document.getElementById('gstat');
+  var text = document.getElementById('gtext');
+  var claim = document.getElementById('gclaim');
   if (!btn) return;
+  [].forEach.call(document.querySelectorAll('.gd-pre'), function (p) {
+    p.addEventListener('click', function () {
+      text.value = p.getAttribute('data-t');
+      claim.checked = p.getAttribute('data-c') === '1';
+      btn.click();
+    });
+  });
+  function line(k, v) {
+    var d = document.createElement('div');
+    var b = document.createElement('b'); b.textContent = k;
+    var s = document.createElement('span'); s.textContent = v;
+    d.appendChild(b); d.appendChild(s); return d;
+  }
   btn.addEventListener('click', function () {
-    var text = document.getElementById('gtext').value;
-    var claim = document.getElementById('gclaim').checked;
     btn.disabled = true;
-    stat.textContent = 'asking the node...';
+    stat.textContent = 'asking emem.dev...';
     var t0 = performance.now();
     fetch('/v1/guard/verdict', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ texts: [text], claim_gating: claim, agent: 'guard-page' })
+      body: JSON.stringify({ texts: [text.value], claim_gating: claim.checked, agent: 'guard-page' })
     })
       .then(function (r) { return r.json(); })
       .then(function (v) {
-        out.textContent = JSON.stringify(v, null, 2);
+        sum.innerHTML = '';
+        var act = v.action || (v.allow === true ? 'allow' : v.allow === false ? 'deny' : '?');
+        var head = document.createElement('p');
+        head.className = 'gd-act ' + (act === 'deny' ? 'no' : 'ok');
+        head.textContent = act + (v.code ? ' · ' + v.code + ' · fix ' + v.fix : '');
+        sum.appendChild(head);
+        sum.appendChild(line('citations found', String(v.citations_found)));
+        sum.appendChild(line('verified here', String(v.citations_verified_here)));
+        (v.citations || []).forEach(function (c) { sum.appendChild(line(c.state, c.token)); });
+        if (v.claim) sum.appendChild(line('claim', v.claim.magnitude + ' (' + v.claim.quantity + '), band ' + (v.claim.source_band || 'none')));
+        sum.hidden = false;
+        var shown = JSON.parse(JSON.stringify(v));
+        if (shown.receipt) shown.receipt = '(signed receipt, omitted here; POST it as {receipt} to /v1/verify_receipt)';
+        out.textContent = JSON.stringify(shown, null, 2);
         stat.textContent = Math.round(performance.now() - t0) + ' ms';
       })
       .catch(function (e) {
         // A failure here is this page's problem, not a verdict. Say which.
+        sum.hidden = true;
         out.textContent = 'Could not reach the node: ' + e +
           '\n\nThis is a page error, not a deny. The route is POST /v1/guard/verdict.';
         stat.textContent = '';
