@@ -1,158 +1,113 @@
 [Unit]
-Description=emem.dev — Earth memory protocol HTTP/MCP server
-After=network-online.target
+Description=emem.dev — Earth memory protocol server (aarch64 container, r8g.2xlarge)
+Documentation=https://emem.dev
+After=network-online.target docker.service
+Requires=docker.service
 Wants=network-online.target
 
 [Service]
-Type=simple
-WorkingDirectory=/home/ubuntu/emem
-# Plain HTTP listener is loopback-only — emem.dev is HTTPS-EXCLUSIVE
-# externally. Port 80 on this host is owned by an unrelated project
-# (Geo.qa Models API on uvicorn), and exposing 5051 publicly would
-# silently route around TLS. Local agents (emem-livedemo on the same
-# box, /v1/demos browsing) still reach the server via 127.0.0.1:5051.
-Environment=EMEM_BIND=127.0.0.1:5051
-Environment=EMEM_DATA=/home/ubuntu/emem/var/emem
-Environment=EMEM_DEMOS_DIR=/home/ubuntu/emem/var/demos
-# Native TLS (Let's Encrypt via TLS-ALPN-01). The binary needs
-# `cap_net_bind_service` to bind :443 as a non-root user — see
-# scripts/redeploy.sh which restores the cap after every rebuild.
-# When the cap is missing, ExecStart fails with `Permission denied
-# (os error 13)` and the unit crash-loops; if you see that in
-# `journalctl --user -u emem-server -n 5`, run scripts/redeploy.sh.
-Environment=EMEM_TLS_DOMAINS=emem.dev,www.emem.dev
-
-# Operator identity (served in /.well-known/emem.json, agents.txt, security.txt).
-# Set these to YOUR organisation on another node; quote values with spaces.
-Environment="EMEM_OPERATOR_NAME=Vortx AI Private Limited"
-Environment=EMEM_OPERATOR_VENDOR=Vortx-AI
-Environment=EMEM_OPERATOR_COUNTRY=India
-Environment=EMEM_OPERATOR_URL=https://vortx.ai
-# The enlistment ladder refuses shared-entity-space writes below T3 when this is 1.
-# Vouch for your own agents in config/emem-agents.json first, or you lock them out.
-Environment=EMEM_ENLISTMENT_ENFORCE=1
-# The key your witness job (deploy/systemd/emem-witness.service) co-signs with;
-# published in /.well-known/did.json so a co-signature is attributable to this domain.
-Environment=EMEM_WITNESS_PUBKEY_B32=k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia
-Environment=EMEM_TLS_BIND=0.0.0.0:443
-# These two are THIS OPERATOR'S, and the code no longer supplies either.
-# EMEM_TLS_CONTACT has no default: it is the ACME account of record for every
-# certificate this node registers, so a compiled-in fallback would have made
-# somebody else the registrant. The server refuses to start without it rather
-# than substituting an address. EMEM_CONTACT goes in the outbound User-Agent
-# sent to data providers; unset, the binary identifies as +https://emem.dev,
-# which is true of anyone running it. Anyone copying this file must change both.
-Environment=EMEM_CONTACT=avijeet@vortx.ai
-Environment=EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai
-# Environment=EMEM_TLS_STAGING=1
-Environment=RUST_LOG=info,rustls_acme=info
-# fastembed (sentence transformer for /v1/ask topic routing) loads
-# libonnxruntime.so via ort-load-dynamic from this path. The Microsoft
-# 1.22.0 GPU build at /opt/onnxruntime-1.22.0-cuda12 ships the CUDA
-# execution provider so embedding inference runs on the A100 (~1-2 ms
-# per question vs ~12-18 ms on CPU). LD_LIBRARY_PATH lets the CUDA EP
-# .so resolve its own deps (libcudart, libcublas) + the side-by-side
-# providers .so files. When ORT_DYLIB_PATH is missing or
-# libonnxruntime.so won't load, the topic router silently falls back
-# to model2vec (potion-base-8M, CPU, pure Rust) — see
-# EMEM_TOPIC_BACKEND override.
-Environment=ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0
-Environment=LD_LIBRARY_PATH=/opt/onnxruntime-1.22.0-cuda12/lib:/usr/lib/x86_64-linux-gnu
-# Memory tenancy (2026-07-14). Close the global /memories/ namespace to
-# UNAUTHENTICATED writes: every memory write must carry a valid ed25519
-# `attester` block, which also stops anonymous memory-poisoning of another
-# agent's semantic recall. Belt-and-suspenders alongside the code default
-# (which is now RequireAll in release builds) so the public commons node
-# cannot silently regress to open writes on a future default change. Set
-# EMEM_MEMORY_OPEN=1 to re-open for unattested Anthropic memory-tool clients.
-Environment=EMEM_MEMORY_REQUIRE_ATTESTER=1
-# Google Analytics 4 measurement ID. The repo's web/index.html has a
-# `__EMEM_GA_ID__` placeholder; the responder substitutes this value
-# at startup. Unset to disable GA entirely (the GA <script> blocks
-# get stripped from the HTML at first render).
-Environment=EMEM_GA_MEASUREMENT_ID=G-RBLXX5LR9L
-# WRI Global Drivers of Forest Loss v1.2 (Sims et al. 2025) local cache.
-# One-time download from Zenodo (record 15366671, ~295 MB COG) lets the
-# materializer sample band 1 (driver class 1..7) via the shared
-# `cog::sample_pixel_multi` LZW path through a `file://` URL. Unset to
-# fall back to the honest `NotImplemented` disclosure that the per-cell
-# fetch is blocked by Zenodo's no-Range serving. Bump this when the v1.3
-# release is wired (Zenodo record 19485190).
-Environment=EMEM_WRI_GDM_CACHE=/home/ubuntu/emem/var/emem/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif
-# /v1/eudr_dds polygon-batched COG reads (1 sample_window per band, not per-cell). Set explicitly even though code default is now true (commit 401c14d) — belt-and-suspenders so a future code-default flip cannot silently regress to the 180s per-cell path.
-Environment=EMEM_EUDR_BATCH_PATH=1
-# /v1/ask latency floor (2026-06-14). The dispatch-level hard cap on each
-# cold-band materialiser (try_materialize_bands) defaulted to 30s — exactly
-# equal to the /v1/ask budget (EMEM_ASK_TIMEOUT_SECS=30). Zero slack: ONE
-# slow/unavailable cold upstream (CAMS, MODIS LST 8-day, Overture) ran the
-# full 30s and the ask budget fired at the same instant, so every consumer
-# ask returned the empty `incomplete` envelope at 30001ms (see access log).
-# Cap each materialiser at 14s (covers the SoilGrids/ORNL/STAC p95 ~12s the
-# 30s default was sized for) and drop the hot-path retry, so the ask always
-# has >=16s left to synthesise a real signed partial answer from the warm
-# facts + whatever materialised in time. Deferred/timed-out bands still ship
-# as honest materialize_notes + next_steps recall pointers.
-Environment=EMEM_MATERIALIZER_TIMEOUT_SECS=14
-Environment=EMEM_MATERIALIZER_RETRIES=1
-# /v1/ask budget raised 30→40s (2026-06-14). A cold COMPOSITE consumer
-# question (e.g. "how walkable/livable is this area" routes 5 topics inc.
-# flood_risk_composite) runs two bounded phases back-to-back: the cold-band
-# materialise (cap 8 bands, each ≤14s) THEN the temporal recipes (now run
-# concurrently across recipes + bounded by EMEM_ASK_TEMPORAL_BUDGET_SECS=16),
-# ~30s worst case. 40s leaves headroom so these return a real scored answer
-# on the first ask instead of the "fans out across many cold bands" timeout
-# envelope. Both phases stay individually bounded, so 40s is a ceiling not a
-# common hold; re-asking is fast once the cell is warm.
-Environment=EMEM_ASK_TIMEOUT_SECS=40
-Environment=EMEM_ASK_TEMPORAL_BUDGET_SECS=16
-# Cold composite questions need the WHOLE input set in one materialiser wave so
-# the fast bands (CAMS, weather, elevation) land even when the slow ones
-# (Overture, S2, MODIS) hit the 14s cap — otherwise an algorithm-input-first
-# cap of 8 spent the budget on slow bands that all failed, scoring nothing.
-# cap 12 + concurrency 12 (under a global limit of 16) clears 12 cold bands in
-# a single ~14s wave inside the 40s budget; code defaults stay 8/8.
-Environment=EMEM_ASK_COLD_BAND_CAP=12
-Environment=EMEM_MATERIALIZE_CONCURRENCY=12
-Environment=EMEM_MATERIALIZE_GLOBAL_LIMIT=16
-# Per-IP daily quota for the scene.png amplifier endpoint (code default 200).
-# Raised to 60_000 on 2026-05-30 — legitimate consumers (eudr.dev backend,
-# heavy interactive browsing) were hitting the 200/day cap. Still a per-IP
-# ceiling against sustained scraping of the upstream Planetary Computer.
-Environment=EMEM_SCENE_DAILY_QUOTA=60000
-# The densification warmer (docs/plans/partial-results.md, step 4): every
-# EMEM_WARM_INTERVAL_SECS it re-reads $EMEM_DATA/warm_priority.json and recalls
-# each entry's newest readings inside EMEM_WARM_BUDGET_MS, so the places a
-# visitor is shown (vortx.ai's samples, ask chips and handoff chips) already
-# hold their newest clear reading instead of fetching it while someone waits.
-# scripts/redeploy.sh links the list from config/warm_priority.json; edit it
-# there, and the next pass reads it without a restart. 0 turns the warmer off.
-# The list is one entry (24 places x 5 bands), so a pass is one 30 s recall
-# every 6 h, on a schedule kept across restarts, and never refreshes a fact.
-Environment=EMEM_WARM_INTERVAL_SECS=21600
-Environment=EMEM_WARM_BUDGET_MS=30000
-LimitNOFILE=65536
-ExecStart=/home/ubuntu/emem/target/release/emem-server
+Type=exec
 Restart=on-failure
-RestartSec=2
+RestartSec=5
+# 150, because the stop now has real work to do: the drain, the sled flush,
+# and a redb close that waits for any write transaction still live so redb
+# actually writes its shut-down header instead of deferring it. A SIGKILL
+# inside that close costs an 84-minute allocator rebuild on the next boot
+# (measured 2026-09-15). Must stay above the docker stop timeout below.
+TimeoutStopSec=150
 
-# Cap how long a stop may take before systemd escalates to SIGKILL.
+# --user 1000:1000 rather than the image's default 65532, so the 98 GB store
+# rsynced in as `ubuntu` needs no recursive chown and no ownership surprises
+# on a later delta. The binary runs fine as any uid; it only needs r/w on /data.
 #
-# Unset, this is systemd's 90s default, and on 2026-08-19 a restart spent
-# every second of it: SIGTERM at 11:56:21, no drain line logged at all, SIGKILL
-# at 11:57:51. That is ninety-two seconds during which emem.dev refused
-# connections, and it is long enough for a directory health check or an
-# outside reviewer to conclude the endpoint is down. One did.
-#
-# The clean path is already bounded and much shorter: the listener drains for
-# EMEM_SHUTDOWN_GRACE_S (3s default) and the sled flush has its own 10s
-# timeout, so a healthy stop finishes inside 13s. Twenty leaves room for a slow
-# flush without leaving the door shut for a minute and a half.
-#
-# This bounds the damage, it does not explain it. The process logged nothing
-# after SIGTERM, which means the shutdown path never ran, and one occurrence is
-# not enough to say why. What it does guarantee is that the next one costs
-# twenty seconds instead of ninety.
-TimeoutStopSec=20
+# The x86-64 ORT paths from the old unit are deliberately dropped: this host is
+# aarch64 and the image carries its own onnxruntime. LD_LIBRARY_PATH and
+# ORT_DYLIB_PATH pointing at /opt/onnxruntime-*-cuda12 would be wrong twice
+# over -- wrong architecture, and a CUDA build on a box with no GPU.
+ExecStartPre=-/usr/bin/docker rm -f emem-server
+ExecStart=/usr/bin/docker run --rm --name emem-server \
+  # This process holds ~38 GB, so the OOM killer's default heuristic picks it
+  # first: the one restart that costs minutes of storage_open. A systemd
+  # OOMScoreAdjust= cannot reach it, because the container runs under
+  # docker-<id>.scope and not this unit's cgroup, where MemoryCurrent reads 0.
+  --oom-score-adj=-500 \
+  --user 1000:1000 \
+  --network host \
+  -v /home/ubuntu/emem/var/emem:/data \
+  -v /home/ubuntu/emem/var/demos:/demos:ro \
+  -v /home/ubuntu/navigatable_worlds:/navigatable_worlds:ro \
+  -v /home/ubuntu/emem/web:/web:ro \
+  # Baked splat worlds for /v1/worlds. The default EMEM_WORLDS_DIR is the
+  # relative var/worlds, which resolves against WORKDIR / in this container and
+  # finds nothing, so /v1/worlds answered count 0 while four worlds sat here.
+  -v /home/ubuntu/emem/var/worlds:/worlds:ro \
+  -e EMEM_WORLDS_DIR=/worlds \
+  # EMEM_SPLATS_DIR defaults to /home/ubuntu/splats-site, a HOST path this
+  # container cannot see, so every /splats/* path 404s and /splats itself
+  # redirects into one. web/llms.txt advertises it, which route_truth
+  # correctly calls a page overclaiming a route that does not run.
+  # Bind the stable PARENT, not the content directory. A bind mount binds an
+  # INODE: when a sync replaced /home/ubuntu/splats-site the container kept
+  # pointing at the old, orphaned one and served an empty tree while the
+  # host path looked correct (host inode 9981110 vs container 301188,
+  # measured 2026-09-07). /srv/emem-splats is never replaced, so a rebuilt
+  # site/ inside it is picked up without a restart.
+  -v /srv/emem-splats:/splats:ro \
+  -e EMEM_SPLATS_DIR=/splats/site \
+  # A tokio worker panicked at boot on 2026-09-14 06:28:03 (http PathAndQuery::from_static:
+  # 'static str is not valid path'), immediately after the ACME DeployedCachedCert event,
+  # and the server carried on. Without a backtrace the site cannot be found from our code,
+  # which builds no Uri from a static string. One line of env is the cheapest instrument.
+  -e RUST_BACKTRACE=1 \
+  -e EMEM_RETIRED_BANDS=geotessera,clay_v1,prithvi_eo2,galileo \
+  -e EMEM_SHUTDOWN_GRACE_S=15 \
+  # sled now holds only small live trees (facts moved to redb), and at 200 ms
+  # its flusher fsynced 5 times a second on the disk redb commits to.
+  -e EMEM_SLED_FLUSH_MS=1000 \
+  # Declares, in the node's own /.well-known/emem.json, which peers it
+  # witnesses. The witness UNIT already had this; the SERVER did not, so the
+  # federation block reported peers: [] and the topology was discoverable only
+  # by reading someone's systemd config. Joining is voluntary and a peer is a
+  # node whose log this one co-signs, nothing more -- but it should be legible
+  # to a third party.
+  -e EMEM_PEERS=https://geo.qa/emem \
+  -e EMEM_DATA=/data \
+  -e EMEM_OPERATOR_ENDORSEMENTS=/data/operator-endorsements.json \
+  -e EMEM_DEMOS_DIR=/demos \
+  -e EMEM_BIND=127.0.0.1:5051 \
+  -e EMEM_TLS_BIND=0.0.0.0:443 \
+  -e EMEM_TLS_DOMAINS=emem.dev,www.emem.dev \
+  -e EMEM_TLS_CONTACT=mailto:avijeet@vortx.ai \
+  -e EMEM_CONTACT=avijeet@vortx.ai \
+  -e EMEM_ENLISTMENT_ENFORCE=1 \
+  -e EMEM_MEMORY_REQUIRE_ATTESTER=1 \
+  -e "EMEM_OPERATOR_NAME=Vortx AI Private Limited" \
+  -e EMEM_OPERATOR_VENDOR=Vortx-AI \
+  -e EMEM_OPERATOR_COUNTRY=India \
+  -e EMEM_OPERATOR_URL=https://vortx.ai \
+  -e EMEM_WITNESS_PUBKEY_B32=k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia \
+  -e EMEM_WRI_GDM_CACHE=/data/wri_gdm_cache/drivers_forest_loss_1km_2001_2024_v1_2.tif \
+  -e EMEM_EUDR_BATCH_PATH=1 \
+  -e EMEM_MATERIALIZER_TIMEOUT_SECS=14 \
+  -e EMEM_MATERIALIZER_RETRIES=1 \
+  -e EMEM_MATERIALIZE_CONCURRENCY=12 \
+  -e EMEM_MATERIALIZE_GLOBAL_LIMIT=16 \
+  -e EMEM_ASK_TIMEOUT_SECS=40 \
+  -e EMEM_ASK_TEMPORAL_BUDGET_SECS=16 \
+  -e EMEM_ASK_COLD_BAND_CAP=12 \
+  -e EMEM_SCENE_DAILY_QUOTA=60000 \
+  # The densification warmer: its list is config/warm_priority.json in the
+  # repo. Bind the DIRECTORY (a file bind pins an inode a git pull replaces),
+  # so the next pass reads a pulled list with no restart. Every 6 h, 30 s per
+  # entry, kept across restarts in /data/warm_state.json, waits out IO pressure.
+  -v /home/ubuntu/emem/config:/config:ro \
+  -e EMEM_WARM_PRIORITY=/config/warm_priority.json \
+  -e EMEM_WARM_INTERVAL_SECS=21600 \
+  -e EMEM_WARM_BUDGET_MS=30000 \
+  -e EMEM_SCOREBOARD_JSONL=/navigatable_worlds/runs/longrun.steps.jsonl \
+  -e RUST_LOG=info,rustls_acme=info,emem::latency=debug \
+  ghcr.io/vortx-ai/emem:latest
+ExecStop=/usr/bin/docker stop -t 120 emem-server
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target

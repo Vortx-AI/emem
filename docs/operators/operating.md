@@ -69,7 +69,9 @@ The maintained dev host runs this way. Walk through:
    cargo build --release -p emem-cli
    ```
 
-2. Copy the example unit:
+2. Copy the example unit. It runs the native binary; emem.dev itself runs
+   the published container under `deploy/systemd/emem-server.service`, the
+   exact unit installed at `/etc/systemd/system/emem-server.service`.
 
    ```
    cp ops/systemd/emem-server.service.example \
