@@ -64,7 +64,7 @@ FROZEN = (
 # matched nothing at all. Twelve commands on the homepage, none of them seen.
 CURL_START = re.compile(r"(?:^|[\s>])(?P<c>curl\b)")
 
-PLACEHOLDER = re.compile(r"<[a-z_]+>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
+PLACEHOLDER = re.compile(r"<[a-z_][a-z_ ]*>|\{[a-z_0-9]+\}|YOUR_|\.\.\.|…|\$\{|\bexample\.com\b|xxxx", re.I)
 
 
 def where(path) -> str:
@@ -198,7 +198,10 @@ def _extract_from(text: str):
             # said every published example answers. They are extracted now, and
             # the tags come out here, which is what makes them runnable rather
             # than four new false findings.
-            cmd = re.sub(r"<[^>]+>", "", cmd)
+            # Only real markup tags. A bare `<[^>]+>` also ate the placeholders
+            # written as `<the receipt you were handed>` or `&lt;id&gt;`, so the
+            # placeholder check never saw them and the empty result was run.
+            cmd = re.sub(r"</?(?:span|code|pre|b|i|em|strong|a|kbd|samp|var|p|li|td|th|tr|ul|ol|dd|dt|h[1-6]|small|sup|sub|u|s)\b[^>]*>", "", cmd)
             cmd = html.unescape(cmd).strip()
             if "http" in cmd:
                 out.append((start + 1, cmd))
