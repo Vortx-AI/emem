@@ -3,15 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer: a place, a signed number, a receipt</title>
-<meta name=description content="Type a place. emem resolves it to a cell, returns the signed readings stored there, and this page checks the receipt signature and the content hash in your browser.">
-<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<title>emem.dev/demos/tokenise-files: a file cut into units under one root</title>
+<meta name=description content="Cut a file into sections, hash each one and fold the hashes into one Merkle root in your browser. Then prove one section of a published emem:tree without seeing the rest.">
+<link rel=canonical href="https://emem.dev/demos/tokenise-files">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev: a place, a signed number, a receipt">
-<meta property=og:description content="Locate a place, recall a signed reading, and check its receipt and content hash in the browser.">
+<meta property=og:url content="https://emem.dev/demos/tokenise-files">
+<meta property=og:title content="emem.dev: cite one section of a file by its hash">
+<meta property=og:description content="Hash a file's sections into one root in the browser, then prove one unit of a published emem:tree.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -83,6 +83,15 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 @media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
 </style>
+<style>
+.rows{width:100%;border-collapse:collapse;font-size:var(--t-xs);margin:var(--s-2) 0;table-layout:fixed}
+.rows th,.rows td{text-align:left;padding:var(--s-1) var(--s-2);border-bottom:1px solid var(--rule);overflow-wrap:anywhere;vertical-align:top}
+.rows th{color:var(--mute);font-weight:600}
+.rows th:nth-child(2),.rows th:nth-child(3){width:5.5em}
+.rows tr.changed td{background:var(--highlight)}
+.tablewrap{overflow-x:auto}
+@media(max-width:560px){.rows th:nth-child(2),.rows td:nth-child(2),.rows th:nth-child(3),.rows td:nth-child(3){display:none}}
+</style>
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -128,119 +137,127 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Signed answer</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a place, a signed number, a receipt checked here</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Tokenise a file</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a file cut into units under one root</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo 1 of 8 &middot; skills <a href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">emem-locate-and-recall</a>, <a href="https://emem.dev/skills/emem-verify-receipt/SKILL.md">emem-verify-receipt</a></p>
-    <h1>A place, a signed number, a receipt</h1>
-    <p class="purpose">Type a place. emem gives it a cell address and returns the signed readings stored there. This page then checks the receipt's signature and the fact's content hash itself, against emem.dev's published key.</p>
+    <p class="eyebrow">Demo 5 of 8 &middot; skill <a href="https://emem.dev/skills/emem-tokenise-files/SKILL.md">emem-tokenise-files</a></p>
+    <h1>Cite one section of a file by its hash</h1>
+    <p class="purpose">A file is cut into units, each unit is hashed, and the hashes fold into one Merkle root. Publish the root in a note you sign, and anyone can check that one section was in the file without seeing the others.</p>
     <dl class="facts">
-      <div><dt>writes</dt><dd>none; every call is a read</dd></div>
-      <div><dt>checked</dt><dd>in this tab, with <a href="/emem-verify-core.js">emem-verify-core.js</a></dd></div>
-      <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>writes</dt><dd>none; publishing a tree needs your own key and is not done here</dd></div>
+      <div><dt>checked</dt><dd>in this tab: BLAKE3, Ed25519, the Merkle fold</dd></div>
+      <div><dt>token</dt><dd>emem:tree:&lt;file_cid&gt;#row=&lt;i&gt;</dd></div>
     </dl>
   </div>
   <aside class="claims" aria-label="What this demo shows">
     <h2>What you will see</h2>
     <ul>
-      <li>A place name becoming one <code>cell64</code> address.</li>
-      <li>A reading with its <code>emem:fact:</code> token, quoted as the exact string that was signed.</li>
-      <li>The Ed25519 receipt and the BLAKE3 content hash, recomputed here, then broken on purpose to show the check can fail.</li>
+      <li>Your text cut at its headings and hashed into a root, with nothing uploaded.</li>
+      <li>emem computing the same root and path from the hashes alone.</li>
+      <li>One word changed, and only that unit's hash and the root moving.</li>
+      <li>A published tree: the author's signature, then one row proved against the root it signs.</li>
     </ul>
   </aside>
 </header>
 
 <main class="demo" id="main">
   <form class="controls" id="form">
-    <label>Place<input id="place" value="Bengaluru, India" autocomplete="off" spellcheck="false"></label>
-    <label>Band<select id="band">
-      <option value="weather.temperature_2m">weather.temperature_2m (degC, now)</option>
-      <option value="copdem30m.elevation_mean">copdem30m.elevation_mean (m)</option>
-      <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021 (class)</option>
-      <option value="indices.ndvi">indices.ndvi (Sentinel-2)</option>
-      <option value="soilgrids.phh2o_0_30cm">soilgrids.phh2o_0_30cm (pH)</option>
+    <label style="flex-basis:100%">A markdown file (invented; edit it freely)<textarea id="doc" spellcheck="false"># Field notes, plot 12
+
+Invented for this demo. No real site and no real survey.
+
+## Access
+
+The track from the north gate floods after heavy rain. Walk in from the east side.
+
+## Soil
+
+Loam over clay at about 40 cm. Two pits dug, both damp at the base.
+
+## Water
+
+A seasonal channel crosses the south edge. It was dry on the day of the visit.
+
+## Canopy
+
+Scattered trees along the west boundary, none taller than about 8 m.
+</textarea></label>
+    <label>Unit to prove in step 2<select id="unit"></select></label>
+    <label>Published tree for step 4<select id="tree">
+      <option value="wzvsub3fqq6esiejhhiirqi5m4" data-row="2">a four-section survey note (row 2, Soil)</option>
+      <option value="amii4tnpkfoofsyzrbbs2vxsj4" data-row="1">GPT-2 model.safetensors index (row 1, a tensor)</option>
     </select></label>
-    <div class="go"><button class="btn" id="run" type="submit">Run the five steps</button></div>
+    <div class="go"><button class="btn" id="run" type="submit">Run the four steps</button></div>
   </form>
 
   <section class="stage" aria-labelledby="h1s">
-    <div class="stage-n"><b>1</b>locate</div>
+    <div class="stage-n"><b>1</b>cut and hash</div>
     <div>
-      <h2 id="h1s">The place becomes an address</h2>
-      <p class="say">The geocoder picks one place and says how sure it is. A cell is about 10 m on a side; it is an address, not a measurement.</p>
-      <pre class="call" id="c1"></pre>
+      <h2 id="h1s">Units and one root, computed here</h2>
+      <p class="say">Markdown is cut at the shallowest heading level that occurs at least twice; text before the first cut is the preamble. Each row's leaf is <code>blake3(url || u64_be offset || u64_be length || blake3(unit))</code>, with an empty url because the bytes stay with you.</p>
       <div class="out" id="o1"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h2s">
-    <div class="stage-n"><b>2</b>recall</div>
+    <div class="stage-n"><b>2</b>path</div>
     <div>
-      <h2 id="h2s">The signed reading stored there</h2>
-      <p class="say">Recall returns every stored reading of the band, oldest first, and names the latest in <code>current_by_band</code>. If nothing is stored, emem fetches it from the upstream source and signs it.</p>
+      <h2 id="h2s">emem folds the same hashes</h2>
+      <p class="say"><code>POST /v1/tree/path</code> takes only offsets, lengths and hashes, never the text, and returns the root and one unit's audit path. It publishes nothing. The page checks the root matches its own and folds the path itself.</p>
       <pre class="call" id="c2"></pre>
       <div class="out" id="o2"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h3s">
-    <div class="stage-n"><b>3</b>receipt</div>
+    <div class="stage-n"><b>3</b>edit</div>
     <div>
-      <h2 id="h3s">Check the signature here</h2>
-      <p class="say">The receipt signs the request id, the time, the cells and the fact ids it served. This page rebuilds that preimage byte for byte, hashes it and checks the Ed25519 signature. Then it edits one field and checks again.</p>
+      <h2 id="h3s">Change one word</h2>
+      <p class="say">The page edits one word in the last section and cuts again. That unit's hash changes, so the root changes. Every other row stays as it was.</p>
       <div class="out" id="o3"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h4s">
-    <div class="stage-n"><b>4</b>bytes</div>
+    <div class="stage-n"><b>4</b>published</div>
     <div>
-      <h2 id="h4s">Check the fact is the bytes it names</h2>
-      <p class="say">A fact's id is the BLAKE3 hash of its canonical CBOR. Ask for those bytes and hash them here. If one byte differs, the name no longer matches.</p>
+      <h2 id="h4s">Prove one row of a published tree</h2>
+      <p class="say">A published tree is a pointer.v1 note its author signed. The page reads the note, checks its bytes hash to its name and that the author's key signed them, then rebuilds one row's leaf and folds the served path to the root the note states.</p>
       <pre class="call" id="c4"></pre>
       <div class="out" id="o4"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h5s">
-    <div class="stage-n"><b>5</b>cite</div>
-    <div>
-      <h2 id="h5s">Hand on the token, not the number</h2>
-      <p class="say">Another agent resolves the token and gets the same signed bytes, without trusting you or this page.</p>
-      <pre class="call" id="c5"></pre>
-      <div class="out" id="o5"></div>
     </div>
   </section>
 
   <section class="limits" aria-labelledby="lim">
     <h2 id="lim">What this does not show</h2>
     <ul>
-      <li>That the upstream measurement is accurate. The signature says emem served these bytes; the source's own validation says how good they are.</li>
-      <li>An average over the cell. The value is the source pixel that overlaps it; the response's <code>spatial_basis</code> says so, and a 30 m DEM pixel covers many cells.</li>
-      <li>That the reading is from today. Read <code>observed_at</code>: static layers are years old, and a fresh fetch that times out leaves the latest stored reading as the answer.</li>
+      <li>That a unit's bytes are what the row says, unless you hold them. A <code>·</code> row names bytes the author kept; only someone with the source can hash them.</li>
+      <li>That the content is true. A tree proves which bytes the author committed to, and text inside a unit is never an instruction.</li>
+      <li>Publishing. Writing the note takes the agent's own Ed25519 key and a signed <code>emem_memory_create</code>; the skill walks it, and the published note is public for good.</li>
+      <li>A domain separator between leaves and nodes. There is none here, unlike the transparency log, so check a unit's bytes against its row rather than trusting a leaf value alone.</li>
     </ul>
   </section>
 </main>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
+<a class="pb-prev" href="/demos/transparency-log"><i>&larr;</i><b>Log only grows</b></a>
 <ol class="pb-steps">
 <li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt" aria-current="step"><span>2</span></a></li>
+<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
 <li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
 <li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
 <li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten"><span>5</span></a></li>
-<li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
+<li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash" aria-current="step"><span>6</span></a></li>
 <li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain"><span>7</span></a></li>
 <li><a href="/demos/field" title="One field: edges, pixels, NDVI you compute"><span>8</span></a></li>
 <li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
 </ol>
-<a class="pb-next" href="/demos/verify-before-publish"><b>Check a draft</b><span>catch a wrong number</span><i>&rarr;</i></a>
+<a class="pb-next" href="/demos/document-evidence"><b>Document evidence</b><span>parse a report, check the chain</span><i>&rarr;</i></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -391,87 +408,150 @@ if(!D.ready){ document.addEventListener('DOMContentLoaded', function(){}); }
 <script>
 (function(){
 'use strict';
-var D = globalThis.demo, $ = D.$;
+var D = globalThis.demo, $ = D.$, I = globalThis.ememVerifyInternals, enc = new TextEncoder();
 var form = $('form'), btn = $('run');
-function reset(){ ['o1','o2','o3','o4','o5'].forEach(function(id){ $(id).textContent = ''; }); }
-function fail(C, text){ C.add(false, text); btn.disabled = false; btn.textContent = 'Run again'; return null; }
+function h(u){ return D.blake3(u); }
+function leafOf(url, off, len, hash32){ return h(D.cat(enc.encode(url), D.be(off, 8), D.be(len, 8), hash32)); }
+function rootOf(leaves){
+  var level = leaves.slice();
+  while(level.length > 1){
+    var next = [];
+    for(var i = 0; i < level.length; i += 2) next.push(i + 1 < level.length ? h(D.cat(level[i], level[i + 1])) : level[i]);
+    level = next;
+  }
+  return level[0];
+}
+/* units() for markdown, as tree_proof.py: offsets are UTF-8 byte offsets */
+function units(text){
+  var data = enc.encode(text), starts = {}, fence = false, pos = 0;
+  var lines = text.split(/(?<=\n)/);
+  lines.forEach(function(line){
+    if(line.replace(/^\s+/, '').indexOf('```') === 0) fence = !fence;
+    var m = fence ? null : /^(#{1,6}) +(\S.*)/.exec(line.replace(/\n$/, ''));
+    if(m){ (starts[m[1].length] = starts[m[1].length] || []).push([pos, m[2].trim()]); }
+    pos += enc.encode(line).length;
+  });
+  var lv = Object.keys(starts).map(Number).filter(function(l){ return starts[l].length >= 2; }).sort(function(a, b){ return a - b; })[0];
+  if(lv === undefined) return [['bytes 0', 0, data.length]];
+  var cuts = starts[lv].slice();
+  if(cuts[0][0] > 0) cuts.unshift([0, 'preamble']);
+  var bounds = cuts.map(function(c){ return c[0]; }).concat([data.length]);
+  return cuts.map(function(c, i){ return [(c[1].replace(/[|\s]+/g, ' ').slice(0, 80) || 'section'), bounds[i], bounds[i + 1] - bounds[i]]; });
+}
+function tree(text){
+  var data = enc.encode(text);
+  var rows = units(text).map(function(u){ var hs = h(data.slice(u[1], u[1] + u[2])); return { label:u[0], off:u[1], len:u[2], hash:hs, leaf:leafOf('', u[1], u[2], hs) }; });
+  return { rows:rows, root:rootOf(rows.map(function(r){ return r.leaf; })) };
+}
+function table(parent, rows, changed){
+  var wrap = D.mk('div', 'tablewrap', parent), t = D.mk('table', 'rows', wrap), hr = D.mk('tr', '', D.mk('thead', '', t));
+  ['unit', 'offset', 'length', 'blake3'].forEach(function(x){ D.mk('th', '', hr, x); });
+  var tb = D.mk('tbody', '', t);
+  rows.forEach(function(r, i){ var tr = D.mk('tr', changed && changed[i] ? 'changed' : '', tb); D.mk('td', '', tr, r.label); D.mk('td', '', tr, String(r.off)); D.mk('td', '', tr, String(r.len)); D.mk('td', '', tr, D.b32(r.hash)); });
+}
+function fold(leaf, path){ var acc = leaf; path.forEach(function(p){ var s = I.b32decode(p.hash_b32); acc = p.side === 'left' ? h(D.cat(s, acc)) : h(D.cat(acc, s)); }); return acc; }
+function noteRows(text){
+  return text.split('\n').filter(function(l){ return /^\| /.test(l) && / \|$/.test(l); }).map(function(l){ return l.slice(2, -2).split(' | '); })
+    .filter(function(c){ return (c.length === 5 || c.length === 6) && c[0].trim() && c[0].trim() !== 'what' && /^\d+$/.test(c[2]) && /^\d+$/.test(c[3]); });
+}
+function front(text, k){ var m = new RegExp('^' + k + ': (.+)$', 'm').exec(text); return m ? m[1].trim() : null; }
+function fillUnits(){
+  var sel = $('unit'), keep = sel.value, rows = tree($('doc').value).rows;
+  sel.textContent = '';
+  rows.forEach(function(r, i){ var o = D.mk('option', '', sel, i + ': ' + r.label); o.value = String(i); });
+  sel.value = keep && +keep < rows.length ? keep : String(Math.min(2, rows.length - 1));
+}
+fillUnits();
+$('doc').addEventListener('input', fillUnits);
+function done(){ btn.disabled = false; btn.textContent = 'Run again'; }
+function reset(){ ['o1','o2','o3','o4'].forEach(function(id){ $(id).textContent = ''; }); }
 
 async function go(){
-  reset();
-  btn.disabled = true; btn.textContent = 'Running…';
-  var q = $('place').value.trim() || 'Bengaluru, India', band = $('band').value;
-  if(!D.ready){ var C0 = new D.Checks($('o1')); return fail(C0, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); }
+  reset(); btn.disabled = true; btn.textContent = 'Running…';
+  if(!D.ready){ new D.Checks($('o1')).add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return done(); }
+  var text = $('doc').value, T = tree(text), bytes = enc.encode(text);
 
-  /* 1. locate */
-  var lb = { q:q }; $('c1').textContent = D.curlPost('/v1/locate', lb);
-  var C1 = new D.Checks($('o1')), w1 = C1.run('asking the geocoder…');
-  var L = await D.post('/v1/locate', lb);
-  if(!L.ok || !L.json.cell64){ w1(false, 'locate failed (' + L.status + '): ' + D.why(L)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var cell = L.json.cell64, sel = L.json.selected || {};
-  w1(true, 'resolved in ' + L.ms + ' ms, via ' + (L.json.via || 'the geocoder'));
-  D.mk('p', 'big', $('o1'), cell).appendChild(D.mk('small', '', null, L.json.place_label || ''));
-  if(L.json.disambiguation_required || sel.is_high_confidence === false){
-    C1.add(null, 'the geocoder is not sure this is the place you meant; an agent should ask, not cite rank 0. Alternatives: ' + (L.json.alternatives || []).slice(0, 4).map(function(a){ return a.label; }).join('; '));
-  } else C1.add(true, 'high-confidence match (' + (sel.confidence_reason || 'no reason given') + ')');
+  /* 1 */
+  var C1 = new D.Checks($('o1'));
+  C1.add(true, bytes.length + ' bytes cut into ' + T.rows.length + ' units; nothing left this tab');
+  table($('o1'), T.rows);
+  D.mk('p', 'tok', $('o1'), 'root: ' + D.b32(T.root));
 
-  /* 2. recall */
-  var rb = { cell:cell, bands:[band] }; $('c2').textContent = D.curlPost('/v1/recall', rb);
-  var C2 = new D.Checks($('o2')), w2 = C2.run('recalling ' + band + ' (a cold fetch can take up to about 15 s)…');
-  var R = await D.post('/v1/recall', rb);
-  if(!R.ok){ w2(false, 'recall failed (' + R.status + '): ' + D.why(R)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var facts = R.json.facts || [], cur = (R.json.current_by_band || {})[band];
-  var f = facts.filter(function(x){ return x.fact_cid === cur; })[0];
-  (R.json.materialize_notes || []).forEach(function(n){
-    if(n.status === 'materialized') return;
-    C2.add(null, n.band + ': ' + (n.status || '') + (n.reason_class ? ' (' + n.reason_class + ')' : '') + (n.retryable ? ', retryable: the fetch carries on in the background' : ''));
-  });
-  if(!f){ w2(false, 'no reading of ' + band + ' is stored here and none came back in time; run it again in a few seconds'); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  w2(true, facts.length + ' stored reading' + (facts.length === 1 ? '' : 's') + ' of this band in ' + R.ms + ' ms; the current one is below');
-  var big = D.mk('p', 'big', $('o2'), String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)) + (f.unit ? ' ' + f.unit : ''));
-  big.appendChild(D.mk('small', '', null, band + ', observed ' + (f.observed_at || 'at an unstated time')));
-  D.kv($('o2'), [['fact_cid', f.fact_cid], ['source', ((f.sources || [])[0] || {}).id], ['derived by', (f.derivation || {}).fn_key], ['signed at', f.signed_at]]);
-  D.mk('p', 'tok', $('o2'), f.memory_token);
-  C2.add(null, 'value_verbatim is the exact decimal string that was signed; quote it rather than re-typing the number');
-
-  /* 3. receipt */
-  var C3 = new D.Checks($('o3')), rc = R.json.receipt;
-  var good = await D.receipt(C3, rc, [f.fact_cid], 'the recall receipt');
-  if(good){
-    var bent = JSON.parse(JSON.stringify(rc));
-    bent.served_at = bent.served_at.replace(/\d(?=Z$)/, function(d){ return String((+d + 1) % 10); });
-    var still = D.verifyOnly(bent);
-    C3.add(!still, !still ? 'control: with served_at moved by one second (' + bent.served_at + '), the same check rejects it' : 'control failed: an edited receipt still verified, so this check proves nothing');
-  }
-  D.raw($('o3'), 'the receipt', rc);
-
-  /* 4. bytes */
-  $('c4').textContent = D.curlGet('/v1/facts/' + f.fact_cid, "-H 'accept: application/cbor' | b3sum");
-  var C4 = new D.Checks($('o4')), w4 = C4.run('fetching the canonical bytes…');
-  var B = await D.get('/v1/facts/' + f.fact_cid, 'application/cbor');
-  if(B.status !== 200){ w4(false, 'the bytes did not load (' + B.status + ')'); }
+  /* 2 */
+  var idx = Math.min(+$('unit').value || 0, T.rows.length - 1);
+  var body = { index:idx, chunks:T.rows.map(function(r){ return { url:'', offset:r.off, length:r.len, hash:D.b32(r.hash) }; }) };
+  $('c2').textContent = D.curlPost('/v1/tree/path', body);
+  var C2 = new D.Checks($('o2')), w2 = C2.run('asking emem for the root and the path of unit ' + idx + '…');
+  var P = await D.post('/v1/tree/path', body);
+  if(!P.ok){ w2(false, 'the path did not come back (' + P.status + '): ' + D.why(P)); }
   else {
-    var name = D.b32(D.blake3(B.bytes));
-    w4(name === f.fact_cid, name === f.fact_cid ? B.bytes.length + ' bytes of CBOR hash to ' + D.short(name, 20) + ', the fact\'s own name' : 'the bytes hash to ' + D.short(name) + ', not ' + D.short(f.fact_cid));
-    var flip = B.bytes.slice(); flip[flip.length >> 1] ^= 1;
-    var n2 = D.b32(D.blake3(flip));
-    C4.add(n2 !== f.fact_cid, 'control: with one bit flipped in byte ' + (flip.length >> 1) + ', they hash to ' + D.short(n2, 20) + ' instead');
+    var same = P.json.root_b32 === D.b32(T.root);
+    w2(same, same ? 'emem\'s root from the hashes alone is the root this tab computed from the text' : 'emem computed ' + D.short(P.json.root_b32) + ', not ' + D.short(D.b32(T.root)));
+    var lf = T.rows[idx].leaf, lfOk = P.json.leaf_b32 === D.b32(lf);
+    C2.add(lfOk, lfOk ? 'unit ' + idx + ' (' + T.rows[idx].label + '): its leaf, rebuilt here, is the leaf served' : 'the served leaf differs from the one rebuilt here');
+    var path = P.json.path || [], acc = fold(lf, path), fOk = D.b32(acc) === D.b32(T.root);
+    C2.add(fOk, fOk ? 'folded through ' + path.length + ' hash' + (path.length === 1 ? '' : 'es') + ', it reaches the root' : 'the path does not reach the root');
+    if(path.length){
+      var bad = path.map(function(p){ return { side:p.side, hash_b32:p.hash_b32 }; });
+      var raw = I.b32decode(bad[0].hash_b32); raw[0] ^= 1; bad[0].hash_b32 = D.b32(raw);
+      C2.add(D.b32(fold(lf, bad)) !== D.b32(T.root), 'control: with one bit flipped in the first path hash, the fold misses the root');
+    }
+    D.mk('p', 'tok', $('o2'), 'a unit, shown to someone who holds this path and a signed root: ' + T.rows[idx].label + ' @ ' + T.rows[idx].off + '+' + T.rows[idx].len);
   }
 
-  /* 5. cite */
-  var tb = { token:f.memory_token }; $('c5').textContent = D.curlPost('/v1/memory_token/resolve', tb);
-  var C5 = new D.Checks($('o5')), w5 = C5.run('resolving the token as another agent would…');
-  var T = await D.post('/v1/memory_token/resolve', tb);
-  if(!T.ok){ w5(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); }
+  /* 3 */
+  var C3 = new D.Checks($('o3')), last = T.rows[T.rows.length - 1];
+  var seg = new TextDecoder().decode(bytes.slice(last.off, last.off + last.len));
+  var mw = /[A-Za-z]{4,}/.exec(seg.replace(/^#+ .*\n/, ''));
+  if(!mw){ C3.add(null, 'the last unit has no word to change'); }
   else {
-    var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === String(f.value_verbatim);
-    w5(same, same ? 'it resolves to the same fact and the same signed string, ' + T.json.value_verbatim + (T.json.unit ? ' ' + T.json.unit : '') : 'it resolved to something else: ' + T.json.fact_cid);
-    await D.receipt(C5, T.json.receipt, [f.fact_cid], 'the resolve receipt');
-    var acts = D.mk('div', 'acts', $('o5'));
-    var a = D.mk('a', 'btn ghost small', acts, 'Open it in /verify'); a.href = '/verify?q=' + encodeURIComponent(f.memory_token);
+    var word = mw[0], alt = word.charAt(0) === word.charAt(0).toUpperCase() ? 'Sparse' : 'sparse';
+    var edited = new TextDecoder().decode(bytes.slice(0, last.off)) + seg.replace(word, alt === word ? 'other' : alt) + new TextDecoder().decode(bytes.slice(last.off + last.len));
+    var T2 = tree(edited), changed = T2.rows.map(function(r, i){ return !T.rows[i] || D.b32(r.hash) !== D.b32(T.rows[i].hash); });
+    var n = changed.filter(Boolean).length;
+    C3.add(null, '"' + word + '" in "' + last.label + '" became "' + (alt === word ? 'other' : alt) + '"');
+    C3.add(n === 1 && changed[changed.length - 1], n + ' of ' + T2.rows.length + ' unit hashes changed: only the edited one');
+    C3.add(D.b32(T2.root) !== D.b32(T.root), 'the root moved from ' + D.short(D.b32(T.root)) + ' to ' + D.short(D.b32(T2.root)) + ', so a signed root pins every unit');
+    table($('o3'), T2.rows, changed);
   }
-  btn.disabled = false; btn.textContent = 'Run again';
+
+  /* 4 */
+  var opt = $('tree').selectedOptions[0], cid = opt.value, row = +opt.getAttribute('data-row'), q = '/v1/tree/' + cid + '?row=' + row;
+  $('c4').textContent = D.curlGet(q);
+  var C4 = new D.Checks($('o4')), w4 = C4.run('reading emem:tree:' + cid + '#row=' + row + '…');
+  var R = await D.get(q);
+  if(!R.ok){ w4(false, 'the tree did not resolve (' + R.status + '): ' + D.why(R)); return done(); }
+  var d = R.json;
+  var V = await D.post('/a2a/tasks', { skill:'emem_memory_view', args:{ file_cid:cid } });
+  var v = V.ok && V.json.artifacts && V.json.artifacts[0].parts[0].data;
+  if(!v || typeof v.content !== 'string'){ w4(false, 'its note did not load: ' + D.why(V)); return done(); }
+  var nb = enc.encode(v.content), nameOk = D.b32(h(nb).slice(0, 16)) === cid;
+  w4(nameOk, nameOk ? 'the note\'s ' + nb.length.toLocaleString('en') + ' bytes hash to its name, ' + cid : 'the note\'s bytes do not hash to ' + cid);
+  var a = v.authorship || {};
+  if(a.sig_b32){
+    var bodyOk = I.hex(h(nb)) === a.body_hash_hex;
+    var pre = a.preimage_version === 1 ? D.cat(enc.encode('emem.memory_write|' + a.verb + '|' + a.signed_path + '|'), D.hexb(a.body_hash_hex))
+      : D.cat(enc.encode('emem.memory_write.v2|' + a.verb + '|' + a.signed_path + '|'), D.hexb(a.body_hash_hex), enc.encode('|' + (a.base || 'absent')));
+    var sig = false; try{ sig = I.ed.verify(I.b32decode(a.sig_b32), h(pre), I.b32decode(a.attester_pubkey_b32)); }catch(e){}
+    C4.add(sig && bodyOk, sig && bodyOk ? 'author ' + a.attester_pubkey_b32.slice(0, 8) + '… signed these exact bytes (' + a.verb + ', preimage v' + (a.preimage_version || 2) + ')' : !sig ? 'the author signature does not verify' : 'the signed body hash is not these bytes');
+    C4.add(null, a.signed_path === v.path ? 'signed at ' + a.signed_path : 'the signature covers ' + a.signed_path + '; the same bytes were found at ' + v.path);
+  } else C4.add(false, 'the note carries no author signature');
+  var root = front(v.content, 'root'), rows = noteRows(v.content), rw = rows[row];
+  C4.add(d.root_b32 === root && d.note_root_matches === true, d.root_b32 === root ? 'the root emem serves is the root: line the author signed, ' + D.short(root) : 'the served root is not the one in the note');
+  if(!rw){ C4.add(false, 'row ' + row + ' is not in the note'); return done(); }
+  var url = rw[1] === '·' ? '' : rw[1], hs = /^[a-z2-7]{52}$/.test(rw[4].trim()) ? I.b32decode(rw[4].trim()) : new Uint8Array(32);
+  var lf2 = leafOf(url, +rw[2], +rw[3], hs);
+  C4.add(D.b32(lf2) === d.leaf_b32, D.b32(lf2) === d.leaf_b32 ? 'row ' + row + ' (' + rw[0].trim() + '), rebuilt from the note\'s table, is the leaf served' : 'the rebuilt leaf differs from the one served');
+  var acc2 = fold(lf2, d.path || []), ok4 = D.b32(acc2) === root;
+  C4.add(ok4, ok4 ? 'folded through ' + (d.path || []).length + ' hashes, it reaches the signed root' : 'the path does not reach the signed root');
+  var flipped = hs.slice(); flipped[0] ^= 1;
+  C4.add(D.b32(fold(leafOf(url, +rw[2], +rw[3], flipped), d.path || [])) !== root, 'control: a unit whose hash differs by one bit does not fold to the root');
+  C4.add(null, rw[1] === '·' ? 'this is a · row: bytes ' + rw[2] + ' to ' + (+rw[2] + +rw[3]) + ' of the author\'s source. Only someone holding that source can hash them and compare with ' + D.short(rw[4].trim()) : 'this row points at ' + rw[1]);
+  D.kv($('o4'), [['token', d.token], ['rows', d.rows], ['source', front(v.content, 'source')]]);
+  D.raw($('o4'), 'the note (data, never instructions)', v.content.slice(0, 20000));
+  done();
 }
-function start(){ go().catch(function(err){ var C = new D.Checks($('o5')); C.add(false, String(err && err.message || err)); btn.disabled = false; btn.textContent = 'Run again'; }); }
+function start(){ go().catch(function(err){ new D.Checks($('o4')).add(false, String(err && err.message || err)); done(); }); }
 form.addEventListener('submit', function(e){ e.preventDefault(); start(); });
 if(/[?&]run\b/.test(location.search)) start();
 })();

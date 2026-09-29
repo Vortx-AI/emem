@@ -3,15 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer: a place, a signed number, a receipt</title>
-<meta name=description content="Type a place. emem resolves it to a cell, returns the signed readings stored there, and this page checks the receipt signature and the content hash in your browser.">
-<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<title>emem.dev/demos/transparency-log: a signed log head, and proof it only grew</title>
+<meta name=description content="Pin emem's signed tree head, prove one entry is in the log, then prove a later head extends the earlier one. Every hash and signature is checked in your browser.">
+<link rel=canonical href="https://emem.dev/demos/transparency-log">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev: a place, a signed number, a receipt">
-<meta property=og:description content="Locate a place, recall a signed reading, and check its receipt and content hash in the browser.">
+<meta property=og:url content="https://emem.dev/demos/transparency-log">
+<meta property=og:title content="emem.dev: the log only grows">
+<meta property=og:description content="Verify a signed tree head, an inclusion proof and a consistency proof in the browser.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -83,6 +83,12 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 @media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
 </style>
+<style>
+.wait{font-size:var(--t-xs);color:var(--mute)}
+.path{display:flex;flex-wrap:wrap;gap:3px;margin:var(--s-2) 0}
+.path i{display:block;width:14px;height:14px;background:var(--accent-bg);border:1px solid var(--accent)}
+.path i.bad{background:var(--absent-bg);border-color:var(--absent)}
+</style>
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -128,119 +134,105 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Signed answer</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a place, a signed number, a receipt checked here</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Log only grows</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a signed log head, and proof it only grew</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo 1 of 8 &middot; skills <a href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">emem-locate-and-recall</a>, <a href="https://emem.dev/skills/emem-verify-receipt/SKILL.md">emem-verify-receipt</a></p>
-    <h1>A place, a signed number, a receipt</h1>
-    <p class="purpose">Type a place. emem gives it a cell address and returns the signed readings stored there. This page then checks the receipt's signature and the fact's content hash itself, against emem.dev's published key.</p>
+    <p class="eyebrow">Demo 4 of 8 &middot; skill <a href="https://emem.dev/skills/emem-transparency-log/SKILL.md">emem-transparency-log</a></p>
+    <h1>The log only grows</h1>
+    <p class="purpose">Every attestation and every memory write is a leaf in one append-only Merkle tree, and emem signs its head. Pin a head, prove an entry sits under it, then prove a later head still contains everything the first one did.</p>
     <dl class="facts">
       <div><dt>writes</dt><dd>none; every call is a read</dd></div>
-      <div><dt>checked</dt><dd>in this tab, with <a href="/emem-verify-core.js">emem-verify-core.js</a></dd></div>
-      <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>checked</dt><dd>in this tab: BLAKE3, Ed25519, RFC 6962 folds</dd></div>
+      <div><dt>tree</dt><dd>leaf = blake3(0x00 &#124;&#124; entry), node = blake3(0x01 &#124;&#124; l &#124;&#124; r)</dd></div>
     </dl>
   </div>
   <aside class="claims" aria-label="What this demo shows">
     <h2>What you will see</h2>
     <ul>
-      <li>A place name becoming one <code>cell64</code> address.</li>
-      <li>A reading with its <code>emem:fact:</code> token, quoted as the exact string that was signed.</li>
-      <li>The Ed25519 receipt and the BLAKE3 content hash, recomputed here, then broken on purpose to show the check can fail.</li>
+      <li>A signed tree head checked against emem.dev's published key.</li>
+      <li>One entry's audit path folded up to that head's root.</li>
+      <li>A consistency proof that a newer head extends the one you pinned.</li>
+      <li>Another operator's co-signature over a head, checked here.</li>
     </ul>
   </aside>
 </header>
 
 <main class="demo" id="main">
   <form class="controls" id="form">
-    <label>Place<input id="place" value="Bengaluru, India" autocomplete="off" spellcheck="false"></label>
-    <label>Band<select id="band">
-      <option value="weather.temperature_2m">weather.temperature_2m (degC, now)</option>
-      <option value="copdem30m.elevation_mean">copdem30m.elevation_mean (m)</option>
-      <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021 (class)</option>
-      <option value="indices.ndvi">indices.ndvi (Sentinel-2)</option>
-      <option value="soilgrids.phh2o_0_30cm">soilgrids.phh2o_0_30cm (pH)</option>
-    </select></label>
-    <div class="go"><button class="btn" id="run" type="submit">Run the five steps</button></div>
+    <label>Leaf index to prove (blank picks one at random)<input id="leaf" inputmode="numeric" autocomplete="off" placeholder="random"></label>
+    <div class="go"><button class="btn" id="run" type="submit">Run the four steps</button></div>
   </form>
 
   <section class="stage" aria-labelledby="h1s">
-    <div class="stage-n"><b>1</b>locate</div>
+    <div class="stage-n"><b>1</b>pin a head</div>
     <div>
-      <h2 id="h1s">The place becomes an address</h2>
-      <p class="say">The geocoder picks one place and says how sure it is. A cell is about 10 m on a side; it is an address, not a measurement.</p>
+      <h2 id="h1s">A signed tree head</h2>
+      <p class="say">The head names the tree's size and root at one moment, signed by the responder. Keep it. Everything below is checked against the head you pinned, not against whatever the server says later.</p>
       <pre class="call" id="c1"></pre>
       <div class="out" id="o1"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h2s">
-    <div class="stage-n"><b>2</b>recall</div>
+    <div class="stage-n"><b>2</b>inclusion</div>
     <div>
-      <h2 id="h2s">The signed reading stored there</h2>
-      <p class="say">Recall returns every stored reading of the band, oldest first, and names the latest in <code>current_by_band</code>. If nothing is stored, emem fetches it from the upstream source and signs it.</p>
+      <h2 id="h2s">One entry is under that head</h2>
+      <p class="say">The audit path is one sibling hash per level. Fold them from the entry upward and you must land exactly on the pinned root. About twenty hashes cover more than two million entries.</p>
       <pre class="call" id="c2"></pre>
       <div class="out" id="o2"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h3s">
-    <div class="stage-n"><b>3</b>receipt</div>
+    <div class="stage-n"><b>3</b>consistency</div>
     <div>
-      <h2 id="h3s">Check the signature here</h2>
-      <p class="say">The receipt signs the request id, the time, the cells and the fact ids it served. This page rebuilds that preimage byte for byte, hashes it and checks the Ed25519 signature. Then it edits one field and checks again.</p>
+      <h2 id="h3s">A later head extends the pinned one</h2>
+      <p class="say">The page proves the old tree is a prefix of the new one. It uses a head this browser pinned on an earlier visit, or waits for a newer head. A rewritten entry anywhere in the old tree would break the proof.</p>
+      <pre class="call" id="c3"></pre>
       <div class="out" id="o3"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h4s">
-    <div class="stage-n"><b>4</b>bytes</div>
+    <div class="stage-n"><b>4</b>witnesses</div>
     <div>
-      <h2 id="h4s">Check the fact is the bytes it names</h2>
-      <p class="say">A fact's id is the BLAKE3 hash of its canonical CBOR. Ask for those bytes and hash them here. If one byte differs, the name no longer matches.</p>
+      <h2 id="h4s">Someone else saw the same history</h2>
+      <p class="say">Consistency proofs stop one responder rewriting its past. They cannot stop it showing two people two different logs. For that, independent witnesses co-sign heads they saw, and anyone can check the current head extends theirs.</p>
       <pre class="call" id="c4"></pre>
       <div class="out" id="o4"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h5s">
-    <div class="stage-n"><b>5</b>cite</div>
-    <div>
-      <h2 id="h5s">Hand on the token, not the number</h2>
-      <p class="say">Another agent resolves the token and gets the same signed bytes, without trusting you or this page.</p>
-      <pre class="call" id="c5"></pre>
-      <div class="out" id="o5"></div>
     </div>
   </section>
 
   <section class="limits" aria-labelledby="lim">
     <h2 id="lim">What this does not show</h2>
     <ul>
-      <li>That the upstream measurement is accurate. The signature says emem served these bytes; the source's own validation says how good they are.</li>
-      <li>An average over the cell. The value is the source pixel that overlaps it; the response's <code>spatial_basis</code> says so, and a 30 m DEM pixel covers many cells.</li>
-      <li>That the reading is from today. Read <code>observed_at</code>: static layers are years old, and a fresh fetch that times out leaves the latest stored reading as the answer.</li>
+      <li>That any fact in the log is true. The log proves the history was not rewritten, nothing about the measurements in it.</li>
+      <li>The receipt's own <code>merkle_proof</code>. That binds a fact into its signing batch and is checked by the receipt verifier, not by this tree.</li>
+      <li>A split view you never compare. Pin heads, share them with other agents, and check consistency between what each of you saw.</li>
+      <li>A witness vouches only for the prefix it signed. Read <code>entries_behind_current</code> before leaning on it.</li>
     </ul>
   </section>
 </main>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
+<a class="pb-prev" href="/demos/handoff"><i>&larr;</i><b>Handoff</b></a>
 <ol class="pb-steps">
 <li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt" aria-current="step"><span>2</span></a></li>
+<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
 <li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
 <li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
-<li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten"><span>5</span></a></li>
+<li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten" aria-current="step"><span>5</span></a></li>
 <li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
 <li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain"><span>7</span></a></li>
 <li><a href="/demos/field" title="One field: edges, pixels, NDVI you compute"><span>8</span></a></li>
 <li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
 </ol>
-<a class="pb-next" href="/demos/verify-before-publish"><b>Check a draft</b><span>catch a wrong number</span><i>&rarr;</i></a>
+<a class="pb-next" href="/demos/tokenise-files"><b>Tokenise a file</b><span>cite one section by its hash</span><i>&rarr;</i></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -391,87 +383,158 @@ if(!D.ready){ document.addEventListener('DOMContentLoaded', function(){}); }
 <script>
 (function(){
 'use strict';
-var D = globalThis.demo, $ = D.$;
+var D = globalThis.demo, $ = D.$, I = globalThis.ememVerifyInternals;
 var form = $('form'), btn = $('run');
-function reset(){ ['o1','o2','o3','o4','o5'].forEach(function(id){ $(id).textContent = ''; }); }
-function fail(C, text){ C.add(false, text); btn.disabled = false; btn.textContent = 'Run again'; return null; }
+function node(l, r){ return D.blake3(D.cat(new Uint8Array([1]), l, r)); }
+function eq(a, b){ if(a.length !== b.length) return false; for(var i = 0; i < a.length; i++) if(a[i] !== b[i]) return false; return true; }
+function sthOk(s){
+  var pk = I.b32decode(s.responder_pubkey_b32);
+  var d = D.blake3(D.preV1('emem.translog.sth.v1', [[1, D.be(s.tree_size, 8)], [2, I.b32decode(s.root_b32)], [3, D.utf8(s.signed_at)], [4, pk]]));
+  try{ return I.ed.verify(I.b32decode(s.signature_b32), d, pk); }catch(e){ return false; }
+}
+/* RFC 6962 inclusion, as translog::verify_inclusion and verify_log.py */
+function rootFromInclusion(leaf, m, size, path){
+  if(m >= size) return null;
+  var fn = m, sn = size - 1, acc = leaf, k = 0;
+  while(sn > 0){
+    if(k >= path.length) return null;
+    var sib = path[k++];
+    if(fn % 2 === 1 || fn === sn){ acc = node(sib, acc); while(fn % 2 === 0 && fn !== 0){ fn = Math.floor(fn / 2); sn = Math.floor(sn / 2); } }
+    else acc = node(acc, sib);
+    fn = Math.floor(fn / 2); sn = Math.floor(sn / 2);
+  }
+  return k === path.length ? acc : null;
+}
+/* RFC 6962 consistency, as translog::verify_consistency and verify_log.py */
+function consistent(fs, fr0, ss, sr0, proof){
+  if(fs === 0 || fs > ss) return false;
+  if(fs === ss) return proof.length === 0 && eq(fr0, sr0);
+  proof = proof.slice();
+  var fn = fs - 1, sn = ss - 1;
+  if((fs & (fs - 1)) === 0) proof.unshift(fr0);
+  if(!proof.length) return false;
+  while(fn % 2 === 1){ fn = Math.floor(fn / 2); sn = Math.floor(sn / 2); }
+  var fr = proof[0], sr = proof[0];
+  for(var i = 1; i < proof.length; i++){
+    var c = proof[i];
+    if(sn === 0) return false;
+    if(fn % 2 === 1 || fn === sn){ fr = node(c, fr); sr = node(c, sr); while(fn % 2 === 0 && fn !== 0){ fn = Math.floor(fn / 2); sn = Math.floor(sn / 2); } }
+    else sr = node(sr, c);
+    fn = Math.floor(fn / 2); sn = Math.floor(sn / 2);
+  }
+  return sn === 0 && eq(fr, fr0) && eq(sr, sr0);
+}
+function swapOne(list){ var p = list.map(function(h){ return h.slice(); }); var i = p.length >> 1; p[i][0] ^= 1; return p; }
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+function done(){ btn.disabled = false; btn.textContent = 'Run again'; }
+function reset(){ ['o1','o2','o3','o4'].forEach(function(id){ $(id).textContent = ''; }); }
 
 async function go(){
-  reset();
-  btn.disabled = true; btn.textContent = 'Running…';
-  var q = $('place').value.trim() || 'Bengaluru, India', band = $('band').value;
-  if(!D.ready){ var C0 = new D.Checks($('o1')); return fail(C0, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); }
+  reset(); btn.disabled = true; btn.textContent = 'Running…';
+  if(!D.ready){ new D.Checks($('o1')).add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return done(); }
 
-  /* 1. locate */
-  var lb = { q:q }; $('c1').textContent = D.curlPost('/v1/locate', lb);
-  var C1 = new D.Checks($('o1')), w1 = C1.run('asking the geocoder…');
-  var L = await D.post('/v1/locate', lb);
-  if(!L.ok || !L.json.cell64){ w1(false, 'locate failed (' + L.status + '): ' + D.why(L)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var cell = L.json.cell64, sel = L.json.selected || {};
-  w1(true, 'resolved in ' + L.ms + ' ms, via ' + (L.json.via || 'the geocoder'));
-  D.mk('p', 'big', $('o1'), cell).appendChild(D.mk('small', '', null, L.json.place_label || ''));
-  if(L.json.disambiguation_required || sel.is_high_confidence === false){
-    C1.add(null, 'the geocoder is not sure this is the place you meant; an agent should ask, not cite rank 0. Alternatives: ' + (L.json.alternatives || []).slice(0, 4).map(function(a){ return a.label; }).join('; '));
-  } else C1.add(true, 'high-confidence match (' + (sel.confidence_reason || 'no reason given') + ')');
+  /* 1. head */
+  $('c1').textContent = D.curlGet('/v1/log/sth');
+  var C1 = new D.Checks($('o1')), w1 = C1.run('fetching the signed head…');
+  var S = await D.get('/v1/log/sth');
+  if(!S.ok || !S.json.sth){ w1(false, 'the head did not load (' + S.status + '): ' + D.why(S)); return done(); }
+  var h1 = S.json.sth, k = await D.key();
+  var ok1 = sthOk(h1);
+  w1(ok1, ok1 ? 'the head\'s Ed25519 signature checks over (size, root, signed_at, key)' : 'the head\'s signature does not check');
+  C1.add(h1.responder_pubkey_b32 === k, h1.responder_pubkey_b32 === k ? 'signed by emem.dev\'s published key ' + k.slice(0, 8) + '…' : 'signed by a key that is not the published one');
+  var bent = JSON.parse(JSON.stringify(h1)); bent.tree_size = h1.tree_size + 1;
+  C1.add(!sthOk(bent), 'control: the same head with tree_size ' + bent.tree_size.toLocaleString('en') + ' instead of ' + h1.tree_size.toLocaleString('en') + ' is rejected');
+  D.mk('p', 'big', $('o1'), h1.tree_size.toLocaleString('en') + ' entries').appendChild(D.mk('small', '', null, 'signed ' + h1.signed_at));
+  D.kv($('o1'), [['root', h1.root_b32], ['log_id', h1.log_id]]);
+  if(!ok1) return done();
+  var saved = null;
+  try{ saved = JSON.parse(localStorage.getItem('emem.demo.pinned_sth') || 'null'); }catch(e){}
+  try{ localStorage.setItem('emem.demo.pinned_sth', JSON.stringify(h1)); C1.add(null, 'pinned: this browser keeps the head, so your next visit proves the log grew from it'); }catch(e){}
 
-  /* 2. recall */
-  var rb = { cell:cell, bands:[band] }; $('c2').textContent = D.curlPost('/v1/recall', rb);
-  var C2 = new D.Checks($('o2')), w2 = C2.run('recalling ' + band + ' (a cold fetch can take up to about 15 s)…');
-  var R = await D.post('/v1/recall', rb);
-  if(!R.ok){ w2(false, 'recall failed (' + R.status + '): ' + D.why(R)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var facts = R.json.facts || [], cur = (R.json.current_by_band || {})[band];
-  var f = facts.filter(function(x){ return x.fact_cid === cur; })[0];
-  (R.json.materialize_notes || []).forEach(function(n){
-    if(n.status === 'materialized') return;
-    C2.add(null, n.band + ': ' + (n.status || '') + (n.reason_class ? ' (' + n.reason_class + ')' : '') + (n.retryable ? ', retryable: the fetch carries on in the background' : ''));
-  });
-  if(!f){ w2(false, 'no reading of ' + band + ' is stored here and none came back in time; run it again in a few seconds'); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  w2(true, facts.length + ' stored reading' + (facts.length === 1 ? '' : 's') + ' of this band in ' + R.ms + ' ms; the current one is below');
-  var big = D.mk('p', 'big', $('o2'), String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)) + (f.unit ? ' ' + f.unit : ''));
-  big.appendChild(D.mk('small', '', null, band + ', observed ' + (f.observed_at || 'at an unstated time')));
-  D.kv($('o2'), [['fact_cid', f.fact_cid], ['source', ((f.sources || [])[0] || {}).id], ['derived by', (f.derivation || {}).fn_key], ['signed at', f.signed_at]]);
-  D.mk('p', 'tok', $('o2'), f.memory_token);
-  C2.add(null, 'value_verbatim is the exact decimal string that was signed; quote it rather than re-typing the number');
-
-  /* 3. receipt */
-  var C3 = new D.Checks($('o3')), rc = R.json.receipt;
-  var good = await D.receipt(C3, rc, [f.fact_cid], 'the recall receipt');
-  if(good){
-    var bent = JSON.parse(JSON.stringify(rc));
-    bent.served_at = bent.served_at.replace(/\d(?=Z$)/, function(d){ return String((+d + 1) % 10); });
-    var still = D.verifyOnly(bent);
-    C3.add(!still, !still ? 'control: with served_at moved by one second (' + bent.served_at + '), the same check rejects it' : 'control failed: an edited receipt still verified, so this check proves nothing');
+  /* 2. inclusion */
+  var want = parseInt($('leaf').value, 10);
+  var li = (isFinite(want) && want >= 0 && want < h1.tree_size) ? want : Math.floor(Math.random() * h1.tree_size);
+  var q2 = '/v1/log/inclusion?leaf_index=' + li + '&tree_size=' + h1.tree_size;
+  $('c2').textContent = D.curlGet(q2);
+  var C2 = new D.Checks($('o2')), w2 = C2.run('asking for entry ' + li.toLocaleString('en') + '\'s audit path…');
+  var P = await D.get(q2);
+  if(!P.ok){ w2(false, 'the proof did not load (' + P.status + '): ' + D.why(P)); return done(); }
+  var j = P.json, path = (j.audit_path_b32 || []).map(I.b32decode);
+  var leaf = D.blake3(D.cat(new Uint8Array([0]), I.b32decode(j.entry_hash_b32)));
+  var leafOk = D.b32(leaf) === j.leaf_hash_b32;
+  w2(leafOk, leafOk ? 'entry ' + li.toLocaleString('en') + ': blake3(0x00 || entry_hash) is the leaf it names' : 'the leaf does not match its entry hash');
+  var got = rootFromInclusion(leaf, j.leaf_index, h1.tree_size, path);
+  var incOk = !!got && D.b32(got) === h1.root_b32;
+  C2.add(incOk, incOk ? 'folded through ' + path.length + ' hashes, it reaches the root of the head you pinned' : 'the audit path does not reach the pinned root');
+  var pv = D.mk('div', 'path', $('o2')); pv.setAttribute('aria-hidden', 'true'); path.forEach(function(){ D.mk('i', '', pv); });
+  if(path.length){
+    var badRoot = rootFromInclusion(leaf, j.leaf_index, h1.tree_size, swapOne(path));
+    var rej = !badRoot || D.b32(badRoot) !== h1.root_b32;
+    if(pv.children[path.length >> 1]) pv.children[path.length >> 1].className = 'bad';
+    C2.add(rej, 'control: with one bit flipped in hash ' + ((path.length >> 1) + 1) + ' of ' + path.length + ', the fold misses the root');
   }
-  D.raw($('o3'), 'the receipt', rc);
+  D.kv($('o2'), [['entry_hash', j.entry_hash_b32], ['leaf_hash', j.leaf_hash_b32], ['matched', j.matched], ['note file_cid', j.memory_note_file_cid]]);
 
-  /* 4. bytes */
-  $('c4').textContent = D.curlGet('/v1/facts/' + f.fact_cid, "-H 'accept: application/cbor' | b3sum");
-  var C4 = new D.Checks($('o4')), w4 = C4.run('fetching the canonical bytes…');
-  var B = await D.get('/v1/facts/' + f.fact_cid, 'application/cbor');
-  if(B.status !== 200){ w4(false, 'the bytes did not load (' + B.status + ')'); }
+  /* 3. consistency: from a head this browser pinned on an earlier visit, else a newer head, else an earlier size */
+  var C3 = new D.Checks($('o3')), older = null, newer = null, via = '';
+  if(saved && saved.tree_size < h1.tree_size && sthOk(saved) && saved.responder_pubkey_b32 === k){ older = saved; newer = h1; via = 'saved'; }
+  if(!older){
+    var w3 = C3.run('no earlier head saved in this browser; waiting up to 45 s for the log to grow…');
+    for(var t = 0; t < 9 && !newer; t++){
+      await sleep(5000);
+      var S2 = await D.get('/v1/log/sth');
+      if(S2.ok && S2.json.sth && S2.json.sth.tree_size > h1.tree_size) newer = S2.json.sth;
+    }
+    if(newer){ older = h1; via = 'wait'; w3(true, 'a newer head arrived: ' + newer.tree_size.toLocaleString('en') + ' entries, signed ' + newer.signed_at); }
+    else w3(null, 'the log did not grow in 45 s (it writes in bursts); proving from an earlier size instead');
+  } else C3.add(true, 'this browser pinned a head on an earlier visit: ' + older.tree_size.toLocaleString('en') + ' entries, signed ' + older.signed_at + '; its signature checks again now');
+  if(newer && !(sthOk(newer) && newer.responder_pubkey_b32 === k)){ C3.add(false, 'the newer head does not verify'); older = null; }
+  var fs3, fr3, ss3, sr3;
+  if(older){ fs3 = older.tree_size; fr3 = older.root_b32; ss3 = newer.tree_size; sr3 = newer.root_b32; }
+  else { fs3 = Math.max(1, h1.tree_size - 1000); ss3 = h1.tree_size; sr3 = h1.root_b32; }
+  var q3 = '/v1/log/consistency?first=' + fs3 + '&second=' + ss3;
+  $('c3').textContent = D.curlGet(q3);
+  var K = await D.get(q3);
+  if(!K.ok){ C3.add(false, 'the proof did not load (' + K.status + '): ' + D.why(K)); }
   else {
-    var name = D.b32(D.blake3(B.bytes));
-    w4(name === f.fact_cid, name === f.fact_cid ? B.bytes.length + ' bytes of CBOR hash to ' + D.short(name, 20) + ', the fact\'s own name' : 'the bytes hash to ' + D.short(name) + ', not ' + D.short(f.fact_cid));
-    var flip = B.bytes.slice(); flip[flip.length >> 1] ^= 1;
-    var n2 = D.b32(D.blake3(flip));
-    C4.add(n2 !== f.fact_cid, 'control: with one bit flipped in byte ' + (flip.length >> 1) + ', they hash to ' + D.short(n2, 20) + ' instead');
+    if(!older){ fr3 = K.json.first_root_b32; C3.add(null, 'the root at size ' + fs3.toLocaleString('en') + ' comes from the proof response itself, unsigned. A real audit pins a signed head first; reload this page later and it will use the head it just saved'); }
+    var cp = (K.json.consistency_proof_b32 || []).map(I.b32decode);
+    var sizes = K.json.first_size === fs3 && K.json.second_size === ss3;
+    C3.add(sizes, sizes ? 'the proof is for exactly sizes ' + fs3.toLocaleString('en') + ' and ' + ss3.toLocaleString('en') : 'the proof is for other sizes than asked');
+    var cOk = sizes && consistent(fs3, I.b32decode(fr3), ss3, I.b32decode(sr3), cp);
+    C3.add(cOk, cOk ? cp.length + ' hashes rebuild both roots: the tree of ' + fs3.toLocaleString('en') + ' entries is a prefix of the tree of ' + ss3.toLocaleString('en') : 'the proof does not link the two roots');
+    if(cp.length) C3.add(!consistent(fs3, I.b32decode(fr3), ss3, I.b32decode(sr3), swapOne(cp)), 'control: with one proof hash altered, the same check fails');
   }
+  var h2 = newer;
 
-  /* 5. cite */
-  var tb = { token:f.memory_token }; $('c5').textContent = D.curlPost('/v1/memory_token/resolve', tb);
-  var C5 = new D.Checks($('o5')), w5 = C5.run('resolving the token as another agent would…');
-  var T = await D.post('/v1/memory_token/resolve', tb);
-  if(!T.ok){ w5(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); }
-  else {
-    var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === String(f.value_verbatim);
-    w5(same, same ? 'it resolves to the same fact and the same signed string, ' + T.json.value_verbatim + (T.json.unit ? ' ' + T.json.unit : '') : 'it resolved to something else: ' + T.json.fact_cid);
-    await D.receipt(C5, T.json.receipt, [f.fact_cid], 'the resolve receipt');
-    var acts = D.mk('div', 'acts', $('o5'));
-    var a = D.mk('a', 'btn ghost small', acts, 'Open it in /verify'); a.href = '/verify?q=' + encodeURIComponent(f.memory_token);
-  }
-  btn.disabled = false; btn.textContent = 'Run again';
+  /* 4. witnesses */
+  var q4 = '/v1/log/witnesses?limit=50';
+  $('c4').textContent = D.curlGet(q4);
+  var C4 = new D.Checks($('o4')), w4 = C4.run('reading the co-signatures…');
+  var Wr = await D.get(q4);
+  if(!Wr.ok || !Wr.json){ w4(false, 'the witnesses did not load (' + Wr.status + '): ' + D.why(Wr)); return done(); }
+  var W = Wr.json, self = W.self_witness_pubkey_b32;
+  w4(null, W.independent_witness_count + ' independent witness keys, operator domains: ' + ((W.independent_operator_domains || []).join(', ') || 'none'));
+  D.kv($('o4'), [['head_is_witnessed', String(W.head_is_witnessed)], ['head_is_independently_witnessed', String(W.head_is_independently_witnessed)], ['freshest independent, entries behind', W.freshest_independent_witness_entries_behind], ['self witness (canary)', self ? self.slice(0, 8) + '…' : '']]);
+  C4.add(null, 'head_is_witnessed also counts this node\'s own canary, which signs the head on a timer; head_is_independently_witnessed leaves it out and is the one that speaks to split view');
+  var wi = (W.witnesses || []).filter(function(x){ return x.witness_pubkey_b32 !== self; })[0];
+  if(!wi){ C4.add(null, 'no independent co-signature among the newest 50; the canary\'s are all this page can see'); return done(); }
+  var wpk = I.b32decode(wi.witness_pubkey_b32);
+  var wd = D.blake3(D.preV1('emem.translog.witness.v1', [[1, D.be(wi.tree_size, 8)], [2, I.b32decode(wi.root_b32)], [3, wpk]]));
+  var wOk = false; try{ wOk = I.ed.verify(I.b32decode(wi.signature_b32), wd, wpk); }catch(e){}
+  C4.add(wOk, wOk ? 'witness ' + wi.witness_pubkey_b32.slice(0, 8) + '… (' + (wi.vouched_by_domain || wi.tier) + ') signed size ' + wi.tree_size.toLocaleString('en') + ' with root ' + D.short(wi.root_b32) + '; its signature checks here' : 'the co-signature does not verify');
+  var cur = h2 || h1;
+  if(wi.tree_size > cur.tree_size){ C4.add(null, 'that witness saw a newer head than the one this page holds'); return done(); }
+  var q5 = '/v1/log/consistency?first=' + wi.tree_size + '&second=' + cur.tree_size;
+  var K2 = await D.get(q5);
+  if(K2.ok){
+    var cp2 = (K2.json.consistency_proof_b32 || []).map(I.b32decode);
+    var ok5 = K2.json.first_size === wi.tree_size && K2.json.second_size === cur.tree_size && consistent(wi.tree_size, I.b32decode(wi.root_b32), cur.tree_size, I.b32decode(cur.root_b32), cp2);
+    C4.add(ok5, ok5 ? 'and the head you hold extends what it saw (' + (cur.tree_size - wi.tree_size).toLocaleString('en') + ' entries later)' : 'the head you hold does not extend what the witness saw');
+  } else C4.add(false, 'the consistency proof from the witness\'s size did not load: ' + D.why(K2));
+  done();
 }
-function start(){ go().catch(function(err){ var C = new D.Checks($('o5')); C.add(false, String(err && err.message || err)); btn.disabled = false; btn.textContent = 'Run again'; }); }
+function start(){ go().catch(function(err){ new D.Checks($('o4')).add(false, String(err && err.message || err)); done(); }); }
 form.addEventListener('submit', function(e){ e.preventDefault(); start(); });
 if(/[?&]run\b/.test(location.search)) start();
 })();

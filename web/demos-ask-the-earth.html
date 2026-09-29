@@ -3,180 +3,39 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/ask-the-earth: real questions, signed answers</title>
-<meta name=description content="Real-world questions an agent might ask Earth memory. Each one runs live against emem.dev and returns a signed, content-addressed answer. No fixtures.">
+<title>emem.dev/demos/ask-the-earth: this demo moved</title>
+<meta name=description content="The Ask the Earth demo was retired. This page says where it went.">
 <link rel=canonical href="https://emem.dev/demos/ask-the-earth">
-<link rel=alternate type=application/json href="/openapi.json">
-<link rel=alternate type=text/markdown href="/llms.txt">
-<link rel="service mcp" href="/mcp">
-<meta name=robots content="index,follow">
+<meta name=robots content="noindex,follow">
 <meta name=color-scheme content="light dark">
-<meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/ask-the-earth">
-<meta property=og:title content="emem.dev/demos/ask-the-earth: real questions, signed answers">
-<meta property=og:description content="Real-world questions, live API calls. The protocol from a user's seat.">
-<meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
-<link rel="apple-touch-icon" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
 <style>
-:root{ /* tokens come from /tokens.css */ }
-
-html{font-size:100%}
 *{box-sizing:border-box}
-html,body{margin:0;padding:0;min-height:100%}
-body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;font-variant-numeric:tabular-nums}
-::selection{background:var(--accent);color:var(--paper)}
-a{color:var(--ink);text-decoration:none;border-bottom:1px dotted var(--rule)}
-a:hover{color:var(--accent);border-bottom-color:var(--accent)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:2px}
-button{font:inherit;font-family:var(--mono);color:var(--ink);background:transparent;border:1px solid var(--rule);padding:.42em .9em;cursor:pointer;border-radius:3px;letter-spacing:.02em;font-size:var(--t-xs)}
-button:hover{border-color:var(--accent);color:var(--accent)}
-button.primary{border-color:var(--accent);color:var(--accent);background:color-mix(in oklch, var(--accent) 8%, transparent)}
-button.primary:hover{background:color-mix(in oklch, var(--accent) 16%, transparent)}
-button:disabled{opacity:.4;cursor:not-allowed}
-
-/* statusbar — shared with index.html */
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
-.statusbar a{color:var(--ink-2);text-decoration:none;border-bottom:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
-.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
-.statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper-3)}
-.statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem}
-.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-.statusbar .spacer{flex:1}
-
-/* footer — shared with index.html */
-.page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
-.foot{position:relative;background:var(--paper);padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
-.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
-.foot-meta .desc{color:var(--mute);line-height:1.5}
-.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
-.foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
-.foot-col ul{margin:0;padding:0;list-style:none}
-.foot-col ul li{margin-bottom:.382rem}
-.foot-col a{color:var(--ink-2);text-decoration:none;border-bottom:none}
-.foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
-.foot-bottom a{color:inherit;border-bottom:none}
-.foot-bottom a:hover{color:var(--accent)}
-
-.wrap{margin:0 auto;padding-top:0;padding-bottom:var(--s-6)}
-.doc-head a,.doc-toc a{border-bottom:none}
-.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--ink);background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:var(--t-sm);font-weight:600;text-decoration:none}
-.btn:hover{background:var(--ink-2);color:var(--paper)}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
+a{color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
+a:hover{color:var(--accent)}
+.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font:600 var(--t-sm) var(--mono);text-decoration:none}
+.btn:hover{background:var(--accent);border-color:var(--accent);color:var(--paper)}
 .btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--paper-3);color:var(--ink)}
-header.masthead{padding-bottom:1.4rem;border-bottom:1px solid var(--rule);margin-bottom:1.6rem}
-.kicker{font-size:var(--t-xs);letter-spacing:.18em;text-transform:uppercase;color:var(--ink-3);margin:0 0 .55rem}
-h1{font-family:var(--mono);font-size:var(--t-2xl);font-weight:600;letter-spacing:-.01em;margin:0 0 .65rem;line-height:1.18}
-h1 .accent{color:var(--accent)}
-.lede{color:var(--ink-2);font-size:var(--t-lg);margin:0;line-height:1.55;max-width:70ch}
-.lede b{color:var(--ink);font-weight:500}
-.lede .accent{color:var(--accent);font-weight:500}
-
-.run-all{display:flex;align-items:center;gap:var(--s-3);margin:var(--s-4) 0;padding:.7rem .9rem;background:var(--paper-2);border:1px solid var(--rule);border-radius:4px}
-.run-all .status{flex:1;font-size:var(--t-xs);color:var(--ink-3)}
-
-.cards{display:grid;grid-template-columns:1fr;gap:1rem}
-/* min-width:0 because `1fr` is `minmax(auto,1fr)` and that auto floor is the
-   item's MIN-CONTENT width. `.req` is white-space:pre, so a long request line
-   cannot wrap, its min-content was 450px, and the grid column grew to fit it
-   inside a 362px container: the page overflowed at every phone width while
-   the pre itself had overflow-x:auto and looked innocent. */
-.q{background:var(--paper-2);border:1px solid var(--rule);border-radius:4px;padding:1.05rem 1.2rem;transition:border-color .15s;min-width:0}
-.q.busy{border-color:var(--pending)}
-.q.ok{border-left:3px solid var(--accent)}
-.q.fail{border-left:3px solid var(--warn);border-color:var(--warn)}
-.q .head{display:flex;align-items:baseline;gap:.6rem;margin-bottom:.55rem;flex-wrap:wrap}
-.q .num{font-size:var(--t-xs);letter-spacing:.18em;color:var(--ink-3);text-transform:uppercase;font-weight:500}
-.q.ok .num,.q.busy .num,.q.fail .num{color:var(--accent)}
-/* min-width:240px is a floor, and a floor wider than the space available is
-   an overflow: at 390px this pushed the article to 464px and took the whole
-   page with it. min() keeps the comfortable width where there is room. */
-.q h2{font-size:var(--t-lg);font-weight:600;margin:0;color:var(--ink);letter-spacing:-.005em;flex:1;min-width:min(240px,100%)}
-.q .endpoint{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.18em .55em;border:1px solid var(--rule);border-radius:2px}
-.q .req{font-size:var(--t-xs);color:var(--ink-3);background:var(--paper);padding:.5rem .7rem;border:1px solid var(--rule);border-radius:3px;margin:.4rem 0;overflow-x:auto;white-space:pre}
-.q .actions{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;margin:.45rem 0}
-.q .actions .meta{font-size:var(--t-xs);color:var(--ink-3)}
-.q .answer{font-size:var(--t-base);color:var(--ink);margin:.55rem 0 .25rem;line-height:1.55}
-.q .answer .v{color:var(--accent);font-weight:600}
-.q .answer .u{color:var(--ink-3);font-size:var(--t-xs)}
-.q .citations{display:flex;flex-wrap:wrap;gap:.35rem;margin:.35rem 0 .15rem}
-.q .cite{display:inline-flex;align-items:center;gap:.35rem;font-size:var(--t-xs);color:var(--ink-2);background:var(--paper);border:1px solid var(--rule);padding:.12em .55em;border-radius:99px}
-.q .cite .dot{width:6px;height:6px;border-radius:50%;background:var(--accent-2)}
-.q .cite[data-kind=cell] .dot{background:var(--accent)}
-.q .cite[data-kind=src] .dot{background:var(--info)}
-.q a.cite{text-decoration:none}
-.q a.cite:hover{border-color:var(--accent)}
-.q details{margin-top:.5rem}
-.q details summary{font-size:var(--t-xs);color:var(--ink-3);cursor:pointer;list-style:none;padding:.18em 0}
-.q details summary::-webkit-details-marker{display:none}
-.q details summary::before{content:'\25b8  ';color:var(--ink-3)}
-.q details[open] summary::before{content:'\25be  '}
-.q details pre{font-size:var(--t-xs);background:var(--paper);border:1px solid var(--rule);padding:.65rem .8rem;border-radius:3px;color:var(--ink);white-space:pre-wrap;word-break:break-word;line-height:1.55;max-height:280px;overflow-y:auto;margin:.3rem 0 0}
-
-.spinner{display:inline-block;width:10px;height:10px;border:1.5px solid var(--pending);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle;margin-right:.4em}
-@keyframes spin{to{transform:rotate(360deg)}}
-.muted{color:var(--ink-3)}
-.skip{position:absolute;left:-999px;top:0}
-.skip:focus{left:1rem;top:1rem;background:var(--paper);border:1px solid var(--accent);padding:.4em .8em;z-index:200;border-radius:3px}
-.statusbar .brand{opacity:1;cursor:pointer}
-
-/* ===== Mithila form controls — coherent native UI across the product ===== */
-select{appearance:none;-webkit-appearance:none;-moz-appearance:none;background-color:var(--paper,#f3eee2);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='11' height='7'%3E%3Cpath d='M1.5 1.2l4 4 4-4' fill='none' stroke='%232b2620' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right .6rem center;border:1px solid var(--ink,#2b2620);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);padding:.382rem 1.618rem .382rem .618rem;border-radius:0;cursor:pointer}
-select:hover{border-color:var(--accent,#3f7a4e)}
-option{background:var(--paper,#f3eee2);color:var(--ink,#2b2620)}
-optgroup{background:var(--paper,#f3eee2);color:var(--mute-2,#8a8170);font-style:normal;font-weight:700}
-input[type=checkbox]{appearance:none;-webkit-appearance:none;width:14px;height:14px;border:1.5px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);cursor:pointer;position:relative;flex:0 0 auto;border-radius:0;margin:0;vertical-align:middle}
-input[type=checkbox]:checked{background:var(--accent,#3f7a4e);border-color:var(--ink,#2b2620)}
-input[type=checkbox]:checked::after{content:"";position:absolute;left:3.5px;top:.5px;width:4px;height:8px;border:solid var(--paper,#f3eee2);border-width:0 2px 2px 0;transform:rotate(45deg)}
-input[type=text],input[type=search],input[type=email],input[type=url],input[type=number]{border:1px solid var(--ink,#2b2620);background:var(--paper,#f3eee2);color:var(--ink,#2b2620);font-family:var(--mono,ui-monospace,monospace);border-radius:0}
-input::placeholder{color:var(--mute,#7a7363)}
-:focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
-
-/* ── Conditional blocks, last ───────────────────────────────────────────────
-   A media query adds NO specificity, so an override written above the rule
-   it overrides loses on source order and does nothing: the class matches,
-   the query matches, and the declaration is struck through. This page had
-   overrides that could not win. Every @media block now sits after every
-   unconditional rule, which makes that impossible rather than remembered.
-   Checked by scripts/css_override_order.py. */
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-@media (max-width:720px){.statusbar a.nav-sec{display:none}.statusbar-inner{height:36px}}
-@media (max-width:720px){.foot{grid-template-columns:1fr;padding:2rem 0}.foot-grid{grid-template-columns:repeat(2,1fr)}}
-@media(max-width:760px){
-  .wrap{padding:1.4rem 1rem 4rem}
-}
-@media(max-width:480px){
-  html{font-size:88%}
-  h1{font-size:var(--t-xl);line-height:1.18}
-  .lede{font-size:var(--t-sm)}
-}
-@media (min-width:1100px){.cards{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start}}
-/* Shared chrome keeps its own link style; the page-wide dotted underline is for prose links. */
-.crumbs a,.pathbar a,.sitefoot a,.doc-toc a,.doc-head .btn{border-bottom:none}
-.doc-head .purpose code{font-size:.82em}
-/* The root drops to 88% below 480px, which would take the rem-based gutter to 14px. */
-@media (max-width:480px){body.doc{--gutter:16px}}
+.moved{max-width:var(--w-page);margin:0 auto;padding:var(--s-4) var(--gutter) var(--s-6)}
+.moved p{margin:0 0 var(--s-3);max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6;color:var(--ink-2)}
+.moved code{font-family:var(--mono);font-size:.84em}
+@media(max-width:480px){body.doc{--gutter:16px}}
 </style>
 </head>
 <body class="doc">
-<a class=skip href="#main">Skip to questions</a>
-
 <!--nav:start-->
 <header class="sitebar"><nav class="sitebar-in" aria-label="Site">
 <a href="/" class="brand"><img src="/vortxgola.gif" alt="">emem</a>
 <button type="button" class="navtoggle" aria-expanded="false" aria-controls="sitenav-panel"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2 4h12M2 8h12M2 12h12"/></svg>Menu</button>
 <div class="navpanel" id="sitenav-panel">
-<a class="navlink on" href="/demos" aria-current="page">Demos</a>
+<a class="navlink" href="/demos">Demos</a>
 <a class="navlink" href="/how-it-works">How it works</a>
 <a class="navlink" href="/reference">Reference</a>
 <a class="navlink" href="/tools">MCP tools</a>
@@ -214,49 +73,28 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Ask the Earth</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">ask a question, get a signed answer</span></div>
+<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">moved: see the signed answer demo</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo &middot; 9 live calls</p>
-    <h1>Ask the Earth</h1>
-    <p class="purpose">Nine questions an agent might send, each wired to one endpoint on emem.dev. Run them one at a time or in order. Every answer shows the fact_cid it rests on.</p>
+    <p class="eyebrow">Demos &middot; retired 2026-09-29</p>
+    <h1>Ask the Earth has moved</h1>
+    <p class="purpose">This page sent a list of fixed questions to separate endpoints. The current demo set starts from one place and one reading instead, and checks the receipt in your browser.</p>
     <div class="actions">
-      <a class="btn" href="#cards">Go to the questions</a>
-      <a class="btn ghost" href="/reference">API reference</a>
+      <a class="btn" href="/demos/signed-answer">A place, a signed number, a receipt</a>
+      <a class="btn ghost" href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">the emem-locate-and-recall skill</a>
     </div>
-    <dl class="facts">
-      <div><dt>endpoints</dt><dd>/v1/elevation, /v1/air, /v1/ndvi, /v1/find_similar, /v1/hunt, /v1/field_boundaries, /v1/state, /v1/corpus_state_stats, /v1/ask</dd></div>
-    </dl>
   </div>
 </header>
 
-<main class="wrap page" id=main tabindex="-1">
-  <div class=run-all>
-    <button id=runAll class=primary type=button>run all in order</button>
-    <span id=allStatus class=status>Idle. Each card also has its own run button.</span>
-  </div>
-
-  <section class=cards id=cards aria-label="Questions"></section>
+<main class="moved" id="main">
+  <p>For a one-call question, <code>POST /v1/ask</code> is still served; the skill above describes it.</p>
+  <p>Every current demo is listed at <a href="/demos">/demos</a>, with the plugin skill it follows.</p>
 </main>
 
 <!--foot:start-->
-<nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
-<ol class="pb-steps">
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/ask-the-earth" title="Ask the Earth: ask, get a signed answer" aria-current="step"><span>2</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: watch a receipt get built"><span>3</span></a></li>
-<li><a href="/demos/recall-polygon" title="Recall an area: read a polygon at once"><span>4</span></a></li>
-<li><a href="/demos/find-similar" title="Find similar: find places like this one"><span>5</span></a></li>
-<li><a href="/demos/state-cube" title="State cube: one place as one vector"><span>6</span></a></li>
-<li><a href="/demos/trajectory" title="Trajectory: one cell through time"><span>7</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/demos/signed-answer"><b>Signed answer</b><span>watch a receipt get built</span><i>&rarr;</i></a>
-</nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
 <div class="sf-grid">
@@ -322,221 +160,5 @@ input::placeholder{color:var(--mute,#7a7363)}
 </footer>
 <script>(function(){var el=document.querySelector('[data-proof]');if(!el)return;var enc=new TextEncoder();function u32(o,n){o.push(n&255,(n>>>8)&255,(n>>>16)&255,(n>>>24)&255);}function be8(n){var o=new Uint8Array(8),v=BigInt(n);for(var i=7;i>=0;i--){o[i]=Number(v&255n);v>>=8n;}return o;}function pre(d,segs){var o=[],b=enc.encode(d);o.push.apply(o,enc.encode('emem.preimage.v1\0'));u32(o,b.length);o.push.apply(o,b);segs.forEach(function(s){o.push(s[0]);u32(o,s[1].length);for(var i=0;i<s[1].length;i++)o.push(s[1][i]);});return new Uint8Array(o);}function say(ok,t){el.innerHTML=(ok?'<b class="ok">&#10003;</b> ':'<b class="no">&#10007;</b> ')+t;}function run(){var I=globalThis.ememVerifyInternals;if(!I)return say(false,'verifier did not load');Promise.all([fetch('/.well-known/emem.json').then(function(r){return r.json();}),fetch('/v1/log/sth').then(function(r){return r.json();})]).then(function(x){var k=x[0].responder&&x[0].responder.pubkey_b32,h=x[1].sth,pk=I.b32decode(h.responder_pubkey_b32);var d=I.blake3(pre('emem.translog.sth.v1',[[1,be8(h.tree_size)],[2,I.b32decode(h.root_b32)],[3,enc.encode(h.signed_at)],[4,pk]]));var ok=h.responder_pubkey_b32===k&&I.ed.verify(I.b32decode(h.signature_b32),d,pk);say(ok,'log head <a href="/verify?q=https%3A%2F%2Femem.dev%2Fv1%2Flog%2Fsth">'+Number(h.tree_size).toLocaleString('en')+' entries</a>, signed '+h.signed_at.slice(11,16)+'Z, '+(ok?'signature checked in this tab':'signature did NOT verify'));}).catch(function(){say(false,'log head unreachable');});}function go(){if(globalThis.ememVerifyInternals)return run();var s=document.createElement('script');s.src='/emem-verify-core.js';s.onload=run;s.onerror=function(){say(false,'verifier did not load');};document.head.appendChild(s);}(window.requestIdleCallback||function(f){setTimeout(f,1200);})(go);})();</script>
 <!--foot:end-->
-
-<script>
-const $=(id)=>document.getElementById(id);
-const HOST=location.origin;
-function escapeHTML(s){return String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function pretty(o){return JSON.stringify(o,null,2);}
-function shortCid(c){return c?c.slice(0,12)+'…':''}
-/* a token, shown short; the link and its title carry it whole */
-function shortTok(t){const m=/^emem:([a-z]+):(.+):([a-z2-7]{26,52})$/.exec(t||'');return m?'emem:'+m[1]+':…:'+m[3].slice(0,8)+'…':t}
-
-const Q=[
-  {title:"How high is Mount Everest?", endpoint:"/v1/elevation", method:"POST",
-   payload:{place:"Mount Everest"},
-   render(d){
-     // /v1/elevation returns a flat object: elevation_m, cell64, lc_class_decoded,
-     // interpretation, responder_pubkey_b32 (verified against emem.dev).
-     const e=d.elevation_m;
-     return {
-       answer:`<span class=v>${e?.toFixed?e.toFixed(0):e} m</span> above sea level. ${escapeHTML(d.interpretation||'')}`,
-       citations:[
-         d.sub_facts?.copdem30m_elevation_mean?.memory_token?{tok:d.sub_facts.copdem30m_elevation_mean.memory_token,text:'elevation'}:null,
-         d.lc_class_decoded?{kind:'src',text:'land class: '+d.lc_class_decoded}:null,
-         d.sub_facts?.esa_worldcover_lc_2021?.memory_token?{tok:d.sub_facts.esa_worldcover_lc_2021.memory_token,text:'land class'}:null,
-         {kind:'src',text:'Cop-DEM 90 m + ESA WorldCover'},
-         d.responder_pubkey_b32?{kind:'cid',text:'signer '+shortCid(d.responder_pubkey_b32)}:null,
-       ].filter(Boolean)
-     };
-   }},
-  {title:"What is the air quality in Delhi right now?", endpoint:"/v1/air", method:"POST",
-   payload:{place:"Delhi"},
-   render(d){
-     // /v1/air returns bands{ "cams.pm25": {value, unit, fact_cids[], ...}, ... }
-     // value is a top-level number (verified against emem.dev).
-     const b=d.bands||{};
-     const pm25=b['cams.pm25']?.value; const no2=b['cams.no2']?.value;
-     const pt=b['cams.pm25']?.memory_tokens||[], nt=b['cams.no2']?.memory_tokens||[];
-     return {
-       answer:`PM2.5 <span class=v>${pm25!=null?pm25.toFixed(1):'—'}</span> <span class=u>µg/m³</span> · NO₂ <span class=v>${no2!=null?no2.toFixed(1):'—'}</span> <span class=u>µg/m³</span>`,
-       citations:[
-         {kind:'cell',text:`${d.coverage_fraction!=null?Math.round(d.coverage_fraction*100)+'% coverage':'aggregated'}`},
-         {kind:'src',text:'CAMS via Open-Meteo (~11 km)'},
-         pt[0]?{tok:pt[0],text:'PM2.5'+(pt.length>1?' (one of '+pt.length+' signed readings averaged)':'')}:null,
-         nt[0]?{tok:nt[0],text:'NO₂'+(nt.length>1?' (one of '+nt.length+')':'')}:null,
-       ].filter(Boolean)
-     };
-   }},
-  {title:"NDVI at Yellowstone National Park", endpoint:"/v1/ndvi", method:"POST",
-   payload:{place:"Yellowstone National Park"},
-   render(d){
-     // /v1/ndvi returns bands{ "indices.ndvi": {value, fact_cid, cell64, ...} }
-     // (verified against emem.dev).
-     const n=(d.bands||{})['indices.ndvi']||{};
-     const v=n.value;
-     return {
-       answer:`<span class=v>${v?.toFixed?v.toFixed(3):(v??'—')}</span> <span class=u>(NDVI, green vegetation index, [-1,1])</span>`,
-       citations:[
-         {kind:'src',text:'Sentinel-2 L2A (B08, B04)'},
-         d.cell64?{kind:'cell',text:'cell '+d.cell64}:null,
-         n.memory_token?{tok:n.memory_token,text:'NDVI'}:n.fact_cid&&n.cell64?{tok:'emem:fact:'+n.cell64+':'+n.fact_cid,text:'NDVI'}:null,
-       ].filter(Boolean)
-     };
-   }},
-  {title:"Find places like Bengaluru", endpoint:"/v1/find_similar", method:"POST",
-   payload:{key:"Bengaluru",k:3},
-   render(d){
-     const ns=(d.neighbors||d.neighbours||[]).slice(0,3);
-     const places=ns.map(n=>`${escapeHTML(n.place_label_cached||n.cell)} <span class=u>cos ${n.score?.toFixed?n.score.toFixed(3):n.score}</span>`).join(' · ');
-     return {
-       answer:`Top neighbours in Tessera embedding space: ${places}`,
-       citations: ns.map(n=>({kind:'cell',text:n.cell})).slice(0,3)
-     };
-   }},
-  {title:"Hotspots of vegetation loss near Bengaluru", endpoint:"/v1/hunt", method:"POST",
-   payload:{event:"deforestation",region:"Bengaluru"},
-   render(d){
-     const h=(d.hotspots||[]).slice(0,3);
-     return {
-       answer:`Top hotspots ranked by NDVI: ${h.map(x=>`<span class=v>NDVI ${x.value?.toFixed?x.value.toFixed(3):x.value}</span> at ${x.cell64.slice(0,18)}…`).join(' · ')}`,
-       citations: [
-         /* each hotspot's own fact: its cell and cid come from one object, so the token is exact */
-         ...h.filter(x=>x.fact_cid&&x.cell64).map((x,k)=>({tok:'emem:fact:'+x.cell64+':'+x.fact_cid,text:'hotspot '+(k+1)})),
-       ].filter(Boolean)
-     };
-   }},
-  {title:"Field polygons in Salinas, California", endpoint:"/v1/field_boundaries", method:"POST",
-   payload:{place:"Salinas, California"},
-   render(d){
-     const feats=(d.geojson?.features||[]).slice().sort((a,b)=>b.properties.area_m2-a.properties.area_m2).slice(0,3);
-     return {
-       answer:`<span class=v>${d.count||0}</span> field polygons · total <span class=v>${d.total_area_m2?(d.total_area_m2/1e4).toFixed(0):'—'}</span> <span class=u>ha</span>. Each polygon carries <code>cell64_centroid</code>, the protocol-native handle that links straight to /v1/recall.`,
-       citations: feats.map(f=>({kind:'cell',text:'cell '+f.properties.cell64_centroid+' · '+ (f.properties.area_m2/1e4).toFixed(1)+' ha'}))
-     };
-   }},
-  {title:"State cube at Bengaluru (1792-D)", endpoint:"/v1/state", method:"POST",
-   payload:{cell:"Bengaluru",view:"cube",materialize:true},
-   render(d){
-     const pct=Math.round(100*(d.filled_dims||0)/(d.dim||1792));
-     return {
-       answer:`<span class=v>${d.filled_bands||0}</span> bands filled · <span class=v>${pct}%</span> of 1792 dims · state_cid <span class=u>${shortCid(d.state_cid||'')}</span>${(d.extras||[]).length?` · <span class=v>${d.extras.length}</span> full-fidelity extras`:''}`,
-       citations:[
-         {kind:'cell',text:'cell '+d.cell},
-         {kind:'cid',text:'state_cid '+shortCid(d.state_cid||'')},
-         ...((d.extras||[]).map(e=>({kind:'src',text:e.band+' native '+e.dim+'-D (slot '+e.cube_slot_dim+'-D)'})))
-       ]
-     };
-   }},
-  {title:"How dense is the corpus right now?", endpoint:"/v1/corpus_state_stats", method:"GET",
-   payload:null,
-   render(d){
-     const top=(d.by_band||[]).slice(0,3);
-     return {
-       answer:`<span class=v>${(d.facts_scanned||0).toLocaleString()}</span> facts scanned · <span class=v>${(d.distinct_cells||0).toLocaleString()}</span> distinct cells · <span class=v>${d.distinct_bands||0}</span> bands. Top: ${top.map(b=>`${b.band} (${b.fact_count})`).join(' · ')}`,
-       citations:[
-         {kind:'src',text:'responder '+(d.responder_pubkey_b32||'').slice(0,12)+'…'},
-         {kind:'cid',text:'signed snapshot tick'}
-       ]
-     };
-   }},
-  {title:"Free text: what is the elevation in South Mumbai?", endpoint:"/v1/ask", method:"POST",
-   payload:{q:"What is the elevation in South Mumbai?"},
-   render(d){
-     // /v1/ask is the four-classifier intent router. Verified fields:
-     // topic_routing.matched_topics[], topic_routing.routing.method ("ort" =
-     // ONNX transformer), answer, receipt.fact_cids[], algorithms_for_question[].
-     const pr=d.place_resolved||{};
-     const tr=d.topic_routing||{};
-     const topics=(tr.matched_topics||[]).slice(0,4);
-     const method=tr.routing&&tr.routing.method;
-     const cid=(d.receipt&&d.receipt.fact_cids||[])[0];
-     return {
-       answer:`Classifier routed this to <span class=v>${topics.map(escapeHTML).join(', ')||'?'}</span> ${method?`<span class=u>(via ${escapeHTML(method)} transformer)</span>`:''}, anchored at <span class=u>${escapeHTML(pr.label||pr.cell64||'')}</span> ${pr.extracted_from_question?'<span class=u>(lat/place extracted from the question text)</span>':''}. Answer: <span class=v>${escapeHTML(d.answer||'')}</span>`,
-       citations:[
-         pr.cell64?{kind:'cell',text:'cell '+pr.cell64}:null,
-         {kind:'src',text:'topics: '+topics.join(' · ')},
-         cid?{kind:'cid',text:'fact_cid '+shortCid(cid)}:null,
-       ].filter(Boolean)
-     };
-   }},
-];
-
-function renderCard(i){
-  const q=Q[i];
-  const id='q'+i;
-  const card=document.createElement('article');
-  card.className='q'; card.id=id;
-  card.innerHTML=`
-    <div class=head>
-      <span class=num>question ${i+1}</span>
-      <h2>${escapeHTML(q.title)}</h2>
-      <span class=endpoint>${q.method} ${escapeHTML(q.endpoint)}</span>
-    </div>
-    <pre class=req>${q.method} ${HOST}${q.endpoint}${q.payload?'\n'+JSON.stringify(q.payload):''}</pre>
-    <div class=actions>
-      <button data-i="${i}" class=runOne type=button>run</button>
-      <span class=meta id="meta_${id}">idle</span>
-    </div>
-    <div id="ans_${id}" class=answer></div>
-    <div id="cits_${id}" class=citations></div>
-    <details><summary>raw response</summary><pre id="raw_${id}">click run</pre></details>
-  `;
-  return card;
-}
-
-async function fire(i){
-  const q=Q[i]; const card=$('q'+i);
-  card.classList.remove('ok','fail'); card.classList.add('busy');
-  $('meta_q'+i).innerHTML='<span class=spinner></span>calling…';
-  const t0=performance.now();
-  const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(),60000);
-  try{
-    const opts={method:q.method,headers:{'content-type':'application/json'},signal:ctrl.signal};
-    if(q.payload) opts.body=JSON.stringify(q.payload);
-    const r=await fetch(HOST+q.endpoint,opts);
-    const dt=Math.round(performance.now()-t0);
-    const txt=await r.text(); let data; try{data=JSON.parse(txt)}catch(e){data={raw:txt}}
-    if(!r.ok){throw new Error(r.status+': '+(data?.message||data?.raw||'').slice(0,200));}
-    const out=q.render(data);
-    card.classList.remove('busy'); card.classList.add('ok');
-    $('meta_q'+i).textContent=`ok · ${dt} ms`;
-    $('ans_q'+i).innerHTML=out.answer;
-    $('cits_q'+i).innerHTML=out.citations.map(c=>c.tok
-      ?`<a class=cite data-kind=tok href="/verify?q=${encodeURIComponent(c.tok)}" title="${escapeHTML(c.tok)}"><span class=dot></span>${escapeHTML(c.text)} ${escapeHTML(shortTok(c.tok))}</a>`
-      :`<span class=cite data-kind="${c.kind||''}"><span class=dot></span>${escapeHTML(c.text)}</span>`).join('');
-    $('raw_q'+i).textContent=pretty(data);
-  }catch(e){
-    card.classList.remove('busy'); card.classList.add('fail');
-    $('meta_q'+i).textContent='error';
-    const msg = e.name==='AbortError'
-      ? 'responder is warming this place up (cold over 60 s). Hit run again in a moment.'
-      : (e.message||String(e));
-    $('ans_q'+i).innerHTML='<span style="color:var(--warn)">'+escapeHTML(msg)+'</span>';
-    $('raw_q'+i).textContent=String(e);
-  }finally{ clearTimeout(timer); }
-}
-
-const cards=$('cards');
-Q.forEach((_,i)=>cards.appendChild(renderCard(i)));
-document.querySelectorAll('.runOne').forEach(b=>{
-  b.addEventListener('click',()=>fire(parseInt(b.dataset.i,10)));
-});
-$('runAll').addEventListener('click',async()=>{
-  $('allStatus').innerHTML='<span class=spinner></span>running…';
-  let ok=0,fail=0;
-  for(let i=0;i<Q.length;i++){
-    await fire(i);
-    if($('q'+i).classList.contains('ok'))ok++; else fail++;
-  }
-  $('allStatus').textContent=`done · ${ok} ok · ${fail} failed`;
-});
-</script>
-<script>
-// Statusbar: mark the current page's nav link as active. Chrome only.
-(function(){var p=(location.pathname.replace(/\/+$/,'')||'/');document.querySelectorAll('.statusbar a[href]').forEach(function(a){var h=a.getAttribute('href');if(h&&h.charAt(0)!=='#'&&h.replace(/\/+$/,'')===p)a.classList.add('on');});})();
-</script>
-
 </body>
 </html>

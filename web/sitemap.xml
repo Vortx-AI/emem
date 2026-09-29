@@ -41,11 +41,13 @@
   <url><loc>https://emem.dev/spec.md</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/verify</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/demos/signed-answer</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://emem.dev/demos/state-cube</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://emem.dev/demos/ask-the-earth</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
-  <url><loc>https://emem.dev/demos/find-similar</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://emem.dev/demos/trajectory</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
-  <url><loc>https://emem.dev/demos/recall-polygon</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/verify-before-publish</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/handoff</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/transparency-log</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/tokenise-files</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/document-evidence</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/field</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://emem.dev/demos/eudr</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
   <url><loc>https://emem.dev/worlds</loc><changefreq>weekly</changefreq><priority>0.7</priority></url>
   <url><loc>https://emem.dev/a2a</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
   <url><loc>https://emem.dev/v1/benchmark</loc><changefreq>weekly</changefreq><priority>0.6</priority></url>

@@ -158,6 +158,16 @@ const DEMOS_ASK_THE_EARTH_HTML: &str = include_str!("../../../web/demos-ask-the-
 const DEMOS_FIND_SIMILAR_HTML: &str = include_str!("../../../web/demos-find-similar.html");
 const DEMOS_TRAJECTORY_HTML: &str = include_str!("../../../web/demos-trajectory.html");
 const DEMOS_RECALL_POLYGON_HTML: &str = include_str!("../../../web/demos-recall-polygon.html");
+/// The demo set rebuilt from the plugin skills (plugins/emem/skills/).
+const DEMOS_VERIFY_BEFORE_PUBLISH_HTML: &str =
+    include_str!("../../../web/demos-verify-before-publish.html");
+const DEMOS_HANDOFF_HTML: &str = include_str!("../../../web/demos-handoff.html");
+const DEMOS_TRANSPARENCY_LOG_HTML: &str = include_str!("../../../web/demos-transparency-log.html");
+const DEMOS_TOKENISE_FILES_HTML: &str = include_str!("../../../web/demos-tokenise-files.html");
+const DEMOS_EUDR_HTML: &str = include_str!("../../../web/demos-eudr.html");
+const DEMOS_FIELD_HTML: &str = include_str!("../../../web/demos-field.html");
+const DEMOS_DOCUMENT_EVIDENCE_HTML: &str =
+    include_str!("../../../web/demos-document-evidence.html");
 
 /// `/worlds`, pre-baked 3-D gaussian splat worlds, rendered from signed
 /// facts. The page is compiled in like every other demo surface; the
@@ -779,6 +789,13 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/find-similar", get(serve_demos_find_similar))
         .route("/demos/trajectory", get(serve_demos_trajectory))
         .route("/demos/recall-polygon", get(serve_demos_recall_polygon))
+        .route("/demos/verify-before-publish", get(serve_demos_verify_before_publish))
+        .route("/demos/handoff", get(serve_demos_handoff))
+        .route("/demos/transparency-log", get(serve_demos_transparency_log))
+        .route("/demos/tokenise-files", get(serve_demos_tokenise_files))
+        .route("/demos/eudr", get(serve_demos_eudr))
+        .route("/demos/field", get(serve_demos_field))
+        .route("/demos/document-evidence", get(serve_demos_document_evidence))
         // The arcade page is a private build artifact read from DISK at
         // request time, see `serve_arcade`; nothing is compiled in.
         .route("/arcade", get(serve_arcade))
@@ -3531,6 +3548,13 @@ fn served_html_pages() -> Vec<&'static str> {
         DEMOS_FIND_SIMILAR_HTML,
         DEMOS_TRAJECTORY_HTML,
         DEMOS_RECALL_POLYGON_HTML,
+        DEMOS_VERIFY_BEFORE_PUBLISH_HTML,
+        DEMOS_HANDOFF_HTML,
+        DEMOS_TRANSPARENCY_LOG_HTML,
+        DEMOS_TOKENISE_FILES_HTML,
+        DEMOS_EUDR_HTML,
+        DEMOS_FIELD_HTML,
+        DEMOS_DOCUMENT_EVIDENCE_HTML,
         WORLDS_HTML,
         GALLERY_HTML,
         API_REDOC_HTML,
@@ -5026,6 +5050,41 @@ async fn serve_demos_trajectory() -> Response {
 /// `/demos/recall-polygon`, interactive polygon recall + per-cell heatmap.
 async fn serve_demos_recall_polygon() -> Response {
     text_response("text/html; charset=utf-8", DEMOS_RECALL_POLYGON_HTML)
+}
+
+/// `/demos/verify-before-publish`, see web/demos-index.html for what it shows.
+async fn serve_demos_verify_before_publish() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_VERIFY_BEFORE_PUBLISH_HTML)
+}
+
+/// `/demos/handoff`, see web/demos-index.html for what it shows.
+async fn serve_demos_handoff() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_HANDOFF_HTML)
+}
+
+/// `/demos/transparency-log`, see web/demos-index.html for what it shows.
+async fn serve_demos_transparency_log() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_TRANSPARENCY_LOG_HTML)
+}
+
+/// `/demos/tokenise-files`, see web/demos-index.html for what it shows.
+async fn serve_demos_tokenise_files() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_TOKENISE_FILES_HTML)
+}
+
+/// `/demos/eudr`, see web/demos-index.html for what it shows.
+async fn serve_demos_eudr() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_EUDR_HTML)
+}
+
+/// `/demos/field`, see web/demos-index.html for what it shows.
+async fn serve_demos_field() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_FIELD_HTML)
+}
+
+/// `/demos/document-evidence`, see web/demos-index.html for what it shows.
+async fn serve_demos_document_evidence() -> Response {
+    text_response("text/html; charset=utf-8", DEMOS_DOCUMENT_EVIDENCE_HTML)
 }
 
 /// `/worlds`, rotating 3-D gaussian splat worlds rendered from pre-baked,

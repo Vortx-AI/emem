@@ -3,15 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer: a place, a signed number, a receipt</title>
-<meta name=description content="Type a place. emem resolves it to a cell, returns the signed readings stored there, and this page checks the receipt signature and the content hash in your browser.">
-<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<title>emem.dev/demos/eudr: one plot against the EUDR cut-off</title>
+<meta name=description content="A signed EUDR Due Diligence Statement for one cocoa plot, with the receipt and every per-cell fact checked in the browser.">
+<link rel=canonical href="https://emem.dev/demos/eudr">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev: a place, a signed number, a receipt">
-<meta property=og:description content="Locate a place, recall a signed reading, and check its receipt and content hash in the browser.">
+<meta property=og:url content="https://emem.dev/demos/eudr">
+<meta property=og:title content="emem.dev: one plot against the EUDR cut-off">
+<meta property=og:description content="A signed EUDR Due Diligence Statement for one cocoa plot, with the receipt and every per-cell fact checked in the browser.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -82,6 +82,16 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 .limits code{font-family:var(--mono);font-size:.84em}
 @media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
+.controls label.n{flex:1 1 8rem}
+.verdict{display:inline-block;margin:0 0 var(--s-2);padding:var(--s-1) var(--s-3);border:1.5px solid var(--ink);font:700 var(--t-xl)/1.2 var(--mono);text-transform:uppercase;letter-spacing:.04em}
+.verdict.pass{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.verdict.fail{border-color:var(--absent);color:var(--absent);background:var(--absent-bg)}
+.cells{width:100%;min-width:32rem;border-collapse:collapse;font-size:var(--t-xs);margin:var(--s-2) 0}
+.cells th,.cells td{text-align:left;padding:var(--s-1) var(--s-2) var(--s-1) 0;border-bottom:1px solid var(--rule);vertical-align:top;overflow-wrap:anywhere}
+.cells th{color:var(--mute);font-weight:600}
+.wrap{overflow-x:auto;max-width:100%}
+.quote{margin:var(--s-2) 0;padding:var(--s-2) var(--s-3);border-left:3px solid var(--warn);background:var(--paper-2);font:var(--t-xs)/1.55 var(--mono);color:var(--ink-2);max-width:80ch}
+.quote b{display:block;color:var(--ink);margin-bottom:var(--s-1)}
 </style>
 </head>
 <body class="doc">
@@ -128,119 +138,96 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Signed answer</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a place, a signed number, a receipt checked here</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">EUDR plot</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">one plot against the EUDR cut-off</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo 1 of 8 &middot; skills <a href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">emem-locate-and-recall</a>, <a href="https://emem.dev/skills/emem-verify-receipt/SKILL.md">emem-verify-receipt</a></p>
-    <h1>A place, a signed number, a receipt</h1>
-    <p class="purpose">Type a place. emem gives it a cell address and returns the signed readings stored there. This page then checks the receipt's signature and the fact's content hash itself, against emem.dev's published key.</p>
+    <p class="eyebrow">Demo 8 of 8 &middot; skill <a href="https://emem.dev/skills/emem-eudr-due-diligence/SKILL.md">emem-eudr-due-diligence</a></p>
+    <h1>One plot against the EUDR cut-off</h1>
+    <p class="purpose">A cocoa plot in C&ocirc;te d'Ivoire, given as one point. emem checks it against the forest baseline and loss year at the 31 December 2020 cut-off and returns a signed, Annex II shaped statement. This page checks the receipt and the facts behind the verdict.</p>
     <dl class="facts">
-      <div><dt>writes</dt><dd>none; every call is a read</dd></div>
+      <div><dt>writes</dt><dd>none by you; the responder may fetch and sign on a miss</dd></div>
       <div><dt>checked</dt><dd>in this tab, with <a href="/emem-verify-core.js">emem-verify-core.js</a></dd></div>
-      <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>schema</dt><dd><a href="/v1/schemas/eudr_dds.json">/v1/schemas/eudr_dds.json</a></dd></div>
     </dl>
   </div>
   <aside class="claims" aria-label="What this demo shows">
     <h2>What you will see</h2>
     <ul>
-      <li>A place name becoming one <code>cell64</code> address.</li>
-      <li>A reading with its <code>emem:fact:</code> token, quoted as the exact string that was signed.</li>
-      <li>The Ed25519 receipt and the BLAKE3 content hash, recomputed here, then broken on purpose to show the check can fail.</li>
+      <li>A plot verdict with how well the inputs support it, and the limits the response lists.</li>
+      <li>The dataset versions actually read, and the TMF cross-check.</li>
+      <li>The receipt checked here, and each fact behind the first cell re-hashed here.</li>
     </ul>
   </aside>
 </header>
 
 <main class="demo" id="main">
   <form class="controls" id="form">
-    <label>Place<input id="place" value="Bengaluru, India" autocomplete="off" spellcheck="false"></label>
-    <label>Band<select id="band">
-      <option value="weather.temperature_2m">weather.temperature_2m (degC, now)</option>
-      <option value="copdem30m.elevation_mean">copdem30m.elevation_mean (m)</option>
-      <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021 (class)</option>
-      <option value="indices.ndvi">indices.ndvi (Sentinel-2)</option>
-      <option value="soilgrids.phh2o_0_30cm">soilgrids.phh2o_0_30cm (pH)</option>
-    </select></label>
-    <div class="go"><button class="btn" id="run" type="submit">Run the five steps</button></div>
+    <label class="n">Longitude<input id="lng" value="-5.5471" inputmode="decimal"></label>
+    <label class="n">Latitude<input id="lat" value="6.8276" inputmode="decimal"></label>
+    <label class="n">Country (ISO-3)<input id="cc" value="CIV" maxlength="3"></label>
+    <label class="n">HS code<input id="hs" value="180100" inputmode="numeric"></label>
+    <div class="go"><button class="btn" id="run" type="submit">Run the three steps</button></div>
   </form>
 
   <section class="stage" aria-labelledby="h1s">
-    <div class="stage-n"><b>1</b>locate</div>
+    <div class="stage-n"><b>1</b>statement</div>
     <div>
-      <h2 id="h1s">The place becomes an address</h2>
-      <p class="say">The geocoder picks one place and says how sure it is. A cell is about 10 m on a side; it is an address, not a measurement.</p>
+      <h2 id="h1s">The statement for the plot</h2>
+      <p class="say">One call. A plot emem has read before answers in seconds. A new one can take minutes, and can fail with <code>source_fetch_failed</code> naming a slow tile; running it again usually reads more.</p>
       <pre class="call" id="c1"></pre>
       <div class="out" id="o1"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h2s">
-    <div class="stage-n"><b>2</b>recall</div>
+    <div class="stage-n"><b>2</b>receipt</div>
     <div>
-      <h2 id="h2s">The signed reading stored there</h2>
-      <p class="say">Recall returns every stored reading of the band, oldest first, and names the latest in <code>current_by_band</code>. If nothing is stored, emem fetches it from the upstream source and signs it.</p>
-      <pre class="call" id="c2"></pre>
+      <h2 id="h2s">The receipt covers every cell's facts</h2>
+      <p class="say">The receipt signs the union of the per-cell fact ids. This page checks the signature and that no cell's facts are missing from it.</p>
       <div class="out" id="o2"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h3s">
-    <div class="stage-n"><b>3</b>receipt</div>
+    <div class="stage-n"><b>3</b>facts</div>
     <div>
-      <h2 id="h3s">Check the signature here</h2>
-      <p class="say">The receipt signs the request id, the time, the cells and the fact ids it served. This page rebuilds that preimage byte for byte, hashes it and checks the Ed25519 signature. Then it edits one field and checks again.</p>
+      <h2 id="h3s">The facts behind the first cell</h2>
+      <p class="say">Each fact id is the BLAKE3 hash of its canonical bytes. These are the ids an operator keeps in the Article 12 record, so each one is fetched and hashed here.</p>
+      <pre class="call" id="c3"></pre>
       <div class="out" id="o3"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h4s">
-    <div class="stage-n"><b>4</b>bytes</div>
-    <div>
-      <h2 id="h4s">Check the fact is the bytes it names</h2>
-      <p class="say">A fact's id is the BLAKE3 hash of its canonical CBOR. Ask for those bytes and hash them here. If one byte differs, the name no longer matches.</p>
-      <pre class="call" id="c4"></pre>
-      <div class="out" id="o4"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h5s">
-    <div class="stage-n"><b>5</b>cite</div>
-    <div>
-      <h2 id="h5s">Hand on the token, not the number</h2>
-      <p class="say">Another agent resolves the token and gets the same signed bytes, without trusting you or this page.</p>
-      <pre class="call" id="c5"></pre>
-      <div class="out" id="o5"></div>
     </div>
   </section>
 
   <section class="limits" aria-labelledby="lim">
     <h2 id="lim">What this does not show</h2>
     <ul>
-      <li>That the upstream measurement is accurate. The signature says emem served these bytes; the source's own validation says how good they are.</li>
-      <li>An average over the cell. The value is the source pixel that overlaps it; the response's <code>spatial_basis</code> says so, and a 30 m DEM pixel covers many cells.</li>
-      <li>That the reading is from today. Read <code>observed_at</code>: static layers are years old, and a fresh fetch that times out leaves the latest stored reading as the answer.</li>
+      <li>Legality under Article 9(1)(b), or forest degradation under Article 2(7). The response says so in <code>legality_disclaimer</code> and <code>degradation_disclaimer</code>, quoted in step 1.</li>
+      <li>The whole plot. A point samples one cell of about 9.5 m, for a plot of up to 4 ha; <code>sampling_caveat</code> says so.</li>
+      <li>A probability. <code>verdict_support.level</code> grades how complete the inputs are; it is not calibrated.</li>
+      <li>A TRACES NT reference. <code>ddsReferenceNumber</code> is an emem placeholder; TRACES NT issues the real one.</li>
     </ul>
   </section>
 </main>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
+<a class="pb-prev" href="/demos/field"><i>&larr;</i><b>One field</b></a>
 <ol class="pb-steps">
 <li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt" aria-current="step"><span>2</span></a></li>
+<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
 <li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
 <li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
 <li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten"><span>5</span></a></li>
 <li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
 <li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain"><span>7</span></a></li>
 <li><a href="/demos/field" title="One field: edges, pixels, NDVI you compute"><span>8</span></a></li>
-<li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
+<li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off" aria-current="step"><span>9</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
 </ol>
-<a class="pb-next" href="/demos/verify-before-publish"><b>Check a draft</b><span>catch a wrong number</span><i>&rarr;</i></a>
+<a class="pb-next" href="/how-it-works"><b>How it works</b><span>follow one request end to end</span><i>&rarr;</i></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -393,85 +380,72 @@ if(!D.ready){ document.addEventListener('DOMContentLoaded', function(){}); }
 'use strict';
 var D = globalThis.demo, $ = D.$;
 var form = $('form'), btn = $('run');
-function reset(){ ['o1','o2','o3','o4','o5'].forEach(function(id){ $(id).textContent = ''; }); }
-function fail(C, text){ C.add(false, text); btn.disabled = false; btn.textContent = 'Run again'; return null; }
+function done(){ btn.disabled = false; btn.textContent = 'Run again'; }
+function quote(parent, label, text){ if(!text) return; var q = D.mk('div', 'quote', parent); D.mk('b', '', q, label); q.appendChild(document.createTextNode(String(text))); }
 
 async function go(){
-  reset();
-  btn.disabled = true; btn.textContent = 'Running…';
-  var q = $('place').value.trim() || 'Bengaluru, India', band = $('band').value;
-  if(!D.ready){ var C0 = new D.Checks($('o1')); return fail(C0, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); }
+  ['o1','o2','o3'].forEach(function(id){ $(id).textContent = ''; });
+  btn.disabled = true; btn.textContent = 'Running, up to a few minutes…';
+  var lng = parseFloat($('lng').value), lat = parseFloat($('lat').value);
+  var C1 = new D.Checks($('o1'));
+  if(!isFinite(lng) || !isFinite(lat) || Math.abs(lat) > 90 || Math.abs(lng) > 180){ C1.add(false, 'longitude and latitude must be numbers in range'); return done(); }
+  if(!D.ready){ C1.add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return done(); }
+  var body = { operator:{ name:'Example Cocoa Importer' },
+    plots:[{ plot_id:'PLOT-001', geometry_geojson:{ type:'Point', coordinates:[lng, lat] },
+             country_of_production:$('cc').value.trim().toUpperCase(), commodity_hs:$('hs').value.trim(), quantity_kg:1200 }] };
+  $('c1').textContent = D.curlPost('/v1/eudr_dds', body);
+  var w = C1.run('evaluating the plot (a new plot can take minutes)…');
+  var ctl = new AbortController(), timer = setTimeout(function(){ ctl.abort(); }, 300000), r;
+  try{ r = await D.http('/v1/eudr_dds', { method:'POST', headers:{ 'content-type':'application/json' }, body:JSON.stringify(body), signal:ctl.signal }); }
+  catch(e){ clearTimeout(timer); w(false, 'no answer within 300 s (' + (e.name || e) + '); run it again, the warm-up keeps going'); return done(); }
+  clearTimeout(timer);
+  if(!r.ok){ w(false, 'eudr_dds failed (' + r.status + '): ' + D.why(r) + (/source_fetch_failed/.test(r.text) ? '; a slow upstream tile, run it again' : '')); return done(); }
+  var j = r.json, env = j.traces_nt_envelope || {}, p = (j.per_plot_results || [])[0] || {}, vs = p.verdict_support || {}, tmf = p.tmf_cross_check || {};
+  w(true, 'answered in ' + (r.ms < 1000 ? r.ms + ' ms' : (r.ms / 1000).toFixed(1) + ' s'));
+  var v = (j.due_diligence_statement || {}).verdict;
+  D.mk('p', 'verdict ' + (v === 'pass' ? 'pass' : v === 'fail' ? 'fail' : ''), $('o1'), String(v || 'no verdict'));
+  C1.add(env.statementOfComplianceSignable === true ? true : null, 'statementOfComplianceSignable: ' + env.statementOfComplianceSignable + '; statementOfComplianceReviewRequired: ' + env.statementOfComplianceReviewRequired);
+  C1.add(null, 'plot ' + p.plot_id + ': ' + p.verdict + ', failing area ' + p.failing_area_ha + ' ha, support ' + vs.level);
+  (vs.limits || []).forEach(function(l){ C1.add(null, 'limit (' + l.severity + '): ' + l.why); });
+  C1.add(null, 'TMF cross-check (not in the verdict): ' + tmf.cells_read + ' cell' + (tmf.cells_read === 1 ? '' : 's') + ' read, agreement ' + tmf.agreement + ', review required ' + tmf.review_required);
+  var ds = (j.forest_baseline_dataset || []).map(function(d){ return d.name + ' ' + d.version; }).join('; ');
+  D.kv($('o1'), [['datasets read', ds], ['cut-off', j.cut_off_date], ['cells sampled', p.total_cells], ['sampling', p.sampling_caveat], ['DDS reference', env.ddsReferenceNumber ? env.ddsReferenceNumber + ' (placeholder)' : '']]);
+  quote($('o1'), 'legality_disclaimer, as served', j.legality_disclaimer);
+  quote($('o1'), 'degradation_disclaimer, as served', j.degradation_disclaimer);
+  quote($('o1'), 'regulation_status_note, as served', j.regulation_status_note);
+  D.raw($('o1'), 'the TRACES NT shaped envelope', env);
 
-  /* 1. locate */
-  var lb = { q:q }; $('c1').textContent = D.curlPost('/v1/locate', lb);
-  var C1 = new D.Checks($('o1')), w1 = C1.run('asking the geocoder…');
-  var L = await D.post('/v1/locate', lb);
-  if(!L.ok || !L.json.cell64){ w1(false, 'locate failed (' + L.status + '): ' + D.why(L)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var cell = L.json.cell64, sel = L.json.selected || {};
-  w1(true, 'resolved in ' + L.ms + ' ms, via ' + (L.json.via || 'the geocoder'));
-  D.mk('p', 'big', $('o1'), cell).appendChild(D.mk('small', '', null, L.json.place_label || ''));
-  if(L.json.disambiguation_required || sel.is_high_confidence === false){
-    C1.add(null, 'the geocoder is not sure this is the place you meant; an agent should ask, not cite rank 0. Alternatives: ' + (L.json.alternatives || []).slice(0, 4).map(function(a){ return a.label; }).join('; '));
-  } else C1.add(true, 'high-confidence match (' + (sel.confidence_reason || 'no reason given') + ')');
-
-  /* 2. recall */
-  var rb = { cell:cell, bands:[band] }; $('c2').textContent = D.curlPost('/v1/recall', rb);
-  var C2 = new D.Checks($('o2')), w2 = C2.run('recalling ' + band + ' (a cold fetch can take up to about 15 s)…');
-  var R = await D.post('/v1/recall', rb);
-  if(!R.ok){ w2(false, 'recall failed (' + R.status + '): ' + D.why(R)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var facts = R.json.facts || [], cur = (R.json.current_by_band || {})[band];
-  var f = facts.filter(function(x){ return x.fact_cid === cur; })[0];
-  (R.json.materialize_notes || []).forEach(function(n){
-    if(n.status === 'materialized') return;
-    C2.add(null, n.band + ': ' + (n.status || '') + (n.reason_class ? ' (' + n.reason_class + ')' : '') + (n.retryable ? ', retryable: the fetch carries on in the background' : ''));
-  });
-  if(!f){ w2(false, 'no reading of ' + band + ' is stored here and none came back in time; run it again in a few seconds'); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  w2(true, facts.length + ' stored reading' + (facts.length === 1 ? '' : 's') + ' of this band in ' + R.ms + ' ms; the current one is below');
-  var big = D.mk('p', 'big', $('o2'), String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)) + (f.unit ? ' ' + f.unit : ''));
-  big.appendChild(D.mk('small', '', null, band + ', observed ' + (f.observed_at || 'at an unstated time')));
-  D.kv($('o2'), [['fact_cid', f.fact_cid], ['source', ((f.sources || [])[0] || {}).id], ['derived by', (f.derivation || {}).fn_key], ['signed at', f.signed_at]]);
-  D.mk('p', 'tok', $('o2'), f.memory_token);
-  C2.add(null, 'value_verbatim is the exact decimal string that was signed; quote it rather than re-typing the number');
-
-  /* 3. receipt */
-  var C3 = new D.Checks($('o3')), rc = R.json.receipt;
-  var good = await D.receipt(C3, rc, [f.fact_cid], 'the recall receipt');
-  if(good){
-    var bent = JSON.parse(JSON.stringify(rc));
-    bent.served_at = bent.served_at.replace(/\d(?=Z$)/, function(d){ return String((+d + 1) % 10); });
-    var still = D.verifyOnly(bent);
-    C3.add(!still, !still ? 'control: with served_at moved by one second (' + bent.served_at + '), the same check rejects it' : 'control failed: an edited receipt still verified, so this check proves nothing');
-  }
-  D.raw($('o3'), 'the receipt', rc);
-
-  /* 4. bytes */
-  $('c4').textContent = D.curlGet('/v1/facts/' + f.fact_cid, "-H 'accept: application/cbor' | b3sum");
-  var C4 = new D.Checks($('o4')), w4 = C4.run('fetching the canonical bytes…');
-  var B = await D.get('/v1/facts/' + f.fact_cid, 'application/cbor');
-  if(B.status !== 200){ w4(false, 'the bytes did not load (' + B.status + ')'); }
-  else {
-    var name = D.b32(D.blake3(B.bytes));
-    w4(name === f.fact_cid, name === f.fact_cid ? B.bytes.length + ' bytes of CBOR hash to ' + D.short(name, 20) + ', the fact\'s own name' : 'the bytes hash to ' + D.short(name) + ', not ' + D.short(f.fact_cid));
-    var flip = B.bytes.slice(); flip[flip.length >> 1] ^= 1;
-    var n2 = D.b32(D.blake3(flip));
-    C4.add(n2 !== f.fact_cid, 'control: with one bit flipped in byte ' + (flip.length >> 1) + ', they hash to ' + D.short(n2, 20) + ' instead');
+  var C2 = new D.Checks($('o2')), cells = p.per_cell_verdicts || [], all = [];
+  cells.forEach(function(c){ (c.fact_cids || []).forEach(function(f){ if(all.indexOf(f) < 0) all.push(f); }); });
+  var ok = await D.receipt(C2, j.receipt, all, 'the statement receipt');
+  if(p.per_cell_verdicts_truncated) C2.add(null, 'per_cell_verdicts is truncated at ' + cells.length + ' of ' + p.per_cell_verdicts_total + ' cells; only those shown are checked');
+  var extra = ((j.receipt || {}).fact_cids || []).length - all.length;
+  if(extra > 0) C2.add(null, 'the receipt signs ' + extra + ' more fact id' + (extra === 1 ? '' : 's') + ' than the cells list, such as the signed loss-year histogram');
+  if(ok){
+    var bent = JSON.parse(JSON.stringify(j.receipt)); bent.fact_cids = bent.fact_cids.slice(1);
+    C2.add(!D.verifyOnly(bent), 'control: with one fact id removed from the receipt, the signature no longer checks');
   }
 
-  /* 5. cite */
-  var tb = { token:f.memory_token }; $('c5').textContent = D.curlPost('/v1/memory_token/resolve', tb);
-  var C5 = new D.Checks($('o5')), w5 = C5.run('resolving the token as another agent would…');
-  var T = await D.post('/v1/memory_token/resolve', tb);
-  if(!T.ok){ w5(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); }
-  else {
-    var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === String(f.value_verbatim);
-    w5(same, same ? 'it resolves to the same fact and the same signed string, ' + T.json.value_verbatim + (T.json.unit ? ' ' + T.json.unit : '') : 'it resolved to something else: ' + T.json.fact_cid);
-    await D.receipt(C5, T.json.receipt, [f.fact_cid], 'the resolve receipt');
-    var acts = D.mk('div', 'acts', $('o5'));
-    var a = D.mk('a', 'btn ghost small', acts, 'Open it in /verify'); a.href = '/verify?q=' + encodeURIComponent(f.memory_token);
+  var C3 = new D.Checks($('o3')), c0 = cells[0];
+  if(!c0){ C3.add(false, 'no per-cell verdicts came back'); return done(); }
+  $('c3').textContent = D.curlGet('/v1/facts/<fact_cid>', "-H 'accept: application/cbor' | b3sum");
+  C3.add(null, 'cell ' + c0.cell + ': JRC forest 2020 = ' + c0.jrc_forest_2020 + ', Hansen tree cover 2000 = ' + c0.hansen_treecover_2000 + ' %, Hansen loss year = ' + c0.hansen_lossyear + ', label ' + c0.label);
+  var tbl = D.mk('table', 'cells', D.mk('div', 'wrap', $('o3'))), hr = D.mk('tr', '', D.mk('thead', '', tbl)), tb = D.mk('tbody', '', tbl);
+  ['band', 'value', 'unit', 'hash check'].forEach(function(h){ D.mk('th', '', hr, h); });
+  for(var i = 0; i < (c0.fact_cids || []).length; i++){
+    var cid = c0.fact_cids[i];
+    var B = await D.get('/v1/facts/' + cid, 'application/cbor'), J = await D.get('/v1/facts/' + cid);
+    var named = B.status === 200 && D.b32(D.blake3(B.bytes)) === cid, f = J.json || {};
+    var tr = D.mk('tr', '', tb);
+    D.mk('td', '', tr, f.band || '?'); D.mk('td', '', tr, JSON.stringify(f.value)); D.mk('td', '', tr, f.unit || '');
+    D.mk('td', '', tr, named ? '✓ ' + B.bytes.length + ' B hash to ' + D.short(cid, 10) : '✗ does not hash to ' + D.short(cid, 10));
+    C3.add(named, named ? (f.band || cid) + ': bytes hash to its id' : cid + ': bytes do not hash to its id');
   }
-  btn.disabled = false; btn.textContent = 'Run again';
+  var a = D.mk('a', 'btn ghost small', D.mk('div', 'acts', $('o3')), 'Check the first fact in /verify');
+  a.href = '/verify?q=' + encodeURIComponent('emem:fact:' + c0.cell + ':' + c0.fact_cids[0]);
+  done();
 }
-function start(){ go().catch(function(err){ var C = new D.Checks($('o5')); C.add(false, String(err && err.message || err)); btn.disabled = false; btn.textContent = 'Run again'; }); }
+function start(){ go().catch(function(err){ var C = new D.Checks($('o3')); C.add(false, String(err && err.message || err)); done(); }); }
 form.addEventListener('submit', function(e){ e.preventDefault(); start(); });
 if(/[?&]run\b/.test(location.search)) start();
 })();

@@ -3,15 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer: a place, a signed number, a receipt</title>
-<meta name=description content="Type a place. emem resolves it to a cell, returns the signed readings stored there, and this page checks the receipt signature and the content hash in your browser.">
-<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<title>emem.dev/demos/document-evidence: report text to signed fields</title>
+<meta name=description content="Parse a residue report or a land record into fields tied to their lines, and check the text hash, the result hash and the Ed25519 signature in your browser. Then read the same report from a picture by OCR.">
+<link rel=canonical href="https://emem.dev/demos/document-evidence">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev: a place, a signed number, a receipt">
-<meta property=og:description content="Locate a place, recall a signed reading, and check its receipt and content hash in the browser.">
+<meta property=og:url content="https://emem.dev/demos/document-evidence">
+<meta property=og:title content="emem.dev: report text to signed fields">
+<meta property=og:description content="A document parse whose text hash, result hash and signature are checked in the browser.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -82,6 +82,12 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 .limits code{font-family:var(--mono);font-size:.84em}
 @media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
+.shot{display:block;max-width:100%;height:auto;margin:0 0 var(--s-3);border:1px solid var(--rule)}
+.tw{overflow-x:auto;margin:var(--s-2) 0 var(--s-3);max-width:100%}
+table.rows{border-collapse:collapse;font-size:var(--t-xs);min-width:100%}
+table.rows th,table.rows td{text-align:left;padding:var(--s-1) var(--s-2);border-bottom:1px solid var(--rule);white-space:nowrap}
+table.rows th{color:var(--mute);font-weight:600}
+table.rows tr.hot td{color:var(--absent);font-weight:600}
 </style>
 </head>
 <body class="doc">
@@ -128,17 +134,17 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Signed answer</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a place, a signed number, a receipt checked here</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Document evidence</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">report text to signed fields, every step hashed</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo 1 of 8 &middot; skills <a href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">emem-locate-and-recall</a>, <a href="https://emem.dev/skills/emem-verify-receipt/SKILL.md">emem-verify-receipt</a></p>
-    <h1>A place, a signed number, a receipt</h1>
-    <p class="purpose">Type a place. emem gives it a cell address and returns the signed readings stored there. This page then checks the receipt's signature and the fact's content hash itself, against emem.dev's published key.</p>
+    <p class="eyebrow">Demo 6 of 8 &middot; skill <a href="https://emem.dev/skills/emem-document-evidence/SKILL.md">emem-document-evidence</a></p>
+    <h1>Report text to signed fields</h1>
+    <p class="purpose">Paste the text of a residue report or a land record. emem parses it into fields, each tied to its line and byte offset, and signs the text hash and the result hash. This page checks both hashes and the signature itself.</p>
     <dl class="facts">
-      <div><dt>writes</dt><dd>none; every call is a read</dd></div>
+      <div><dt>writes</dt><dd>none; the parse and the OCR are not stored</dd></div>
       <div><dt>checked</dt><dd>in this tab, with <a href="/emem-verify-core.js">emem-verify-core.js</a></dd></div>
       <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
     </dl>
@@ -146,101 +152,93 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
   <aside class="claims" aria-label="What this demo shows">
     <h2>What you will see</h2>
     <ul>
-      <li>A place name becoming one <code>cell64</code> address.</li>
-      <li>A reading with its <code>emem:fact:</code> token, quoted as the exact string that was signed.</li>
-      <li>The Ed25519 receipt and the BLAKE3 content hash, recomputed here, then broken on purpose to show the check can fail.</li>
+      <li>A report read row by row: analyte, result in mg/kg, the MRL the report prints, and whether it exceeds it.</li>
+      <li>The text hash, the result hash and the Ed25519 signature recomputed here, then broken on purpose.</li>
+      <li>The same report read from a picture by OCR, chained to the parse by the text hash.</li>
     </ul>
   </aside>
 </header>
 
 <main class="demo" id="main">
   <form class="controls" id="form">
-    <label>Place<input id="place" value="Bengaluru, India" autocomplete="off" spellcheck="false"></label>
-    <label>Band<select id="band">
-      <option value="weather.temperature_2m">weather.temperature_2m (degC, now)</option>
-      <option value="copdem30m.elevation_mean">copdem30m.elevation_mean (m)</option>
-      <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021 (class)</option>
-      <option value="indices.ndvi">indices.ndvi (Sentinel-2)</option>
-      <option value="soilgrids.phh2o_0_30cm">soilgrids.phh2o_0_30cm (pH)</option>
+    <label>Document kind<select id="kind">
+      <option value="lab">lab report: POST /v1/lab_report_parse</option>
+      <option value="land">land record: POST /v1/land_record_parse</option>
     </select></label>
-    <div class="go"><button class="btn" id="run" type="submit">Run the five steps</button></div>
+    <label style="flex-basis:100%">Document text (invented samples; paste your own)<textarea id="text" spellcheck="false"></textarea></label>
+    <div class="go"><button class="btn" id="run" type="submit">Parse and check</button><button class="btn ghost" id="pic" type="button">Read it from a picture</button></div>
   </form>
 
   <section class="stage" aria-labelledby="h1s">
-    <div class="stage-n"><b>1</b>locate</div>
+    <div class="stage-n"><b>1</b>parse</div>
     <div>
-      <h2 id="h1s">The place becomes an address</h2>
-      <p class="say">The geocoder picks one place and says how sure it is. A cell is about 10 m on a side; it is an address, not a measurement.</p>
+      <h2 id="h1s">The text becomes fields</h2>
+      <p class="say">The parser is deterministic. It reads what the document prints and quotes the line each value came from. It fills nothing in: a field it did not find is listed as missing.</p>
       <pre class="call" id="c1"></pre>
       <div class="out" id="o1"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h2s">
-    <div class="stage-n"><b>2</b>recall</div>
+    <div class="stage-n"><b>2</b>hashes</div>
     <div>
-      <h2 id="h2s">The signed reading stored there</h2>
-      <p class="say">Recall returns every stored reading of the band, oldest first, and names the latest in <code>current_by_band</code>. If nothing is stored, emem fetches it from the upstream source and signs it.</p>
-      <pre class="call" id="c2"></pre>
+      <h2 id="h2s">Check the text and the result</h2>
+      <p class="say">The receipt names the BLAKE3 of the text you sent and of the serialised result. This page hashes both here, then changes one digit in each and hashes again.</p>
       <div class="out" id="o2"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h3s">
-    <div class="stage-n"><b>3</b>receipt</div>
+    <div class="stage-n"><b>3</b>signature</div>
     <div>
       <h2 id="h3s">Check the signature here</h2>
-      <p class="say">The receipt signs the request id, the time, the cells and the fact ids it served. This page rebuilds that preimage byte for byte, hashes it and checks the Ed25519 signature. Then it edits one field and checks again.</p>
+      <p class="say">The signature covers the parser kind, both hashes, the parser version, the time and the responder key. Nothing else. It says this text produced this result; it does not say the document is genuine.</p>
+      <pre class="call" id="c3">digest = PreimageV1("emem.doc_parse.v1") {
+  1: kind, 2: text_blake3, 3: result_blake3,
+  4: parser, 5: parsed_at, 6: responder_pubkey }
+valid = ed25519_verify(responder_pubkey, signature, digest)</pre>
       <div class="out" id="o3"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h4s">
-    <div class="stage-n"><b>4</b>bytes</div>
+    <div class="stage-n"><b>4</b>picture</div>
     <div>
-      <h2 id="h4s">Check the fact is the bytes it names</h2>
-      <p class="say">A fact's id is the BLAKE3 hash of its canonical CBOR. Ask for those bytes and hash them here. If one byte differs, the name no longer matches.</p>
+      <h2 id="h4s">The same report, read from a picture</h2>
+      <p class="say">This page draws the text onto a canvas, sends the PNG to <code>/v1/ocr</code> and checks the receipt against the bytes it sent. Then it parses the OCR response, which is refused if its text does not hash to what the OCR receipt signs.</p>
       <pre class="call" id="c4"></pre>
+      <canvas id="cv" hidden></canvas>
       <div class="out" id="o4"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h5s">
-    <div class="stage-n"><b>5</b>cite</div>
-    <div>
-      <h2 id="h5s">Hand on the token, not the number</h2>
-      <p class="say">Another agent resolves the token and gets the same signed bytes, without trusting you or this page.</p>
-      <pre class="call" id="c5"></pre>
-      <div class="out" id="o5"></div>
     </div>
   </section>
 
   <section class="limits" aria-labelledby="lim">
     <h2 id="lim">What this does not show</h2>
     <ul>
-      <li>That the upstream measurement is accurate. The signature says emem served these bytes; the source's own validation says how good they are.</li>
-      <li>An average over the cell. The value is the source pixel that overlaps it; the response's <code>spatial_basis</code> says so, and a 30 m DEM pixel covers many cells.</li>
-      <li>That the reading is from today. Read <code>observed_at</code>: static layers are years old, and a fresh fetch that times out leaves the latest stored reading as the answer.</li>
+      <li>That a reading is right. The OCR receipt is <code>model_output</code>: it signs which image, engine and language produced the text, not that the text is correct. Read the text before you trust a field parsed from it.</li>
+      <li>That a residue breaks the law. The parser compares each result with the MRL the report prints. It looks up the EU database only when you name the product in <code>product</code>, which this page does not do.</li>
+      <li>That the document is genuine. The parser is not a registry: it does not check a land record against the land registry, or a signature on the document.</li>
+      <li>That the fields are the ones a person would pick. Check each against the line it quotes; correct by hand when the document says otherwise.</li>
     </ul>
   </section>
 </main>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
+<a class="pb-prev" href="/demos/tokenise-files"><i>&larr;</i><b>Tokenise a file</b></a>
 <ol class="pb-steps">
 <li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt" aria-current="step"><span>2</span></a></li>
+<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
 <li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
 <li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
 <li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten"><span>5</span></a></li>
 <li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
-<li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain"><span>7</span></a></li>
+<li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain" aria-current="step"><span>7</span></a></li>
 <li><a href="/demos/field" title="One field: edges, pixels, NDVI you compute"><span>8</span></a></li>
 <li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
 </ol>
-<a class="pb-next" href="/demos/verify-before-publish"><b>Check a draft</b><span>catch a wrong number</span><i>&rarr;</i></a>
+<a class="pb-next" href="/demos/field"><b>One field</b><span>edges, pixels, NDVI you compute</span><i>&rarr;</i></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -391,89 +389,222 @@ if(!D.ready){ document.addEventListener('DOMContentLoaded', function(){}); }
 <script>
 (function(){
 'use strict';
-var D = globalThis.demo, $ = D.$;
-var form = $('form'), btn = $('run');
-function reset(){ ['o1','o2','o3','o4','o5'].forEach(function(id){ $(id).textContent = ''; }); }
-function fail(C, text){ C.add(false, text); btn.disabled = false; btn.textContent = 'Run again'; return null; }
+var D = globalThis.demo, I = globalThis.ememVerifyInternals, $ = D.$;
+var SAMPLES = {
+  lab: 'Sample residue report (invented for the emem demo; no real lab or sample)\n' +
+       'Test Report No: DEMO/2026/0001\n' +
+       'Sample ID: DEMO-RICE-001   Received: 12.09.2026\n' +
+       'Method: QuEChERS EN 15662, LC-MS/MS and GC-MS/MS\n' +
+       'Analyte            Result   Unit    LOQ     MRL\n' +
+       'Tricyclazole       0.012    mg/kg   0.01    0.01\n' +
+       'Chlorpyrifos       <0.01    mg/kg   0.01    0.01\n' +
+       'Imidacloprid       n.d.     mg/kg   0.01    0.5\n' +
+       'Carbendazim        0,08     mg/kg   0.01    0.1\n',
+  land: 'Sample land record extract (invented for the emem demo; no real parcel or person)\n' +
+        'Village: Examplegaon   Taluka: Demo   District: Sample\n' +
+        'Survey No: 123/4\n' +
+        'Owner name: A. Example\n' +
+        'Area: 1.20.50\n' +
+        'Date: 01/08/2026\n'
+};
+var ROUTE = { lab:'/v1/lab_report_parse', land:'/v1/land_record_parse' };
+var form = $('form'), btn = $('run'), pic = $('pic'), ta = $('text'), kindSel = $('kind');
+if(/[?&]kind=land\b/.test(location.search)) kindSel.value = 'land';
+ta.value = SAMPLES[kindSel.value];
+pic.hidden = kindSel.value !== 'lab';
+kindSel.addEventListener('change', function(){
+  var isSample = ta.value === SAMPLES.lab || ta.value === SAMPLES.land || !ta.value.trim();
+  if(isSample) ta.value = SAMPLES[kindSel.value];
+  pic.hidden = kindSel.value !== 'lab';
+});
 
-async function go(){
-  reset();
-  btn.disabled = true; btn.textContent = 'Running…';
-  var q = $('place').value.trim() || 'Bengaluru, India', band = $('band').value;
-  if(!D.ready){ var C0 = new D.Checks($('o1')); return fail(C0, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); }
-
-  /* 1. locate */
-  var lb = { q:q }; $('c1').textContent = D.curlPost('/v1/locate', lb);
-  var C1 = new D.Checks($('o1')), w1 = C1.run('asking the geocoder…');
-  var L = await D.post('/v1/locate', lb);
-  if(!L.ok || !L.json.cell64){ w1(false, 'locate failed (' + L.status + '): ' + D.why(L)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var cell = L.json.cell64, sel = L.json.selected || {};
-  w1(true, 'resolved in ' + L.ms + ' ms, via ' + (L.json.via || 'the geocoder'));
-  D.mk('p', 'big', $('o1'), cell).appendChild(D.mk('small', '', null, L.json.place_label || ''));
-  if(L.json.disambiguation_required || sel.is_high_confidence === false){
-    C1.add(null, 'the geocoder is not sure this is the place you meant; an agent should ask, not cite rank 0. Alternatives: ' + (L.json.alternatives || []).slice(0, 4).map(function(a){ return a.label; }).join('; '));
-  } else C1.add(true, 'high-confidence match (' + (sel.confidence_reason || 'no reason given') + ')');
-
-  /* 2. recall */
-  var rb = { cell:cell, bands:[band] }; $('c2').textContent = D.curlPost('/v1/recall', rb);
-  var C2 = new D.Checks($('o2')), w2 = C2.run('recalling ' + band + ' (a cold fetch can take up to about 15 s)…');
-  var R = await D.post('/v1/recall', rb);
-  if(!R.ok){ w2(false, 'recall failed (' + R.status + '): ' + D.why(R)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var facts = R.json.facts || [], cur = (R.json.current_by_band || {})[band];
-  var f = facts.filter(function(x){ return x.fact_cid === cur; })[0];
-  (R.json.materialize_notes || []).forEach(function(n){
-    if(n.status === 'materialized') return;
-    C2.add(null, n.band + ': ' + (n.status || '') + (n.reason_class ? ' (' + n.reason_class + ')' : '') + (n.retryable ? ', retryable: the fetch carries on in the background' : ''));
-  });
-  if(!f){ w2(false, 'no reading of ' + band + ' is stored here and none came back in time; run it again in a few seconds'); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  w2(true, facts.length + ' stored reading' + (facts.length === 1 ? '' : 's') + ' of this band in ' + R.ms + ' ms; the current one is below');
-  var big = D.mk('p', 'big', $('o2'), String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)) + (f.unit ? ' ' + f.unit : ''));
-  big.appendChild(D.mk('small', '', null, band + ', observed ' + (f.observed_at || 'at an unstated time')));
-  D.kv($('o2'), [['fact_cid', f.fact_cid], ['source', ((f.sources || [])[0] || {}).id], ['derived by', (f.derivation || {}).fn_key], ['signed at', f.signed_at]]);
-  D.mk('p', 'tok', $('o2'), f.memory_token);
-  C2.add(null, 'value_verbatim is the exact decimal string that was signed; quote it rather than re-typing the number');
-
-  /* 3. receipt */
-  var C3 = new D.Checks($('o3')), rc = R.json.receipt;
-  var good = await D.receipt(C3, rc, [f.fact_cid], 'the recall receipt');
-  if(good){
-    var bent = JSON.parse(JSON.stringify(rc));
-    bent.served_at = bent.served_at.replace(/\d(?=Z$)/, function(d){ return String((+d + 1) % 10); });
-    var still = D.verifyOnly(bent);
-    C3.add(!still, !still ? 'control: with served_at moved by one second (' + bent.served_at + '), the same check rejects it' : 'control failed: an edited receipt still verified, so this check proves nothing');
+/* The span of one top-level key's value, exactly as the response text carries it. */
+function topSpan(text, want){
+  var i = 0, n = text.length;
+  function ws(){ while(i < n && /\s/.test(text[i])) i++; }
+  function str(){ var s = i; i++; while(i < n && text[i] !== '"'){ if(text[i] === '\\') i++; i++; } i++; return JSON.parse(text.slice(s, i)); }
+  function val(){
+    ws(); var c = text[i];
+    if(c === '"'){ str(); return; }
+    if(c === '{' || c === '['){
+      var depth = 0;
+      while(i < n){ c = text[i]; if(c === '"'){ str(); continue; } if(c === '{' || c === '[') depth++; else if(c === '}' || c === ']'){ depth--; if(depth === 0){ i++; return; } } i++; }
+      return;
+    }
+    while(i < n && !/[,}\]\s]/.test(text[i])) i++;
   }
-  D.raw($('o3'), 'the receipt', rc);
-
-  /* 4. bytes */
-  $('c4').textContent = D.curlGet('/v1/facts/' + f.fact_cid, "-H 'accept: application/cbor' | b3sum");
-  var C4 = new D.Checks($('o4')), w4 = C4.run('fetching the canonical bytes…');
-  var B = await D.get('/v1/facts/' + f.fact_cid, 'application/cbor');
-  if(B.status !== 200){ w4(false, 'the bytes did not load (' + B.status + ')'); }
-  else {
-    var name = D.b32(D.blake3(B.bytes));
-    w4(name === f.fact_cid, name === f.fact_cid ? B.bytes.length + ' bytes of CBOR hash to ' + D.short(name, 20) + ', the fact\'s own name' : 'the bytes hash to ' + D.short(name) + ', not ' + D.short(f.fact_cid));
-    var flip = B.bytes.slice(); flip[flip.length >> 1] ^= 1;
-    var n2 = D.b32(D.blake3(flip));
-    C4.add(n2 !== f.fact_cid, 'control: with one bit flipped in byte ' + (flip.length >> 1) + ', they hash to ' + D.short(n2, 20) + ' instead');
+  ws(); if(text[i] !== '{') return null; i++;
+  while(i < n){
+    ws(); if(text[i] === '}') return null;
+    var k = str(); ws(); i++; ws();
+    var s = i; val(); var e = i;
+    if(k === want) return text.slice(s, e);
+    ws(); if(text[i] === ',') i++;
   }
-
-  /* 5. cite */
-  var tb = { token:f.memory_token }; $('c5').textContent = D.curlPost('/v1/memory_token/resolve', tb);
-  var C5 = new D.Checks($('o5')), w5 = C5.run('resolving the token as another agent would…');
-  var T = await D.post('/v1/memory_token/resolve', tb);
-  if(!T.ok){ w5(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); }
-  else {
-    var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === String(f.value_verbatim);
-    w5(same, same ? 'it resolves to the same fact and the same signed string, ' + T.json.value_verbatim + (T.json.unit ? ' ' + T.json.unit : '') : 'it resolved to something else: ' + T.json.fact_cid);
-    await D.receipt(C5, T.json.receipt, [f.fact_cid], 'the resolve receipt');
-    var acts = D.mk('div', 'acts', $('o5'));
-    var a = D.mk('a', 'btn ghost small', acts, 'Open it in /verify'); a.href = '/verify?q=' + encodeURIComponent(f.memory_token);
-  }
-  btn.disabled = false; btn.textContent = 'Run again';
+  return null;
 }
-function start(){ go().catch(function(err){ var C = new D.Checks($('o5')); C.add(false, String(err && err.message || err)); btn.disabled = false; btn.textContent = 'Run again'; }); }
-form.addEventListener('submit', function(e){ e.preventDefault(); start(); });
-if(/[?&]run\b/.test(location.search)) start();
+function b3(u){ return D.b32(D.blake3(u)); }
+function bumpDigit(s){ return s.replace(/\d/, function(d){ return String((+d + 1) % 10); }); }
+function num(v){ return v === null || v === undefined ? '' : String(v); }
+
+function sigParse(j){
+  var rc = j.receipt || {}, pk = I.b32decode(rc.responder_pubkey_b32);
+  var dg = D.blake3(D.preV1(rc.domain, [[1, D.utf8(j.signal)], [2, I.b32decode(j.text_blake3_b32)], [3, I.b32decode(j.result_blake3_b32)],
+    [4, D.utf8(j.parser)], [5, D.utf8(j.parsed_at)], [6, pk]]));
+  return I.ed.verify(I.b32decode(rc.signature_b32), dg, pk);
+}
+function sigOcr(o){
+  var rc = o.receipt || {}, pk = I.b32decode(rc.responder_pubkey_b32);
+  var dg = D.blake3(D.preV1(rc.domain, [[1, I.b32decode(o.image_blake3_b32)], [2, D.utf8(o.source)], [3, D.utf8(o.lang)], [4, D.utf8(o.engine)],
+    [5, I.b32decode(o.text_blake3_b32)], [6, D.utf8(o.read_at)], [7, pk]]));
+  return I.ed.verify(I.b32decode(rc.signature_b32), dg, pk);
+}
+async function keyCheck(C, rc, what){
+  var k = await D.key(), mine = rc && rc.responder_pubkey_b32 === k;
+  C.add(mine, mine ? what + ' is signed by emem.dev\'s published key ' + k.slice(0, 8) + '…' : what + ' is signed by ' + String(rc && rc.responder_pubkey_b32).slice(0, 8) + ', not the published key');
+}
+/* Every extracted value quotes its line and byte offset; check the text says so. */
+function located(res){
+  var out = [];
+  ['rows', 'dates', 'methods', 'accreditation', 'owners', 'parcel_ids', 'areas', 'places'].forEach(function(k){ (res[k] || []).forEach(function(x){ out.push(x); }); });
+  if(res.sample_id) out.push(res.sample_id);
+  return out.filter(function(x){ return x && typeof x.byte_offset === 'number' && typeof x.line === 'string'; });
+}
+function offsetsHold(textBytes, res){
+  var all = located(res), bad = all.filter(function(x){ var l = D.utf8(x.line); var s = textBytes.slice(x.byte_offset, x.byte_offset + l.length); return b3(s) !== b3(l); });
+  return { n:all.length, bad:bad.length };
+}
+function rowsTable(parent, rows){
+  var wrap = D.mk('div', 'tw', parent), t = D.mk('table', 'rows', wrap), h = D.mk('tr', '', D.mk('thead', '', t));
+  ['line', 'analyte', 'printed', 'mg/kg', 'MRL', 'exceeds'].forEach(function(x){ D.mk('th', '', h, x); });
+  var tb = D.mk('tbody', '', t);
+  rows.forEach(function(r){
+    var tr = D.mk('tr', r.exceeds_printed_mrl ? 'hot' : '', tb);
+    [r.line_no, r.analyte, (r.result || {}).raw, num(r.result_mg_kg) || (r.result || {}).kind, num(r.mrl_mg_kg) || 'none read', r.exceeds_printed_mrl ? 'yes' : 'no'].forEach(function(x){ D.mk('td', '', tr, num(x)); });
+  });
+}
+function fieldList(parent, res){
+  var dl = D.mk('dl', 'kv', parent);
+  ['owners', 'parcel_ids', 'areas', 'places', 'dates'].forEach(function(k){
+    D.mk('dt', '', dl, k); var dd = D.mk('dd', '', dl);
+    var xs = res[k] || [];
+    dd.textContent = xs.length ? xs.map(function(x){ var v = x.value; if(v && typeof v === 'object') v = v.raw + (v.hectares !== undefined ? ' = ' + v.hectares + ' ha (' + v.unit + ')' : ' (' + (v.unit || 'unit not converted') + ')'); return v + ' [line ' + x.line_no + ']'; }).join('; ') : 'none found';
+  });
+  D.mk('dt', '', dl, 'fields_missing'); D.mk('dd', '', dl, (res.fields_missing || []).join(', ') || 'none');
+}
+
+/* Parse one body, show it, check it. Returns the parsed JSON (or null). */
+async function parseAndCheck(route, body, text, outParse, outHash, outSig, label){
+  var C1 = new D.Checks(outParse), w = C1.run('parsing…');
+  var R = await D.post(route, body);
+  if(!R.ok){ w(false, 'the parse failed (' + R.status + '): ' + D.why(R)); return null; }
+  var j = R.json, res = j.result || {};
+  w(true, (label || 'parsed') + ' in ' + R.ms + ' ms by ' + j.parser + ' (' + j.signal + '), provenance ' + j.provenance_class);
+  if(j.signal === 'lab_report_parse@1'){
+    D.mk('p', 'big', outParse, res.verdict || 'no verdict').appendChild(D.mk('small', '', null, (res.exceedances || 0) + ' exceedance' + (res.exceedances === 1 ? '' : 's') + ' of the printed MRL; sample_id ' + (res.sample_id ? '"' + res.sample_id.value + '" from line ' + res.sample_id.line_no : 'not found')));
+    rowsTable(outParse, res.rows || []);
+  } else fieldList(outParse, res);
+  var bytes = D.utf8(text), off = offsetsHold(bytes, res);
+  C1.add(off.bad === 0 && off.n > 0 ? true : off.n === 0 ? null : false, off.n === 0 ? 'no located values to check' : off.bad === 0 ? 'all ' + off.n + ' extracted values start at their stated byte offset, on the line they quote' : off.bad + ' of ' + off.n + ' values do not sit at their stated byte offset');
+
+  if(outHash){
+    var C2 = new D.Checks(outHash);
+    var th = b3(bytes);
+    C2.add(th === j.text_blake3_b32, th === j.text_blake3_b32 ? 'blake3 of the ' + bytes.length + ' bytes of text is ' + D.short(th, 20) + ', the text_blake3_b32 the receipt names' : 'the text hashes to ' + D.short(th) + ', not ' + D.short(j.text_blake3_b32));
+    var th2 = b3(D.utf8(bumpDigit(text)));
+    C2.add(th2 !== j.text_blake3_b32, 'control: with its first digit changed, the text hashes to ' + D.short(th2, 20) + ' instead');
+    var span = topSpan(R.text, 'result');
+    if(span === null) C2.add(false, 'could not find the result in the response text');
+    else {
+      var rh = b3(D.utf8(span));
+      C2.add(rh === j.result_blake3_b32, rh === j.result_blake3_b32 ? 'blake3 of the result as served (' + D.utf8(span).length + ' bytes of compact JSON) is ' + D.short(rh, 20) + ', the result_blake3_b32 the receipt names' : 'the result hashes to ' + D.short(rh) + ', not ' + D.short(j.result_blake3_b32));
+      var rh2 = b3(D.utf8(bumpDigit(span)));
+      C2.add(rh2 !== j.result_blake3_b32, 'control: with one digit of the result changed, it hashes to ' + D.short(rh2, 20) + ' instead');
+    }
+  }
+  if(outSig){
+    var C3 = new D.Checks(outSig), ok = sigParse(j);
+    C3.add(ok, ok ? 'the Ed25519 signature checks against the preimage rebuilt here (' + j.receipt.domain + ')' : 'the signature does not verify over the preimage rebuilt here');
+    await keyCheck(C3, j.receipt, 'the parse');
+    if(ok){
+      var bent = JSON.parse(JSON.stringify(j)); bent.parsed_at = bumpDigit(bent.parsed_at);
+      var still = sigParse(bent);
+      C3.add(!still, !still ? 'control: with parsed_at edited to ' + bent.parsed_at + ', the same check rejects it' : 'control failed: an edited preimage still verified, so this check proves nothing');
+    }
+    D.raw(outSig, 'the whole response', j);
+  }
+  return j;
+}
+
+var lastText = null;
+async function go(){
+  ['o1', 'o2', 'o3'].forEach(function(id){ $(id).textContent = ''; });
+  btn.disabled = true; btn.textContent = 'Parsing…';
+  try{
+    if(!D.ready){ new D.Checks($('o1')).add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return null; }
+    var text = ta.value, route = ROUTE[kindSel.value], body = { text:text };
+    $('c1').textContent = D.curlPost(route, { text:text.length > 80 ? text.slice(0, 77) + '…' : text });
+    var j = await parseAndCheck(route, body, text, $('o1'), $('o2'), $('o3'));
+    lastText = j ? { text:text, json:j } : null;
+    return j;
+  } finally { btn.disabled = false; btn.textContent = 'Parse and check again'; }
+}
+
+function draw(text){
+  var cv = $('cv'), ctx = cv.getContext('2d'), lines = text.replace(/\n$/, '').split('\n'), px = 22, lh = 32, pad = 28;
+  ctx.font = px + 'px "DejaVu Sans Mono", Menlo, Consolas, monospace';
+  var w = Math.max.apply(null, lines.map(function(l){ return ctx.measureText(l).width; }));
+  cv.width = Math.ceil(w + pad * 2); cv.height = lines.length * lh + pad * 2;
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#000000'; ctx.font = px + 'px "DejaVu Sans Mono", Menlo, Consolas, monospace'; ctx.textBaseline = 'top';
+  lines.forEach(function(l, i){ ctx.fillText(l, pad, pad + i * lh); });
+  return new Promise(function(res, rej){ cv.toBlob(function(b){ if(!b) return rej(new Error('the canvas gave no PNG')); b.arrayBuffer().then(function(a){ res(new Uint8Array(a)); }, rej); }, 'image/png'); });
+}
+function b64(u){ var s = ''; for(var i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); }
+
+async function picture(){
+  var out = $('o4'); out.textContent = '';
+  pic.disabled = true; pic.textContent = 'Reading…';
+  try{
+    if(!D.ready){ new D.Checks(out).add(false, 'the in-tab verifier did not load, so this page checks nothing'); return; }
+    var text = ta.value, png = await draw(text);
+    var img = D.mk('img', 'shot', out); img.alt = 'the report text drawn as a picture, which is what was sent to OCR'; img.src = URL.createObjectURL(new Blob([png], { type:'image/png' }));
+    $('c4').textContent = D.curlPost('/v1/ocr', { image_b64:'<base64 of the PNG>', lang:'eng' }) + '\n\n' + D.curlPost('/v1/lab_report_parse', { ocr:'<the whole /v1/ocr response>' });
+    var C = new D.Checks(out), w = C.run('sending ' + png.length.toLocaleString('en') + ' bytes of PNG to /v1/ocr…');
+    var O = await D.post('/v1/ocr', { image_b64:b64(png), lang:'eng' });
+    if(!O.ok){ w(false, 'OCR failed (' + O.status + '): ' + D.why(O)); return; }
+    var o = O.json;
+    w(true, 'read in ' + O.ms + ' ms by ' + o.engine + ', provenance ' + o.provenance_class);
+    var ih = b3(png);
+    C.add(ih === o.image_blake3_b32, ih === o.image_blake3_b32 ? 'the receipt names ' + D.short(ih, 20) + ', the blake3 of the exact PNG this page sent' : 'the receipt names ' + D.short(o.image_blake3_b32) + ', but the PNG sent hashes to ' + D.short(ih));
+    var oth = b3(D.utf8(o.text));
+    C.add(oth === o.text_blake3_b32, oth === o.text_blake3_b32 ? 'the OCR text hashes to its text_blake3_b32' : 'the OCR text does not hash to its text_blake3_b32');
+    var sok = sigOcr(o);
+    C.add(sok, sok ? 'the OCR receipt\'s Ed25519 signature checks here (' + o.receipt.domain + ')' : 'the OCR receipt does not verify');
+    await keyCheck(C, o.receipt, 'the OCR receipt');
+    C.add(null, 'the OCR text is ' + (o.text === text ? 'identical to' : 'not identical to') + ' the text you typed' + (o.text === text ? '' : '; open "the OCR text" below to see where it differs'));
+    D.raw(out, 'the OCR text', o.text);
+    var sub = D.mk('div', '', out), subH = D.mk('div', '', out), subS = D.mk('div', '', out);
+    var p = await parseAndCheck('/v1/lab_report_parse', { ocr:o }, o.text, sub, subH, subS, 'parsed from the OCR response');
+    if(!p) return;
+    var C2 = new D.Checks(out);
+    C2.add(p.text_blake3_b32 === o.text_blake3_b32, p.text_blake3_b32 === o.text_blake3_b32 ? 'chained: the parse\'s text hash is the text hash the OCR receipt signs' : 'not chained: the parse\'s text hash differs from the OCR receipt\'s');
+    if(lastText && lastText.json.signal === 'lab_report_parse@1'){
+      var a = lastText.json.result || {}, b = p.result || {};
+      var byA = {}; (a.rows || []).forEach(function(r){ byA[r.analyte] = r; });
+      var diffs = [];
+      (b.rows || []).forEach(function(r){ var q = byA[r.analyte]; if(!q){ diffs.push(r.analyte + ' is a row only in the OCR parse'); return; } if(q.mrl_mg_kg !== r.mrl_mg_kg) diffs.push(r.analyte + ': MRL ' + num(q.mrl_mg_kg) + ' from the text, ' + (num(r.mrl_mg_kg) || 'none') + ' from the picture'); if(q.result_mg_kg !== r.result_mg_kg) diffs.push(r.analyte + ': result ' + num(q.result_mg_kg) + ' from the text, ' + (num(r.result_mg_kg) || 'none') + ' from the picture'); });
+      (a.rows || []).forEach(function(r){ if(!(b.rows || []).some(function(x){ return x.analyte === r.analyte; })) diffs.push(r.analyte + ' was not read from the picture'); });
+      if(a.verdict !== b.verdict) diffs.unshift('verdict ' + a.verdict + ' from the text, ' + b.verdict + ' from the picture');
+      C2.add(diffs.length ? null : true, diffs.length ? 'the two parses differ, and every hash above still holds: ' + diffs.join('; ') : 'the picture parse gives the same verdict and rows as the text parse');
+    }
+  } catch(e){ new D.Checks(out).add(false, String(e && e.message || e)); }
+  finally { pic.disabled = false; pic.textContent = 'Read it from a picture again'; }
+}
+
+form.addEventListener('submit', function(e){ e.preventDefault(); go().catch(function(err){ new D.Checks($('o3')).add(false, String(err && err.message || err)); }); });
+pic.addEventListener('click', function(){ picture(); });
+if(/[?&]run\b/.test(location.search)) go().then(function(){ if(kindSel.value === 'lab') return picture(); });
 })();
 </script>
 </body>

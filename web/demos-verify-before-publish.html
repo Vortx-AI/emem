@@ -3,15 +3,15 @@
 <head>
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>emem.dev/demos/signed-answer: a place, a signed number, a receipt</title>
-<meta name=description content="Type a place. emem resolves it to a cell, returns the signed readings stored there, and this page checks the receipt signature and the content hash in your browser.">
-<link rel=canonical href="https://emem.dev/demos/signed-answer">
+<title>emem.dev/demos/verify-before-publish: check a draft against what was signed</title>
+<meta name=description content="Take a signed reading, write a sentence about it with the wrong number, and watch echo_verify and the guard catch it. Then see the one mistake neither of them catches.">
+<link rel=canonical href="https://emem.dev/demos/verify-before-publish">
 <meta name=robots content="index,follow">
 <meta name=color-scheme content="light dark">
 <meta property=og:type content=website>
-<meta property=og:url content="https://emem.dev/demos/signed-answer">
-<meta property=og:title content="emem.dev: a place, a signed number, a receipt">
-<meta property=og:description content="Locate a place, recall a signed reading, and check its receipt and content hash in the browser.">
+<meta property=og:url content="https://emem.dev/demos/verify-before-publish">
+<meta property=og:title content="emem.dev: check a draft against what was signed">
+<meta property=og:description content="Take a signed reading, write a sentence about it with the wrong number, and watch echo_verify and the guard catch it. Then see the one mistake neither of them catches.">
 <meta property=og:image content="https://emem.dev/og-image.png">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
@@ -83,6 +83,19 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 @media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
 </style>
+<style>
+.verdict{display:inline-block;margin:0 0 var(--s-2);padding:var(--s-1) var(--s-3);border:1.5px solid var(--ink);font:700 var(--t-lg)/1.3 var(--mono);text-transform:uppercase;letter-spacing:.04em}
+.verdict.allow{border-color:var(--accent);color:var(--accent);background:var(--accent-bg)}
+.verdict.deny{border-color:var(--absent);color:var(--absent);background:var(--absent-bg)}
+.inline{display:flex;flex-wrap:wrap;gap:var(--s-2);align-items:end;margin:0 0 var(--s-3)}
+.inline label{display:grid;gap:var(--s-1);font-size:var(--t-2xs);color:var(--mute);text-transform:uppercase;letter-spacing:.06em;flex:1 1 12rem;min-width:0}
+.inline input,.inline textarea{min-height:44px;padding:var(--s-2);border:1px solid var(--ink);background:var(--paper);color:var(--ink);font:var(--t-sm)/1.5 var(--mono);border-radius:0;width:100%;text-transform:none;letter-spacing:0}
+.inline textarea{min-height:6rem;resize:vertical;overflow-wrap:anywhere}
+.pair{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(18rem,100%),1fr));gap:var(--s-3);margin-top:var(--s-3)}
+.pair>div{border:1px solid var(--rule);padding:var(--s-3);background:var(--paper-2);min-width:0}
+.pair h3{margin:0 0 var(--s-2);font:600 var(--t-2xs)/1.4 var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--mute)}
+.out q{display:block;margin:0 0 var(--s-2);font:var(--t-xs)/1.5 var(--mono);overflow-wrap:anywhere;quotes:none}
+</style>
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -128,110 +141,104 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Signed answer</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a place, a signed number, a receipt checked here</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Check a draft</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a draft sentence, checked against what was signed</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
-
 <header class="doc-head">
   <div>
-    <p class="eyebrow">Demo 1 of 8 &middot; skills <a href="https://emem.dev/skills/emem-locate-and-recall/SKILL.md">emem-locate-and-recall</a>, <a href="https://emem.dev/skills/emem-verify-receipt/SKILL.md">emem-verify-receipt</a></p>
-    <h1>A place, a signed number, a receipt</h1>
-    <p class="purpose">Type a place. emem gives it a cell address and returns the signed readings stored there. This page then checks the receipt's signature and the fact's content hash itself, against emem.dev's published key.</p>
+    <p class="eyebrow">Demo 2 of 8 &middot; skills <a href="https://emem.dev/skills/emem-verify-before-publish/SKILL.md">emem-verify-before-publish</a>, <a href="https://emem.dev/skills/emem-referential-drift/SKILL.md">emem-referential-drift</a></p>
+    <h1>Catch a wrong number before it ships</h1>
+    <p class="purpose">An agent read a signed reading three turns ago and is about to quote it. This page takes a live reading, writes a sentence with the wrong number next to its citation, and asks emem to grade the sentence.</p>
     <dl class="facts">
       <div><dt>writes</dt><dd>none; every call is a read</dd></div>
-      <div><dt>checked</dt><dd>in this tab, with <a href="/emem-verify-core.js">emem-verify-core.js</a></dd></div>
-      <div><dt>key</dt><dd><a href="/.well-known/emem.json">/.well-known/emem.json</a></dd></div>
+      <div><dt>routes</dt><dd>/v1/echo_verify, /v1/guard/verdict</dd></div>
+      <div><dt>guard</dt><dd>advisory on emem.dev; it blocks nothing</dd></div>
     </dl>
   </div>
   <aside class="claims" aria-label="What this demo shows">
     <h2>What you will see</h2>
     <ul>
-      <li>A place name becoming one <code>cell64</code> address.</li>
-      <li>A reading with its <code>emem:fact:</code> token, quoted as the exact string that was signed.</li>
-      <li>The Ed25519 receipt and the BLAKE3 content hash, recomputed here, then broken on purpose to show the check can fail.</li>
+      <li>A number graded against the signed string its token names: a match, a rounding, or a different number.</li>
+      <li>A draft sentence denied with a reason code and the fix to apply, then allowed once the number is right.</li>
+      <li>A sentence that cites the right number for the wrong quantity, and passes.</li>
     </ul>
   </aside>
 </header>
 
 <main class="demo" id="main">
   <form class="controls" id="form">
-    <label>Place<input id="place" value="Bengaluru, India" autocomplete="off" spellcheck="false"></label>
-    <label>Band<select id="band">
-      <option value="weather.temperature_2m">weather.temperature_2m (degC, now)</option>
-      <option value="copdem30m.elevation_mean">copdem30m.elevation_mean (m)</option>
-      <option value="esa_worldcover.lc_2021">esa_worldcover.lc_2021 (class)</option>
-      <option value="indices.ndvi">indices.ndvi (Sentinel-2)</option>
-      <option value="soilgrids.phh2o_0_30cm">soilgrids.phh2o_0_30cm (pH)</option>
-    </select></label>
-    <div class="go"><button class="btn" id="run" type="submit">Run the five steps</button></div>
+    <label>Cell (Bengaluru)<input id="cell" value="defi.zb493.zezo.zcb35" autocomplete="off" spellcheck="false"></label>
+    <div class="go"><button class="btn" id="run" type="submit">Get a signed reading</button></div>
   </form>
 
   <section class="stage" aria-labelledby="h1s">
-    <div class="stage-n"><b>1</b>locate</div>
+    <div class="stage-n"><b>1</b>token</div>
     <div>
-      <h2 id="h1s">The place becomes an address</h2>
-      <p class="say">The geocoder picks one place and says how sure it is. A cell is about 10 m on a side; it is an address, not a measurement.</p>
+      <h2 id="h1s">A reading and the token that names it</h2>
+      <p class="say">Recall returns the latest air temperature at the cell and its <code>emem:fact:</code> token. Resolving the token gives back the exact string that was signed, <code>value_verbatim</code>.</p>
       <pre class="call" id="c1"></pre>
       <div class="out" id="o1"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h2s">
-    <div class="stage-n"><b>2</b>recall</div>
+    <div class="stage-n"><b>2</b>echo</div>
     <div>
-      <h2 id="h2s">The signed reading stored there</h2>
-      <p class="say">Recall returns every stored reading of the band, oldest first, and names the latest in <code>current_by_band</code>. If nothing is stored, emem fetches it from the upstream source and signs it.</p>
+      <h2 id="h2s">Is my number the signed number?</h2>
+      <p class="say">You send the token and the value you are about to say. emem compares it with the signed string and answers <code>matches</code> and <code>drift</code>: <code>rounded</code> when precision was lost, <code>wrong</code> when it is a different number.</p>
+      <div class="inline">
+        <label>The value you are about to say<input id="claim" value="35" autocomplete="off" spellcheck="false"></label>
+        <button class="btn ghost" id="echo" type="button" disabled>Check this number</button>
+      </div>
       <pre class="call" id="c2"></pre>
       <div class="out" id="o2"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h3s">
-    <div class="stage-n"><b>3</b>receipt</div>
+    <div class="stage-n"><b>3</b>guard</div>
     <div>
-      <h2 id="h3s">Check the signature here</h2>
-      <p class="say">The receipt signs the request id, the time, the cells and the fact ids it served. This page rebuilds that preimage byte for byte, hashes it and checks the Ed25519 signature. Then it edits one field and checks again.</p>
+      <h2 id="h3s">Grade the whole sentence</h2>
+      <p class="say">The guard finds every citation in the text, checks each one resolves and verifies, and compares the number written next to it with the signed value. The field is <code>texts</code>, an array.</p>
+      <div class="inline">
+        <label>Draft<textarea id="draft" spellcheck="false"></textarea></label>
+      </div>
+      <div class="acts" style="margin:0 0 var(--s-3)">
+        <button class="btn ghost" id="guard" type="button" disabled>Check the draft</button>
+        <button class="btn ghost" id="fixit" type="button" disabled>Put the signed value in</button>
+      </div>
+      <pre class="call" id="c3"></pre>
       <div class="out" id="o3"></div>
     </div>
   </section>
 
   <section class="stage" aria-labelledby="h4s">
-    <div class="stage-n"><b>4</b>bytes</div>
+    <div class="stage-n"><b>4</b>blind spots</div>
     <div>
-      <h2 id="h4s">Check the fact is the bytes it names</h2>
-      <p class="say">A fact's id is the BLAKE3 hash of its canonical CBOR. Ask for those bytes and hash them here. If one byte differs, the name no longer matches.</p>
-      <pre class="call" id="c4"></pre>
+      <h2 id="h4s">What the guard does not check</h2>
+      <p class="say">It checks the number, not what the sentence says the number is. Both drafts below are run live. The first cites the temperature fact with the right value and calls it rainfall.</p>
+      <p class="say">The second makes a measurable claim with no citation at all, sent with <code>claim_gating: true</code>. Read <code>citations_found</code> and <code>checked</code>: an allow with nothing checked is a verdict over nothing.</p>
       <div class="out" id="o4"></div>
-    </div>
-  </section>
-
-  <section class="stage" aria-labelledby="h5s">
-    <div class="stage-n"><b>5</b>cite</div>
-    <div>
-      <h2 id="h5s">Hand on the token, not the number</h2>
-      <p class="say">Another agent resolves the token and gets the same signed bytes, without trusting you or this page.</p>
-      <pre class="call" id="c5"></pre>
-      <div class="out" id="o5"></div>
     </div>
   </section>
 
   <section class="limits" aria-labelledby="lim">
     <h2 id="lim">What this does not show</h2>
     <ul>
-      <li>That the upstream measurement is accurate. The signature says emem served these bytes; the source's own validation says how good they are.</li>
-      <li>An average over the cell. The value is the source pixel that overlaps it; the response's <code>spatial_basis</code> says so, and a 30 m DEM pixel covers many cells.</li>
-      <li>That the reading is from today. Read <code>observed_at</code>: static layers are years old, and a fresh fetch that times out leaves the latest stored reading as the answer.</li>
+      <li>That the cited band is the quantity the sentence names. Compare the resolved <code>band</code> with the words yourself; the rainfall draft above shows why.</li>
+      <li>Enforcement. The hosted route answers <code>advisory: true</code> and blocks nothing. To enforce, run your own node: <a href="/v1/guard/selfhost">/v1/guard/selfhost</a> gives the procedure.</li>
+      <li>Anything about a citation this responder does not hold. That comes back <code>not_held_here</code>, never a denial; resolve it where it was minted.</li>
     </ul>
   </section>
 </main>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
+<a class="pb-prev" href="/demos/signed-answer"><i>&larr;</i><b>Signed answer</b></a>
 <ol class="pb-steps">
 <li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt" aria-current="step"><span>2</span></a></li>
-<li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
+<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
+<li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number" aria-current="step"><span>3</span></a></li>
 <li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
 <li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten"><span>5</span></a></li>
 <li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
@@ -240,7 +247,7 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
 <li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
 </ol>
-<a class="pb-next" href="/demos/verify-before-publish"><b>Check a draft</b><span>catch a wrong number</span><i>&rarr;</i></a>
+<a class="pb-next" href="/demos/handoff"><b>Handoff</b><span>check who wrote a note</span><i>&rarr;</i></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -392,88 +399,128 @@ if(!D.ready){ document.addEventListener('DOMContentLoaded', function(){}); }
 (function(){
 'use strict';
 var D = globalThis.demo, $ = D.$;
-var form = $('form'), btn = $('run');
-function reset(){ ['o1','o2','o3','o4','o5'].forEach(function(id){ $(id).textContent = ''; }); }
-function fail(C, text){ C.add(false, text); btn.disabled = false; btn.textContent = 'Run again'; return null; }
+var btn = $('run'), fact = null;
 
-async function go(){
-  reset();
-  btn.disabled = true; btn.textContent = 'Running…';
-  var q = $('place').value.trim() || 'Bengaluru, India', band = $('band').value;
-  if(!D.ready){ var C0 = new D.Checks($('o1')); return fail(C0, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); }
+function vv(f){ return String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)); }
+function wrongOf(v){ var n = parseFloat(v); if(!isFinite(n)) return '0'; return String(Math.round(n + 14.6)); }
 
-  /* 1. locate */
-  var lb = { q:q }; $('c1').textContent = D.curlPost('/v1/locate', lb);
-  var C1 = new D.Checks($('o1')), w1 = C1.run('asking the geocoder…');
-  var L = await D.post('/v1/locate', lb);
-  if(!L.ok || !L.json.cell64){ w1(false, 'locate failed (' + L.status + '): ' + D.why(L)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var cell = L.json.cell64, sel = L.json.selected || {};
-  w1(true, 'resolved in ' + L.ms + ' ms, via ' + (L.json.via || 'the geocoder'));
-  D.mk('p', 'big', $('o1'), cell).appendChild(D.mk('small', '', null, L.json.place_label || ''));
-  if(L.json.disambiguation_required || sel.is_high_confidence === false){
-    C1.add(null, 'the geocoder is not sure this is the place you meant; an agent should ask, not cite rank 0. Alternatives: ' + (L.json.alternatives || []).slice(0, 4).map(function(a){ return a.label; }).join('; '));
-  } else C1.add(true, 'high-confidence match (' + (sel.confidence_reason || 'no reason given') + ')');
-
-  /* 2. recall */
-  var rb = { cell:cell, bands:[band] }; $('c2').textContent = D.curlPost('/v1/recall', rb);
-  var C2 = new D.Checks($('o2')), w2 = C2.run('recalling ' + band + ' (a cold fetch can take up to about 15 s)…');
+async function step1(){
+  ['o1','o2','o3','o4'].forEach(function(id){ $(id).textContent = ''; });
+  var C = new D.Checks($('o1'));
+  if(!D.ready){ C.add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return false; }
+  var cell = $('cell').value.trim(), band = 'weather.temperature_2m', rb = { cell:cell, bands:[band] };
+  $('c1').textContent = D.curlPost('/v1/recall', rb) + '\n\n' + D.curlPost('/v1/memory_token/resolve', { token:'<memory_token>' });
+  var w = C.run('recalling the current air temperature…');
   var R = await D.post('/v1/recall', rb);
-  if(!R.ok){ w2(false, 'recall failed (' + R.status + '): ' + D.why(R)); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  var facts = R.json.facts || [], cur = (R.json.current_by_band || {})[band];
-  var f = facts.filter(function(x){ return x.fact_cid === cur; })[0];
-  (R.json.materialize_notes || []).forEach(function(n){
-    if(n.status === 'materialized') return;
-    C2.add(null, n.band + ': ' + (n.status || '') + (n.reason_class ? ' (' + n.reason_class + ')' : '') + (n.retryable ? ', retryable: the fetch carries on in the background' : ''));
-  });
-  if(!f){ w2(false, 'no reading of ' + band + ' is stored here and none came back in time; run it again in a few seconds'); btn.disabled = false; btn.textContent = 'Run again'; return; }
-  w2(true, facts.length + ' stored reading' + (facts.length === 1 ? '' : 's') + ' of this band in ' + R.ms + ' ms; the current one is below');
-  var big = D.mk('p', 'big', $('o2'), String(f.value_verbatim !== undefined ? f.value_verbatim : JSON.stringify(f.value)) + (f.unit ? ' ' + f.unit : ''));
-  big.appendChild(D.mk('small', '', null, band + ', observed ' + (f.observed_at || 'at an unstated time')));
-  D.kv($('o2'), [['fact_cid', f.fact_cid], ['source', ((f.sources || [])[0] || {}).id], ['derived by', (f.derivation || {}).fn_key], ['signed at', f.signed_at]]);
-  D.mk('p', 'tok', $('o2'), f.memory_token);
-  C2.add(null, 'value_verbatim is the exact decimal string that was signed; quote it rather than re-typing the number');
-
-  /* 3. receipt */
-  var C3 = new D.Checks($('o3')), rc = R.json.receipt;
-  var good = await D.receipt(C3, rc, [f.fact_cid], 'the recall receipt');
-  if(good){
-    var bent = JSON.parse(JSON.stringify(rc));
-    bent.served_at = bent.served_at.replace(/\d(?=Z$)/, function(d){ return String((+d + 1) % 10); });
-    var still = D.verifyOnly(bent);
-    C3.add(!still, !still ? 'control: with served_at moved by one second (' + bent.served_at + '), the same check rejects it' : 'control failed: an edited receipt still verified, so this check proves nothing');
-  }
-  D.raw($('o3'), 'the receipt', rc);
-
-  /* 4. bytes */
-  $('c4').textContent = D.curlGet('/v1/facts/' + f.fact_cid, "-H 'accept: application/cbor' | b3sum");
-  var C4 = new D.Checks($('o4')), w4 = C4.run('fetching the canonical bytes…');
-  var B = await D.get('/v1/facts/' + f.fact_cid, 'application/cbor');
-  if(B.status !== 200){ w4(false, 'the bytes did not load (' + B.status + ')'); }
-  else {
-    var name = D.b32(D.blake3(B.bytes));
-    w4(name === f.fact_cid, name === f.fact_cid ? B.bytes.length + ' bytes of CBOR hash to ' + D.short(name, 20) + ', the fact\'s own name' : 'the bytes hash to ' + D.short(name) + ', not ' + D.short(f.fact_cid));
-    var flip = B.bytes.slice(); flip[flip.length >> 1] ^= 1;
-    var n2 = D.b32(D.blake3(flip));
-    C4.add(n2 !== f.fact_cid, 'control: with one bit flipped in byte ' + (flip.length >> 1) + ', they hash to ' + D.short(n2, 20) + ' instead');
-  }
-
-  /* 5. cite */
-  var tb = { token:f.memory_token }; $('c5').textContent = D.curlPost('/v1/memory_token/resolve', tb);
-  var C5 = new D.Checks($('o5')), w5 = C5.run('resolving the token as another agent would…');
-  var T = await D.post('/v1/memory_token/resolve', tb);
-  if(!T.ok){ w5(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); }
-  else {
-    var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === String(f.value_verbatim);
-    w5(same, same ? 'it resolves to the same fact and the same signed string, ' + T.json.value_verbatim + (T.json.unit ? ' ' + T.json.unit : '') : 'it resolved to something else: ' + T.json.fact_cid);
-    await D.receipt(C5, T.json.receipt, [f.fact_cid], 'the resolve receipt');
-    var acts = D.mk('div', 'acts', $('o5'));
-    var a = D.mk('a', 'btn ghost small', acts, 'Open it in /verify'); a.href = '/verify?q=' + encodeURIComponent(f.memory_token);
-  }
-  btn.disabled = false; btn.textContent = 'Run again';
+  if(!R.ok){ w(false, 'recall failed (' + R.status + '): ' + D.why(R)); return false; }
+  var cur = (R.json.current_by_band || {})[band], f = (R.json.facts || []).filter(function(x){ return x.fact_cid === cur; })[0];
+  if(!f){ w(false, 'no temperature reading came back; run it again in a few seconds'); return false; }
+  w(true, 'the current reading, observed ' + f.observed_at);
+  var w2 = C.run('resolving its token as a reader would…');
+  var T = await D.post('/v1/memory_token/resolve', { token:f.memory_token });
+  if(!T.ok){ w2(false, 'the token did not resolve (' + T.status + '): ' + D.why(T)); return false; }
+  var same = T.json.fact_cid === f.fact_cid && String(T.json.value_verbatim) === vv(f);
+  w2(same, same ? 'the token resolves to the same fact; the signed string is ' + T.json.value_verbatim : 'the token resolved to a different fact');
+  await D.receipt(C, T.json.receipt, [f.fact_cid], 'the resolve receipt');
+  var big = D.mk('p', 'big', $('o1'), vv(f) + ' ' + (T.json.unit || ''));
+  big.appendChild(D.mk('small', '', null, T.json.band + ', observed ' + f.observed_at));
+  D.mk('p', 'tok', $('o1'), f.memory_token);
+  fact = { token:f.memory_token, value:vv(f), unit:T.json.unit || 'degC', cid:f.fact_cid };
+  $('claim').value = wrongOf(fact.value);
+  $('draft').value = 'Bengaluru air temperature is ' + wrongOf(fact.value) + ' ' + fact.unit + ' (' + fact.token + ').';
+  ['echo','guard','fixit'].forEach(function(id){ $(id).disabled = false; });
+  return true;
 }
-function start(){ go().catch(function(err){ var C = new D.Checks($('o5')); C.add(false, String(err && err.message || err)); btn.disabled = false; btn.textContent = 'Run again'; }); }
-form.addEventListener('submit', function(e){ e.preventDefault(); start(); });
-if(/[?&]run\b/.test(location.search)) start();
+
+async function echoOne(C, claimed, label){
+  var r = await D.post('/v1/echo_verify', { token:fact.token, claimed_value:claimed });
+  if(!r.ok){ C.add(false, label + ': echo_verify failed (' + r.status + '): ' + D.why(r)); return null; }
+  return r.json;
+}
+async function step2(){
+  if(!fact) return;
+  $('o2').textContent = '';
+  var claimed = $('claim').value.trim();
+  $('c2').textContent = D.curlPost('/v1/echo_verify', { token:fact.token, claimed_value:claimed });
+  var C = new D.Checks($('o2')), w = C.run('grading ' + claimed + ' against the signed value…');
+  var j = await echoOne(C, claimed, 'your value');
+  if(!j){ w(false, 'no answer'); return; }
+  var ok = j.matches === true;
+  w(null, 'you said ' + claimed + ': matches ' + j.matches + ', drift ' + (j.drift === null ? 'null' : j.drift) + (ok ? '' : ', so this number should not go out'));
+  D.kv($('o2'), [['claimed_value', j.claimed_value], ['signed value', fact.value], ['matches', String(j.matches)], ['drift', String(j.drift)]]);
+  var pair = D.mk('div', 'pair', $('o2'));
+  var box1 = D.mk('div', '', pair); D.mk('h3', '', box1, 'control: the signed string'); var C1 = new D.Checks(box1);
+  var a = await echoOne(C1, fact.value, 'the signed value');
+  if(a) C1.add(a.matches === true, fact.value + ' gives matches ' + a.matches + ', drift ' + a.drift);
+  var n = parseFloat(fact.value);
+  if(isFinite(n) && Math.round(n) !== n){
+    var box2 = D.mk('div', '', pair); D.mk('h3', '', box2, 'control: rounded'); var C2 = new D.Checks(box2);
+    var rd = String(Math.round(n)), b = await echoOne(C2, rd, 'rounded');
+    if(b) C2.add(b.matches === false && b.drift === 'rounded', rd + ' gives matches ' + b.matches + ', drift ' + b.drift);
+  }
+  var box3 = D.mk('div', '', pair); D.mk('h3', '', box3, 'control: a different number'); var C3 = new D.Checks(box3);
+  var wv = wrongOf(fact.value) === claimed ? String((n || 0) + 100) : wrongOf(fact.value), c = await echoOne(C3, wv, 'wrong');
+  if(c) C3.add(c.matches === false && c.drift === 'wrong', wv + ' gives matches ' + c.matches + ', drift ' + c.drift);
+}
+
+function showVerdict(parent, j, text){
+  var box = D.mk('div', '', parent);
+  D.mk('q', '', box, text);
+  D.mk('p', 'verdict ' + (j.action === 'deny' ? 'deny' : 'allow'), box, j.action);
+  var C = new D.Checks(box);
+  C.add(null, 'citations_found ' + j.citations_found + ', checked ' + j.checked + (j.advisory ? ', advisory: nothing is blocked' : ''));
+  if(j.reason) C.add(null, j.reason);
+  (j.citations || []).forEach(function(c){ C.add(c.state === 'verified' ? true : null, c.state + ': ' + (c.means || '')); });
+  return { box:box, C:C };
+}
+async function guardOne(parent, text, body){
+  var r = await D.post('/v1/guard/verdict', body || { texts:[text], claim_gating:true });
+  if(!r.ok){ var C = new D.Checks(parent); C.add(false, 'the guard answered ' + r.status + ': ' + D.why(r)); return null; }
+  var v = showVerdict(parent, r.json, text);
+  return { j:r.json, v:v };
+}
+async function step3(){
+  if(!fact) return;
+  $('o3').textContent = '';
+  var text = $('draft').value;
+  $('c3').textContent = D.curlPost('/v1/guard/verdict', { texts:[text], claim_gating:true });
+  var g = await guardOne($('o3'), text);
+  if(!g) return;
+  if(g.j.receipt) await D.receipt(g.v.C, g.j.receipt, null, 'the verdict receipt');
+  if(g.j.code) D.kv(g.v.box, [['code', g.j.code], ['fix', g.j.fix], ['token', g.j.token]]);
+  var pair = D.mk('div', 'pair', $('o3'));
+  var right = 'Bengaluru air temperature is ' + fact.value + ' ' + fact.unit + ' (' + fact.token + ').';
+  var h1 = D.mk('div', '', pair); D.mk('h3', '', h1, 'control: the signed value');
+  var a = await guardOne(h1, right);
+  if(a) a.v.C.add(a.j.action === 'allow', a.j.action === 'allow' ? 'with ' + fact.value + ' in the sentence the same citation is allowed' : 'with the signed value it was still denied: ' + (a.j.reason || ''));
+  var h2 = D.mk('div', '', pair); D.mk('h3', '', h2, 'control: text, not texts');
+  var b = await guardOne(h2, text, { text:text, claim_gating:true });
+  if(b) b.v.C.add(b.j.citations_found === 0, b.j.citations_found === 0 ? 'sent as "text", the draft is read as empty: allow, with nothing checked' : 'the text field was read: ' + b.j.citations_found + ' citations');
+}
+async function step4(){
+  if(!fact) return;
+  $('o4').textContent = '';
+  var pair = D.mk('div', 'pair', $('o4'));
+  var h1 = D.mk('div', '', pair); D.mk('h3', '', h1, 'right number, wrong quantity');
+  var rain = 'Bengaluru rainfall is ' + fact.value + ' mm (' + fact.token + ').';
+  var a = await guardOne(h1, rain);
+  if(a) a.v.C.add(null, a.j.action === 'allow' ? 'allowed: the value matched and nothing compared "rainfall" with weather.temperature_2m' : 'this time it was denied: ' + (a.j.reason || a.j.code));
+  var h2 = D.mk('div', '', pair); D.mk('h3', '', h2, 'no citation at all');
+  var bare = 'The air temperature in Bengaluru is 40 degC today.';
+  var b = await guardOne(h2, bare);
+  if(b) b.v.C.add(null, b.j.code === 'CLAIM_UNGROUNDED' ? 'flagged CLAIM_UNGROUNDED: a measurable claim with no citation' : b.j.action + ' with ' + b.j.citations_found + ' citations found: this claim was not flagged, so an allow here says nothing about it');
+}
+async function all(){
+  btn.disabled = true; btn.textContent = 'Running…';
+  try{ if(await step1()){ await step2(); await step3(); await step4(); } }
+  catch(e){ new D.Checks($('o4')).add(false, String(e && e.message || e)); }
+  btn.disabled = false; btn.textContent = 'Get a fresh reading';
+}
+$('form').addEventListener('submit', function(e){ e.preventDefault(); all(); });
+$('echo').addEventListener('click', function(){ step2().catch(function(e){ new D.Checks($('o2')).add(false, String(e.message || e)); }); });
+$('guard').addEventListener('click', function(){ step3().catch(function(e){ new D.Checks($('o3')).add(false, String(e.message || e)); }); });
+$('fixit').addEventListener('click', function(){ if(!fact) return; $('draft').value = 'Bengaluru air temperature is ' + fact.value + ' ' + fact.unit + ' (' + fact.token + ').'; step3(); });
+if(/[?&]run\b/.test(location.search)) all();
 })();
 </script>
 </body>
