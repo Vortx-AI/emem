@@ -52,7 +52,7 @@ SRC = ROOT / "docs" / f"whitepaper-v{EDITION}.md"
 SHELL = ROOT / "web" / "whitepaper-v1.html"
 OUT = ROOT / "web" / "whitepaper-v2.html"
 
-TITLE = "emem whitepaper v3: shared state for agents that do not trust each other"
+TITLE = "emem whitepaper v3: shared state for agents without mutual trust"
 DESC = (
     "An external identity layer for verifiable agent memory: the token grammar, "
     "cell64 and tslot addressing, ed25519 receipts over a tagged preimage, and the "

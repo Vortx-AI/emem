@@ -2,7 +2,7 @@
 <head>
 <meta charset=utf-8><meta name=viewport content="width=device-width,initial-scale=1">
 <title>emem-guard: check the citations in a draft before it goes out</title>
-<meta name=description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.">
+<meta name=description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it here or run your own.">
 <link rel=canonical href="https://emem.dev/guard">
 <link rel="alternate" type="text/markdown" href="/llms.txt">
 <link rel=alternate type=text/markdown href=/agents.md>
@@ -18,14 +18,14 @@
 <meta property=og:site_name content=emem>
 <meta name=twitter:card content=summary_large_image>
 <meta name=twitter:title content="emem-guard: check the citations in a draft before it goes out">
-<meta name=twitter:description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.">
+<meta name=twitter:description content="emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it here or run your own.">
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
 <link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
 <link rel=stylesheet href="/tokens.css">
 <link rel=stylesheet href="/nav.css">
-<script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: check the citations in a draft before it goes out","description":"emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it on emem.dev or run your own node.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Checking the citations in AI-written text before it is published","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
+<script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: check the citations in a draft before it goes out","description":"emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it here or run your own.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Checking the citations in AI-written text before it is published","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
 <style>
 
 :root{ /* tokens come from /tokens.css */ }
@@ -377,7 +377,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   -H 'content-type: application/json' \
   -d '{"texts":["Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)."]}'</code></pre></div>
     <p>Recorded on 2026-09-29. The fact reads 28.0 degC, so the draft is denied, and the receipt (left out here) signs the fact cids the responder read to decide:</p>
-    <div class="code"><div class="code-head"><span class="tab">response, trimmed</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
+    <div class="code"><div class="code-head"><span class="tab">response from emem.dev, trimmed</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{
   "action": "deny",
   "code": "PROV_VALUE",
   "fix": "correct_value",
@@ -476,7 +476,7 @@ $ cargo build --release -p emem-guard
 $ cargo test --release -p emem-guard
 $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</code></pre></div>
     <p>Without <code>--responder</code> the node signs and logs every verdict and verifies no citation, and its banner says so:</p>
-    <div class="code"><div class="code-head"><span class="tab">banner, no responder</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>emem-guard listening on 127.0.0.1:8080
+    <div class="code"><div class="code-head"><span class="tab">banner, your own node, no responder</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>emem-guard listening on 127.0.0.1:8080
   signer   zwkuk6ahc6qseltbq7expaz2omd2vjkqjhv5criovu53sqy7qmwa
   log      ./var/guard/verdicts.jsonl (0 verdicts)
   resolve  null
@@ -489,7 +489,7 @@ $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</c
 
     <h3>Pass the conformance suite first</h3>
     <p>Unit tests prove the handlers, not the server you stood up behind a proxy.</p><details class="fold"><summary>more</summary><p class="rest"><code>--conformance</code> runs twelve checks over the wire against a running node and exits non-zero on any failure: health honesty, verdicts for unknown events and malformed and empty bodies, a large body accepted, a complete descriptor, every open route answering, idempotent replay, a fetchable leaf that verifies, an answer inside 1000 ms, and 100 requests at a concurrency of 16.</p></details>
-    <div class="code"><div class="code-head"><span class="tab">terminal</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --conformance https://guard.your-org.example</code></pre></div>
+    <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --conformance https://guard.your-org.example</code></pre></div>
     <p>A checkpoint platform typically refuses private and loopback addresses and does not follow redirects, so put the node behind TLS on a routable host. Proxies in front of it need their body limit raised too: nginx defaults to 1 MB.</p>
 
     <h3>Failure semantics</h3>
@@ -523,7 +523,7 @@ $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</c
     <p><code>POST /v1/guard/verdict?shape=mcp</code> (or <code>openai</code>, <code>cloudevent</code>, <code>policy</code>) reads and answers the same envelopes on the one hosted route.</p>
     <h3>Gating an MCP tool call</h3>
     <p>Put a proxy between the host and its servers and ask before dispatching.</p>
-    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
+    <div class="code"><div class="code-head"><span class="tab">POST /verdict/mcp, your own node</span><span class="lang">json</span><span class="spacer"></span></div><pre><code>{"jsonrpc":"2.0","id":7,"method":"tools/call",
  "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
 
 { "allow": true, "id": 7,
