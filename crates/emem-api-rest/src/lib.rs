@@ -68138,73 +68138,6 @@ async fn batch_build_facts_via_window(
     out
 }
 
-/// For each fact, the cid of a stored fact that already says the same thing:
-/// same canonical key, same kind, same value (or absence reason) and the same
-/// upstream files. `None` means it must be signed. A lookup error reuses
-/// nothing, so it can only cost a duplicate, never a wrong answer.
-async fn eudr_reuse_stored(s: &AppState, facts: &[Fact]) -> Vec<Option<emem_fact::FactCid>> {
-    fn key_of(f: &Fact) -> Option<emem_cache::CanonicalKey> {
-        let (cell, band, tslot) = match f {
-            Fact::Primary(p) => (&p.cell, &p.band, p.tslot),
-            Fact::Absence(a) => (&a.cell, &a.band, a.tslot),
-            _ => return None,
-        };
-        Some(emem_cache::CanonicalKey {
-            cell: cell.clone(),
-            band: band.clone(),
-            tslot,
-        })
-    }
-    fn files(sources: &[emem_fact::Source]) -> Vec<(&str, &str)> {
-        sources
-            .iter()
-            .map(|x| (x.scheme.as_str(), x.id.as_str()))
-            .collect()
-    }
-    fn same(a: &Fact, b: &Fact) -> bool {
-        match (a, b) {
-            (Fact::Primary(x), Fact::Primary(y)) => {
-                x.value == y.value && files(&x.sources) == files(&y.sources)
-            }
-            (Fact::Absence(x), Fact::Absence(y)) => {
-                x.reason_cid == y.reason_cid && files(&x.sources) == files(&y.sources)
-            }
-            _ => false,
-        }
-    }
-    let mut out = vec![None; facts.len()];
-    let keyed: Vec<(usize, emem_cache::CanonicalKey)> = facts
-        .iter()
-        .enumerate()
-        .filter_map(|(i, f)| key_of(f).map(|k| (i, k)))
-        .collect();
-    if keyed.is_empty() {
-        return out;
-    }
-    let keys: Vec<emem_cache::CanonicalKey> = keyed.iter().map(|(_, k)| k.clone()).collect();
-    let Ok(hits) = s.storage.lookup_canonical_many(&keys).await else {
-        return out;
-    };
-    let hit: Vec<(usize, emem_fact::FactCid)> = keyed
-        .iter()
-        .zip(hits)
-        .filter_map(|((i, _), c)| c.map(|c| (*i, c)))
-        .collect();
-    if hit.is_empty() {
-        return out;
-    }
-    let cids: Vec<emem_fact::FactCid> = hit.iter().map(|(_, c)| c.clone()).collect();
-    let Ok(stored) = s.storage.get_facts_many(&cids).await else {
-        return out;
-    };
-    for ((i, cid), old) in hit.into_iter().zip(stored) {
-        if old.as_ref().is_some_and(|o| same(o, &facts[i])) {
-            out[i] = Some(cid);
-        }
-    }
-    out
-}
-
 async fn batch_materialize_eudr_band(
     s: AppState,
     cells: Vec<String>,
@@ -68318,28 +68251,7 @@ async fn batch_materialize_eudr_band(
     // error), every cell that contributed to the batch shares the
     // failure verdict; per-cell errors discovered in the build phase
     // are kept distinct.
-    // Reuse what is already stored. These bands are static COGs, and every
-    // run of a plot used to sign a fresh fact per cell per band: re-running a
-    // 51,200-cell plot committed four 51,200-row batches of copies, each
-    // holding every other fact write for 40-50 s and growing redb by
-    // gigabytes a day. A stored fact at the same canonical key is reused only
-    // when it says the same thing from the same upstream files.
-    let reused = eudr_reuse_stored(&s, &facts_to_persist).await;
-    let (fresh, fresh_pos): (Vec<Fact>, Vec<usize>) = facts_to_persist
-        .into_iter()
-        .enumerate()
-        .filter(|(i, _)| reused[*i].is_none())
-        .map(|(i, f)| (f, i))
-        .unzip();
-    let persisted = sign_and_persist_many(&s, fresh, signed_at).await;
-    let cids: Result<Vec<emem_fact::FactCid>, String> = persisted.map(|new_cids| {
-        let mut all = reused;
-        for (pos, cid) in fresh_pos.into_iter().zip(new_cids) {
-            all[pos] = Some(cid);
-        }
-        all.into_iter().flatten().collect()
-    });
-    let cids = match cids {
+    let cids = match sign_and_persist_many(&s, facts_to_persist, signed_at).await {
         Ok(c) => c,
         Err(e) => {
             // Mark all successful-build cells as failed-to-persist.
@@ -91143,62 +91055,6 @@ mod tests {
             ),
             ("not_geographic", false),
             "an address with no latitude never resolves on retry"
-        );
-    }
-
-    #[tokio::test]
-    async fn an_eudr_rerun_reuses_a_stored_fact_only_when_it_says_the_same() {
-        let s = test_app_state();
-        let mk = |value: i64, file: &str, at: &str| {
-            Fact::Primary(PrimaryFact {
-                cell: "defi.zb493.yiwo.zcb4e".into(),
-                band: "jrc_gfc2020.forest_2020".into(),
-                tslot: 7,
-                value: ciborium::Value::Integer(value.into()),
-                unit: None,
-                confidence: 1.0,
-                uncertainty: None,
-                sources: vec![Source {
-                    scheme: "jrc.gfc2020".into(),
-                    id: file.into(),
-                    cid: None,
-                    hash: None,
-                    captured_at: Some(at.into()),
-                    url: None,
-                }],
-                derivation: Derivation {
-                    fn_key: "jrc_gfc2020_forest@1".into(),
-                    args: None,
-                },
-                privacy_class: "public".into(),
-                schema_cid: emem_fact::SchemaCid::new(s.manifests.schema_cid.as_str()),
-                signer: s.identity.pubkey,
-                signed_at: at.into(),
-                served_via: None,
-            })
-        };
-        let v4 = "https://jeodpp.jrc.ec.europa.eu/.../JRC_GFC2020_V4_N10_W10.tif";
-        let stored = sign_and_persist(
-            &s,
-            mk(1, v4, "2026-09-28T00:00:00Z"),
-            "2026-09-28T00:00:00Z",
-        )
-        .await
-        .expect("persist");
-        // Same value from the same file, read again a day later: reused.
-        let again = eudr_reuse_stored(&s, &[mk(1, v4, "2026-09-29T00:00:00Z")]).await;
-        assert_eq!(again[0].as_ref().map(|c| c.as_str()), Some(stored.as_str()));
-        // A different value, or the same value from another file, is signed.
-        let changed = eudr_reuse_stored(&s, &[mk(0, v4, "2026-09-29T00:00:00Z")]).await;
-        assert!(changed[0].is_none(), "a changed reading must be signed");
-        let other_file = eudr_reuse_stored(
-            &s,
-            &[mk(1, "https://example.org/V3.tif", "2026-09-29T00:00:00Z")],
-        )
-        .await;
-        assert!(
-            other_file[0].is_none(),
-            "a reading from another upstream file must be signed"
         );
     }
 
