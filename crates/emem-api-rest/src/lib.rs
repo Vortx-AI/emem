@@ -46048,6 +46048,40 @@ struct SledMemoryFileSource {
     state: AppState,
 }
 
+/// One memory file as the search index and its hits describe it, from the
+/// path's current meta. The author is the caller key that signed the write,
+/// never the receipt's responder: that is this server's key on every note, so
+/// every hit named emem.dev as its author and the attester_pubkey_b32 filter
+/// matched all notes or none. A note with no caller signature has no author.
+fn memory_file_summary(
+    metas: &sled::Tree,
+    path: &str,
+    cid: &str,
+) -> emem_primitives::memory_search::MemoryFileSummary {
+    let meta: Option<MemoryFileMeta> = metas
+        .get(cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+    let (signed_at, attester_pubkey_b32, size_bytes, kind) = match meta {
+        Some(m) => (
+            m.signed_at,
+            m.attester_pubkey_b32,
+            m.size_bytes,
+            Some(m.kind).filter(|k| !k.is_empty()),
+        ),
+        None => (String::new(), None, 0, None),
+    };
+    emem_primitives::memory_search::MemoryFileSummary {
+        path: path.to_string(),
+        file_cid: cid.to_string(),
+        kind: kind.unwrap_or_else(|| "resource".to_string()),
+        signed_at,
+        attester_pubkey_b32,
+        size_bytes,
+    }
+}
+
 #[async_trait::async_trait]
 impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
     async fn list_all(
@@ -46084,34 +46118,7 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
                 let Ok(cid) = std::str::from_utf8(&kv.1) else {
                     continue;
                 };
-                // Pull the meta CBOR so we can fill signed_at +
-                // attester_pubkey_b32 + size_bytes. Missing meta is
-                // recoverable, we synthesise minimal fields.
-                let meta_bytes = metas.get(cid.as_bytes()).ok().flatten();
-                let meta: Option<MemoryFileMeta> = meta_bytes
-                    .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
-                // The author is the caller key that signed the write, never the
-                // receipt's responder: that is this server's key on every note,
-                // so every hit named emem.dev as its author and the
-                // attester_pubkey_b32 filter matched all notes or none. A note
-                // with no caller signature has no author to name.
-                let (signed_at, attester_pubkey_b32, size_bytes, kind) = match meta {
-                    Some(m) => (
-                        m.signed_at,
-                        m.attester_pubkey_b32,
-                        m.size_bytes,
-                        Some(m.kind).filter(|k| !k.is_empty()),
-                    ),
-                    None => (String::new(), None, 0, None),
-                };
-                out.push(emem_primitives::memory_search::MemoryFileSummary {
-                    path: path.to_string(),
-                    file_cid: cid.to_string(),
-                    kind: kind.unwrap_or_else(|| "resource".to_string()),
-                    signed_at,
-                    attester_pubkey_b32,
-                    size_bytes,
-                });
+                out.push(memory_file_summary(&metas, path, cid));
             }
             Ok(out)
         })
@@ -46150,6 +46157,33 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
             return Ok(None);
         };
         Ok(String::from_utf8(bytes.to_vec()).ok())
+    }
+
+    async fn summary(
+        &self,
+        path: &str,
+    ) -> Result<
+        Option<emem_primitives::memory_search::MemoryFileSummary>,
+        emem_primitives::memory_search::IndexerError,
+    > {
+        let Some(db) = self.state.storage.hot_sled_db() else {
+            return Ok(None);
+        };
+        let (Ok(paths), Ok(metas)) = (
+            db.open_tree(emem_storage::TREE_MEMORY_FILES),
+            db.open_tree(emem_storage::TREE_MEMORY_FILE_META),
+        ) else {
+            return Ok(None);
+        };
+        let Some(cid) = paths
+            .get(path.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|c| String::from_utf8(c.to_vec()).ok())
+        else {
+            return Ok(None);
+        };
+        Ok(Some(memory_file_summary(&metas, path, &cid)))
     }
 }
 

@@ -494,20 +494,24 @@ pub async fn memory_search(
 
     if !lance_disabled {
         if let Some(idx) = memory_index() {
+            // The author filter is applied to the store's answer, not the
+            // index row, which can carry an author recorded wrongly at
+            // embed time; so over-fetch when filtering and cut after.
+            let want = req.attester_pubkey_b32.as_deref();
             let res = idx
                 .knn(
                     &query_vec,
-                    k,
+                    if want.is_some() { k * 8 } else { k },
                     req.kind.as_deref(),
                     req.path_prefix.as_deref(),
-                    req.attester_pubkey_b32.as_deref(),
+                    None,
                     4,
                 )
                 .await?;
             if !res.is_empty() {
                 via = "lance_scan".into();
                 corpus_size = idx.stats().await.rows as usize;
-                hits = build_hits_from_indexed(res, &source, q).await;
+                hits = build_hits_from_indexed(res, &source, q, want, k).await;
             }
         }
     }
@@ -587,6 +591,8 @@ async fn build_hits_from_indexed(
     rows: Vec<(IndexedRow, f32)>,
     source: &Option<Arc<dyn MemoryFileSource>>,
     query: &str,
+    attester: Option<&str>,
+    k: usize,
 ) -> Vec<MemorySearchHit> {
     let mut out = Vec::with_capacity(rows.len());
     for (row, sim) in rows {
@@ -604,16 +610,32 @@ async fn build_hits_from_indexed(
         } else {
             best_snippet(&text, query)
         };
+        let now = match source {
+            Some(src) => src.summary(&row.path).await.ok().flatten(),
+            None => None,
+        };
+        let (kind, signed_at, attester_pubkey_b32) = match now {
+            Some(n) => (n.kind, n.signed_at, n.attester_pubkey_b32),
+            None => (row.kind, row.signed_at, row.attester_pubkey_b32),
+        };
+        if let Some(want) = attester {
+            if attester_pubkey_b32.as_deref() != Some(want) {
+                continue;
+            }
+        }
         out.push(MemorySearchHit {
             path: row.path,
             file_cid: row.file_cid,
-            kind: row.kind,
-            signed_at: row.signed_at,
-            attester_pubkey_b32: row.attester_pubkey_b32,
+            kind,
+            signed_at,
+            attester_pubkey_b32,
             similarity: sim,
             size_bytes: row.size_bytes,
             snippet,
         });
+        if out.len() >= k {
+            break;
+        }
     }
     out
 }

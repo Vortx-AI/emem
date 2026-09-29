@@ -575,6 +575,13 @@ pub trait MemoryFileSource: Send + Sync {
     /// gone (raced with deletion). Errors are logged + skipped by the
     /// caller so one bad file doesn't break the whole hydration.
     async fn read_text(&self, path: &str) -> Result<Option<String>, IndexerError>;
+
+    /// The current summary of one path, read from the store rather than the
+    /// index. An index row keeps whatever was true when it was embedded, so a
+    /// hit's author, date and kind are taken from here when the source can say.
+    async fn summary(&self, _path: &str) -> Result<Option<MemoryFileSummary>, IndexerError> {
+        Ok(None)
+    }
 }
 
 /// Minimal summary of one memory file — what the indexer needs to
