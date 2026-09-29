@@ -9299,7 +9299,7 @@ async fn materializers(
         "agent_hint": {
             "how_it_works": "Call POST /v1/recall {cell, bands: [<band>]}. If the cell has no fact yet AND auto_materialize_enabled is true, the responder fetches the upstream value, signs the resulting fact under its identity, persists it, and returns it in the same response. The next call hits the hot cache (~10 ms instead of ~180 ms).",
             "trust_model":  "Materialized facts are signed by the responder pubkey above, NOT by the upstream provider. The fact's `derivation.fn_key` declares the function that produced the value; an external attester can run the same function and submit their own signed fact to corroborate or correct.",
-            "absence_facts": "Fact::Absence (kind: \"absence\") records confirmed no-data with a content-addressed `reason_cid`. Treat it as a signed statement that the responder tried and got no answer, don't re-fetch on every call.",
+            "absence_facts": "Fact::Absence (kind: \"absence\") records confirmed no-data with a content-addressed `reason_cid`, served beside the `reason` text it hashes (null for an Absence signed before that text was kept). Treat it as a signed statement that the responder tried and got no answer, don't re-fetch on every call.",
             "history_bounds": "Each entry now carries `history_available_from_unix` / `history_available_to_unix` derived from the upstream provider's documented record. `null` means present-only (e.g. weather nowcast, Overture release snapshot, or static climatology). Pass these to `emem_backfill` to materialize and sign every per-tslot fact in the window, turns 'I want history' into 'history exists in the ledger'.",
         }
     });
@@ -14565,6 +14565,7 @@ fn boring_view(
                 "band":                  a.band,
                 "value":                 JsonValue::Null,
                 "reason_cid":            a.reason_cid.as_str(),
+                "reason":                absence_reason_text(a.reason_cid.as_str()),
                 "data_resolution_m":     band_input_resolution_m(&a.band),
                 "resolution_m_input":    band_input_resolution_m(&a.band),
                 "cell_dedupe_m":         RESOLUTION_M_GRID,
@@ -47516,7 +47517,38 @@ fn reason_cid_for(reason: &str) -> ReasonCid {
     let cid = data_encoding::BASE32_NOPAD
         .encode(&h.as_bytes()[..16])
         .to_lowercase();
+    if let Some(t) = absence_reason_tree() {
+        remember_reason(t, &cid, reason);
+    }
     ReasonCid::new(cid)
+}
+
+/// An Absence commits to its reason by hash only, so until this store no
+/// reader could see what a signed Absence says. The text is kept here keyed
+/// by `reason_cid` and served beside it; the cid still checks the text.
+/// Off under test: parallel test binaries would contend for the sled lock.
+fn absence_reason_tree() -> Option<&'static sled::Tree> {
+    if cfg!(test) {
+        return None;
+    }
+    static T: std::sync::OnceLock<Option<sled::Tree>> = std::sync::OnceLock::new();
+    T.get_or_init(|| geocoder_sled_db().open_tree("emem.absence_reasons").ok())
+        .as_ref()
+}
+
+fn remember_reason(tree: &sled::Tree, cid: &str, text: &str) {
+    if !matches!(tree.contains_key(cid), Ok(true)) {
+        let _ = tree.insert(cid, text.as_bytes());
+    }
+}
+
+fn reason_text_in(tree: &sled::Tree, cid: &str) -> Option<String> {
+    let v = tree.get(cid).ok().flatten()?;
+    String::from_utf8(v.to_vec()).ok()
+}
+
+fn absence_reason_text(cid: &str) -> Option<String> {
+    absence_reason_tree().and_then(|t| reason_text_in(t, cid))
 }
 
 /// One source of truth for documented static-product release dates used
@@ -64938,6 +64970,7 @@ fn band_observations_from_recall(
                 "signed_at":         a.signed_at,
                 "age_s":             fact_age_s(&a.signed_at),
                 "reason_cid":        a.reason_cid.as_str(),
+                "reason":            absence_reason_text(a.reason_cid.as_str()),
                 "sources":           sources_json(&a.sources),
                 "advice":            "signed Absence, upstream confirmed no value for this band at this cell at this tslot. Do not retry.",
                 "data_url":          data_url,
@@ -97325,5 +97358,27 @@ mod plane_conformance_tests {
         )])));
         // Opaque bytes: no model renders these as prose.
         assert!(fact_value_carries_no_text(&Value::Bytes(vec![1, 2, 3])));
+    }
+}
+
+#[cfg(test)]
+mod absence_reason_store_tests {
+    use super::*;
+
+    #[test]
+    fn a_remembered_reason_reads_back_and_is_never_overwritten() {
+        let db = sled::Config::new().temporary(true).open().unwrap();
+        let t = db.open_tree("emem.absence_reasons").unwrap();
+        let text = "overture_no_road_within_50m: seen and not counted: footway=2,pedestrian=10";
+        let cid = reason_cid_for(text);
+        assert!(absence_reason_tree().is_none());
+        remember_reason(&t, cid.as_str(), text);
+        remember_reason(&t, cid.as_str(), "something else");
+        assert_eq!(reason_text_in(&t, cid.as_str()).as_deref(), Some(text));
+        assert_eq!(
+            reason_cid_for(&reason_text_in(&t, cid.as_str()).unwrap()).as_str(),
+            cid.as_str()
+        );
+        assert_eq!(reason_text_in(&t, "absent"), None);
     }
 }
