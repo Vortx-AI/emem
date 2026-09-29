@@ -789,13 +789,19 @@ pub fn router(state: AppState) -> Router {
         .route("/demos/find-similar", get(serve_demos_find_similar))
         .route("/demos/trajectory", get(serve_demos_trajectory))
         .route("/demos/recall-polygon", get(serve_demos_recall_polygon))
-        .route("/demos/verify-before-publish", get(serve_demos_verify_before_publish))
+        .route(
+            "/demos/verify-before-publish",
+            get(serve_demos_verify_before_publish),
+        )
         .route("/demos/handoff", get(serve_demos_handoff))
         .route("/demos/transparency-log", get(serve_demos_transparency_log))
         .route("/demos/tokenise-files", get(serve_demos_tokenise_files))
         .route("/demos/eudr", get(serve_demos_eudr))
         .route("/demos/field", get(serve_demos_field))
-        .route("/demos/document-evidence", get(serve_demos_document_evidence))
+        .route(
+            "/demos/document-evidence",
+            get(serve_demos_document_evidence),
+        )
         // The arcade page is a private build artifact read from DISK at
         // request time, see `serve_arcade`; nothing is compiled in.
         .route("/arcade", get(serve_arcade))
