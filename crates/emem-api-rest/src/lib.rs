@@ -6579,7 +6579,7 @@ async fn a2a_channel_spec() -> Json<JsonValue> {
                                 the reasoning tier from your note's own asks. It is a delivery \
                                 confirmation and nothing more; it deliberately claims no \
                                 answer.",
-            "reply": "a considered reply on a timer, composed by a local Gemma that may only \
+            "reply": "a considered reply on a timer, composed by Gemma 3 12B on Amazon Bedrock (google.gemma-3-12b-it) that may only \
                       state what emem's read-only tools returned in that run. It cites the \
                       fact_cid behind each number.",
             "latency": "acknowledgement within minutes of the note landing; the considered \
@@ -26407,6 +26407,19 @@ struct ModelRoute {
 /// Overridable as JSON in `EMEM_A2A_MODELS` so this is a default, not a
 /// hardcoding: an operator running a different pair of services says so
 /// without a rebuild.
+/// The default text model: the Bedrock shim on :5015, which serves
+/// google.gemma-3-12b-it and falls back to a local model over its daily cap.
+/// :5014 is that local model (qwen2.5-1.5b on CPU), not Gemma; routing there
+/// under a Gemma name mislabelled every answer and ran past the call budget.
+fn default_llm_url() -> String {
+    std::env::var("EMEM_A2A_LLM_URL")
+        .unwrap_or_else(|_| "http://127.0.0.1:5015/v1/chat/completions".into())
+}
+
+fn default_llm_base_model() -> String {
+    std::env::var("EMEM_A2A_LLM_BASE_MODEL").unwrap_or_else(|_| "google.gemma-3-12b-it".into())
+}
+
 fn model_routes() -> Vec<ModelRoute> {
     if let Ok(raw) = std::env::var("EMEM_A2A_MODELS") {
         if let Ok(v) = serde_json::from_str::<Vec<JsonValue>>(&raw) {
@@ -26432,14 +26445,12 @@ fn model_routes() -> Vec<ModelRoute> {
             }
         }
     }
-    let gemma_url = std::env::var("EMEM_A2A_LLM_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5014/v1/chat/completions".into());
+    let gemma_url = default_llm_url();
     let cosmos_url = std::env::var("EMEM_A2A_COSMOS_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:5017/v1/chat/completions".into());
     vec![
         ModelRoute {
-            base_model: std::env::var("EMEM_A2A_LLM_BASE_MODEL")
-                .unwrap_or_else(|_| "google/gemma-4-12B-it".into()),
+            base_model: default_llm_base_model(),
             family: std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into()),
             health: health_url_for(&gemma_url),
             // Gemma answers within a cap rather than growing to fill it, and
@@ -26855,13 +26866,10 @@ async fn a2a_reason_compose(
     > = std::sync::OnceLock::new();
     let permits = REASON_FLIGHT.get_or_init(Default::default);
 
-    let url = std::env::var("EMEM_A2A_LLM_URL")
-        .unwrap_or_else(|_| "http://127.0.0.1:5014/v1/chat/completions".into());
+    let url = default_llm_url();
     // The sanctioned shape for the shared model host (ratified standard
-    // rule 7, and the host enforces it): field `base_model` (not OpenAI's
-    // `model`) plus `family`, called directly at :5014.
-    let default_model =
-        std::env::var("EMEM_A2A_LLM_BASE_MODEL").unwrap_or_else(|_| "google/gemma-4-12B-it".into());
+    // rule 7): field `base_model` (not OpenAI's `model`) plus `family`.
+    let default_model = default_llm_base_model();
     let default_family = std::env::var("EMEM_A2A_LLM_FAMILY").unwrap_or_else(|_| "gemma".into());
 
     // A caller may name the model. It is resolved against what the host has
@@ -27071,6 +27079,10 @@ async fn a2a_reason_compose(
     a2a_collect_fact_cids(&ask_env, &mut all_cids);
     let mut tool_trace: Vec<JsonValue> = Vec::new();
     let mut prose = String::new();
+    // What the service says answered, which can differ from the route: the
+    // shim serves its local model when Bedrock is over budget or failing.
+    let mut served_model: Option<String> = None;
+    let mut served_note: Option<String> = None;
 
     for _turn in 0..=max_tool_calls {
         let mut payload = json!({
@@ -27116,6 +27128,12 @@ async fn a2a_reason_compose(
                 format!("reasoning tier returned non-JSON ({status}): {e}"),
             )
         })?;
+        if let Some(m) = body.get("model").and_then(|v| v.as_str()) {
+            served_model = Some(m.to_string());
+        }
+        if let Some(n) = body.get("x_budget").and_then(|v| v.as_str()) {
+            served_note = Some(n.to_string());
+        }
         // A truncated completion is an error, not an answer with a caveat.
         //
         // The Cosmos service reports `truncated` explicitly rather than making
@@ -27368,7 +27386,9 @@ async fn a2a_reason_compose(
         "answer_prose":     prose,
         "provenance_class": "model_output",
         "signed":           false,
-        "base_model":       base_model,
+        "base_model":       served_model.clone().unwrap_or_else(|| base_model.clone()),
+        "routed_as":        (served_model.as_deref().is_some_and(|m| m != base_model)).then(|| base_model.clone()),
+        "served_note":      served_note,
         "decoding":         "greedy (temperature 0)",
         // Which protocol produced the prose. "prose" means the model could not
         // emit the JSON action object and was asked again in plain language,
@@ -70808,8 +70828,8 @@ struct ExplainReq {
 }
 
 /// `POST /v1/explain`, OPTIONAL, UNSIGNED natural-language layer over emem's
-/// signed facts. It forwards an /v1/ask response to the loopback Gemma-4
-/// "explain" sidecar, which rewords the already-signed numbers for a human. The
+/// signed facts. It forwards an /v1/ask response to the loopback
+/// "explain" sidecar, which calls Gemma 3 12B on Amazon Bedrock through the llm shim, and rewords the already-signed numbers for a human. The
 /// deterministic, signable /v1/ask path is never touched: the prose is returned
 /// flagged `signed:false`, alongside a pointer at the real signed answer +
 /// receipt. If the sidecar is offline the endpoint says so honestly (200,
@@ -70877,7 +70897,7 @@ async fn post_explain(
                 "disclaimer":  ex.get("disclaimer"),
                 "latency_ms":  ex.get("latency_ms"),
                 "source":      source,
-                "note": "UNSIGNED Gemma-4 commentary over emem's signed facts. The signed truth is source.answer + source.receipt; this prose is not a fact and carries no signature.",
+                "note": "UNSIGNED model commentary (the model is named in `model`) over emem's signed facts. The signed truth is source.answer + source.receipt; this prose is not a fact and carries no signature.",
             })))
         }
         _ => Ok(Json(json!({
@@ -70885,7 +70905,7 @@ async fn post_explain(
             "available":   false,
             "signed":      false,
             "explanation": JsonValue::Null,
-            "reason":      "the explain layer (Gemma-4 sidecar) is offline or slow; the signed answer is unaffected",
+            "reason":      "the explain layer (a sidecar over the llm shim) is offline or slow; the signed answer is unaffected",
             "source":      source,
         }))),
     }

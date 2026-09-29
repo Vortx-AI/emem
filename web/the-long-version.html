@@ -588,7 +588,7 @@ section[id],h1[id],h2[id],h3[id],[id]:target{scroll-margin-top:4.5rem}
 .ask-egs .ask-eg:hover{border-color:var(--accent);color:var(--ink);background:var(--accent-bg)}
 /* the answer card, appears directly under the ask bar, over the map, where
    the eye already is. Opaque paper + ink frame so it reads over the busy map. */
-/* the optional Gemma-4 "explain" affordance, clearly an UNSIGNED commentary
+/* the optional "explain" affordance, clearly an UNSIGNED commentary
    layer, set apart from the signed readings above it */
 @keyframes exPulse{0%,100%{opacity:.35}50%{opacity:1}}
 
@@ -1879,7 +1879,7 @@ body.doc .th{padding-top:var(--s-4)}
           <button type="submit" class="primary">ask, signed &rarr;</button>
           <button type="button" id="join-reason">reason (Gemma + every read tool)</button>
         </form>
-        <div class="join-note">ask is deterministic and fact-cited, with no language model in the path. reason is Gemma, grounded by emem_ask and free to call any read-only tool; its prose is labelled, never dressed as evidence.</div>
+        <div class="join-note">ask is deterministic and fact-cited, with no generative model in the path. reason is Gemma, grounded by emem_ask and free to call any read-only tool; its prose is labelled, never dressed as evidence.</div>
         <div class="join-out" id="join-out"></div>
       </div>
     </div>

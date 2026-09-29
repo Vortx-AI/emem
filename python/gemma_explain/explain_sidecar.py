@@ -61,7 +61,7 @@ MAX_TOKENS = int(os.environ.get("EMEM_EXPLAIN_MAX_TOKENS", "160"))
 # It also speaks a slightly different dialect: base_model rather than
 # model. One field, and the reason an earlier "replace the qwen api with
 # gemma" change reached the splats bridge and never reached this.
-GEMMA_BASE = os.environ.get("EMEM_EXPLAIN_GEMMA_BASE", "http://127.0.0.1:5014").rstrip("/")
+GEMMA_BASE = os.environ.get("EMEM_EXPLAIN_GEMMA_BASE", "http://127.0.0.1:5015").rstrip("/")
 GEMMA_MODEL = os.environ.get("EMEM_EXPLAIN_GEMMA_MODEL", "google.gemma-3-12b-it")
 USE_GEMMA = os.environ.get("EMEM_EXPLAIN_BACKEND", "gemma") == "gemma"
 # Cosmos, on its own port, rather than qwen2.5-7b on the neighbour's stack.

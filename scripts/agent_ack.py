@@ -45,8 +45,8 @@ import blake3
 from nacl.signing import SigningKey
 
 ORIGIN = os.environ.get("EMEM_ORIGIN", "https://emem.dev")
-LLM_URL = os.environ.get("EMEM_A2A_LLM_URL", "http://127.0.0.1:5014/v1/chat/completions")
-LLM_MODEL = os.environ.get("EMEM_A2A_LLM_BASE_MODEL", "google/gemma-4-12B-it")
+LLM_URL = os.environ.get("EMEM_A2A_LLM_URL", "http://127.0.0.1:5015/v1/chat/completions")
+LLM_MODEL = os.environ.get("EMEM_A2A_LLM_BASE_MODEL", "google.gemma-3-12b-it")
 LLM_FAMILY = os.environ.get("EMEM_A2A_LLM_FAMILY", "gemma")
 IDENT = Path(os.path.expanduser("~/.config/emem/agent_identity.json"))
 STATE = Path(os.path.expanduser("~/.config/emem/acked.json"))

@@ -141,7 +141,7 @@ difference decides what citing one proves. Do not treat them as equivalent.
 - [region_similarity](https://emem.dev/v1/region_similarity): POST two regions → cosine between their mean GeoTessera embeddings in [-1, 1].
 - [tessera_field](https://emem.dev/v1/tessera_field): POST bbox → a dense Tessera 128-D embedding field for a region, rendered as a colour raster (REST only; a picture, not a signed fact).
 - [region_archetype_map](https://emem.dev/v1/region_archetype_map): POST bbox → that embedding field clustered into k land-cover archetypes (deterministic k-means) with a legend (REST only).
-- [explain](https://emem.dev/v1/explain): POST an ask response → an UNSIGNED Gemma-4 plain-language reword (signed:false; the signed receipt remains the ground truth).
+- [explain](https://emem.dev/v1/explain): POST an ask response → an UNSIGNED plain-language reword by Gemma 3 12B on Amazon Bedrock (signed:false; the signed receipt remains the ground truth).
 
 ## Reference
 
