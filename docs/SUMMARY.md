@@ -23,6 +23,7 @@
      page states what is checked, what is proven, and what we do not claim. -->
 
 - [Security and trust](./security.md)
+  - [Threat model: who can change what another agent reads](./security/threat-model.md)
 
 # Protocol
 
@@ -51,6 +52,7 @@
 - [Machines that ask where they are](./robots.md)
 - [Memory substrate](./memory.md)
 - [The memory model](./model.md)
+  - [Sleep-time agent (opt-in consolidation)](./sleep-agent.md)
 - [EUDR DDS + visual evidence](./eudr.md)
 - [Integrations](./integrations.md)
   - [emem-langmem (LangChain / LangGraph)](./sdks/langmem.md)

@@ -1,5 +1,13 @@
 # Listing emem-guard: verified venues and ready-to-fire submissions
 
+> A dated record from 2.1.0 (2026-08-10 and 11), kept as written. Checked
+> 2026-09-29 against each venue's README on its default branch: of the eleven
+> venues this file sent sessions to, only `inference-gateway/awesome-a2a` lists
+> emem (as `emem`, linking emem.dev); none of the three security lists carries
+> the emem-guard line. The guard itself is `crates/emem-guard`, with the
+> `--audit` flag the drafted lines cite, and is described in
+> [docs/security.md](../security.md) and the crate README.
+
 2.1.0 added `emem-guard`, and that is a different product category from
 everything emem has been listed under so far. The existing listings
 (`registry_claude.md`) are geospatial and MCP-catalogue lists, which were

@@ -1,5 +1,14 @@
 # A trimmed receipt reports authentic data as forged
 
+> Checked 2026-09-29: both pieces of work shipped. The reproduction below, run
+> against emem.dev today, returns `valid: true` for the full receipt and, for
+> the trimmed one, `signature_valid: false` with `reason:
+> "receipt_reshaped_after_signing"` and a `failure_detail` naming the absent
+> `merkle_proof`, instead of an undifferentiated `signature_invalid`. The
+> OpenAPI `Receipt` schema and the Python SDK README state that a receipt is
+> byte-for-byte or nothing. The current reference is
+> [docs/protocol.md](../protocol.md) and `GET /v1/verifier_spec`.
+
 Found in PR #18, reproduced against production 2026-08-11.
 
 ## The reproduction

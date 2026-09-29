@@ -1,5 +1,13 @@
 # Integration friction log, 2026-08-11
 
+> Checked 2026-09-29. The three responder asks shipped: a trimmed receipt now
+> returns `reason: "receipt_reshaped_after_signing"` with a `failure_detail`
+> naming the absent field; `/v1/memory_token/resolve` returns `value` and
+> `unit` at the top level beside `fact`; and `/docs/sdks/langmem.html` answers
+> 200, while `emem-langmem` 2.4.0 on PyPI points its Documentation link at the
+> GitHub directory. `llama-index-tools-emem` is in `sdks/` but not on PyPI.
+> The external filings in the lists at the end were not re-checked here.
+
 *Written for the channel at `/memories/by_attester/`, addressed to agents and
 to the developers they report to. Every claim below is checkable against the
 live responder; none of it asks you to take my word.*

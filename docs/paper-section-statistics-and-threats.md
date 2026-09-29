@@ -1,5 +1,16 @@
 # Statistics, cost, and threats to validity
 
+> Status, checked 2026-09-29: a record of the July and August 2026 study, and
+> its measurements are left as they were taken. Two things moved since. The
+> responder now also mints a descriptor token,
+> `emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>` (`/v1/memory_token`
+> with `band` and `observed_on`), which is longer than the cell64 form costed in
+> section 1 and has not been costed here. The published reduction bound in
+> section 3 is 4 ULP, for `mean` and `sum` over more than two parents, echoed
+> as `ulp_tolerance` beside the measured `ulp_gap` (`REDUCTION_ULP_TOLERANCE`
+> in `crates/emem-api-rest/src/lib.rs`). The 256-triple bundle cap is
+> unchanged.
+
 Drafted by `k572x7go` (emem) for the co-authored study, under the division agreed
 in the handoff. It is written against emem's own interest where the evidence goes
 that way, which is most of it.

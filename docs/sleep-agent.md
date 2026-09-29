@@ -15,6 +15,17 @@ It ships as the standalone crate `crates/emem-sleep-agent` with one binary,
 `emem-sleep-agentd`. The crate links no emem internals: it drives a running
 responder over the same public REST + MCP surface any external agent uses.
 
+> **It cannot write to a default responder today.** The agent sends
+> `emem_memory_create` with no `attester` block, and a release build
+> refuses every unattested memory write (401 `memory_attestation_required`)
+> unless the operator sets `EMEM_MEMORY_OPEN=1` or
+> `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. emem.dev sets
+> `EMEM_MEMORY_REQUIRE_ATTESTER=1`, so the agent's writes there are
+> refused. Even on an open responder it cannot write under
+> `/memories/by_attester/`, or over an open-root path another key created
+> (403 `memory_namespace_violation`). Dry-run and candidate selection work
+> anywhere. Signing its writes with a persisted key is not built.
+
 ## How a pass works
 
 ```
@@ -37,7 +48,9 @@ Each pass:
 1. **Candidate selection** (`candidates.rs`, pure + unit-tested):
    - **Contradictions**: `POST /v1/memory_contradictions` returns
      `(cell, band, tslot)` triples where ≥2 attesters disagree, each with a
-     severity in `[0,1]`. Anything above `EMEM_SLEEP_AGENT_MIN_SEVERITY`
+     severity in `[0,1]`. By default that scan counts only disagreement
+     between distinct attesters, and the fact plane admits few of them, so
+     on a single-responder corpus it usually returns nothing. Anything above `EMEM_SLEEP_AGENT_MIN_SEVERITY`
      (default 0.3) is a candidate; severity scores its urgency.
    - **Churn**: memory files of the configured kinds are enumerated
      (`emem_memory_list_by_kind`) and clustered by a normalized path stem
@@ -85,6 +98,9 @@ export EMEM_SLEEP_AGENT_USE_ASK=1
 The merge prompt is routed through the responder's `/v1/ask`, so the model
 choice follows the operator's responder configuration rather than a
 separately-pinned key. Cost is reported as 0.0 (the responder owns metering).
+`/v1/ask` is built to answer place questions, not to rewrite notes; the
+transport takes its `answer` (or `summary`) text as the merge and refuses
+when there is none, so read what it produced before trusting this route.
 
 ## Budget and loop caps
 
@@ -98,7 +114,7 @@ separately-pinned key. Cost is reported as 0.0 (the responder owns metering).
 | `EMEM_SLEEP_AGENT_MIN_SEVERITY` | 0.3 | contradiction severity floor |
 | `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | versions before a path is high-churn |
 | `EMEM_SLEEP_AGENT_CHURN_KINDS` | `semantic,episodic,resource` | kinds scanned for churn |
-| `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | attester label the merge is written under |
+| `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | read into the config but not sent with any write; it signs nothing |
 
 The budget cap is evaluated **before** each LLM call, so a pass never starts
 a call that would breach it; the remaining candidates are deferred to the
@@ -106,17 +122,20 @@ next pass with a logged note.
 
 ## Non-destructive supersession guarantee
 
-`emem_memory_create` to an existing `path`:
+`emem_memory_create` to an existing `path`, where the responder accepts it:
 
 - updates `memory_files[path] → new_cid`, so `emem_memory_view` and any
   `as_of:now` read return the merged text, and
 - appends `new_cid` to the append-only `memory_file_history[path]`, so the
-  prior versions are still resolvable by CID and replayable.
+  prior versions are still resolvable by CID (`emem_memory_view` with
+  `file_cid`) and replayable.
 
 Nothing is deleted. The merged entry's provenance trailer records every
 source folded in, so an auditor can walk back to the originals. This is the
 exact bi-temporal shadow the plan calls for: the newer entry wins under
-`as_of` now, the originals stay replayable.
+`as_of` now, the originals stay replayable. The agent does not call
+`emem_memory_supersede`, so the source notes at other paths carry no
+`superseded_by` pointer to the merge.
 
 ## Honesty: no fabrication
 

@@ -89,15 +89,24 @@ need the answer rather than the count. The response carries `temporal_context`
 beside `counts`, which compares what was just seen against what this same
 camera has seen before:
 
+An excerpt, from the London call above on 2026-09-29:
+
 ```json
 {
   "temporal_context": {
     "algorithm": "percentile_band@1",
-    "counted": {"people": 45, "vehicles": 26},
+    "basis": "hour_of_day",
+    "comparison_to_prefer": "hour_of_day",
+    "counted": {"people": 3, "vehicles": 4},
+    "counted_higher_than": "47 of 133 previous readings at this camera at this hour of day, over the last 30 days",
+    "percentile": 0.387,
+    "percentile_ci": [0.309, 0.472],
+    "bounded_claim": {"at_confidence": "95%", "says": "below this camera's median"},
     "people": {
-      "count": 45, "percentile": 0.573, "verdict": "about usual",
-      "usual_range": {"p25": 23.0, "median": 41.0, "p75": 52.0},
-      "n": 41, "basis": "all_hours"
+      "count": 3, "percentile": 0.549, "percentile_ci": [0.464, 0.631],
+      "verdict": "about usual",
+      "usual_range": {"p25": 2.0, "median": 3.0, "p75": 5.0},
+      "n": 133, "basis": "hour_of_day"
     },
     "provenance_class": "deterministic_index"
   }
@@ -105,14 +114,20 @@ camera has seen before:
 ```
 
 Read `basis` before you read the verdict. `hour_of_day` compares this hour with
-the same hour on other days, which is the comparison you want; `all_hours` means
-the camera had too few readings at this hour to do that, and the field says so
-itself, in those words. Traffic is strongly diurnal, so a genuinely quiet
-3 a.m. reading looks low against an all-hours baseline for a reason that has
-nothing to do with the street being empty.
+the same hour on other days, which is the comparison you want. The response
+also carries an `all_hours` comparison under `comparisons`, with a much larger
+sample, and `comparison_to_prefer` names `hour_of_day` or nothing, never
+`all_hours`: traffic is strongly diurnal, so a genuinely quiet 3 a.m. reading
+looks low against an all-hours baseline for a reason that has nothing to do
+with the street being empty.
 
-`n` is how many past readings the comparison rests on. Forty-one is enough to
-place a value and not enough to be confident about a tail.
+`n` is how many past readings the comparison rests on, and `percentile_ci` is
+the interval that sample supports. When the interval crosses a tier boundary
+the verdict is supported only in direction (`verdict_supported_at`), and
+`bounded_claim` states the strongest thing the whole interval agrees on.
+`counted_higher_than` is the exact rank and needs no interval at all. The
+baseline holds only readings from the same detector (`detector_fn_id`), because
+a count from a different model is a different measurement of the same street.
 
 Two limits are stated in the response rather than left for you to discover.
 `not_a_claim_about` says this is one camera against its own past and not this
@@ -144,8 +159,11 @@ Back comes `centre_elevation_m`, a `slope` block, `ruggedness`, and
 `topo_position`, each with the cell dimensions they were computed over and the
 fact ids they were computed from. The `honest_note` says which neighbourhood
 was sampled and at what step, because a slope is meaningless without the
-baseline it was measured across: 3x3 cells at 27 m is a different number from
-3x3 at 90 m, and a machine that mixes them will grade to the wrong plane.
+baseline it was measured across. The default is a 3x3 Cop-DEM neighbourhood at
+about 29 m pitch (`step_cells: 3`, matching the 30 m source); 3x3 at 90 m is a
+different number, and a machine that mixes them will grade to the wrong plane.
+The DEM carries no bathymetry, so an ocean cell comes back inconclusive rather
+than flat.
 
 ## A sprayer
 
@@ -154,15 +172,23 @@ Wind decides whether a pass happens at all. Drift is the whole argument.
 ```bash
 curl -s -X POST https://emem.dev/v1/weather \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb4e3.vopU.fEyO","bands":["weather.wind_speed_10m"]}'
+  -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
-Every reading carries an `age_s`. A wind speed is only a decision input while
+The route returns four bands: `weather.wind_speed_10m`, temperature,
+precipitation and relative humidity, from an Open-Meteo / MET Norway forecast
+blend. It takes no band filter, so read the one you need out of `bands`. The
+blend is labelled `model_output`, not a measurement. Every reading carries an `age_s`. A wind speed is only a decision input while
 it is fresh, and "the newest we hold" is not the same claim as "current" -- the
 response distinguishes them so a sprayer does not act on a number from
 yesterday afternoon.
 
-Soil is the other half of the same decision, and it answers on the same cell:
+Soil is the other half of the same decision, and the same cell answers on the
+soil route. At this cell, on 2026-09-29, the SoilGrids bands came back as signed
+Absences (`kind: absence`, `value: null`), which is an answer: the source was
+asked and had nothing for this point. A read that timed out instead appears in
+`materialize_notes` with `retryable: true`, and a retry a few seconds later
+usually answers warm.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/soil \
@@ -207,12 +233,24 @@ curl -s https://emem.dev/v1/device_platforms
 ```
 
 `registry.platforms` is the whitelist of hardware a key may enrol from, with
-the attestation family each platform supports. That is what makes a write from
-a robot different from a write from a laptop claiming to be one, and it is why
-a fleet operator can later tell which arm produced which record.
+the root of trust and evidence format each platform presents. That is what
+makes a write from a robot different from a write from a laptop claiming to be
+one, and it is why a fleet operator can later tell which arm produced which
+record.
 
-The honest state: enrolment evidence is declared and the gate does not yet
-verify it end to end. That is named in the roadmap rather than implied away.
+What ships: an enrolled device writes through `POST /v1/attest_traced`, which
+takes the attestation together with the `emem.os_trace.v1` execution trace that
+produced it, checks the trace against the device's substrate profile, binds
+each fact to an output the trace emitted, and returns an `emem:trace:` token on
+admit. `POST /v1/trace_verify` runs the same checks statelessly on any trace
+and returns every failed check. `GET /v1/devices` lists devices whose
+operators chose to be listed.
+
+What does not ship yet: there is no public enrolment route, so a device is
+enrolled by its node's operator. Every platform in the registry is `candidate`
+and every trust anchor is provisional, so hardware-attested enrolment refuses
+everything until a vendor anchor is published; an operator-asserted enrolment
+is recorded as exactly that.
 
 ## A satellite
 
@@ -235,9 +273,22 @@ comes back can be recomputed by anyone who fetches the same scene.
 Any machine can verify another's citation without asking emem to vouch for it:
 
 ```bash
+curl -s -X POST https://emem.dev/v1/verify_receipt \
+  -H 'content-type: application/json' \
+  -d '{"receipt": <the receipt object you were handed>}'
+```
+
+That call is a convenience. The receipt verifies offline against the key in it
+(BLAKE3 over the preimage, then ed25519), so a second robot can check the first
+robot's claim with arithmetic instead of trust; `https://emem.dev/verify` does
+the same in a browser with no call back to us.
+
+To see who else writes here:
+
+```bash
 curl -s https://emem.dev/v1/agents
 ```
 
-That is every key that has ever written here, discovered rather than approved.
-A receipt verifies offline against the key in it, so a second robot checks the
-first robot's claim with arithmetic instead of trust.
+That is every namespace that has written a note, discovered from the store
+rather than approved. `key_status: proven_by_signature` means a note from that
+namespace carries a caller signature; `trust` is always `caller_decides`.

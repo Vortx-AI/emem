@@ -1,5 +1,14 @@
 # Field tokens: what the receipt attests when the answer is an array
 
+> Checked against the code 2026-09-29: the open item below has shipped.
+> `POST /v1/band_cube` mints `emem:cube:` (`band_cube@1`, one `band_raster`
+> member per date) and `POST /v1/cube/resolve` dereferences it, with MCP tools
+> `emem_band_cube` and `emem_cube_resolve`; the token's last segment is the
+> derivation cid, and `cube_cid` (blake3 over the member derivation cids) sits
+> in the record. `POST /v1/raster_bundle` and `/v1/raster_bundle/resolve` add
+> `emem:rasterset:`. Still open: there is no dedicated anchors spot-check
+> endpoint. The current token table is in [docs/protocol.md](../protocol.md).
+
 **Status: signed off by the owner 2026-07-16, build in progress. Steps
 1 through 3 of the build order ship: the FIELD preimage segment with
 its byte-identity invariant pinned, the evictable artifact store, the
