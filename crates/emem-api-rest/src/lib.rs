@@ -22299,8 +22299,8 @@ async fn get_log_entries(
     State(s): State<AppState>,
     Query(req): Query<LogEntriesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let log = s.storage.transparency_log().ok_or_else(|| {
-        ApiError(
+    if s.storage.transparency_log().is_none() {
+        return Err(ApiError(
             StatusCode::NOT_IMPLEMENTED,
             ErrorBody {
                 code: ErrorCode::Internal,
@@ -22309,8 +22309,8 @@ async fn get_log_entries(
                     .into(),
                 details: None,
             },
-        )
-    })?;
+        ));
+    }
     let start = req.start;
     let asked_end = req.end.unwrap_or(start.saturating_add(LOG_ENTRIES_MAX));
     if asked_end <= start {
@@ -22326,7 +22326,17 @@ async fn get_log_entries(
         ));
     }
     let end = asked_end.min(start.saturating_add(LOG_ENTRIES_MAX));
-    let rows = log.entries(start, end).map_err(|e| {
+    // Reads whole segment files. Inline, a witness's random-offset read after a
+    // boot parked a worker for up to 102 s and froze the runtime with it.
+    let owned = s.clone();
+    let rows = tokio::task::spawn_blocking(move || match owned.storage.transparency_log() {
+        Some(log) => log.entries(start, end),
+        None => Ok(Vec::new()),
+    })
+    .await
+    .map_err(|e| std::io::Error::other(e.to_string()))
+    .and_then(|r| r)
+    .map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
@@ -23123,18 +23133,25 @@ async fn get_state_record(
             },
         ));
     };
-    let bytes = store
-        .kv_get(emem_cache::KvTable::States, cid.as_bytes())
-        .map_err(|e| {
-            ApiError(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorBody {
-                    code: ErrorCode::CacheError,
-                    message: e.to_string(),
-                    details: None,
-                },
-            )
-        })?;
+    let key = cid.clone();
+    let bytes = tokio::task::spawn_blocking(move || {
+        store
+            .kv_get(emem_cache::KvTable::States, key.as_bytes())
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())
+    .and_then(|r| r)
+    .map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: e.to_string(),
+                details: None,
+            },
+        )
+    })?;
     let Some(bytes) = bytes else {
         return Err(ApiError(
             StatusCode::NOT_FOUND,
@@ -71144,9 +71161,20 @@ impl AskTrace {
                 "_stability": "stable for the same inputs and moves when the facts under it move: two calls that recalled different facts carry different addresses by design.",
             }));
         }
-        if let (Some(r), false) = (store.as_ref(), rows.is_empty()) {
-            if let Err(e) = r.kv_put_batch(emem_cache::KvTable::States, &rows, false) {
-                tracing::warn!(target: "emem::state", error = %e, "state records not persisted");
+        if let (Some(r), false) = (store, rows.is_empty()) {
+            // redb's begin_write waits on any commit in flight, and a
+            // Durability::Immediate fact commit has taken up to 5 minutes.
+            // Inline on a worker, that wait froze the whole runtime.
+            let write = move || {
+                if let Err(e) = r.kv_put_batch(emem_cache::KvTable::States, &rows, false) {
+                    tracing::warn!(target: "emem::state", error = %e, "state records not persisted");
+                }
+            };
+            match tokio::runtime::Handle::try_current() {
+                Ok(h) => {
+                    h.spawn_blocking(write);
+                }
+                Err(_) => write(),
             }
         }
         out
