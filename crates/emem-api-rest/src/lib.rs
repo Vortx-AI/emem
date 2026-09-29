@@ -56,6 +56,7 @@ mod eo_runtime;
 mod eu_mrl;
 mod field_signals;
 mod intents;
+mod next_step;
 mod physics;
 mod range_hash;
 mod reader;
@@ -24060,14 +24061,26 @@ fn schema_required_keys(tool: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+#[cfg(test)]
 fn mcp_slim_inner_to_budget(inner: JsonValue, budget: usize) -> (JsonValue, JsonValue) {
-    mcp_slim_inner_to_budget_keeping(inner, budget, &[])
+    mcp_slim_inner_to_budget_keeping(inner, budget, &[], "")
+}
+
+/// As [`mcp_slim_inner_to_budget`], for a known tool, so the note's `next`
+/// can name that tool's own paging argument.
+fn mcp_slim_inner_to_budget_for(
+    inner: JsonValue,
+    budget: usize,
+    tool: &str,
+) -> (JsonValue, JsonValue) {
+    mcp_slim_inner_to_budget_keeping(inner, budget, &[], tool)
 }
 
 fn mcp_slim_inner_to_budget_keeping(
     inner: JsonValue,
     budget: usize,
     never_drop: &[String],
+    tool: &str,
 ) -> (JsonValue, JsonValue) {
     // Small identifying/authenticating fields we never drop.
     const KEEP: &[&str] = &[
@@ -24206,6 +24219,7 @@ fn mcp_slim_inner_to_budget_keeping(
         )
         .collect();
 
+    let steps_reserve = next_step::truncation_steps_reserve(&map);
     let mut dropped: Vec<JsonValue> = Vec::new();
     for (k, _cost) in order {
         let cur = serde_json::to_string(&JsonValue::Object(map.clone()))
@@ -24218,7 +24232,7 @@ fn mcp_slim_inner_to_budget_keeping(
         // results over the cap) and once at 1400 (a padded guess). Serialize
         // what we have and add a small slack for the entry we are about to
         // append.
-        let reserve = truncation_note_reserve(&dropped);
+        let reserve = truncation_note_reserve(&dropped) + steps_reserve;
         if cur + reserve <= budget {
             break;
         }
@@ -24276,8 +24290,7 @@ fn mcp_slim_inner_to_budget_keeping(
                         "_truncated": true, "_kind": "array",
                         "_kept": kept, "_len": a.len(),
                         "_next_offset": base + kept,
-                        "_how": "the first _kept elements are complete and usable; \
-                                 re-request with offset=_next_offset for the rest",
+                        "_how": "the first _kept elements are complete and usable; the rest start at index _next_offset, and the note's `next` names the call that returns them",
                     });
                     record_drop(&mut dropped, &k, stub);
                     map.insert(k.clone(), JsonValue::Array(a[..kept].to_vec()));
@@ -24570,12 +24583,16 @@ fn mcp_slim_inner_to_budget_keeping(
         (false, true) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Request a smaller page with this tool's own paging argument, or narrow the request.",
         (false, false) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). No REST call could be rebuilt from this result; narrow the request, or send the same arguments to this tool's REST route, which has no cap.",
     };
+    let next = next_step::truncation_steps(&map, &dropped, fetch.as_ref(), tool);
     let mut note = json!({
         "reason": reason,
         "budget_bytes": budget,
         "omitted_fields": dropped[..listed].to_vec(),
         "fetch": fetch,
     });
+    if !next.is_empty() {
+        note["next"] = JsonValue::Array(next);
+    }
     if unlisted > 0 {
         note["omitted_fields_not_listed"] = json!(unlisted);
         note["omitted_fields_total"] = json!(dropped.len());
@@ -25129,7 +25146,7 @@ fn mcp_slim_both_copies(inner: JsonValue, tool: &str, budget: usize) -> (String,
         // 24,000-byte budget. The plain slimmer truncates that array to a
         // usable prefix and records `_kept` / `_next_offset`, which is a
         // smaller answer of the DECLARED SHAPE rather than a refusal to shrink.
-        let (mut slimmed, _note) = mcp_slim_inner_to_budget(inner.clone(), room);
+        let (mut slimmed, _note) = mcp_slim_inner_to_budget_for(inner.clone(), room, tool);
         mcp_shorten_rather_than_empty(&mut slimmed, &inner, &required, room);
         let mirror = mcp_mirror_for_schema(&slimmed, &required);
         let text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
@@ -25339,7 +25356,12 @@ fn mcp_mirror_for_schema(slimmed: &JsonValue, required: &[String]) -> JsonValue 
 ///
 /// So: measure first, cut only if it is actually over, and measure again.
 /// Bounded at four passes; each pass asks for exactly the overshoot back.
-fn mcp_slim_until_the_wire_fits(inner: JsonValue, mirror_bytes: usize, budget: usize) -> String {
+fn mcp_slim_until_the_wire_fits(
+    inner: JsonValue,
+    mirror_bytes: usize,
+    budget: usize,
+    tool: &str,
+) -> String {
     let reserve = mirror_bytes.saturating_add(MCP_RESULT_OVERHEAD_BYTES);
     let mut text = serde_json::to_string(&inner).unwrap_or_else(|_| "{}".to_string());
     // Measure the whole thing ONCE: a result that already fits is not slimmed
@@ -25355,7 +25377,7 @@ fn mcp_slim_until_the_wire_fits(inner: JsonValue, mirror_bytes: usize, budget: u
     // note where 24,000 bytes of facts would have fitted.
     let mut room = budget.saturating_sub(reserve);
     for _ in 0..4 {
-        let (slimmed, _note) = mcp_slim_inner_to_budget(inner.clone(), room);
+        let (slimmed, _note) = mcp_slim_inner_to_budget_for(inner.clone(), room, tool);
         text = serde_json::to_string(&slimmed).unwrap_or_else(|_| "{}".to_string());
         let on_the_wire = mcp_text_wire_len(&text).saturating_add(reserve);
         if on_the_wire <= budget {
@@ -25812,7 +25834,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         } else {
             None
         };
-        let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget);
+        let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget, tool);
         // Annotated like every other block: an over-budget answer is still an
         // answer addressed to the model, and a client deciding what to show a
         // person should not have to tell these two paths apart.
@@ -25870,7 +25892,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
             // mirror it has always sent.
             if let Some(core) = mcp_structured_core(&inner) {
                 let mirror = serde_json::to_string(&core).map(|t| t.len()).unwrap_or(0);
-                let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget);
+                let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget, tool);
                 return json!({
                     "content": [mcp_text_block(slim_text)],
                     "structuredContent": core,
@@ -39722,6 +39744,7 @@ fn validate_derive_attester(
                 details: Some(json!({
                     "code": "derive_attestation_required",
                     "how_to_sign": derive_attester_recipe(body_hash),
+                    "next": next_step::attester_next("emem_derive", "derive_attestation_required"),
                 })),
             },
         )),
@@ -39736,6 +39759,7 @@ fn validate_derive_attester(
                         "code": "derive_attestation_invalid",
                         "reason": "bad_pubkey",
                         "how_to_sign": derive_attester_recipe(body_hash),
+                        "next": next_step::attester_next("emem_derive", "derive_attestation_invalid"),
                     })),
                 },
             )),
@@ -39751,6 +39775,7 @@ fn validate_derive_attester(
                         "code": "derive_attestation_invalid",
                         "reason": "bad_signature",
                         "how_to_sign": derive_attester_recipe(body_hash),
+                        "next": next_step::attester_next("emem_derive", "derive_attestation_invalid"),
                     })),
                 },
             )),
@@ -40921,13 +40946,15 @@ fn entity_how_to_sign(req: &EntityMintReq) -> JsonValue {
 
 /// Add `how_to_sign` to a refusal's details, keeping the ladder and tier the
 /// gate already put there.
-fn with_how_to_sign(e: ApiError, how: JsonValue) -> ApiError {
+fn with_how_to_sign(e: ApiError, how: JsonValue, tool: &str) -> ApiError {
     let ApiError(code, mut body) = e;
+    let next = next_step::attester_next(tool, how["code"].as_str().unwrap_or_default());
     match body.details.as_mut().and_then(|d| d.as_object_mut()) {
         Some(d) => {
             d.insert("how_to_sign".into(), how);
+            d.insert("next".into(), next);
         }
-        None => body.details = Some(json!({ "how_to_sign": how })),
+        None => body.details = Some(json!({ "how_to_sign": how, "next": next })),
     }
     ApiError(code, body)
 }
@@ -40955,7 +40982,7 @@ async fn post_entity(
         if verified {
             return e;
         }
-        with_how_to_sign(e, entity_how_to_sign(&req))
+        with_how_to_sign(e, entity_how_to_sign(&req), "emem_entity")
     })?;
     use emem_primitives::entity::{
         alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
@@ -41515,7 +41542,7 @@ async fn post_entity_alias(
         if verified {
             return e;
         }
-        with_how_to_sign(e, entity_alias_how_to_sign(&req))
+        with_how_to_sign(e, entity_alias_how_to_sign(&req), "emem_entity_link")
     })?;
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
@@ -42417,6 +42444,7 @@ fn validate_attester_binding(
                             "path": path,
                             "verb": verb,
                             "how_to_sign": attester_recipe(verb, path, body_hash, base),
+                            "next": next_step::attester_next(&format!("emem_memory_{verb}"), "memory_attestation_required"),
                         })),
                     },
                 ));
@@ -42448,6 +42476,7 @@ fn validate_attester_binding(
                             "code": "memory_attestation_invalid",
                             "reason": "bad_pubkey",
                             "how_to_sign": attester_recipe(verb, path, body_hash, base),
+                            "next": next_step::attester_next(&format!("emem_memory_{verb}"), "memory_attestation_invalid"),
                         })),
                     },
                 )),
@@ -42468,6 +42497,7 @@ fn validate_attester_binding(
                             "code": "memory_attestation_invalid",
                             "reason": "bad_signature",
                             "how_to_sign": attester_recipe(verb, path, body_hash, base),
+                            "next": next_step::attester_next(&format!("emem_memory_{verb}"), "memory_attestation_invalid"),
                         })),
                     },
                 )),
@@ -70224,6 +70254,7 @@ fn conceptual_question_response(q: &str, skipped: &[(String, Vec<String>)]) -> J
             "if the question is actually about a place, re-issue /v1/ask with an explicit `place` (e.g. `{\"q\":\"...\",\"place\":\"Manaus, Brazil\"}`)",
             "list of all matched concept tokens is in `matched_concept_tokens`",
         ],
+        "next": next_step::ask_definitional_steps(q),
         "agent_hint": "Don't claim emem couldn't answer, emem refused to geocode a name that doesn't refer to a place. The registry endpoints carry the signed definition you need.",
     })
 }
@@ -72386,6 +72417,7 @@ async fn ask_inner_traced(
                         format!("call emem_ask again with `place: \"{cand}\"` if that is the place you mean"),
                         "or pass `cell` (cell64) or `lat`+`lng` to remove the guess entirely".to_string(),
                     ],
+                    "next": next_step::ask_needs_place_steps(&req.q, Some(cand.as_str())),
                 }));
             }
             return Ok(json!({
@@ -72399,6 +72431,7 @@ async fn ask_inner_traced(
                     "call emem_ask again with `place: \"<place name>\"` extracted from the user's turn",
                     "or call emem_locate first to resolve a place hint, then pass the returned cell64 here",
                 ],
+                "next": next_step::ask_needs_place_steps(&req.q, None),
                 "agent_hint": "Pick a noun phrase (city, park, address, landmark) from the user's question and pass it as `place`. emem_ask will then run the full locate → recall → algorithm chain and return a packaged answer.",
             }));
         }
@@ -73303,14 +73336,11 @@ async fn ask_inner_traced(
                 // gives the agent something to quote, no next_steps noise there.
                 map.insert(
                     "next_steps".into(),
-                    json!([{
-                        "action": "recall",
-                        "why":    "These bands are not yet materialized at this cell, so the routed algorithms could not evaluate. Recall them once to fetch and sign them, then re-issue the question.",
-                        "method": "POST",
-                        "path":   "/v1/recall",
-                        "url":    format!("{origin_for_links}/v1/recall"),
-                        "body":   { "cell": cell.clone(), "bands": missing_bands.clone() },
-                    }]),
+                    json!([next_step::ask_missing_bands_step(
+                        &cell,
+                        &missing_bands,
+                        &origin_for_links
+                    )]),
                 );
             } else if map
                 .get("topic_routing")
@@ -76292,6 +76322,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                     "extract a noun phrase (city, park, address, landmark) from the user's turn and pass it as `place`",
                     "or, if the user gave coordinates, pass `lat` + `lng` directly",
                 ],
+                "next": next_step::locate_needs_location_steps(),
                 "agent_hint": "emem_locate is the geocoder. Reply to the user only after this returns a `cell64` you can hand to emem_recall / emem_ask.",
             })));
         }
@@ -76390,6 +76421,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             sample_cells_in_polygon(bb, 64, &parsed_polygons)
         }
     });
+    let locate_next = next_step::locate_steps(
+        &cell_str,
+        &neighborhood,
+        req.place.as_deref().filter(|_| sample_cells.is_some()),
+    );
     let mut body = json!({
         "cell64": cell_str,
         "lat_input": lat,
@@ -76469,13 +76505,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             "value_format":       "cell64 string (four base-65,536 bigrams joined by '.')",
             "explanation":        "Field name in request bodies is `cell` (or `cell64` as serde alias). The string format is named cell64. Two different things: `cell` is the slot, cell64 is what goes in it, like a `mode: String` field where strings are UTF-8."
         },
-        "next": [
-            "POST /v1/recall  {\"cell\": \"<cell64>\", \"bands\": [...]}",
-            "POST /v1/find_similar",
-            "POST /v1/compare",
-            "GET  /v1/cells/{cell64}/info",
-            "GET  /v1/grid_info , actual vs spec-target resolution",
-        ],
+        "next": locate_next,
     });
     // Confidence + class-mismatch detection. An LLM that doesn't see a
     // confidence flag will quote a low-quality match as authoritative -
@@ -97502,7 +97532,7 @@ mod schema_required_truncation_tests {
                 .map(|i| json!({"id": format!("p{i}"), "note": "x".repeat(200)}))
                 .collect::<Vec<_>>()},
         });
-        let (slim, _note) = mcp_slim_inner_to_budget_keeping(big, 4_000, &required);
+        let (slim, _note) = mcp_slim_inner_to_budget_keeping(big, 4_000, &required, "");
         assert!(
             !slim["registry"].is_null(),
             "the required key was nulled: {}",

@@ -1413,6 +1413,27 @@ trust-chain anchor; always cite from the per-cell branch.
 
 ---
 
+## Next steps are data
+
+Where a response tells you what to call next, it also says so as data, in
+a `next` list of steps shaped `{verb, noun, args, code}`. `verb` is an MCP
+tool name (`emem_recall`) or a routed REST route with its method
+(`GET /v1/cells/:cell64/info`). `noun` names the field or thing the call
+acts on. `args` is valid input for that verb, with path parameters filled
+by name. `code` appears on refusals and names the typed refusal the step fixes. A step
+may also carry `text`, the sentence it stands for. Branch on the step and
+read the sentence; when they disagree, the step is the one a test holds to
+the tool registry and the router.
+
+Four places carry steps today. `_emem_truncation.next` names the call
+that returns what a slimmed MCP result omitted, including the tool's own
+`offset` when it pages. A signed-write refusal's `details.next` resends to
+the same tool with an `attester` block, next to `details.how_to_sign`.
+`/v1/locate` and `emem_locate` put steps in `next` for the cell they
+resolved. `/v1/ask` adds `next` when it has no place it trusts or the
+question is definitional, and its cold-cell `next_steps` entry carries a
+step beside its REST fields.
+
 ## Grids, time, and gotchas
 
    ### cell64 grid
