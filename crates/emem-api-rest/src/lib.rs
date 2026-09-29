@@ -228,7 +228,7 @@ const AGENTS_MD: &str = include_str!("../../../docs/agents.md");
 /// site, through the generated nav, and nothing pointed at the roster it
 /// described. `/v1/agents` had the data the whole time.
 const AGENTS_HTML: &str = include_str!("../../../web/agents.html");
-const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper-v2.md");
+const WHITEPAPER_MD: &str = include_str!("../../../docs/whitepaper-v3.md");
 /// v1, archived and unedited. It is the version cited by the Zenodo DOI,
 /// so it is served verbatim rather than corrected: a citation that
 /// resolves to a silently different document is worse than a stale one.

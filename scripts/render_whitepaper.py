@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Render docs/whitepaper-v2.md into web/whitepaper-v2.html.
+"""Render the current whitepaper (docs/whitepaper-v3.md) into web/whitepaper-v2.html.
+
+The output keeps its v2 file name because the route, the CI gate and five
+scripts name it; it is the artefact served at /whitepaper, whichever edition
+that is. docs/SUMMARY.md named v3 the whitepaper on 2026-09-10 while this
+script went on rendering v2, so the site served the superseded paper.
 
 The v1 whitepaper was maintained as two hand-written copies of one
 document: docs/whitepaper.md and web/whitepaper.html. They drifted, and
@@ -42,11 +47,12 @@ _gen_nav = _ilu.module_from_spec(_spec); _spec.loader.exec_module(_gen_nav)
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-SRC = ROOT / "docs" / "whitepaper-v2.md"
+EDITION = 3
+SRC = ROOT / "docs" / f"whitepaper-v{EDITION}.md"
 SHELL = ROOT / "web" / "whitepaper-v1.html"
 OUT = ROOT / "web" / "whitepaper-v2.html"
 
-TITLE = "emem whitepaper v2: an external identity layer for agent memory"
+TITLE = "emem whitepaper v3: shared state for agents that do not trust each other"
 DESC = (
     "An external identity layer for verifiable agent memory: the token grammar, "
     "cell64 and tslot addressing, ed25519 receipts over a tagged preimage, and the "
@@ -293,9 +299,9 @@ def build() -> str:
     site_nav = _gen_nav.render("/whitepaper")
     # The edition date is the one the paper states on its second line, so the
     # header cannot drift from the document it heads.
-    dm = re.search(r"^\*\*Whitepaper v2 / (\d{4}-\d{2}-\d{2})\*\*", md, re.M)
+    dm = re.search(rf"^\*\*Whitepaper v{EDITION} / (\d{{4}}-\d{{2}}-\d{{2}})\*\*", md, re.M)
     if not dm:
-        raise SystemExit("render: no '**Whitepaper v2 / YYYY-MM-DD**' line in the source")
+        raise SystemExit(f"render: no '**Whitepaper v{EDITION} / YYYY-MM-DD**' line in the source")
     dated = dm.group(1)
     return f"""{head}
 </head>
@@ -305,23 +311,23 @@ def build() -> str:
 
 <header class="doc-head wp-head">
   <div>
-    <p class="eyebrow"><span class="seal"></span> Whitepaper &middot; edition 2 &middot; {dated}</p>
+    <p class="eyebrow"><span class="seal"></span> Whitepaper &middot; edition {EDITION} &middot; {dated}</p>
     <h1>{title_html}</h1>
-    <p class="purpose">The token grammar, cell64 and tslot addressing, Ed25519 receipts over a tagged preimage, and the RFC 6962 log, as this responder implements them.</p>
+    <p class="purpose">What emem records, what each token proves, what was tested and refuted, and what is still unproven.</p>
     <div class="actions">
       <a class="btn" href="/whitepaper.md">Read as markdown</a>
       <a class="btn ghost" href="/v1/verifier_spec">/v1/verifier_spec</a>
-      <a class="btn ghost" href="/whitepaper/v1">v1 (archived)</a>
+      <a class="btn ghost" href="/docs/whitepaper-v2.html">v2 (superseded)</a>
     </div>
   </div>
   <dl class="wp-edition" aria-label="Edition">
-    <dt>edition</dt><dd>2</dd>
+    <dt>edition</dt><dd>{EDITION}</dd>
     <dt>dated</dt><dd>{dated}</dd>
     <dt>author</dt><dd>Vortx AI</dd>
     <dt>licence</dt><dd>Apache-2.0</dd>
-    <dt>supersedes</dt><dd><a href="/whitepaper/v1">v1</a>, 0.1.0, 2026-06-14</dd>
+    <dt>supersedes</dt><dd><a href="/docs/whitepaper-v2.html">v2</a>, 2026-07-16; <a href="/whitepaper/v1">v1</a>, 2026-06-14</dd>
     <dt>responder</dt><dd><code>emem.dev</code></dd>
-    <dt>source</dt><dd><a href="https://github.com/Vortx-AI/emem/blob/main/docs/whitepaper-v2.md">docs/whitepaper-v2.md</a></dd>
+    <dt>source</dt><dd><a href="https://github.com/Vortx-AI/emem/blob/main/docs/whitepaper-v{EDITION}.md">docs/whitepaper-v{EDITION}.md</a></dd>
   </dl>
 </header>
 

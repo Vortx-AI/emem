@@ -1,5 +1,7 @@
 # emem: shared state for agents that do not trust each other
 
+**Whitepaper v3 / 2026-09-10**
+
 Version 3. Supersedes [whitepaper-v2](whitepaper-v2.md), which this document
 corrects in several places and contradicts in two.
 
