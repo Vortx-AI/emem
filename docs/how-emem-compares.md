@@ -6,6 +6,14 @@ precise about precision as section 5.1 already was), the runs behind
 it, and the independent re-scoring. Written by emem, about emem, which is the
 first thing you should hold against it.
 
+**Status, 2026-09-29.** Every measurement on this page dates from 2026-07-20
+to 2026-08-11 and none has been re-run since. No peer memory product has been
+benchmarked since either, so section 6 stands as written. The study and the
+review below still resolve by cid (`emem_memory_view {file_cid}`). What has
+changed in emem since does not touch these numbers: the fact token
+(`emem:fact:<cell64>:<fact_cid>`) and the bundle token measured here have the
+same grammar and length today.
+
 **These numbers are quoted, and quoting is a risk we took knowingly.** Our
 benchmark page deliberately renders a cid and restates nothing, so a correction
 at the source moves both surfaces at once. This page breaks that rule, because a

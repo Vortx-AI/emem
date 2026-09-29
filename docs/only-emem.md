@@ -14,7 +14,11 @@ emem does not silently pick a winner or average them away. It tells you
 they disagree and how badly.
 
 When several attesters sign facts at the same `(cell, band, tslot)`,
-emem keeps all of them and scores the spread. A scalar band is scored by
+emem keeps all of them and scores the spread. Since 2026-09-14 only three
+kinds of key may occupy an address: this responder, a device enrolled
+through the OS-trace gate, and a key the operator lists. So on this node
+the attesters that can disagree at one address are those, plus whatever
+was signed before the plane closed. A scalar band is scored by
 how far apart the numbers are; a vector band by mean cosine distance; a
 categorical band by how lopsided the votes are. The agent gets a single
 severity number it can threshold on: ignore a hairline disagreement,
@@ -36,6 +40,22 @@ the signed `receipt`. An empty `contradictions` array with a non-zero
 failure, and it is what this call returns today: the live corpus holds
 no `indices.ndvi` disagreement above the default threshold. Pass
 `min_severity: 0.0` to see borderline ones.
+
+On a corpus with one main writer, most real disagreement is one attester
+answering the same address from two upstreams. The default scan does not
+count that. Pass `include_same_attester_sources: true` and a key qualifies
+when its facts differ in `derivation.fn_key` or in their `sources[].scheme`
+set; each record then carries `disagreement_scope` and a `providers[]` list
+naming the recipe behind each value. A re-signing from the same provider is
+a refresh, not a disagreement, and is still not counted. On 2026-09-29 a
+whole-corpus `indices.ndvi` scan with both options (37,759 keys) returned
+none.
+
+An agent that thinks a fact is wrong does not overwrite it. It signs a
+`disagrees_with` edge between the two fact cids with its own key
+(`POST /v1/edges`, a signed attestation envelope; edges take no address, so
+any signed key may write one), and anyone can read it with
+`emem_edges_recall`. The disputed fact is left as it was.
 
 Why it matters: a guess from one model looks identical to a consensus of
 three. The result is visible to the agent. (MCP: `memory_contradictions`.)
@@ -67,16 +87,21 @@ reconstruction.
 the agent that owns a path can write to it, and any byte change is
 detectable.
 
-A write to a path under `/memories/by_attester/<pubkey>/...` must carry
-an ed25519 signature from that exact key: a capability-bound write. A
-signer that is not the owner is rejected. Combined with content
+A write to a path under `/memories/by_attester/<pubkey8>/...` (the first
+eight characters of the key) must carry an ed25519 signature from that
+exact key: a capability-bound write. A signer that is not the owner is
+refused 403 `memory_namespace_violation`. The signature is over the
+`emem.memory_write.v2` preimage, which binds the verb, the path, the body
+hash and the file cid being replaced, so a signature copied off the public
+log cannot be replayed once the file has moved on. Combined with content
 addressing (the fingerprint changes if a byte changes), this means a
 reader can confirm both *who* wrote a memory and that *nobody altered it
 since*.
 
 Why it matters: the same signing surface that proves a Sentinel-2
-reading is real also proves an agent's private notes are unmodified. One
-trust surface, two layers of memory.
+reading is real also proves an agent's notes are unmodified. The notes
+are not private: anyone can read them, so write nothing you would not
+publish. One trust surface, two layers of memory.
 
 ## In one line
 

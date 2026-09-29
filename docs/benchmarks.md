@@ -18,8 +18,11 @@ Each dataset item is `{id, content, query, expected_answer}` (with optional
 
 1. **Load (write API).** Each item's `content` is written as one signed
    memory file via `POST /mcp` → `tools/call` → `memory_create`
-   (`/memories/scorecard/<id>.md`, `kind: "fact"`). Every create returns a
-   server-signed receipt with a `file_cid`.
+   (`/memories/scorecard/<id>.md`, `kind: "fact"`). `memory_create` is the
+   legacy spelling of `emem_memory_create`; it still dispatches and is removed
+   in 3.0. The harness sends these writes without an `attester` block, so the
+   responder it scores must be started with `EMEM_MEMORY_OPEN=1` (see the run
+   below). Every create returns a server-signed receipt with a `file_cid`.
 2. **Pick a read path.** A one-shot probe of `POST /v1/memory/search`
    reports `model_loaded`. If the BGE embedder is loaded, retrieval uses
    **`memory_search`** (semantic). If not (the default offline build ships
@@ -54,7 +57,7 @@ to stdout, with the responder's signed receipt embedded.
 ## Honesty: SAMPLE vs FULL
 
 A small **SAMPLE** dataset (`crates/emem-scorecard/data/sample-longmemeval.jsonl`,
-~15 items) is committed so `--live` runs end-to-end with no download. Its
+16 items) is committed so `--live` runs end-to-end with no download. Its
 score is labelled `dataset_provenance: "sample"` and is **illustrative
 only, not the published benchmark number**. A user-supplied dataset is
 labelled `"full"`. Never quote a sample score as the published result.
@@ -64,10 +67,12 @@ labelled `"full"`. Never quote a sample score as the published result.
 ```bash
 export CARGO_TARGET_DIR=/path/to/shared/target   # optional, to share builds
 
-# 1. Boot a fresh in-memory responder.
+# 1. Boot a fresh in-memory responder. EMEM_MEMORY_OPEN=1 re-opens the
+#    memory namespace to unattested writes, which the harness sends; a
+#    release build otherwise refuses every one of them.
 cargo build -p emem-cli --bin emem-server
 EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5087 EMEM_OVERTURE_SKIP_WARMUP=1 \
-  ./target/debug/emem-server &
+  EMEM_MEMORY_OPEN=1 ./target/debug/emem-server &
 
 # 2. Score it against the committed sample (no download).
 EMEM_URL=http://127.0.0.1:5087 \
@@ -109,7 +114,8 @@ never silently dropped (a dropped row would inflate the score).
 
 ## Scorecard from the committed SAMPLE run
 
-Produced by the run in this repo against a fresh `:memory:` responder
+Produced by a run in this repo (2026-05-30, before the release default closed the
+memory namespace to unattested writes in July) against a fresh `:memory:` responder
 (`emem-server` on `127.0.0.1:5087`), dataset = the committed sample,
 read path = `recall_fallback` (the offline build ships no BGE embedder, so
 retrieval is lexical, not semantic). **This is a SAMPLE score: illustrative
@@ -148,7 +154,9 @@ network-attached block storage, the same machine that answers public
 traffic, so background load is included rather than idealised away.
 Client wall-clock timing from a Python `httpx` client; the measurement
 script method is stated per row. These are single-node numbers; no
-scaling claim is made.
+scaling claim is made. They predate 2.4.0, which moved the fact index and
+fact bodies from sled to redb, so they describe the sled store and have not
+been re-run since.
 
 | Measurement | Result | Method |
 |---|---|---|
@@ -173,15 +181,19 @@ Reviewers ask for failure modes; emem's are enumerated closed sets on the
 wire rather than prose, so they are testable:
 
 - **Absence reasons** (a missing value is a signed answer, never a bare
-  404): `unavailable_capability`, `outside_coverage`, `gpu_unavailable`,
-  `archetype_seed_unavailable`, `no_auto_materializer_registered`,
+  404). The fact schema in `/openapi.json` declares `absence_reason` as
+  `unavailable_capability`, `outside_coverage`, `archetype_seed_unavailable`,
+  `gpu_unavailable`, `upstream_error` or `upstream_timeout`; the backfill
+  path adds its own skip states, `no_auto_materializer_registered` and
   `present_only`.
-- **Change-ensemble degradation** (`/v1/triple_consensus` carries
-  `degraded`, `degraded_reason`, and per-encoder `reason_code`):
-  `gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`,
+- **Change-ensemble degradation, historical.** `/v1/triple_consensus`
+  carried `degraded`, `degraded_reason` and a per-encoder `reason_code`
+  (`gpu_sidecar_unavailable`, `single_vintage`, `outside_coverage`,
   `no_finite_overlap`, `recall_failed`, `partial_consensus_N_of_3`,
-  `insufficient_encoders`. A 2-of-3 result reports `degraded: true` even
-  though it carries a real ensemble number.
+  `insufficient_encoders`), and a 2-of-3 result reported `degraded: true`
+  even though it carried a real ensemble number. The route was removed with
+  the retired foundation models after 2.4.0 and now answers 404; facts it
+  signed still recall and verify.
 - **Request errors** are typed (`invalid_argument`,
   `band_not_in_registry`, `invalid_temporal_bound`,
   `invalid_signed_at_format`, ...) and teach the accepted vocabulary in
@@ -197,7 +209,9 @@ fully stated sample rather than a claim: the 15 named places used across
 the site's own demos and world presets, run through
 `POST /v1/triple_consensus` against the production responder on
 2026-07-11. The sample is site-chosen and small; it characterises the
-instrument on this node, not global model behaviour.
+instrument on this node, not global model behaviour. It is a record and
+cannot be re-run: the route and its three encoders (Clay, Prithvi and
+Galileo on a GPU sidecar) were removed after 2.4.0.
 
 | Outcome | Count |
 |---|---|
@@ -213,8 +227,8 @@ place cleared the all-legs rule, which is the expected null result for
 stable landmarks compared year over year; the two highest means
 (Interlaken 0.579, Mumbai 0.405) show single encoders firing without
 corroboration, exactly the case the all-legs rule exists to hold back.
-The 5 degraded runs are the honest cost of sidecar-gated encoders on a
-cold vintage: the response says so in a typed `degraded_reason` instead
+The 5 degraded runs were the cost of sidecar-gated encoders on a
+cold vintage: the response said so in a typed `degraded_reason` instead
 of averaging over the gap. What this table does not show, and what a
 real evaluation still needs: a change-rich sample (recent burn scars,
 clearings, construction) where the ensemble should fire, scored against
@@ -340,9 +354,9 @@ this page has a bug.
 | | |
 |---|---|
 | Canonical result | `no4fvfl2e2v2zick33ydoadene` (scorecard v2.3) |
-| Attester | `6ww7pxav`, full key in the contacts registry |
+| Attester | `6ww7pxav`, full key in the note's `authorship` block and on `/v1/agents` |
 | Published | 2026-07-20, superseding v2.2 and v2 by cid |
-| Read it | `POST /v1/memory_token/resolve`, or `memory_view` the attester's namespace |
+| Read it | `emem_memory_view` with `file_cid`, or list the attester's namespace with `emem_memory_view` |
 | Verify it | authorship offline per [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec); raw runs replay in-browser |
 | Reproduce it | [`examples/benchmark-arm/`](../examples/benchmark-arm/) is the canonical emem arm |
 
@@ -509,10 +523,10 @@ to make the result hard to believe rather than easy:
 | | |
 |---|---|
 | Pre-registration (before any data) | `l44rdbk7lcpjt2abzmlkgzpdee` |
-| The run | `mtce2egrv5oqf4d2tbwv7cufb6sv3oc7xkt2xqfu5vit4bbc2vtq` |
+| The run (`run_cid`, blake3 of the run file) | `mtce2egrv5oqf4d2tbwv7cufb6sv3oc7xkt2xqfu5vit4bbc2vtq` |
 | Their reading of it | published by attester `6ww7pxav` |
 | emem's independent score, including where we disagree with them | `e6ymbtkypniy45sxcgzjkuzxdm` |
-| The voided run, published rather than deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
+| The voided run (`run_cid`), published rather than deleted | `ucidjnjp44wsx4rn32kbl3dhd574w36ofjf4i72fp7himxsconbq` |
 
 The two instruments did disagree, and the diff is the most useful thing on this
 page. Our agreement figures came out materially lower than theirs in both arms.

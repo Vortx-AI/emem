@@ -1,5 +1,19 @@
 # Encoder substrates: the trust layer for every machine that observes the world
 
+> Checked against the code 2026-09-29. Since the status line below was written
+> the hosted device path has shipped: `POST /v1/attest_traced` (an attestation
+> plus its `emem.os_trace.v1` trace, through `put_attestation_gated`), `POST
+> /v1/attest` routed through the same gate, self-service enrollment (`POST
+> /v1/enroll_attested`, with `POST /v1/enroll_verify` for a stateless check),
+> `POST /v1/trace_resolve` for `emem:trace:` and `emem:attestation:` tokens,
+> `GET /v1/device_platforms`, and the opt-in roster (`GET /v1/devices`, `POST
+> /v1/device_publish`). Every shipped trust anchor is provisional, so
+> enrollment refuses every call today. Still open: a first production anchor,
+> the drift-anchor wiring (step 4, including the Copernicus checksum), traces
+> in the transparency log, an `emem trace verify` CLI subcommand, and an
+> os-trace section in `docs/protocol.md`. The current summary is the substrates
+> section of [docs/roadmap.md](../roadmap.md).
+
 Status: registry, schema, verifier, write-path gate (storage side),
 trace tokens, and the first committed conformance vectors shipped as
 code; the REST/MCP surface and drift-anchor wiring are open. Owner:

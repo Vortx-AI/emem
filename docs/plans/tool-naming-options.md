@@ -1,5 +1,12 @@
 # Tool naming consistency: an options memo
 
+> Checked 2026-09-29: the recommendation held and no `emem_` tool was renamed.
+> The count is now 114, not 107, and two of the additions, `search` and
+> `fetch`, carry no `emem_` prefix because a ChatGPT connector looks those
+> names up; `emem_triple_consensus` is gone with the retired foundation models.
+> The gate on new tool names suggested below was not built. The live list is
+> `emem_tools`, or `GET /v1/tools`.
+
 Status: decision memo for the owner. Nothing here has been done. No tool has
 been renamed and none should be until this is decided.
 

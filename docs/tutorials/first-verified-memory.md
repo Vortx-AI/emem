@@ -25,7 +25,11 @@ Three things in the response matter here:
 - `facts[0].fact_cid`: the record's content id, the blake3 hash of its
   own canonical bytes. Change one byte and the id changes.
 - `receipt`: an ed25519 signature over what was answered, by whom,
-  when. Save the cell too; it is in `receipt.cells[0]`.
+  when. Save the cell too; it is in `facts[0].cell` and
+  `receipt.cells[0]`.
+
+The place resolved to one cell. `/v1/locate {"q":"Cairo"}` shows which
+cell and why, and lists the other candidates if the name was ambiguous.
 
 ## 2. Verify it, trusting nobody
 
@@ -42,7 +46,7 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
 responder's published key, not a callback: the same verification runs
 fully offline in any blake3 plus ed25519 implementation, and
 [`/verify`](https://emem.dev/verify) runs it in your browser if you
-prefer to paste the `fact_cid` there.
+paste the receipt, or the token from step 3, there.
 
 ## 3. Compose the token, by hand
 
@@ -53,16 +57,21 @@ content id, joined by colons:
 emem:fact:<cell64>:<fact_cid>
 ```
 
-Take `receipt.cells[0]` and `facts[0].fact_cid` from step 1 and write
-the line yourself. For the Cairo elevation fact it looks like:
+Take `facts[0].cell` and `facts[0].fact_cid` from step 1 and write the
+line yourself. The recall response also carries it ready-made as
+`facts[0].memory_token`, so you can check your line against that. One
+Cairo elevation fact, signed on 2026-07-16, gives:
 
 ```text
 emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa
 ```
 
-That line is the whole memory. About 84 characters, safe in a commit
-message, a report, a note, or another agent's context window. The
-payload can be dropped; the line brings it back.
+Yours may name a different fact if emem has signed a newer reading
+since; this one still resolves, because a fact is never rewritten.
+
+That line is the whole memory. 84 characters, safe in a commit message,
+a report, a note, or another agent's context window. The payload can be
+dropped; the line brings it back.
 
 ## 4. Hand it to someone who does not trust you
 
@@ -75,27 +84,41 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}'
 ```
 
-The response carries the byte-identical signed fact and its receipt,
-and the receiver runs step 2's verification on it themselves. Nothing
-about that check involves trusting you, your paraphrase of the value,
+The response carries the signed fact (`fact`, with `value` and `unit`
+lifted to the top for convenience) and a receipt of its own, and the
+receiver runs step 2's verification on it themselves:
+
+```bash
+curl -s -X POST https://emem.dev/v1/memory_token/resolve \
+  -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}' \
+  | jq '{receipt: .receipt}' \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' --data-binary @- \
+  | jq '{signature_valid, merkle_proof_valid}'
+```
+
+Nothing about that check involves trusting you, your paraphrase of the value,
 or the channel the line travelled through. Two parties now hold one
 fact, not two descriptions of it.
 
-If both steps returned `true` for you, that is the entire protocol
-working end to end, and the star button on
-[the repo](https://github.com/Vortx-AI/emem) is how other builders
-find it.
+If both checks returned `true` for you, that is the protocol working
+end to end.
 
 ## 5. Where this goes next
 
-- An agent does this loop with four verbs over MCP: connect any MCP
-  client to `https://emem.dev/mcp` and the
-  [agent guide](../agents.md) walks the same path tool by tool.
-- Time travel: every read accepts `as_of_tslot` (what was on the
-  ground) and `as_of_signed_at` (what the memory knew), so "what did
-  we know when we decided" stays answerable years later.
-- When a readout changes between visits, `POST /v1/change_attribution`
-  returns the evidence ledger for why: world, instrument, pixels,
-  model, or noise.
-- The whole ladder, one idea per rung, is at the top of the
-  [README](https://github.com/Vortx-AI/emem#the-ladder).
+- An agent does this loop over MCP with `emem_recall`,
+  `emem_verify_receipt`, `emem_memory_token` and
+  `emem_memory_token_resolve`: connect any MCP client to
+  `https://emem.dev/mcp` and the [agent guide](../agents.md) walks the
+  same path tool by tool.
+- Time travel: `/v1/recall` accepts `as_of_tslot` (when it was on the
+  ground) and `as_of_signed_at` (what the memory knew by then), so
+  "what did we know when we decided" stays answerable later.
+- When a readout changes between visits, `POST /v1/change_attribution
+  {"cell": ...}` returns the per-term evidence (environment, sensor,
+  geometry, encoder, noise) with the fact cids behind each. It does not
+  split the change into amounts per term; `split` is null and the
+  response says why.
+- Several facts travel as one `emem:bundle:` token from
+  `POST /v1/memory_bundle`; see the [Quickstart](../quickstart.md).

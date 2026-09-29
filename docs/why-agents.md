@@ -24,11 +24,17 @@ a handle it can quote later, not a fuzzy name.
 curl -s -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"q":"Soubré, Côte d'\''Ivoire"}' | jq -r .cell64
-# defi.zb441.zd21e.zd3ee
+# defi.zb441.zbe5e.zd3ca
 ```
 
+Read `place_label` and `alternatives` before you trust the cell. On
+2026-09-29 this query resolved to a named building in Soubré rather than the
+town centre; for a real plot, pass its coordinates or its polygon instead of a
+town name.
+
 A `cell64` addresses a place the way a token addresses text in an LLM:
-a 64-bit identifier for one ~9.55 m square of ground. From here on the
+a 64-bit identifier for one patch of ground about 9.55 m across at the
+equator. From here on the
 agent quotes the cell, never the prose.
 
 ### 2. Recall: get a signed forest fact
@@ -40,12 +46,12 @@ returns it in the same call.
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb441.zd21e.zd3ee","band":"jrc_gfc2020.forest_2020"}' \
+  -d '{"cell":"defi.zb441.zbe5e.zd3ca","band":"jrc_gfc2020.forest_2020"}' \
   | jq '{value: .facts[0].value, fact_cid: .facts[0].fact_cid, source: .facts[0].sources[0].scheme}'
 # {
 #   "value": 0,                       # NOT forest at the 2020-12-31 cut-off
-#   "fact_cid": "l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq",
-#   "source": "jrc.gfc2020.v3"
+#   "fact_cid": "gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq",
+#   "source": "jrc.gfc2020.v4"
 # }
 ```
 
@@ -65,8 +71,11 @@ and the id changes.
 The provenance lives in two different places and they answer different
 questions. `sources[]` is where the bytes came from: the JRC tile URL
 and its capture date. `derivation` is how the value was computed from
-them: `fn_key: "jrc_gfc2020_v3_pixel@1"` plus the lat, lng and dataset
-version it was called with. There is no `derivation.source`.
+them: `fn_key: "jrc_gfc2020_v3_pixel@1"` plus the lat, lng, the dataset
+version it was called with (`v4`) and the pixel reader
+(`reader=cog-pixel-floor@2`). The fn_key keeps its name across dataset
+versions; the version that was read is in the args and in `sources[0].scheme`.
+There is no `derivation.source`.
 
 ### 3. Cite: drop the fact_cid into the report
 
@@ -74,9 +83,9 @@ The agent writes its due-diligence note and cites the `fact_cid`
 instead of re-stating the number. The citation is the evidence, not a
 pointer to evidence that might move.
 
-> Plot at `defi.zb441.zd21e.zd3ee` was not forest at the 2020-12-31
-> cut-off (JRC GFC2020 V3), so it is out of scope for the deforestation
-> test. Evidence: `l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq`.
+> Plot at `defi.zb441.zbe5e.zd3ca` was not forest at the 2020-12-31
+> cut-off (JRC GFC2020 V4), so it is out of scope for the deforestation
+> test. Evidence: `gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq`.
 
 ### 4. Verify: a colleague checks it offline
 
@@ -84,13 +93,20 @@ A compliance reviewer at another company never logged into emem. They
 take the `fact_cid` and open it in their own browser:
 
 ```
-https://emem.dev/verify/l7hm437whbei33v37ntoxydt572ac7ldkopotvuu67idpdu5nxcq
+https://emem.dev/verify/gkfhjoceoydlojo2dnv3dfozdodhetvvlms2zqutdrxuvmfuronq
 ```
 
-The page pulls the same bytes and checks the ed25519 signature locally,
-in WebCrypto. The reviewer is not trusting emem.dev or the importing
+The page pulls the same bytes and checks the BLAKE3 hash and the ed25519
+signature locally, with the verifier compiled into the page. The reviewer is not trusting emem.dev or the importing
 agent; they are checking the math themselves. If the signature holds,
 the bytes are exactly what the responder signed, unchanged.
+
+One cell and one band is the teaching version. For a real due-diligence
+statement, `POST /v1/eudr_dds` takes the plots (GeoJSON points or polygons),
+reads the forest baseline, Hansen loss and a TMF cross-check over each plot,
+and returns a draft statement with a per-plot verdict, the fact ids behind it
+and a stated `verdict_support`. It marks the statement not signable while any
+plot needs review. [EUDR DDS + visual evidence](./eudr.md) walks it.
 
 ## What just happened that a plain LLM could not do
 
@@ -132,7 +148,11 @@ Published work on memory-injection attacks (MINJA, NeurIPS 2025)
 reports a 95% success rate at planting false records in a conventional
 agent memory store through queries alone. Signatures do not make a
 writer honest, but they pin every record to a key: in emem a planted
-fact is attributable, scoreable against other writers, and
-supersedable, instead of anonymous and silently trusted. Policy for
-which writers to trust stays with the reader.
+record is attributable, scoreable against other writers, and
+supersedable, instead of anonymous and silently trusted. Facts go further:
+an address (cell, band, time slot) is written only by this responder, an
+enrolled device or an operator-listed key, and any other signed attempt is
+refused. Notes stay open to any signed key, so a planted note is possible;
+it is served wrapped as data, never instructions. Policy for which writers
+to trust stays with the reader.
 

@@ -53,11 +53,11 @@ store.signer.pubkey_b32  # the full base32 public key
 ```
 
 **It decides whether the write is accepted at all.** The public responder
-refuses unattested writes. An operator can reopen the global namespace by
-starting the server with `EMEM_MEMORY_OPEN=1`, but emem.dev does not, so
-an unsigned `mset` against it will fail. The store recognises that
-failure and its error message tells you to pass a `signing_key` rather
-than leaving you to decode a 403.
+refuses unattested writes (HTTP 401 over REST, `details.code:
+memory_attestation_required`). An operator can reopen the global
+namespace by starting the server with `EMEM_MEMORY_OPEN=1`, but emem.dev
+does not, so an unsigned `mset` against it is refused. See the known
+issues below for how that refusal reaches you in 2.4.0.
 
 Under `by_attester/` only the matching key may write, which is what makes
 it safe for several agents to share one responder: they cannot overwrite
@@ -79,7 +79,7 @@ store.mget(["/memories/shared/atlas"])  # exactly that path
 |---|---|---|
 | `mget(keys)` | `emem_memory_view` | no, reads are open |
 | `mset(pairs)` | `emem_memory_create` | yes |
-| `mdelete(keys)` | `emem_memory_delete` | yes |
+| `mdelete(keys)` | `emem_memory_delete` | yes, but refused today (see below) |
 | `yield_keys(prefix)` | `emem_memory_view` as a directory walk | no |
 
 The async surface (`amget`, `amset`, `amdelete`, `ayield_keys`) is the
@@ -92,6 +92,28 @@ the parts under the store root, so `mget(("prefs", "tone"))` reads
 the responder restricts memory paths to `/memories/`, per the Anthropic
 memory-tool specification, so a path that escapes that prefix is refused
 by the server rather than by the client.
+
+## Known issues in 2.4.0
+
+Checked against emem.dev and the package source on 2026-09-29. They are
+defects in the adapter, not in the responder.
+
+- **`mdelete` is refused.** `EmemSigner` builds only the v1 preimage,
+  `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`.
+  The responder still accepts v1 for `create`, `str_replace` and
+  `insert`, but verifies `delete` and `rename` against v2 only,
+  `blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash
+  + "|" + base)`, where `base` is the `file_cid` being replaced. A
+  delete signed here fails with `memory_attestation_invalid`.
+- **Tool errors are not raised.** emem returns a failed MCP tool call as
+  a `result` with `isError: true` and the error in its text. The adapter
+  checks only for a JSON-RPC `error`, so it treats that result as
+  success. A refused `mset` returns without raising, and `mget` on a key
+  that was never written returns the error text as bytes
+  (`b"tool error (-6): cid_not_found: ..."`) instead of `None`.
+
+Until these are fixed, check a write by reading it back, and treat an
+`mget` value that starts with `tool error (` as a miss.
 
 ## Receipts, and the one thing this adapter cannot give you
 
@@ -110,7 +132,7 @@ If you need receipts, call the memory tool directly. It is the same
 endpoint the store uses:
 
 ```python
-import json, uuid, httpx
+import uuid, httpx
 
 r = httpx.post(
     "https://emem.dev/mcp",
@@ -124,8 +146,15 @@ r = httpx.post(
         },
     },
 ).json()
-print(r["result"]["structuredContent"]["receipt"])
+result = r["result"]
+if result.get("isError"):
+    raise RuntimeError(result["content"][0]["text"])  # e.g. cid_not_found
+print(result["structuredContent"]["receipt"])
 ```
+
+Use a path you have written; `aoqqpp7t` stands for your own `pubkey8`.
+The view also carries an `authorship` block with the writer's key, its
+signature and the preimage version it verified under.
 
 Verify a receipt with `POST /v1/verify_receipt`, or offline at
 [/verify](https://emem.dev/verify), which recomputes the preimage and
@@ -145,12 +174,15 @@ signer.attester_block("create", f"{signer.namespace_root}/note.md", b"hi")
 # {'pubkey_b32': '...', 'sig_b32': '...'}
 ```
 
-The preimage shape is fixed and shared with the Rust implementation, so a
-block built here verifies there. Note that it is per-verb: the signature
-binds the verb, the path and a hash of the body, so a `create` signature
-is not a `delete` signature for the same path. `rename` is the exception
-worth reading the source for, because its preimage binds the old path
-through the body hash while `path` carries the destination.
+The block uses the v1 preimage, which the responder accepts for
+`create`, `str_replace` and `insert`; `delete` and `rename` need v2 (see
+the known issues above). The signature is per verb: it binds the verb,
+the path and a hash of the body, so a `create` signature is not a
+`delete` signature for the same path. `rename` is the one worth reading
+the source for, because its preimage binds the old path through the body
+hash while `path` carries the destination. Any refusal also returns
+`details.how_to_sign` with the digest the responder expected, which is
+the quickest way to see where your preimage differs.
 
 The full wire format, the verb list and the error codes are in
 [Memory substrate](../memory.md).

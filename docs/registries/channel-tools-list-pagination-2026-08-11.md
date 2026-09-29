@@ -1,5 +1,13 @@
 # Why hosts and directories show 12 tools, not 107
 
+> Checked 2026-09-29: the fix shipped. A no-cursor `tools/list` at
+> `https://emem.dev/mcp` now returns all 18 core tools in one page (76,766
+> bytes measured) with no `nextCursor`, so the chain ends at the core tier;
+> `/mcp/full` lists all 114 across 8 pages. The `server.json` text this record
+> calls false now describes the single core page, though its byte figures
+> (about 64 KB, and 7 pages for `/mcp/full`) are behind the measurement. The
+> numbers below are the 2026-08-11 state.
+
 *Measured against `https://emem.dev` on 2026-08-11. Every number below is one
 `tools/list` call away from being reproduced.*
 

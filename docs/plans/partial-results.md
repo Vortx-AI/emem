@@ -1,5 +1,15 @@
 # Partial results: the answer is the store, not a job queue
 
+> Checked against the code 2026-09-29: all four build steps ship. Two things
+> differ from the text below. `budget_ms` is no longer opt-in: a
+> `recall_many` or `recall_polygon` call that passes none gets 75% of the
+> gateway timeout (`default_fanout_budget_ms` in
+> `crates/emem-api-rest/src/lib.rs`); backfill keeps its own budget. And the `pending[]` states the code
+> emits are `materializing`, `upstream_failed` and `skipped`, not
+> `budget_exhausted`. `/v1/grid` answers under the same contract. The current
+> reference is the endpoint table in [docs/agents.md](../agents.md) and the
+> `/v1/backfill` entry in `/openapi.json`.
+
 **Status: signed off by the owner 2026-07-16, build step 1 ships the
 same day: `recall_polygon` accepts `budget_ms` and answers a
 first-class partial 200 with a typed `pending[]` (`materializing` when
