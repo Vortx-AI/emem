@@ -27134,6 +27134,26 @@ async fn a2a_reason_compose(
         if let Some(n) = body.get("x_budget").and_then(|v| v.as_str()) {
             served_note = Some(n.to_string());
         }
+        // A service can pass its health probe and still refuse the work: the
+        // Cosmos host answers /health and then 503s every completion with "no
+        // CUDA device on this host". Its reason is the useful part, so it is
+        // passed on rather than read as an empty answer.
+        if !status.is_success() {
+            let why = body
+                .pointer("/error/message")
+                .and_then(|v| v.as_str())
+                .unwrap_or("no reason given");
+            let lasting = body
+                .pointer("/error/retry_will_help")
+                .and_then(|v| v.as_bool())
+                == Some(false);
+            let tail = if lasting {
+                " The service says retrying will not help."
+            } else {
+                ""
+            };
+            return Err((-32050i64, format!("model {base_model} refused the request ({status}): {why}.{tail} emem_ask still answers signed, with no model in the loop.")));
+        }
         // A truncated completion is an error, not an answer with a caveat.
         //
         // The Cosmos service reports `truncated` explicitly rather than making
