@@ -943,20 +943,42 @@ impl Cache for SledHotCache {
         let cids = cids.to_vec();
         off_thread(move || {
             let mut out = Vec::with_capacity(cids.len());
+            let mut repair: Vec<FactRow> = Vec::new();
             for cid in &cids {
+                let key = cid.as_str().as_bytes();
                 let body: Option<Vec<u8>> = match &src.redb {
-                    Some(r) => match r.get_fact(cid.as_str().as_bytes())? {
+                    Some(r) => match r.get_fact(key)? {
                         Some(b) => Some(b),
-                        None if src.consult_sled() => {
-                            facts.get(cid.as_str().as_bytes())?.map(|b| b.to_vec())
-                        }
-                        None => None,
+                        // The backfill walked the canonical INDEX, so a fact
+                        // that held no index slot was never copied: every
+                        // derivative (they carry no canonical key) and every
+                        // fact whose slot a later writer took while the index
+                        // was last-writer-wins. Their bytes are still in sled
+                        // and their cids are in issued receipts and tokens, so
+                        // a miss here reads sled once and copies a hit across.
+                        None => match facts.get(key)? {
+                            Some(b) => {
+                                let b = b.to_vec();
+                                if !src.consult_sled() {
+                                    repair.push((key.to_vec(), b.clone(), None));
+                                }
+                                Some(b)
+                            }
+                            None => None,
+                        },
                     },
-                    None => facts.get(cid.as_str().as_bytes())?.map(|b| b.to_vec()),
+                    None => facts.get(key)?.map(|b| b.to_vec()),
                 };
                 match body {
                     Some(b) => out.push(Some(cbor_to_fact(&b)?)),
                     None => out.push(None),
+                }
+            }
+            if let (Some(r), false) = (&src.redb, repair.is_empty()) {
+                if let Err(e) = r.put_batch(&repair, false) {
+                    tracing::warn!(error = %e, rows = repair.len(), "read-repair into redb failed; the sled copy still answers");
+                } else {
+                    tracing::info!(rows = repair.len(), "read-repair: copied unindexed facts from sled into redb");
                 }
             }
             Ok(out)
@@ -1378,6 +1400,29 @@ mod redb_cutover_tests {
 
     /// The cursor resumes: a second pass over an already-copied store copies
     /// nothing and still reaches the end.
+    /// A fact that held no index slot was never backfilled. After the
+    /// backfill is done it must still resolve, and it is copied into redb.
+    #[tokio::test]
+    async fn an_unindexed_fact_left_in_sled_still_resolves_and_is_repaired() {
+        let c = SledHotCache::open_temporary().unwrap();
+        let Some(r) = c.redb.clone() else { return };
+        let f = sample("ento.bria.calo.tris", "indices.ndvi", 7);
+        let cid = fact_cid_of(&f).unwrap();
+        // In sled's fact tree only, with no index row: the shape of a
+        // derivative or a displaced fact after the cutover.
+        c.facts
+            .insert(cid.as_str().as_bytes(), fact_to_cbor(&f).unwrap())
+            .unwrap();
+        r.mark_backfill_done().unwrap();
+        assert!(r.get_fact(cid.as_str().as_bytes()).unwrap().is_none());
+        let got = c.get_many(std::slice::from_ref(&cid)).await.unwrap();
+        assert!(got[0].is_some(), "the unindexed fact must still resolve");
+        assert!(
+            r.get_fact(cid.as_str().as_bytes()).unwrap().is_some(),
+            "and it is copied into redb on the read"
+        );
+    }
+
     #[tokio::test]
     async fn backfill_resumes_from_its_cursor_and_copies_nothing_twice() {
         let c = SledHotCache::open_temporary().unwrap();
