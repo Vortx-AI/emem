@@ -25217,6 +25217,17 @@ fn value_is_shortenable_text(key: &str, value: &JsonValue) -> bool {
 /// Both are smaller answers OF THE DECLARED SHAPE, which is the thing a
 /// declared schema actually promises, and the `_emem_truncation` note above
 /// still names the field.
+/// Seconds an MCP tools/call may run before the dispatcher answers with a
+/// budget error. Derived from the transport timeout so it always fires first.
+fn mcp_call_budget_secs() -> u64 {
+    let transport = timeout_seconds();
+    std::env::var("EMEM_MCP_CALL_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(32)
+        .clamp(5, transport.saturating_sub(5).max(5))
+}
+
 fn mcp_shorten_rather_than_empty(
     slimmed: &mut JsonValue,
     original: &JsonValue,
@@ -29612,14 +29623,7 @@ async fn mcp_jsonrpc_inner(
                 // That layer is the true cause of the empty-body-after-40s an
                 // integrator reported, and a budget above it would never win,
                 // so the ceiling is derived from it rather than guessed.
-                let transport = timeout_seconds();
-                let mcp_budget = std::time::Duration::from_secs(
-                    std::env::var("EMEM_MCP_CALL_TIMEOUT_SECS")
-                        .ok()
-                        .and_then(|v| v.parse::<u64>().ok())
-                        .unwrap_or(32)
-                        .clamp(5, transport.saturating_sub(5).max(5)),
-                );
+                let mcp_budget = std::time::Duration::from_secs(mcp_call_budget_secs());
                 // Names the caller passed that this tool does not declare.
                 // serde ignores unknown fields, so a typo like `celll` was
                 // dropped in silence and the tool ran on a default as if the
@@ -31438,7 +31442,7 @@ async fn mcp_tool_call_inner(
             // emem_ask, which answers signed with no model in the loop. That is
             // still strictly better than 504: it says what happened and what to
             // call instead.
-            let left = timeout_seconds()
+            let left = mcp_call_budget_secs()
                 .saturating_sub(started.elapsed().as_secs())
                 .saturating_sub(3);
             match tokio::time::timeout(
@@ -31474,7 +31478,10 @@ async fn mcp_tool_call_inner(
             let started = std::time::Instant::now();
             let mut v = ask_inner(s.clone(), req).await.map_err(mcp_err)?;
             if let Some(want) = want_model {
-                let left = timeout_seconds()
+                // The MCP call budget, not the transport's: counting down from
+                // the larger one let the model wait outlive the call, so the
+                // caller got a timeout instead of the answer beside a refusal.
+                let left = mcp_call_budget_secs()
                     .saturating_sub(started.elapsed().as_secs())
                     .saturating_sub(3);
                 attach_model_answer(&mut v, &q_for_model, &want, s, left).await;
