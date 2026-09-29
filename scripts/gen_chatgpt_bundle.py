@@ -445,18 +445,41 @@ def render(sub: dict, live: dict, origin: str) -> str:
             desc = desc[:597].rsplit(" ", 1)[0] + "…"
         lines += [f"## `{name}`", "", desc, ""]
         ro = ann.get("readOnlyHint")
+        # The submission keeps these under `justifications.<flag>_justification`.
+        # This read `readOnlyHint_justification`, a key the JSON does not have,
+        # so every non-read-only tool rendered an empty reason.
+        just = decl.get("justifications") or {}
+
+        def why(key: str) -> str:
+            return " ".join((just.get(key) or "").split())[:400]
+
         lines += [
             f"**Read-only:** {'yes' if ro else 'no'}. "
-            + (" ".join((decl.get("readOnlyHint_justification") or "").split())[:400]
-               if not ro else "It reads and returns; it adds nothing another reader would see."),
+            + (why("read_only_justification") if not ro
+               else "It reads and returns; it adds nothing another reader would see."),
             "",
         ]
+        for label, flag, key in [("Open world", "openWorldHint", "open_world_justification"),
+                                 ("Destructive", "destructiveHint", "destructive_justification")]:
+            if why(key):
+                lines += [f"**{label}:** {'yes' if ann.get(flag) else 'no'}. {why(key)}", ""]
         if props:
             # Required keys first: the first version listed six optional fields
             # and omitted the one required field directly above a line saying it
-            # was required, which is a worked example that does not work.
-            order = [k for k in required if k in props] + \
-                    [k for k in props if k not in required]
+            # was required, which is a worked example that does not work. Then
+            # the fields a caller actually fills in: a documented example, then
+            # the location and question keys. Alphabetical order after the
+            # required ones cut `place` from emem_ask's example, the field its
+            # description tells you to send.
+            primary = ["q", "query", "place", "cell", "lat", "lng", "id", "text", "token", "key"]
+
+            def rank(k: str) -> tuple:
+                spec = props[k] or {}
+                return (0 if k in required else 1,
+                        0 if spec.get("example") is not None else 1,
+                        primary.index(k) if k in primary else len(primary))
+
+            order = sorted(props, key=lambda k: (rank(k), list(props).index(k)))
             body = []
             for k in order[:7]:
                 spec = props[k] or {}

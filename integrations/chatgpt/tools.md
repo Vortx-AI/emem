@@ -16,19 +16,23 @@ Reads need no key and no account. None of emem's write verbs is exposed in this 
 
 Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope. When to use: Call when the question is about a specific place and the answer should carry its own evidence. Send the user's question verbatim as `q` plus a location as `place` (free text), `cell` (cell64), or `lat`+`lng`. One envelope comes back: `answer`, `spatial_trace` (the readings as primitives, each point indexing `fact_cids`),…
 
-**Read-only:** no. 
+**Read-only:** no. ask_inner reads through recall_with_auto_materialize, and for questions whose algorithm has a temporal recipe it also calls materialize_band_at. Both fetch a missing band, sign the fact and persist it to emem's publicly readable store, so the call can change what later readers see.
+
+**Open world:** yes. It reaches external services: a place name is geocoded through locate_inner, which can call Photon, Nominatim and Wikidata, and a missing band is fetched from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others).
+
+**Destructive:** no. It adds facts and never edits or deletes one; an earlier fact stays resolvable by its cid.
 
 **Input**
 
 ```json
 {
   "q": "<q>",
-  "cell": "<cell>",     // optional
-  "include": [],        // optional
-  "include_image": false, // optional
-  "lat": 0,             // optional
-  "lng": 0,             // optional
-  "model": "<model>"    // optional
+  "query": "<query>", // optional
+  "place": "<place>", // optional
+  "cell": "<cell>", // optional
+  "lat": 0,         // optional
+  "lng": 0,         // optional
+  "include": []     // optional
 }
 ```
 
@@ -42,16 +46,20 @@ Mint the canonical, vendor-neutral address (cell64) for a real-world place: the 
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
+**Open world:** yes. When the embedded gazetteer does not settle the name, locate_inner calls external geocoders (Photon and Nominatim, with a Wikidata decision stage). It only reads from them.
+
+**Destructive:** no. Nothing is written to the shared store, so nothing can be overwritten or removed.
+
 **Input**
 
 ```json
 {
+  "q": "<q>",       // optional
+  "query": "<query>", // optional
+  "place": "<place>", // optional
   "lat": 0,         // optional
   "lng": 0,         // optional
-  "name": "<name>", // optional
-  "place": "<place>", // optional
-  "q": "<q>",       // optional
-  "query": "<query>" // optional
+  "name": "<name>"  // optional
 }
 ```
 
@@ -61,19 +69,23 @@ Mint the canonical, vendor-neutral address (cell64) for a real-world place: the 
 
 Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. A fact_cid names one signed attestation, so a recalled fact is citeable and re-verifiable rather than a paraphrase: resolving it anywhere returns those exact bytes. It is NOT a fingerprint of the observation. The digest covers the responder's key and the moment it signed, so two responders that measure the same thing mint different fact_cids and a cid resolves only at the responder that signed it; use emem_entity for identity that crosses responders. Pass…
 
-**Read-only:** no. 
+**Read-only:** no. The handler is recall_with_auto_materialize. When a requested band is not held for the cell, it fetches the band upstream, signs the fact and persists it to emem's publicly readable store before answering.
+
+**Open world:** yes. A missing band is fetched from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others), and a place name is geocoded through locate_inner, which can call Photon, Nominatim and Wikidata.
+
+**Destructive:** no. It adds facts and never edits or deletes one; an earlier fact stays resolvable by its cid.
 
 **Input**
 
 ```json
 {
   "cell": "<cell>",
+  "place": "<place>",                   // optional
+  "lat": 0,                             // optional
+  "lng": 0,                             // optional
   "as_of_signed_at": "<as_of_signed_at>", // optional
   "as_of_tslot": 0,                     // optional
-  "band": "<band>",                     // optional
-  "bands": [],                          // optional
-  "cell64": "<cell64>",                 // optional
-  "deterministic": false                // optional
+  "band": "<band>"                      // optional
 }
 ```
 
@@ -86,6 +98,10 @@ Required: `cell`
 Verify a signed receipt envelope server-side: rebuilds the canonical preimage under the rule the receipt's own `preimage_version` names, runs ed25519 over the embedded key and signature, and returns `{valid, reason, failure_detail, signature_valid, merkle_proof_valid, signer_pubkey_b32, preimage_blake3_hex}`. A receipt is BYTE-FOR-BYTE OR NOTHING: v2 binds the inclusion proof, so any reshaping (a dropped field, a re-keyed one, a summary) invalidates the signature by design. For when the in-browser /verify path is unavailable, or for a server-side audit of a third party's receipt. When to…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
+
+**Open world:** no. The check runs against the caller's data and this node's published key. No external service is contacted.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
 
 **Input**
 
@@ -108,6 +124,10 @@ Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), tha
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
+**Open world:** no. It formats a string from arguments already in hand and contacts nothing.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
+
 **Input**
 
 ```json
@@ -127,17 +147,21 @@ Required: `cell`, `fact_cid`
 
 k-NN over the corpus by cell embedding or inline vector. Returns `neighbours` ordered nearest-first, each with `cell64`, `score` and the `band` scanned, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never materialised,…
 
-**Read-only:** no. 
+**Read-only:** no. The handler is find_similar_with_auto_materialize. When the seed cell has no vector fact, it materialises that band and the signed fact is persisted to emem's publicly readable store. The similarity search itself writes nothing.
+
+**Open world:** yes. Materialising the seed vector reads upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others), and a place name given as the key is geocoded through locate_inner.
+
+**Destructive:** no. It adds facts and never edits or deletes one; an earlier fact stays resolvable by its cid.
 
 **Input**
 
 ```json
 {
   "key": "<key>",
+  "cell": "<cell>",                     // optional
   "as_of_signed_at": "<as_of_signed_at>", // optional
   "as_of_tslot": 0,                     // optional
   "band": "<band>",                     // optional
-  "cell": "<cell>",                     // optional
   "cell64": "<cell64>",                 // optional
   "filter": {}                          // optional
 }
@@ -152,6 +176,10 @@ Required: `key`
 Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html). When to use: Call immediately before publishing, logging, or handing on any value you took from an emem…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
+
+**Open world:** no. It reads only facts this node already holds. No external service is contacted.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
 
 **Input**
 
@@ -173,15 +201,19 @@ Find the objects agents have bound a phrasing to, ranked by INDEPENDENT corrobor
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
+**Open world:** yes. When `near` is a place name, resolve_cell_field geocodes it through locate_inner, which can call Photon, Nominatim and Wikidata. Without `near` it reads only this node's registry.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
+
 **Input**
 
 ```json
 {
+  "text": "<text>", // optional
+  "token": "<token>", // optional
   "k": 0,           // optional
   "label": "<label>", // optional
-  "near": "<near>", // optional
-  "text": "<text>", // optional
-  "token": "<token>" // optional
+  "near": "<near>"  // optional
 }
 ```
 
@@ -193,12 +225,16 @@ Surface where the corpus DISAGREES with itself (algebra: competing evidence). Wh
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
+**Open world:** no. It reads only facts this node already holds. No external service is contacted.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
+
 **Input**
 
 ```json
 {
-  "band": "<band>",                     // optional
   "cell": "<cell>",                     // optional
+  "band": "<band>",                     // optional
   "cell64": "<cell64>",                 // optional
   "cell_prefix": "<cell_prefix>",       // optional
   "include_same_attester_sources": false, // optional
@@ -214,6 +250,10 @@ Surface where the corpus DISAGREES with itself (algebra: competing evidence). Wh
 Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html). When to use: Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string the fact was signed as:…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
+
+**Open world:** no. A handle that does not resolve here is reported as missing rather than fetched from anywhere else.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
 
 **Input**
 
@@ -233,14 +273,18 @@ The map of emem's tool surface, and the only tool you need to find the rest: the
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
+**Open world:** no. It describes this server from data compiled into it. No external call.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
+
 **Input**
 
 ```json
 {
+  "q": "<q>",             // optional
   "bundle": "<bundle>",   // optional
   "category": "<category>", // optional
   "name": "<name>",       // optional
-  "q": "<q>",             // optional
   "shape": "<shape>",     // optional
   "tier": "<tier>"        // optional
 }
@@ -253,6 +297,10 @@ The map of emem's tool surface, and the only tool you need to find the rest: the
 Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin,…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
+
+**Open world:** no. guard_resolve_token calls storage.get_facts_many and nothing else: no fetch, no materialise, no HTTP. A citation this node does not hold is reported, never looked up elsewhere.
+
+**Destructive:** no. Nothing is written, so nothing can be overwritten or removed.
 
 **Input**
 
@@ -271,19 +319,23 @@ Run emem-guard's policy pipeline over text you are about to send, against this r
 
 Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`emem:entity:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical…
 
-**Read-only:** no. 
+**Read-only:** no. post_entity mints a shared identity for a new anchor and writes it, with its alias rows, to the entity registry every agent resolves names against. The enlistment gate refuses callers without a valid signed attester block, so an unsigned call writes nothing.
+
+**Open world:** yes. It resolves the anchor through entity_locate_rich, which calls locate_inner and so can reach Photon, Nominatim and Wikidata, and the identity it mints is published for other agents to resolve.
+
+**Destructive:** no. When the anchor already has an identity, post_entity returns the existing record unchanged. It never edits or removes one.
 
 **Input**
 
 ```json
 {
   "label": "<label>",
-  "cell": "<cell>",   // optional
+  "place": "<place>", // optional
+  "cell": "<cell>", // optional
+  "lat": 0,         // optional
+  "lng": 0,         // optional
   "external_ids": {}, // optional
-  "kind": "<kind>",   // optional
-  "lat": 0,           // optional
-  "lng": 0,           // optional
-  "parent": "<parent>" // optional
+  "kind": "<kind>"  // optional
 }
 ```
 
@@ -295,7 +347,11 @@ Required: `label`
 
 Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wikidata) denotes an existing object, or with `stance: "disputes"` that it does not. A shared-space write: it changes what other agents resolve, so it is stored with your key, rate-limited per key, and weighed by how many INDEPENDENT keys agree. One key's binding is shown to every reader as one key's claim, never as the answer. When to use: Call when you can vouch that two phrasings denote one object, or to attach an authoritative external id; your key goes on the record. Use `stance: "disputes"` when another key's…
 
-**Read-only:** no. 
+**Read-only:** no. post_entity_alias appends a signed, attributed claim that a phrasing or external id denotes an existing entity, which changes what other agents see when they resolve that phrasing. The enlistment gate refuses unsigned callers.
+
+**Open world:** no. The handler writes one alias row to this node's entity store and calls no external service. GERS, OSM and Wikidata ids in the claim are stored as keys, never fetched.
+
+**Destructive:** no. Claims are append-only: a disagreement is a new row with stance `disputes`, never an edit or removal of an earlier claim.
 
 **Input**
 
@@ -315,19 +371,23 @@ Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wiki
 
 Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself. type | needs | optional | answers where_is | description | | cell64 for a named place what_is_here | cell OR place | description | what is attested at a location is_like | a, b | | cosine similarity of two cells…
 
-**Read-only:** no. 
+**Read-only:** no. It plans a typed intent and dispatches to emem_ask, emem_recall, emem_find_similar, emem_compare, emem_diff, emem_verify or emem_locate. Ask, recall and find_similar can materialise and persist signed facts, so the union is not read-only.
+
+**Open world:** yes. The primitives it dispatches to geocode place names and fetch missing bands from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others).
+
+**Destructive:** no. Every primitive it can reach only appends facts. It never edits or deletes one.
 
 **Input**
 
 ```json
 {
   "type": "<type>",
-  "a": "<a>",                   // optional
-  "b": "<b>",                   // optional
-  "band": "<band>",             // optional
-  "cell": "<cell>",             // optional
-  "claim": {},                  // optional
-  "description": "<description>" // optional
+  "place": "<place>", // optional
+  "cell": "<cell>", // optional
+  "lat": 0,         // optional
+  "lng": 0,         // optional
+  "key": "<key>",   // optional
+  "a": "<a>"        // optional
 }
 ```
 
@@ -339,7 +399,11 @@ Required: `type`
 
 Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Memory algebra: the `merge` operation (https://emem.dev/docs/model.html). When to use: Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt…
 
-**Read-only:** no. 
+**Read-only:** no. post_memory_bundle recalls each (cell, band, tslot) through recall_with_auto_materialize, so a cold member is materialised and persisted, and then stores the bundle record so its token resolves later.
+
+**Open world:** yes. Cold members are fetched from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others), a place name is geocoded, and the stored bundle can be resolved by anyone holding its token.
+
+**Destructive:** no. The bundle is content-addressed: the same members give the same token. Nothing existing is edited or removed.
 
 **Input**
 
@@ -358,7 +422,11 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 
 Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false. When to use: Call first when a question is about a place and the…
 
-**Read-only:** no. 
+**Read-only:** no. openai_search is a projection of emem_recall and calls recall_with_auto_materialize, so on a cold cell it fetches the missing band, signs the fact and persists it to emem's publicly readable store before returning citations.
+
+**Open world:** yes. A place name is geocoded through locate_inner and a missing band is fetched from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others).
+
+**Destructive:** no. It adds facts and never edits or deletes one; an earlier fact stays resolvable by its cid.
 
 **Input**
 
@@ -376,7 +444,11 @@ Required: `query`
 
 Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle writes nothing; a cell handle, like `emem_recall`, MATERIALIZES a missing band on a cold cell (fetched upstream, signed, persisted), so the flags follow that path: readOnlyHint false. When to use: Call on each result you intend…
 
-**Read-only:** no. 
+**Read-only:** no. Given an emem:fact: citation or a bare fact_cid, openai_fetch reads local storage and writes nothing. Given an emem:cell: handle it calls recall_with_auto_materialize, which can persist a newly materialised fact. The flag follows the second path.
+
+**Open world:** yes. A cell handle can materialise a missing band from upstream Earth-observation and weather archives (Sentinel-2 and -1, Copernicus DEM, JRC surface water, Open-Meteo and others). A fact handle contacts nothing.
+
+**Destructive:** no. It adds facts and never edits or deletes one; an earlier fact stays resolvable by its cid.
 
 **Input**
 
