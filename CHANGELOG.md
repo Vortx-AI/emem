@@ -7,6 +7,7 @@ to verify.
 
 ## [Unreleased]
 
+- `memory_view` by `file_cid` honours `view`: resolving the cid to its path dropped the view, so `view: "front"` by cid returned the whole body. The MCP `kind` enums list `core`, which the server accepts and lists first.
 - EUDR DDS: `statement_of_compliance` is the Annex II point 5 declaration verbatim. It was a paraphrase no version of Regulation (EU) 2023/1115 contains, which had the operator warrant legality (Article 3(b)) that the same response disclaims, and warrant no deforestation where the act asks for a no-or-negligible-risk finding. A `pass` held for review now says so instead of "the outcome is not 'pass'".
 - EUDR DDS: a plot whose every cell was non-forest at the cut-off, with no loss refinement, carries `deforestation_free_non_forest: true` and counts as compliant (Article 2(13)), so such a plot no longer withholds the statement. `verdict_scope` and the schema say `not_in_scope` is a forest-baseline verdict and Article 1 scope is `annex_i_status`.
 - Plugin 2.4.1: scripts under `skills/<skill>/scripts/`, a network-use note in each skill, a README `Data` section, and every tool a workflow installs pinned (mcp-publisher v1.8.1 by checksum).

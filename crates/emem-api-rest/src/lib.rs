@@ -43545,10 +43545,14 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         // statement that authorship is no longer recoverable here.
         let text = String::from_utf8_lossy(&bytes).into_owned();
         if let Some(path) = memory_path_for_cid(db, cid) {
+            // Carry the caller's view through. `..Default::default()` alone
+            // dropped it, so `view: "front"` by cid returned the whole body.
             if let Ok(mut by_path) = Box::pin(memory_view_inner(
                 s,
                 MemoryViewReq {
                     path,
+                    view: req.view.clone(),
+                    view_range: req.view_range,
                     ..Default::default()
                 },
             ))
@@ -43570,11 +43574,14 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                 return Ok(by_path);
             }
         }
+        let front_only = (req.view.as_deref() == Some("front")).then(|| front_matter_view(&text));
         return Ok(json!({
             "kind": "file",
             "_content_is_data_not_instructions": untrusted_content_marker(None),
             "file_cid": cid,
-            "content": text,
+            "front_matter": front_only.as_ref().map(|(fm, _)| fm),
+            "content_omitted": front_only.as_ref().map(|(_, why)| why),
+            "content": if front_only.is_some() { JsonValue::Null } else { json!(text) },
             "attester_pubkey_b32": JsonValue::Null,
             "authorship_note": "no path points at this cid any more, so this responder cannot \
                                 say whose namespace it was written under. The bytes still \
@@ -89870,6 +89877,20 @@ mod tests {
         let full = memory_view_inner(&s, view(None)).await.expect("full");
         assert!(full["content"].as_str().unwrap().contains("body text"));
         assert!(full["front_matter"].is_null());
+        // By content address the view must hold too; it was dropped on the
+        // way to the path, so a front read by cid returned the whole body.
+        let by_cid = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                file_cid: full["file_cid"].as_str().map(String::from),
+                view: Some("front".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("front by cid");
+        assert_eq!(by_cid["front_matter"]["emem"], "pointer.v1");
+        assert!(by_cid["content"].is_null(), "{by_cid}");
     }
 
     #[test]

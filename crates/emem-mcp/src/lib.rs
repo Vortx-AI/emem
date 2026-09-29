@@ -812,7 +812,7 @@ const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","properties":{
 "path":{"type":"string","description":"`/memories/<file>` for a file, or `/memories/<subdir>/` for a directory listing. Must stay under `/memories/`. Give this or `file_cid`."},
 "file_cid":{"type":"string","description":"Read a note by its CONTENT ADDRESS instead of its path, and the alternative to `path` rather than a companion to it. This resolves whether or not a path still points at the bytes, so a citation survives its author renaming, superseding or deleting the note. Re-hash what comes back with blake3 to confirm the bytes are the ones the cid names: this responder is not the authority on that, the hash is."},
 "view_range":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Optional [start_line, end_line] inclusive, 1-indexed. Lets the agent read part of a long file."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (episodic|semantic|procedural|resource)."},
+"kind":{"type":"string","enum":["core","episodic","semantic","procedural","resource"],"description":"Optional kind filter when listing a directory. Restricts entries to one memory type (core|episodic|semantic|procedural|resource)."},
 "offset":{"type":"integer","minimum":0,"description":"Directory listings only: skip this many entries. A truncated listing reports where to resume as _emem_truncation.omitted_fields[].stub._next_offset; pass that value here for the next page. The response echoes `offset` and `total`."},
 "vault_capability":{"type":"string","description":"Optional Vault capability: an ed25519 signature (base32-nopad-lc) over blake3(\"emem.vault_open|\"+path+\"|\"+nonce_bytes), verifiable under the responder pubkey that sealed the entry. When the path is a Vault entry and this verifies, memory_view returns decrypted plaintext; otherwise it returns ciphertext-only. Ignored for non-vault paths."},
 "view":{"type":"string","enum":["front","line"],"description":"`line` returns only the note's verb-first `line:` front matter; `front` returns all its front matter (key: value pairs). Both omit the body, so reading a catalog or an inbox does not fetch every body."}
@@ -821,7 +821,7 @@ const SCHEMA_MEMORY_VIEW: &str = r#"{"type":"object","properties":{
 const SCHEMA_MEMORY_CREATE: &str = r#"{"type":"object","required":["path","file_text"],"properties":{
 "path":{"type":"string","description":"`/memories/<file>` path. Overwrites if the file exists AND you own the path. Must stay under `/memories/`."},
 "file_text":{"type":"string","description":"Full file contents."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource","vault"],"description":"Optional memory typing tag. Default `resource`. `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad; `vault` = AEAD-sealed secret (stored encrypted; memory_view returns ciphertext-only unless a valid ed25519 capability over blake3(\"emem.vault_open|\"+path+\"|\"+nonce) is supplied; never indexed by memory_search). SCOPE OF THE SEAL: the AEAD key is derived from THIS RESPONDER'S own ed25519 secret and the capability verifies under the responder pubkey, so a vault protects your bytes from other callers and from anyone who obtains the database file, NOT from the responder's operator, who can decrypt any vault entry. Encrypt client-side first if you need storage the operator cannot read."},
+"kind":{"type":"string","enum":["core","episodic","semantic","procedural","resource","vault"],"description":"Optional memory typing tag. Default `resource`. `core` = always-listed-first working state; `episodic` = observation; `semantic` = learned fact; `procedural` = playbook; `resource` = generic scratchpad; `vault` = AEAD-sealed secret (stored encrypted; memory_view returns ciphertext-only unless a valid ed25519 capability over blake3(\"emem.vault_open|\"+path+\"|\"+nonce) is supplied; never indexed by memory_search). SCOPE OF THE SEAL: the AEAD key is derived from THIS RESPONDER'S own ed25519 secret and the capability verifies under the responder pubkey, so a vault protects your bytes from other callers and from anyone who obtains the database file, NOT from the responder's operator, who can decrypt any vault entry. Encrypt client-side first if you need storage the operator cannot read."},
 "attester":{"type":"object","description":"ed25519 caller binding: {pubkey_b32, sig_b32}, where sig signs blake3(\"emem.memory_write.v2|create|<path>|\" + body_hash + \"|<base>\") where body_hash = blake3(the file_text bytes you send) as 32 raw bytes and base = the file_cid now at that path, or the literal \"absent\" for a new one. This responder refuses unattested writes by default. You do not need to look the format up or register anything: send the write without `attester` and the refusal returns the exact 32-byte digest to sign for that write, the base32 rules, and a runnable example. Any locally generated keypair works; the key owns `/memories/by_attester/<first 8 chars of pubkey_b32>/...`.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
@@ -829,7 +829,7 @@ const SCHEMA_MEMORY_STR_REPLACE: &str = r#"{"type":"object","required":["path","
 "path":{"type":"string","description":"`/memories/<file>` path the replacement targets."},
 "old_str":{"type":"string","description":"Exact substring to replace. The whole call fails (no partial write) when the old_str is absent or appears more than once."},
 "new_str":{"type":"string","description":"Replacement substring."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
+"kind":{"type":"string","enum":["core","episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
 "attester":{"type":"object","description":"Optional ed25519 caller binding. See memory_create for the preimage shape (verb=str_replace).","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
@@ -837,7 +837,7 @@ const SCHEMA_MEMORY_INSERT: &str = r#"{"type":"object","required":["path","inser
 "path":{"type":"string","description":"`/memories/<file>` path the insertion targets."},
 "insert_line":{"type":"integer","minimum":0,"description":"1-indexed line number AFTER which to insert. 0 inserts at the top of the file."},
 "new_str":{"type":"string","description":"Text to insert. A trailing newline is preserved if present; one is added otherwise."},
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
+"kind":{"type":"string","enum":["core","episodic","semantic","procedural","resource"],"description":"Optional memory typing override. If omitted the existing kind is preserved."},
 "attester":{"type":"object","description":"Optional ed25519 caller binding. See memory_create for the preimage shape (verb=insert).","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
@@ -873,7 +873,7 @@ const SCHEMA_MEMORY_RENAME: &str = r#"{"type":"object","required":["old_path","n
 }}"#;
 
 const SCHEMA_MEMORY_LIST_BY_KIND: &str = r#"{"type":"object","required":["kind"],"properties":{
-"kind":{"type":"string","enum":["episodic","semantic","procedural","resource"],"description":"Memory type to enumerate."},
+"kind":{"type":"string","enum":["core","episodic","semantic","procedural","resource"],"description":"Memory type to enumerate."},
 "prefix":{"type":"string","description":"Optional path prefix filter, e.g. `/memories/by_attester/abcd1234/`."},
 "limit":{"type":"integer","minimum":1,"maximum":2048,"description":"Maximum entries to return (default 256, cap 2048). Results are sorted signed_at desc."}
 }}"#;
