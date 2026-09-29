@@ -20200,7 +20200,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                             "address": {"type": ["string", "null"], "$comment": "Annex II §1(c)"}
                         }
                     },
-                    "verdict": {"type": "string", "enum": ["pass", "fail", "not_in_scope", "indeterminate", "below_mmu"], "$comment": "Overall DDS verdict aggregated across plots; below_mmu plots count as compliant in DDS aggregation"},
+                    "verdict": {"type": "string", "enum": ["pass", "fail", "not_in_scope", "indeterminate", "below_mmu"], "$comment": "Overall DDS verdict aggregated across plots. pass: no post-cut-off loss in forest at the 2020 baseline. fail: post-cut-off loss above the 0.5 ha MMU. below_mmu: loss under the MMU, counted compliant. not_in_scope: a FOREST-BASELINE scope, the land was not forest at the cut-off (or a loss was natural-cause); it is not Article 1 commodity scope, which is annex_i_status. A plot with deforestation_free_non_forest true counts compliant. indeterminate: baseline inputs missing"},
                     "verdict_code": {"type": "integer", "enum": [1, 2, 3, 4, 6], "$comment": "Numeric verdict from eudr_compliance@1 output values + 6 = below_mmu (Article 2(4) 0.5 ha MMU floor)"},
                     "n_plots":      {"type": "integer", "minimum": 1}
                 }
@@ -66232,6 +66232,16 @@ struct EudrCellVerdict {
     lossyear_fact_cid: Option<String>,
 }
 
+/// A plot whose every cell was non-forest at the cut-off, with no loss
+/// refinement (a natural-cause loss also reads code 3 and is not this).
+fn non_forest_deforestation_free(plot_verdict: u8, per_cell: &[EudrCellVerdict]) -> bool {
+    plot_verdict == 3
+        && !per_cell.is_empty()
+        && per_cell
+            .iter()
+            .all(|c| c.verdict == 3 && c.refinement_applied.is_none())
+}
+
 fn verdict_label(code: u8) -> &'static str {
     match code {
         1 => "pass",
@@ -68644,11 +68654,21 @@ fn max_decimal_digits(coords: &[Vec<Vec<f64>>]) -> usize {
     max
 }
 
-/// Statement-of-compliance text per Annex II §6. Affirmative shape for
-/// `"pass"`; "cannot be signed" shape for everything else.
-fn statement_of_compliance(verdict: &str) -> &'static str {
-    match verdict {
-        "pass" => "I, the operator named above, hereby confirm that, on the basis of due diligence carried out in accordance with Regulation (EU) 2023/1115: (a) the relevant products have been produced in accordance with the relevant legislation of the country of production; (b) no deforestation or forest degradation, as defined in Article 2(3) and Article 2(7), has occurred on the relevant production plots after 31 December 2020; (c) the relevant products are deforestation-free as defined in Article 2(13). I assume the regulatory responsibility set out in Article 4.",
+/// The Annex II point 5 declaration of Regulation (EU) 2023/1115, verbatim.
+/// Point 5 prescribes the exact text, and Regulation (EU) 2025/2650 leaves it
+/// unchanged (its only Annex II amendment deletes point 4). This field used to
+/// carry a paraphrase that no version of the act contains: it had the operator
+/// warrant legality under Article 3(b), which the same response disclaims as
+/// out of Earth-observation scope, and warrant that no deforestation occurred,
+/// where the regulation asks for a finding of no or negligible risk.
+const ANNEX_II_POINT_5: &str = "By submitting this due diligence statement the operator confirms that due diligence in accordance with Regulation (EU) 2023/1115 was carried out and that no or only a negligible risk was found that the relevant products do not comply with Article 3, point (a) or (b), of that Regulation.";
+
+/// The statement text for this outcome: the Annex II point 5 declaration
+/// when it can be signed, and otherwise the reason it cannot yet be.
+fn statement_of_compliance(verdict: &str, held_for_review: bool) -> &'static str {
+    match (verdict, held_for_review) {
+        ("pass", false) => ANNEX_II_POINT_5,
+        ("pass", true) => "The due diligence outcome is 'pass', but the statement is held until a person reviews the plots flagged in per_plot_results (tmf_cross_check.review_required, or verdict_support.level 'weak'). The declaration is the Annex II point 5 text; it is not offered for signature until then.",
         _ => "Statement of compliance cannot be signed because the due diligence outcome is not 'pass'. Operator must address the underlying findings (see per_plot_results) before submitting a DDS to TRACES NT.",
     }
 }
@@ -69399,6 +69419,20 @@ async fn post_eudr_dds_inner(
                 obj.insert("loss_year_histogram".into(), lh);
             }
             if let Some(obj) = plot_obj.as_object_mut() {
+                // `not_in_scope` on a plot is a forest-baseline verdict, not an
+                // Article 1 one (that is `annex_i_status`). When every cell was
+                // non-forest at the cut-off and none carries a loss refinement,
+                // the plot is deforestation-free by Article 2(13) and counts as
+                // compliant in the DDS, where it used to withhold the statement
+                // from a legitimately compliant non-forest plot.
+                obj.insert(
+                    "deforestation_free_non_forest".into(),
+                    json!(non_forest_deforestation_free(plot_verdict, &per_cell)),
+                );
+                obj.insert(
+                    "verdict_scope".into(),
+                    json!("forest baseline at the cut-off; Article 1 commodity scope is annex_i_status"),
+                );
                 let tmf = tmf_cross_check(&per_cell, cutoff_year);
                 obj.insert(
                     "verdict_support".into(),
@@ -69480,11 +69514,20 @@ async fn post_eudr_dds_inner(
         .iter()
         .filter_map(|c| c.as_ref().map(|c| c.verdict_code))
         .collect();
-    // DDS-level aggregation: `below_mmu` (code 6) counts as compliant,
-    // not as fail.
+    // Code-3 plots that are not the clean non-forest case (a natural-cause
+    // loss, say) still keep the statement back.
+    let non_forest_other = per_plot_results
+        .iter()
+        .filter(|p| {
+            p["verdict_code"] == json!(3) && p["deforestation_free_non_forest"] != json!(true)
+        })
+        .count();
+    // DDS-level aggregation: `below_mmu` (code 6) and a deforestation-free
+    // non-forest plot count as compliant, not as fail.
     let overall = if overall_verdicts.contains(&2) {
         2
-    } else if overall_verdicts.iter().all(|&v| v == 1 || v == 6) {
+    } else if non_forest_other == 0 && overall_verdicts.iter().all(|&v| v == 1 || v == 6 || v == 3)
+    {
         1
     } else if overall_verdicts.iter().all(|&v| v == 3) {
         3
@@ -69617,7 +69660,7 @@ async fn post_eudr_dds_inner(
         "operator":                  req.operator.clone(),
         "geolocationConfidentiality": confidential,
         "commodities":               commodities,
-        "statementOfCompliance":     statement_of_compliance(overall_label),
+        "statementOfCompliance":     statement_of_compliance(overall_label, review_required || weak_support),
         "statementOfComplianceSignable": overall_label == "pass" && !review_required && !weak_support,
         "statementOfComplianceReviewRequired": review_required || weak_support,
     });
@@ -69656,7 +69699,7 @@ async fn post_eudr_dds_inner(
             "verdict_code": overall,
             "n_plots":      req.plots.len(),
         },
-        "statement_of_compliance":     statement_of_compliance(overall_label),
+        "statement_of_compliance":     statement_of_compliance(overall_label, review_required || weak_support),
         "statement_of_compliance_signable": overall_label == "pass" && !review_required && !weak_support,
         "traces_nt_envelope": traces_nt_envelope,
         "per_plot_results": per_plot_results,
@@ -87098,18 +87141,24 @@ mod tests {
     }
 
     #[test]
-    fn statement_of_compliance_pass_includes_three_sub_statements() {
-        let s = statement_of_compliance("pass");
-        assert!(s.contains("(a)") && s.contains("(b)") && s.contains("(c)"));
-        assert!(s.contains("after 31 December 2020"));
-        assert!(s.contains("Article 2(13)"));
+    fn a_signable_statement_is_annex_ii_point_5_verbatim() {
+        assert_eq!(
+            statement_of_compliance("pass", false),
+            "By submitting this due diligence statement the operator confirms that due diligence in accordance with Regulation (EU) 2023/1115 was carried out and that no or only a negligible risk was found that the relevant products do not comply with Article 3, point (a) or (b), of that Regulation."
+        );
+        let held = statement_of_compliance("pass", true);
+        assert!(held.contains("held until a person reviews"), "{held}");
+        assert!(
+            !held.contains("not 'pass'"),
+            "a pass held for review is not a non-pass: {held}"
+        );
     }
 
     #[test]
     fn statement_of_compliance_non_pass_blocks_signing() {
         for v in ["fail", "indeterminate", "below_mmu"] {
             assert!(
-                statement_of_compliance(v).contains("cannot be signed"),
+                statement_of_compliance(v, false).contains("cannot be signed"),
                 "verdict {v} should block signing",
             );
         }
@@ -87463,6 +87512,35 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(scene_bbox(&q("75.70,x,30.10,75.71,30.11")).is_err());
+    }
+
+    #[test]
+    fn a_non_forest_plot_is_deforestation_free_but_a_natural_loss_is_not() {
+        let cell = |refinement: Option<&'static str>| EudrCellVerdict {
+            cell: "c".into(),
+            verdict: 3,
+            label: "not_in_scope",
+            jrc_forest_2020: Some(0),
+            hansen_treecover_2000: Some(2),
+            hansen_lossyear: Some(0),
+            jrc_tmf_deforestation_year: None,
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: refinement,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        assert!(non_forest_deforestation_free(3, &[cell(None), cell(None)]));
+        assert!(!non_forest_deforestation_free(
+            3,
+            &[cell(None), cell(Some("sims_natural_cause"))]
+        ));
+        assert!(
+            !non_forest_deforestation_free(3, &[]),
+            "no cells is no evidence"
+        );
+        assert!(!non_forest_deforestation_free(1, &[cell(None)]));
     }
 
     #[test]
