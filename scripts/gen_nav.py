@@ -251,14 +251,16 @@ def render(current: str) -> str:
         out.append('</div>')
     out.append('</div></details>')
     out.append('<span class="sitebar-gap"></span>')
-    out.append('<a class="navplain" href="/mcp">MCP</a>')
-    # The sockets. A <ul> because it IS a list of places, and a screen reader
-    # should be told how many before it reads them.
-    out.append('<ul class="ports" aria-label="Where emem is listed">')
-    for label, href, note in PORTS:
-        out.append(f'<li><a class="port" href="{href}" target="_blank" rel="noopener noreferrer" title="{note}">'
-                   f'<span class="port-pin" aria-hidden="true"></span>{label}</a></li>')
-    out.append('</ul>')
+    # Two doors on the right, not six. The bar used to carry MCP plus a pill
+    # per directory listing (ChatGPT, Dify, MCP registry, GitHub), which read
+    # as a row of badges beside the navigation and pushed it together at
+    # 1280px. The listings live in the footer's "Listed on" column, from this
+    # same PORTS table; the bar keeps the one step a developer takes next and
+    # the source.
+    # /reference#client-setup, not /clients: /clients serves the agent guide as
+    # raw markdown, which is right for an agent and wrong for a button.
+    out.append('<a class="navcta" href="/reference#client-setup">Connect</a>')
+    out.append('<a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer">GitHub</a>')
     out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.

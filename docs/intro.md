@@ -1,8 +1,6 @@
 # emem.dev: verifiable memory for AI agents
 
-emem is a memory substrate AI agents read, write, and cite. It is a vendor-neutral, citeable identity layer that stops referential drift: every place resolves to one canonical address (cell64), every observation to one signed fact (fact_cid), and every object to one citeable identity (emem:entity:<entity_cid>, minted by emem_entity), so different models reason from the same world object instead of divergent descriptions. Drift runs in both directions: the paraphrase that drifts from its referent, which the token pins, and the readout that drifts at a pinned reference, which the change-attribution ledger now reports as per-term evidence (the numeric split is still roadmap). Every read returns an ed25519-signed receipt. Every write is content-addressed. Every byte is reproducible on any peer that mirrors the data, verifiable in the browser at `/verify`.
-
-emem is a shared memory for AI agents that connects facts and gets better over time. Every answer is signed, so anyone can check it without trusting the server.
+emem is shared memory for AI agents. Every place resolves to one address (`cell64`), every observation to one signed fact (`fact_cid`), and every object to one identity (`emem:entity:<entity_cid>`), so two models reason about the same thing rather than two descriptions of it. Every answer carries an Ed25519 receipt, so anyone can check it without trusting the server, in the browser at [/verify](/verify).
 
 The substrate has two layers riding the same trust surface:
 
@@ -13,7 +11,7 @@ Every read primitive across both layers accepts a bi-temporal axis: `as_of_tslot
 
 ## Where this is going
 
-emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. None of the multi-host federation routing ships yet in the 1.x line. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
+emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. Multi-host routing does not ship yet. What runs today is witnessing: emem.dev co-signs geo.qa's log head, and an independent witness co-signs emem.dev's. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
 
 This site renders the canonical docs straight from the repo at `docs/`. Every page here ships in the same signed server binary as the rest of `web/`; there is no separate docs host.
 

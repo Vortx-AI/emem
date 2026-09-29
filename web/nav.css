@@ -49,6 +49,22 @@
   opacity: .62;
 }
 .navplain:hover { opacity: 1; color: var(--ink) }
+.navcta {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  margin: 0 var(--s-2) 0 var(--s-3);
+  padding: .42rem .9rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  color: var(--paper);
+  background: var(--ink);
+  text-decoration: none;
+  font-weight: 600;
+  line-height: 1;
+}
+.navcta:hover, .navcta[aria-current] { background: var(--accent); border-color: var(--accent); color: var(--paper) }
+.navcta:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
 
 .navgrp { position: relative }
 .navgrp > summary {
@@ -196,6 +212,7 @@
   .sitebar.navjs .navmenu a { min-height: 44px }
   .sitebar.navjs .sitebar-gap { display: none }
   .sitebar.navjs .navplain { min-height: 44px; font-size: var(--t-xs); opacity: 1 }
+  .sitebar.navjs .navcta { align-self: flex-start; min-height: 44px; margin: var(--s-2) 0 0; padding: 0 1.1rem }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -561,6 +578,30 @@ footer.page.foot.sitefoot {
 body.doc { --w-page: var(--w-doc); --gutter: var(--gutter-doc); --pad-x: var(--gutter-doc) }
 body.doc .section { grid-template-columns: var(--col-meta) minmax(0, 1fr); justify-content: stretch }
 body.doc :is(.section-body, .doc-body) > :is(p, ul, ol, blockquote, h2, h3, h4, .lede, details.fold) { max-width: var(--measure) }
+/* Prose is the human claim, so it is set in the serif, as tokens.css says the
+   split should be. It had inherited the body's mono, which put every paragraph
+   of every inner page in a terminal face at reading size. Only sentences move:
+   code, tokens, figures, tables, chips and the margin notes stay mono. 66ch
+   because a serif at 18px carries more characters per inch than mono at 16. */
+body.doc :is(.section-body, .doc-body) > :is(p:not([class], [id]), p.lede, blockquote),
+body.doc :is(.section-body, .doc-body) > :is(ul, ol):not([class]) > li,
+body.doc :is(.hw-list, .hw-steps, .ops, .uc-list) > li,
+body.doc :is(.section-body, .doc-body) > details.fold > :is(p:not([class], [id]), ul:not([class]) > li, ol:not([class]) > li) {
+  font-family: var(--display);
+  font-size: var(--t-md);
+  line-height: 1.6;
+  font-weight: 400;
+  font-variation-settings: 'opsz' 18;
+  letter-spacing: 0;
+}
+body.doc :is(.section-body, .doc-body) > :is(p:not([class], [id]), p.lede, blockquote) { max-width: 66ch }
+/* A list item's bold lead-in is a label, so it keeps the label face. */
+body.doc :is(.hw-list, .hw-steps, .ops, .uc-list) > li > b:first-child { font-family: var(--mono); font-size: .84em; font-weight: 600 }
+body.doc :is(.section-body, .doc-body) :is(p, .lede, blockquote, li) :is(code, kbd, samp, .tok, .mono, .num) {
+  font-family: var(--mono);
+  font-size: .86em;
+  letter-spacing: 0;
+}
 @media (max-width: 900px) {
   body.doc .section { grid-template-columns: minmax(0, 1fr) }
 }
@@ -644,6 +685,25 @@ body.doc :is(.section-body, .doc-body) > :is(p, ul, ol, blockquote, h2, h3, h4, 
 @media (max-width: 900px) {
   .doc-head { grid-template-columns: minmax(0, 1fr); padding-top: var(--s-4) }
   .doc-toc ol { columns: 1 }
+}
+/* On a phone the list was a column of twelve rows, a full screen between the
+   title and the first sentence. It becomes one row of chips that scrolls
+   sideways inside itself; the page does not scroll sideways. */
+@media (max-width: 720px) {
+  .doc-toc { border-left: 0; padding-left: 0; min-width: 0 }
+  .doc-toc ol {
+    display: flex; gap: var(--s-2); columns: auto;
+    overflow-x: auto; overscroll-behavior-x: contain; scrollbar-width: none;
+    margin: 0 calc(-1 * var(--pad-x)); padding: 2px var(--pad-x) var(--s-2);
+    scroll-padding-inline: var(--pad-x);
+  }
+  .doc-toc ol::-webkit-scrollbar { display: none }
+  .doc-toc li { flex: none }
+  .doc-toc a {
+    align-items: center; min-height: 36px; padding: 0 .8rem;
+    border: 1px solid var(--rule-strong); border-radius: 999px;
+    background: var(--paper); white-space: nowrap;
+  }
 }
 
 /* Figures. One stroke weight, one palette, labels at 12.6-14px at 1x. An SVG

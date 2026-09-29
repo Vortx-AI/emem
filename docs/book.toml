@@ -1,5 +1,5 @@
 [book]
-title       = "emem.dev — verifiable memory for AI agents"
+title       = "emem docs"
 authors     = ["Vortx-AI"]
 description = "Earth memory + agent memory on one signed substrate. Every read returns an ed25519 receipt. Every write is content-addressed. Bi-temporal at every query."
 src         = "."

@@ -16,7 +16,7 @@
  * no structural changes, search / fold / mathjax untouched.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap');
 
 /* ── palette: the web/index.html :root token block (oklch, hue 85) ───────── */
 :root {
@@ -25,13 +25,16 @@
   --paper-3:      oklch(0.93  0.006 85);
   --ink:          oklch(0.20  0.005 85);
   --ink-2:        oklch(0.32  0.005 85);
-  --mute:         oklch(0.50  0.005 85);
-  --mute-2:       oklch(0.68  0.005 85);
+  /* Same values as web/tokens.css, which raised both to clear WCAG AA on
+     every paper; 0.68 measured 2.68:1 and carried real text here too. */
+  --mute:         oklch(0.42  0.005 85);
+  --mute-2:       oklch(0.516 0.005 85);
   --rule:         oklch(0.86  0.008 85);
   --rule-strong:  oklch(0.72  0.010 85);
   --accent:       oklch(0.45  0.09  145);
   --accent-bg:    oklch(0.93  0.04  145);
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --display: 'Newsreader', Georgia, 'Times New Roman', serif;
 }
 
 /* ── mdbook variable mapping ──────────────────────────────────────────────
@@ -293,3 +296,33 @@ ul#mdbook-searchresults li, ul#searchresults li { background: var(--paper-2); }
 .nav-chapters, .mobile-nav-chapters { color: var(--mute); }
 .nav-chapters:hover { color: var(--accent); }
 .mobile-nav-chapters { background: var(--paper-2); border: 1px solid var(--rule); }
+
+/* ── the site's type split, in the docs too ─────────────────────────────────
+   web/ sets prose and headings in Newsreader and keeps JetBrains Mono for the
+   machine record: code, tokens, tables, navigation. The docs were mono
+   throughout, which made them read as a different product. Sizes are in px
+   because mdBook's root is 62.5%, so a rem here is 10px and the sidebar's old
+   0.84375rem was 8.4px. */
+.content p, .content li, .content blockquote {
+  font-family: var(--display);
+  font-size: 18px;
+  line-height: 1.62;
+  font-variation-settings: 'opsz' 18;
+}
+.content :is(p, li, blockquote) :is(code, kbd, samp) { font-family: var(--mono); font-size: 0.84em; }
+.content table, .content table p, .content table li { font-family: var(--mono); font-size: 14px; line-height: 1.5; }
+.content h1, .content h2, .content h3 {
+  font-family: var(--display);
+  font-weight: 450;
+  letter-spacing: -0.012em;
+}
+.content h1 { font-size: 42px; line-height: 1.08; font-variation-settings: 'opsz' 48; }
+.content h2 { font-size: 30px; line-height: 1.15; font-variation-settings: 'opsz' 32; }
+.content h3 { font-size: 22px; line-height: 1.25; font-variation-settings: 'opsz' 24; }
+.content h4, .content h5 { font-family: var(--mono); font-size: 14px; letter-spacing: 0.02em; }
+.chapter li.chapter-item, .chapter li a { font-size: 14px; }
+.chapter li.part-title { font-size: 12px; font-weight: 600; margin-top: 14px; }
+.menu-title { font-family: var(--display); font-weight: 500; font-size: 20px; letter-spacing: -0.01em; }
+/* Inside serif prose a bordered chip per identifier made a paragraph read as a
+   row of buttons. The tint alone marks the machine record. */
+.content :is(p, li) > code { border: 0; background: var(--paper-3); color: var(--ink); padding: 0.08em 0.3em; }
