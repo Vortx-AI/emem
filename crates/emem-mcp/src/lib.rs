@@ -294,7 +294,7 @@ impl ToolCategory {
 /// the accepted surface are the same set — and a list of field names retyped
 /// inside a test is free to drift from the schema it claims to mirror.
 pub const SCHEMA_RECALL: &str = r#"{"type":"object","required":["cell"],"properties":{
-"cell":{"type":"string","description":"cell64 string, e.g. 'damO.zb000.xUti.zde78'","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
+"cell":{"type":"string","description":"cell64 string, e.g. 'defi.zb64a.cAzU.zfa27'","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23},
 "band":{"type":"string","description":"optional single band key, convenience alias for bands:[band]. Use when you want exactly one band (e.g. 'geotessera.2020', 'modis.ndvi_mean') and would otherwise have to wrap it in an array. Both `band` and `bands` are accepted; if both are given they are merged."},
 "bands":{"type":"array","items":{"type":"string"},"description":"optional band keys to filter, e.g. ['indices.ndvi','geotessera']"},
 "tslot":{"type":"integer","description":"optional time slot (band-tempo-relative integer offset from emem epoch)"},
@@ -399,7 +399,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"],
   "description":"Which question you are asking, and therefore which other fields apply. where_is: name a place, get its cell64 (needs `description`). what_is_here: summarise a location (needs `cell`, OR `place`/`description` to resolve it first). is_like: pairwise similarity (needs `a` and `b`). did_change: did one band move over a time window (needs `cell`, `band`, `window`). find_like: nearest neighbours to a known cell (needs `key`; optional `k`, `filter`). confirm: is a claim true at a cell (needs `claim` and `cell`). ask: free-text question about a place, runs locate + topic-route + recall server-side (needs `description`; optional `place`/`cell`/`lat`+`lng` to pin the location)."},
 "description":{"type":"string","description":"where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents."},
-"cell":{"type":"string","description":"cell64 address, e.g. \"damO.zb000.xUti.zde78\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead."},
+"cell":{"type":"string","description":"cell64 address, e.g. \"defi.zb64a.cAzU.zfa27\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead."},
 "place":{"type":"string","description":"Free-text place name for what_is_here and ask when you have a name but no cell64, e.g. \"Ashok Nagar, Ranchi\". The responder geocodes it. Ignored when `cell` is present."},
 "lat":{"type":"number","minimum":-90,"maximum":90,"description":"ask only: latitude, paired with `lng`, when you want to pin the location by coordinate rather than by name or cell64."},
 "lng":{"type":"number","minimum":-180,"maximum":180,"description":"ask only: longitude, paired with `lat`."},
@@ -541,7 +541,7 @@ const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","c
 const OUT_ASK: &str = r#"{"type":"object","required":["schema","spatial_trace"],"properties":{
 "schema":{"type":"string","const":"emem.ask_structured.v1"},
 "question":{"type":"string","description":"The question as asked."},
-"answer":{"type":"string","description":"The prose answer. The same text is in the content block, which also carries the full envelope."},
+"answer":{"type":"string","description":"The prose answer. Also in the content block, which carries the MCP projection; POST /v1/ask has the full envelope."},
 "cell":{"type":"string","description":"The cell64 the question resolved to: emem's address for the place."},
 "spatial_trace":{"type":"object","description":"A spatial memory trace: what this responder has measured at this place, as primitives a model can reason over rather than a picture a person looks at.","required":["schema","layers","counts"],"properties":{
 "schema":{"type":"string","const":"emem.spatial_trace.v1"},
@@ -556,7 +556,7 @@ const OUT_ASK: &str = r#"{"type":"object","required":["schema","spatial_trace"],
 "unit":{"type":"string"},
 "age_s":{"type":"integer","description":"How old the reading was when this answer was written."},
 "class":{"type":"string","description":"Provenance class: direct_sensor, deterministic_index, estimator, model_output, attested_execution, human_curated, unclassified. What KIND of claim this is."},
-"f":{"type":"integer","description":"Index into the fact_cids array in this result's text block. Dereference it to get the signed bytes."}}}}}}},
+"f":{"type":"integer","description":"Index into `receipt.fact_cids` (or the list `_projection.fact_cids_at` names). Dereference it for the signed bytes."}}}}}}},
 "absent":{"type":"array","description":"Bands this responder looked for and did not find. Absence is evidence: without it a consumer infers coverage nobody measured.","items":{"type":"object","properties":{"band":{"type":"string"}}}},
 "counts":{"type":"object","description":"Totals taken BEFORE any cap, so truncation can be seen rather than guessed.","properties":{"present":{"type":"integer"},"absent":{"type":"integer"},"points_shown":{"type":"integer"},"absent_shown":{"type":"integer"}}},
 "truncated":{"type":"boolean"}}},
@@ -637,7 +637,7 @@ const SCHEMA_OPENAI_SEARCH: &str = r#"{"type":"object","required":["query"],"pro
 }}"#;
 
 const OUT_OPENAI_SEARCH: &str = r#"{"type":"object","required":["results"],"properties":{
-"results":{"type":"array","description":"One entry per signed fact, plus a final entry for the cell itself carrying the true total, so a capped list still says how much there was.","items":{"type":"object","required":["id","title","url"],"properties":{
+"results":{"type":"array","description":"The FIRST entry (index 0) is the cell itself, carrying the true total, so a capped list still says how much there was; after it, one entry per signed fact.","items":{"type":"object","required":["id","title","url"],"properties":{
 "id":{"type":"string","description":"The emem citation handle. Pass it straight to `fetch`."},
 "title":{"type":"string","description":"band, place and the value as it was signed."},
 "url":{"type":"string","description":"Stable URL serving the signed bytes this entry cites."}
@@ -773,7 +773,8 @@ const SCHEMA_ENTITY: &str = r#"{"type":"object","required":["label"],"properties
 "cell":{"type":"string","description":"cell64 to anchor the object directly (no geocode)."},
 "lat":{"type":"number","minimum":-90,"maximum":90,"description":"Latitude anchoring the object to a place, paired with lng. The identity is hashed from this anchor, so two agents anchoring the same object differently mint different entities."},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"Longitude, paired with lat."},
 "external_ids":{"type":"object","description":"Stable ids that drive convergence. Caller-supplied values win over geocoder-derived ones.","properties":{"gers":{"type":"string","description":"Overture GERS division id (strongest anchor)."},"osm":{"type":"string","description":"OpenStreetMap object as <type>/<id>, e.g. way/717919508."},"wikidata":{"type":"string","description":"Wikidata QID."}}},
-"parent":{"type":"string","description":"Optional parent entity_cid (containment)."}
+"parent":{"type":"string","description":"Optional parent entity_cid (containment)."},
+"attester":{"type":"object","description":"ed25519 binding, verified. Omit it and the refusal's details.how_to_sign gives the digest to sign.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 const SCHEMA_ENTITY_RESOLVE: &str = r#"{"type":"object","properties":{
@@ -789,7 +790,8 @@ const SCHEMA_ENTITY_LINK: &str = r#"{"type":"object","properties":{
 "entity_cid":{"type":"string","description":"The canonical object to attach an equivalence to. Provide entity_cid OR entity_token."},
 "entity_token":{"type":"string","description":"A `emem:entity:<entity_cid>` handle for the same."},
 "alias":{"type":"string","description":"An alternate label/phrasing that should resolve to this object."},
-"external_ids":{"type":"object","description":"Stable ids to bind to this object.","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}
+"external_ids":{"type":"object","description":"Stable ids to bind to this object.","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}},
+"attester":{"type":"object","description":"ed25519 binding, verified. Omit it and the refusal's details.how_to_sign gives the digest to sign.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}},"required":["pubkey_b32","sig_b32"]}
 }}"#;
 
 // ── Anthropic memory tool (context-management-2025-06-27) ──
@@ -920,8 +922,8 @@ const SCHEMA_ASK: &str = r#"{"type":"object","required":["q"],"properties":{
 "lng":{"type":"number","description":"WGS-84 longitude (paired with `lat`)."},
 "include_image":{"type":"boolean","default":false,"description":"Bundle a Sentinel-2 RGB scene URL for the resolved cell. Adds ~1-2 s on first call."},
 "model":{"type":"string","description":"Optional. Compose an EXTRA prose answer with a named model, returned as `model_answer` beside the deterministic `answer`. It does not replace it: `answer` is synthesised from the structured fields and never calls a model, so every number in it traces to a fact_cid, and asking for a model must not turn a checkable answer into an unchecked one. `model_answer` carries provenance.class = model_output. Name it by base_model (`nvidia/Cosmos3-Edge`), by family (`cosmos3_edge`, `gemma`), or by any fragment naming exactly one of them (`cosmos`); a fragment matching several is refused and names them; an unroutable name is refused with the list of routable ones, and a routable model whose service is not answering is refused as busy or down rather than silently substituted. Cosmos deliberates and typically takes 13-22 s."},
-"verbose":{"type":"boolean","default":false,"description":"When true, return the full envelope: per-algorithm formula strings, temporal_recipe blocks, per-fact band_metadata duplicates, and the long _explanation prose. Default (since 2026-05-05) is false so the response fits MCP's 25 KB cap; the signed receipt + fact CIDs + algorithm keys + algorithms_cid are always retained. Pass true to get the full body when debugging."},
-"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","foundation_embeddings","scene","inventory"]},"description":"Opt-in heavy response sections. Default response is slim (~5 KB): answer + algorithm key + fact_cids + caveats. Name specific sections to include them. Ignored when verbose=true (which includes everything)."},
+"verbose":{"type":"boolean","default":false,"description":"REST only: true adds per-algorithm formulas, band metadata and long prose. The MCP projection is small (about 7 KB) either way; the REST envelope is larger."},
+"include":{"type":"array","items":{"type":"string","enum":["band_observations","algorithm_outcomes","facts_full","temporal_composition","scene","inventory","reasoning","algorithms"]},"description":"Opt-in REST envelope sections. `reasoning` drops `algorithms_for_question`; add `algorithms` to keep it. The MCP projection ignores these."},
 "question":{"type":"string","description":"Alias for `q`."},
 "query":{"type":"string","description":"Alias for `q`."}
 }}"#;
@@ -1311,7 +1313,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_ask",
         title: "Ask a free-text question about a place",
         description: "Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope.",
-        when_to_use: "Call when the question is about a specific place and the answer should carry its own evidence. Send the user's question verbatim as `q` plus a location as `place` (free text), `cell` (cell64), or `lat`+`lng`. One envelope comes back: `answer`, `spatial_trace` (the readings as primitives, each point indexing `fact_cids`), `facts_summary`, `receipt` and `fact_cids` at the ROOT, and `caveats` naming grid resolution and revisit cadence. Missing bands are materialised on demand. `include: [\"reasoning\"]` adds the ordered stages with their detail; `include_image: true` bundles a Sentinel-2 thumbnail. A question outside the corpus answers `topic_routing.matched_topic: null` with the inventory, so you can route elsewhere rather than guess.",
+        when_to_use: "Call when the question is about a specific place and the answer should carry its own evidence. Send the question verbatim as `q` plus `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection: `answer`, `receipt` (cite `receipt.fact_cids`), `place_resolved`, `routed_to`, `facts_summary`, `algorithm_outcomes_summary`, `spatial_trace`, `scene_url`, `model_answer` if you passed `model`, and `_projection` naming what was left out. POST /v1/ask has more: `caveats`, `topic_routing`, `reasoning`, and `inventory` with include:[\"inventory\"]. A `routed_to` other than answer comes back whole. It answers with a current value; for how X changed use emem_intent did_change or emem_diff.",
         input_schema: SCHEMA_ASK,
         output_schema: Some(OUT_ASK),
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
@@ -1677,7 +1679,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "search",
         title: "Find signed facts for a place, as citable sources",
-        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the final entry names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false.",
+        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false.",
         when_to_use: "Call first when a question is about a place and the answer must be citable: it turns the question into a list of sources, each of which `fetch` expands. For a synthesised answer in one call, use emem_ask instead.",
         input_schema: SCHEMA_OPENAI_SEARCH,
         output_schema: Some(OUT_OPENAI_SEARCH),
@@ -1983,7 +1985,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call after `emem_locate`, or with a known cell64 or place name. Returns every Primary fact at that (cell, band, tslot). If a requested band has no fact yet but has a materializer, the responder fetches the upstream value, signs it, persists it and returns it in the same call (slow once, cached after), so any wired band recalls at any cell on Earth: pass `bands: [<band>]`. `materialize_notes` lists what was just fetched; empty with no notes means no materializer here.",
         input_schema: SCHEMA_RECALL,
         output_schema: Some(OUT_RECALL),
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","bands":["weather.temperature_2m","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
@@ -2019,7 +2021,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'how does region X look', 'what's the average NDVI here', or wants a region-level summary. Use `agg=mean|median|p90|vector_centroid` to fold per-band values.",
         input_schema: SCHEMA_QUERY_REGION,
         output_schema: None,
-        example_args: r#"{"geometry":"cells:damO.zb000.xUti.zde78,damO.zb000.xUto.sisA","agg":"mean"}"#,
+        example_args: r#"{"geometry":"cells:defi.zb64a.cAzU.zfa27,defi.zb4d9.pefa.zf619","agg":"mean"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2031,7 +2033,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'how similar is X to Y', 'compare these two places', or wants a difference vector. Returns a single cosine score and per-band deltas.",
         input_schema: SCHEMA_COMPARE,
         output_schema: None,
-        example_args: r#"{"a":"damO.zb000.xUti.zde78","b":"damO.zb000.xUto.sisA"}"#,
+        example_args: r#"{"a":"defi.zb64a.cAzU.zfa27","b":"defi.zb4d9.pefa.zf619"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2051,11 +2053,11 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_find_similar",
         title: "k-NN over the corpus by embedding",
-        description: "k-NN over the corpus by cell embedding or inline vector. Returns `neighbours` ordered nearest-first, each with `cell64`, `score` and the `band` scanned, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never materialised, so an empty result means nobody has attested a vector nearby, not that nowhere resembles the key.",
+        description: "k-NN over the corpus by cell embedding or inline vector. Returns `neighbors` ordered nearest-first, each with `cell`, `score`, `lat`/`lng` and `band_used`, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never materialised, so an empty result means nobody has attested a vector nearby, not that nowhere resembles the key.",
         when_to_use: "Call when the user asks 'find places like X', 'where else looks like this', or hands an embedding to find neighbours. `key` is either a cell64 or `inline:[x,y,...]`. Default band is `geotessera` (128-D Tessera foundation embedding); pass `band: \"geotessera.multi_year\"` for the 1152-D 9-vintage (2017–2025) fusion.",
         input_schema: SCHEMA_FIND_SIMILAR,
         output_schema: None,
-        example_args: r#"{"key":"damO.zb000.xUti.zde78","k":10}"#,
+        example_args: r#"{"key":"defi.zb64a.cAzU.zfa27","k":10}"#,
         level: "L0", category: ToolCategory::Read,
     // `false`, and it was wrong to flip it to `true` on 2026-09-14.
     //
@@ -2085,7 +2087,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'how did X change over time' for a band that already has multiple historical tslots seeded. IMPORTANT differences from `emem_recall`: (1) trajectory does NOT auto-materialize past tslots, it returns only facts that have already been attested at this responder, so for fast-tempo bands like `indices.ndwi` you'll typically see ONE point at the latest tslot until an attester seeds history. (2) tslots are non-negative `u64`; there's no negative-offset 'last 2 years' shorthand. For LONG-TERM history questions ('flooded in last 2 years', 'forest loss since 2020') prefer either (a) a static-tempo summary band that one fact answers, `surface_water.recurrence` covers 1984-2021 in a single signed value, no trajectory needed, or (b) `emem_backfill` to materialize and sign the missing tslots in one call.",
         input_schema: SCHEMA_TRAJECTORY,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[0,12]}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","window":[0,12]}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2097,7 +2099,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks 'what changed between t1 and t2', 'give me the delta'. Returns a signed DerivativeFact + receipt; the delta itself is content-addressed and citable. Read the `phenology` block before treating a seasonal-band delta as change: if `same_doy` is false, compare the same day-of-year across years instead.",
         input_schema: SCHEMA_DIFF,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2157,7 +2159,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user wants HISTORY for a fast/medium-tempo band and `emem_trajectory` returned only the latest point. The responder iterates the tslot range derived from the band's tempo, calls the per-tslot historical materializer, signs each result, and persists. After completion `emem_trajectory` over the same window returns the full series. Bands without a historical materializer (e.g. `weather.*` from met.no's nowcast) return `status: \"present_only\"` for past tslots, check `emem_coverage_matrix.history_available_from`/`history_available_to` to see how far back each band can be backfilled. Prefer this over staking an attestation when the upstream is publicly fetchable.",
         input_schema: SCHEMA_BACKFILL,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"modis.ndvi_mean","start_unix":1640995200,"end_unix":1735689600,"max_facts":24}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","band":"modis.ndvi_mean","start_unix":1640995200,"end_unix":1735689600,"max_facts":24}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "extended",
@@ -2171,7 +2173,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Use when the user wants a short-horizon LST forecast (urban heat island, surface-temperature evolution, heatwave onset modelling) at a specific cell. Default α=1e-6 m²/s matches urban surface diffusivity (Oke 2017); pass a smaller α for water bodies or higher for vegetated surfaces. The solver caps at one-week horizons because the 8-day MODIS composite stops being a representative initial condition past that. Each call materialises 9 MODIS facts (one per neighbour) on miss, first call ~5 s cold, ~30 ms warm. Receipt cites all 9 input fact CIDs.",
         input_schema: SCHEMA_HEAT_SOLVE,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","hours_ahead":6}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","hours_ahead":6}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2183,7 +2185,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Use when the user wants to predict swell arrival at a coast (storm-surge planning, shoreline-impact assessment, surf forecasting). The solver walks `n_offshore_cells` cells seaward from `coastal_cell` along the bathymetric gradient (default 8 cells = 80 m of profile at the active 10 m grid), samples GMRT depth at each, and integrates the wave equation forward until the wavefront reaches the coast plus one period. Receipt cites every depth fact CID along the profile. Returns 422 with a clear message if `coastal_cell` is land-locked.",
         input_schema: SCHEMA_WAVE_SOLVE,
         output_schema: None,
-        example_args: r#"{"coastal_cell":"damO.zb000.xUti.zde78","offshore_height_m":2.0,"period_s":8.0}"#,
+        example_args: r#"{"coastal_cell":"defi.zb64a.cAzU.zfa27","offshore_height_m":2.0,"period_s":8.0}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2195,7 +2197,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Use when the user wants a one-month-ahead NDVI forecast at a specific cell (crop-stress monitoring, growing-season tracking, vegetation-anomaly anticipation). Lookback defaults to 6 months; if fewer monthly tslots are attested at this cell, the predictor uses what's there and surfaces the count in `lookback_months_used`. Returns 422 if no NDVI history exists at the cell, chain to `emem_backfill` first to seed history. Receipt cites every input NDVI fact CID.",
         input_schema: SCHEMA_JEPA_PREDICT,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","lookback_months":6}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2209,7 +2211,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the user asks a yes/no question about a cell ('is the NDVI > 0.7 here', 'has this been deforested'), or when downstream code wants citable evidence for a logical predicate.",
         input_schema: SCHEMA_VERIFY,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","claim":{"band":"indices.ndvi","op":"gt","value":0.5,"tslot":0}}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","claim":{"band":"indices.ndvi","op":"gt","value":0.5,"tslot":0}}"#,
         level: "L1", category: ToolCategory::Verify,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
@@ -2450,7 +2452,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Use after emem_find_similar (give it the neighbour cells), after emem_recall_polygon (when you want a deterministic cell list rather than a polygon), or whenever you have a precomputed set of cells (e.g. an admin-2 sample frame) and want one round-trip. Pass `cells: [c1, c2, ...]` plus the same `bands` shape as emem_recall. For more than 256 cells, batch the call.",
         input_schema: SCHEMA_RECALL_MANY,
         output_schema: None,
-        example_args: r#"{"cells":["damO.zb000.xUti.zde78","damO.zb000.xUto.sisA"],"bands":["indices.ndvi","copdem30m.elevation_mean"]}"#,
+        example_args: r#"{"cells":["defi.zb64a.cAzU.zfa27","defi.zb4d9.pefa.zf619"],"bands":["indices.ndvi","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -2522,7 +2524,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call this first when the user's question is about CHANGE OVER TIME or a PAST EVENT and you're not sure which bands/dates to recall, 'was this flooded last year', 'what was the NDVI baseline before the fire', 'compare this place across vintages'. It hands you the recipe; then run those steps with `emem_recall`. Skip it when the user wants a single current reading. Pass `cell` plus an optional free-text `intent` hint. The plan is deterministic and the receipt cites which algorithm supplied each step.",
         input_schema: SCHEMA_TEMPORAL_ROUTE,
         output_schema: None,
-        example_args: r#"{"cell":"damO.zb000.xUti.zde78","intent":"flood_window"}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","intent":"flood_window"}"#,
         level: "L0", category: ToolCategory::Plan,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
@@ -2531,7 +2533,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_verify_receipt",
         title: "Server-side ed25519 receipt verifier",
         description: "Verify a signed receipt envelope server-side: rebuilds the canonical preimage under the rule the receipt's own `preimage_version` names, runs ed25519 over the embedded key and signature, and returns `{valid, reason, failure_detail, signature_valid, merkle_proof_valid, signer_pubkey_b32, preimage_blake3_hex}`. A receipt is BYTE-FOR-BYTE OR NOTHING: v2 binds the inclusion proof, so any reshaping (a dropped field, a re-keyed one, a summary) invalidates the signature by design. For when the in-browser /verify path is unavailable, or for a server-side audit of a third party's receipt.",
-        when_to_use: "Pass the receipt EXACTLY as the read primitive returned it, whole and unmodified. Two omissions produce a false forgery rather than a 400, and they are the only two worth memorising: dropping `merkle_proof`, and dropping `preimage_version` (absent deserialises to 0, which silently selects the v0 rule, so the proof still walks while the signature reads as invalid). Signature and pubkey may be byte arrays or `sig_b32` / `responder_pubkey_b32`; no other spelling is tolerated. Reshaping a field this responder can check is reported as `reason: receipt_reshaped_after_signing` with the field named, never accepted. Optionally set `pubkey_b32` to assert a specific signer. A bad signature is 200 with `valid: false`, never a 4xx. The example arguments are a real receipt this responder signed (key epoch 0) over one weather fact at Trafalgar Square: run it unchanged and `valid` is true; change any byte and it is not.",
+        when_to_use: "Pass the receipt EXACTLY as the read primitive returned it, whole and unmodified. Two omissions produce a false forgery rather than a 400, and they are the only two worth memorising: dropping `merkle_proof`, and dropping `preimage_version` (absent deserialises to 0, which silently selects the v0 rule, so the proof still walks while the signature reads as invalid). Signature and pubkey may be byte arrays or `sig_b32` / `responder_pubkey_b32`; no other spelling is tolerated. Reshaping a field this responder can check is reported as `reason: receipt_reshaped_after_signing` with the field named, never accepted. Optionally set `pubkey_b32` to assert a specific signer. A bad signature is 200 with `valid: false`, never a 4xx. The example arguments are a real receipt this responder signed (key epoch 0) over two facts at Trafalgar Square (the two `fact_cids`): run it unchanged and `valid` is true; change any byte and it is not.",
         input_schema: SCHEMA_VERIFY_RECEIPT,
         output_schema: None,
         example_args: r#"{"receipt":{"cells":["defi.zb64a.cAzU.zfa27"],"cost":{"credits":0,"latency_p50_ms":1,"latency_p99_ms":20,"source_freshness_s":2014090,"was_cached":true},"fact_cids":["gn5praqrpnpszg3hiaf5dv4ox67dls73ivir7ladvr25sm7f3aka","ghctissil7k4si3g57fwtxxrk4fb56crujz2xictxzqj2zos3olq"],"merkle_proof":{"leaf_index":0,"path":[],"root":[12,67,60,231,210,105,254,175,126,230,209,51,182,142,45,47,209,102,110,233,215,185,156,142,190,238,189,208,49,152,196,21],"version":1},"preimage_version":2,"primitive":"emem.recall","registry_cid":"3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa","request_id":"01M2GBYPN79QVNBAF7QF4GJVM6","responder":[255,254,72,239,8,57,144,88,50,189,59,5,171,89,152,150,76,49,228,100,142,79,43,250,36,191,48,224,42,206,101,84],"responder_key_epoch":0,"responder_pubkey_b32":"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka","schema_cid":"d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq","served_at":"2026-09-14T16:28:10Z","signature":[39,191,224,161,96,20,92,102,97,108,62,36,155,155,93,54,153,176,171,68,0,253,83,250,0,0,73,242,5,64,219,119,169,93,240,155,44,111,251,184,102,101,226,155,214,54,125,24,186,145,1,174,13,24,74,68,124,247,24,172,143,154,150,10],"signature_b32":"e676bilacrogmylmhysjxg25g2m3bk2ead6vh6qaabe7ebka3n32sxpqtmwg765ymzs6fg6wgz6rrouragxa2gckir6pogfmr6njmcq","source_versions":{"bands_cid":"mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra","registry_cid":"3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa","schema_cid":"d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq","sources_cid":"xu646y24wvuegd33m2mrpasxefqgdq3ow5ploezijer6trzuwe3a"}}}"#,
@@ -2548,7 +2550,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_guard_verdict",
         title: "Check whether the citations in a draft actually verify",
-        description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
+        description: "Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), PROV_VALUE (a stated value disagrees with the cited fact), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable half: refresh_token, remove_reference, contact_admin, cite_observation, correct_value. GEO_ZONE and redact_and_retry come only from a self-hosted guard. ADVISORY: nothing is blocked, and a citation this responder does not hold is never a denial, because it is indistinguishable from one minted elsewhere. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html).",
         when_to_use: "Call it on your own draft before you assert something, or on a tool result before you reason on it, to catch a citation that does not resolve while you can still fix it. `claim_gating: true` also names measurable claims with no citation and the band that would answer them. For a payload another framework produced (CloudEvent, OPA input, OpenAI moderations body, another server's tool call) send it as-is and name its `shape`: the default reader sees only `texts`, and a check that read nothing still answers allow. To ENFORCE rather than consult, emem_guard_selfhost returns the procedure for your own node.",
         input_schema: SCHEMA_GUARD_VERDICT,
         output_schema: Some(OUT_GUARD_VERDICT),
@@ -2691,7 +2693,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         when_to_use: "Call when the question maps onto one of the seven rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but absent from `tools/list` is not a dead end: every one of the {TOOL_TOTAL} dispatches by name at `/mcp` and `/mcp/full`; the core list is {TOOL_CORE} to keep the catalog small, and `emem_tools` enumerates the rest.",
         input_schema: SCHEMA_INTENT,
         output_schema: None,
-        example_args: r#"{"type":"did_change","cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[20245,20620]}"#,
+        example_args: r#"{"type":"did_change","cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","window":[20245,20620]}"#,
         level: "L0", category: ToolCategory::Plan,
     read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "core",

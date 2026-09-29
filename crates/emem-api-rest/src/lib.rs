@@ -13270,32 +13270,7 @@ async fn post_recall(
         // a parallel array; the per-fact form matches the OpenAPI
         // `Fact` schema and removes the index-zip dance for callers.
         enrich_facts_with_cid(&mut v);
-        // Opt-in advisory freshness (include:["freshness"]): each fact gains a
-        // Q(Δt) staleness score from the band's physics decay kernel, the same
-        // one /v1/temporal_route ranks bands with. Post-receipt, so the signed
-        // preimage is byte-identical to a recall without the flag.
-        if req
-            .include
-            .as_ref()
-            .map(|i| i.iter().any(|x| x == "freshness"))
-            .unwrap_or(false)
-        {
-            attach_recall_freshness(&mut v);
-        }
-        // Opt-in provenance class (include:["provenance"]). The class is what
-        // `deterministic` and the `provenance` filter select ON, and a caller
-        // could filter by it without ever being told which class a returned
-        // fact belongs to. Post-receipt like freshness, so the signed preimage
-        // is byte-identical to a recall without the flag; the class itself is
-        // already attested through bands_cid, which the preimage does cover.
-        if req
-            .include
-            .as_ref()
-            .map(|i| i.iter().any(|x| x == "provenance"))
-            .unwrap_or(false)
-        {
-            attach_recall_provenance(&mut v);
-        }
+        attach_recall_includes(&mut v, req.include.as_deref());
         if let Some(map) = v.as_object_mut() {
             if !materialize_notes.is_empty() {
                 map.insert(
@@ -24583,8 +24558,20 @@ fn mcp_slim_inner_to_budget_keeping(
     // budget it was measured against.
     let listed = dropped.len().min(MAX_LISTED_OMISSIONS);
     let unlisted = dropped.len() - listed;
+    // Advise only what exists for THIS result: a `fetch` block that was
+    // built, and a paging argument only when the result itself pages. The
+    // fixed sentence sent every caller to both, including tools with neither.
+    let pages = ["next_cursor", "nextCursor", "cursor", "page", "page_size"]
+        .iter()
+        .any(|k| map.contains_key(*k));
+    let reason = match (fetch.is_some(), pages) {
+        (true, true) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). The REST request in the `fetch` block below returns the complete signed payload, or request a smaller page with this tool's own paging argument.",
+        (true, false) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). The REST request in the `fetch` block below returns the complete signed payload.",
+        (false, true) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Request a smaller page with this tool's own paging argument, or narrow the request.",
+        (false, false) => "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). No REST call could be rebuilt from this result; narrow the request, or send the same arguments to this tool's REST route, which has no cap.",
+    };
     let mut note = json!({
-        "reason": "this MCP tool result exceeded the host's wire budget and was slimmed to fit; the listed fields were OMITTED (not lost). Run `fetch` for the complete signed payload, or pass a pagination cursor (cursor, page, max_cells, encoders) to fit the MCP cap.",
+        "reason": reason,
         "budget_bytes": budget,
         "omitted_fields": dropped[..listed].to_vec(),
         "fetch": fetch,
@@ -24831,7 +24818,29 @@ fn attach_unknown_arguments(mut inner: JsonValue, unknown: &[String]) -> JsonVal
 const OPENAI_SEARCH_MAX: usize = 40;
 
 /// A `text` field long enough to be useful and short enough to survive the wire.
-const OPENAI_FETCH_TEXT_MAX: usize = 12_000;
+///
+/// It was 12,000, which is half the 24,000-byte wire budget and so no room at
+/// all: `text` rides twice (escaped once in the mirror, twice in the text
+/// block), so 12,000 bytes of text cost more than 24,000 on the wire, and the
+/// generic slimmer then re-cut it by byte count, mid-citation, dropping the
+/// line naming where the whole record lives. The byte cap is now only an
+/// upper bound; `openai_capped_text` also cuts by what the wire charges.
+const OPENAI_FETCH_TEXT_MAX: usize = 9_000;
+
+/// What a `fetch` result spends on everything but `text`, both copies: id,
+/// title, url, metadata, the result envelope, and the cut marker itself.
+const OPENAI_FETCH_ENVELOPE_RESERVE: usize = 3_000;
+
+/// Bytes one character of `text` costs on the wire across both copies: once
+/// escaped in the structured mirror, twice escaped inside the text block.
+fn openai_text_wire_cost(c: char) -> usize {
+    match c {
+        '"' | '\\' => 2 + 4,
+        '\n' | '\r' | '\t' | '\u{8}' | '\u{c}' => 2 + 3,
+        c if (c as u32) < 0x20 => 6 + 7,
+        c => 2 * c.len_utf8(),
+    }
+}
 
 /// Does this look like a citation rather than a place?
 fn looks_like_an_emem_citation(q: &str) -> bool {
@@ -25071,7 +25080,18 @@ async fn openai_fetch(s: &AppState, id: &str) -> Result<JsonValue, (i64, String)
 /// A record silently truncated still reads like a whole one, which is the
 /// shape this codebase refuses everywhere else it appears.
 fn openai_capped_text(text: String, whole: &str) -> String {
-    if text.len() <= OPENAI_FETCH_TEXT_MAX {
+    let room = mcp_response_budget_bytes().saturating_sub(OPENAI_FETCH_ENVELOPE_RESERVE);
+    // The longest prefix under both the byte cap and the wire cost.
+    let mut cost = 0usize;
+    let mut ceiling = text.len();
+    for (i, c) in text.char_indices() {
+        cost += openai_text_wire_cost(c);
+        if i + c.len_utf8() > OPENAI_FETCH_TEXT_MAX || cost > room {
+            ceiling = i;
+            break;
+        }
+    }
+    if ceiling == text.len() {
         return text;
     }
     let full = text.len();
@@ -25080,17 +25100,13 @@ fn openai_capped_text(text: String, whole: &str) -> String {
     // lands mid-token and leaves a citation that parses and resolves to
     // nothing. Falling back to a character boundary only when there is no
     // newline to use, which is the prose case, where a tail is just a tail.
-    let ceiling = (0..=OPENAI_FETCH_TEXT_MAX)
-        .rev()
-        .find(|i| text.is_char_boundary(*i))
-        .unwrap_or(0);
     let at = text[..ceiling]
         .rfind('\n')
         .map(|i| i + 1)
         .unwrap_or(ceiling);
     let mut cut = text;
     cut.truncate(at);
-    format!("{cut}\n\n[cut here: {OPENAI_FETCH_TEXT_MAX} of {full} bytes, the whole record is at {whole}]")
+    format!("{cut}\n\n[cut here: {at} of {full} bytes, the whole record is at {whole}]")
 }
 
 /// Serve BOTH copies from one slimmed object, sized against what the wire
@@ -25404,6 +25420,7 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
         "routed_to",
         "question",
         "answer",
+        "model_answer",
         "spatial_trace",
         "receipt",
         "algorithm_outcomes_summary",
@@ -29182,7 +29199,7 @@ Reads are free at every tier. Writes are tiered by reach: your own namespace sta
     // Both said the same thing to the same reader in the same payload.
     // The count of vendor hook shapes was written out ("two") and is now
     // named by kind, because a number in prose is a claim nobody re-checks.
-    s.push_str("\nEvery fact carries a provenance block saying how the value was made. model_output and human_curated carry a caution in the same payload.\nYou can write, not just read. memory_* verbs store durable notes you cite like any fact. emem_derive registers a value YOU computed over parent facts, signed with your key, and returns an emem:fact: token whose lineage ends in signed measurements. Your derivation stays out of other agents' reads until you hand them the token. Both are signed writes: send one unsigned and the 401 gives you the exact digest to sign.\n\nStep 8 is ADVISORY. It blocks nothing. A citation this responder does not hold is an allow rather than a deny, because that looks identical to one minted somewhere else. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own. It checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict, and logs it for offline audit.\n\n");
+    s.push_str("\nEvery fact carries a provenance block saying how the value was made. model_output and human_curated carry a caution in the same payload.\nYou can write, not just read. memory_* verbs store durable notes you cite like any fact. emem_derive registers a value YOU computed over parent facts, signed with your key, and returns an emem:fact: token whose lineage ends in signed measurements. Your derivation stays out of other agents' reads until you hand them the token. Both are signed writes: send one unsigned and the 401 gives you the exact digest to sign.\n\nStep 8 is ADVISORY. It blocks nothing. A citation this responder does not hold is an allow rather than a deny, because that looks identical to one minted somewhere else. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation, correct_value. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own. It checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict, and logs it for offline audit.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -31779,6 +31796,7 @@ async fn mcp_tool_call_inner(
             // they had no cids to send. A citation protocol whose main read does
             // not hand back a citation is failing at its one job.
             enrich_facts_with_cid(&mut v);
+            attach_recall_includes(&mut v, req.include.as_deref());
             if !materialize_notes.is_empty() {
                 if let Some(map) = v.as_object_mut() {
                     map.insert(
@@ -31917,9 +31935,11 @@ async fn mcp_tool_call_inner(
         "emem_entity" => {
             let req: EntityMintReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            // mcp_err, not the bare message: an unsigned mint's refusal carries
+            // the digest to sign in `details.how_to_sign`.
             match post_entity(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
-                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+                Err(e) => Err(mcp_err(e)),
             }
         }
         "emem_entity_resolve" => {
@@ -31927,8 +31947,9 @@ async fn mcp_tool_call_inner(
             if let Some(tok) = args.get("token").and_then(|v| v.as_str()) {
                 let tok = tok.to_string();
                 match get_entity(State(s.clone()), Path(tok)).await {
-                    Ok(Json(v)) => {
-                        Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?)
+                    Ok(Json(mut v)) => {
+                        mcp_trim_entity_boundaries(&mut v);
+                        Ok(v)
                     }
                     Err(e) => Err((-(e.1.code as i64), e.1.message)),
                 }
@@ -31936,8 +31957,9 @@ async fn mcp_tool_call_inner(
                 let req: EntityResolveReq =
                     serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
                 match post_entity_resolve(State(s.clone()), EmemJson(req)).await {
-                    Ok(Json(v)) => {
-                        Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?)
+                    Ok(Json(mut v)) => {
+                        mcp_trim_entity_boundaries(&mut v);
+                        Ok(v)
                     }
                     Err(e) => Err((-(e.1.code as i64), e.1.message)),
                 }
@@ -31948,7 +31970,7 @@ async fn mcp_tool_call_inner(
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_entity_alias(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
-                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+                Err(e) => Err(mcp_err(e)),
             }
         }
         // Anthropic memory tool (context-management-2025-06-27).
@@ -32272,7 +32294,7 @@ async fn mcp_tool_call_inner(
                             {"type": "did_change",   "required": ["cell", "band", "window"]},
                             {"type": "find_like",    "required": ["key"]},
                             {"type": "confirm",      "required": ["claim", "cell"]},
-                            {"type": "ask",          "required": ["description"], "required_one_of": ["place", "cell", "lat+lng"]},
+                            {"type": "ask",          "required": ["description"], "optional": ["place", "cell", "lat+lng"]},
                         ],
                         // `valid_types` enumerated the outer union and stopped
                         // there, so the two variants that take a nested one
@@ -33038,7 +33060,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, `emem.ask_splat.v1`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
+            "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence; the EUDR budget auto-bumps to absorb the additional fan-out. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
@@ -33235,7 +33257,7 @@ fn openapi_spec() -> JsonValue {
                 "TrajectoryReq":   {"type":"object","required":["cell","band","window"],"properties":{"cell":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2}}},
                 "VerifyReq":       {"type":"object","required":["claim","cell"],"properties":{"cell":{"type":"string"},"mode":{"type":"string","enum":["fast","resolve"]},"claim":{"$ref":"#/components/schemas/Claim"}}},
                 "Claim":           {"type":"object","required":["band","op","value"],"properties":{"band":{"type":"string","description":"Band key (e.g. `indices.ndvi`, `copdem30m.elevation_mean`)"},"op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison or membership operator"},"value":{"description":"Right-hand value, band-typed (number for scalar bands, array for vector bands, set for in/ni). Required even for exists/absent where it is ignored."},"tslot":{"type":"integer","description":"Specific tslot; one of `tslot` or `window` MUST be set"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"Inclusive [start, end] u64 Unix-epoch range"},"agg":{"type":"string","enum":["any","all","mean","min","max"],"description":"Aggregation over `window`"}}},
-                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose so the response fits MCP's 25 KB cap. The signed receipt stays intact in either mode."}}},
+                "AskReq":          {"type":"object","required":["q"],"properties":{"q":{"type":"string"},"place":{"type":"string"},"cell":{"type":"string"},"model":{"type":"string","description":"Optional. Compose an extra prose answer with a named model, returned as `model_answer` BESIDE the deterministic `answer` rather than instead of it. `answer` never calls a model, so every number in it traces to a fact_cid; `model_answer` carries provenance.class = model_output. Name by base_model (nvidia/Cosmos3-Edge), by family (cosmos3_edge, gemma), or by any fragment that picks out exactly one of them (cosmos). A fragment matching several is refused and names them; an unroutable name is refused with the routable list; a routable model whose service is not answering is refused as busy or down, never substituted."},"lat":{"type":"number"},"lng":{"type":"number"},"include_image":{"type":"boolean","default":false},"verbose":{"type":"boolean","default":false,"description":"When false (default), trim per-algorithm formulas + per-fact band_metadata + long _explanation prose. The signed receipt stays intact in either mode. The MCP projection of an answer is small (about 7 KB); this REST envelope is larger."}}},
                 "HuntReq":         {"type":"object","required":["event"],"properties":{
                     "event":{"type":"string","enum":["algal_bloom","deforestation","flood_extent","wildfire","urban_heat_island","methane_plume","landslide","drought","soil_salinity","crop_stress","water_turbidity","oil_slick"],"description":"Event keyword. Maps to one registered detection algorithm. Aliases accepted (case-insensitive): bloom/algae_bloom/chlorophyll_bloom → algal_bloom; forest_loss/tree_loss → deforestation; flood/inundation/flooded_fields → flood_extent; fire/bushfire/burn_severity → wildfire; uhi/heat_island/heat → urban_heat_island; methane/ghg_leak/super_emitter → methane_plume; mudslide/debris_flow/slope_failure → landslide; dry_spell/rainfall_deficit → drought; salinity → soil_salinity; crop_damage/stressed_crops → crop_stress; turbidity/sediment_plume → water_turbidity; oil_spill → oil_slick. The classifier in /v1/ask accepts the same set on free-text input."},
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
@@ -33275,7 +33297,7 @@ fn openapi_spec() -> JsonValue {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer","deferred","retired","not_geographic"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -39959,6 +39981,32 @@ async fn post_derived_list(
 // `GET /v1/memory_bundle/<token>` will 404 on the same payload (the
 // composer is stateless, the resolver is sled-backed).
 
+/// Which recalled primary fact a bundle triple binds. With no `tslot` the
+/// schema promises the latest reading, and recall returns facts in ascending
+/// tslot order, so taking the first match bound the OLDEST one. The latest is
+/// the highest tslot, first seen on a tie, the same rule `current_by_band`
+/// uses; an undated fact (tslot 0) loses to any dated one. With a `tslot` the
+/// recall already narrowed to that slot and the first match is the answer.
+fn pick_bundle_fact<'a>(
+    candidates: impl IntoIterator<Item = (usize, &'a str, u64)>,
+    band: &str,
+    latest: bool,
+) -> Option<usize> {
+    let mut best: Option<(usize, u64)> = None;
+    for (i, b, tslot) in candidates {
+        if b != band {
+            continue;
+        }
+        match best {
+            None => best = Some((i, tslot)),
+            Some(_) if !latest => break,
+            Some((_, seen)) if tslot > seen => best = Some((i, tslot)),
+            Some(_) => {}
+        }
+    }
+    best.map(|(i, _)| i)
+}
+
 async fn post_memory_bundle(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<emem_primitives::memory_bundle::BundleReq>,
@@ -39979,13 +40027,17 @@ async fn post_memory_bundle(
         ));
     }
     if req.triples.len().max(by_cid.len()) > 256 {
+        let (field, got) = if by_cid.len() > req.triples.len() {
+            ("fact_cids", by_cid.len())
+        } else {
+            ("triples", req.triples.len())
+        };
         return Err(ApiError(
             StatusCode::BAD_REQUEST,
             ErrorBody {
                 code: ErrorCode::InvalidArgument,
                 message: format!(
-                    "memory_bundle accepts at most 256 triples per call; got {}",
-                    req.triples.len()
+                    "memory_bundle accepts at most 256 entries in `{field}` per call; got {got}"
                 ),
                 details: None,
             },
@@ -40055,21 +40107,21 @@ async fn post_memory_bundle(
         };
         let (resp, _notes) = recall_with_auto_materialize(&recall_req, &s).await?;
 
-        // Pick the first Primary fact for the requested band, what
-        // the recall path already would have surfaced. The recall
-        // response's `receipt.fact_cids` is positionally aligned with
-        // `resp.facts` (both come from the same pair iteration in the
-        // recall primitive), so we walk the indices to recover the CID
-        // for the band match.
-        let mut found: Option<(usize, &emem_fact::PrimaryFact)> = None;
-        for (i, f) in resp.facts.iter().enumerate() {
-            if let emem_fact::Fact::Primary(p) = f {
-                if p.band == t.band {
-                    found = Some((i, p));
-                    break;
-                }
-            }
-        }
+        // The recall response's `receipt.fact_cids` is positionally aligned
+        // with `resp.facts` (both come from the same pair iteration in the
+        // recall primitive), so the index recovers the CID for the match.
+        let found = pick_bundle_fact(
+            resp.facts.iter().enumerate().filter_map(|(i, f)| match f {
+                emem_fact::Fact::Primary(p) => Some((i, p.band.as_str(), p.tslot)),
+                _ => None,
+            }),
+            &t.band,
+            t.tslot.is_none(),
+        )
+        .and_then(|i| match resp.facts.get(i) {
+            Some(emem_fact::Fact::Primary(p)) => Some((i, p)),
+            _ => None,
+        });
 
         let (fact_cid, resolved_tslot, miss_reason) = match found {
             Some((i, p)) => {
@@ -40820,6 +40872,19 @@ fn entity_how_to_sign(req: &EntityMintReq) -> JsonValue {
     })
 }
 
+/// Add `how_to_sign` to a refusal's details, keeping the ladder and tier the
+/// gate already put there.
+fn with_how_to_sign(e: ApiError, how: JsonValue) -> ApiError {
+    let ApiError(code, mut body) = e;
+    match body.details.as_mut().and_then(|d| d.as_object_mut()) {
+        Some(d) => {
+            d.insert("how_to_sign".into(), how);
+        }
+        None => body.details = Some(json!({ "how_to_sign": how })),
+    }
+    ApiError(code, body)
+}
+
 async fn post_entity(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityMintReq>,
@@ -40843,9 +40908,7 @@ async fn post_entity(
         if verified {
             return e;
         }
-        let ApiError(code, mut body) = e;
-        body.details = Some(json!({ "how_to_sign": entity_how_to_sign(&req) }));
-        ApiError(code, body)
+        with_how_to_sign(e, entity_how_to_sign(&req))
     })?;
     use emem_primitives::entity::{
         alias_keys, compute_entity_cid, entity_token, normalize_text, Entity, EntityGeometry,
@@ -41176,6 +41239,57 @@ async fn post_entity_resolve(
     })))
 }
 
+/// Boundaries above this many bytes leave an MCP entity result for a pointer.
+const MCP_ENTITY_GEOJSON_MAX_BYTES: usize = 2_048;
+
+/// Replace large entity boundaries in an MCP resolve result with a pointer.
+///
+/// One city's boundary polygon ran past the whole wire budget by itself, and
+/// the generic slimmer then dropped the biggest field, which was
+/// `candidates`: the caller asked who a phrasing denotes and got
+/// `candidates: null`. The boundary is the least of what a resolve answers,
+/// so it goes first, keeping `point` and `bbox` and naming where the full
+/// record is served. The entity body is unchanged on REST.
+fn mcp_trim_entity_boundaries(v: &mut JsonValue) {
+    let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let trim = |entity: &mut JsonValue| {
+        let cid = entity
+            .get("entity_cid")
+            .and_then(|c| c.as_str())
+            .map(str::to_owned);
+        let Some(geometry) = entity.get_mut("geometry").and_then(|g| g.as_object_mut()) else {
+            return;
+        };
+        let bytes = geometry
+            .get("geojson")
+            .and_then(|g| serde_json::to_string(g).ok())
+            .map(|t| t.len())
+            .unwrap_or(0);
+        if bytes <= MCP_ENTITY_GEOJSON_MAX_BYTES {
+            return;
+        }
+        geometry.remove("geojson");
+        geometry.insert(
+            "geojson_omitted".into(),
+            json!({
+                "bytes": bytes,
+                "why": "the boundary is larger than an MCP tool result can carry beside the candidates; `point` and `bbox` are kept",
+                "full_record": cid.map(|c| format!("{origin}/v1/entity/{c}")),
+            }),
+        );
+    };
+    if let Some(cands) = v.get_mut("candidates").and_then(|c| c.as_array_mut()) {
+        for c in cands.iter_mut() {
+            if let Some(e) = c.get_mut("entity") {
+                trim(e);
+            }
+        }
+    }
+    if let Some(e) = v.get_mut("entity") {
+        trim(e);
+    }
+}
+
 async fn get_entity(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -41304,6 +41418,26 @@ fn entity_alias_signature_verified(req: &EntityAliasReq) -> bool {
     )
 }
 
+/// What an unsigned or wrongly-signed alias is told, mirroring
+/// `entity_how_to_sign`, so the digest is learned from the refusal.
+fn entity_alias_how_to_sign(req: &EntityAliasReq) -> JsonValue {
+    json!({
+        "code": "entity_attestation_required",
+        "sign_this": {
+            "digest_hex": data_encoding::HEXLOWER.encode(&entity_alias_sign_digest(req)),
+            "what_it_is": "The 32-byte blake3 digest this responder verifies your signature against, for this exact body. Sign these raw bytes with ed25519; do not sign the hex string.",
+        },
+        "preimage": "blake3(\"emem.memory_write|entity_alias|/v1/entity/alias|\" || body_hash), body_hash = blake3(CBOR definite-length 5-entry map {stance, entity_cid, entity_token, alias, external_ids} in THAT order, declaration order, deliberately NOT RFC 8949 key-sorted; absent fields are CBOR null; stance is the text you sent, not a default; external_ids is the JSON bytes)",
+        "encoding": {
+            "alphabet": "RFC 4648 base32, no padding, lowercase, both fields",
+            "pubkey_b32": "52 chars = 32 raw bytes of the ed25519 public key",
+            "sig_b32": "103 chars = 64 raw bytes of the signature over digest_hex's BYTES",
+            "verification": "ed25519 verify_strict, which rejects malleable signatures",
+        },
+        "why": "An alias redirects an existing name for every reader of this responder, so the shared entity space records whose redirect it is. A public key proves nothing on its own, because it is published in every receipt.",
+    })
+}
+
 async fn post_entity_alias(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<EntityAliasReq>,
@@ -41323,12 +41457,19 @@ async fn post_entity_alias(
             )))
         }
     };
+    let verified = entity_alias_signature_verified(&req);
     let enlistment = enlistment_gate(
         &s,
         req.attester.as_ref(),
         crate::enlistment::Surface::SharedEntitySpace,
-        entity_alias_signature_verified(&req),
-    )?;
+        verified,
+    )
+    .map_err(|e| {
+        if verified {
+            return e;
+        }
+        with_how_to_sign(e, entity_alias_how_to_sign(&req))
+    })?;
     use emem_primitives::entity::{
         alias_lookup_key, entity_token, parse_entity_token, ENTITIES_TREE, ENTITY_ALIASES_TREE,
     };
@@ -57446,6 +57587,10 @@ fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
         ("deferred", true)
     } else if reason.contains("retired") {
         ("retired", false)
+    } else if reason.contains("not a geo-aperture cell") {
+        // The address has no latitude, so no upstream can ever be asked about
+        // it; calling it upstream_error told the caller to retry forever.
+        ("not_geographic", false)
     } else if reason.contains("unknown_band") {
         ("unknown_band", false)
     } else if reason.contains("no_auto_materializer_registered")
@@ -61936,17 +62081,19 @@ struct AskReq {
     /// When `true`, return the full envelope: per-algorithm `formula`
     /// strings, `temporal_recipe` blocks, per-fact `band_metadata`
     /// duplicates, and the long `_explanation` prose. When `false`
-    /// (the default since the 2026-05-05 deepscan), the response is
-    /// trimmed to fit MCP's 25 KB cap, the signed receipt + fact CIDs
-    /// + algorithm keys all stay, but per-algorithm formulas live at
-    ///   `/v1/algorithms/<key>` and per-band metadata at `/v1/bands`.
+    /// (the default), the per-algorithm formulas live at
+    /// `/v1/algorithms/<key>` and per-band metadata at `/v1/bands`; the
+    /// signed receipt, fact CIDs and algorithm keys all stay. The MCP
+    /// projection of the answer is small (about 7 KB); the REST
+    /// envelope is larger.
     #[serde(default)]
     verbose: Option<bool>,
-    /// Opt-in heavy response sections. When absent, the response is
-    /// slim (~5 KB): answer + algorithm key + fact_cids + caveats.
-    /// Pass one or more tokens to include specific sections:
+    /// Opt-in sections of the REST envelope:
     /// `"band_observations"`, `"algorithm_outcomes"`, `"facts_full"`,
-    /// `"temporal_composition"`, `"scene"`, `"inventory"`. Ignored when `verbose: true`.
+    /// `"temporal_composition"`, `"scene"`, `"inventory"` (only when no
+    /// topic matched), `"reasoning"` (drops `algorithms_for_question`)
+    /// and `"algorithms"` (keeps it beside `reasoning`). Ignored when
+    /// `verbose: true`.
     #[serde(default)]
     include: Option<Vec<String>>,
 }
@@ -62431,10 +62578,15 @@ fn enlistment_gate(
                 // promised a digest round trip these routes do not offer, which
                 // sent the integrator who reported it looking for a preimage
                 // that does not exist, and then signing one of their own.
-                let how = if !signature_verified {
-                    " This surface does not yet verify a signature over a responder-named preimage, so an `attester` block here proves nothing and cannot raise your tier: you are treated as anonymous whatever you send. That is a gap on this responder, not something you can fix from your side, and it is why this refusal offers no `how_to_sign`. The signed surfaces today are the memory verbs over MCP tools/call and POST /v1/derive, both of which hand you the exact digest in `details.how_to_sign.sign_this.digest_hex` on an unsigned first call."
-                } else if att.is_none() {
-                    " This request carried NO attester block, so it is anonymous. GET /v1/enlist lists each check and what it proves."
+                //
+                // Both entity routes now verify an ed25519 signature over a
+                // digest they derive, and hand that digest back on refusal, so
+                // an unverified caller is told how to sign rather than that
+                // signing is impossible.
+                let how = if att.is_none() {
+                    " This request carried NO attester block, so it is anonymous. `details.how_to_sign.sign_this.digest_hex` is the exact digest to sign for this body; attach `attester: {pubkey_b32, sig_b32}` and resend the identical body. GET /v1/enlist lists each check and what it proves."
+                } else if !signature_verified {
+                    " The attester block did not verify against the digest this responder names for this body, so you are treated as anonymous. `details.how_to_sign.sign_this.digest_hex` is that digest: sign its raw 32 bytes with ed25519 and resend the identical body. GET /v1/enlist lists each check and what it proves."
                 } else {
                     " Your signature verified against the digest this responder named; the tier is what is short. GET /v1/enlist lists each check and what it proves."
                 };
@@ -70879,8 +71031,8 @@ fn emem_self_describe() -> JsonValue {
 ///   located   the address the question resolved to
 ///   routed    which topics matched, so which bands will be read
 ///   recalled  the signed facts, and from here `grounded_fact_cids` is non-empty
-///   splat     the same facts as drawable primitives (emem.ask_splat.v1), sent
-///             at `recalled` so a renderer starts before the prose exists
+///   splat     the same facts as drawable primitives (schema emem.spatial_trace_event.v1,
+///             stage "splat"), sent at `recalled` so a renderer starts before the prose exists
 ///   scored    derived values computed FROM those facts, not new observations
 ///   answer    the complete envelope, identical to what POST /v1/ask returns
 ///
@@ -72727,7 +72879,7 @@ async fn ask_inner_traced(
 
     // Build the include set. verbose=true is a blanket "include everything";
     // otherwise the caller opts in to specific heavy sections via `include`.
-    // Default (no include, no verbose) → slim ~5 KB envelope.
+    // Default (no include, no verbose) → the slim envelope.
     let include_all = verbose;
     let include_set: std::collections::HashSet<&str> = if include_all {
         [
@@ -72927,7 +73079,7 @@ async fn ask_inner_traced(
 
         if include_all {
             map.insert("tip".into(), json!(
-                "passing verbose=false (the default) trims the response to ~5 KB; pass include:[...] to opt in to specific heavy sections"
+                "passing verbose=false (the default) drops the formula strings, band metadata and long prose; the MCP projection is small (about 7 KB) and the REST envelope is larger; pass include:[...] to opt in to specific heavy sections"
             ));
             map.insert("bands_metadata_url".into(), json!("/v1/bands"));
             map.insert("algorithms_metadata_url".into(), json!("/v1/algorithms"));
@@ -79754,6 +79906,27 @@ fn quality_kernel(tempo: emem_core::tslot::Tempo, dt_s: f64) -> (f64, &'static s
     }
 }
 
+/// The opt-in recall sections, read in ONE place so REST and MCP cannot
+/// disagree about what `include` does. The MCP arm once skipped both, so
+/// `include:["freshness"]` answered over REST and was silently ignored over
+/// MCP.
+///
+/// Freshness is a Q(Δt) staleness score from the band's physics decay kernel,
+/// the same one /v1/temporal_route ranks bands with. Provenance is the class
+/// `deterministic` and the `provenance` filter select ON, which a caller could
+/// filter by without ever being told. Both are post-receipt, so the signed
+/// preimage is byte-identical to a recall without the flag; the class itself
+/// is already attested through bands_cid, which the preimage does cover.
+fn attach_recall_includes(v: &mut JsonValue, include: Option<&[String]>) {
+    let has = |k: &str| include.is_some_and(|i| i.iter().any(|x| x == k));
+    if has("freshness") {
+        attach_recall_freshness(v);
+    }
+    if has("provenance") {
+        attach_recall_provenance(v);
+    }
+}
+
 /// Attach an advisory per-fact `freshness` block to a serialized recall
 /// response when the caller passes `include:["freshness"]`. It reuses the
 /// physics-informed `quality_kernel` Q(Δt), the SAME decay the
@@ -84665,6 +84838,88 @@ mod tests {
         );
     }
 
+    /// A caller who named a model over MCP gets the model's reading back. The
+    /// projection is an allowlist, so a key left off it is dropped silently.
+    #[test]
+    fn a_projected_ask_keeps_model_answer() {
+        let inner = json!({
+            "schema": "emem.ask.v1",
+            "routed_to": "answer",
+            "question": "what is the NDVI here?",
+            "answer": "NDVI is 0.41.",
+            "model_answer": {"answer_prose": "The canopy is moderately green."},
+            "receipt": {"fact_cids": ["a"], "signature": "s"},
+            "fact_cids": ["a"],
+        });
+        let projected = mcp_project_ask(inner);
+        assert_eq!(
+            projected["model_answer"]["answer_prose"],
+            json!("The canopy is moderately green."),
+            "model_answer was dropped by the projection: {projected}"
+        );
+    }
+
+    /// One huge boundary cannot null every candidate of an MCP resolve.
+    #[test]
+    fn an_mcp_resolve_trims_a_huge_boundary_and_keeps_its_candidates() {
+        let ring: Vec<JsonValue> = (0..3000)
+            .map(|i| json!([139.0 + i as f64 * 1e-4, 35.0]))
+            .collect();
+        let mut v = json!({
+            "count": 1,
+            "candidates": [{
+                "entity_token": "emem:entity:abc",
+                "entity": {"entity_cid": "abc", "label": "Tokyo",
+                           "geometry": {"point": [139.7, 35.7], "bbox": [139.0, 35.0, 140.0, 36.0],
+                                        "geojson": {"type": "Polygon", "coordinates": [ring]}}},
+            }],
+        });
+        mcp_trim_entity_boundaries(&mut v);
+        let g = &v["candidates"][0]["entity"]["geometry"];
+        assert!(g.get("geojson").is_none(), "the boundary rode along: {g}");
+        assert_eq!(g["bbox"], json!([139.0, 35.0, 140.0, 36.0]));
+        assert!(g["geojson_omitted"]["full_record"]
+            .as_str()
+            .is_some_and(|u| u.ends_with("/v1/entity/abc")));
+        let out = mcp_wrap_call_tool_result_for(v, "emem_entity_resolve");
+        let served: JsonValue =
+            serde_json::from_str(out["content"][0]["text"].as_str().expect("text")).expect("json");
+        assert!(
+            served["candidates"].is_array(),
+            "candidates did not survive the wire: {served}"
+        );
+    }
+
+    /// A bundle triple with no tslot binds the latest reading, not the first
+    /// one an ascending recall happens to list.
+    #[test]
+    fn a_bundle_triple_without_tslot_binds_the_latest_fact() {
+        let recalled = [
+            (0, "indices.ndvi", 0),
+            (1, "indices.ndvi", 19800),
+            (2, "weather.temp", 20100),
+            (3, "indices.ndvi", 20000),
+            (4, "indices.ndvi", 20000),
+            (5, "indices.ndvi", 19900),
+        ];
+        assert_eq!(
+            pick_bundle_fact(recalled, "indices.ndvi", true),
+            Some(3),
+            "the highest tslot wins, first seen on a tie, undated loses"
+        );
+        assert_eq!(
+            pick_bundle_fact(recalled, "indices.ndvi", false),
+            Some(0),
+            "a pinned tslot keeps the first match the recall narrowed to"
+        );
+        assert_eq!(pick_bundle_fact(recalled, "indices.evi", true), None);
+        assert_eq!(
+            pick_bundle_fact([(7, "indices.ndvi", 0)], "indices.ndvi", true),
+            Some(7),
+            "an undated fact is still bound when it is the only one"
+        );
+    }
+
     /// An answer too big for the wire loses the least-meaning thing, and says so.
     ///
     /// The fault this pins: the projection chose by meaning, then handed an
@@ -85023,6 +85278,49 @@ mod tests {
                 "the slimmer was asked for {b} bytes out of {budget}: the room collapsed \
                  instead of converging"
             );
+        }
+    }
+
+    /// A cell `fetch` over a large body keeps the line-boundary cut and the URL.
+    ///
+    /// The cap sat at half the wire budget, so a capped text still did not
+    /// fit, and the generic slimmer re-cut it by bytes: mid-citation, with the
+    /// line naming where the whole record lives cut off the end.
+    #[test]
+    fn a_large_cell_fetch_keeps_whole_citations_and_the_url() {
+        let cell = "defi.zb64a.cAzU.zfa27";
+        let whole = format!("https://emem.dev/v1/cells/{cell}");
+        let lines: Vec<String> = (0..400)
+            .map(|i| format!("weather.band_{i} = 1.5 degC  [emem:fact:{cell}:{i:0>52}]"))
+            .collect();
+        let text = openai_capped_text(
+            format!("400 signed facts at {cell}\n\n{}", lines.join("\n")),
+            &whole,
+        );
+        let inner = json!({
+            "id": format!("emem:cell:{cell}"),
+            "title": "400 signed facts at Trafalgar Square",
+            "text": text,
+            "url": whole,
+            "metadata": {"cell": cell, "fact_count": "400",
+                         "is_signed_object": "no: a cell is a view; each line carries the citation that verifies"},
+        });
+        let out = mcp_wrap_call_tool_result_for(inner, "fetch");
+        let served: JsonValue =
+            serde_json::from_str(out["content"][0]["text"].as_str().expect("a text block"))
+                .expect("valid JSON");
+        let got = served["text"].as_str().expect("text survives as a string");
+        assert!(
+            got.ends_with(&format!("the whole record is at {whole}]")),
+            "the cut lost the pointer to the whole record: ...{}",
+            &got[got.len().saturating_sub(200)..]
+        );
+        assert!(
+            served.get("_emem_truncation").is_none(),
+            "the capped text still went over and was re-cut by the slimmer"
+        );
+        for line in got.lines().filter(|l| l.contains("emem:fact:")) {
+            assert!(line.ends_with(']'), "a citation was cut mid-token: {line}");
         }
     }
 
@@ -90462,6 +90760,13 @@ mod tests {
             classify_skip_reason("stac status 502: bad gateway"),
             ("upstream_error", true)
         );
+        assert_eq!(
+            classify_skip_reason(
+                "cell decode: cell64 is not a geo-aperture cell (raw=0x0000000000000000)"
+            ),
+            ("not_geographic", false),
+            "an address with no latitude never resolves on retry"
+        );
     }
 
     #[tokio::test]
@@ -94130,9 +94435,38 @@ mod tests {
             "a route that ran no verifier claimed one did: {msg}"
         );
         assert!(
-            msg.contains("does not yet verify"),
-            "the refusal must name the gap so a caller stops hunting their own mistake: {msg}"
+            msg.contains("did not verify") && msg.contains("how_to_sign"),
+            "the refusal must say the signature failed and point at the digest to sign: {msg}"
         );
+    }
+
+    /// Both entity writes hand an unsigned caller the digest, and over MCP the
+    /// details survive, so the refusal teaches rather than just refuses.
+    #[tokio::test]
+    async fn unsigned_entity_writes_over_mcp_carry_how_to_sign() {
+        let s = test_app_state();
+        for (tool, args) in [
+            (
+                "emem_entity",
+                json!({"label": "Lake Test", "lat": 1.0, "lng": 2.0}),
+            ),
+            (
+                "emem_entity_link",
+                json!({"entity_cid": "abcdefghijklmnopqrstuvwxyz", "alias": "Test Lake"}),
+            ),
+        ] {
+            let (_, msg) = mcp_tool_call(tool, args, &s)
+                .await
+                .expect_err("an unsigned shared-space write is refused");
+            assert!(
+                msg.contains("digest_hex"),
+                "{tool}: the MCP refusal dropped how_to_sign: {msg}"
+            );
+            assert!(
+                !msg.contains("does not yet verify"),
+                "{tool}: the stale no-verifier text is back: {msg}"
+            );
+        }
     }
 
     /// A key that published the two notes the ladder asks for reaches T3 and
