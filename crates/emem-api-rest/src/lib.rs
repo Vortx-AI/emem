@@ -7137,27 +7137,21 @@ async fn well_known_mcp(State(s): State<AppState>) -> Json<JsonValue> {
         // Which reading of the tool annotations this server uses, stated
         // rather than left to be inferred.
         //
-        // A directory's review tooling read `openWorldHint` as "may change
-        // publicly visible or third-party state" and asked us to invert it on
-        // 48 tools. That is not what the field means. MCP defines it as
-        // whether the tool interacts with an open world of EXTERNAL ENTITIES,
-        // and gives the two poles itself: a web search tool is open-world, a
-        // memory tool is not. Inverting ours would have declared 41 tools that
-        // genuinely reach Sentinel, NASA, USGS and OSM as if they touch
-        // nothing outside, and declared this server's own memory writes
-        // open-world in direct contradiction of the spec's example.
-        //
-        // The property that reviewer wanted is real and we already publish it,
-        // on the field that carries it: `readOnlyHint`, with `destructiveHint`
-        // for the writes that can remove or overwrite. This block says so in
-        // one place so the next consumer does not have to ask.
+        // Each hint is decided from what the tool's handler does, traced to the
+        // function that writes or calls out; integrations/chatgpt/
+        // tool-annotations.md holds the per-tool reasoning. openWorldHint is
+        // true when a call reaches a service outside this node (a geocoder, an
+        // upstream archive, a caller-supplied URL) or publishes a record into
+        // the shared, publicly readable store, which covers every memory,
+        // entity and derivation write. A tool that reads only this node's own
+        // store is closed-world.
         "annotation_semantics": {
             "spec": "https://modelcontextprotocol.io/specification/server/tools#tool-annotations",
-            "readOnlyHint":   "true = the call does not modify this server's state. Every Read, Verify, Introspect and Plan primitive.",
-            "destructiveHint":"true = the call can remove or overwrite something that was there. Only writes.",
-            "idempotentHint": "true = repeating the call with the same arguments leaves the same observable state.",
-            "openWorldHint":  "true = the call may reach an unbounded set of EXTERNAL entities, e.g. auto-materializing a band from Sentinel, NASA, USGS or OSM. false = its domain is closed, e.g. introspecting this node's own store. It does NOT mean 'writes publicly visible state'; for that read readOnlyHint and destructiveHint.",
-            "note": "If your policy needs 'can this tool change state anyone else can see', that is readOnlyHint:false. Every one of this server's writes is readOnlyHint:false, and the destructive subset is destructiveHint:true. openWorldHint answers a different question and is false on those writes because a memory tool's world is closed, which is the spec's own example.",
+            "readOnlyHint":   "true = the call does not modify this server's state. Many Read-category tools are false, because reading a cold address materialises, signs and persists a fact. Caches internal to this node do not count.",
+            "destructiveHint":"true = the call can remove or overwrite something that was there. Only the memory verbs that replace, move or remove a path.",
+            "idempotentHint": "true = repeating the call with the same arguments adds nothing further to the store. False where each call signs a new record (a raster derivation, an EUDR histogram, a fresh SAR read, a temporal recipe inside ask) or can edit the same path again.",
+            "openWorldHint":  "true = the call may reach an external service (a geocoder, an upstream Earth-observation archive, a caller-supplied URL) or publishes a record other agents can read. false = it reads or writes only this node's own store and publishes nothing new.",
+            "note": "If your policy needs 'can this tool change state anyone else can see', that is readOnlyHint:false, and for writes that publish caller content it is also openWorldHint:true. The destructive subset is destructiveHint:true.",
         },
         "version":     env!("CARGO_PKG_VERSION"),
         "description": EMEM_DESCRIPTION,
@@ -26892,12 +26886,45 @@ async fn a2a_reason_compose(
         "emem_recall",
         "emem_find_similar",
         "emem_intent",
+        // These reach the same materialise-on-miss path as recall, or fetch
+        // and sign a public observation. They sat on this menu while their
+        // readOnlyHint wrongly said true; correcting the hint must not take
+        // them off it.
+        "emem_eudr_dds",
+        "emem_deforestation_alert",
+        "emem_sar_forest_disturbance",
+        "emem_terrain",
+        "emem_region_similarity",
+        "emem_embedding_centroid",
+        "emem_embedding_diversity",
+        "emem_neighborhood_consistency",
+        "emem_state",
+        "emem_state_multi",
+        "emem_state_diff",
+        "emem_recall_polygon",
+        "emem_recall_many",
+        "emem_elevation",
+        "emem_heat_solve",
+        "emem_wave_solve",
+        "emem_jepa_predict",
+        "emem_at",
+        "emem_ndvi",
+        "emem_air",
+        "emem_lst",
+        "emem_soil",
+        "emem_water",
+        "emem_forest",
+        "emem_weather",
     ];
+    // One predicate for the menu and for the call gate below. The gate used to
+    // test `read_only_hint` alone, so ask and recall were offered and then
+    // refused.
+    fn loop_may_call(t: &emem_mcp::ToolDescriptor) -> bool {
+        (t.read_only_hint || LOOP_MAY_MATERIALIZE.contains(&t.name)) && t.name != "emem_reason"
+    }
     let menu: String = emem_mcp::TOOLS
         .iter()
-        .filter(|t| {
-            (t.read_only_hint || LOOP_MAY_MATERIALIZE.contains(&t.name)) && t.name != "emem_reason"
-        })
+        .filter(|t| loop_may_call(t))
         .map(|t| format!("{}: {}", t.name, t.title))
         .collect::<Vec<_>>()
         .join("\n");
@@ -27151,7 +27178,7 @@ async fn a2a_reason_compose(
                 let args = act.get("args").cloned().unwrap_or(json!({}));
                 let allowed = emem_mcp::TOOLS
                     .iter()
-                    .any(|t| t.name == tool && t.read_only_hint && t.name != "emem_reason");
+                    .any(|t| t.name == tool && loop_may_call(t));
                 let result_text = if !allowed {
                     format!("tool `{tool}` is not on the read-only menu; pick one from the list or answer")
                 } else {

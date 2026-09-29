@@ -44,8 +44,9 @@ Subject: Federated Connector submission — no-auth read-only MCP server
 Hi,
 
 We're preparing to submit emem (https://emem.dev/mcp) as a federated connector.
-emem is a read-only MCP server — all tools carry readOnlyHint: true and reads
-require no authentication to read (no OAuth, no API key); writes are ed25519-signed by the caller and tiered by reach, see GET /v1/enlist.
+emem is an MCP server whose reads need no authentication (no OAuth, no API key).
+Pure lookups carry readOnlyHint: true, and reads that can materialise a fact on a
+cold address carry readOnlyHint: false; writes are ed25519-signed by the caller and tiered by reach, see GET /v1/enlist.
 
 Could you confirm whether no-auth / anonymous read-only MCP servers are accepted
 in the federated connector program, and if so, how to handle the OAuth credential
@@ -96,7 +97,7 @@ emem_band_raster   — Signed raster derivation for any band over a region
 emem_hunt          — Find event hotspots (flood, fire, drought) over a region
 emem_entity        — Mint or get a canonical object identity
 ```
-All tools carry `readOnlyHint: true`. Confirm via:
+Pure lookups carry `readOnlyHint: true`; tools that can materialise, sign and persist a fact on a cold address, and the signed write verbs, carry `false`. List the read-only set via:
 ```bash
 curl -s -X POST https://emem.dev/mcp \
   -H "Content-Type: application/json" \

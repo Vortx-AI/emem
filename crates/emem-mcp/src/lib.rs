@@ -1297,18 +1297,14 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Mount Everest"}"#,
         level: "L0", category: ToolCategory::Read,
-        // openWorldHint is FALSE here on the app-directory's definition, which is
-        // narrower than the MCP spec's. The spec asks whether a tool may interact
-        // with an open world of external entities, and locate's geocoder ladder
-        // ends at Photon and Nominatim, so on that reading it is true -- which is
-        // what this said, and what I argued for when a reviewer asked us to change
-        // it. The directory asks something else: whether the call can WRITE TO or
-        // CHANGE publicly visible internet state. Locate reads. It publishes
-        // nothing, posts nothing, and leaves no trace anyone else can observe.
-        // Their published rule says false, the reviewer said false, and they were
-        // right. Recorded here because the two definitions genuinely differ and
-        // the next person to read this line will wonder which one it follows.
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        // openWorldHint is TRUE. It was false for a while on the reading that
+        // the flag means "can change publicly visible state". That reading
+        // does not match what the handler does: locate_inner's geocoder ladder
+        // ends at Photon, Nominatim and Wikidata, which are external services,
+        // and a tool that calls one is open-world even when it only reads. It
+        // stays readOnlyHint true because the only thing it stores is this
+        // node's own geocode cache. Pinned by `hints_match_what_the_handlers_do`.
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -1320,7 +1316,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: Some(OUT_ASK),
         example_args: r#"{"q":"is this neighbourhood flood-prone for a flat purchase","place":"Ashok Nagar, Ranchi"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "core",
     },
     ToolDescriptor {
@@ -1344,7 +1340,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"plots":[{"plot_id":"farm-001","geometry_geojson":{"type":"Polygon","coordinates":[[[-60.5,-3.5],[-60.4,-3.5],[-60.4,-3.4],[-60.5,-3.4],[-60.5,-3.5]]]},"country_of_production":"BRA","commodity_hs":"0901","commodity_name":"coffee","quantity_kg":12000}],"operator":{"name":"Acme Coffee BV","eori":"NL123456789"}}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "extended",
     },
     // ── Runtime algorithm endpoints ──────────────────────────────────
@@ -1393,7 +1389,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1405,7 +1401,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","baseline_year":2020}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1489,7 +1485,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"bbox":{"min_lat":12.95,"min_lng":77.55,"max_lat":12.97,"max_lng":77.57},"band":"s2.B04"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1501,7 +1497,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"token":"emem:raster:<aoi_cid>:s2.B04:20650:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1513,7 +1509,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B08","observed_on":["2026-05-01","2026-06-01","2026-07-01"]}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1525,7 +1521,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04","start_date":"2026-05-01","end_date":"2026-07-31"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1537,7 +1533,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"token":"emem:cube:<aoi_cid>:s2.B08:20600..20651:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1549,7 +1545,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"tokens":["emem:raster:<aoi>:s2.B04:20509:<dcid1>","emem:raster:<aoi>:s2.B03:20509:<dcid2>","emem:raster:<aoi>:s2.B02:20509:<dcid3>"],"purpose":"world_soubre RGB ground"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1561,7 +1557,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"token":"emem:rasterset:<bundle_cid>:<derivation_cid>"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1573,7 +1569,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1585,7 +1581,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"region_a":{"place":"Napa Valley"},"region_b":{"place":"Barossa Valley"}}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1597,7 +1593,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Serengeti National Park","max_cells":64}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1609,7 +1605,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Okavango Delta","max_cells":64}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1621,7 +1617,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     // ── Read primitives ──────────────────────────────────────────────
@@ -1634,7 +1630,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","view":"cube"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1646,7 +1642,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1658,7 +1654,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb493.xoso.zcb6a","encoder":"geotessera","tslot_a":1672531200,"tslot_b":1704067200}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1761,7 +1757,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         // to content-addressing alone this would have hinged on wall-clock
         // resolution, since `signed_at` rides on the fact: identical
         // within a second, distinct across one. A retry must be safe.
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1785,7 +1781,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"triples":[{"cell":"defi.zb4d9.pefa.zf619","band":"copdem30m.elevation_mean"},{"cell":"defi.zb493.xoso.zcb6a","band":"indices.ndvi"}],"purpose":"audit baseline 2026"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     ToolDescriptor {
@@ -1822,7 +1818,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"text":"the golden gate bridge","near":"San Francisco"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     ToolDescriptor {
@@ -1865,7 +1861,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r##"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","file_text":"# Today\n- read the brief\n"}"##,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1877,7 +1873,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","old_str":"read the brief","new_str":"finished the brief"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1889,7 +1885,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","insert_line":0,"new_str":"draft 2026-05-28"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1901,7 +1897,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1913,7 +1909,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/result-2026-08-01.md","superseded_by":"<file_cid of the correction>","reason":"the correlation in section 1 was withdrawn after a different estimator warm-up"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1925,7 +1921,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"old_path":"/memories/by_attester/<your-pubkey8>/notes.md","new_path":"/memories/by_attester/<your-pubkey8>/archive/notes-2026-05.md"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2001,7 +1997,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Yellowstone National Park","bands":["copdem30m.elevation_mean"],"max_cells":8}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2037,7 +2033,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"a":"damO.zb000.xUti.zde78","b":"damO.zb000.xUto.sisA"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2049,7 +2045,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.wapu.yAxe","a":"copdem30m.elevation_mean","b":"gmrt.topobathy_mean"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2091,7 +2087,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[0,12]}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2103,7 +2099,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","tslot_a":0,"tslot_b":12}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2163,7 +2159,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","band":"modis.ndvi_mean","start_unix":1640995200,"end_unix":1735689600,"max_facts":24}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "extended",
     },
 
@@ -2177,7 +2173,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","hours_ahead":6}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2189,7 +2185,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"coastal_cell":"damO.zb000.xUti.zde78","offshore_height_m":2.0,"period_s":8.0}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2201,7 +2197,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","lookback_months":6}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
 
@@ -2215,7 +2211,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","claim":{"band":"indices.ndvi","op":"gt","value":0.5,"tslot":0}}"#,
         level: "L1", category: ToolCategory::Verify,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     // L2 write surfaces (`emem_attest`, `emem_challenge`) are intentionally
@@ -2358,7 +2354,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
     ToolDescriptor {
@@ -2442,7 +2438,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27"}"#,
         level: "L0", category: ToolCategory::Read,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+    read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
     },
 
@@ -2456,7 +2452,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cells":["damO.zb000.xUti.zde78","damO.zb000.xUto.sisA"],"bands":["indices.ndvi","copdem30m.elevation_mean"]}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2480,7 +2476,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Mount Everest"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2528,7 +2524,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"cell":"damO.zb000.xUti.zde78","intent":"flood_window"}"#,
         level: "L0", category: ToolCategory::Plan,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2599,7 +2595,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Yellowstone National Park"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2611,7 +2607,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Yellowstone National Park"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2623,7 +2619,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Delhi, India"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2635,7 +2631,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Phoenix, AZ"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2647,7 +2643,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Bhanu Pratappur, Chhattisgarh"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2659,7 +2655,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Sundarbans"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2671,7 +2667,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Amazon, Brazil"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2683,7 +2679,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"place":"Reykjavik"}"#,
         level: "L0", category: ToolCategory::Read,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "extended",
     },
 
@@ -2697,7 +2693,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"type":"did_change","cell":"damO.zb000.xUti.zde78","band":"indices.ndvi","window":[20245,20620]}"#,
         level: "L0", category: ToolCategory::Plan,
-    read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "core",
     },
 
@@ -2711,7 +2707,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: Some(OUT_LOG_STH),
         example_args: r#"{}"#,
         level: "L1", category: ToolCategory::Verify,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2723,7 +2719,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"leaf_index":0}"#,
         level: "L1", category: ToolCategory::Verify,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2735,7 +2731,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"first":1000}"#,
         level: "L1", category: ToolCategory::Verify,
-        read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: false,
+        read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -2760,7 +2756,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"q":"how has vegetation around Nashik changed this season, and what should a grower do?"}"#,
         level: "L0", category: ToolCategory::Plan,
-    read_only_hint: true, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+    read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
     tier: "extended",
     },
 ];
@@ -4387,6 +4383,151 @@ mod tests {
             assert!(
                 t.destructive_hint == recall.destructive_hint,
                 "{name} disagrees with emem_recall on destructiveHint"
+            );
+        }
+    }
+
+    /// The four hints, pinned to what each handler was traced to do.
+    ///
+    /// Rows are `(read_only, destructive, idempotent, open_world)`. The
+    /// reasoning for each tool, naming the function that writes or calls out,
+    /// is in integrations/chatgpt/tool-annotations.md; change a row here only
+    /// together with that file. A directory review found hints that did not
+    /// match behaviour, and every one of them had been set by reading a
+    /// description rather than the dispatch arm.
+    #[test]
+    fn hints_match_what_the_handlers_do() {
+        // Each of these reads from an upstream archive and persists what it
+        // signed: through recall_with_auto_materialize, a materialize_*
+        // function, sign_and_persist, or put_attestation after a scene read.
+        const MATERIALISES: &[&str] = &[
+            "emem_ask",
+            "emem_intent",
+            "emem_reason",
+            "emem_recall",
+            "search",
+            "fetch",
+            "emem_find_similar",
+            "emem_memory_bundle",
+            "emem_hunt",
+            "emem_eudr_dds",
+            "emem_deforestation_alert",
+            "emem_sar_forest_disturbance",
+            "emem_change_attribution",
+            "emem_band_raster",
+            "emem_band_cube",
+            "emem_band_composite",
+            "emem_terrain",
+            "emem_region_similarity",
+            "emem_embedding_centroid",
+            "emem_embedding_diversity",
+            "emem_neighborhood_consistency",
+            "emem_state",
+            "emem_state_multi",
+            "emem_state_diff",
+            "emem_recall_polygon",
+            "emem_recall_many",
+            "emem_grid",
+            "emem_elevation",
+            "emem_backfill",
+            "emem_heat_solve",
+            "emem_wave_solve",
+            "emem_jepa_predict",
+            "emem_at",
+            "emem_ndvi",
+            "emem_air",
+            "emem_lst",
+            "emem_soil",
+            "emem_water",
+            "emem_forest",
+            "emem_weather",
+        ];
+        for name in MATERIALISES {
+            let Some(t) = lookup(name) else {
+                panic!("{name} is not a tool");
+            };
+            assert!(
+                !t.read_only_hint,
+                "{name} can materialise, so it is not read-only"
+            );
+            assert!(
+                t.open_world_hint,
+                "{name} reaches upstream, so it is open-world"
+            );
+            assert!(!t.destructive_hint, "{name} only appends");
+        }
+
+        // Only the memory verbs that replace, move or remove what a path reads.
+        const DESTRUCTIVE: &[&str] = &[
+            "emem_memory_create",
+            "emem_memory_str_replace",
+            "emem_memory_insert",
+            "emem_memory_delete",
+            "emem_memory_rename",
+        ];
+        let destructive: Vec<&str> = TOOLS
+            .iter()
+            .filter(|t| t.destructive_hint)
+            .map(|t| t.name)
+            .collect();
+        assert_eq!(
+            destructive, DESTRUCTIVE,
+            "destructiveHint moved; update tool-annotations.md with the reason"
+        );
+
+        const PINNED: &[(&str, [bool; 4])] = &[
+            // Calls Photon, Nominatim and Wikidata; stores only its own cache.
+            ("emem_locate", [true, false, true, true]),
+            ("emem_entity_resolve", [true, false, true, true]),
+            ("emem_read", [true, false, true, true]),
+            // Same inputs, same content-addressed bundle token.
+            ("emem_memory_bundle", [false, false, true, true]),
+            ("emem_entity", [false, false, true, true]),
+            ("emem_entity_link", [false, false, true, true]),
+            ("emem_derive", [false, false, true, true]),
+            ("emem_memory_supersede", [false, false, true, true]),
+            ("emem_recall", [false, false, true, true]),
+            // A repeat fails on the missing source or path and changes nothing.
+            ("emem_memory_delete", [false, true, true, true]),
+            ("emem_memory_rename", [false, true, true, true]),
+            ("emem_memory_create", [false, true, false, true]),
+            ("emem_memory_str_replace", [false, true, false, true]),
+            ("emem_memory_insert", [false, true, false, true]),
+            // Each call signs a new record with a fresh signed_at.
+            ("emem_ask", [false, false, false, true]),
+            ("emem_intent", [false, false, false, true]),
+            ("emem_reason", [false, false, false, true]),
+            ("emem_eudr_dds", [false, false, false, true]),
+            ("emem_sar_forest_disturbance", [false, false, false, true]),
+            ("emem_band_raster", [false, false, false, true]),
+            ("emem_band_cube", [false, false, false, true]),
+            ("emem_band_composite", [false, false, false, true]),
+            ("emem_raster_bundle", [false, false, false, true]),
+            ("emem_backfill", [false, false, false, true]),
+            // Read this node's store and sign an unpersisted response.
+            ("emem_echo_verify", [true, false, true, false]),
+            ("emem_guard_verdict", [true, false, true, false]),
+            ("emem_verify_receipt", [true, false, true, false]),
+            ("emem_raster_resolve", [true, false, true, false]),
+            ("emem_cube_resolve", [true, false, true, false]),
+            ("emem_raster_bundle_resolve", [true, false, true, false]),
+            ("emem_log_sth", [true, false, true, false]),
+            ("emem_decide", [true, false, true, false]),
+            ("emem_tools", [true, false, true, false]),
+        ];
+        for (name, want) in PINNED {
+            let Some(t) = lookup(name) else {
+                panic!("{name} is not a tool");
+            };
+            let got = [
+                t.read_only_hint,
+                t.destructive_hint,
+                t.idempotent_hint,
+                t.open_world_hint,
+            ];
+            assert_eq!(
+                got, *want,
+                "{name}: [readOnly, destructive, idempotent, openWorld]"
             );
         }
     }

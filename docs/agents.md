@@ -709,7 +709,7 @@ number at one address) and `raster` (a gridded field over an area) answer
 very different ones. `{"bundle":"robotics"}` also works on `tools/list`
 itself, which returns that bundle and nothing else.
 
-Most MCP tools are read-only (`readOnlyHint: true`); the agent-memory file verbs (`emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_rename`) and the entity write surface (`emem_entity`, `emem_entity_link`) are writes and say so in their hints. Inputs are JSON; MCP
+Pure lookups are read-only (`readOnlyHint: true`). A read that can land on a cold address is not: `emem_recall`, `emem_ask` and every tool that auto-materialises fetch, sign and persist a fact on a miss, so they declare `readOnlyHint: false` and `openWorldHint: true`. The agent-memory file verbs (`emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_rename`) and the entity write surface (`emem_entity`, `emem_entity_link`) are writes and say so in their hints; `destructiveHint: true` is set only on the memory verbs that replace, move or remove a path. The reasoning for every tool's four hints is in `integrations/chatgpt/tool-annotations.md`. Inputs are JSON; MCP
 tools omit top-level `anyOf`/`oneOf` (Claude.ai's MCP frontend accepts
 only `{type, properties, required}`). Wire schemas live in
 `crates/emem-mcp/src/lib.rs`.

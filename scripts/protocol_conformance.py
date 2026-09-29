@@ -223,9 +223,16 @@ check("the connector pair is advertised by its exact names", have_pair,
       "search=%s fetch=%s" % ("search" in by_name, "fetch" in by_name))
 
 if have_pair:
-    check("both are declared read-only",
-          all((by_name[n].get("annotations") or {}).get("readOnlyHint") for n in ("search", "fetch")),
-          str({n: (by_name[n].get("annotations") or {}).get("readOnlyHint") for n in ("search", "fetch")}))
+    # OpenAI's page calls the pair read-only. Ours are not: both dispatch
+    # through recall_with_auto_materialize, so the honest check is that each
+    # declares exactly what emem_recall declares, which the crate tests also pin.
+    recall_ro = ((by_name.get("emem_recall") or {}).get("annotations") or {}).get("readOnlyHint")
+    check("both declare the readOnlyHint of emem_recall, which they project",
+          recall_ro is not None and all(
+              (by_name[n].get("annotations") or {}).get("readOnlyHint") == recall_ro
+              for n in ("search", "fetch")),
+          str({n: (by_name[n].get("annotations") or {}).get("readOnlyHint")
+               for n in ("search", "fetch", "emem_recall") if n in by_name}))
     check("both declare an output schema",
           all(by_name[n].get("outputSchema") for n in ("search", "fetch")),
           str({n: bool(by_name[n].get("outputSchema")) for n in ("search", "fetch")}))
