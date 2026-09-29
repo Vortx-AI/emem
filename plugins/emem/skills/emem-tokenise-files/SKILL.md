@@ -5,6 +5,8 @@ description: Turns a file into signed, resolvable tokens with emem. Cuts the fil
 
 # emem-tokenise-files
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A long file is awkward to cite: nobody wants the whole thing, and a
 quoted excerpt proves nothing about where it came from. A tree fixes
 that. Each unit is hashed, the hashes are folded into one root, and the
@@ -26,11 +28,11 @@ serve a path (`409 root_mismatch`) unless the rows it parses fold to the
 
 ## 1. Build the index, offline
 
-`tree_proof.py` ships beside this file. It reads the file, cuts it,
+`scripts/tree_proof.py` ships with this skill. It reads the file, cuts it,
 hashes every unit and prints the note; nothing leaves the machine.
 
 ```sh
-python3 "${CLAUDE_SKILL_DIR}/tree_proof.py" build report.md --source "site survey, plot 7" > index.md
+python3 "${CLAUDE_SKILL_DIR}/scripts/tree_proof.py" build report.md --source "site survey, plot 7" > index.md
 ```
 
 Markdown is cut at its headings (the shallowest level that occurs at
@@ -49,7 +51,7 @@ send it unsigned, let the refusal name the digest, and sign only after
 the digest you compute for your own write matches it.
 
 ```sh
-SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/sign_write.py"
+SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/scripts/sign_write.py"
 mcp() {  # mcp TOOL ARGS_JSON OUT_FILE
   jq -n --arg n "$1" --argjson a "$2" \
     '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$n,arguments:$a}}' \
@@ -74,7 +76,7 @@ hash and size, not its bytes.
 ```sh
 curl -sf -o row.json "https://emem.dev/v1/tree/$CID?row=2"
 curl -sf -o note.md "https://emem.dev$P"
-python3 "${CLAUDE_SKILL_DIR}/tree_proof.py" check row.json note.md report.md
+python3 "${CLAUDE_SKILL_DIR}/scripts/tree_proof.py" check row.json note.md report.md
 ```
 
 `check` requires the note to hash to the `file_cid`, the row's leaf to

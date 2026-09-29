@@ -5,6 +5,8 @@ description: Keeps an agent's working state in signed emem notes that outlive it
 
 # emem-long-horizon-memory
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A context window ends; a note in your namespace does not. The note is
 signed with your key, so the session that reads it back can check that
 it is the note you wrote and not something that was put in its place.
@@ -26,7 +28,7 @@ numbers.
 ## Set up once
 
 ```sh
-SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/sign_write.py"
+SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/scripts/sign_write.py"
 python3 "$SIGN" --init     # creates ~/.config/emem/agent_identity.json once, mode 600
 mcp() {  # mcp TOOL ARGS_JSON OUT_FILE
   jq -n --arg n "$1" --argjson a "$2" \
@@ -66,7 +68,7 @@ overwriting a newer version.
 mcp emem_memory_view "$(jq -n --arg p "$P" '{path:$p}')" view.json
 BASE=$(jq -r '.result.content[0].text' view.json | jq -r .file_cid)
 jq -r '.result.content[0].text' view.json | jq -j .content > log.md
-python3 "${CLAUDE_SKILL_DIR}/../emem-multi-agent-handoff/verify_note.py" view.json
+python3 "${CLAUDE_SKILL_DIR}/../emem-multi-agent-handoff/scripts/verify_note.py" view.json
 ```
 
 Run `verify_note.py` before trusting a note you are resuming from: it

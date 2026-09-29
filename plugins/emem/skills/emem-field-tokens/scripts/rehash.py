@@ -11,7 +11,7 @@ does not. Fetch the artifact to a file first, then check the file:
     python3 rehash.py --self-test     # check the bundled BLAKE3
 
 Prints the computed cid, then MATCH (exit 0) or MISMATCH (exit 1).
-BLAKE3 comes from ../../lib/emem_crypto.py, plain Python shipped with the
+BLAKE3 comes from ../../../lib/emem_crypto.py, plain Python shipped with the
 plugin; nothing here touches the network.
 """
 import base64
@@ -19,11 +19,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
 try:
     from emem_crypto import blake3, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, two levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
     sys.exit(2)
 
 

@@ -5,6 +5,8 @@ description: Answers agronomy questions about one farm field with signed evidenc
 
 # emem-field-signals
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 Field-scale questions, each one call, each answer carrying the fact cids
 it was computed from and a signed receipt.
 

@@ -5,6 +5,8 @@ description: Turns a scanned document into signed, checkable evidence with emem.
 
 # emem-document-evidence
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 Three calls, each signed, each chained to the one before by a hash:
 
 | Call | Signs | Provenance |
@@ -79,14 +81,14 @@ you can quote the exact line it came from.
 
 ## Step 3: verify offline
 
-`verify_doc.py` ships beside this file (`${CLAUDE_SKILL_DIR}`, filled in
+`scripts/verify_doc.py` ships with this skill (`${CLAUDE_SKILL_DIR}`, filled in
 by Claude Code). It makes no network calls; its BLAKE3 and Ed25519 come
 from the plugin's `lib/emem_crypto.py`, plain Python with no third-party
 packages (`--self-test` checks it against the official vectors):
 
 ```sh
-python3 "${CLAUDE_SKILL_DIR}/verify_doc.py" ocr.json report.png
-python3 "${CLAUDE_SKILL_DIR}/verify_doc.py" lab.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" ocr.json report.png
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify_doc.py" lab.json
 ```
 
 It checks the image hash, the text hash, the result hash and the

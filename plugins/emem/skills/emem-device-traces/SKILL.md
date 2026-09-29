@@ -5,6 +5,10 @@ description: Inspects and verifies the execution evidence emem holds for devices
 
 # emem-device-traces
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
+The verify step is also an MCP tool, `emem_trace_verify`: call it by name with `tools/call` on the plugin's MCP server (`tools/list` on `https://emem.dev/mcp/full` shows it). Listing devices and resolving a trace token are REST reads only; no MCP tool covers them yet.
+
 A device can do more than sign a reading. It can sign a trace of what
 its operating system did while producing it: scheduler, memory, storage
 and network activity in fixed windows, chained segment by segment and

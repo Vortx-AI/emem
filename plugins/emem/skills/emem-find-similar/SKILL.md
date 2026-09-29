@@ -5,6 +5,8 @@ description: Returns the top-K places most similar to a seed place by cosine ove
 
 # emem-find-similar
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A nearest-neighbour search over a stored 128-D embedding of surface
 texture (Sentinel-1 SAR plus Sentinel-2 optical, aggregated per year).
 Two cells above about 0.85 cosine are usually the same physical

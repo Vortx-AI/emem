@@ -5,6 +5,8 @@ description: Writes to emem with the agent's own Ed25519 key, either a signed no
 
 # emem-sign-and-attest
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 Reading emem needs nothing. Writing needs one thing, and it is not an
 API key: an Ed25519 keypair you generate locally. Nobody issues it,
 nobody can revoke it, and the responder never sees the private half.
@@ -22,10 +24,10 @@ do not test with a throwaway key: a note signed by a key you then
 discard can never be taken down. Test with your persisted key, under a
 path like `.../scratch/`, and delete what you no longer need.
 
-`sign_write.py` ships beside this file and keeps the key for you:
+`scripts/sign_write.py` ships with this skill and keeps the key for you:
 
 ```sh
-python3 "${CLAUDE_SKILL_DIR}/sign_write.py" --init
+python3 "${CLAUDE_SKILL_DIR}/scripts/sign_write.py" --init
 ```
 
 It creates `~/.config/emem/agent_identity.json` (or `$EMEM_IDENTITY`)
@@ -50,7 +52,7 @@ For a memory write, let `sign_write.py` compute the digest of the write
 you composed and sign it only when it equals the one the refusal names:
 
 ```sh
-python3 "${CLAUDE_SKILL_DIR}/sign_write.py" write create "$P" note.md absent refusal.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/sign_write.py" write create "$P" note.md absent refusal.json
 ```
 
 `note.md` is the whole file as it will read after the write, `absent`

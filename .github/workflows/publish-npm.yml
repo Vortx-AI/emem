@@ -70,9 +70,11 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      # Pinned: an exact npm that clears 11.5.1, not @latest (npm 12 needs a
+      # newer Node 22 than the floating "22" guarantees).
       - name: npm >= 11.5.1 for trusted publishing
         run: |
-          npm install -g npm@latest
+          npm install -g npm@11.20.0
           node --version
           npm --version
           # setup-node's registry-url writes always-auth=true into the

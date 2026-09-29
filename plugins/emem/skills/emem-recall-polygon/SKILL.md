@@ -5,6 +5,8 @@ description: Recalls signed Earth-observation facts at sampled cells inside an a
 
 # emem-recall-polygon
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 `POST /v1/recall_polygon` samples cells inside an area, recalls the
 requested bands at each, and returns them per cell with per-cell
 receipts. It is `locate`, then a sample of the area's cells, then

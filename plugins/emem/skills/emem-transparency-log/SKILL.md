@@ -5,6 +5,8 @@ description: Audits emem's append-only RFC 6962 transparency log offline. Verifi
 
 # emem-transparency-log
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A receipt proves the responder signed some fact cids. It cannot prove
 the responder showed everyone the same history. The transparency log
 does: every attestation and every memory write is a leaf in one RFC 6962
@@ -25,7 +27,7 @@ lone nodes promoted rather than duplicated.
 
 ## Verify a head, an inclusion, and growth
 
-`verify_log.py` ships beside this file (`${CLAUDE_SKILL_DIR}` is filled
+`scripts/verify_log.py` ships with this skill (`${CLAUDE_SKILL_DIR}` is filled
 in by Claude Code). It makes no network calls and imports nothing outside
 the standard library except the plugin's `lib/emem_crypto.py`, a
 plain-Python BLAKE3 and Ed25519 verifier; `--self-test` checks that
@@ -33,7 +35,7 @@ module against the official test vectors. Save each response to a file
 and pass the file:
 
 ```sh
-V="${CLAUDE_SKILL_DIR}/verify_log.py"
+V="${CLAUDE_SKILL_DIR}/scripts/verify_log.py"
 curl -sf https://emem.dev/v1/log/sth > old_sth.json
 python3 "$V" sth old_sth.json
 

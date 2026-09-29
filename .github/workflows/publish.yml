@@ -225,7 +225,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: install huggingface_hub
-        run: pip install --quiet "huggingface_hub>=0.24"
+        run: pip install --quiet "huggingface_hub==1.33.0"
 
       - name: push huggingface-space/ to hf hub
         env:

@@ -5,6 +5,8 @@ description: Hands work between agents so it arrives as checkable evidence rathe
 
 # emem-multi-agent-handoff
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A handoff is a trust boundary. The receiver cannot see your context,
 cannot re-run your reasoning, and has no reason to believe your
 summary. What survives the boundary is bytes that verify. For the same
@@ -73,7 +75,7 @@ curl -sf -X POST https://emem.dev/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_memory_view",
        "arguments":{"path":"/memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07-19.md"}}}' \
   -o view.json
-python3 "${CLAUDE_SKILL_DIR}/verify_note.py" view.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify_note.py" view.json
 ```
 
 Recorded on 2026-09-28 against the A2A standard itself:
@@ -86,7 +88,7 @@ path    /memories/by_attester/k572x7go/a2a-emem-standard-v2-consolidated-2026-07
 
 With one word of `content` changed the body line read `MISMATCH`; with
 `signed_path` changed the signature read `INVALID`; both exited 1.
-`verify_note.py` ships beside this file, makes no network calls, and
+`scripts/verify_note.py` ships with this skill, makes no network calls, and
 takes BLAKE3 and Ed25519 from the plugin's `lib/emem_crypto.py`. The
 rule it checks is `caller_signed_objects` in `GET /v1/verifier_spec`,
 and `https://emem.dev/verify` runs the same check in a browser.

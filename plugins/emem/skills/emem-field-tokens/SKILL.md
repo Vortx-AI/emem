@@ -5,6 +5,8 @@ description: Fetches a native-resolution raster field over an area from emem, or
 
 # emem-field-tokens
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A world model reads a **field over an area across time**, not a set of
 points. This skill fetches that field from emem as a signed artifact
 anyone can re-derive.
@@ -60,7 +62,7 @@ Download the bytes to a file, then re-hash the file:
 ```sh
 CID=$(jq -r '.artifact.artifact_cid' raster.json)
 curl -sf -o artifact.bin "https://emem.dev/v1/artifacts/$CID"
-python3 "${CLAUDE_SKILL_DIR}/rehash.py" "$CID" artifact.bin   # MATCH or MISMATCH
+python3 "${CLAUDE_SKILL_DIR}/scripts/rehash.py" "$CID" artifact.bin   # MATCH or MISMATCH
 ```
 
 Recorded on 2026-09-28: a 32 x 32 px B04 grid (EPSG:32643, scene
@@ -73,7 +75,7 @@ With one byte of `artifact.bin` flipped, `rehash.py` printed `MISMATCH`
 and exited 1.
 
 `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in by Claude
-Code. `rehash.py` ships beside this file and takes its BLAKE3 from the
+Code. `scripts/rehash.py` ships with this skill and takes its BLAKE3 from the
 plugin's `lib/emem_crypto.py`, plain Python with no third-party
 packages; `--self-test` checks it against the official test vectors.
 

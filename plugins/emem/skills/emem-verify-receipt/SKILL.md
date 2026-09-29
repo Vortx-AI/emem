@@ -5,6 +5,8 @@ description: Verifies an emem receipt's Ed25519 signature offline by rebuilding 
 
 # emem-verify-receipt
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 Every emem response that serves facts carries a `receipt`. This skill
 rebuilds the receipt's preimage byte for byte, hashes it with BLAKE3,
 and checks the Ed25519 signature locally. The math matches
@@ -29,15 +31,15 @@ curl -sf -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
   -o recall.json
-python3 "${CLAUDE_SKILL_DIR}/verify.py" recall.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify.py" recall.json
 ```
 
 It accepts a bare receipt or a whole response with a top-level
 `receipt`. `${CLAUDE_SKILL_DIR}` is this skill's directory, filled in
-by Claude Code; `verify.py` ships beside this file and imports BLAKE3
+by Claude Code; `scripts/verify.py` ships with this skill and imports BLAKE3
 and Ed25519 from the plugin's `lib/emem_crypto.py`, plain Python with no
 third-party packages. Nothing is installed or downloaded to run it.
-`python3 "${CLAUDE_SKILL_DIR}/verify.py" --self-test` checks that module
+`python3 "${CLAUDE_SKILL_DIR}/scripts/verify.py" --self-test` checks that module
 against the official BLAKE3 and RFC 8032 test vectors first.
 
 Output on success (recorded 2026-09-28 on a Bengaluru recall):

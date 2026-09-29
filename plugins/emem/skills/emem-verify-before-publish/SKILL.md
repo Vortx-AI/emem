@@ -5,6 +5,8 @@ description: Checks a draft before it is sent. Finds every emem citation in the 
 
 # emem-verify-before-publish
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 You are about to send something with citations in it. They were right
 when you wrote them. This checks they still resolve, that the numbers
 beside them are the signed numbers, and, if you ask, that no measurable

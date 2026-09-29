@@ -19,7 +19,7 @@ a parser. Each check prints one line:
           verified the same way and its text hash must equal the parse's
 
 Exit 0 when every check that ran passed, 1 otherwise, 2 on bad input. No
-network calls; BLAKE3 and Ed25519 come from ../../lib/emem_crypto.py, plain
+network calls; BLAKE3 and Ed25519 come from ../../../lib/emem_crypto.py, plain
 Python that ships with the plugin.
 
 Preimages, from crates/emem-api-rest/src/reader.rs:
@@ -38,11 +38,11 @@ import sys
 from pathlib import Path
 
 sys.dont_write_bytecode = True
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "lib"))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "lib"))
 try:
     from emem_crypto import blake3, ed25519_verify, self_test
 except ImportError:
-    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, two levels above this script\n")
+    sys.stderr.write("emem_crypto.py not found: it ships in the emem plugin's lib/ directory, three levels above this script\n")
     sys.exit(2)
 
 

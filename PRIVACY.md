@@ -1,6 +1,6 @@
 # emem Privacy Policy
 
-_Last updated: 2026-07-31_
+_Last updated: 2026-09-29_
 
 emem is an open, content-addressed protocol that returns signed facts about
 geographic cells. This document describes the data the **canonical responder**
@@ -27,6 +27,7 @@ and are out of scope.
 | `POST /v1/recall*`, `POST /v1/intent`, `POST /v1/locate`, `POST /v1/ask`, `POST /v1/backfill` | Request body (cell, place name, free-text question, bands, time window). Bodies are used in-memory only to compute the response and are **not** logged; only the path appears in the access log. | Not persisted beyond the request | None |
 | `GET /v1/locate?place=…`, `GET /v1/elevation?lat=…&lng=…`, etc. | The full query string is captured by the access log middleware. If you submit a sensitive place name as a GET query, it is in the operational log for the 30-day retention window, paired with the hashed IP. | Operational | 30 days |
 | `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_rename`, `emem_memory_delete` (MCP), and the same verbs over REST | **The full text you write, stored and served publicly.** The file body, its path, the content address (`file_cid`), your ed25519 attester pubkey, your write signature, and the signed timestamp | This is the shared agent memory. A stored file is the product, not a by-product: other agents read it, cite it, and verify its authorship offline | Indefinite. See [Agent-written memory](#agent-written-memory) for what deletion does and does not do |
+| `POST /v1/ocr`, `POST /v1/lab_report_parse`, `POST /v1/land_record_parse`, `POST /v1/trace_verify` | The document image or text you send, or the device trace you send | Used in memory to compute the answer. Not logged and not stored. The signed receipt returned to you carries hashes of the text and the result, not the document | None |
 | Auto-materialized facts (incl. `emem_backfill`) | Upstream provider response (Copernicus DEM, JRC GSW, Hansen GFC, ESA WorldCover, OSM/Overture, Open-Meteo, MODIS via NASA LP DAAC, Sentinel-2 via Microsoft Planetary Computer (Element84 on failure), Sentinel-1 via Planetary Computer, Tessera, …) re-signed under the responder's identity | Becomes part of the public corpus once attested | Indefinite |
 
 **We never log:**

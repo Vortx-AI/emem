@@ -5,6 +5,8 @@ description: Prepares emem facts for use in research, where a reviewer needs to 
 
 # emem-research-grade-citation
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 A signed fact proves who served which bytes. It does not by itself say
 what quantity those bytes estimate. A citation a reviewer can use needs
 both: the token that pins the bytes, and a sentence that names the

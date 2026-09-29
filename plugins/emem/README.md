@@ -77,12 +77,25 @@ touches a secret key; it signs with the `cryptography` package
 (OpenSSL's constant-time Ed25519) and reports when that package is
 absent rather than installing it.
 
-## Network use
+## Data
 
-The MCP server and every `curl` in the skills talk to `https://emem.dev`
-and nothing else. The skills never call a third-party service; the
-responder fetches open data upstream on your behalf. What emem.dev logs
-is described at <https://emem.dev/privacy>.
+The MCP server and every command in the skills talk to one host,
+`https://emem.dev`, operated by Vortx AI Private Limited. The skills never
+call a third-party service; emem.dev fetches open data upstream on its own
+side. It needs no credentials. On your machine, the skill commands save
+the JSON they fetch into the current directory, and `sign_write.py --init`
+writes an Ed25519 key to `~/.config/emem/agent_identity.json` (mode 600) if
+you ask it to; nothing else is written.
+
+| What you call | What is sent | How long it is kept |
+|---|---|---|
+| `https://emem.dev/mcp` and the REST reads the skills use (locate, recall, recall_polygon, ask, field and EUDR checks, log and token reads) | Place names, coordinates, plot or field polygons, band names, dates, tokens and questions | Request bodies are used to compute the answer and are not logged. Request metadata (path, GET query string, status, duration, user agent, a one-way hash of your IP) is kept 30 days. Facts the service reads for your request are signed and join the public record permanently; they carry no identity of yours, but a cell you asked about can be read from the facts signed there |
+| Document routes (`/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`) | The image or text of the document | Used for that request and not stored; the signed receipt carries only hashes of the text and the result |
+| Device routes (`/v1/devices`, `/v1/trace_resolve`, `/v1/trace_verify`) | Trace tokens and trace records | Verifying is stateless; nothing sent is stored |
+| Memory writes (`emem_memory_create` and the other write verbs, used by sign-and-attest, handoff and long-horizon memory) | The note text, its path, your public key and your signature | Public and permanent by design. Deleting a note unpublishes the path; the signed history stays in the log |
+
+The privacy notice is the authority on all of this, including your
+rights: <https://emem.dev/privacy>.
 
 ## Trust boundary
 

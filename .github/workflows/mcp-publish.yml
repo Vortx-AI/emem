@@ -65,7 +65,7 @@ jobs:
             exit 1
           fi
           echo "validating against $SCHEMA"
-          python -m pip install --quiet check-jsonschema
+          python -m pip install --quiet check-jsonschema==0.38.2
           check-jsonschema --schemafile "$SCHEMA" server.json
 
       - name: install mcp-publisher
@@ -73,8 +73,19 @@ jobs:
           set -euo pipefail
           ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
           OS=$(uname -s | tr '[:upper:]' '[:lower:]')
-          URL="https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${OS}_${ARCH}.tar.gz"
-          curl -fsSL "$URL" | tar xz mcp-publisher
+          # Pinned release and checksum, not releases/latest piped into tar:
+          # the binary that publishes our listing is one we have seen. The
+          # sums are from registry_1.8.1_checksums.txt in that release.
+          VERSION=v1.8.1
+          case "$ARCH" in
+            amd64) SHA=a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc ;;
+            arm64) SHA=8dd75a6cf6845688b5d4e46df58d3ca26d5c8d233bb0626606e1db82c5e883e4 ;;
+            *) echo "no pinned checksum for $ARCH"; exit 1 ;;
+          esac
+          TGZ="mcp-publisher_${OS}_${ARCH}.tar.gz"
+          curl -fsSL -o "$TGZ" "https://github.com/modelcontextprotocol/registry/releases/download/${VERSION}/${TGZ}"
+          echo "${SHA}  ${TGZ}" | sha256sum -c -
+          tar xzf "$TGZ" mcp-publisher
           ./mcp-publisher --version
 
       - name: login via GitHub OIDC

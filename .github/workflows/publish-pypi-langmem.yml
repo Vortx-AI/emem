@@ -62,7 +62,7 @@ jobs:
       - name: build sdist + wheel
         working-directory: sdks/emem-langmem
         run: |
-          python -m pip install --upgrade build
+          python -m pip install build==1.6.1
           python -m build
 
       # A wheel that builds clean and holds nothing is the failure that

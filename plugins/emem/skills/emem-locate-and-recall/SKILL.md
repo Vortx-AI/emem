@@ -5,6 +5,8 @@ description: Resolves a place name to an emem cell64 address and recalls signed 
 
 # emem-locate-and-recall
 
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+
 Two REST calls turn a place name into signed facts. Each fact comes back
 with its own `emem:fact:` token, so the number never has to travel
 without its citation.
