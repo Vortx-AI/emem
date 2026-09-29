@@ -74,8 +74,10 @@ def test_rename_binds_destination_in_path_and_source_in_body() -> None:
     new = f"{signer.namespace_root}/b.md"
     block = signer.rename_attester_block(old, new)
     # Recompute: preimage path is the DESTINATION, body-hash is over the SOURCE.
-    expected_pre = attester_preimage(
-        "rename", new, signing.rename_body_hash(old)
+    # v2 with base "absent": the destination must not exist yet, and the
+    # responder refuses a v1 rename.
+    expected_pre = signing.attester_preimage_v2(
+        "rename", new, signing.rename_body_hash(old), signing.BASE_ABSENT
     )
     expected_sig = signing.b32_nopad_lc(signer.sign_preimage(expected_pre))
     assert block["sig_b32"] == expected_sig
@@ -227,3 +229,17 @@ def test_cli_sign_requires_a_body_for_create(monkeypatch) -> None:
     monkeypatch.setenv("EMEM_AGENT_KEY", FIXED_SEED.hex())
     with pytest.raises(SystemExit, match="needs a body"):
         main(["sign", "--verb", "create", "--path", FIXED_PATH])
+
+
+def test_delete_needs_a_base_and_signs_v2() -> None:
+    import pytest
+
+    signer = EmemSigner(FIXED_SEED)
+    path = f"{signer.namespace_root}/a.md"
+    with pytest.raises(ValueError):
+        signer.attester_block("delete", path)
+    block = signer.attester_block("delete", path, base="3aytp566f6s4nvb64ex2pn5o5i")
+    pre = signing.attester_preimage_v2(
+        "delete", path, body_hash(), "3aytp566f6s4nvb64ex2pn5o5i"
+    )
+    assert block["sig_b32"] == signing.b32_nopad_lc(signer.sign_preimage(pre))

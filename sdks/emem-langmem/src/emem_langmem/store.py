@@ -189,14 +189,22 @@ class EmemStore(BaseStore[_K, _V]):
     def _path(self, key: Union[_K, tuple[Sequence[str], str]]) -> str:
         return _key_to_path(key, self.root)
 
-    def _write_args(self, verb: str, path: str, body: bytes, extra: dict) -> dict:
+    def _write_args(
+        self, verb: str, path: str, body: bytes, extra: dict, base: Optional[str] = None
+    ) -> dict:
         """Assemble MCP arguments for a write verb, signing when the
         store holds a key. `body` must be the bytes the responder hashes
-        for this verb (see `signing.py`)."""
+        for this verb (see `signing.py`); `base` is the file_cid being
+        replaced, which a delete must name."""
         args = {"path": path, **extra}
         if self.signer is not None:
-            args["attester"] = self.signer.attester_block(verb, path, body)
+            args["attester"] = self.signer.attester_block(verb, path, body, base=base)
         return args
+
+    @staticmethod
+    def _delete_base(view: dict) -> Optional[str]:
+        cid = view.get("file_cid")
+        return cid if isinstance(cid, str) and cid else None
 
     # ---------- transport ----------
 
@@ -262,10 +270,23 @@ class EmemStore(BaseStore[_K, _V]):
 
     def mdelete(self, keys: Sequence[_K]) -> None:
         for k in keys:
+            path = self._path(k)
+            if self.signer is None:
+                self._mcp_call("emem_memory_delete", {"path": path})
+                continue
+            # The responder refuses a delete signed without the file_cid it
+            # removes, so read it first. A key that is not there is already
+            # deleted, which is what BaseStore.mdelete promises.
+            try:
+                base = self._delete_base(self._mcp_call("emem_memory_view", {"path": path}))
+            except EmemStoreError as e:
+                if "not_found" in str(e).lower():
+                    continue
+                raise
+            if base is None:
+                continue
             # delete carries no body: the responder hashes b"".
-            self._mcp_call(
-                "emem_memory_delete", self._write_args("delete", self._path(k), b"", {})
-            )
+            self._mcp_call("emem_memory_delete", self._write_args("delete", path, b"", {}, base))
 
     def yield_keys(self, *, prefix: Optional[str] = None) -> Iterator[_K]:
         path = self._path(prefix) if prefix else self.root
@@ -306,8 +327,21 @@ class EmemStore(BaseStore[_K, _V]):
 
     async def amdelete(self, keys: Sequence[_K]) -> None:
         for k in keys:
+            path = self._path(k)
+            if self.signer is None:
+                await self._mcp_call_async("emem_memory_delete", {"path": path})
+                continue
+            try:
+                view = await self._mcp_call_async("emem_memory_view", {"path": path})
+            except EmemStoreError as e:
+                if "not_found" in str(e).lower():
+                    continue
+                raise
+            base = self._delete_base(view)
+            if base is None:
+                continue
             await self._mcp_call_async(
-                "emem_memory_delete", self._write_args("delete", self._path(k), b"", {})
+                "emem_memory_delete", self._write_args("delete", path, b"", {}, base)
             )
 
     async def ayield_keys(self, *, prefix: Optional[str] = None) -> AsyncIterator[_K]:
@@ -372,6 +406,17 @@ def _unwrap_mcp(envelope: dict, tool: str, *, signer: Optional[EmemSigner] = Non
     result = envelope.get("result")
     if not isinstance(result, dict):
         raise EmemStoreError(f"emem {tool}: malformed result envelope")
+    # A refused tool call is a successful JSON-RPC response with isError set.
+    # Returning its text as data made a refused write look like a stored one.
+    if result.get("isError"):
+        content = result.get("content")
+        text = ""
+        if isinstance(content, list) and content and isinstance(content[0], dict):
+            text = str(content[0].get("text", ""))
+        message = f"emem {tool}: {text[:500]}"
+        if _is_attestation_error(text):
+            raise EmemAttestationError(message + _attestation_hint(signer))
+        raise EmemStoreError(message)
     # MCP `tools/call` wraps the tool's actual return inside
     # `result.content[0].text` (text content) or `result.structuredContent`.
     if "structuredContent" in result:

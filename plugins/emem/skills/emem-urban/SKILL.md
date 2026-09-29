@@ -16,8 +16,8 @@ shows how to go from cells to an area without overstating coverage.
 |---|---|---|---|---|
 | `overture.buildings.count` | count | the cell's own bbox: buildings whose **centroid** falls inside | Overture buildings, release named in `derivation.args` | 0 can mean unmapped; coverage is uneven outside NA and EU |
 | `overture.places.count` | count | points inside the cell bbox | Overture places | POIs, not people or floor area |
-| `overture.transportation.road_length_m` | m | road segments **clipped** to the cell bbox | Overture transportation | a 10 m cell off the street reads 0 |
-| `overture.transportation.road_bearing_deg` | deg_axial, 0 to 180 from north | the nearest segment within 50 m; distance in `derivation.args` | Overture transportation | an Absence when no segment is within 50 m |
+| `overture.transportation.road_length_m` | m | carriageway segments (class motorway through service) **clipped** to the cell bbox; footways, paths, rail and water are not counted | Overture transportation | a 10 m cell off the street reads 0 |
+| `overture.transportation.road_bearing_deg` | deg_axial, 0 to 180 from north | the nearest carriageway segment within 50 m; distance, `class` and the row groups read in `derivation.args` | Overture transportation | an Absence when no carriageway is within 50 m; a footway or plaza edge does not count |
 | `population` | people_per_km2 | one 1 km pixel, sampled at the cell | WorldPop UNadj 1 km, 2020 | the pixel's density, not people in the cell |
 | `indices.ndbi` | ratio, -1 to 1 | one 10 m Sentinel-2 pixel, (B11 - B08) / (B11 + B08) | Sentinel-2 L2A, scene id in args | read `surface_class`: a cloud-shadow pixel is not built-up evidence |
 | `esa_worldcover.lc_2021` | class | one 10 m pixel | ESA WorldCover v200, 2021 | 50 is built-up |
@@ -47,7 +47,8 @@ Recorded on 2026-09-28 at a Shibuya cell (35.65988 N, 139.70737 E):
 WorldCover 50 (built-up), NDBI 0.024 on a pixel flagged cloud shadow,
 DMSP 63 (saturated, 2013), population 16403 people/km2 (the 1 km pixel),
 2 places, 0 buildings and 0 m of road inside the cell, and a road
-bearing of 55.63 deg_axial from a segment 11.1 m away. Overture facts
+bearing of 55.63 deg_axial from a segment 11.1 m away (read before road
+bands counted carriageways only, so it may have been a footway). Overture facts
 named release `2026-09-23.1`. Each value came back with an
 `emem:fact:` token.
 
@@ -69,7 +70,8 @@ jq '[.by_cell | .. | objects | select(.band? == "overture.transportation.road_le
 
 Recorded on 2026-09-28: 0.040 km2, 64 of about 400 cells sampled
 (`coverage_fraction` 0.16, `is_exhaustive: false`), road length nonzero
-in 45 cells, summing to 598.6 m; 3 building centroids in the sample.
+in 45 cells, summing to 598.6 m (counted before the carriageway filter, so
+footways and paths were included); 3 building centroids in the sample.
 
 The 598.6 m is a sample, not the road length of the box. A mean-per-cell
 estimate is 598.6 / 64 x 400, about 3.7 km, or roughly 93 km of road per

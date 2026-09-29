@@ -54,7 +54,7 @@ another key's namespace is refused with a 403.
 from __future__ import annotations
 
 import base64
-from typing import Union
+from typing import Union, Optional
 
 try:
     from blake3 import blake3
@@ -75,6 +75,11 @@ PUBKEY_SHORT_LEN = 8
 WRITE_VERBS = ("create", "str_replace", "insert", "delete", "rename")
 
 _PREIMAGE_TAG = b"emem.memory_write|"
+_PREIMAGE_V2_TAG = b"emem.memory_write.v2|"
+#: What `base` is when nothing is at the path yet (emem_primitives::BASE_ABSENT).
+BASE_ABSENT = "absent"
+#: Verbs the responder refuses to verify under the v1 preimage.
+V2_REQUIRED_VERBS = ("delete", "rename")
 _SEP = b"|"
 
 
@@ -120,6 +125,33 @@ def attester_preimage(verb: str, path: str, body_digest: bytes) -> bytes:
     h.update(path.encode("utf-8"))
     h.update(_SEP)
     h.update(body_digest)
+    return h.digest()
+
+
+def attester_preimage_v2(verb: str, path: str, body_digest: bytes, base: str) -> bytes:
+    """The v2 digest, which the responder tries first and requires for
+    delete and rename.
+
+    `base` is the `file_cid` now at `path`, or `BASE_ABSENT` when nothing is
+    there. It binds the signature to the version being replaced, so a
+    signature read off the public log cannot be replayed once the path moves
+    on. Mirrors emem_primitives::attester_preimage_v2 byte for byte.
+    """
+    if verb not in WRITE_VERBS:
+        raise ValueError(f"unknown write verb {verb!r}; expected one of {', '.join(WRITE_VERBS)}")
+    if len(body_digest) != 32:
+        raise ValueError(f"body_digest must be 32 bytes, got {len(body_digest)}")
+    if not base:
+        raise ValueError("base must be the current file_cid or BASE_ABSENT")
+    h = blake3()
+    h.update(_PREIMAGE_V2_TAG)
+    h.update(verb.encode("utf-8"))
+    h.update(_SEP)
+    h.update(path.encode("utf-8"))
+    h.update(_SEP)
+    h.update(body_digest)
+    h.update(_SEP)
+    h.update(base.encode("utf-8"))
     return h.digest()
 
 
@@ -203,7 +235,9 @@ class EmemSigner:
         """Raw ed25519 signature (64 bytes) over an already-built preimage."""
         return self._key.sign(preimage)
 
-    def attester_block(self, verb: str, path: str, body: bytes = b"") -> dict:
+    def attester_block(
+        self, verb: str, path: str, body: bytes = b"", base: Optional[str] = None
+    ) -> dict:
         """Build the wire `attester` block for one write.
 
         `body` is the byte string the responder will hash for this verb
@@ -211,7 +245,16 @@ class EmemSigner:
         which is right for `delete`. For `rename`, prefer
         `rename_attester_block`.
         """
-        digest = attester_preimage(verb, path, body_hash(body))
+        if base is None and verb in V2_REQUIRED_VERBS:
+            raise ValueError(
+                f"{verb} is refused under the v1 preimage; pass base= the file_cid "
+                "now at the path (for rename, use rename_attester_block)"
+            )
+        digest = (
+            attester_preimage_v2(verb, path, body_hash(body), base)
+            if base is not None
+            else attester_preimage(verb, path, body_hash(body))
+        )
         return {
             "pubkey_b32": self.pubkey_b32,
             "sig_b32": b32_nopad_lc(self.sign_preimage(digest)),
@@ -233,7 +276,9 @@ class EmemSigner:
             "pubkey_b32": self.pubkey_b32,
             "sig_b32": b32_nopad_lc(
                 self.sign_preimage(
-                    attester_preimage("rename", new_path, rename_body_hash(old_path))
+                    attester_preimage_v2(
+                        "rename", new_path, rename_body_hash(old_path), BASE_ABSENT
+                    )
                 )
             ),
         }

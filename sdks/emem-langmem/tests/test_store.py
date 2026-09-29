@@ -188,14 +188,50 @@ def test_mset_signs_the_encoded_file_text_not_the_raw_value():
 
 
 @respx.mock
-def test_mdelete_signs_with_an_empty_body_hash():
+def test_mdelete_signs_v2_against_the_current_file_cid():
+    """A delete is refused under v1, so the store reads the note's file_cid
+    and signs it as the v2 base."""
     captured = {}
-    respx.post("https://emem.dev/mcp").mock(side_effect=_capture_into(captured))
+    cid = "3aytp566f6s4nvb64ex2pn5o5i"
+
+    def _fn(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        if body["params"]["name"] == "emem_memory_view":
+            return httpx.Response(
+                200,
+                json={"jsonrpc": "2.0", "id": "x", "result": {"structuredContent": {"file_cid": cid}}},
+            )
+        captured["body"] = body
+        return _ok(request)
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_fn)
     EmemStore(base_url="https://emem.dev", signing_key=_SEED).mdelete(["my-note"])
 
     args = _args_of(captured)
     assert args["path"] == f"{_SIGNER.namespace_root}/my-note"
-    _verify_block(args["attester"], "delete", args["path"], b"")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    from emem_langmem.signing import attester_preimage_v2
+
+    def _b32d(s: str) -> bytes:
+        return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
+
+    Ed25519PublicKey.from_public_bytes(_b32d(args["attester"]["pubkey_b32"])).verify(
+        _b32d(args["attester"]["sig_b32"]),
+        attester_preimage_v2("delete", args["path"], body_hash(b""), cid),
+    )
+
+
+@respx.mock
+def test_a_refused_call_raises_instead_of_returning_its_text():
+    def _refused(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"jsonrpc": "2.0", "id": "x", "result": {"isError": True, "content": [{"type": "text", "text": "memory_attestation_required: sign it"}]}},
+        )
+
+    respx.post("https://emem.dev/mcp").mock(side_effect=_refused)
+    with pytest.raises(EmemStoreError):
+        EmemStore(base_url="https://emem.dev").mset([("my-note", b"hello")])
 
 
 @respx.mock

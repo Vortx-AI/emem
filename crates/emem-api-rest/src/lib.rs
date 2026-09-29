@@ -2910,8 +2910,13 @@ async fn rate_limit_layer(
             "message": format!("rate limit: {} req/min, burst {}; backoff and retry", (rps * 60.0) as u64, burst as u64),
         });
         let mut resp = (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response();
-        resp.headers_mut()
-            .insert("retry-after", HeaderValue::from_static("60"));
+        // The same constant /v1/errors and /v1/limits state. This limiter sent
+        // 60 while both said 1, and the bucket refills continuously, so a
+        // client that obeyed the header sat out a minute for one token.
+        resp.headers_mut().insert(
+            "retry-after",
+            HeaderValue::from_static(RATE_LIMITED_RETRY_AFTER),
+        );
         resp
     }
 }
@@ -9261,12 +9266,12 @@ async fn materializers(
                 "upstream_scheme":   "overture.maps.foundation.v1",
                 "upstream_endpoint": overture_segments_endpoint,
                 "active_release":    overture_release,
-                "derivation_fn_key": "overture_road_length_m@1",
+                "derivation_fn_key": "overture_road_length_m@2",
                 "confidence":        0.85,
                 "tempo":             "slow",
                 "kernel_for_router": "linear_ar1",
                 "fetch_strategy":    "anonymous_s3 + parquet_row_group_pruning + wkb_linestring_clip",
-                "notes":             "Sum of road-segment length (metres) intersecting the cell bbox. Each WKB LineString is clipped to the bbox via Liang-Barsky and projected planar with a local-tangent-plane scale at the cell's mid-latitude. The cell is small (~10 m × ~6 m at 52° N) so planar approximation is well within millimetres of haversine."
+                "notes":             "Sum of carriageway length (metres) intersecting the cell bbox: segments with subtype road and a class a vehicle can use (motorway through service); footways, paths, steps, pedestrian areas, rail and waterways are not counted. Each WKB LineString is clipped to the bbox via Liang-Barsky and projected planar with a local-tangent-plane scale at the cell's mid-latitude. The cell is small (~10 m × ~6 m at 52° N) so planar approximation is well within millimetres of haversine."
             }
         ],
         "agent_hint": {
@@ -9766,7 +9771,7 @@ async fn coverage_matrix(State(s): State<AppState>) -> Json<JsonValue> {
         ("overture.transportation.road_length_m", "slow", "human",
             &["Overture Maps Foundation transportation parquet (anonymous S3)"]),
         ("overture.transportation.road_bearing_deg", "slow", "human",
-            &["Overture Maps Foundation transportation parquet (anonymous S3): nearest segment within 50 m"]),
+            &["Overture Maps Foundation transportation parquet (anonymous S3): nearest carriageway segment within 50 m"]),
         // WDPA-equivalent protected-area lookup. Source-of-record is
         // OpenStreetMap `boundary=protected_area` polygons via the public
         // Overpass API (point-in-polygon `is_in()` filter); OSM mirrors
@@ -12636,7 +12641,19 @@ const BAND_FIX_CUTS: &[(&str, &str)] = &[
     ("soilgrids.nitrogen_0_30cm", "2026-09-28T08:42:41Z"),
 ];
 
+/// Derivations whose meaning changed under the same band name, so every fact
+/// they signed stops answering "latest" whenever it was signed. The Overture
+/// road bands at @1 counted footways, pedestrian plazas, rail and waterways as
+/// road; @2 counts carriageways only and names the class it read.
+const SUPERSEDED_FN_KEYS: &[&str] = &[
+    "overture_road_bearing_nearest@1",
+    "overture_road_length_m@1",
+];
+
 fn superseded_read(p: &emem_fact::PrimaryFact) -> bool {
+    if SUPERSEDED_FN_KEYS.contains(&p.derivation.fn_key.as_str()) {
+        return true;
+    }
     if BAND_FIX_CUTS
         .iter()
         .any(|(band, at)| p.band == *band && p.signed_at.as_str() < *at)
@@ -43380,23 +43397,38 @@ async fn get_memory_markdown(
         .get(axum::http::header::ACCEPT)
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    // The note's file_cid is its ETag: it is the `base` a v2 signature names
+    // when this path is edited or deleted, so a client learns it from the same
+    // read that gives it the text. JSON and markdown share the tag, hence Vary.
+    let etag = doc
+        .get("file_cid")
+        .and_then(|c| c.as_str())
+        .and_then(|c| HeaderValue::from_str(&format!("\"{c}\"")).ok());
+    let tag = |mut r: Response| {
+        let h = r.headers_mut();
+        if let Some(e) = etag.clone() {
+            h.insert(axum::http::header::ETAG, e);
+        }
+        h.append(axum::http::header::VARY, HeaderValue::from_static("Accept"));
+        r
+    };
     if accept.contains("application/json") {
-        return Ok(Json(doc).into_response());
+        return Ok(tag(Json(doc).into_response()));
     }
 
     // A directory listing has no body to serve as markdown; hand back the
     // JSON rather than an empty page.
     let Some(body) = doc.get("content").and_then(|c| c.as_str()) else {
-        return Ok(Json(doc).into_response());
+        return Ok(tag(Json(doc).into_response()));
     };
-    Ok((
+    Ok(tag((
         [(
             axum::http::header::CONTENT_TYPE,
             "text/markdown; charset=utf-8",
         )],
         body.to_string(),
     )
-        .into_response())
+        .into_response()))
 }
 
 /// The path a memory cid is indexed under, or `None` if nothing points at it.
@@ -46024,21 +46056,24 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
                 let meta_bytes = metas.get(cid.as_bytes()).ok().flatten();
                 let meta: Option<MemoryFileMeta> = meta_bytes
                     .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
-                let (signed_at, attester_pubkey_b32, size_bytes) = match meta {
-                    Some(m) => {
-                        let pk_b32 = data_encoding::BASE32_NOPAD
-                            .encode(&m.receipt.responder.0)
-                            .to_lowercase();
-                        (m.signed_at, Some(pk_b32), m.size_bytes)
-                    }
-                    None => (String::new(), None, 0),
+                // The author is the caller key that signed the write, never the
+                // receipt's responder: that is this server's key on every note,
+                // so every hit named emem.dev as its author and the
+                // attester_pubkey_b32 filter matched all notes or none. A note
+                // with no caller signature has no author to name.
+                let (signed_at, attester_pubkey_b32, size_bytes, kind) = match meta {
+                    Some(m) => (
+                        m.signed_at,
+                        m.attester_pubkey_b32,
+                        m.size_bytes,
+                        Some(m.kind).filter(|k| !k.is_empty()),
+                    ),
+                    None => (String::new(), None, 0, None),
                 };
                 out.push(emem_primitives::memory_search::MemoryFileSummary {
                     path: path.to_string(),
                     file_cid: cid.to_string(),
-                    // Kind taxonomy is owned by Agent W (memory_typing.rs).
-                    // Until that lands, every file is plain "resource".
-                    kind: "resource".to_string(),
+                    kind: kind.unwrap_or_else(|| "resource".to_string()),
                     signed_at,
                     attester_pubkey_b32,
                     size_bytes,
@@ -53194,7 +53229,7 @@ async fn materialize_overture_road_bearing(
     let row_groups = format!("row_groups={}", found.row_groups.join(";"));
     let Some(road) = found.nearest else {
         let reason = format!(
-            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no transportation segment within {RADIUS_M} m of ({lat:.6},{lng:.6}); {row_groups}."
+            "overture_no_road_within_{RADIUS_M}m: Overture release {release} holds no carriageway segment (class in {}) within {RADIUS_M} m of ({lat:.6},{lng:.6}); footways, paths and pedestrian areas are not counted; {row_groups}.", emem_fetch::overture::CARRIAGEWAY_CLASSES.join(",")
         );
         return sign_band_absence(
             cell64,
@@ -53218,12 +53253,13 @@ async fn materialize_overture_road_bearing(
         uncertainty: None,
         sources: vec![source],
         derivation: Derivation {
-            fn_key: "overture_road_bearing_nearest@1".into(),
+            fn_key: "overture_road_bearing_nearest@2".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(lat),
                 ciborium::Value::Float(lng),
                 ciborium::Value::Float(RADIUS_M),
                 ciborium::Value::Text(format!("distance_m={:.1}", road.distance_m)),
+                ciborium::Value::Text(format!("class={}", road.class)),
                 ciborium::Value::Text(release),
                 ciborium::Value::Text(row_groups),
             ])),
@@ -53280,13 +53316,17 @@ async fn materialize_overture_road_length_m(
             url: Some(upstream_url),
         }],
         derivation: Derivation {
-            fn_key: "overture_road_length_m@1".into(),
+            fn_key: "overture_road_length_m@2".into(),
             args: Some(ciborium::Value::Array(vec![
                 ciborium::Value::Float(bb.min_lat),
                 ciborium::Value::Float(bb.max_lat),
                 ciborium::Value::Float(bb.min_lng),
                 ciborium::Value::Float(bb.max_lng),
                 ciborium::Value::Text(release),
+                ciborium::Value::Text(format!(
+                    "classes={}",
+                    emem_fetch::overture::CARRIAGEWAY_CLASSES.join(",")
+                )),
             ])),
         },
         privacy_class: "public".into(),
@@ -75480,7 +75520,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         return Err(ApiError(
                             StatusCode::NOT_FOUND,
                             ErrorBody {
-                                code: ErrorCode::InvalidArgument,
+                                code: ErrorCode::NoGeocoderMatch,
                                 message: format!(
                                     "no geocoder match for '{p}' (Photon + Nominatim both returned zero results, try a more specific name, or pass lat+lng directly)"
                                 ),
@@ -75498,7 +75538,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                         return Err(ApiError(
                             StatusCode::NOT_FOUND,
                             ErrorBody {
-                                code: ErrorCode::InvalidArgument,
+                                code: ErrorCode::NoGeocoderMatch,
                                 message: format!(
                                     "no geocoder match for '{p}' (Nominatim returned zero results; Photon transport failed: {ph_err})"
                                 ),

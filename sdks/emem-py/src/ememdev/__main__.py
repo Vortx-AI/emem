@@ -149,12 +149,17 @@ def _build_attester(signer, args: argparse.Namespace) -> dict:
     body = _read_body(args)
     if verb == "delete" and body:
         raise SystemExit("delete carries no body; drop --body/--body-file/--stdin")
+    if verb == "delete" and not args.base:
+        raise SystemExit(
+            "delete is refused under the v1 preimage; pass --base <file_cid now at --path> "
+            "(GET the note with Accept: application/json and read file_cid)"
+        )
     if verb in ("create", "str_replace", "insert") and not body and not args.allow_empty:
         raise SystemExit(
             f"{verb} needs a body (the whole post-edit file for str_replace/insert). "
             "Pass --body/--body-file/--stdin, or --allow-empty to sign an empty body."
         )
-    return signer.attester_block(verb, args.path, body)
+    return signer.attester_block(verb, args.path, body, base=args.base)
 
 
 def _cmd_sign(args: argparse.Namespace) -> int:
@@ -216,6 +221,11 @@ def main(argv: Optional[list] = None) -> int:
     )
     p_sign.add_argument("--path", required=True, help="the memory path being written")
     p_sign.add_argument("--old-path", help="rename only: the source path")
+    p_sign.add_argument(
+        "--base",
+        help="the file_cid now at --path, which a delete must name (signs v2); "
+        "'absent' for a new path",
+    )
     _add_body_args(p_sign)
 
     p_write = sub.add_parser(

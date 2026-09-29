@@ -22,6 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 )
 from cryptography.exceptions import InvalidSignature
 
+from emem_langmem import signing
 from emem_langmem.signing import (
     BY_ATTESTER_PREFIX,
     EmemSigner,
@@ -155,7 +156,9 @@ def test_signature_verifies_like_the_rust_verifier(verb):
         body = f"{signer.namespace_root}/old.md".encode()
     else:
         body = b"some body"
-    block = signer.attester_block(verb, path, body)
+    # delete and rename are refused under v1, so they sign v2 against a base.
+    base = {"delete": "3aytp566f6s4nvb64ex2pn5o5i", "rename": signing.BASE_ABSENT}.get(verb)
+    block = signer.attester_block(verb, path, body, base=base)
 
     def _b32d(s: str) -> bytes:
         return base64.b32decode(s.upper() + "=" * (-len(s) % 8))
@@ -164,7 +167,11 @@ def test_signature_verifies_like_the_rust_verifier(verb):
     sig = _b32d(block["sig_b32"])
     assert len(pubkey) == 32 and len(sig) == 64
 
-    preimage = attester_preimage(verb, path, body_hash(body))
+    preimage = (
+        signing.attester_preimage_v2(verb, path, body_hash(body), base)
+        if base
+        else attester_preimage(verb, path, body_hash(body))
+    )
     # No exception means the responder's verify_strict would pass too.
     Ed25519PublicKey.from_public_bytes(pubkey).verify(sig, preimage)
 
@@ -202,12 +209,13 @@ def test_rename_block_signs_destination_as_path_and_source_as_body():
     block = signer.rename_attester_block(old_path, new_path)
 
     expected = blake3(
-        b"emem.memory_write|"
+        b"emem.memory_write.v2|"
         + b"rename"
         + b"|"
         + new_path.encode()
         + b"|"
         + blake3(old_path.encode()).digest()
+        + b"|absent"
     ).digest()
 
     pubkey = Ed25519PublicKey.from_public_bytes(

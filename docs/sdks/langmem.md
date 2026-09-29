@@ -98,6 +98,12 @@ by the server rather than by the client.
 Checked against emem.dev and the package source on 2026-09-29. They are
 defects in the adapter, not in the responder.
 
+Both are fixed in the repository source (after 2.4.0, not yet on PyPI):
+`mdelete` reads the note's `file_cid` and signs v2 against it, rename signs
+v2 with base `absent`, and a result with `isError: true` raises
+`EmemStoreError` (or `EmemAttestationError` for a signing refusal). Until the
+next release, install from source to get them.
+
 - **`mdelete` is refused.** `EmemSigner` builds only the v1 preimage,
   `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`.
   The responder still accepts v1 for `create`, `str_replace` and

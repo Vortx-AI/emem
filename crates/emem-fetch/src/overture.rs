@@ -700,7 +700,7 @@ impl OvertureClient {
         if rgs.is_empty() {
             return Ok(0.0);
         }
-        let mut stream = self.open_stream(key, rgs, &[]).await?;
+        let mut stream = self.open_stream(key, rgs, &["subtype", "class"]).await?;
         let mut total = 0.0f64;
         while let Some(batch) = stream
             .try_next()
@@ -731,8 +731,12 @@ impl OvertureClient {
                 key: key.to_string(),
                 detail: e,
             })?;
+            let (subtype, class) = (str_col(&batch, "subtype"), str_col(&batch, "class"));
             for i in 0..batch.num_rows() {
                 if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                    continue;
+                }
+                if !is_carriageway(str_at(&subtype, i), str_at(&class, i)) {
                     continue;
                 }
                 let Some(wkb) = geoms.get(i) else {
@@ -785,7 +789,7 @@ impl OvertureClient {
                         .collect::<Vec<_>>()
                         .join(",")
                 );
-                let mut stream = self.open_stream(&key, rgs, &[]).await?;
+                let mut stream = self.open_stream(&key, rgs, &["subtype", "class"]).await?;
                 let mut best: Option<RoadBearing> = None;
                 while let Some(batch) =
                     stream
@@ -812,14 +816,20 @@ impl OvertureClient {
                             key: key.clone(),
                             detail: e,
                         })?;
+                    let (subtype, class) = (str_col(&batch, "subtype"), str_col(&batch, "class"));
                     for i in 0..batch.num_rows() {
                         if !bb.overlaps(i, s_lat, n_lat, w_lng, e_lng) {
+                            continue;
+                        }
+                        let cls = str_at(&class, i);
+                        if !is_carriageway(str_at(&subtype, i), cls) {
                             continue;
                         }
                         let Some(lines) = geoms.get(i).and_then(wkb_linestring_or_multi) else {
                             continue;
                         };
-                        if let Some(c) = nearest_on_lines(&lines, lat, lng, m_lat, m_lng) {
+                        if let Some(mut c) = nearest_on_lines(&lines, lat, lng, m_lat, m_lng) {
+                            c.class = cls.unwrap_or_default().to_string();
                             if best.as_ref().is_none_or(|b| c.distance_m < b.distance_m) {
                                 best = Some(c);
                             }
@@ -2612,6 +2622,38 @@ fn polygon_centroid_with_count(cur: &mut WkbCursor<'_>) -> Option<((f64, f64), u
     Some(((cx / total as f64, cy / total as f64), total))
 }
 
+/// Road classes a vehicle can use. The transportation theme also holds rail
+/// and water segments and, under `subtype = road`, footways, paths, steps and
+/// pedestrian plazas: at a Doha point every segment within 50 m was one of
+/// those, and the nearest carriageway was 88 m away, so the road bands read a
+/// plaza edge. Overture has no `*_link` class; slip roads keep their parent
+/// class with `subclass = link`, so they pass here as that class.
+pub const CARRIAGEWAY_CLASSES: &[&str] = &[
+    "motorway",
+    "trunk",
+    "primary",
+    "secondary",
+    "tertiary",
+    "residential",
+    "unclassified",
+    "living_street",
+    "service",
+];
+
+fn is_carriageway(subtype: Option<&str>, class: Option<&str>) -> bool {
+    subtype == Some("road") && class.is_some_and(|c| CARRIAGEWAY_CLASSES.contains(&c))
+}
+
+fn str_col(batch: &arrow::record_batch::RecordBatch, name: &str) -> Option<StringArray> {
+    batch
+        .column_by_name(name)
+        .and_then(|c| c.as_any().downcast_ref::<StringArray>().cloned())
+}
+
+fn str_at(col: &Option<StringArray>, i: usize) -> Option<&str> {
+    col.as_ref().filter(|c| !c.is_null(i)).map(|c| c.value(i))
+}
+
 /// What a nearest-road search found, and which bytes it read to find it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct RoadBearingRead {
@@ -2627,6 +2669,8 @@ pub struct RoadBearing {
     /// Axial bearing, degrees clockwise from north, in [0, 180).
     pub bearing_deg: f64,
     pub distance_m: f64,
+    /// The Overture `class` of the segment (one of CARRIAGEWAY_CLASSES).
+    pub class: String,
 }
 
 /// Closest point on a set of `(lng, lat)` polylines to `(lat, lng)`, in a
@@ -2656,6 +2700,7 @@ pub fn nearest_on_lines(
                 best = Some(RoadBearing {
                     bearing_deg: bearing,
                     distance_m: d,
+                    class: String::new(),
                 });
             }
         }
@@ -2920,6 +2965,28 @@ mod tests {
         );
     }
     use super::*;
+
+    #[test]
+    fn only_carriageways_count_as_roads() {
+        assert!(is_carriageway(Some("road"), Some("tertiary")));
+        assert!(is_carriageway(Some("road"), Some("service")));
+        for c in [
+            "pedestrian",
+            "footway",
+            "steps",
+            "path",
+            "cycleway",
+            "track",
+        ] {
+            assert!(!is_carriageway(Some("road"), Some(c)), "{c}");
+        }
+        assert!(!is_carriageway(Some("rail"), Some("standard_gauge")));
+        assert!(!is_carriageway(Some("water"), None));
+        assert!(
+            !is_carriageway(Some("road"), None),
+            "an unclassed road is not assumed drivable"
+        );
+    }
 
     fn pt_le(x: f64, y: f64) -> Vec<u8> {
         let mut v = Vec::with_capacity(21);
