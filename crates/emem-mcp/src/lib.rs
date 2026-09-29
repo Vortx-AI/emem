@@ -1757,7 +1757,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         // to content-addressing alone this would have hinged on wall-clock
         // resolution, since `signed_at` rides on the fact: identical
         // within a second, distinct across one. A retry must be safe.
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1830,7 +1830,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"entity_token":"emem:entity:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "core",
     },
     // ── Anthropic memory tool (context-management-2025-06-27) ──
@@ -1861,7 +1861,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r##"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","file_text":"# Today\n- read the brief\n"}"##,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1873,7 +1873,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","old_str":"read the brief","new_str":"finished the brief"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1885,7 +1885,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md","insert_line":0,"new_str":"draft 2026-05-28"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: true,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: false, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1897,7 +1897,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/notes.md"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1909,7 +1909,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"path":"/memories/by_attester/<your-pubkey8>/result-2026-08-01.md","superseded_by":"<file_cid of the correction>","reason":"the correlation in section 1 was withdrawn after a different estimator warm-up"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -1921,7 +1921,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"old_path":"/memories/by_attester/<your-pubkey8>/notes.md","new_path":"/memories/by_attester/<your-pubkey8>/archive/notes-2026-05.md"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: true,
+        read_only_hint: false, destructive_hint: true, idempotent_hint: true, open_world_hint: false,
         tier: "extended",
     },
     ToolDescriptor {
@@ -4483,16 +4483,17 @@ mod tests {
             // Same inputs, same content-addressed bundle token.
             ("emem_memory_bundle", [false, false, true, true]),
             ("emem_entity", [false, false, true, true]),
-            ("emem_entity_link", [false, false, true, true]),
-            ("emem_derive", [false, false, true, true]),
-            ("emem_memory_supersede", [false, false, true, true]),
             ("emem_recall", [false, false, true, true]),
+            // Writes into this node's own store: closed-world, as in the spec's memory example.
+            ("emem_entity_link", [false, false, true, false]),
+            ("emem_derive", [false, false, true, false]),
+            ("emem_memory_supersede", [false, false, true, false]),
             // A repeat fails on the missing source or path and changes nothing.
-            ("emem_memory_delete", [false, true, true, true]),
-            ("emem_memory_rename", [false, true, true, true]),
-            ("emem_memory_create", [false, true, false, true]),
-            ("emem_memory_str_replace", [false, true, false, true]),
-            ("emem_memory_insert", [false, true, false, true]),
+            ("emem_memory_delete", [false, true, true, false]),
+            ("emem_memory_rename", [false, true, true, false]),
+            ("emem_memory_create", [false, true, false, false]),
+            ("emem_memory_str_replace", [false, true, false, false]),
+            ("emem_memory_insert", [false, true, false, false]),
             // Each call signs a new record with a fresh signed_at.
             ("emem_ask", [false, false, false, true]),
             ("emem_intent", [false, false, false, true]),

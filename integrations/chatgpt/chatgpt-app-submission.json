@@ -167,12 +167,12 @@
     "emem_entity_link": {
       "annotations": {
         "readOnlyHint": false,
-        "openWorldHint": true,
+        "openWorldHint": false,
         "destructiveHint": false
       },
       "justifications": {
         "read_only_justification": "post_entity_alias appends a signed, attributed claim that a phrasing or external id denotes an existing entity, which changes what other agents see when they resolve that phrasing. The enlistment gate refuses unsigned callers.",
-        "open_world_justification": "The claim is published into the shared entity space that every agent reads. The handler calls no external service.",
+        "open_world_justification": "The handler writes one alias row to this node's entity store and calls no external service. GERS, OSM and Wikidata ids in the claim are stored as keys, never fetched.",
         "destructive_justification": "Claims are append-only: a disagreement is a new row with stance `disputes`, never an edit or removal of an earlier claim."
       }
     },
