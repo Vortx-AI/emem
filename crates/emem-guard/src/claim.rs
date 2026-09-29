@@ -83,6 +83,7 @@ pub enum Quantity {
     PowerRatio,
     Fraction,
     PopulationDensity,
+    SpectralIndex,
 }
 
 impl Quantity {
@@ -101,6 +102,7 @@ impl Quantity {
             Self::PowerRatio => "power_ratio",
             Self::Fraction => "fraction",
             Self::PopulationDensity => "population_density",
+            Self::SpectralIndex => "spectral_index",
         }
     }
 }
@@ -551,7 +553,8 @@ pub fn scan_claims<'a>(texts: impl IntoIterator<Item = &'a str>) -> Vec<Claim> {
 /// Ordered cheapest-first: most sentences fail G1, and the clauses after it
 /// never run on those.
 fn claim_in(sentence: &str) -> Option<Claim> {
-    let (magnitude, quantity, source_band) = measurable_magnitude(sentence)?; // G1
+    let (magnitude, quantity, source_band) =
+        measurable_magnitude(sentence).or_else(|| named_index_value(sentence))?; // G1
     let anchor = world_anchor(sentence)?; // G2
     if !is_assertive(sentence) {
         return None; // G3
@@ -615,6 +618,33 @@ fn measurable_magnitude(s: &str) -> Option<(String, Quantity, Option<&'static st
         i = j.max(i + 1);
     }
     None
+}
+
+/// A spectral index has no unit, so "NDVI in Bengaluru is 0.9" never met
+/// G1 and went ungated. The index's own name stands in for the unit: the
+/// name as a whole word, then within a few words a decimal inside the
+/// index's range. Only NDVI, the index a recallable band reports by name.
+fn named_index_value(s: &str) -> Option<(String, Quantity, Option<&'static str>)> {
+    const WINDOW: usize = 40;
+    let lower = s.to_lowercase();
+    let at = lower.match_indices("ndvi").map(|(i, _)| i).find(|&i| {
+        let before = lower[..i].chars().next_back();
+        let after = lower[i + 4..].chars().next();
+        let word = |c: char| c.is_alphanumeric() || c == '_';
+        !before.is_some_and(word) && !after.is_some_and(word)
+    })?;
+    let rest = &s[at + 4..];
+    let tail: String = rest.chars().take(WINDOW).collect();
+    numbers_in(&tail)
+        .into_iter()
+        .find(|(value, decimals)| *decimals > 0 && (-1.0..=1.0).contains(value))
+        .map(|(value, _)| {
+            (
+                format!("NDVI {value}"),
+                Quantity::SpectralIndex,
+                Some("indices.ndvi"),
+            )
+        })
 }
 
 /// The longest unit symbol starting at `at`, if the match ends cleanly.
@@ -1220,6 +1250,25 @@ mod tests {
         );
         // G4 gone: it is a config line.
         assert!(claims("sumatra_height_m = 31").is_empty());
+    }
+
+    /// An index has no unit; its name stands in for one.
+    #[test]
+    fn an_ndvi_value_is_a_claim_without_a_unit() {
+        for s in [
+            "NDVI in Bengaluru is 0.9 today.",
+            "The NDVI at Cubbon Park reached 0.62 on 2026-09-01.",
+        ] {
+            assert_eq!(claims(s).len(), 1, "must fire: {s}");
+        }
+        for s in [
+            "NDVI in Bengaluru rose by 12 percent points in 2026.",
+            "We computed NDVI for Bengaluru in 2026.",
+            "The ndvi_mean column in Bengaluru is 0.9 in the 2026 config.",
+            "NDVI in Bengaluru is 1.8 today.",
+        ] {
+            assert!(claims(s).is_empty(), "must not fire: {s}");
+        }
     }
 
     /// emem's own unit spelling is a temperature claim, like the symbol.
