@@ -33143,7 +33143,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`).","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict, but only the facts the response cites are stored (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
@@ -33344,7 +33344,7 @@ fn openapi_spec() -> JsonValue {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the union of every per-cell fact_cid; verifiable offline at `/verify` (or `/v1/verify_receipt`). Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict, but only the facts the response cites are stored (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -66696,10 +66696,9 @@ const EUDR_MAX_CELLS_PER_PLOT: usize = 51_200;
 /// Cap on the number of `forest_change.lossyear` fact CIDs a per-plot
 /// `lossyear_histogram` derivative lists as `parents`. Bounds the fact
 /// size on huge plots (51,200 cells × 52-char CID ≈ 2.6 MB uncapped);
-/// the histogram's `total_sampled_cells` stays authoritative and the
-/// per-cell facts are all bound by the response receipt regardless, so
-/// the cap is a size guard, not a coverage limit (`parents_capped`
-/// discloses when it fired).
+/// the histogram's `total_sampled_cells` stays authoritative, so the cap is
+/// a size guard, not a coverage limit (`parents_capped` discloses when it
+/// fired). The listed parents are stored with the histogram.
 const EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP: usize = 1024;
 
 /// Receipt-level fact-CID cap for `/v1/eudr_dds`. A 51,200-cell × 4-band
@@ -66726,6 +66725,28 @@ fn eudr_receipt_max_facts() -> usize {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(EUDR_RECEIPT_MAX_FACTS_DEFAULT)
         .clamp(EUDR_RECEIPT_MAX_FACTS_MIN, EUDR_RECEIPT_MAX_FACTS_MAX)
+}
+
+/// The receipt's fact cids for `/v1/eudr_dds`: every per-cell cid, then
+/// each plot's histogram, and, over `cap`, the first `cap` in sort order so
+/// two identical runs sign identical bytes. Returns them with the count
+/// before the cap.
+fn eudr_receipt_fact_cids(
+    per_cell: &[EudrCellVerdict],
+    histograms: impl IntoIterator<Item = String>,
+    cap: usize,
+) -> (Vec<String>, usize) {
+    let mut all: Vec<String> = per_cell
+        .iter()
+        .flat_map(|cv| cv.fact_cids.iter().cloned())
+        .chain(histograms)
+        .collect();
+    let total = all.len();
+    if total > cap {
+        all.sort();
+        all.truncate(cap);
+    }
+    (all, total)
 }
 
 /// Receipt-level cell64 cap for `/v1/eudr_dds`. Default 2048; override
@@ -66839,22 +66860,37 @@ fn hs_in_annex_i(hs: &str) -> bool {
 /// The forest datasets the verdict read, named from the signed facts' own
 /// sources, for printing on a filing: the `forest_baseline_computed` enum
 /// keeps its V3 spelling for callers after the JRC moved `LATEST/` to V4.
-async fn forest_baseline_dataset(s: &AppState, per_cell: &[EudrCellVerdict]) -> JsonValue {
-    let cids: Vec<emem_fact::FactCid> = per_cell
+/// The forest dataset versions one plot's facts name, as `(jrc, hansen)`.
+/// Read from the facts themselves: the stored ones from storage, the ones
+/// built for this request and not stored from `unsaved`.
+type BaselineVersions = (
+    std::collections::BTreeSet<Option<String>>,
+    std::collections::BTreeSet<Option<String>>,
+);
+
+async fn forest_baseline_versions(
+    s: &AppState,
+    per_cell: &[EudrCellVerdict],
+    unsaved: &EudrUnsaved,
+) -> BaselineVersions {
+    let all = per_cell
         .iter()
         .flat_map(|v| v.fact_cids.iter())
-        .collect::<std::collections::BTreeSet<_>>()
-        .into_iter()
-        .map(|c| emem_fact::FactCid::new(c.clone()))
+        .collect::<std::collections::BTreeSet<_>>();
+    let cids: Vec<emem_fact::FactCid> = all
+        .iter()
+        .filter(|c| !unsaved.contains_key(c.as_str()))
+        .map(|c| emem_fact::FactCid::new((*c).clone()))
         .collect();
-    let facts = s
+    let stored = s
         .storage
         .get_facts_many_uncited(&cids)
         .await
         .unwrap_or_default();
     let mut jrc = std::collections::BTreeSet::new();
     let mut hansen = std::collections::BTreeSet::new();
-    for f in facts.into_iter().flatten() {
+    let built = all.iter().filter_map(|c| unsaved.get(c.as_str()));
+    for f in stored.iter().flatten().chain(built) {
         let emem_fact::Fact::Primary(p) = f else {
             continue;
         };
@@ -66871,12 +66907,16 @@ async fn forest_baseline_dataset(s: &AppState, per_cell: &[EudrCellVerdict]) -> 
             );
         }
     }
+    (jrc, hansen)
+}
+
+fn forest_baseline_dataset(versions: &BaselineVersions) -> JsonValue {
     let mut out = Vec::new();
-    for v in jrc {
+    for v in &versions.0 {
         out.push(json!({"name": "JRC Global Forest Cover 2020", "version": v,
             "source": "https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/"}));
     }
-    for v in hansen {
+    for v in &versions.1 {
         out.push(json!({"name": "Hansen Global Forest Change", "version": v,
             "source": "https://storage.googleapis.com/earthenginepartners-hansen/"}));
     }
@@ -67064,6 +67104,7 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
         "esa_worldcover.lc_2021",
         &signed_at,
         8,
+        EudrStore::Now,
     )
     .await;
     let gain_results = batch_materialize_eudr_band(
@@ -67072,6 +67113,7 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
         "forest_change.gain",
         &signed_at,
         8,
+        EudrStore::Now,
     )
     .await;
 
@@ -67588,6 +67630,98 @@ async fn build_plot_visual_evidence(
 struct EudrBandResult {
     cid: emem_fact::FactCid,
     int_value: Option<i64>,
+    /// The fact itself when it was built but not stored (see
+    /// [`EudrStore::Deferred`]); `None` when it is already stored.
+    unsaved: Option<Fact>,
+}
+
+/// Whether [`batch_materialize_eudr_band`] stores what it builds now, or
+/// hands the unstored facts back so the caller stores only the ones its
+/// response names. A first-time 200 ha plot builds ~23k facts per band, and
+/// four ~23k-row durable commits of facts no response cites ran past the
+/// route budget.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum EudrStore {
+    Now,
+    Deferred,
+}
+
+/// Facts built but not yet stored, by cid.
+type EudrUnsaved = std::collections::HashMap<String, Fact>;
+
+/// Content-address facts exactly as [`sign_and_persist_many`] would store
+/// them, without storing them: the same reader stamp and float
+/// canonicalisation before hashing, and the same whole-batch refusals (a
+/// value outside its band's range, two identical facts), so a deferred batch
+/// fails where a stored one would have and every cid equals the one a later
+/// store returns.
+fn eudr_prepare_unsaved(facts: Vec<Fact>) -> Result<Vec<(emem_fact::FactCid, Fact)>, String> {
+    let mut facts = facts;
+    for f in facts.iter_mut() {
+        stamp_reader(f);
+        f.canonicalize_floats();
+    }
+    if let Some(e) = facts.iter().find_map(out_of_valid_range) {
+        return Err(e);
+    }
+    let mut leaves = std::collections::HashSet::with_capacity(facts.len());
+    let mut out = Vec::with_capacity(facts.len());
+    for f in facts {
+        let leaf = emem_fact::cbor::to_canonical_cbor(&f)
+            .map(|b| *blake3::hash(&b).as_bytes())
+            .map_err(|e| format!("attestation build (batch): {e}"))?;
+        if !leaves.insert(leaf) {
+            return Err("attestation build (batch): duplicate leaf".into());
+        }
+        let cid = emem_cache::sled_hot::fact_cid_of(&f).map_err(|e| format!("fact cid: {e}"))?;
+        out.push((cid, f));
+    }
+    Ok(out)
+}
+
+/// The unstored facts a response names: every one whose cid appears as a
+/// token of any string in `response` or in `also`, plus, transitively, the
+/// parents of any named derivative, so a stored histogram never cites a
+/// parent that does not resolve. Sorted by cid.
+fn eudr_facts_named<'a>(
+    response: &JsonValue,
+    also: impl IntoIterator<Item = &'a str>,
+    unsaved: &EudrUnsaved,
+) -> Vec<(String, Fact)> {
+    fn walk(v: &JsonValue, unsaved: &EudrUnsaved, hit: &mut std::collections::BTreeSet<String>) {
+        match v {
+            JsonValue::String(t) => {
+                for tok in t.split(|c: char| !c.is_ascii_alphanumeric()) {
+                    if unsaved.contains_key(tok) {
+                        hit.insert(tok.to_string());
+                    }
+                }
+            }
+            JsonValue::Array(a) => a.iter().for_each(|x| walk(x, unsaved, hit)),
+            JsonValue::Object(o) => o.values().for_each(|x| walk(x, unsaved, hit)),
+            _ => {}
+        }
+    }
+    let mut hit = std::collections::BTreeSet::new();
+    walk(response, unsaved, &mut hit);
+    hit.extend(
+        also.into_iter()
+            .filter(|c| unsaved.contains_key(*c))
+            .map(str::to_string),
+    );
+    let mut frontier: Vec<String> = hit.iter().cloned().collect();
+    while let Some(c) = frontier.pop() {
+        if let Some(Fact::Derivative(d)) = unsaved.get(&c) {
+            for p in &d.parents {
+                if unsaved.contains_key(p.as_str()) && hit.insert(p.as_str().to_string()) {
+                    frontier.push(p.as_str().to_string());
+                }
+            }
+        }
+    }
+    hit.into_iter()
+        .filter_map(|c| unsaved.get(&c).cloned().map(|f| (c, f)))
+        .collect()
 }
 
 /// Dispatch the EUDR build-fact path for a single (cell, band). Used
@@ -68223,6 +68357,7 @@ async fn batch_materialize_eudr_band(
     band: &str,
     signed_at: &str,
     cell_cc: usize,
+    store: EudrStore,
 ) -> Vec<Result<EudrBandResult, String>> {
     use futures_util::StreamExt;
     if cells.is_empty() {
@@ -68363,9 +68498,17 @@ async fn batch_materialize_eudr_band(
         .filter(|(i, _)| reused[*i].is_none())
         .map(|(i, f)| (f, i))
         .unzip();
-    let persisted = sign_and_persist_many(&s, fresh, signed_at).await;
-    let cids: Result<Vec<emem_fact::FactCid>, String> = persisted.map(|new_cids| {
-        let mut all = reused;
+    let persisted: Result<Vec<(emem_fact::FactCid, Option<Fact>)>, String> = match store {
+        EudrStore::Now => sign_and_persist_many(&s, fresh, signed_at)
+            .await
+            .map(|c| c.into_iter().map(|c| (c, None)).collect()),
+        EudrStore::Deferred => {
+            eudr_prepare_unsaved(fresh).map(|v| v.into_iter().map(|(c, f)| (c, Some(f))).collect())
+        }
+    };
+    let cids: Result<Vec<(emem_fact::FactCid, Option<Fact>)>, String> = persisted.map(|new_cids| {
+        let mut all: Vec<Option<(emem_fact::FactCid, Option<Fact>)>> =
+            reused.into_iter().map(|r| r.map(|c| (c, None))).collect();
         for (pos, cid) in fresh_pos.into_iter().zip(new_cids) {
             all[pos] = Some(cid);
         }
@@ -68395,10 +68538,11 @@ async fn batch_materialize_eudr_band(
                 .unwrap_or_else(|| "unfilled".into()))
         })
         .collect();
-    for ((fact_idx, &orig_idx), cid) in idx_of_persisted.iter().enumerate().zip(cids) {
+    for ((fact_idx, &orig_idx), (cid, unsaved)) in idx_of_persisted.iter().enumerate().zip(cids) {
         out[orig_idx] = Ok(EudrBandResult {
             cid,
             int_value: int_values[fact_idx],
+            unsaved,
         });
     }
     out
@@ -68707,9 +68851,9 @@ async fn evaluate_eudr_plot_batched(
     cells: Vec<String>,
     cell_cc: usize,
     cutoff_year: i64,
-) -> Vec<EudrCellVerdict> {
+) -> (Vec<EudrCellVerdict>, EudrUnsaved) {
     if cells.is_empty() {
-        return Vec::new();
+        return (Vec::new(), EudrUnsaved::new());
     }
     let signed_at = chrono_iso8601_utc();
 
@@ -68735,18 +68879,24 @@ async fn evaluate_eudr_plot_batched(
         "forest_change.lossyear",
         "jrc_tmf.deforestation_year",
     ];
-    let batched: Vec<Vec<Result<EudrBandResult, String>>> =
-        futures_util::future::join_all(
-            batchable.iter().map(|b| {
-                let band = b.to_string();
-                let signed_at = signed_at.clone();
-                let s_c = s.clone();
-                let cells_c = cells.clone();
-                async move {
-                    batch_materialize_eudr_band(s_c, cells_c, &band, &signed_at, cell_cc).await
-                }
-            }),
-        )
+    let mut batched: Vec<Vec<Result<EudrBandResult, String>>> =
+        futures_util::future::join_all(batchable.iter().map(|b| {
+            let band = b.to_string();
+            let signed_at = signed_at.clone();
+            let s_c = s.clone();
+            let cells_c = cells.clone();
+            async move {
+                batch_materialize_eudr_band(
+                    s_c,
+                    cells_c,
+                    &band,
+                    &signed_at,
+                    cell_cc,
+                    EudrStore::Deferred,
+                )
+                .await
+            }
+        }))
         .await;
 
     // WRI GDM and RADD both removed from the EUDR hot path: WRI's
@@ -68811,6 +68961,7 @@ async fn evaluate_eudr_plot_batched(
 
     // Assemble per-cell verdict in input order.
     let mut verdicts: Vec<EudrCellVerdict> = Vec::with_capacity(cells.len());
+    let mut unsaved = EudrUnsaved::new();
     for (cell_idx, cell64) in cells.iter().enumerate() {
         let mut fact_cids: Vec<String> = Vec::new();
         let mut jrc: Option<i64> = None;
@@ -68823,8 +68974,11 @@ async fn evaluate_eudr_plot_batched(
 
         let mut lossyear_fact_cid: Option<String> = None;
         for (band_idx, band) in batchable.iter().enumerate() {
-            if let Ok(r) = &batched[band_idx][cell_idx] {
+            if let Ok(r) = &mut batched[band_idx][cell_idx] {
                 fact_cids.push(r.cid.as_str().to_string());
+                if let Some(f) = r.unsaved.take() {
+                    unsaved.insert(r.cid.as_str().to_string(), f);
+                }
                 match *band {
                     "jrc_gfc2020.forest_2020" => jrc = r.int_value,
                     "forest_change.treecover2000" => hansen_tc = r.int_value,
@@ -68881,7 +69035,7 @@ async fn evaluate_eudr_plot_batched(
             lossyear_fact_cid,
         });
     }
-    verdicts
+    (verdicts, unsaved)
 }
 
 /// Returns true when the operator has opted into the batched EUDR
@@ -69596,10 +69750,15 @@ async fn post_eudr_dds_inner(
         /// the per-year loss tally is bound by the same signature as the
         /// per-cell facts. `None` when the plot sampled no cells.
         histogram_fact_cid: Option<String>,
+        /// Every distinct fact cid this plot computed, stored or not.
+        fact_cids: std::collections::BTreeSet<String>,
+        baseline_versions: BaselineVersions,
     }
     let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
     let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
     let mut all_cells_for_provenance: Vec<EudrCellVerdict> = Vec::new();
+    let mut unsaved = EudrUnsaved::new();
+    let mut baseline_versions = BaselineVersions::default();
 
     // Pre-pass: short-circuit Annex-I warnings + geometry parse errors so
     // the parallel pass only handles well-formed plots. Bad plots get
@@ -69626,6 +69785,8 @@ async fn post_eudr_dds_inner(
                 precision_warning: None,
                 centroid_cell: None,
                 histogram_fact_cid: None,
+                fact_cids: Default::default(),
+                baseline_versions: Default::default(),
             });
             continue;
         }
@@ -69633,7 +69794,7 @@ async fn post_eudr_dds_inner(
     }
 
     // Per-plot work returns (plot_obj, plot_ctx, per_cell_verdicts).
-    type PlotWork = (JsonValue, PlotCtx, Vec<EudrCellVerdict>);
+    type PlotWork = (JsonValue, PlotCtx, Vec<EudrCellVerdict>, EudrUnsaved);
     let evaluate_plot = |idx: usize,
                          s: AppState|
      -> std::pin::Pin<
@@ -69676,35 +69837,25 @@ async fn post_eudr_dds_inner(
             // per-(cell, band) sled writes from N×4 to 4 per plot;
             // the per-cell path is preserved so a regression can
             // be flipped back with one env var.
-            let per_cell: Vec<EudrCellVerdict> = if eudr_batch_path_enabled() {
-                // Clone cells before await: the Box::pin'd outer
-                // future needs `+ Send`, and passing `&cells`
-                // straight to a sub-future across the await
-                // tripped a higher-rank lifetime inference
-                // ("Send is not general enough") at compile time.
-                evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap, cutoff_year).await
-            } else {
-                // Bounded parallel fan-out over cells (index-preserving). The
-                // JoinSet itself bounds in-flight count, we prime up to cell_cc,
-                // then refill one-for-one as each finishes.
-                let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
-                    tokio::task::JoinSet::new();
-                let prime = cap.min(cells.len());
-                let mut next: usize = 0;
-                let mut results: Vec<Option<EudrCellVerdict>> =
-                    (0..cells.len()).map(|_| None).collect();
-                while next < prime {
-                    let s_c = s.clone();
-                    let c = cells[next].clone();
-                    let i = next;
-                    set.spawn(async move { (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await) });
-                    next += 1;
-                }
-                while let Some(res) = set.join_next().await {
-                    if let Ok((i, v)) = res {
-                        results[i] = Some(v);
-                    }
-                    if next < cells.len() {
+            let (per_cell, mut unsaved): (Vec<EudrCellVerdict>, EudrUnsaved) =
+                if eudr_batch_path_enabled() {
+                    // Clone cells before await: the Box::pin'd outer
+                    // future needs `+ Send`, and passing `&cells`
+                    // straight to a sub-future across the await
+                    // tripped a higher-rank lifetime inference
+                    // ("Send is not general enough") at compile time.
+                    evaluate_eudr_plot_batched(s.clone(), cells.clone(), cap, cutoff_year).await
+                } else {
+                    // Bounded parallel fan-out over cells (index-preserving). The
+                    // JoinSet itself bounds in-flight count, we prime up to cell_cc,
+                    // then refill one-for-one as each finishes.
+                    let mut set: tokio::task::JoinSet<(usize, EudrCellVerdict)> =
+                        tokio::task::JoinSet::new();
+                    let prime = cap.min(cells.len());
+                    let mut next: usize = 0;
+                    let mut results: Vec<Option<EudrCellVerdict>> =
+                        (0..cells.len()).map(|_| None).collect();
+                    while next < prime {
                         let s_c = s.clone();
                         let c = cells[next].clone();
                         let i = next;
@@ -69713,9 +69864,22 @@ async fn post_eudr_dds_inner(
                         );
                         next += 1;
                     }
-                }
-                results.into_iter().flatten().collect()
-            };
+                    while let Some(res) = set.join_next().await {
+                        if let Ok((i, v)) = res {
+                            results[i] = Some(v);
+                        }
+                        if next < cells.len() {
+                            let s_c = s.clone();
+                            let c = cells[next].clone();
+                            let i = next;
+                            set.spawn(async move {
+                                (i, evaluate_eudr_cell(&s_c, &c, cutoff_year).await)
+                            });
+                            next += 1;
+                        }
+                    }
+                    (results.into_iter().flatten().collect(), EudrUnsaved::new())
+                };
 
             let (raw_verdict, fail_fraction, n_fail, n_total) = aggregate_plot_verdict(&per_cell);
             // Failing-area projection follows the polygon's actual area,
@@ -69851,8 +70015,14 @@ async fn post_eudr_dds_inner(
                     signer: s.identity.pubkey,
                     signed_at: signed_at.clone(),
                 });
-                match sign_and_persist(&s, hist_fact, &signed_at).await {
-                    Ok(cid) => histogram_fact_cid = Some(cid.as_str().to_string()),
+                // Stored with the per-cell facts it cites, once the response
+                // says which those are.
+                match eudr_prepare_unsaved(vec![hist_fact]).map(|v| v.into_iter().next()) {
+                    Ok(Some((cid, f))) => {
+                        unsaved.insert(cid.as_str().to_string(), f);
+                        histogram_fact_cid = Some(cid.as_str().to_string());
+                    }
+                    Ok(None) => {}
                     Err(e) => {
                         tracing::warn!(error=%e, plot_id=%plot.plot_id, "lossyear histogram sign failed (verdict unaffected)");
                     }
@@ -69871,12 +70041,7 @@ async fn post_eudr_dds_inner(
                     "after_cutoff_area_ha_sampled": ((tally.after_cutoff_cells as f64 * cell_area_ha) * 10_000.0).round() / 10_000.0,
                     "cell_area_ha": (cell_area_ha * 1_000_000.0).round() / 1_000_000.0,
                     "basis": "sampled_cells",
-                    "note": "Per-year counts are over the cells actually sampled in this plot \
-                             (total_sampled_cells), derived from the signed per-cell \
-                             forest_change.lossyear facts (Hansen GFC v1.13). Weight by the plot's \
-                             sampled_polygon_fraction to extrapolate to the full polygon. The tally \
-                             is itself signed as a forest_change.lossyear_histogram derivative whose \
-                             CID is in this response's receipt.fact_cids.",
+                    "note": format!("Per-year counts are over the cells actually sampled in this plot (total_sampled_cells), derived from the per-cell forest_change.lossyear facts (Hansen GFC v1.13). Weight by the plot's sampled_polygon_fraction to extrapolate to the full polygon. The tally is itself signed as a forest_change.lossyear_histogram derivative (signed_fact_cid, also bound into receipt.fact_cids unless the receipt cap cut it) whose parents are the first {EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP} of those per-cell facts by cid; the derivative and its parents are stored and resolve at /v1/facts/<cid>."),
                     "signed_fact_cid": histogram_fact_cid,
                     "parents_capped": tally.parents_capped,
                 }))
@@ -70076,14 +70241,34 @@ async fn post_eudr_dds_inner(
                     );
                 }
             }
+            let baseline_versions = forest_baseline_versions(&s, &per_cell, &unsaved).await;
             let ctx = PlotCtx {
+                baseline_versions,
                 verdict_code: plot_verdict,
                 producer_geojson: Some(producer_geojson),
                 precision_warning,
                 centroid_cell: Some(centroid_cell),
+                fact_cids: per_cell
+                    .iter()
+                    .flat_map(|c| c.fact_cids.iter().cloned())
+                    .chain(histogram_fact_cid.clone())
+                    .collect(),
                 histogram_fact_cid,
             };
-            (idx, (plot_obj, ctx, per_cell))
+            // Only these can reach the response: what the plot object names,
+            // and the plot's first cids in sort order, the only ones the
+            // receipt cap can keep.
+            let unsaved: EudrUnsaved = eudr_facts_named(
+                &plot_obj,
+                ctx.fact_cids
+                    .iter()
+                    .take(eudr_receipt_max_facts())
+                    .map(String::as_str),
+                &unsaved,
+            )
+            .into_iter()
+            .collect();
+            (idx, (plot_obj, ctx, per_cell, unsaved))
         })
     };
 
@@ -70098,8 +70283,15 @@ async fn post_eudr_dds_inner(
         next_plot += 1;
     }
     while let Some(res) = plot_set.join_next().await {
-        if let Ok((idx, (plot_obj, ctx, per_cell))) = res {
+        if let Ok((idx, (plot_obj, ctx, per_cell, plot_unsaved))) = res {
             all_cells_for_provenance.extend(per_cell);
+            unsaved.extend(plot_unsaved);
+            baseline_versions
+                .0
+                .extend(ctx.baseline_versions.0.iter().cloned());
+            baseline_versions
+                .1
+                .extend(ctx.baseline_versions.1.iter().cloned());
             per_plot_results[idx] = Some(plot_obj);
             plot_ctx[idx] = Some(ctx);
         }
@@ -70109,6 +70301,9 @@ async fn post_eudr_dds_inner(
             next_plot += 1;
         }
     }
+    let result_plot_idx: Vec<usize> = (0..per_plot_results.len())
+        .filter(|&i| per_plot_results[i].is_some())
+        .collect();
     let per_plot_results: Vec<JsonValue> = per_plot_results.into_iter().flatten().collect();
     let review_required = per_plot_results
         .iter()
@@ -70145,7 +70340,7 @@ async fn post_eudr_dds_inner(
     // Honest baseline provenance: surface what JRC and Hansen actually
     // contributed at request time, not what the algorithm spec says.
     let computed_baseline = aggregate_baseline_provenance(&all_cells_for_provenance);
-    let baseline_datasets = forest_baseline_dataset(&s, &all_cells_for_provenance).await;
+    let baseline_datasets = forest_baseline_dataset(&baseline_versions);
     let baseline = match req.forest_baseline_override.as_deref() {
         Some(override_v) => override_v.to_string(),
         None => computed_baseline.to_string(),
@@ -70344,36 +70539,23 @@ async fn post_eudr_dds_inner(
     //     `blake3(canonical_cbor(scope))` when at least one field is
     //     `Some` (v0.0.8 receipt rule). Filtering on scope is the
     //     v0.0.9 follow-up; this is the receipt-binding pass.
-    let mut all_cells: Vec<String> = Vec::new();
-    let mut all_fact_cids_raw: Vec<String> = Vec::new();
-    for cv in &all_cells_for_provenance {
-        all_cells.push(cv.cell.clone());
-        for fc in &cv.fact_cids {
-            all_fact_cids_raw.push(fc.clone());
-        }
-    }
-    // Bind each plot's signed lossyear-histogram derivative into the same
-    // receipt so the per-year loss tally is covered by the response
-    // signature, not just persisted out-of-band.
-    for ctx in plot_ctx.iter().flatten() {
-        if let Some(cid) = &ctx.histogram_fact_cid {
-            all_fact_cids_raw.push(cid.clone());
-        }
-    }
-
+    let mut all_cells: Vec<String> = all_cells_for_provenance
+        .iter()
+        .map(|cv| cv.cell.clone())
+        .collect();
     let fact_cap = eudr_receipt_max_facts();
     let cells_cap = eudr_receipt_max_cells();
-    let total_facts = all_fact_cids_raw.len();
+    let (all_fact_cids_raw, total_facts) = eudr_receipt_fact_cids(
+        &all_cells_for_provenance,
+        plot_ctx
+            .iter()
+            .flatten()
+            .filter_map(|c| c.histogram_fact_cid.clone()),
+        fact_cap,
+    );
     let total_cells = all_cells.len();
     let fact_cids_capped = total_facts > fact_cap;
     let cells_truncated = total_cells > cells_cap;
-    if fact_cids_capped {
-        // Deterministic ordering: alphabetical (base32 → byte-order) so
-        // two identical runs sign byte-identical bytes. The cap drops
-        // the tail of the sorted set, not a random subset.
-        all_fact_cids_raw.sort();
-        all_fact_cids_raw.truncate(fact_cap);
-    }
     if cells_truncated {
         // Cells cap fallback: collapse to per-plot centroid cell64s.
         // The fact_cids still bind the deeper attestation chain, so a
@@ -70384,6 +70566,68 @@ async fn post_eudr_dds_inner(
             .iter()
             .filter_map(|c| c.as_ref().and_then(|c| c.centroid_cell.clone()))
             .collect();
+    }
+
+    // Every fact was built for the verdict; only the ones this response
+    // names are stored, and they are stored before the receipt is signed,
+    // because the receipt binds the first cited fact's inclusion proof.
+    let to_store = eudr_facts_named(
+        &body,
+        all_fact_cids_raw.iter().map(String::as_str),
+        &unsaved,
+    );
+    let stored_now: std::collections::HashSet<String> =
+        to_store.iter().map(|(c, _)| c.clone()).collect();
+    if !to_store.is_empty() {
+        let (want, facts): (Vec<String>, Vec<Fact>) = to_store.into_iter().unzip();
+        let got = sign_and_persist_many(&s, facts, &chrono_iso8601_utc()).await;
+        let same = got.as_ref().is_ok_and(|g| {
+            g.iter()
+                .map(|c| c.as_str())
+                .eq(want.iter().map(String::as_str))
+        });
+        if !same {
+            let why = match got {
+                Err(e) => e,
+                Ok(_) => "a stored fact's cid differs from the one this response computed".into(),
+            };
+            return Err(ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                ErrorBody {
+                    code: ErrorCode::Internal,
+                    message: format!("/v1/eudr_dds: the {} facts this response cites could not be stored ({why}), so it is not returned: a cited fact_cid that does not resolve is not evidence. Retry the request.", want.len()),
+                    details: None,
+                },
+            ));
+        }
+    }
+    let resolves = |c: &String| !unsaved.contains_key(c) || stored_now.contains(c);
+    let (mut computed_all, mut persisted_all) = (
+        std::collections::BTreeSet::new(),
+        std::collections::BTreeSet::new(),
+    );
+    if let Some(results) = body
+        .get_mut("per_plot_results")
+        .and_then(|v| v.as_array_mut())
+    {
+        for (row, &idx) in results.iter_mut().zip(&result_plot_idx) {
+            let (Some(ctx), Some(obj)) = (plot_ctx[idx].as_ref(), row.as_object_mut()) else {
+                continue;
+            };
+            let persisted = ctx.fact_cids.iter().filter(|c| resolves(c)).count();
+            obj.insert("facts_computed".into(), json!(ctx.fact_cids.len()));
+            obj.insert("facts_persisted".into(), json!(persisted));
+            computed_all.extend(ctx.fact_cids.iter());
+            persisted_all.extend(ctx.fact_cids.iter().filter(|c| resolves(c)));
+        }
+    }
+    if let Some(obj) = body.as_object_mut() {
+        obj.insert("facts_computed".into(), json!(computed_all.len()));
+        obj.insert("facts_persisted".into(), json!(persisted_all.len()));
+        obj.insert(
+            "facts_note".into(),
+            json!("Every sampled cell's facts are computed and decide the verdict (facts_computed, per plot and in total). Only the facts this response cites are stored: receipt.fact_cids, the inlined per_cell_verdicts, the loss-year histogram and its parents, and facts stored by an earlier request (facts_persisted). Every fact_cid in this response resolves at /v1/facts/<cid>; the other computed facts were not stored and do not."),
+        );
     }
 
     let fact_cids: Vec<emem_fact::FactCid> = all_fact_cids_raw
@@ -88632,6 +88876,260 @@ mod tests {
         assert_eq!(capped.parents.len(), 2);
         assert!(capped.parents_capped);
         assert_eq!(capped.total_sampled_cells, 5);
+    }
+
+    /// One batched plot as `post_eudr_dds_inner` builds it: four band facts
+    /// per cell and a histogram, all unstored, then pruned to what the plot
+    /// object can name. Returns the plot object, its verdicts, the pruned
+    /// unstored facts and every cid the plot computed.
+    fn eudr_simulated_plot(
+        s: &AppState,
+        n_cells: usize,
+        per_cell_cap: usize,
+    ) -> (
+        JsonValue,
+        Vec<EudrCellVerdict>,
+        EudrUnsaved,
+        std::collections::BTreeSet<String>,
+    ) {
+        let bands = [
+            ("jrc_gfc2020.forest_2020", 1),
+            ("forest_change.treecover2000", 80),
+            ("forest_change.lossyear", 2022),
+            ("jrc_tmf.deforestation_year", 0),
+        ];
+        let mut unsaved = EudrUnsaved::new();
+        let mut cids_by_band: Vec<Vec<String>> = Vec::new();
+        for (band, v) in bands {
+            let facts: Vec<Fact> = (0..n_cells)
+                .map(|i| {
+                    Fact::Primary(emem_fact::PrimaryFact {
+                        cell: emem_codec::cell64_from_latlng(-13.5 + i as f64 * 1e-4, -58.79),
+                        band: band.into(),
+                        tslot: 0,
+                        value: ciborium::Value::Integer(v.into()),
+                        unit: None,
+                        confidence: 0.93,
+                        uncertainty: None,
+                        sources: vec![emem_fact::Source {
+                            scheme: "test".into(),
+                            id: "t".into(),
+                            cid: None,
+                            hash: None,
+                            captured_at: None,
+                            url: Some("https://example.org/tile.tif".into()),
+                        }],
+                        derivation: emem_fact::Derivation {
+                            fn_key: "test@1".into(),
+                            args: Some(ciborium::Value::Float(-0.0)),
+                        },
+                        privacy_class: "public".into(),
+                        schema_cid: s.manifests.schema_cid.clone(),
+                        signer: s.identity.pubkey,
+                        signed_at: "2026-09-30T00:00:00Z".into(),
+                        served_via: None,
+                    })
+                })
+                .collect();
+            let prepared = eudr_prepare_unsaved(facts).expect("in range");
+            cids_by_band.push(
+                prepared
+                    .iter()
+                    .map(|(c, _)| c.as_str().to_string())
+                    .collect(),
+            );
+            unsaved.extend(
+                prepared
+                    .into_iter()
+                    .map(|(c, f)| (c.as_str().to_string(), f)),
+            );
+        }
+        let per_cell: Vec<EudrCellVerdict> = (0..n_cells)
+            .map(|i| EudrCellVerdict {
+                cell: emem_codec::cell64_from_latlng(-13.5 + i as f64 * 1e-4, -58.79),
+                verdict: 2,
+                label: "fail",
+                jrc_forest_2020: Some(1),
+                hansen_treecover_2000: Some(80),
+                hansen_lossyear: Some(2022),
+                jrc_tmf_deforestation_year: Some(0),
+                wri_driver_class: None,
+                radd_alert_date: None,
+                refinement_applied: None,
+                borderline_canopy: false,
+                fact_cids: cids_by_band.iter().map(|b| b[i].clone()).collect(),
+                lossyear_fact_cid: Some(cids_by_band[2][i].clone()),
+            })
+            .collect();
+        let tally = compute_lossyear_tally(&per_cell, 2020, EUDR_LOSSYEAR_HISTOGRAM_PARENTS_CAP);
+        let hist = Fact::Derivative(emem_fact::DerivativeFact {
+            cell: emem_codec::cell64_from_latlng(-13.5, -58.79),
+            band: "forest_change.lossyear_histogram".into(),
+            tslot_window: [0, 0],
+            op: "histogram".into(),
+            parents: tally
+                .parents
+                .iter()
+                .map(|c| emem_fact::FactCid::new(c.as_str()))
+                .collect(),
+            value: ciborium::Value::Integer((n_cells as i64).into()),
+            confidence: 1.0,
+            derivation: emem_fact::Derivation {
+                fn_key: "lossyear_histogram@1".into(),
+                args: None,
+            },
+            schema_cid: s.manifests.schema_cid.clone(),
+            signer: s.identity.pubkey,
+            signed_at: "2026-09-30T00:00:00Z".into(),
+        });
+        let (hist_cid, hist) = eudr_prepare_unsaved(vec![hist])
+            .expect("histogram")
+            .remove(0);
+        let hist_cid = hist_cid.as_str().to_string();
+        unsaved.insert(hist_cid.clone(), hist);
+        let shown: Vec<&EudrCellVerdict> = per_cell.iter().take(per_cell_cap).collect();
+        let plot_obj = json!({
+            "per_cell_verdicts": shown,
+            "loss_year_histogram": {"signed_fact_cid": hist_cid},
+        });
+        let computed: std::collections::BTreeSet<String> = per_cell
+            .iter()
+            .flat_map(|c| c.fact_cids.iter().cloned())
+            .chain(std::iter::once(hist_cid))
+            .collect();
+        let pruned: EudrUnsaved = eudr_facts_named(
+            &plot_obj,
+            computed
+                .iter()
+                .take(eudr_receipt_max_facts())
+                .map(String::as_str),
+            &unsaved,
+        )
+        .into_iter()
+        .collect();
+        (plot_obj, per_cell, pruned, computed)
+    }
+
+    /// Store what the response names, the way the handler does, and return
+    /// the response body plus the cids stored.
+    async fn eudr_store_named(
+        s: &AppState,
+        plots: &[(JsonValue, Vec<EudrCellVerdict>, EudrUnsaved)],
+    ) -> (JsonValue, Vec<String>) {
+        let per_cell: Vec<EudrCellVerdict> =
+            plots.iter().flat_map(|p| p.1.iter().cloned()).collect();
+        let hist: Vec<String> = plots
+            .iter()
+            .filter_map(|p| p.0["loss_year_histogram"]["signed_fact_cid"].as_str())
+            .map(str::to_string)
+            .collect();
+        let (receipt, _) = eudr_receipt_fact_cids(&per_cell, hist, eudr_receipt_max_facts());
+        let mut unsaved = EudrUnsaved::new();
+        for p in plots {
+            unsaved.extend(p.2.clone());
+        }
+        let body = json!({
+            "per_plot_results": plots.iter().map(|p| p.0.clone()).collect::<Vec<_>>(),
+            "receipt": {"fact_cids": receipt},
+        });
+        let to_store = eudr_facts_named(&body, receipt.iter().map(String::as_str), &unsaved);
+        let (want, facts): (Vec<String>, Vec<Fact>) = to_store.into_iter().unzip();
+        let got = sign_and_persist_many(s, facts, "2026-09-30T00:00:01Z")
+            .await
+            .expect("stored");
+        let got: Vec<String> = got.iter().map(|c| c.as_str().to_string()).collect();
+        assert_eq!(got, want, "the cid computed in memory is the cid stored");
+        (body, want)
+    }
+
+    /// Every token of every string in `v` that is one of `cids`.
+    fn eudr_cids_in(v: &JsonValue, cids: &std::collections::BTreeSet<String>) -> Vec<String> {
+        let mut out = std::collections::BTreeSet::new();
+        let mut stack = vec![v];
+        while let Some(v) = stack.pop() {
+            match v {
+                JsonValue::String(t) => out.extend(
+                    t.split(|c: char| !c.is_ascii_alphanumeric())
+                        .filter(|t| cids.contains(*t))
+                        .map(str::to_string),
+                ),
+                JsonValue::Array(a) => stack.extend(a),
+                JsonValue::Object(o) => stack.extend(o.values()),
+                _ => {}
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    #[tokio::test]
+    async fn eudr_large_plot_stores_exactly_what_the_response_names() {
+        let s = test_app_state();
+        let (obj, per_cell, pruned, computed) = eudr_simulated_plot(&s, 1500, 256);
+        let hist_cid = obj["loss_year_histogram"]["signed_fact_cid"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let (body, stored) = eudr_store_named(&s, &[(obj, per_cell, pruned)]).await;
+        let named = eudr_cids_in(&body, &computed);
+        let Some(Fact::Derivative(h)) = s
+            .storage
+            .get_facts_many(&[emem_fact::FactCid::new(hist_cid.as_str())])
+            .await
+            .unwrap()
+            .remove(0)
+        else {
+            panic!("histogram stored");
+        };
+        let mut referenced: std::collections::BTreeSet<String> = named.iter().cloned().collect();
+        referenced.extend(h.parents.iter().map(|c| c.as_str().to_string()));
+        let stored_set: std::collections::BTreeSet<String> = stored.iter().cloned().collect();
+        assert_eq!(stored_set, referenced, "stored = cited by the response");
+        assert!(
+            stored.len() < computed.len(),
+            "{} of {} stored",
+            stored.len(),
+            computed.len()
+        );
+        let all: Vec<emem_fact::FactCid> = referenced
+            .iter()
+            .map(|c| emem_fact::FactCid::new(c.as_str()))
+            .collect();
+        let got = s.storage.get_facts_many(&all).await.unwrap();
+        assert!(got.iter().all(Option::is_some), "every cited cid resolves");
+    }
+
+    #[tokio::test]
+    async fn eudr_small_plot_stores_every_fact() {
+        let s = test_app_state();
+        let (obj, per_cell, pruned, computed) = eudr_simulated_plot(&s, 10, 256);
+        assert_eq!(
+            pruned.len(),
+            computed.len(),
+            "nothing pruned below the caps"
+        );
+        let (_, stored) = eudr_store_named(&s, &[(obj, per_cell, pruned)]).await;
+        let stored: std::collections::BTreeSet<String> = stored.into_iter().collect();
+        assert_eq!(stored, computed, "below the caps every fact is stored");
+        assert_eq!(stored.len(), 10 * 4 + 1);
+    }
+
+    #[test]
+    fn eudr_prepare_unsaved_refuses_what_a_store_would() {
+        let s = test_app_state();
+        let (_, _, pruned, _) = eudr_simulated_plot(&s, 1, 256);
+        let mut f = pruned
+            .values()
+            .find(|f| matches!(f, Fact::Primary(p) if p.band == "forest_change.treecover2000"))
+            .cloned()
+            .unwrap();
+        assert!(
+            eudr_prepare_unsaved(vec![f.clone(), f.clone()]).is_err(),
+            "identical facts"
+        );
+        if let Fact::Primary(p) = &mut f {
+            p.value = ciborium::Value::Integer(250.into());
+        }
+        assert!(eudr_prepare_unsaved(vec![f]).is_err(), "out of range");
     }
 
     /// The retired encoder bands stay declared in the manifest, because facts

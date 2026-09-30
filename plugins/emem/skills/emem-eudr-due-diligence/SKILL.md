@@ -120,8 +120,12 @@ lower the level. And one Point cell is about 9.5 m of a plot of up to
 
 ## Verify and keep
 
-The response carries a signed `receipt` over every per-cell fact cid.
-Verify it offline with
+The response carries a signed `receipt` over the per-cell fact cids. On
+a large plot it lists the first ones by cid and says so
+(`receipt_fact_cids_capped`, `receipt_fact_cids_total`). Every cell's
+facts decide the verdict, but only the ones the response cites are
+stored: `facts_persisted` of `facts_computed`, per plot. Every fact cid
+in the response resolves at `/v1/facts/<cid>`. Verify the receipt offline with
 [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md), and keep the
 fact cids (or a bundle of them, `POST /v1/memory_bundle
 {"fact_cids":[...]}`) in the operator's record. For a lab certificate or
