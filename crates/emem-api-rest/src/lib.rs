@@ -62207,6 +62207,33 @@ struct AskReq {
     /// for hand-written and agent callers; `q` stays the canonical field.
     #[serde(alias = "question", alias = "query")]
     q: String,
+    /// Media a caller attached to a text-only endpoint, captured under every
+    /// name one reasonably tries so the request can be REFUSED rather than
+    /// quietly answered about something else.
+    ///
+    /// Before this existed, `{"q":"what is in this image?","image_url":"..."}`
+    /// returned 200. The image was dropped, the words "this image" were taken
+    /// as the place name, and the geocoder resolved them to "New Image Unisex
+    /// Salon, Etobicoke, Ontario". Sentinel-2 bands for that salon came back
+    /// with a valid receipt, a merkle proof, and a recomputable state chain.
+    /// Every piece of verification machinery worked perfectly on an answer
+    /// about a hair salon in Canada. Provenance integrity and semantic
+    /// correctness are different properties, and a signed wrong answer is
+    /// worse than a refusal because it carries the authority of the first
+    /// while failing the second.
+    ///
+    /// `emem_ocr` already takes an image by url or base64; the refusal names
+    /// it so the caller is redirected rather than merely stopped.
+    #[serde(
+        default,
+        alias = "image",
+        alias = "images",
+        alias = "image_url",
+        alias = "image_base64",
+        alias = "audio_url",
+        alias = "video_url"
+    )]
+    attached_media: Option<JsonValue>,
     /// Free-text place name (resolved via /v1/locate). One of `place`,
     /// `cell`, or both `lat`+`lng` is required.
     #[serde(default)]
@@ -64075,6 +64102,32 @@ async fn post_ask_json(
     State(s): State<AppState>,
     req: AskReq,
 ) -> Result<Json<JsonValue>, ApiError> {
+    // REFUSE MEDIA RATHER THAN ANSWER AROUND IT. See `AskReq::attached_media`
+    // for what silence cost. A typed refusal that names the tool which does
+    // take an image is a redirect; a 200 about the wrong place is not.
+    if req.attached_media.is_some() {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "/v1/ask takes a text question about a place and cannot read an \
+                          attached image, audio or video. `include_image` is an OUTPUT flag \
+                          and does not make this endpoint accept one."
+                    .into(),
+                details: Some(json!({
+                    "next_steps": [
+                        "POST /v1/ocr (MCP tool emem_ocr) reads text from an image by url or base64.",
+                        "If you know where the image was taken, ask about that place by name, \
+                         or pass `cell`, or pass `lat` + `lng`.",
+                    ],
+                    "why": "A question naming an image but no place has no place to anchor to. \
+                            Answering it would mean geocoding a phrase like \"this image\", which \
+                            resolves to whatever business happens to share those words, and \
+                            signing the result.",
+                })),
+            },
+        ));
+    }
     // Overall request budget, bounds the four-classifier fan-out so a
     // single slow downstream (LST 8-day, MODIS, met.no) doesn't drag the
     // whole question past the gateway timeout. Per-materializer timeout
@@ -71130,6 +71183,45 @@ const CLAUSE_STOPWORDS: &[&str] = &[
     "after",
 ];
 
+/// Words that REFER to something rather than NAME somewhere.
+///
+/// A candidate made only of these is a pointer back into the conversation
+/// ("this image", "the photo", "here"), not a place. The geocoder cannot tell
+/// the difference and will resolve it to whatever business shares the words,
+/// confidently: "this image" returns "New Image Unisex Salon, Etobicoke,
+/// Ontario" with `is_high_confidence` set, so the confidence gate downstream
+/// does not catch it either. It is a genuine high-confidence match to the
+/// wrong kind of thing, which is why this filter has to run before the
+/// geocoder rather than after it.
+const DEICTIC_WORDS: &[&str] = &[
+    // Articles. Safe here ONLY because the rule below is whole-candidate:
+    // "The Hague" and "A Coruna" keep a token that names somewhere, so they
+    // survive, while "the photo" does not. Left out of the first version of
+    // this list, which is what the test below caught.
+    "the", "a", "an",
+    // pointers
+    "this", "that", "these", "those", "it", "its", "here", "there", "them",
+    "above", "below", "following", "previous", "attached", "same",
+    // the things they usually point at on this endpoint
+    "image", "images", "picture", "pictures", "photo", "photos", "photograph",
+    "screenshot", "frame", "video", "clip", "file", "attachment", "upload",
+    "map", "chart", "diagram", "scene", "shot",
+];
+
+/// True when EVERY token of the candidate is deictic.
+///
+/// Whole-candidate only, deliberately. "Photo Lake, Ontario" and "Image City"
+/// keep a token that names something, so they survive; only a span that is
+/// nothing but pointers is dropped.
+fn is_deictic_only(cand: &str) -> bool {
+    let toks: Vec<String> = cand
+        .split(|ch: char| !ch.is_alphanumeric())
+        .map(|w| w.to_ascii_lowercase())
+        .filter(|w| !w.is_empty())
+        .collect();
+    !toks.is_empty() && toks.iter().all(|t| DEICTIC_WORDS.contains(&t.as_str()))
+}
+
 fn extract_place_candidates(q: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let push_unique = |s: String, out: &mut Vec<String>| {
@@ -71138,6 +71230,12 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
             .trim()
             .to_string();
         if trimmed.len() < 2 {
+            return;
+        }
+        // Filter here rather than at the call sites: both callers (ask's
+        // candidate loop and the locate-retry path) want "could this be a
+        // place", and a span that is only pointers cannot be one.
+        if is_deictic_only(&trimmed) {
             return;
         }
         if !out.iter().any(|x| x.eq_ignore_ascii_case(&trimmed)) {
@@ -71427,6 +71525,10 @@ async fn post_explain(
     } else if let Some(q) = req.q {
         let ar = AskReq {
             q,
+            // Internal re-entry, never a caller's body: /v1/explain reaches
+            // this path only after its own extractor has run, so there is no
+            // attachment to carry and nothing to refuse.
+            attached_media: None,
             place: req.place,
             cell: req.cell,
             lat: req.lat,
@@ -98819,5 +98921,69 @@ mod absence_reason_store_tests {
             cid.as_str()
         );
         assert_eq!(reason_text_in(&t, "absent"), None);
+    }
+}
+
+#[cfg(test)]
+mod deictic_candidate_tests {
+    use super::*;
+
+    #[test]
+    fn a_span_of_pure_pointers_is_not_a_place() {
+        for c in [
+            "this image",
+            "the photo",
+            "here",
+            "this picture",
+            "that video",
+            "the attached file",
+            "these images",
+        ] {
+            assert!(is_deictic_only(c), "{c:?} should be read as a pointer");
+        }
+    }
+
+    #[test]
+    fn a_name_that_merely_contains_a_pointer_word_survives() {
+        // The guard is whole-candidate. Dropping any span with "image" or
+        // "photo" in it would delete real places, so only a span that is
+        // nothing but pointers goes.
+        for c in [
+            "Image City",
+            "Photo Lake, Ontario",
+            // The articles in the list must not eat a real name that starts
+            // with one. Whole-candidate matching is what makes them safe.
+            "The Hague",
+            "A Coruna",
+            "Mount Fuji",
+            "Hyde Park",
+            "There Island",
+            "Frame, Kentucky",
+        ] {
+            assert!(!is_deictic_only(c), "{c:?} should survive as a candidate");
+        }
+    }
+
+    #[test]
+    fn the_extractor_drops_the_span_that_reached_a_hair_salon() {
+        // "what is in this image?" extracted "this image", the geocoder
+        // resolved it to "New Image Unisex Salon, Etobicoke, Ontario" with
+        // high confidence, and a signed answer about that salon came back.
+        // High confidence is why the gate downstream never caught it: the
+        // match was genuine, the KIND of thing was wrong.
+        let got = extract_place_candidates("what is in this image?");
+        assert!(
+            !got.iter().any(|c| is_deictic_only(c)),
+            "extractor still offers a pointer span: {got:?}"
+        );
+    }
+
+    #[test]
+    fn a_real_place_in_the_same_sentence_still_comes_through() {
+        let got = extract_place_candidates("what is the NDVI near Mount Fuji?");
+        assert!(
+            got.iter().any(|c| c.to_lowercase().contains("fuji")),
+            "the place was dropped along with the pointers: {got:?}"
+        );
     }
 }
