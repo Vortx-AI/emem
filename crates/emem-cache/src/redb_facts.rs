@@ -645,6 +645,26 @@ impl RedbFacts {
         Ok(t.get(cid).map_err(rb)?.is_some())
     }
 
+    /// `lookup` for many keys under one read transaction. Per-key
+    /// transactions cost ~0.7 ms each on this store, which is 3 s for a
+    /// 4,300-cell EUDR plot.
+    pub fn lookup_many(&self, keys: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+        let r = self.begin_read()?;
+        let t = r.open_table(INDEX).map_err(rb)?;
+        keys.iter()
+            .map(|k| Ok(t.get(k.as_slice()).map_err(rb)?.map(|g| g.value().to_vec())))
+            .collect()
+    }
+
+    /// `get_fact` for many cids under one read transaction.
+    pub fn get_facts(&self, cids: &[&[u8]]) -> Result<Vec<Option<Vec<u8>>>, CacheError> {
+        let r = self.begin_read()?;
+        let t = r.open_table(FACTS).map_err(rb)?;
+        cids.iter()
+            .map(|c| Ok(t.get(*c).map_err(rb)?.map(|g| g.value().to_vec())))
+            .collect()
+    }
+
     pub fn lookup(&self, key: &[u8]) -> Result<Option<Vec<u8>>, CacheError> {
         let r = self.begin_read()?;
         let t = r.open_table(INDEX).map_err(rb)?;

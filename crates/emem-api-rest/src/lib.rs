@@ -67175,6 +67175,16 @@ async fn build_plot_forest_context(s: &AppState, sample_cells: &[String]) -> Jso
 // breaks higher-rank Send inference at the outer Box::pin'd per-plot
 // future. The lint suggests the more idiomatic form; we tested it
 // and it doesn't compile under the current call graph.
+/// Seconds the per-plot imagery timeline may take before the verdict is
+/// returned without it. `EMEM_EUDR_VISUAL_BUDGET_SECS`, default 60.
+fn eudr_visual_budget_secs() -> u64 {
+    std::env::var("EMEM_EUDR_VISUAL_BUDGET_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(60)
+        .clamp(5, 150)
+}
+
 #[allow(clippy::needless_range_loop)]
 async fn build_plot_visual_evidence(
     s: &AppState,
@@ -69909,8 +69919,30 @@ async fn post_eudr_dds_inner(
                 // auto-bumped visual budget. forest_context is the cheap
                 // window-capable land-cover/gain context; visual_evidence
                 // is the per-year S2/S1 timeline. Run concurrently.
+                // Bounded. A first-time plot reads 8 cells x each year since
+                // 2020 x two sensors cold, which ran 70-125 s and, above ~70 ha,
+                // past the route's 170 s limit: the caller lost the verdict,
+                // which never needed the imagery. What finished is stored, so
+                // the next request for the plot reuses it.
+                let budget = eudr_visual_budget_secs();
                 let (ve, fc) = tokio::join!(
-                    build_plot_visual_evidence(&s, &cells, now_unix),
+                    async {
+                        match tokio::time::timeout(
+                            std::time::Duration::from_secs(budget),
+                            build_plot_visual_evidence(&s, &cells, now_unix),
+                        )
+                        .await
+                        {
+                            Ok(v) => v,
+                            Err(_) => json!({
+                                "schema": "emem.visual_evidence.v2",
+                                "verdict": "incomplete",
+                                "complete": false,
+                                "budget_secs": budget,
+                                "reason": format!("the annual Sentinel-2 and Sentinel-1 timeline did not finish within {budget} s, so it is left out rather than cutting off the verdict, which does not depend on it. The scenes read so far are stored; request the plot again for the timeline."),
+                            }),
+                        }
+                    },
                     build_plot_forest_context(&s, &cells),
                 );
                 (Some(ve), Some(fc))

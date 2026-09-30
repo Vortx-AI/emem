@@ -912,15 +912,19 @@ impl Cache for SledHotCache {
         let keys = keys.to_vec();
         off_thread(move || {
             let mut out = Vec::with_capacity(keys.len());
-            for k in &keys {
-                let kb = encode_key(k);
-                let hit: Option<Vec<u8>> = match &src.redb {
-                    Some(r) => match r.lookup(&kb)? {
-                        Some(v) => Some(v),
-                        None if src.consult_sled() => src.idx.get(&kb)?.map(|v| v.to_vec()),
+            let encoded: Vec<Vec<u8>> = keys.iter().map(encode_key).collect();
+            let from_redb = match &src.redb {
+                Some(r) => Some(r.lookup_many(&encoded)?),
+                None => None,
+            };
+            for (i, kb) in encoded.iter().enumerate() {
+                let hit: Option<Vec<u8>> = match &from_redb {
+                    Some(found) => match &found[i] {
+                        Some(v) => Some(v.clone()),
+                        None if src.consult_sled() => src.idx.get(kb)?.map(|v| v.to_vec()),
                         None => None,
                     },
-                    None => src.idx.get(&kb)?.map(|v| v.to_vec()),
+                    None => src.idx.get(kb)?.map(|v| v.to_vec()),
                 };
                 match hit {
                     Some(v) => {
@@ -944,10 +948,17 @@ impl Cache for SledHotCache {
         off_thread(move || {
             let mut out = Vec::with_capacity(cids.len());
             let mut repair: Vec<FactRow> = Vec::new();
-            for cid in &cids {
+            let from_redb = match &src.redb {
+                Some(r) => {
+                    let keys: Vec<&[u8]> = cids.iter().map(|c| c.as_str().as_bytes()).collect();
+                    Some(r.get_facts(&keys)?)
+                }
+                None => None,
+            };
+            for (i, cid) in cids.iter().enumerate() {
                 let key = cid.as_str().as_bytes();
-                let body: Option<Vec<u8>> = match &src.redb {
-                    Some(r) => match r.get_fact(key)? {
+                let body: Option<Vec<u8>> = match &from_redb {
+                    Some(found) => match found[i].clone() {
                         Some(b) => Some(b),
                         // The backfill walked the canonical INDEX, so a fact
                         // that held no index slot was never copied: every
