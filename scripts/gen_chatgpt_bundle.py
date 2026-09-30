@@ -39,6 +39,11 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 BUNDLE = REPO / "integrations" / "chatgpt"
 SUBMISSION = BUNDLE / "chatgpt-app-submission.json"
 TOOLS_MD = BUNDLE / "tools.md"
+# The origin tools.md NAMES, which is the one the submission is for. It is not
+# the origin the catalogue is READ from: CI checks this tree against a node it
+# built and started on loopback, and a rendered file that quoted where it was
+# read would differ from the checked-in one on every line that names a URL.
+PUBLISHED_ORIGIN = "https://emem.dev"
 
 
 def rpc(url: str, method: str, params: dict) -> dict:
@@ -414,7 +419,7 @@ def check(sub: dict, live: dict, card: dict, live_core: list | None = None) -> l
     return bad
 
 
-def render(sub: dict, live: dict, origin: str) -> str:
+def render(sub: dict, live: dict) -> str:
     lines = [
         "# Tools",
         "",
@@ -427,7 +432,7 @@ def render(sub: dict, live: dict, origin: str) -> str:
         "     generated it, so nothing kept it true. -->",
         "",
         f"The app declares **{len(sub['tools'])} tools**. Each one below is checked against "
-        f"`{origin}/mcp/full` at generation time: the name exists, and the MCP annotations "
+        f"`{PUBLISHED_ORIGIN}/mcp/full` at generation time: the name exists, and the MCP annotations "
         "here are the annotations the server sends.",
         "",
         "Reads need no key and no account. None of emem's write verbs is exposed in this app.",
@@ -513,7 +518,7 @@ def render(sub: dict, live: dict, origin: str) -> str:
         "## Verifying any answer",
         "",
         "Every response carries an ed25519 receipt. `emem_verify_receipt` checks it against "
-        f"the responder's published key at `{origin}/.well-known/emem.json`, so an answer can "
+        f"the responder's published key at `{PUBLISHED_ORIGIN}/.well-known/emem.json`, so an answer can "
         "be checked without trusting the responder that produced it. Fact identifiers are "
         "base32 blake3 content addresses over canonical CBOR; they are not IPFS CIDs and do "
         "not begin with `bafy`.",
@@ -573,7 +578,7 @@ def main() -> int:
               "that really is stale looks the same from here.")
         return 2
 
-    body = render(sub, live, a.origin)
+    body = render(sub, live)
     if a.check:
         have = TOOLS_MD.read_text(encoding="utf-8") if TOOLS_MD.exists() else ""
         if have != body:

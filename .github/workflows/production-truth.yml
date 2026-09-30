@@ -1,0 +1,197 @@
+name: production truth
+
+# The gates that can only be answered by the node at https://emem.dev, run on
+# a clock instead of on a push.
+#
+# They used to run in ci.yml, on every push, against production. Deploys are
+# manual and land about forty minutes after the push, so a commit that changed
+# an MCP schema and its OpenAPI entry together failed its own CI: the gate read
+# the OLD server and reported the new tree as drift. It happened twice on
+# 2026-09-30 (one_endpoint_one_contract failed at 16:38, the fix went live at
+# 17:17). A per-commit gate is asked one question, whether THIS change broke
+# something, and a production read cannot answer it.
+#
+# So ci.yml now builds the commit's own server and runs every gate that checks
+# what the CODE serves against it on loopback (the `contract` job). What is
+# left here needs production specifically, for one of three reasons, stated
+# per step:
+#
+#   corpus   the check runs documents that quote real tokens, cells and fact
+#            ids, and a fresh node holds none of them
+#   host     the check is about the public deployment: its configuration, the
+#            registry entry and badges that point at it, what a scanner or a
+#            stranger reaching emem.dev actually gets
+#   deploy   the check asks whether the tree has reached production, which is
+#            exactly the lag that must not redden a push
+#
+# A red run here is production drift. It is never a verdict on whichever
+# commit happens to be newest, and it names no commit.
+#
+# Exit codes keep the contract ci.yml used for them: 2 is "the responder did
+# not answer" and becomes a warning (a deploy restart is not a finding), 3 is
+# a fault on our side and fails.
+
+on:
+  schedule:
+    # Hourly, at an odd minute so it does not queue behind every other
+    # top-of-the-hour cron on the shared runners.
+    - cron: '17 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A slow run must not stack up behind itself; the next hour asks again.
+  group: production-truth
+  cancel-in-progress: false
+
+env:
+  EMEM_ORIGIN: https://emem.dev
+
+jobs:
+  corpus:
+    name: examples and parity against the live corpus
+    runs-on: ubuntu-latest
+    # The example check alone measures 231 s with four workers, and parity is
+    # 86 cases at two round trips each.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      # Production restarts for about ninety seconds on a deploy. One wait
+      # here pays that once, instead of every gate below reporting a finding
+      # about the thing it checks when the service was simply down.
+      - name: wait for the responder
+        run: python3 scripts/await_responder.py --origin "$EMEM_ORIGIN"
+      # corpus. Documentation is a promise about behaviour: every published
+      # example is run as written. The examples cite real fact ids, bundle
+      # tokens and cells, which exist only in production's store, so a fresh
+      # node would fail them for holding no data rather than for any defect.
+      - name: every published example still works
+        run: python3 scripts/example_check.py --origin "$EMEM_ORIGIN"
+      # corpus. MCP and REST must answer the same. Several cases read stored
+      # state by cid (state/fingerprint), which a fresh node does not have:
+      # against one, both doors refuse and the case measures the refusal, not
+      # the answer an agent actually gets.
+      - name: MCP and REST answer the same
+        run: |
+          set +e
+          python3 scripts/parity.py --full --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; parity not asserted this run"
+            exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
+          exit $code
+
+  host:
+    name: the public deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: wait for the responder
+        run: python3 scripts/await_responder.py --origin "$EMEM_ORIGIN"
+      # deploy. The source describes a route the responder does not serve
+      # yet: a build nobody deployed. ci.yml runs the same script against the
+      # commit's own node, which proves the build serves what the source says;
+      # this proves production is running that build.
+      - name: openapi is deployed, not just written
+        run: |
+          set +e
+          python3 scripts/openapi_coverage.py --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; deployment not asserted this run"
+            exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::openapi coverage could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
+          exit $code
+      # host. server.json and the MCP registry's published entry must point
+      # at the endpoint that actually answers. ci.yml runs the rest of this
+      # harness against its own node with --advertised-origin; only here is
+      # the advertised endpoint the one being called.
+      - name: five host shapes can reach and call emem.dev
+        run: |
+          set +e
+          python3 scripts/mcp_host_compat.py --check --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; host compatibility not asserted this run"
+            exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
+          exit $code
+      # host. Production carries configuration a CI node does not (sidecar
+      # socket paths, disk-served directories, a peer list), and that is where
+      # a host path or a private address reaches an answer. The same sweep
+      # runs in ci.yml against the commit's node for what the code emits.
+      - name: nothing public means something only here
+        run: |
+          set +e
+          python3 scripts/no_host_details_in_public.py --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; no public surface was read"
+            exit 0
+          fi
+          exit $code
+      # host. What a credential scanner reaching the public host gets, which
+      # is the thing the scanner traffic on this box is actually asking.
+      - name: nothing a scanner asks for is served
+        run: python3 scripts/scanner_surface.py --origin "$EMEM_ORIGIN"
+      # host. A reader stands on emem.dev and tries the first route they see.
+      # ci.yml checks the commit's node serves every route the site shows;
+      # this checks the public host does.
+      - name: every route the site shows answers on emem.dev
+        run: |
+          set +e
+          python3 scripts/route_truth.py --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the responder did not answer; route truth not asserted this run"
+            exit 0
+          fi
+          if [ "$code" = "3" ]; then
+            echo "::error::could not run for a reason on our side, not a responder outage"
+            exit 1
+          fi
+          exit $code
+      # host, for now. A node that declares no operator contact serves an agent
+      # card whose signature does not verify: well_known_agent_card signs the
+      # card and only THEN strips the undeclared (null) operator keys, so the
+      # signed payload is not the served one. emem.dev declares EMEM_CONTACT,
+      # which hides it, and a fresh CI node does not. Move this to the contract
+      # job in ci.yml once the strip happens before signing.
+      - name: the agent card verifies against its own published key
+        run: |
+          set +e
+          python3 scripts/agent_card_signed.py --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the card could not be fetched; its signature was not checked"
+            exit 0
+          fi
+          exit $code

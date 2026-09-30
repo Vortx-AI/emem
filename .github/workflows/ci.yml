@@ -393,13 +393,12 @@ jobs:
   doc-lint:
     name: prose convention holds
     runs-on: ubuntu-latest
-    # Fifteen, measured rather than guessed. This job carries twenty one
-    # gates now, a pre-flight wait for the responder, and an example check
-    # that grew from 72 commands to 198 when the extractor stopped missing
-    # the ones inside <pre><code> and on the served page. At five minutes it
-    # was CANCELLED mid-run, which reports nothing at all: the least useful
-    # of the three possible outcomes. The example check alone measures 231 s
-    # with four workers, against over ten minutes sequentially.
+    # Every gate left in this job reads the tree, not a responder. The ones
+    # that read a live node moved: what the code serves is checked in
+    # `contract` against this commit's own server, and what only production
+    # can answer runs hourly in production-truth.yml. Fifteen minutes was
+    # sized for the example check (231 s with four workers), which went with
+    # them; it stays as a backstop rather than being re-measured here.
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -458,14 +457,6 @@ jobs:
       # HTML. Five tiles did, three had gone stale against the responder they
       # claimed to report, and the caption above them said nothing there was
       # typed in. Hermetic: it reads the markup, not the network.
-      # Half the steps below read the live responder, and a deploy restarts it
-      # for about ninety seconds. Without this, every one of them reports a
-      # finding about the thing it checks rather than about the service being
-      # down: route_truth has failed on /.well-known/emem-guard.json while
-      # three curls seconds later returned 200 in 28 ms. One wait here costs
-      # the ninety seconds once, in a place that says what it is waiting for.
-      - name: wait for the responder
-        run: python3 scripts/await_responder.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       - name: live numbers are fetched, not typed
         run: python3 scripts/live_numbers.py
       # One token file, one scale, and a dark mode on every page. Every page
@@ -502,13 +493,6 @@ jobs:
       - name: every version surface states this version
         run: python3 scripts/version_surfaces.py
 
-      # Documentation is a promise about behaviour and nothing was checking it.
-      # route_truth asserts the routes ANSWER; that is weaker than the examples
-      # being runnable, and the gap is where a caller lives. A 2xx carrying an
-      # emem.error.v1 body counts as a failure here, because that is the shape
-      # that reads as success to everything except a human.
-      - name: every published example still works
-        run: python3 scripts/example_check.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       # Every provenance_class we emit must be one we declare. The upstream
       # found an undeclared class on ELEVEN of their surfaces, with the correct
       # diagnosis already written in their own tree and reaching one call site.
@@ -526,16 +510,6 @@ jobs:
       # at the end of the trusted things, which is where the upstream found
       # theirs too. The individual steps above stay for per-step CI granularity;
       # this one enforces the order they are written in.
-      # What a credential scanner gets. The service sharing this box traced
-      # 29,636 refused requests over 35 days to an automated secret hunter --
-      # /.env, /.git/config, /.aws/credentials -- every one a 1 ms 404, which is
-      # why nobody had looked. They 404 everything because they are an API; we
-      # are the public page on the same host, with a build directory and a docs
-      # tree and a 404 page of our own. It checks BODIES, not status codes, and
-      # self-tests its own patterns first, because a clean report from a
-      # detector that stopped matching looks exactly like a clean surface.
-      - name: nothing a scanner asks for is served
-        run: python3 scripts/scanner_surface.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
       # The ORDER, checked without running anything twice.
       #
       # This step used to be `python3 scripts/gates.py`, which executes every
@@ -569,62 +543,6 @@ jobs:
       # annotation entirely.
       - name: the submission says what the server says
         run: python3 scripts/submission_matches_server.py
-      # A test case is run by a stranger in a fresh chat. Three of the five in
-      # the 2026-08-27 submission pointed at "this farm", "this place" and "an
-      # emem:fact: token" with none of the three supplied, so opened cold they
-      # named nothing, no tool was called, and each failed against its own
-      # expected_output with the tools working correctly. Nothing read the
-      # prompts. This does, and it runs before the responder is fetched so an
-      # outage cannot waive it.
-      - name: every test case carries its own referent
-        run: |
-          # The bundle is validated against the published submission schema,
-          # and the checker refuses to pass when it cannot do that. Without
-          # this install it could not, and said so as a finding, so the run
-          # printed a sentence about the bundle on a run where the bundle was
-          # never read. It exits 3 now; this is what makes 3 not happen.
-          python3 -m pip install --quiet jsonschema==4.26.0
-          set +e
-          python3 scripts/gen_chatgpt_bundle.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          # 2 is the responder: unreachable, or serving a catalogue this tree
-          # is ahead of. Neither says the bundle is wrong. The prompt checks
-          # above run BEFORE the fetch, so they are not what a 2 waives.
-          if [ "$code" = "2" ]; then
-            echo "::warning::the bundle was not checked against a live catalogue"
-            exit 0
-          fi
-          # 3 is our side: a missing validator, an unreadable schema. It must
-          # fail, and it must not be described as the bundle disagreeing.
-          if [ "$code" = "3" ]; then
-            echo "::error::the submission checker could not run; this is not a verdict on the bundle"
-            exit 1
-          fi
-          exit $code
-      # The card declared preferredTransport HTTP+JSON while /a2a/tasks requires
-      # the JSON-RPC envelope, so every client that believed the card got a 400
-      # and the A2A registry's task_conformance probe failed on METHOD. A schema
-      # check could not see it: the value was a legal transport name, just not
-      # ours. This sends the shape the card promises and checks it is accepted.
-      # /openapi.json is what a developer reads and the MCP inputSchema is what
-      # an agent reads. They are written separately and nothing compared them,
-      # so they drifted both ways: /v1/log/inclusion took tree_size -- prove a
-      # leaf was in a head you pinned earlier, the whole audit loop -- and the
-      # tool schema omitted it, so an agent could only prove inclusion under
-      # the current head. A parameter in OpenAPI and not in MCP is a capability
-      # out of reach and fails; the reverse is documentation debt and ratchets.
-      - name: one endpoint, one contract
-        run: |
-          set +e
-          python3 scripts/one_endpoint_one_contract.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::both documents come from the responder; neither was read"
-            exit 0
-          fi
-          exit $code
       # cargo fmt collapses a backslash-continued string literal onto one line
       # and the source indentation goes into the string. emem.dev served
       # "...this band needs.<18 spaces>It is an optional extension..." to any
@@ -633,52 +551,6 @@ jobs:
       # trust-boundary declarations. Source-only, so it needs no responder.
       - name: no sentence carries its own indentation
         run: python3 scripts/no_padded_prose.py
-      # Two host details reached callers on 2026-09-10 by the same route:
-      # something inward-facing copied into something outward-facing. A socket
-      # path and a Rust errno in materialize_notes[].reason, and an upstream's
-      # loopback backend_url republished from an object we pass through. The
-      # check is on the OUTPUT rather than on anyone's care, and the surfaces
-      # come from our own openapi document so a route added tomorrow is covered.
-      - name: nothing public means something only here
-        run: |
-          set +e
-          python3 scripts/no_host_details_in_public.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; no public surface was read"
-            exit 0
-          fi
-          exit $code
-      - name: the agent card describes the endpoint that answers
-        run: |
-          set +e
-          python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          # 2 is the responder. This step had no waiver, so a run that
-          # overlapped a deploy reported "the card describes a transport the
-          # endpoint does not speak" -- a statement about the card, made on a
-          # run that never reached the endpoint. It happened on a8061cdc.
-          if [ "$code" = "2" ]; then
-            echo "::warning::the endpoint did not answer; the card was not checked against it"
-            exit 0
-          fi
-          exit $code
-      # Everything else emem serves carries an ed25519 receipt; the card that
-      # advertises all of it was the one document nobody signed. This verifies
-      # it as a stranger would, over HTTP, using only the published key.
-      - name: the agent card verifies against its own published key
-        run: |
-          set +e
-          python3 scripts/agent_card_signed.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the card could not be fetched; its signature was not checked"
-            exit 0
-          fi
-          exit $code
       # A ratchet, not a standard. tokens.css has carried a golden-ratio
       # spacing scale for a long time and the pages use it for 136 values
       # against 1382 hand-picked ones: every gap slightly different, which is
@@ -688,152 +560,11 @@ jobs:
       # redesigned. It must never go up.
       - name: spacing comes from the scale
         run: python3 scripts/spacing_scale.py --budget 1379
-      # live_numbers proves a figure is fetched. It cannot prove the fetch
-      # finds anything: rename a field and put() is handed undefined, declines
-      # to write, and the tile keeps its placeholder, so the page reads as
-      # though the node were down while the node is fine. A 200 carrying a
-      # renamed field passes route_truth, sync_counts and doc_lint alike.
-      - name: the fields the pages read still exist
-        run: |
-          set +e
-          python3 scripts/live_fields.py
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; live reads not asserted"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-      # A count stated as prose has to match the responder it describes.
-      # /whitepaper served "102 MCP tools (15 core, 87 extended)" against a
-      # responder answering 107/16/91 while sync_counts reported no drift,
-      # because the surface list and the phrase list were both hand-written.
-      # This asserts the number. Needs the live responder, so it warns rather
-      # than fails when the origin is unreachable.
-      # Failing here now names the one-word fix, because every count corrected
-      # by hand in this repo came back wrong within weeks: a typed number
-      # cannot notice the world moved, and the person who moves it is rarely
-      # the person who typed it. `--write` corrects the prose from the live
-      # responder, and leaves records alone (plans, ISO-dated notes,
-      # withdrawal tables, COUNT_HISTORY) because rewriting a record to match
-      # today turns it into a lie.
-      - name: prose counts match the responder
-        run: |
-          set +e
-          python3 scripts/sync_counts.py --check
-          code=$?
-          set -e
-          if [ "$code" = "1" ]; then
-            echo "::error::prose counts drifted. Run: python3 scripts/sync_counts.py --write"
-          fi
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; counts not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
 
-      # outputSchema is the only descriptor field that binds RUNTIME behaviour:
-      # declare one and every successful call owes conforming structuredContent.
-      # A unit test can only check the schema is well-formed; it took a live
-      # call to find that emem_echo_verify declared `drift` as a string and
-      # returned null on every exact match, violating its own schema on the
-      # most common path. Same warn-on-unreachable rule as the counts gate.
-      # A directory reviewer connects to the URL we advertise, reads
-      # tools/list, and calls the tools: "Every tool must return a successful
-      # response when called with valid parameters. Generic errors fail
-      # review." This runs that same sweep over the core tier, with each
-      # tool's own declared `required` list satisfied. A typed refusal (the
-      # T3 gate on the shared entity space) counts as working, because
-      # counting it as a failure would push someone toward weakening the gate
-      # to get a green light.
-      - name: every tool a reviewer would call answers
-        run: |
-          set +e
-          python3 scripts/core_tier_callable.py --check
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; the core tier was not exercised"
-            exit 0
-          fi
-          exit $code
-
-      - name: declared output schemas are honoured live
-        run: |
-          python3 -m pip install --quiet jsonschema==4.26.0
-          set +e
-          python3 scripts/output_schema_conformance.py --check
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; schemas not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-  mcp-host-compat:
-    name: MCP hosts can see and call us
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      # scripts/mcp_host_compat.py asserts that AWS, Glama, Smithery,
-      # Anthropic and OpenAI shaped clients can each discover the endpoint
-      # and get an answer out of it: the CORS preflight, the Accept header
-      # each one sends, the tools/list page size, and the discovery files
-      # that have to point at the same URL the responder answers on. It has
-      # been at 25 pass, 0 fail for as long as anyone ran it, which was only
-      # ever by hand. Nothing referenced it here, so a regression in any of
-      # those five paths would have reached a host before it reached a test.
-      #
-      # It reads repo files as well as the origin, hence the checkout: half
-      # of what it compares is server.json and .well-known/mcp.json against
-      # what the live endpoint says.
-      #
-      # Same exit-code contract as the counts and schema gates above: 2 is
-      # "the harness could not run", which a deploy window produces and which
-      # must not redden an unrelated pull request; 1 is a real divergence.
-      #
-      # Worth stating plainly: a job that warns when it cannot reach the
-      # origin cannot tell "our endpoint is fine" from "GitHub could not get
-      # to it". A green run here is weaker evidence than the same command run
-      # by hand from a machine that reached us, and it is not a substitute
-      # for one after a deploy.
-      - name: five host shapes can reach and call the endpoint
-        run: |
-          set +e
-          python3 scripts/mcp_host_compat.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; host compatibility not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-  # Two gates that check a RUNNING system rather than the source. Both are
-  # here because the failures they catch are invisible to every other job:
-  # the code is correct, the tests are green, and the thing an agent talks
-  # to still misbehaves.
+  # Jobs that check a RUNNING system rather than the source. They are here
+  # because the failures they catch are invisible to every other job: the
+  # code is correct, the tests are green, and the thing an agent talks to
+  # still misbehaves.
   guard-conformance:
     name: guard deployment conformance
     runs-on: ubuntu-latest
@@ -889,63 +620,265 @@ jobs:
             | grep -q '"id":"secret-patterns"' \
             || { echo "the module was not loaded"; exit 1; }
 
-  parity:
-    name: MCP and REST answer the same
+  # The gates that check what the CODE serves, run against THIS commit's
+  # own server rather than against https://emem.dev.
+  #
+  # They used to read production. Deploys are manual and land about forty
+  # minutes after a push, so a commit that changed an MCP schema and its
+  # OpenAPI entry together failed its own CI: the gate compared the new tree
+  # with the old server. Twice on 2026-09-30 (one_endpoint_one_contract
+  # failed at 16:38, the fix went live at 17:17). A per-commit gate is asked
+  # whether THIS change broke something, and only the change's own build
+  # can answer that. What genuinely needs production (the live corpus, the
+  # public host, whether a build was deployed) runs on a clock in
+  # production-truth.yml, where a red run is drift and names no commit.
+  #
+  # No exit code is waived here. Elsewhere 2 meant "the responder did not
+  # answer" and became a warning, because production restarting is not a
+  # finding about a commit. This responder is the commit: if it stops
+  # answering, that is the finding, and the node log is printed below.
+  contract:
+    name: contract gates against this commit's own server
     runs-on: ubuntu-latest
-    # 86 cases at two round trips each, six at a time. Fifteen minutes was not
-    # enough sequentially and the job was killed mid-run, which GitHub reports
-    # as `cancelled` and is indistinguishable at a glance from a job somebody
-    # stopped on purpose.
-    timeout-minutes: 25
-    # A live check against production, so it cannot gate a pull request from
-    # a fork and must not fail the build when the network is the problem. It
-    # runs on push to main and on a schedule; `continue-on-error` is
-    # deliberately ABSENT, because a real divergence should stop the line.
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    # A cold debug build of emem-server is the bulk of this; the gates
+    # themselves take a few minutes against a node on loopback.
+    timeout-minutes: 60
+    env:
+      ORT_CACHE_DIR: ${{ github.workspace }}/.ort-cache
+      # One origin for every gate below. Set on the job, so nothing inherited
+      # can point a contract gate back at production.
+      EMEM_ORIGIN: http://127.0.0.1:5097
+      # The same node, for the gates that read the origin from the
+      # environment instead of a flag.
+      EMEM_RESPONDER: http://127.0.0.1:5097
+      EMEM_BASE: http://127.0.0.1:5097
     steps:
       - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/cache@v4
+        with:
+          path: .ort-cache
+          key: ort-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ort-${{ runner.os }}-
+      - name: install protoc (lance build scripts)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+      - uses: peaceiris/actions-mdbook@v2
+        with:
+          mdbook-version: '0.5.2'
+      - run: mdbook build docs && rm -f docs/book/book.toml
+      # Same reason as the test job: the preinstalled toolchains this repo
+      # never uses are the difference between a build that fits and a
+      # runner that is reclaimed mid-compile.
+      - name: free the disk this build needs
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/share/boost
+          df -h / | tail -1
+      # Debug, not release: the gates read what the server SAYS, which does
+      # not depend on the optimiser, and a debug build is minutes shorter.
+      - name: build this commit's server
+        run: cargo build --locked -p emem-cli --bin emem-server
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      # emem answers on two surfaces from one set of handlers. Two audit
-      # rounds found flags that meant different things on each: an agent's
-      # answer depended on which door it used. sgozfgkr built the first cut
-      # of this harness and specified what it must assert; this is the CI
-      # integration that was owed back.
+      # Installed up front so a missing validator exits 3 nowhere below:
+      # gen_chatgpt_bundle and output_schema_conformance validate against
+      # JSON Schema, spec_verifier_check runs the published BLAKE3 + Ed25519
+      # listing.
+      - name: gate dependencies
+        run: python3 -m pip install --quiet jsonschema==4.26.0 blake3==1.0.9 pynacl==1.6.2
+      # A fresh node: throwaway data dir, a key generated at boot, no corpus.
+      # EMEM_PUBLIC_URL makes it name ITSELF in the card, the OpenAPI servers
+      # entry and the discovery documents; unset, it falls back to
+      # https://emem.dev and the card gates would quietly probe production.
+      # EMEM_RETIRED_BANDS, EMEM_ENLISTMENT_ENFORCE and
+      # EMEM_MEMORY_REQUIRE_ATTESTER copy deploy/systemd/emem-server.service,
+      # because they change what the node serves (the wired band count the
+      # docs state, which writes are refused) and the docs describe that
+      # deployment. Operator identity is deliberately NOT copied: this node
+      # is nobody's, and it is the self-hosted shape, undeclared operator
+      # included.
       #
-      # Exit 2 is "could not run" (responder unreachable) and is tolerated:
-      # a deploy window is not a divergence. Exit 1 is a real divergence and
-      # fails the build.
-      # --full enumerates every advertised tool, maps it to its REST twin
-      # through the responder's OWN OpenAPI operationIds rather than a naming
-      # convention, and cross-products the boolean flags each tool declares.
-      # 86 cases against 12 hand-picked ones, and the mapping cannot drift
-      # from the routes because it is read from the routes.
-      - name: parity matrix against production
+      # Backgrounded in its own step and left running for the steps after it.
+      # That is safe to depend on here in a way it is not for a gate that
+      # waives an unreachable responder: nothing below waives one, so a node
+      # that did not survive fails the next gate instead of passing it.
+      - name: start the node
+        run: |
+          mkdir -p "$RUNNER_TEMP/emem-data"
+          EMEM_DATA="$RUNNER_TEMP/emem-data" \
+          EMEM_BIND=127.0.0.1:5097 \
+          EMEM_PUBLIC_URL="$EMEM_ORIGIN" \
+          EMEM_OVERTURE_SKIP_WARMUP=1 \
+          EMEM_RETIRED_BANDS=geotessera,clay_v1,prithvi_eo2,galileo \
+          EMEM_ENLISTMENT_ENFORCE=1 \
+          EMEM_MEMORY_REQUIRE_ATTESTER=1 \
+            nohup ./target/debug/emem-server > "$RUNNER_TEMP/emem-node.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/emem-node.pid"
+      - name: wait for the node
+        run: python3 scripts/await_responder.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}" --wait 180
+      # What a credential scanner gets. The service sharing this box traced
+      # 29,636 refused requests over 35 days to an automated secret hunter --
+      # /.env, /.git/config, /.aws/credentials -- every one a 1 ms 404, which is
+      # why nobody had looked. They 404 everything because they are an API; we
+      # are the public page on the same host, with a build directory and a docs
+      # tree and a 404 page of our own. It checks BODIES, not status codes, and
+      # self-tests its own patterns first, because a clean report from a
+      # detector that stopped matching looks exactly like a clean surface.
+      - name: nothing a scanner asks for is served
+        run: python3 scripts/scanner_surface.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # A test case is run by a stranger in a fresh chat. Three of the five in
+      # the 2026-08-27 submission pointed at "this farm", "this place" and "an
+      # emem:fact: token" with none of the three supplied, so opened cold they
+      # named nothing, no tool was called, and each failed against its own
+      # expected_output with the tools working correctly. Nothing read the
+      # prompts. This does, and it runs before the responder is fetched so an
+      # outage cannot waive it.
+      - name: every test case carries its own referent
+        run: python3 scripts/gen_chatgpt_bundle.py --check --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # /openapi.json is what a developer reads and the MCP inputSchema is what
+      # an agent reads. They are written separately and nothing compared them,
+      # so they drifted both ways: /v1/log/inclusion took tree_size -- prove a
+      # leaf was in a head you pinned earlier, the whole audit loop -- and the
+      # tool schema omitted it, so an agent could only prove inclusion under
+      # the current head. A parameter in OpenAPI and not in MCP is a capability
+      # out of reach and fails; the reverse is documentation debt and ratchets.
+      - name: one endpoint, one contract
+        run: python3 scripts/one_endpoint_one_contract.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # Two host details reached callers on 2026-09-10 by the same route:
+      # something inward-facing copied into something outward-facing. A socket
+      # path and a Rust errno in materialize_notes[].reason, and an upstream's
+      # loopback backend_url republished from an object we pass through. The
+      # check is on the OUTPUT rather than on anyone's care, and the surfaces
+      # come from our own openapi document so a route added tomorrow is covered.
+      # Against this node it checks what the CODE emits. The node names its
+      # own loopback origin everywhere, and the script excuses exactly that
+      # netloc and nothing else; production's configuration, where most
+      # host paths come from, is swept in production-truth.yml.
+      - name: nothing public means something only here
+        run: python3 scripts/no_host_details_in_public.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The card declared preferredTransport HTTP+JSON while /a2a/tasks requires
+      # the JSON-RPC envelope, so every client that believed the card got a 400
+      # and the A2A registry's task_conformance probe failed on METHOD. A schema
+      # check could not see it: the value was a legal transport name, just not
+      # ours. This sends the shape the card promises and checks it is accepted.
+      - name: the agent card describes the endpoint that answers
+        run: python3 scripts/agent_card_conformance.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # live_numbers proves a figure is fetched. It cannot prove the fetch
+      # finds anything: rename a field and put() is handed undefined, declines
+      # to write, and the tile keeps its placeholder, so the page reads as
+      # though the node were down while the node is fine. A 200 carrying a
+      # renamed field passes route_truth, sync_counts and doc_lint alike.
+      - name: the fields the pages read still exist
+        run: python3 scripts/live_fields.py
+      # A count stated as prose has to match the responder it describes.
+      # /whitepaper served "102 MCP tools (15 core, 87 extended)" against a
+      # responder answering 107/16/91 while sync_counts reported no drift,
+      # because the surface list and the phrase list were both hand-written.
+      # This asserts the number. Needs the live responder, so it warns rather
+      # than fails when the origin is unreachable.
+      # Failing here now names the one-word fix, because every count corrected
+      # by hand in this repo came back wrong within weeks: a typed number
+      # cannot notice the world moved, and the person who moves it is rarely
+      # the person who typed it. `--write` corrects the prose from the live
+      # responder, and leaves records alone (plans, ISO-dated notes,
+      # withdrawal tables, COUNT_HISTORY) because rewriting a record to match
+      # today turns it into a lie.
+      - name: prose counts match the responder
         run: |
           set +e
-          python3 scripts/parity.py --full --origin "${EMEM_ORIGIN:-https://emem.dev}"
+          python3 scripts/sync_counts.py --check
           code=$?
           set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; parity not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
+          if [ "$code" = "1" ]; then
+            echo "::error::prose counts drifted. Run: python3 scripts/sync_counts.py --write"
           fi
           exit $code
-
+      # A directory reviewer connects to the URL we advertise, reads
+      # tools/list, and calls the tools: "Every tool must return a successful
+      # response when called with valid parameters. Generic errors fail
+      # review." This runs that same sweep over the core tier, with each
+      # tool's own declared `required` list satisfied. A typed refusal (the
+      # T3 gate on the shared entity space) counts as working, because
+      # counting it as a failure would push someone toward weakening the gate
+      # to get a green light.
+      - name: every tool a reviewer would call answers
+        run: python3 scripts/core_tier_callable.py --check
+      # outputSchema is the only descriptor field that binds RUNTIME behaviour:
+      # declare one and every successful call owes conforming structuredContent.
+      # A unit test can only check the schema is well-formed; it took a live
+      # call to find that emem_echo_verify declared `drift` as a string and
+      # returned null on every exact match, violating its own schema on the
+      # most common path. Same warn-on-unreachable rule as the counts gate.
+      - name: declared output schemas are honoured live
+        run: python3 scripts/output_schema_conformance.py --check
+      # scripts/mcp_host_compat.py asserts that AWS, Glama, Smithery,
+      # Anthropic and OpenAI shaped clients can each discover the endpoint
+      # and get an answer out of it: the CORS preflight, the Accept header
+      # each one sends, the tools/list page size, and the discovery files
+      # that have to point at the same URL the responder answers on. It has
+      # been at 25 pass, 0 fail for as long as anyone ran it, which was only
+      # ever by hand. Nothing referenced it here, so a regression in any of
+      # those five paths would have reached a host before it reached a test.
+      #
+      # server.json and the MCP registry entry are published and name
+      # https://emem.dev whatever node is read, so --advertised-origin holds
+      # them to that; everything the node itself serves is held to the node.
+      # Whether the advertised endpoint is the one answering is a question
+      # about production, asked in production-truth.yml.
+      - name: five host shapes can reach and call the endpoint
+        run: python3 scripts/mcp_host_compat.py --check --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}" --advertised-origin https://emem.dev
+      # Counts, routes and homepage figures each have a gate. The sentences
+      # that assert what a component is CURRENTLY doing had none, and they rot
+      # more quietly, because a count invites checking and "X is untrained
+      # today" reads as settled background.
+      - name: state a document asserts is the state we are in
+        run: python3 scripts/state_claims.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The agent guide's first screen is what an agent routes on. It is
+      # generated from the responder's own intent registry, so a hand edit or
+      # a new intent that never reached the guide shows up here rather than in
+      # an agent picking a tool for a need we stopped serving.
+      - name: the agent guide's first screen matches the registry
+        run: python3 scripts/gen_decision_layer.py --check --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
       # Everything above proves a thing we built still works. This proves an
       # agent that has never heard of emem can find out what we are, decide
       # whether we are relevant, and make a correct first call, from the origin
       # alone. It also executes every served row of the intent registry, so a
       # capability claim cannot rot into prose that no longer matches the code.
-      # Counts, routes and homepage figures each have a gate. The sentences
-      # that assert what a component is CURRENTLY doing had none, and they rot
-      # more quietly, because a count invites checking and "X is untrained
-      # today" reads as settled background.
+      - name: an agent starting cold can find us and act
+        run: python3 scripts/discovery_test.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # docs/protocol.md 7.4 publishes a self-contained verifier and calls it
+      # "the entire trust-rebinding path". It is the listing third parties
+      # copy. 5ci64hps rebuilt it from the segment tables and found it
+      # rejected every current receipt: the stream stopped at tag 0x09 and
+      # never emitted the v2 MERKLE segment, so it computed the SAME digest as
+      # the downgrade attack the spec describes two sections earlier. The
+      # published verifier and the attacker agreed with each other and
+      # disagreed with the signer.
+      #
+      # /v1/verifier_spec was right the whole time because it is generated
+      # from the signer's constants. Only the prose drifted, in the one
+      # document nobody runs. So run it.
+      - name: run the published listing against a live receipt
+        run: python3 scripts/spec_verifier_check.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The /guard page shipped a nine-route table where seven answered 404 on
+      # emem.dev. Nothing was false (the table describes a self-hosted node)
+      # and it still overclaimed, because a reader stands on emem.dev and tries
+      # the first thing they see. u4aaoieq found it by doing exactly that.
+      #
+      # This is the no-hardcoded-numbers rule generalised to routes: no number
+      # on the site that is not fetched from the node, and no route on the site
+      # that is not reachable where it is shown.
+      - name: route truth
+        run: python3 scripts/route_truth.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The source can describe a route the binary does not serve: an
+      # include that did not reach the image, a handler never registered.
+      # Against this commit's own build that is a defect in the commit.
+      # Whether production runs the build is production-truth.yml's question.
+      - name: openapi is served, not just written
+        run: python3 scripts/openapi_coverage.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
       # Pinned rather than relying on whatever the runner image happens to
       # ship: this step is a cryptography check, and "it worked on the old
       # default node" is not a property to leave to the image.
@@ -961,153 +894,12 @@ jobs:
       # inclusion proof that preimage_version 2 exists to catch.
       - name: the browser verifier accepts what is genuine and refuses forgeries
         run: node scripts/verify_core_test.cjs
-
-      - name: state a document asserts is the state we are in
-        run: |
-          set +e
-          python3 scripts/state_claims.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; state claims not asserted"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-      # The agent guide's first screen is what an agent routes on. It is
-      # generated from the responder's own intent registry, so a hand edit or
-      # a new intent that never reached the guide shows up here rather than in
-      # an agent picking a tool for a need we stopped serving.
-      - name: the agent guide's first screen matches the registry
-        run: |
-          set +e
-          python3 scripts/gen_decision_layer.py --check --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; decision layer not asserted"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-      - name: an agent starting cold can find us and act
-        run: |
-          set +e
-          python3 scripts/discovery_test.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; discovery not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-  spec-verifier:
-    name: the spec's own verifier verifies a real receipt
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      - run: pip install blake3==1.0.9 pynacl==1.6.2
-      # docs/protocol.md 7.4 publishes a self-contained verifier and calls it
-      # "the entire trust-rebinding path". It is the listing third parties
-      # copy. 5ci64hps rebuilt it from the segment tables and found it
-      # rejected every current receipt: the stream stopped at tag 0x09 and
-      # never emitted the v2 MERKLE segment, so it computed the SAME digest as
-      # the downgrade attack the spec describes two sections earlier. The
-      # published verifier and the attacker agreed with each other and
-      # disagreed with the signer.
-      #
-      # /v1/verifier_spec was right the whole time because it is generated
-      # from the signer's constants. Only the prose drifted, in the one
-      # document nobody runs. So run it.
-      - name: run the published listing against a live receipt
-        run: |
-          set +e
-          python3 scripts/spec_verifier_check.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; the spec verifier was not exercised"
-            exit 0
-          fi
-          # 3 is OUR side: a missing dependency, or the document unreadable.
-          # It shared code 2 until 2026-09-10, so a failed `pip install blake3`
-          # printed "the responder did not answer" -- false about which thing
-          # happened -- and passed a gate that had not run.
-          if [ "$code" = "3" ]; then
-            echo "::error::the spec verifier could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-
-  route-truth:
-    name: every route the site shows answers where it is shown
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-      # The /guard page shipped a nine-route table where seven answered 404 on
-      # emem.dev. Nothing was false (the table describes a self-hosted node)
-      # and it still overclaimed, because a reader stands on emem.dev and tries
-      # the first thing they see. u4aaoieq found it by doing exactly that.
-      #
-      # This is the no-hardcoded-numbers rule generalised to routes: no number
-      # on the site that is not fetched from the node, and no route on the site
-      # that is not reachable where it is shown.
-      - name: route truth
-        run: |
-          set +e
-          python3 scripts/route_truth.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; route truth not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
-      # The source can describe a route the responder does not serve yet: that
-      # is a build nobody deployed, and it reads to an agent exactly like a
-      # route that was never written. Only checkable against a live origin.
-      - name: openapi is deployed, not just written
-        run: |
-          set +e
-          python3 scripts/openapi_coverage.py --origin "${EMEM_ORIGIN:-https://emem.dev}"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the responder did not answer; deployment not asserted this run"
-            exit 0
-          fi
-          if [ "$code" = "3" ]; then
-            echo "::error::openapi coverage could not run for a reason on our side, not a responder outage"
-            exit 1
-          fi
-          exit $code
+      - name: the node's log, when a gate failed
+        if: failure()
+        run: tail -n 200 "$RUNNER_TEMP/emem-node.log" || true
+      - name: stop the node
+        if: always()
+        run: kill "$(cat "$RUNNER_TEMP/emem-node.pid")" 2>/dev/null || true
 
   ts-sdk:
     name: TypeScript SDK build

@@ -49,6 +49,7 @@ import pathlib
 import re
 import sys
 import time
+import urllib.parse
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
@@ -76,6 +77,16 @@ PATTERNS = [
     ("errno", r"\bos error \d+\b"),
 ]
 COMPILED = [(name, re.compile(p)) for name, p in PATTERNS]
+
+# The address this run was TOLD to read, in each spelling a document uses for
+# it: `host:port` in a URL and `host%3Aport` in a did:web. A node names its own
+# origin everywhere, and when CI reads a node it built and started on loopback
+# that origin is 127.0.0.1, so every self-reference would report as a leak. It
+# is not one: the caller already holds that address, it is the one they used.
+# Only the exact netloc is excused, so 127.0.0.1:5019 on a node answering at
+# 127.0.0.1:5097 still fails. Empty until main() sets it; self_test() sets it
+# briefly, only to prove the excuse is that narrow.
+SELF_NETLOCS: tuple[str, ...] = ()
 
 # Ordinary prose and spec text that these patterns match and that is not a
 # leak. Narrow on purpose: each is a literal, not a wildcard.
@@ -178,6 +189,8 @@ def findings(url: str, body: str) -> list[tuple[str, str]]:
     hits = []
 
     def look(text: str):
+        for own in SELF_NETLOCS:
+            text = text.replace(own, "<this-origin>")
         for name, rx in COMPILED:
             for m in rx.finditer(text):
                 found = m.group(0)
@@ -271,6 +284,20 @@ def self_test() -> list[str]:
         elif want not in names:
             wrong.append(f"pattern went silent on: {label} "
                          f"(wanted `{want}`, got {sorted(names) or 'nothing'})")
+    # The self-origin excuse, both ways: the node's own address is silent and
+    # a neighbour on the same loopback host still fires.
+    global SELF_NETLOCS
+    saved, SELF_NETLOCS = SELF_NETLOCS, ("127.0.0.1:5097", "127.0.0.1%3A5097")
+    try:
+        for value, want in (("http://127.0.0.1:5097/mcp", None),
+                            ("did:web:127.0.0.1%3A5097#responder", None),
+                            ("http://127.0.0.1:5019", "loopback")):
+            names = {n for n, _ in findings("self-test", _json.dumps({"v": value}))}
+            if (want is None and names) or (want is not None and want not in names):
+                wrong.append(f"self-origin excuse is wrong on {value!r}: "
+                             f"wanted {want or 'silence'}, got {sorted(names) or 'nothing'}")
+    finally:
+        SELF_NETLOCS = saved
     return wrong
 
 
@@ -287,6 +314,10 @@ def main() -> int:
         for w in wrong:
             print("  ", w)
         return 3
+
+    global SELF_NETLOCS
+    netloc = urllib.parse.urlsplit(origin).netloc
+    SELF_NETLOCS = (netloc, netloc.replace(":", "%3A")) if netloc else ()
 
     st, body = get(origin + "/openapi.json")
     if st != 200 or not body:

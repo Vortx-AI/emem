@@ -96,7 +96,9 @@ def main() -> int:
         if name in skip:
             skipped.append(name)
             continue
-        resolved = cmd.replace("${EMEM_ORIGIN:-https://emem.dev}", a.origin)
+        # Any default, not one spelling: the contract job defaults to its own
+        # loopback node, and a literal match would leave that unreplaced.
+        resolved = re.sub(r"\$\{EMEM_ORIGIN:-[^}]*\}", lambda _m: a.origin, cmd)
         try:
             p = subprocess.run(resolved, shell=True, cwd=REPO,
                                capture_output=True, text=True, timeout=a.timeout)

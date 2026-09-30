@@ -593,7 +593,8 @@ def run(origin: str, endpoint: str) -> dict:
 # ------------------------------------------------------- discovery surfaces
 
 
-def check_discovery(origin: str, facts: dict, repo_root: str):
+def check_discovery(origin: str, facts: dict, repo_root: str,
+                    advertised: str | None = None):
     """server.json, /.well-known/mcp.json, the A2A card, the MCP registry.
 
     A directory reads one of these before it ever connects. If they disagree
@@ -603,6 +604,12 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
     live_total = facts.get("total_tools")
     live_core = facts.get("claimed_profile_size")
     want_url = origin.rstrip("/") + "/mcp"
+    # server.json and the registry entry are PUBLISHED: they name the public
+    # endpoint whatever node this run reads. Against a node CI started on
+    # loopback they would never match `origin`, so they are compared with the
+    # advertised origin instead. What the node itself serves
+    # (/.well-known/mcp.json) is still compared with the node.
+    published_url = (advertised or origin).rstrip("/") + "/mcp"
 
     # 1. server.json, the MCP registry manifest. Served? And does its prose
     #    about the core profile match the live responder?
@@ -619,7 +626,7 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
         remotes = [r.get("url") for r in sj.get("remotes", [])]
         row("MCP registry",
             "server.json remotes point at the live endpoint",
-            f"remotes={remotes}", want_url in remotes, want_url)
+            f"remotes={remotes}", published_url in remotes, published_url)
 
         prose = json.dumps(sj.get("x-emem", {}).get("directoryCompliance", {}))
         # The claim we care about is the core-profile size and its byte cost.
@@ -708,7 +715,7 @@ def check_discovery(origin: str, facts: dict, repo_root: str):
             row("MCP registry",
                 "the published registry entry points at the live endpoint",
                 f"v{sv.get('version')} remotes={remotes}",
-                want_url in remotes, f"v{sv.get('version')}")
+                published_url in remotes, f"v{sv.get('version')}")
         else:
             row("MCP registry", "an entry is published and marked latest",
                 "no isLatest entry found", False, "none")
@@ -833,13 +840,17 @@ def main() -> int:
     ap.add_argument("--json", action="store_true", help="machine-readable output")
     ap.add_argument("--check", action="store_true", help="exit 1 on any FAIL")
     ap.add_argument("--skip-discovery", action="store_true")
+    ap.add_argument("--advertised-origin", default=None,
+                    help="the public origin server.json and the MCP registry "
+                         "entry must name (default: --origin)")
     args = ap.parse_args()
 
     repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         facts = run(args.origin, args.endpoint)
         if not args.skip_discovery:
-            check_discovery(args.origin, facts, repo_root)
+            check_discovery(args.origin, facts, repo_root,
+                            args.advertised_origin)
             check_install_badges(repo_root)
     except Fail as e:
         print(f"harness could not run: {e}", file=sys.stderr)
