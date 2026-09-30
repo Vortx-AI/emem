@@ -7103,8 +7103,10 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     });
     // Signed last, over everything above it. sign_agent_card documents exactly
     // what a verifier has to reproduce.
-    let signature = sign_agent_card(&card, &s, &origin);
+    // Stripped before signing: signing first covered keys the served card no
+    // longer has, so the card failed to verify on any node without EMEM_CONTACT.
     drop_undeclared(&mut card, OPERATOR_KEYS);
+    let signature = sign_agent_card(&card, &s, &origin);
     card["signatures"] = json!([signature]);
     Json(card)
 }
@@ -46644,11 +46646,24 @@ async fn post_memory_search(
     }
 }
 
+/// The dataset's last two components (`lance/<name>`), never the absolute
+/// path: the data dir is the operator's filesystem layout, and on a node
+/// under /home it named the account the server runs as.
+fn dataset_path_for_callers(path: &str) -> String {
+    let parts: Vec<String> = std::path::Path::new(path)
+        .components()
+        .rev()
+        .take(2)
+        .map(|c| c.as_os_str().to_string_lossy().into_owned())
+        .collect();
+    parts.into_iter().rev().collect::<Vec<_>>().join("/")
+}
+
 /// `GET /v1/memory_search/stats`, snapshot of the memory-text index.
 ///
 /// Includes:
 ///  - row count (number of indexed files)
-///  - filesystem path of the Lance dataset
+///  - the Lance dataset's path, relative to the data dir
 ///  - whether the BGE model loaded on this responder
 ///  - last hydration / last index Unix-seconds timestamps
 ///  - indexer mode (polling/broadcast) + cadence
@@ -46663,7 +46678,7 @@ async fn get_memory_search_stats() -> Json<JsonValue> {
     Json(json!({
         "schema": "emem.memory_search_stats.v1",
         "rows": stats.rows,
-        "path": stats.path,
+        "path": dataset_path_for_callers(&stats.path),
         "model_loaded": stats.model_loaded,
         "embed_dim": stats.embed_dim,
         "last_hydrated_at_unix_s": stats.last_hydrated_at_unix_s,
@@ -83058,6 +83073,43 @@ mod tests {
     /// when_to_use across 108 skills. Two outside reviews named it. Every
     /// skill is still listed, with id, name and tags, so nothing is hidden;
     /// what moved is the documentation, which is one call away at /v1/tools.
+    /// The card's signature must verify over the card exactly as served,
+    /// which is the whole recipe we publish. It did not on a node without
+    /// EMEM_CONTACT: the empty operator keys were stripped after signing.
+    #[test]
+    fn memory_search_stats_names_the_dataset_not_the_host_path() {
+        assert_eq!(
+            dataset_path_for_callers(
+                "/home/runner/work/_temp/emem-data/lance/memory_text_index_d768.lance"
+            ),
+            "lance/memory_text_index_d768.lance"
+        );
+        assert_eq!(dataset_path_for_callers(""), "");
+    }
+
+    #[tokio::test]
+    async fn the_served_agent_card_verifies_against_its_own_signature() {
+        use ed25519_dalek::Verifier;
+        let s = test_app_state();
+        let pubkey = s.identity.pubkey.0;
+        let Json(card) = well_known_agent_card(State(s)).await;
+        let sig = &card["signatures"][0];
+        let protected_b64 = sig["protected"].as_str().expect("protected");
+        let sig_bytes = data_encoding::BASE64URL_NOPAD
+            .decode(sig["signature"].as_str().expect("signature").as_bytes())
+            .unwrap();
+        let mut payload = card.clone();
+        payload.as_object_mut().unwrap().remove("signatures");
+        let payload_b64 = data_encoding::BASE64URL_NOPAD.encode(jcs(&payload).as_bytes());
+        let input = format!("{protected_b64}.{payload_b64}");
+        let key = ed25519_dalek::VerifyingKey::from_bytes(&pubkey).unwrap();
+        let sig = ed25519_dalek::Signature::from_slice(&sig_bytes).unwrap();
+        assert!(
+            key.verify(input.as_bytes(), &sig).is_ok(),
+            "the agent card as served does not verify against its own signature"
+        );
+    }
+
     #[tokio::test]
     async fn the_agent_card_indexes_skills_rather_than_documenting_them() {
         let Json(card) = well_known_agent_card(State(test_app_state())).await;

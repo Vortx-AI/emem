@@ -160,6 +160,19 @@ jobs:
       # is the thing the scanner traffic on this box is actually asking.
       - name: nothing a scanner asks for is served
         run: python3 scripts/scanner_surface.py --origin "$EMEM_ORIGIN"
+      # host. ci.yml checks the commit's own card verifies; this checks the
+      # card emem.dev actually serves does, under its declared contact.
+      - name: the agent card verifies against its own published key
+        run: |
+          set +e
+          python3 scripts/agent_card_signed.py --origin "$EMEM_ORIGIN"
+          code=$?
+          set -e
+          if [ "$code" = "2" ]; then
+            echo "::warning::the card could not be fetched; its signature was not checked"
+            exit 0
+          fi
+          exit $code
       # host. A reader stands on emem.dev and tries the first route they see.
       # ci.yml checks the commit's node serves every route the site shows;
       # this checks the public host does.
@@ -176,22 +189,5 @@ jobs:
           if [ "$code" = "3" ]; then
             echo "::error::could not run for a reason on our side, not a responder outage"
             exit 1
-          fi
-          exit $code
-      # host, for now. A node that declares no operator contact serves an agent
-      # card whose signature does not verify: well_known_agent_card signs the
-      # card and only THEN strips the undeclared (null) operator keys, so the
-      # signed payload is not the served one. emem.dev declares EMEM_CONTACT,
-      # which hides it, and a fresh CI node does not. Move this to the contract
-      # job in ci.yml once the strip happens before signing.
-      - name: the agent card verifies against its own published key
-        run: |
-          set +e
-          python3 scripts/agent_card_signed.py --origin "$EMEM_ORIGIN"
-          code=$?
-          set -e
-          if [ "$code" = "2" ]; then
-            echo "::warning::the card could not be fetched; its signature was not checked"
-            exit 0
           fi
           exit $code

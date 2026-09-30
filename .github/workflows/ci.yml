@@ -879,6 +879,11 @@ jobs:
       # Whether production runs the build is production-truth.yml's question.
       - name: openapi is served, not just written
         run: python3 scripts/openapi_coverage.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The card is signed over itself as served. A node with no operator
+      # contact stripped the empty keys after signing, so its card did not
+      # verify; emem.dev declares a contact and hid it. This node declares none.
+      - name: the agent card verifies against its own published key
+        run: python3 scripts/agent_card_signed.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
       # Pinned rather than relying on whatever the runner image happens to
       # ship: this step is a cryptography check, and "it worked on the old
       # default node" is not a property to leave to the image.
