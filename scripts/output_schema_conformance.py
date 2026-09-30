@@ -59,6 +59,8 @@ ARGS: dict[str, dict] = {
     "emem_ask": {"cell": CELL, "question": "What is the elevation here?"},
     "search": {"query": CELL},
     "fetch": {},  # filled at runtime with an id `search` actually returned
+    "emem_locate": {"place": "Mount Fuji"},
+    "emem_memory_token_resolve": {},  # filled at runtime with a real token
 }
 
 
@@ -166,6 +168,7 @@ def main() -> int:
     tok = _real_token()
     if tok:
         ARGS["emem_echo_verify"] = {"token": tok[0], "claimed_value": tok[1]}
+        ARGS["emem_memory_token_resolve"] = {"token": tok[0]}
     sid = _real_search_id()
     if sid:
         ARGS["fetch"] = {"id": sid}

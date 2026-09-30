@@ -237,6 +237,22 @@ def main() -> int:
     # the repo uses: 2 is the responder, and CI waives it.
     unreachable = 0
     skills = (card.get("skills") or []) if endpoint else []
+    # The public card lists the core loop; the extended card lists every
+    # skill, and every skill is what reachability is promised for. Fetched
+    # with the JSON-RPC method the card itself names.
+    ext_method = (((card.get("emem") or {}).get("skills") or {})
+                  .get("extended_card") or {}).get("jsonrpc", {}).get("method")
+    if endpoint and ext_method:
+        code, body = post(endpoint, {"jsonrpc": "2.0", "id": "ext-card",
+                                     "method": ext_method, "params": {}})
+        ext = (as_json(body).get("result") or {})
+        ext_skills = ext.get("skills") or []
+        print(f"\nextended card via {ext_method}: http {code}, {len(ext_skills)} skill(s)")
+        if card.get("capabilities", {}).get("extendedAgentCard") and len(ext_skills) <= len(skills):
+            problems.append(
+                f"the card declares extendedAgentCard but {ext_method} returned "
+                f"{len(ext_skills)} skill(s) against the public card's {len(skills)}")
+        skills = ext_skills or skills
     rest_tagged = [k for k in skills if "rest" in (k.get("tags") or [])]
     print(f"\n{len(skills)} skill(s) on the card, {len(rest_tagged)} tagged `rest`")
     for sk in rest_tagged:

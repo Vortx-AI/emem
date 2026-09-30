@@ -397,7 +397,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "description":"A tagged union: `type` selects the intent and decides which OTHER fields are read. Fields belonging to a different intent are ignored, so send only the ones its row needs.",
 "properties":{
 "type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"],
-  "description":"Which question you are asking, and therefore which other fields apply. where_is: name a place, get its cell64 (needs `description`). what_is_here: summarise a location (needs `cell`, OR `place`/`description` to resolve it first). is_like: pairwise similarity (needs `a` and `b`). did_change: did one band move over a time window (needs `cell`, `band`, `window`). find_like: nearest neighbours to a known cell (needs `key`; optional `k`, `filter`). confirm: is a claim true at a cell (needs `claim` and `cell`). ask: free-text question about a place, runs locate + topic-route + recall server-side (needs `description`; optional `place`/`cell`/`lat`+`lng` to pin the location)."},
+  "description":"Which intent, and so which other fields are read: the table in this tool's description gives each row's needed and optional fields. `ask` runs locate, topic routing and recall server-side."},
 "description":{"type":"string","description":"where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents."},
 "cell":{"type":"string","description":"cell64 address, e.g. \"defi.zb64a.cAzU.zfa27\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead."},
 "place":{"type":"string","description":"Free-text place name for what_is_here and ask when you have a name but no cell64, e.g. \"Ashok Nagar, Ranchi\". The responder geocodes it. Ignored when `cell` is present."},
@@ -529,6 +529,33 @@ const OUT_MEMORY_TOKEN: &str = r#"{"type":"object","required":["memory_token","c
 "grammar":{"type":"string","description":"The token grammar, so the form can be parsed rather than pattern-matched."},
 "docs":{"type":"string"}}}"#;
 
+/// Two success shapes, both HTTP 200: a resolved place, and the soft
+/// `needs_location` envelope for a call that named no place at all.
+const OUT_LOCATE: &str = r#"{"type":"object","required":["next"],"anyOf":[{"required":["cell64"]},{"required":["status"]}],"properties":{
+"cell64":{"type":"string","description":"Pass as `cell` to emem_recall."},
+"place_label":{"type":["string","null"]},
+"selected":{"type":"object","properties":{"is_high_confidence":{"type":"boolean"},"confidence_reason":{"type":"string"}}},
+"data_at_this_cell":{"type":"object"},
+"status":{"type":"string","description":"needs_location: no place named."},
+"next":{"type":"array"}}}"#;
+
+/// What `emem_memory_token_resolve` promises as `structuredContent`: the
+/// reading and its receipt, without the signed body. The text block carries
+/// the whole response, `fact` included. The body is the reading a second time,
+/// and for a 384-D embedding the body plus a mirror of it is past the wire
+/// budget, so the mirror is the part that is kept small.
+const OUT_MEMORY_TOKEN_RESOLVE: &str = r#"{"type":"object","required":["canonical_token","cell","fact_cid","band","kind","receipt"],"properties":{
+"canonical_token":{"type":"string"},
+"cell":{"type":"string"},
+"fact_cid":{"type":"string"},
+"band":{"type":"string"},
+"kind":{"type":"string"},
+"value":{"type":["number","string","boolean","null"],"description":"Scalars; a vector is in the text's fact.value."},
+"value_verbatim":{"type":"string"},
+"unit":{"type":["string","null"]},
+"fact_url":{"type":"string"},
+"receipt":{"type":"object"}}}"#;
+
 /// What `emem_ask` promises as `structuredContent`: the typed core of an
 /// answer, the same shape whether or not the prose had to be slimmed.
 ///
@@ -633,7 +660,7 @@ const SCHEMA_MEMORY_TOKEN: &str = r#"{"type":"object","required":["cell","fact_c
 // `fetch` is a dereference, both already served, wearing the shape the client
 // knows how to cite.
 const SCHEMA_OPENAI_SEARCH: &str = r#"{"type":"object","required":["query"],"properties":{
-"query":{"type":"string","description":"A place ('Trafalgar Square, London'), a cell64, or an emem citation (`emem:fact:<cell64>:<fact_cid>`). A citation returns the one fact it cites, so a result handed over by another agent resolves exactly."}
+"query":{"type":"string","description":"A place, a question about one, a cell64 or emem:cell: handle, or an emem:fact: citation."}
 }}"#;
 
 const OUT_OPENAI_SEARCH: &str = r#"{"type":"object","required":["results"],"properties":{
@@ -1294,9 +1321,9 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_locate",
         title: "Resolve place to cell64 + band inventory",
         description: "Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity. Send EITHER `lat`+`lng` as numbers OR a free-text place; coordinates win when both arrive. `q`, `query` and `name` are all accepted spellings of `place`. A key this schema does not declare is reported in `_unrecognised_arguments`, so a typo answers about somewhere else rather than erroring.",
-        when_to_use: "Call when the input names a real-world place and the next step needs its cell64, or wants to know which bands exist there before recalling. `data_at_this_cell` carries `live_bands_by_topic` (every recallable band, grouped by topic), `algorithms_for_topic` (recipes that fuse them into named scores) and `declared_but_no_materializer_at_this_responder`. For one packaged answer in a single call, use `emem_ask`.",
+        when_to_use: "Call when the input names a real-world place and the next step needs its cell64, or wants to know which bands exist there before recalling. `data_at_this_cell` lists every recallable band by topic (`live_bands_by_topic`), the recipes fusing them (`algorithms_for_topic`), and bands with no materializer here. For one packaged answer in a single call, use `emem_ask`.",
         input_schema: SCHEMA_LOCATE,
-        output_schema: None,
+        output_schema: Some(OUT_LOCATE),
         example_args: r#"{"place":"Mount Everest"}"#,
         level: "L0", category: ToolCategory::Read,
         // openWorldHint is TRUE. It was false for a while on the reading that
@@ -1679,7 +1706,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "search",
         title: "Find signed facts for a place, as citable sources",
-        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false.",
+        description: "Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place, or a question about one ('NDVI near Mount Fuji': a topic word narrows the results, never fails them), a cell64 or `emem:cell:` handle, or an emem citation (which returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false.",
         when_to_use: "Call first when a question is about a place and the answer must be citable: it turns the question into a list of sources, each of which `fetch` expands. For a synthesised answer in one call, use emem_ask instead.",
         input_schema: SCHEMA_OPENAI_SEARCH,
         output_schema: Some(OUT_OPENAI_SEARCH),
@@ -1704,30 +1731,14 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_memory_token_resolve",
         title: "Dereference a memory_token in one round-trip",
         description: "Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html).",
-        when_to_use: "Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string the fact was signed as: re-typing the JSON number is where measured precision is lost. `value` and `unit` are always present, and an explicit null means the fact genuinely has none (an `absence` has no value; most index bands are dimensionless) rather than a missing field. The response also carries the parsed cell, the fact_cid, the full signed `fact` and a stable `fact_url` to hand on. A cid this responder does not hold is a typed 404: try /v1/fetch, or resolve at a mirror.",
+        when_to_use: "Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string it was signed as. A null `value` or `unit` means the fact has none (an absence; a dimensionless index), not a missing field. A cid this responder does not hold is a typed 404: try /v1/fetch, or resolve at a mirror.",
         input_schema: SCHEMA_MEMORY_TOKEN_RESOLVE,
-        // Stays `None`, and now for a measured reason rather than by default.
-        //
-        // The REST door describes this response properly as of the same
-        // change (components/schemas/MemoryTokenResolveResp in openapi.json),
-        // so the obvious follow-through is to promise the same schema here.
-        // Measuring it says no. Lifting `value` to the top level duplicates
-        // the reading, which is free for a scalar (a real NDVI resolve grows
-        // 2875 -> 2951 bytes) and is not free for a foundation embedding: the
-        // widest cube slots are 384-D, and a real 128-D
-        // geotessera body widened to 384 floats measures 17,767 bytes, so the
-        // two-copy text+structuredContent envelope is 35,630 against a 24,000
-        // budget. That is exactly the condition documented on `output_schema`
-        // above: a tool whose result can exceed the budget cannot honestly
-        // promise a mirror.
-        //
-        // Declaring one would also make that case WORSE, not better. The
-        // oversize path slims a schema-declaring tool to budget/2 and sends
-        // both copies, and at 12,000 bytes the largest field is the embedding
-        // itself, so the caller would lose the vector from both copies. With
-        // no schema declared the wrapper drops only the mirror and the full
-        // text block survives intact. The data is never what gives way.
-        output_schema: None,
+        // A mirror of the whole response was refused for a measured reason: a
+        // 384-D embedding body doubled by the mirror is 35,630 bytes against a
+        // 24,000 budget, and slimming both copies would cost the vector. The
+        // schema describes a core without the signed body instead
+        // (`mcp_resolve_core`), so the text block keeps the vector whole.
+        output_schema: Some(OUT_MEMORY_TOKEN_RESOLVE),
         example_args: r#"{"token":"emem:fact:defi.zb493.xoso.zcb6a:cxjiu7l54ujzrpnekp24n4534yojpue4mprddbvevnqtti3lh5bq"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
@@ -2533,7 +2544,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_verify_receipt",
         title: "Server-side ed25519 receipt verifier",
         description: "Verify a signed receipt envelope server-side: rebuilds the canonical preimage under the rule the receipt's own `preimage_version` names, runs ed25519 over the embedded key and signature, and returns `{valid, reason, failure_detail, signature_valid, merkle_proof_valid, signer_pubkey_b32, preimage_blake3_hex}`. A receipt is BYTE-FOR-BYTE OR NOTHING: v2 binds the inclusion proof, so any reshaping (a dropped field, a re-keyed one, a summary) invalidates the signature by design. For when the in-browser /verify path is unavailable, or for a server-side audit of a third party's receipt.",
-        when_to_use: "Pass the receipt EXACTLY as the read primitive returned it, whole and unmodified. Two omissions produce a false forgery rather than a 400, and they are the only two worth memorising: dropping `merkle_proof`, and dropping `preimage_version` (absent deserialises to 0, which silently selects the v0 rule, so the proof still walks while the signature reads as invalid). Signature and pubkey may be byte arrays or `sig_b32` / `responder_pubkey_b32`; no other spelling is tolerated. Reshaping a field this responder can check is reported as `reason: receipt_reshaped_after_signing` with the field named, never accepted. Optionally set `pubkey_b32` to assert a specific signer. A bad signature is 200 with `valid: false`, never a 4xx. The example arguments are a real receipt this responder signed (key epoch 0) over two facts at Trafalgar Square (the two `fact_cids`): run it unchanged and `valid` is true; change any byte and it is not.",
+        when_to_use: "Pass the receipt EXACTLY as the read primitive returned it, whole and unmodified. Two omissions produce a false forgery rather than a 400, and they are the only two worth memorising: dropping `merkle_proof`, and dropping `preimage_version` (absent deserialises to 0, which silently selects the v0 rule, so the proof still walks while the signature reads as invalid). Signature and pubkey may be byte arrays or `sig_b32` / `responder_pubkey_b32`; no other spelling is tolerated. Reshaping a field this responder can check is reported as `reason: receipt_reshaped_after_signing` with the field named, never accepted. Optionally set `pubkey_b32` to assert a specific signer. A bad signature is 200 with `valid: false`, never a 4xx. The example (from emem_tools) is a real receipt signed over two Trafalgar Square facts: unchanged it is `valid`; change any byte and it is not.",
         input_schema: SCHEMA_VERIFY_RECEIPT,
         output_schema: None,
         example_args: r#"{"receipt":{"cells":["defi.zb64a.cAzU.zfa27"],"cost":{"credits":0,"latency_p50_ms":1,"latency_p99_ms":20,"source_freshness_s":2014090,"was_cached":true},"fact_cids":["gn5praqrpnpszg3hiaf5dv4ox67dls73ivir7ladvr25sm7f3aka","ghctissil7k4si3g57fwtxxrk4fb56crujz2xictxzqj2zos3olq"],"merkle_proof":{"leaf_index":0,"path":[],"root":[12,67,60,231,210,105,254,175,126,230,209,51,182,142,45,47,209,102,110,233,215,185,156,142,190,238,189,208,49,152,196,21],"version":1},"preimage_version":2,"primitive":"emem.recall","registry_cid":"3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa","request_id":"01M2GBYPN79QVNBAF7QF4GJVM6","responder":[255,254,72,239,8,57,144,88,50,189,59,5,171,89,152,150,76,49,228,100,142,79,43,250,36,191,48,224,42,206,101,84],"responder_key_epoch":0,"responder_pubkey_b32":"777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka","schema_cid":"d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq","served_at":"2026-09-14T16:28:10Z","signature":[39,191,224,161,96,20,92,102,97,108,62,36,155,155,93,54,153,176,171,68,0,253,83,250,0,0,73,242,5,64,219,119,169,93,240,155,44,111,251,184,102,101,226,155,214,54,125,24,186,145,1,174,13,24,74,68,124,247,24,172,143,154,150,10],"signature_b32":"e676bilacrogmylmhysjxg25g2m3bk2ead6vh6qaabe7ebka3n32sxpqtmwg765ymzs6fg6wgz6rrouragxa2gckir6pogfmr6njmcq","source_versions":{"bands_cid":"mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra","registry_cid":"3pbqnyninz6xqll2ynjlh4djlppcp2mdcdmzeq4otebnli5ndzaa","schema_cid":"d24rgwlq47a5ism5vkkbiuav3wi2voewqqgy4x4ttnhdnzziyfkq","sources_cid":"xu646y24wvuegd33m2mrpasxefqgdq3ow5ploezijer6trzuwe3a"}}}"#,
@@ -2689,7 +2700,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_intent",
         title: "Intent-routed planner",
-        description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype             | needs                        | optional            | answers\nwhere_is         | description                  |                     | cell64 for a named place\nwhat_is_here     | cell OR place                | description         | what is attested at a location\nis_like          | a, b                         |                     | cosine similarity of two cells\ndid_change       | cell, band, window           |                     | delta for one band over [start,end] tslots\nfind_like        | key                          | k, filter           | nearest cells by embedding\nconfirm          | claim, cell                  |                     | verdict plus the signed facts behind it\nask              | description                  | place/cell/lat+lng  | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.",
+        description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype | needs | optional | answers\nwhere_is | description | | cell64 for a named place\nwhat_is_here | cell OR place | description | what is attested at a location\nis_like | a, b | | cosine similarity of two cells\ndid_change | cell, band, window | | delta for one band over [start,end] tslots\nfind_like | key | k, filter | nearest cells by embedding\nconfirm | claim, cell | | verdict plus the signed facts behind it\nask | description | place/cell/lat+lng | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.",
         when_to_use: "Call when the question maps onto one of the seven rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but absent from `tools/list` is not a dead end: every one of the {TOOL_TOTAL} dispatches by name at `/mcp` and `/mcp/full`; the core list is {TOOL_CORE} to keep the catalog small, and `emem_tools` enumerates the rest.",
         input_schema: SCHEMA_INTENT,
         output_schema: None,

@@ -978,6 +978,7 @@ pub fn router(state: AppState) -> Router {
         // essay (which stays at /agent.json for the manifest readers).
         .route("/.well-known/agent.json", get(well_known_agent_card))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
+        .route("/extendedAgentCard", get(get_extended_agent_card))
         .route("/v1/a2a/skills", get(get_a2a_skills))
         // Fronting the local perception service: see perception_proxy.
         // `/*path`, not `/{*path}`: this is axum 0.7, where the braced form is
@@ -2281,6 +2282,7 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
         | "/.well-known/ai-plugin.json"
         | "/.well-known/agent.json"
         | "/.well-known/agent-card.json"
+        | "/extendedAgentCard"
         | "/.well-known/mcp.json"
         | "/.well-known/mcp/server-card.json"
         | "/.well-known/oauth-protected-resource"
@@ -2826,6 +2828,7 @@ async fn rate_limit_layer(
             | "/.well-known/emem.json"
             | "/.well-known/agent.json"
             | "/.well-known/agent-card.json"
+            | "/extendedAgentCard"
             | "/.well-known/mcp.json"
             | "/.well-known/mcp/server-card.json"
             | "/.well-known/agents.json"
@@ -6801,6 +6804,22 @@ fn a2a_interfaces(origin: &str) -> Vec<JsonValue> {
 }
 
 async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
+    Json(a2a_agent_card(&s, false))
+}
+
+/// The extended card: the same card with every skill on it, served openly.
+///
+/// A2A names this the authenticated extended card. Nothing here needs a
+/// credential to read, so it is served to anyone who asks, at the JSON-RPC
+/// method (`GetExtendedAgentCard`) and at the HTTP path the spec gives it.
+async fn get_extended_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
+    Json(a2a_agent_card(&s, true))
+}
+
+/// The A2A agent card. The public card lists the core loop, the same tools
+/// `/mcp` lists; the extended card lists every skill. A task accepts any skill
+/// by name whichever card the caller read.
+fn a2a_agent_card(s: &AppState, extended: bool) -> JsonValue {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
     // Skill tags must be a deduplicated set of editorial labels, earlier
     // version emitted `[t.category, read|write]` which produced
@@ -6808,8 +6827,15 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     // importers (Vertex Agent Builder, Microsoft Copilot Studio) flatten
     // tags into a chip row, so duplicates surface as visible UI noise.
     // We now emit category + level only (level is L0/L1, distinct).
-    let skills: Vec<JsonValue> = emem_mcp::TOOLS
-        .iter()
+    // The whole list inline was 56 KB, the largest thing a discovering agent
+    // is handed, and most of it names tools a first contact does not need.
+    let listed: Vec<&emem_mcp::ToolDescriptor> = if extended {
+        emem_mcp::TOOLS.iter().collect()
+    } else {
+        emem_mcp::tools_at_tier("core")
+    };
+    let skills: Vec<JsonValue> = listed
+        .into_iter()
         .map(|t| {
             let cat = match t.category {
                 emem_mcp::ToolCategory::Read => "read",
@@ -6840,8 +6866,14 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                 "examples":    [first_sentence(t.when_to_use, 160)],
             })
         })
-        .chain(perception_skills())
+        .chain(if extended {
+            perception_skills()
+        } else {
+            Vec::new()
+        })
         .collect();
+    let skills_listed = skills.len();
+    let skills_total = emem_mcp::TOOLS.len() + perception_skills().len();
     let mut card = json!({
         // A2A envelope, checked against the project's own normative proto
         // (specification/a2a.proto) rather than the prose pages.
@@ -6916,12 +6948,11 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
             // the pre-1.0 shape had it. Both are served: the old name for
             // whoever already reads it, this one because it is the field a
             // current client looks for.
-            "extendedAgentCard": false,
+            "extendedAgentCard": true,
         },
-        // A2A v1.2 added this field; we never serve a separate authenticated
-        // card (every endpoint is open + receipt-signed). Explicit `false`
-        // beats omission for downstream validators.
-        "supportsAuthenticatedExtendedCard": false,
+        // The pre-1.0 name for the same flag. "Authenticated" is the spec's
+        // word; this responder serves the extended card to anyone.
+        "supportsAuthenticatedExtendedCard": true,
         // Media is admitted because parts carrying it now exist.
         //
         // A peer built clip FileParts to a shape this responder specified, and
@@ -7006,6 +7037,17 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
                                in A2A's own terms. Writes are a different matter, \
                                stated in `write_path`, so nobody infers 'no auth' \
                                from a gap and then tries to write.",
+            "skills": {
+                "listed": skills_listed,
+                "total": skills_total,
+                "this_card": if extended { "extended: every skill" } else { "public: the core loop, the tools /mcp lists" },
+                "extended_card": {
+                    "jsonrpc": {"url": format!("{origin}/a2a/tasks"), "method": "GetExtendedAgentCard"},
+                    "get": format!("{origin}/extendedAgentCard"),
+                    "authentication": "none: served openly, like every read here",
+                },
+                "dispatch": "a task accepts any skill by id, listed on this card or not; search them at /v1/a2a/skills?q=",
+            },
             "readonly_profile": format!("{origin}/.well-known/emem-readonly.json"),
             "write_path":       "every write is ed25519-signed by the caller and tiered by what it can REACH, never by who is asking: your own namespace at T1 (any keypair, on first contact); the shared entity space at T3 (a declared, testable endpoint), where every claim is stored with your key and ranked by independent agreement; the fact plane is closed -- an address (cell, band, tslot) is written only by this responder, an enrolled device, or an operator-listed key; derivations and edges cite parents and take no address, so they stay open at T1. The ladder, each check and what it proves: GET /v1/enlist.",
             // WHICH BINARY IS ANSWERING. An agent auditing a response should not
@@ -7106,9 +7148,9 @@ async fn well_known_agent_card(State(s): State<AppState>) -> Json<JsonValue> {
     // Stripped before signing: signing first covered keys the served card no
     // longer has, so the card failed to verify on any node without EMEM_CONTACT.
     drop_undeclared(&mut card, OPERATOR_KEYS);
-    let signature = sign_agent_card(&card, &s, &origin);
+    let signature = sign_agent_card(&card, s, &origin);
     card["signatures"] = json!([signature]);
-    Json(card)
+    card
 }
 
 /// `GET /.well-known/mcp.json`, direct MCP server discovery descriptor.
@@ -7379,7 +7421,9 @@ async fn well_known_oauth_protected_resource() -> Json<JsonValue> {
     Json(json!({
         // RFC 9728 OAuth 2.0 Protected Resource Metadata
         "resource":                       format!("{origin}/mcp"),
-        "authorization_servers":          [],
+        // The node's own issuer, the same origin its RFC 8414 document names.
+        // It was empty while the notes below said a server was "listed here".
+        "authorization_servers":          [origin.clone()],
         "bearer_methods_supported":       [],
         "resource_documentation":         format!("{origin}/agents.md"),
         "scopes_supported":               [],
@@ -24899,6 +24943,24 @@ fn looks_like_a_cell64(q: &str) -> bool {
 /// rather than something near it.
 async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, String)> {
     let origin = public_origin().unwrap_or_else(|| "https://emem.dev".into());
+    let query = query.trim();
+
+    // A cell handle is what this tool's own first result carries as its id, so
+    // it has to come back in. It was sent to the token resolver, which knows
+    // fact tokens and nothing else, and refused its own handle with -25.
+    let cell_id = query
+        .strip_prefix("emem:cell:")
+        .map(|c| c.trim().to_string())
+        .or_else(|| looks_like_a_cell64(query).then(|| query.to_string()));
+    if let Some(cell64) = cell_id {
+        if !looks_like_a_cell64(&cell64) {
+            return Err((
+                -32602,
+                format!("`{query}` carries the emem:cell: prefix but `{cell64}` is not a valid cell64 (four dot-separated bigrams, e.g. defi.zb4d9.pefa.zf619)"),
+            ));
+        }
+        return openai_search_at_cell(s, &cell64, None, &[], &origin).await;
+    }
 
     // A citation IS an answer. Resolving it here means a handle another agent
     // passed over survives the round trip instead of being geocoded as if it
@@ -24918,44 +24980,200 @@ async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, Str
         }]}));
     }
 
+    let (cell64, label, place_span) = openai_search_ground(query).await?;
+    let bands = openai_search_topic_bands(query, &place_span);
+    openai_search_at_cell(s, &cell64, Some(label), &bands, &origin).await
+}
+
+/// How long `search` waits for the geocoder across every span it tries.
+///
+/// One deadline for the whole question, not one per span: a span no geocoder
+/// knows takes about 4 s to be refused, and a question has several. It is not
+/// shorter because a real place is not faster on a cold node: measured on an
+/// empty data dir, "Kyoto" took 9.1 s, "Campo Santa Margherita" 3.7 s and
+/// "Lake Titicaca" 3.5 s, most of it the Wikidata decision stage, and 1.5 s
+/// refused all three. A lookup that overruns keeps running in the background
+/// and fills the cache, so asking again succeeds.
+const OPENAI_SEARCH_GEOCODE_BUDGET: std::time::Duration = std::time::Duration::from_millis(6_000);
+
+/// Find the place a `search` query is about, with the extractor `/v1/ask`
+/// uses, under one deadline. Returns (cell64, label, the span that resolved).
+async fn openai_search_ground(query: &str) -> Result<(String, String, String), (i64, String)> {
+    let (candidates, concepts) = question_place_candidates(query);
+    let no_match = -(ErrorCode::NoGeocoderMatch as i64);
+    if candidates.is_empty() {
+        let named: Vec<&str> = concepts.iter().map(|(c, _)| c.as_str()).collect();
+        return Err((
+            no_match,
+            if named.is_empty() {
+                format!("no_geocoder_match: `{query}` names no place. Search takes a place (\"Mount Fuji\"), a question about one (\"NDVI near Mount Fuji\"), a cell64, or an emem citation.")
+            } else {
+                format!("no_geocoder_match: `{query}` names only technical terms ({}), no place. Add where, e.g. \"{} near Mount Fuji\".", named.join(", "), named[0])
+            },
+        ));
+    }
+    let deadline = tokio::time::Instant::now() + OPENAI_SEARCH_GEOCODE_BUDGET;
+    let mut refusals: Vec<String> = Vec::new();
+    let mut timed_out = false;
+    for cand in &candidates {
+        let left = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if left.is_zero() {
+            timed_out = true;
+            break;
+        }
+        let lookup = tokio::spawn({
+            let cand = cand.clone();
+            async move { resolve_cell_field(&cand).await }
+        });
+        match tokio::time::timeout(left, lookup).await {
+            Ok(Ok(Ok((cell, resolved)))) => {
+                let label = match resolved {
+                    ResolvedRef::Place { label: Some(l), .. } => l,
+                    _ => cand.clone(),
+                };
+                return Ok((cell, label, cand.clone()));
+            }
+            Ok(Ok(Err(e))) => {
+                let named = serde_json::to_value(e.1.code)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_owned))
+                    .unwrap_or_default();
+                refusals.push(format!("`{cand}`: {named}"));
+            }
+            Ok(Err(_)) => refusals.push(format!("`{cand}`: lookup task failed")),
+            Err(_) => {
+                timed_out = true;
+                refusals.push(format!("`{cand}`: no answer inside the budget"));
+                break;
+            }
+        }
+    }
+    let budget_ms = OPENAI_SEARCH_GEOCODE_BUDGET.as_millis();
+    let slow = if timed_out {
+        format!(" within {budget_ms} ms (a slow lookup keeps running and is cached, so retrying can succeed)")
+    } else {
+        String::new()
+    };
+    Err((
+        no_match,
+        format!(
+            "no_geocoder_match: no place in `{query}` resolved confidently{slow}. Tried {}. Pass a place name on its own, a cell64 (from emem_locate), or an emem citation.",
+            refusals.join("; ")
+        ),
+    ))
+}
+
+/// The bands a query's topic words ask for, once the place is taken out.
+///
+/// Empty when nothing but the place and filler is left, so "Mount Fuji" lists
+/// the whole cell. A band named outright ("NDVI") wins over the topic router.
+fn openai_search_topic_bands(query: &str, place_span: &str) -> Vec<String> {
+    let lower = query.to_lowercase();
+    let span = place_span.to_lowercase();
+    let residual = match lower.find(&span) {
+        Some(i) => format!("{} {}", &lower[..i], &lower[i + span.len()..]),
+        None => lower.clone(),
+    };
+    const FILLER: &[&str] = &[
+        "the", "a", "an", "at", "near", "in", "of", "for", "around", "across", "on", "me", "show",
+        "tell", "give", "find", "get", "list", "about", "it", "its", "there", "here",
+    ];
+    let has_topic = residual
+        .split(|c: char| !c.is_alphanumeric())
+        .any(|w| w.len() >= 2 && !FILLER.contains(&w) && !CLAUSE_STOPWORDS.contains(&w));
+    if !has_topic {
+        return Vec::new();
+    }
+    let concrete: Vec<String> = concrete_bands_in_question(&residual)
+        .into_iter()
+        .map(String::from)
+        .collect();
+    if !concrete.is_empty() {
+        return concrete;
+    }
+    let mut out: Vec<String> = Vec::new();
+    for t in route_question_to_topics(&residual).iter().take(2) {
+        for b in live_bands_for_topic(t) {
+            if !out.contains(&b) {
+                out.push(b);
+            }
+        }
+    }
+    out
+}
+
+/// How many cold bands a topic-narrowed `search` materialises in one call.
+const OPENAI_SEARCH_COLD_BANDS: usize = 2;
+
+fn fact_band_in(f: &JsonValue, bands: &[String]) -> bool {
+    f.get("band")
+        .and_then(|b| b.as_str())
+        .is_some_and(|b| bands.iter().any(|w| w == b))
+}
+
+/// Recall one cell and project it as `search` results. With `bands`, the
+/// results are narrowed to them; a topic that finds nothing at the place
+/// falls back to everything held there rather than failing the search.
+async fn openai_search_at_cell(
+    s: &AppState,
+    cell64: &str,
+    label: Option<String>,
+    bands: &[String],
+    origin: &str,
+) -> Result<JsonValue, (i64, String)> {
     // Through the same wrapper `emem_recall` uses, so the corpus grows on
     // demand here exactly as it does there and the two doors cannot disagree.
-    let api_req: RecallApiReq =
-        serde_json::from_value(json!({ "cell": query })).map_err(|e| (-32602, e.to_string()))?;
-    let mut req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
-    let (resolved_cell, _r) = resolve_cell_field(&req.cell).await.map_err(mcp_err)?;
-    req.cell = resolved_cell;
-    let (resp, _notes) = recall_with_auto_materialize(&req, s)
-        .await
-        .map_err(mcp_err)?;
-    let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
-    // The citation has to be ON the fact; without this the cids exist only as
-    // a positional array a caller must align by index.
-    enrich_facts_with_cid(&mut v);
+    async fn recall_at(
+        s: &AppState,
+        cell64: &str,
+        bands: Option<Vec<String>>,
+    ) -> Result<JsonValue, (i64, String)> {
+        let cap = bands.as_ref().map(|_| OPENAI_SEARCH_COLD_BANDS);
+        let api_req: RecallApiReq =
+            serde_json::from_value(json!({ "cell": cell64, "bands": bands }))
+                .map_err(|e| (-32602, e.to_string()))?;
+        let req: RecallReq = recall_req_with_provenance(api_req).map_err(mcp_err)?;
+        let (resp, _notes) = recall_with_auto_materialize_capped(&req, s, cap)
+            .await
+            .map_err(mcp_err)?;
+        let mut v = serde_json::to_value(resp).map_err(|e| (-32603, e.to_string()))?;
+        // The citation has to be ON the fact; without this the cids exist only
+        // as a positional array a caller must align by index.
+        enrich_facts_with_cid(&mut v);
+        Ok(v)
+    }
+    fn facts_of(v: &JsonValue) -> Vec<JsonValue> {
+        v.get("facts")
+            .and_then(|f| f.as_array())
+            .cloned()
+            .unwrap_or_default()
+    }
+    let mut narrowed = false;
+    let mut v = JsonValue::Null;
+    if !bands.is_empty() {
+        if let Ok(nv) = recall_at(s, cell64, Some(bands.to_vec())).await {
+            if facts_of(&nv).iter().any(|f| fact_band_in(f, bands)) {
+                v = nv;
+                narrowed = true;
+            }
+        }
+    }
+    if !narrowed {
+        v = recall_at(s, cell64, None).await?;
+    }
 
-    let label = v
-        .pointer("/resolved_from/cell/label")
-        .and_then(|l| l.as_str())
-        .unwrap_or(query)
-        .to_string();
-    // Read from where it IS, which is not where I first looked: a recall
-    // response has no `resolved_from.cell.cell64` and no top-level `cell`. The
-    // address is in the signed receipt, and on every fact. Both were checked
-    // against a live response rather than assumed, which is how this was found
-    // -- the missing entry was silent, because an absent key reads as "no
-    // cell" exactly like a cell with nothing at it.
-    let cell64 = v
-        .pointer("/receipt/cells/0")
-        .and_then(|c| c.as_str())
-        .or_else(|| v.pointer("/facts/0/cell").and_then(|c| c.as_str()))
-        .unwrap_or("")
-        .to_string();
+    let label = label
+        .or_else(|| {
+            v.pointer("/resolved_from/cell/label")
+                .and_then(|l| l.as_str())
+                .map(str::to_owned)
+        })
+        .unwrap_or_else(|| cell64.to_string());
 
-    let facts = v
-        .get("facts")
-        .and_then(|f| f.as_array())
-        .cloned()
-        .unwrap_or_default();
+    let mut facts = facts_of(&v);
+    if narrowed {
+        facts.retain(|f| fact_band_in(f, bands));
+    }
     let total = facts.len();
     let mut results: Vec<JsonValue> = Vec::new();
     for f in facts.iter().take(OPENAI_SEARCH_MAX) {
@@ -24978,16 +25196,23 @@ async fn openai_search(s: &AppState, query: &str) -> Result<JsonValue, (i64, Str
     // wire budget trimmed the list to its first 14 entries and took the entry
     // naming the true total with it, so a capped answer stopped saying it was
     // capped. Anything that reports a truncation has to survive it.
-    if !cell64.is_empty() {
-        results.insert(
-            0,
-            json!({
-                "id": format!("emem:cell:{cell64}"),
-                "title": format!("all {total} signed facts at {label} ({} listed here)", results.len()),
-                "url": format!("{origin}/v1/cells/{cell64}"),
-            }),
-        );
-    }
+    let listed = results.len();
+    let title = if narrowed {
+        format!(
+            "{total} signed {} facts at {label} ({listed} listed here; the cell page lists every band)",
+            bands.join(", ")
+        )
+    } else {
+        format!("all {total} signed facts at {label} ({listed} listed here)")
+    };
+    results.insert(
+        0,
+        json!({
+            "id": format!("emem:cell:{cell64}"),
+            "title": title,
+            "url": format!("{origin}/v1/cells/{cell64}"),
+        }),
+    );
     Ok(json!({ "results": results }))
 }
 
@@ -25712,6 +25937,42 @@ fn mcp_fit_ask_to_budget(
     out
 }
 
+/// The typed core a tool's `structuredContent` carries, when it has one.
+fn mcp_structured_core_for(inner: &JsonValue, tool: &str) -> Option<JsonValue> {
+    match tool {
+        "emem_memory_token_resolve" => mcp_resolve_core(inner),
+        _ => mcp_structured_core(inner),
+    }
+}
+
+/// A resolved citation without its signed body, as `OUT_MEMORY_TOKEN_RESOLVE`
+/// declares it. The body and a vector `value` stay in the text block: mirrored,
+/// a 384-D embedding is past the wire budget and slimming would cost the
+/// vector itself.
+fn mcp_resolve_core(inner: &JsonValue) -> Option<JsonValue> {
+    let m = inner.as_object()?;
+    if !(m.contains_key("canonical_token") && m.contains_key("fact_cid")) {
+        return None;
+    }
+    let mut core = m.clone();
+    let body = core.remove("fact");
+    if core
+        .get("value")
+        .is_some_and(|v| v.is_array() || v.is_object())
+    {
+        core.remove("value");
+    }
+    if let Some(body) = body {
+        if let Some(t) = body.get("tslot").filter(|t| t.is_u64()) {
+            core.insert("tslot".into(), t.clone());
+        }
+        if let Some(t) = body.get("signed_at").filter(|t| t.is_string()) {
+            core.insert("signed_at".into(), t.clone());
+        }
+    }
+    Some(JsonValue::Object(core))
+}
+
 fn mcp_structured_core(inner: &JsonValue) -> Option<JsonValue> {
     let splat = inner.get("spatial_trace").filter(|v| !v.is_null())?.clone();
     let mut core = serde_json::Map::new();
@@ -25835,7 +26096,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // The mirror cannot ride along at this size, but the typed core can:
         // it is reserved for FIRST, and the prose is slimmed against what is
         // left, so one budget still covers the whole result.
-        let core = mcp_structured_core(&inner);
+        let core = mcp_structured_core_for(&inner, tool);
         let mirror = core
             .as_ref()
             .and_then(|c| serde_json::to_string(c).ok())
@@ -25904,7 +26165,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
             //
             // So a tool with a core sends the core, and one without keeps the
             // mirror it has always sent.
-            if let Some(core) = mcp_structured_core(&inner) {
+            if let Some(core) = mcp_structured_core_for(&inner, tool) {
                 let mirror = serde_json::to_string(&core).map(|t| t.len()).unwrap_or(0);
                 let slim_text = mcp_slim_until_the_wire_fits(inner, mirror, budget, tool);
                 return json!({
@@ -25929,7 +26190,7 @@ fn mcp_wrap_call_tool_result_for(inner: JsonValue, tool: &str) -> JsonValue {
         // find a different shape because today's answer happened to fit: the
         // mirror stays for every other tool, and a result carrying a splat
         // always presents the same typed projection.
-        let structured = mcp_structured_core(&inner).unwrap_or_else(|| inner.clone());
+        let structured = mcp_structured_core_for(&inner, tool).unwrap_or_else(|| inner.clone());
         json!({
             "content": [mcp_text_block(text)],
             "structuredContent": structured,
@@ -27670,6 +27931,7 @@ fn a2a_canonical_method(m: &str) -> &str {
         "CancelTask" => "tasks/cancel",
         "SubscribeToTask" => "tasks/resubscribe",
         "ListTasks" => "tasks/list",
+        "GetExtendedAgentCard" => "agent/getAuthenticatedExtendedCard",
         other => other,
     }
 }
@@ -27682,6 +27944,7 @@ const A2A_METHODS: &[&str] = &[
     "CancelTask",
     "SubscribeToTask",
     "ListTasks",
+    "GetExtendedAgentCard",
     "message/send",
     "message/stream",
     "tasks/get",
@@ -27692,6 +27955,7 @@ const A2A_METHODS: &[&str] = &[
     // same artifacts.
     "tasks/send",
     "tasks/sendSubscribe",
+    "agent/getAuthenticatedExtendedCard",
 ];
 
 async fn a2a_task_resubscribe(s: AppState, body: axum::body::Bytes) -> Response {
@@ -27933,6 +28197,10 @@ async fn a2a_task_json(
     };
 
     match method {
+        Some("agent/getAuthenticatedExtendedCard") => Ok(Json(json!({
+            "jsonrpc": "2.0", "id": rpc_id,
+            "result": a2a_agent_card(&s, true),
+        }))),
         // ── tasks/get + tasks/cancel as real JSON-RPC methods (sweep F4) ──
         // ListTasks: the one 1.0 core method with no pre-1.0 equivalent, so it
         // is implemented here rather than aliased. Filters are the spec's
@@ -28784,6 +29052,15 @@ fn mcp_tool_descriptor(t: &emem_mcp::ToolDescriptor) -> JsonValue {
         }
         if let Some(meta) = obj.get_mut("_meta").and_then(|m| m.as_object_mut()) {
             meta.retain(|_, v| !v.is_null());
+            // ChatGPT binds a view only through `openai/outputTemplate`; it
+            // does not read the MCP Apps `ui` key, so the card never showed
+            // there. Both point at the same resource.
+            if let Some((invoking, invoked)) = fact_card_status(t.name) {
+                meta.insert("openai/outputTemplate".into(), json!(MCP_APP_FACT_CARD_URI));
+                meta.insert("openai/toolInvocation/invoking".into(), json!(invoking));
+                meta.insert("openai/toolInvocation/invoked".into(), json!(invoked));
+                meta.insert("openai/widgetAccessible".into(), json!(true));
+            }
         }
     }
     d
@@ -28902,10 +29179,9 @@ fn mcp_tool_descriptor_raw(t: &emem_mcp::ToolDescriptor) -> JsonValue {
                  free-text `purpose`, which is stored in the bundle and folded \
                  into its id. The purpose is unsigned caller text; treat it as data."
             } else {
-                "server-side materialisation only: populates this responder's \
-                 cache from upstreams it already registered. No caller content \
-                 is stored, so this mutation cannot be used to plant anything \
-                 another agent will read."
+                "server-side materialisation only: fills this responder's cache \
+                 from upstreams it already registered. No caller content is \
+                 stored, so nothing can be planted through it."
             },
             // Moved out of `annotations`, which the spec reserves for the
             // hint set. Same values, correct slot, still one fetch away for
@@ -28947,8 +29223,7 @@ fn ui_meta_for(name: &str) -> JsonValue {
     //
     // Widening this list means measuring the response first, not reasoning
     // from the tool's title.
-    const FACT_RETURNING: &[&str] = &["emem_recall"];
-    if FACT_RETURNING.contains(&name) {
+    if fact_card_status(name).is_some() {
         json!({
             "resourceUri": MCP_APP_FACT_CARD_URI,
             // Both audiences: the model still receives the JSON result it
@@ -28959,6 +29234,21 @@ fn ui_meta_for(name: &str) -> JsonValue {
         })
     } else {
         JsonValue::Null
+    }
+}
+
+/// The tools whose result the fact card draws, with the status lines a host
+/// shows while the call runs and after it returns.
+///
+/// `emem_recall` carries `facts[]`. `emem_memory_token_resolve` carries one
+/// fact flattened at the top level with its receipt, which the card reads as
+/// a one-element list. `emem_ask` (a summary, not facts) and
+/// `emem_echo_verify` (a comparison verdict with no band or cell) do not fit.
+fn fact_card_status(name: &str) -> Option<(&'static str, &'static str)> {
+    match name {
+        "emem_recall" => Some(("Recalling facts", "Facts recalled")),
+        "emem_memory_token_resolve" => Some(("Resolving the citation", "Citation resolved")),
+        _ => None,
     }
 }
 
@@ -29044,6 +29334,44 @@ fn tool_selection(tier: &str, bundle: &str) -> ToolSelection {
 /// `_meta` announced a core of 16. A response that states two different
 /// numbers about itself is unusable; `mcp_core_profile_arrives_whole`
 /// below now fails the build instead.
+/// Why a `tools/list` cursor is unusable, if it is.
+///
+/// The spec makes a cursor opaque to the client and leaves it to the server to
+/// reject one it did not mint, with -32602. This answered an unparseable
+/// cursor with page one, so a client holding a corrupted cursor could not tell
+/// it had lost its place and would read page one as the next page.
+fn mcp_cursor_refusal(params: Option<&JsonValue>) -> Option<String> {
+    let raw = params.and_then(|p| p.get("cursor"))?;
+    let Some(cursor) = raw.as_str() else {
+        return Some(format!(
+            "invalid cursor: `cursor` must be the string a previous tools/list returned as nextCursor, got {raw}"
+        ));
+    };
+    if cursor.is_empty() || matches!(cursor, "tier:extended" | "tier:core") {
+        return None;
+    }
+    let refused = || {
+        Some(format!(
+            "invalid cursor `{cursor}`: not one this server minted. Pass nextCursor from a previous tools/list verbatim, or omit cursor for the first page."
+        ))
+    };
+    let Some((key, index)) = cursor.rsplit_once('@') else {
+        return refused();
+    };
+    let Ok(index) = index.parse::<usize>() else {
+        return refused();
+    };
+    let size = match key.strip_prefix("bundle:") {
+        Some(b) => emem_mcp::tools_in_bundle(b).len(),
+        None if matches!(key, "core" | "extended" | "all") => emem_mcp::tools_at_tier(key).len(),
+        None => return refused(),
+    };
+    if size == 0 || index >= size {
+        return refused();
+    }
+    None
+}
+
 fn mcp_tools_list(params: Option<&JsonValue>, default_tier: &str) -> JsonValue {
     let param_str = |k: &str| -> &str {
         params
@@ -29642,7 +29970,10 @@ async fn mcp_jsonrpc_inner(
             // or {"bundle": ...} always wins over the endpoint default.
             // tools/call dispatches by name against ALL tools at either
             // endpoint regardless of what this listed.
-            Ok(mcp_tools_list(req.params.as_ref(), default_tier))
+            match mcp_cursor_refusal(req.params.as_ref()) {
+                Some(why) => Err((-32602, why)),
+                None => Ok(mcp_tools_list(req.params.as_ref(), default_tier)),
+            }
         }
         "tools/call" => {
             // The MCP spec (2025-03-26 and later) requires `tools/call`
@@ -71268,6 +71599,104 @@ fn is_deictic_only(cand: &str) -> bool {
     !toks.is_empty() && toks.iter().all(|t| DEICTIC_WORDS.contains(&t.as_str()))
 }
 
+/// Lowercase words that stay inside a place name after it has started with a
+/// capital: particles ("Rio de Janeiro", "Newcastle upon Tyne") and the
+/// geographic generics that follow a proper name ("the Ganges delta").
+const PLACE_NAME_LOWERCASE_PARTS: &[&str] = &[
+    "de",
+    "da",
+    "do",
+    "dos",
+    "das",
+    "del",
+    "della",
+    "di",
+    "du",
+    "des",
+    "la",
+    "le",
+    "les",
+    "el",
+    "al",
+    "upon",
+    "am",
+    "im",
+    "der",
+    "den",
+    "van",
+    "von",
+    "y",
+    "sur",
+    "sous",
+    "the",
+    "basin",
+    "bay",
+    "canal",
+    "city",
+    "coast",
+    "county",
+    "creek",
+    "delta",
+    "desert",
+    "district",
+    "estuary",
+    "falls",
+    "forest",
+    "glacier",
+    "gulf",
+    "highlands",
+    "hills",
+    "island",
+    "islands",
+    "lake",
+    "lowlands",
+    "mountains",
+    "national",
+    "park",
+    "peninsula",
+    "plain",
+    "plains",
+    "plateau",
+    "province",
+    "rainforest",
+    "range",
+    "region",
+    "reservoir",
+    "river",
+    "sea",
+    "state",
+    "strait",
+    "valley",
+    "wetlands",
+];
+
+/// Does a place-name span end before `tok`, given the words already taken?
+///
+/// A clause word always ends it. So does an ordinary lowercase word once the
+/// name has started with a capital: "Bengaluru getting hotter or greener" is
+/// a place followed by the question, and the whole run reached the geocoder
+/// as one name. An all-lowercase span ("ndvi near poyang") never sees that
+/// second rule, because nothing in it started with a capital.
+pub(crate) fn place_span_ends_before(tok: &str, taken: &[&str]) -> bool {
+    let lt = tok
+        .trim_matches(|c: char| !c.is_alphanumeric())
+        .to_ascii_lowercase();
+    if CLAUSE_STOPWORDS.contains(&lt.as_str()) {
+        return true;
+    }
+    let starts_lower = |t: &str| {
+        t.chars()
+            .find(|c| c.is_alphabetic())
+            .is_some_and(|c| c.is_lowercase())
+    };
+    let started_capitalised = taken.iter().any(|t| {
+        t.chars()
+            .find(|c| c.is_alphabetic())
+            .is_some_and(|c| c.is_uppercase())
+    });
+    started_capitalised && starts_lower(tok) && !PLACE_NAME_LOWERCASE_PARTS.contains(&lt.as_str())
+}
+
 fn extract_place_candidates(q: &str) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     let push_unique = |s: String, out: &mut Vec<String>| {
@@ -71313,7 +71742,7 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
                 // Atlantic Right Whale Mother and Calf (artwork), Georgia".
                 // Commas are NOT a boundary on their own, because "in
                 // Nashik, India" is one place.
-                if CLAUSE_STOPWORDS.contains(&lt.as_str()) {
+                if place_span_ends_before(tok, &window) {
                     break;
                 }
                 if tok.ends_with('?') || tok.ends_with('.') {
@@ -71397,6 +71826,149 @@ fn extract_place_candidates(q: &str) -> Vec<String> {
 
     out.truncate(4);
     out
+}
+
+/// The place spans of a free-text question in the order to geocode them, and
+/// the spans set aside because they are technical names rather than places.
+///
+/// One ordering for every door that takes a question: `/v1/ask` and the MCP
+/// `search` tool both read it, so they cannot disagree about which span is
+/// the place.
+fn question_place_candidates(q: &str) -> (Vec<String>, Vec<(String, Vec<String>)>) {
+    // Conceptual-token guard. Drop candidates that are entirely
+    // technical names (e.g. "Sentinel-2 RGB", "NDVI", "Landsat") -
+    // those would otherwise be geocoded by Photon to wherever a
+    // POI shares the word ("Sentinel peak, Czechia", "Whatì
+    // village, Canada", "Teatro Amazonas, Manaus") and a signed
+    // receipt would attach to the wrong cell. If every candidate
+    // is conceptual the question is definitional, answer with
+    // pointers to the content-addressed band/source registry
+    // instead of a place-anchored fact bundle.
+    let raw_candidates = extract_place_candidates(q);
+    let mut concept_skipped: Vec<(String, Vec<String>)> = Vec::new();
+    let mut place_candidates: Vec<String> = Vec::new();
+    // Question-stem words: a candidate that's *just* these, extracted
+    // because `extract_place_candidates` falls back to the longest
+    // capitalised run, which can be a stranded "What" / "Why", is
+    // useless to the geocoder. Photon will happily resolve "What" to
+    // "What Cheer, Iowa" and chew network round-trips. Drop them.
+    const STEM_WORDS: &[&str] = &[
+        "what", "where", "when", "how", "why", "who", "which", "show", "tell", "find", "give",
+        "get", "is", "are", "can", "does", "do", "list", "explain", "the", "a", "an",
+    ];
+    let is_stem_only = |c: &str| -> bool {
+        let toks: Vec<String> = c
+            .split(|ch: char| !ch.is_alphanumeric())
+            .map(|w| w.to_ascii_lowercase())
+            .filter(|w| !w.is_empty())
+            .collect();
+        !toks.is_empty() && toks.iter().all(|t| STEM_WORDS.contains(&t.as_str()))
+    };
+    for cand in raw_candidates {
+        if is_stem_only(&cand) {
+            continue;
+        }
+        match candidate_is_conceptual(&cand) {
+            Some(matched) => concept_skipped.push((cand, matched)),
+            None => place_candidates.push(cand),
+        }
+    }
+    // TRY THEM IN THE ORDER THE QUESTION ASKS THEM. The subject of a
+    // question comes before its qualifiers: "Seoul, Republic of Korea" is
+    // about Seoul, and Korea says where Seoul is.
+    //
+    // `of` is a prepositional anchor, which is right for "walkability of
+    // South Mumbai" and wrong inside "Republic of Korea", where it yielded
+    // the candidate "Korea" and the anchor pass emits before the
+    // capitalised-run pass. So "Korea" was tried first, resolved, and won.
+    // Measured on production before this changed:
+    //
+    //   "How green is Seoul, Republic of Korea?"
+    //       -> At Koréa, 96 CI          a village in Cote d'Ivoire
+    //   "How green is Munich, Federal Republic of Germany?"
+    //       -> At Germany (DE)          a country centroid, answered as a city
+    //
+    // Both carried real data and a signed receipt for the wrong place, which
+    // is the failure this whole surface exists to prevent. Ordering by first
+    // appearance costs nothing and makes the subject win: it does not change
+    // which candidates exist, only which is asked about first.
+    // A SENTENCE IS A LAST RESORT, AND IT WAS SORTING FIRST.
+    //
+    // `extract_place_candidates` falls back to the longest capitalised run
+    // and, failing that, to something close to the whole question. Ordering
+    // by first appearance then puts that fallback at position 0, ahead of
+    // every real span, because a question starts at the start. So the
+    // geocoder was handed "What is the air quality in Madras" before it was
+    // ever handed "Madras". Measured on production:
+    //
+    //   "...air quality in Madras"      -> Muhiyuddeen Masjid & Thajul
+    //                                      Islam Madrassa, 547 km away
+    //   "...air quality in Canton"      -> Quality Food (convenience),
+    //                                      London, 9,492 km away
+    //
+    // Both cleared the confidence floor by matching the QUESTION'S OWN
+    // WORDS: `quality` is in "Quality Food" and `madras` is a prefix of
+    // "Madrassa". That is the shape the floor exists to catch, arriving
+    // through the one candidate the floor cannot judge, because a sentence
+    // shares words with anything long enough.
+    //
+    // A candidate carrying a question stem word is a sentence, not a place
+    // name. It stays in the list, because sometimes it is all there is, and
+    // it goes to the back where a last resort belongs. `is_stem_only`
+    // above already drops the ones that are NOTHING but stem words; this is
+    // the same judgement applied to the ones that merely contain them.
+    let ql = q.to_lowercase();
+    let carries_a_question_stem = |c: &str| -> bool {
+        c.split(|ch: char| !ch.is_alphanumeric())
+            .any(|w| STEM_WORDS.contains(&w.to_ascii_lowercase().as_str()))
+    };
+    // The whole question is the extractor's own last resort, and without a
+    // stem word it sorted to position 0, so "NDVI near Mount Fuji" went to
+    // the geocoder as a place name before "Mount Fuji" did.
+    let whole = q
+        .trim_end_matches(['?', '.', ',', '!', ';', ':'])
+        .trim()
+        .to_lowercase();
+    let several = place_candidates.len() > 1;
+    place_candidates.sort_by_key(|c| {
+        (
+            carries_a_question_stem(c) || (several && c.to_lowercase() == whole),
+            several && c.to_lowercase() == whole,
+            ql.find(&c.to_lowercase()).unwrap_or(usize::MAX),
+        )
+    });
+
+    // AND OFFER THE HEAD OF A COMMA'D SPAN, after the span itself.
+    //
+    // Ordering by first appearance makes the subject win, but only among
+    // the candidates that exist, and "Seoul" was not one of them. The
+    // question "the air quality in Seoul, Republic of Korea" yields the
+    // whole span from the `in` anchor and "Korea" from the `of` anchor,
+    // nothing else. The span geocodes to the Chinese embassy in Seoul --
+    // the right coordinates under a `diplomatic` class the confidence gate
+    // refuses, correctly, because that gate is what stops a consulate being
+    // laundered into its host country. With the span refused, the only
+    // thing left to try was "Korea", which resolves to a village of that
+    // name in Cote d'Ivoire and matches it exactly, so it was accepted:
+    // 6.83 N, 6.65 W, answered with a signed receipt, 9,000 km from the
+    // city in the question.
+    //
+    // So the head goes in too, immediately AFTER its own span. The more
+    // specific form is still tried first and still wins whenever it
+    // resolves; this only changes what happens next, and "Seoul" is a
+    // better next guess about a question naming Seoul than "Korea" is.
+    let mut with_heads: Vec<String> = Vec::new();
+    for cand in place_candidates {
+        let head = cand.split(',').next().unwrap_or("").trim().to_string();
+        let add_head = head.len() >= 3
+            && head != cand
+            && !with_heads.iter().any(|c| c.eq_ignore_ascii_case(&head));
+        with_heads.push(cand);
+        if add_head {
+            with_heads.push(head);
+        }
+    }
+    (with_heads, concept_skipped)
 }
 
 /// Variants the `cell` field on /v1/ask (and a future `emem_ask`
@@ -72815,131 +73387,7 @@ async fn ask_inner_traced(
         // bar, kept so the refusal can name it instead of claiming nothing
         // was found. (candidate, label, reason, cell)
         let mut low_confidence: Option<(String, String, String, String)> = None;
-        // Conceptual-token guard. Drop candidates that are entirely
-        // technical names (e.g. "Sentinel-2 RGB", "NDVI", "Landsat") -
-        // those would otherwise be geocoded by Photon to wherever a
-        // POI shares the word ("Sentinel peak, Czechia", "Whatì
-        // village, Canada", "Teatro Amazonas, Manaus") and a signed
-        // receipt would attach to the wrong cell. If every candidate
-        // is conceptual the question is definitional, answer with
-        // pointers to the content-addressed band/source registry
-        // instead of a place-anchored fact bundle.
-        let raw_candidates = extract_place_candidates(&req.q);
-        let mut concept_skipped: Vec<(String, Vec<String>)> = Vec::new();
-        let mut place_candidates: Vec<String> = Vec::new();
-        // Question-stem words: a candidate that's *just* these, extracted
-        // because `extract_place_candidates` falls back to the longest
-        // capitalised run, which can be a stranded "What" / "Why", is
-        // useless to the geocoder. Photon will happily resolve "What" to
-        // "What Cheer, Iowa" and chew network round-trips. Drop them.
-        const STEM_WORDS: &[&str] = &[
-            "what", "where", "when", "how", "why", "who", "which", "show", "tell", "find", "give",
-            "get", "is", "are", "can", "does", "do", "list", "explain", "the", "a", "an",
-        ];
-        let is_stem_only = |c: &str| -> bool {
-            let toks: Vec<String> = c
-                .split(|ch: char| !ch.is_alphanumeric())
-                .map(|w| w.to_ascii_lowercase())
-                .filter(|w| !w.is_empty())
-                .collect();
-            !toks.is_empty() && toks.iter().all(|t| STEM_WORDS.contains(&t.as_str()))
-        };
-        for cand in raw_candidates {
-            if is_stem_only(&cand) {
-                continue;
-            }
-            match candidate_is_conceptual(&cand) {
-                Some(matched) => concept_skipped.push((cand, matched)),
-                None => place_candidates.push(cand),
-            }
-        }
-        // TRY THEM IN THE ORDER THE QUESTION ASKS THEM. The subject of a
-        // question comes before its qualifiers: "Seoul, Republic of Korea" is
-        // about Seoul, and Korea says where Seoul is.
-        //
-        // `of` is a prepositional anchor, which is right for "walkability of
-        // South Mumbai" and wrong inside "Republic of Korea", where it yielded
-        // the candidate "Korea" and the anchor pass emits before the
-        // capitalised-run pass. So "Korea" was tried first, resolved, and won.
-        // Measured on production before this changed:
-        //
-        //   "How green is Seoul, Republic of Korea?"
-        //       -> At Koréa, 96 CI          a village in Cote d'Ivoire
-        //   "How green is Munich, Federal Republic of Germany?"
-        //       -> At Germany (DE)          a country centroid, answered as a city
-        //
-        // Both carried real data and a signed receipt for the wrong place, which
-        // is the failure this whole surface exists to prevent. Ordering by first
-        // appearance costs nothing and makes the subject win: it does not change
-        // which candidates exist, only which is asked about first.
-        // A SENTENCE IS A LAST RESORT, AND IT WAS SORTING FIRST.
-        //
-        // `extract_place_candidates` falls back to the longest capitalised run
-        // and, failing that, to something close to the whole question. Ordering
-        // by first appearance then puts that fallback at position 0, ahead of
-        // every real span, because a question starts at the start. So the
-        // geocoder was handed "What is the air quality in Madras" before it was
-        // ever handed "Madras". Measured on production:
-        //
-        //   "...air quality in Madras"      -> Muhiyuddeen Masjid & Thajul
-        //                                      Islam Madrassa, 547 km away
-        //   "...air quality in Canton"      -> Quality Food (convenience),
-        //                                      London, 9,492 km away
-        //
-        // Both cleared the confidence floor by matching the QUESTION'S OWN
-        // WORDS: `quality` is in "Quality Food" and `madras` is a prefix of
-        // "Madrassa". That is the shape the floor exists to catch, arriving
-        // through the one candidate the floor cannot judge, because a sentence
-        // shares words with anything long enough.
-        //
-        // A candidate carrying a question stem word is a sentence, not a place
-        // name. It stays in the list, because sometimes it is all there is, and
-        // it goes to the back where a last resort belongs. `is_stem_only`
-        // above already drops the ones that are NOTHING but stem words; this is
-        // the same judgement applied to the ones that merely contain them.
-        let ql = req.q.to_lowercase();
-        let carries_a_question_stem = |c: &str| -> bool {
-            c.split(|ch: char| !ch.is_alphanumeric())
-                .any(|w| STEM_WORDS.contains(&w.to_ascii_lowercase().as_str()))
-        };
-        place_candidates.sort_by_key(|c| {
-            (
-                carries_a_question_stem(c),
-                ql.find(&c.to_lowercase()).unwrap_or(usize::MAX),
-            )
-        });
-
-        // AND OFFER THE HEAD OF A COMMA'D SPAN, after the span itself.
-        //
-        // Ordering by first appearance makes the subject win, but only among
-        // the candidates that exist, and "Seoul" was not one of them. The
-        // question "the air quality in Seoul, Republic of Korea" yields the
-        // whole span from the `in` anchor and "Korea" from the `of` anchor,
-        // nothing else. The span geocodes to the Chinese embassy in Seoul --
-        // the right coordinates under a `diplomatic` class the confidence gate
-        // refuses, correctly, because that gate is what stops a consulate being
-        // laundered into its host country. With the span refused, the only
-        // thing left to try was "Korea", which resolves to a village of that
-        // name in Cote d'Ivoire and matches it exactly, so it was accepted:
-        // 6.83 N, 6.65 W, answered with a signed receipt, 9,000 km from the
-        // city in the question.
-        //
-        // So the head goes in too, immediately AFTER its own span. The more
-        // specific form is still tried first and still wins whenever it
-        // resolves; this only changes what happens next, and "Seoul" is a
-        // better next guess about a question naming Seoul than "Korea" is.
-        let mut with_heads: Vec<String> = Vec::new();
-        for cand in place_candidates {
-            let head = cand.split(',').next().unwrap_or("").trim().to_string();
-            let add_head = head.len() >= 3
-                && head != cand
-                && !with_heads.iter().any(|c| c.eq_ignore_ascii_case(&head));
-            with_heads.push(cand);
-            if add_head {
-                with_heads.push(head);
-            }
-        }
-        let place_candidates = with_heads;
+        let (place_candidates, concept_skipped) = question_place_candidates(&req.q);
         if place_candidates.is_empty() && !concept_skipped.is_empty() {
             return Ok(conceptual_question_response(&req.q, &concept_skipped));
         }
@@ -82331,6 +82779,11 @@ mod tests {
             if let (Some(map), Some(c)) = (p.as_object_mut(), cursor.as_ref()) {
                 map.insert("cursor".into(), json!(c));
             }
+            assert_eq!(
+                mcp_cursor_refusal(Some(&p)),
+                None,
+                "a cursor this server minted was refused: {p}"
+            );
             let r = mcp_tools_list(Some(&p), default_tier);
             pages += 1;
             bytes += list_bytes(&r);
@@ -82388,6 +82841,49 @@ mod tests {
                 .is_err(),
             "an inbox with no owner must refuse rather than answer for everyone"
         );
+    }
+
+    /// The public card lists the core loop and points at the extended card,
+    /// which lists everything; both are signed and both say how to reach the
+    /// other half.
+    #[tokio::test]
+    async fn the_public_card_is_the_core_loop_and_the_extended_card_is_everything() {
+        let s = test_app_state();
+        let Json(public) = well_known_agent_card(State(s.clone())).await;
+        let Json(extended) = get_extended_agent_card(State(s)).await;
+        let ids = |c: &JsonValue| -> Vec<String> {
+            c["skills"]
+                .as_array()
+                .expect("skills")
+                .iter()
+                .filter_map(|k| k["id"].as_str().map(String::from))
+                .collect()
+        };
+        let core: Vec<String> = emem_mcp::tools_at_tier("core")
+            .iter()
+            .map(|t| t.name.to_string())
+            .collect();
+        assert_eq!(
+            ids(&public),
+            core,
+            "the public card must list the /mcp core tier"
+        );
+        assert!(ids(&extended).len() > core.len());
+        for c in [&public, &extended] {
+            assert_eq!(c["capabilities"]["extendedAgentCard"], json!(true));
+            assert_eq!(c["supportsAuthenticatedExtendedCard"], json!(true));
+            assert!(
+                c["signatures"][0]["signature"].is_string(),
+                "every card is signed"
+            );
+            assert_eq!(
+                c["emem"]["skills"]["extended_card"]["jsonrpc"]["method"],
+                json!("GetExtendedAgentCard")
+            );
+        }
+        assert!(A2A_METHODS.contains(&"GetExtendedAgentCard"));
+        let bytes = serde_json::to_string(&public).expect("card").len();
+        assert!(bytes < 25_000, "the public card is {bytes} bytes");
     }
 
     /// A declared capability must have a method behind it.
@@ -83245,7 +83741,7 @@ mod tests {
 
     #[tokio::test]
     async fn the_agent_card_indexes_skills_rather_than_documenting_them() {
-        let Json(card) = well_known_agent_card(State(test_app_state())).await;
+        let Json(card) = get_extended_agent_card(State(test_app_state())).await;
         let skills = card["skills"].as_array().expect("skills");
         // Coverage, by NAME rather than by count.
         //
@@ -83961,6 +84457,32 @@ mod tests {
             emem_mcp::TOOLS[0].name,
             "mismatched cursor skipped tools"
         );
+    }
+
+    /// A cursor the server never minted is a -32602, not page one.
+    #[test]
+    fn mcp_cursor_garbage_is_refused_and_minted_forms_pass() {
+        for bad in [
+            json!({"cursor": "garbage!!"}),
+            json!({"cursor": "core@x"}),
+            json!({"cursor": "nosuch@1"}),
+            json!({"cursor": "bundle:nosuch@0"}),
+            json!({"cursor": "core@100000"}),
+            json!({"cursor": 7}),
+        ] {
+            let why = mcp_cursor_refusal(Some(&bad)).unwrap_or_default();
+            assert!(why.starts_with("invalid cursor"), "{bad} was accepted");
+        }
+        for ok in [
+            json!({}),
+            json!({"cursor": ""}),
+            json!({"cursor": "tier:extended"}),
+            json!({"cursor": "core@0"}),
+            json!({"tier": "all", "cursor": "core@12"}),
+            json!({"cursor": "all@20"}),
+        ] {
+            assert_eq!(mcp_cursor_refusal(Some(&ok)), None, "{ok} was refused");
+        }
     }
 
     /// The phenology advisory is the guard against the silent "4 prospered /
@@ -97493,6 +98015,75 @@ mod place_extraction_tests {
     fn stopwords_cut_before_the_filler_not_after() {
         assert_eq!(first("water level at Chilika today"), "Chilika");
         assert_eq!(first("ndvi near Poyang and what changed"), "Poyang");
+    }
+
+    /// The order `search` and `/v1/ask` geocode in. Each of these reached the
+    /// geocoder whole and failed with no_geocoder_match, while the place alone
+    /// resolves; the place has to be tried first, and the sentence last.
+    #[test]
+    fn a_question_puts_its_place_first_and_the_sentence_last() {
+        let cases = [
+            ("Mount Fuji", "Mount Fuji"),
+            ("NDVI near Mount Fuji", "Mount Fuji"),
+            ("NDVI at Mount Fuji", "Mount Fuji"),
+            ("vegetation index Mount Fuji", "Mount Fuji"),
+            ("deforestation in the Amazon", "Amazon"),
+            ("what is the NDVI near Mount Fuji?", "Mount Fuji"),
+            (
+                "road bearing at Campo Santa Margherita",
+                "Campo Santa Margherita",
+            ),
+            (
+                "Is Whitefield in Bengaluru getting hotter or greener, and does it flood?",
+                "Whitefield",
+            ),
+        ];
+        for (q, want) in cases {
+            let (places, _) = super::question_place_candidates(q);
+            assert_eq!(
+                places.first().map(String::as_str),
+                Some(want),
+                "{q}: {places:?}"
+            );
+            let whole = q.trim_end_matches('?').to_lowercase();
+            let at = places
+                .iter()
+                .position(|c| c.to_lowercase() == whole)
+                .unwrap_or(places.len());
+            for c in &places[..at] {
+                assert!(
+                    !c.contains("getting hotter"),
+                    "{q}: a clause reached the geocoder as a name: {c:?}"
+                );
+            }
+        }
+    }
+
+    /// A topic word narrows `search` to its bands; the place alone narrows
+    /// nothing.
+    #[test]
+    fn a_topic_word_names_bands_and_a_bare_place_names_none() {
+        assert!(super::openai_search_topic_bands("Mount Fuji", "Mount Fuji").is_empty());
+        assert_eq!(
+            super::openai_search_topic_bands("NDVI near Mount Fuji", "Mount Fuji"),
+            vec!["indices.ndvi".to_string()]
+        );
+        assert_eq!(
+            super::openai_search_topic_bands("what is the NDVI near Mount Fuji?", "Mount Fuji"),
+            vec!["indices.ndvi".to_string()]
+        );
+    }
+
+    /// The hunter's region anchor ends where the place name does.
+    #[test]
+    fn a_region_anchor_stops_at_the_clause() {
+        assert_eq!(
+            crate::ask_foundation::extract_region_anchor(
+                "Is Whitefield in Bengaluru getting hotter or greener, and does it flood?"
+            )
+            .as_deref(),
+            Some("Bengaluru")
+        );
     }
 }
 

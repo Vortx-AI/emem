@@ -299,7 +299,21 @@ pub fn extract_region_anchor(q: &str) -> Option<String> {
     if start >= q.len() {
         return None;
     }
-    let tail = q[start..].trim().trim_end_matches(|c: char| {
+    // The tail runs to the end of the question, so it is cut where the place
+    // name ends, by the same rule the /v1/ask extractor uses: "in Bengaluru
+    // getting hotter or greener, and does it flood" is "Bengaluru".
+    let mut taken: Vec<&str> = Vec::new();
+    for tok in q[start..].split_whitespace() {
+        if crate::place_span_ends_before(tok, &taken) {
+            break;
+        }
+        taken.push(tok);
+        if tok.ends_with(['?', '.', '!', ';']) {
+            break;
+        }
+    }
+    let joined = taken.join(" ");
+    let tail = joined.trim().trim_end_matches(|c: char| {
         matches!(c, '.' | ',' | '?' | '!' | ';' | ':' | ')' | ']' | '}')
     });
     if tail.is_empty() || tail.len() > 80 {

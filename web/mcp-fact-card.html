@@ -124,8 +124,21 @@
   // ask for an exception, so everything below is rendered from bytes the host
   // already delivered.
   function render(result) {
-    var facts = (result && (result.facts || (result.structuredContent || {}).facts)) || [];
-    var receipt = (result && (result.receipt || (result.structuredContent || {}).receipt)) || null;
+    var body = (result && result.structuredContent) || result || {};
+    var facts = (result && (result.facts || body.facts)) || [];
+    // emem_memory_token_resolve answers with ONE fact flattened beside its
+    // receipt rather than a list; read it as a list of one.
+    if (!facts.length && body.fact_cid && body.band) {
+      var signed = body.fact || {};
+      facts = [{
+        band: body.band, value: body.value, value_verbatim: body.value_verbatim,
+        unit: body.unit, cell: body.cell, fact_cid: body.fact_cid,
+        memory_token: body.canonical_token || body.token,
+        tslot: body.tslot != null ? body.tslot : signed.tslot,
+        signed_at: body.signed_at || signed.signed_at
+      }];
+    }
+    var receipt = (result && (result.receipt || body.receipt)) || null;
     if (!facts.length) {
       root.innerHTML = '<div class="empty">No signed fact in this result.</div>';
       return;
@@ -232,6 +245,15 @@
       render(d);
     }
   });
+
+  // ChatGPT's Apps runtime hands the result over as window.openai.toolOutput
+  // (the structuredContent) and announces later changes with an event.
+  function renderOpenai() {
+    var o = window.openai && window.openai.toolOutput;
+    if (o && typeof o === "object") render(o);
+  }
+  window.addEventListener("openai:set_globals", renderOpenai);
+  renderOpenai();
 
   if (window.parent && window.parent !== window) {
     window.parent.postMessage({ jsonrpc: "2.0", method: "ui/initialized" }, "*");
