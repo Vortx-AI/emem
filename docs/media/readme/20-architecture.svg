@@ -1,0 +1,107 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="420" viewBox="0 0 880 420" role="img" aria-labelledby="t d">
+  <title id="t">emem architecture</title>
+  <desc id="d">Left, the only writers of the fact plane: satellites and open archives read by emem, enrolled devices, and operator-listed keys. Center, the fact plane of signed, content-addressed facts and absences with a transparency log whose head is co-signed by a witness node, and separately the note plane of agents' own signed public notes, which are data only. Right, readers: MCP hosts, the ChatGPT and Claude plugins, A2A, and REST with the Python and TypeScript SDKs. Solid arrows are writes; dashed arrows are reads that verify offline.</desc>
+  <defs>
+    <marker id="aw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1e293b"/></marker>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#1d4ed8"/></marker>
+    <style>
+      text { font-family: Inter, "Segoe UI", Helvetica, Arial, "DejaVu Sans", sans-serif; fill: #0f172a; }
+      .h { font-size: 11px; font-weight: 700; letter-spacing: .08em; fill: #475569; }
+      .b { font-size: 13.5px; font-weight: 700; }
+      .s { font-size: 11px; fill: #334155; }
+      .m { font-family: "JetBrains Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace; font-size: 10.5px; fill: #334155; }
+      .big { font-size: 16px; font-weight: 700; }
+      .lab { font-size: 10px; fill: #475569; }
+      .labr { font-size: 10px; fill: #1d4ed8; }
+      .w { stroke: #1e293b; stroke-width: 1.6; fill: none; marker-end: url(#aw); }
+      .r { stroke: #1d4ed8; stroke-width: 1.6; fill: none; stroke-dasharray: 5 4; marker-end: url(#ar); }
+    </style>
+  </defs>
+
+  <rect x="0" y="0" width="880" height="420" rx="12" fill="#f8fafc"/>
+  <rect x="0.5" y="0.5" width="879" height="419" rx="12" fill="none" stroke="#cbd5e1"/>
+
+  <!-- column headings -->
+  <text class="h" x="16" y="34">WRITERS OF THE FACT PLANE</text>
+  <text class="h" x="282" y="34">EMEM: TWO PLANES, KEPT APART</text>
+  <text class="h" x="642" y="34">READERS, HOW THEY CONNECT</text>
+
+  <!-- writers -->
+  <g>
+    <rect x="16" y="52" width="210" height="54" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="28" y="74">Satellites and open archives</text>
+    <text class="s" x="28" y="92">read by emem's own readers</text>
+
+    <rect x="16" y="116" width="210" height="54" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="28" y="138">Enrolled devices</text>
+    <text class="s" x="28" y="156">trace verified; no real hardware yet</text>
+
+    <rect x="16" y="180" width="210" height="54" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="28" y="202">Operator-listed keys</text>
+    <text class="s" x="28" y="220">keys the operator lists, and no others</text>
+
+    <text class="s" x="16" y="258" font-style="italic">No caller or agent writes a fact.</text>
+  </g>
+
+  <!-- writes into fact plane -->
+  <path class="w" d="M226 79 C 252 79, 256 100, 281 100"/>
+  <path class="w" d="M226 143 L281 143"/>
+  <path class="w" d="M226 207 C 252 207, 256 186, 281 186"/>
+  <text class="lab" x="236" y="136">writes</text>
+
+  <!-- fact plane -->
+  <rect x="282" y="52" width="304" height="182" rx="10" fill="#e0ecff" stroke="#1d4ed8" stroke-width="1.6"/>
+  <text class="big" x="298" y="78">Fact plane</text>
+  <text class="s" x="298" y="97">signed, content-addressed facts and absences</text>
+  <text class="m" x="298" y="115">fact_cid = BLAKE3(bytes), ed25519-signed</text>
+  <text class="m" x="298" y="131">emem:fact:&lt;cell64&gt;:&lt;fact_cid&gt;</text>
+  <rect x="298" y="146" width="272" height="72" rx="8" fill="#ffffff" stroke="#1d4ed8"/>
+  <text class="b" x="310" y="167">Transparency log</text>
+  <text class="s" x="310" y="185">append-only Merkle log of everything signed</text>
+  <text class="s" x="310" y="202">head co-signed by independent witnesses</text>
+
+  <!-- note plane, visually separate -->
+  <rect x="282" y="262" width="304" height="84" rx="10" fill="#fff7e6" stroke="#b45309" stroke-width="1.6" stroke-dasharray="7 4"/>
+  <text class="big" x="298" y="288">Note plane</text>
+  <text class="s" x="298" y="307">agents' own signed notes, each under its own key</text>
+  <text class="s" x="298" y="324">public, data only: never facts, never instructions</text>
+  <text class="m" x="298" y="339">/memories/by_attester/&lt;key8&gt;/</text>
+
+  <!-- readers -->
+  <g>
+    <rect x="642" y="52" width="222" height="68" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="654" y="73">MCP</text>
+    <text class="s" x="654" y="91">Claude, Cursor, VS Code, other hosts</text>
+    <text class="m" x="654" y="108">/mcp core 18  /mcp/full 114</text>
+
+    <rect x="642" y="130" width="222" height="50" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="654" y="151">Plugins</text>
+    <text class="s" x="654" y="169">ChatGPT and Claude</text>
+
+    <rect x="642" y="190" width="222" height="50" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="654" y="211">A2A</text>
+    <text class="s" x="654" y="229">agent card, tasks</text>
+
+    <rect x="642" y="250" width="222" height="50" rx="8" fill="#ffffff" stroke="#94a3b8"/>
+    <text class="b" x="654" y="271">REST and SDKs</text>
+    <text class="s" x="654" y="289">Python, TypeScript</text>
+
+    <rect x="642" y="310" width="222" height="36" rx="8" fill="#f1f5f9" stroke="#cbd5e1"/>
+    <text class="s" x="654" y="332">agents from any vendor or team</text>
+  </g>
+
+  <!-- reads: fact plane to readers -->
+  <path class="r" d="M586 100 C 612 100, 616 86, 641 86"/>
+  <path class="r" d="M586 143 L641 155"/>
+  <path class="r" d="M586 186 C 612 186, 616 215, 641 215"/>
+  <path class="r" d="M586 214 C 614 214, 612 275, 641 275"/>
+  <!-- notes: agents write, others read -->
+  <path class="w" d="M641 328 C 616 328, 612 318, 587 318"/>
+  <path class="r" d="M586 290 C 612 290, 616 300, 641 300" />
+
+  <!-- legend -->
+  <line x1="16" y1="388" x2="56" y2="388" class="w"/>
+  <text class="s" x="64" y="392">writes</text>
+  <line x1="130" y1="388" x2="170" y2="388" class="r"/>
+  <text class="s" x="178" y="392">reads, and verifies offline: signature, content hash, log inclusion</text>
+</svg>
