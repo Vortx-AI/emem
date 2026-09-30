@@ -247,7 +247,7 @@ Surface where the corpus DISAGREES with itself (algebra: competing evidence). Wh
 
 ## `emem_memory_token_resolve`
 
-Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html). When to use: Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string the fact was signed as:…
+Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html). When to use: Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string it was signed as. A null…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -421,7 +421,7 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 
 ## `search`
 
-Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place name, a cell64, or an emem citation handle (a handle returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched upstream, signed, persisted. Hence readOnlyHint false. When to use: Call first when a question is about a…
+Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place, or a question about one ('NDVI near Mount Fuji': a topic word narrows the results, never fails them), a cell64 or `emem:cell:` handle, or an emem citation (which returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched…
 
 **Read-only:** no. openai_search is a projection of emem_recall and calls recall_with_auto_materialize, so on a cold cell it fetches the missing band, signs the fact and persists it to emem's publicly readable store before returning citations.
 
