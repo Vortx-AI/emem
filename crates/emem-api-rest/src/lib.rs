@@ -31371,6 +31371,56 @@ fn explain_duplicate_field(name: &str, msg: &str, conflicts: &[AliasConflict]) -
     )
 }
 
+/// The name a `tools/call` resolves to. Every tool also answers without its
+/// `emem_` prefix: a few did and the rest did not, so an agent that learned
+/// "the prefix is optional" from `memory_view` concluded `memory_search` did
+/// not exist.
+fn mcp_canonical_tool_name(name: &str) -> String {
+    let dotted = name.replace('.', "_");
+    if emem_mcp::lookup(&dotted).is_none() {
+        let prefixed = format!("emem_{dotted}");
+        if emem_mcp::lookup(&prefixed).is_some() {
+            return prefixed;
+        }
+    }
+    dotted
+}
+
+/// An unknown tool name, answered with the closest real names so a wrong
+/// guess becomes a redirect rather than a dead end.
+fn mcp_unknown_tool_message(name: &str) -> String {
+    fn distance(a: &str, b: &str) -> usize {
+        let b: Vec<char> = b.chars().collect();
+        let mut prev: Vec<usize> = (0..=b.len()).collect();
+        for (i, ca) in a.chars().enumerate() {
+            let mut cur = vec![i + 1; b.len() + 1];
+            for (j, cb) in b.iter().enumerate() {
+                cur[j + 1] = (prev[j] + usize::from(ca != *cb))
+                    .min(prev[j + 1] + 1)
+                    .min(cur[j] + 1);
+            }
+            prev = cur;
+        }
+        prev[b.len()]
+    }
+    let bare = name.trim_start_matches("emem_");
+    let mut near: Vec<(usize, &str)> = emem_mcp::TOOLS
+        .iter()
+        .map(|t| (distance(bare, t.name.trim_start_matches("emem_")), t.name))
+        .filter(|(d, _)| *d <= (bare.len() / 3).max(3))
+        .collect();
+    near.sort();
+    match near.as_slice() {
+        [] => format!("Unknown tool: {name}; call tools/list or emem_tools for the catalog"),
+        [(_, one)] => {
+            format!("Unknown tool: {name}. Did you mean {one}? emem_tools lists the catalog.")
+        }
+        [(_, a), (_, b), ..] => {
+            format!("Unknown tool: {name}. Did you mean {a} or {b}? emem_tools lists the catalog.")
+        }
+    }
+}
+
 async fn mcp_tool_call_inner(
     name: &str,
     mut args: JsonValue,
@@ -31382,7 +31432,7 @@ async fn mcp_tool_call_inner(
     // values. A field is rewritten only when its current value is a
     // string that does not pass `is_cell64_shape`, already-canonical
     // cell64 strings cost zero locate calls.
-    let canon = name.replace('.', "_");
+    let canon = mcp_canonical_tool_name(name);
     let cell_fields: &[&str] = match canon.as_str() {
         "emem_recall"
         | "emem_compare_bands"
@@ -31705,7 +31755,7 @@ async fn mcp_tool_call_inner(
                 .body(axum::body::Body::from(args.to_string()))
                 .map_err(|e| (-32603, e.to_string()))?;
             let st = State(s.clone());
-            let resp = match name {
+            let resp = match canon.as_str() {
                 "emem_read" => reader::post_read(st, req).await,
                 "emem_ocr" => reader::post_ocr(st, req).await,
                 "emem_decide" => decide::post_decide(st, req).await,
@@ -32728,10 +32778,7 @@ async fn mcp_tool_call_inner(
         // at `tools/call` now propagates the reserved range as JSON-RPC errors
         // instead of folding them into a result. The recovery hint rides the
         // message, which is the only channel an error object has.
-        other => Err((
-            -32602,
-            format!("Unknown tool: {other}; call tools/list for the catalog"),
-        )),
+        other => Err((-32602, mcp_unknown_tool_message(other))),
     }
 }
 
@@ -91712,6 +91759,29 @@ mod tests {
             ("not_geographic", false),
             "an address with no latitude never resolves on retry"
         );
+    }
+
+    #[test]
+    fn every_tool_answers_without_its_prefix_and_a_wrong_guess_is_redirected() {
+        for t in emem_mcp::TOOLS.iter() {
+            let bare = t.name.trim_start_matches("emem_");
+            // `fetch` is its own tool (the ChatGPT connector pair), so its bare
+            // name keeps meaning that tool rather than `emem_fetch`.
+            if bare != t.name && emem_mcp::lookup(bare).is_some() {
+                assert_eq!(mcp_canonical_tool_name(bare), bare);
+                continue;
+            }
+            assert_eq!(mcp_canonical_tool_name(bare), t.name, "{bare}");
+            assert_eq!(mcp_canonical_tool_name(t.name), t.name);
+        }
+        assert_eq!(
+            mcp_canonical_tool_name("memory_search"),
+            "emem_memory_search"
+        );
+        let msg = mcp_unknown_tool_message("memory_serch");
+        assert!(msg.contains("emem_memory_search"), "{msg}");
+        let far = mcp_unknown_tool_message("zzzzzzzzzzzzzzzzzzzz");
+        assert!(far.contains("tools/list"), "{far}");
     }
 
     #[tokio::test]
