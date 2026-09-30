@@ -67679,6 +67679,19 @@ fn eudr_prepare_unsaved(facts: Vec<Fact>) -> Result<Vec<(emem_fact::FactCid, Fac
     Ok(out)
 }
 
+/// The cids of `computed` that resolve once the response is stored: the
+/// ones that were already stored, and the unstored ones stored for it.
+fn eudr_resolving<'a>(
+    computed: &'a std::collections::BTreeSet<String>,
+    unstored: &std::collections::BTreeSet<String>,
+    stored_now: &std::collections::HashSet<String>,
+) -> Vec<&'a String> {
+    computed
+        .iter()
+        .filter(|c| !unstored.contains(*c) || stored_now.contains(*c))
+        .collect()
+}
+
 /// The unstored facts a response names: every one whose cid appears as a
 /// token of any string in `response` or in `also`, plus, transitively, the
 /// parents of any named derivative, so a stored histogram never cites a
@@ -69753,6 +69766,8 @@ async fn post_eudr_dds_inner(
         /// Every distinct fact cid this plot computed, stored or not.
         fact_cids: std::collections::BTreeSet<String>,
         baseline_versions: BaselineVersions,
+        /// The cids in `fact_cids` that were built here and not stored.
+        unstored: std::collections::BTreeSet<String>,
     }
     let mut plot_ctx: Vec<Option<PlotCtx>> = (0..req.plots.len()).map(|_| None).collect();
     let mut per_plot_results: Vec<Option<JsonValue>> = (0..req.plots.len()).map(|_| None).collect();
@@ -69787,6 +69802,7 @@ async fn post_eudr_dds_inner(
                 histogram_fact_cid: None,
                 fact_cids: Default::default(),
                 baseline_versions: Default::default(),
+                unstored: Default::default(),
             });
             continue;
         }
@@ -70244,6 +70260,7 @@ async fn post_eudr_dds_inner(
             let baseline_versions = forest_baseline_versions(&s, &per_cell, &unsaved).await;
             let ctx = PlotCtx {
                 baseline_versions,
+                unstored: unsaved.keys().cloned().collect(),
                 verdict_code: plot_verdict,
                 producer_geojson: Some(producer_geojson),
                 precision_warning,
@@ -70601,7 +70618,6 @@ async fn post_eudr_dds_inner(
             ));
         }
     }
-    let resolves = |c: &String| !unsaved.contains_key(c) || stored_now.contains(c);
     let (mut computed_all, mut persisted_all) = (
         std::collections::BTreeSet::new(),
         std::collections::BTreeSet::new(),
@@ -70614,11 +70630,11 @@ async fn post_eudr_dds_inner(
             let (Some(ctx), Some(obj)) = (plot_ctx[idx].as_ref(), row.as_object_mut()) else {
                 continue;
             };
-            let persisted = ctx.fact_cids.iter().filter(|c| resolves(c)).count();
+            let persisted = eudr_resolving(&ctx.fact_cids, &ctx.unstored, &stored_now);
             obj.insert("facts_computed".into(), json!(ctx.fact_cids.len()));
-            obj.insert("facts_persisted".into(), json!(persisted));
+            obj.insert("facts_persisted".into(), json!(persisted.len()));
             computed_all.extend(ctx.fact_cids.iter());
-            persisted_all.extend(ctx.fact_cids.iter().filter(|c| resolves(c)));
+            persisted_all.extend(persisted);
         }
     }
     if let Some(obj) = body.as_object_mut() {
@@ -89084,6 +89100,12 @@ mod tests {
         referenced.extend(h.parents.iter().map(|c| c.as_str().to_string()));
         let stored_set: std::collections::BTreeSet<String> = stored.iter().cloned().collect();
         assert_eq!(stored_set, referenced, "stored = cited by the response");
+        // Every fact was built unstored, so facts_persisted is what was stored.
+        let stored_now: std::collections::HashSet<String> = stored.iter().cloned().collect();
+        assert_eq!(
+            eudr_resolving(&computed, &computed, &stored_now).len(),
+            stored.len()
+        );
         assert!(
             stored.len() < computed.len(),
             "{} of {} stored",
@@ -89111,6 +89133,11 @@ mod tests {
         let stored: std::collections::BTreeSet<String> = stored.into_iter().collect();
         assert_eq!(stored, computed, "below the caps every fact is stored");
         assert_eq!(stored.len(), 10 * 4 + 1);
+        let stored_now: std::collections::HashSet<String> = stored.iter().cloned().collect();
+        assert_eq!(
+            eudr_resolving(&computed, &computed, &stored_now).len(),
+            computed.len()
+        );
     }
 
     #[test]
