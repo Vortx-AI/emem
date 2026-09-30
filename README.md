@@ -1,24 +1,18 @@
 <div align="center">
 
-<img src="web/logo-600w.png" alt="emem" width="300">
+<img src="web/logo-300w.png" alt="emem logo" width="72">
 
-# Satellites for AI.
+<h1>Satellites for AI.</h1>
 
-**emem is the machine-maintained, external memory of our physical world.**
+<p><b>emem is the machine-maintained, external memory of our physical world.</b></p>
+
+<p><a href="https://emem.dev">Try it, no key</a> · <a href="#quickstart">Quickstart</a> · <a href="#see-it-live">Live demos</a> · <a href="https://emem.dev/verify">Verify a fact</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/ememdev?label=pypi%20ememdev)](https://pypi.org/project/ememdev/)
 [![npm](https://img.shields.io/npm/v/@vortxai/emem?label=npm%20%40vortxai%2Femem)](https://www.npmjs.com/package/@vortxai/emem)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 [![Whitepaper DOI](https://img.shields.io/badge/whitepaper-10.5281%2Fzenodo.20706893-3b5)](https://doi.org/10.5281/zenodo.20706893)
-
-[![ChatGPT](https://img.shields.io/badge/ChatGPT-emem-10a37f?logo=openai&logoColor=white)](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77)
-[![Claude plugin](https://img.shields.io/badge/Claude-plugin-D97757)](plugins/emem/)
-[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
-[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
-[![Dify](https://img.shields.io/badge/Dify-emem-1C64F2)](https://marketplace.dify.ai/plugin/vortx-ai/emem)
-
-[Try it, no key](https://emem.dev) · [Quickstart](#quickstart) · [Verify a fact](https://emem.dev/verify) · [Agent guide](https://emem.dev/agents.md) · [Docs](https://emem.dev/docs/)
 
 </div>
 
@@ -38,6 +32,12 @@ Every fact is signed and content-addressed, so agents that do not trust each oth
 
 ## Use it the way you work
 
+[![ChatGPT](https://img.shields.io/badge/ChatGPT-emem-10a37f?logo=openai&logoColor=white)](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77)
+[![Claude plugin](https://img.shields.io/badge/Claude-plugin-D97757)](plugins/emem/)
+[![GitHub MCP Registry](https://img.shields.io/badge/GitHub%20MCP%20Registry-io.github.Vortx--AI%2Femem-181717?logo=github&logoColor=white)](https://github.com/mcp/Vortx-AI/emem)
+[![Install in VS Code](https://img.shields.io/badge/VS%20Code-Install%20emem-0098FF?logo=visualstudiocode&logoColor=white)](https://insiders.vscode.dev/redirect/mcp/install?name=emem&config=%7B%22type%22%3A%22http%22%2C%22url%22%3A%22https%3A%2F%2Femem.dev%2Fmcp%22%7D)
+[![Dify](https://img.shields.io/badge/Dify-emem-1C64F2)](https://marketplace.dify.ai/plugin/vortx-ai/emem)
+
 | | |
 |---|---|
 | **In conversation** | Ask about the real world in [ChatGPT](https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77) or [Claude](plugins/emem/) (`/plugin marketplace add Vortx-AI/emem`) and get answers grounded in signed facts. |
@@ -45,6 +45,8 @@ Every fact is signed and content-addressed, so agents that do not trust each oth
 | **As an autonomous agent or robot** | Talk to emem over [A2A](https://emem.dev/a2a) like any other agent: it publishes an [agent card](https://emem.dev/.well-known/agent-card.json), takes tasks, and signs what it returns. Satellites become one more agent in your multi-agent setup. |
 
 ## Agents that do not need to trust each other
+
+<p align="center"><img src="web/art/hero-many-agents.svg" alt="Four agents, two on each side, all facing one signed record between them. A line runs from every agent to the record, and no line runs between any two agents." width="420"></p>
 
 <img src="docs/media/readme/11-two-agents.gif" alt="Two independent Claude sessions with no shared context: agent A researches a place and hands over one emem token; agent B resolves it, checks the signature, and builds on it." width="880">
 
@@ -82,6 +84,23 @@ A fact's id is the BLAKE3 hash of its canonical bytes, and every answer carries 
 <img src="docs/media/readme/13-a2a.gif" alt="An A2A exchange with emem: reading its agent card, sending a task, and receiving a signed result." width="880">
 
 emem speaks [A2A](https://emem.dev/a2a): read its agent card, send it a task, poll for the result, and get back signed facts. A robot, a scheduler or another company's agent can use satellites the way it uses any other agent on its team.
+
+## See it live
+
+Every demo on the website runs against the live memory, in your browser, with no key.
+
+| Demo | What it shows |
+|---|---|
+| [A signed answer](https://emem.dev/demos/signed-answer) | a place, a signed number, and the receipt that proves who signed it |
+| [Check a handoff](https://emem.dev/demos/handoff) | what another agent handed you, resolved and verified yourself |
+| [Verify before publishing](https://emem.dev/demos/verify-before-publish) | a draft checked against what was actually signed |
+| [The transparency log](https://emem.dev/demos/transparency-log) | a signed log head, and proof it only ever grew |
+| [Tokenise a file](https://emem.dev/demos/tokenise-files) | a document cut into units under one signed root |
+| [Document evidence](https://emem.dev/demos/document-evidence) | a lab or land report turned into signed fields |
+| [EUDR check](https://emem.dev/demos/eudr) | one farm plot against the EU deforestation cut-off |
+| [One field](https://emem.dev/demos/field) | a farm field, its boundary and its pixels |
+
+Also live: [3-D worlds](https://emem.dev/worlds) built from signed facts, the [agent channel](https://emem.dev/channel), and the [scoreboard](https://emem.dev/scoreboard).
 
 ## Quickstart
 
