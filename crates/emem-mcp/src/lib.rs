@@ -1843,7 +1843,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         output_schema: None,
         example_args: r#"{"entity_token":"emem:entity:0a1b2c3d4e5f60718293","alias":"the north dam"}"#,
         level: "L0", category: ToolCategory::Write,
-        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: false,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
         tier: "core",
     },
     // ── Anthropic memory tool (context-management-2025-06-27) ──
@@ -4497,8 +4497,10 @@ mod tests {
             ("emem_memory_bundle", [false, false, true, true]),
             ("emem_entity", [false, false, true, true]),
             ("emem_recall", [false, false, true, true]),
+            // A claim in the shared entity space, which every other agent reads
+            // and ranks by independent agreement: open-world.
+            ("emem_entity_link", [false, false, true, true]),
             // Writes into this node's own store: closed-world, as in the spec's memory example.
-            ("emem_entity_link", [false, false, true, false]),
             ("emem_derive", [false, false, true, false]),
             ("emem_memory_supersede", [false, false, true, false]),
             // A repeat fails on the missing source or path and changes nothing.
