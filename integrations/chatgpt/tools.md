@@ -349,7 +349,7 @@ Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wiki
 
 **Read-only:** no. post_entity_alias appends a signed, attributed claim that a phrasing or external id denotes an existing entity, which changes what other agents see when they resolve that phrasing. The enlistment gate refuses unsigned callers.
 
-**Open world:** no. The handler writes one alias row to this node's entity store and calls no external service. GERS, OSM and Wikidata ids in the claim are stored as keys, never fetched.
+**Open world:** yes. The alias is written to this node's shared entity store, which other agents query through emem_entity_resolve. A write that changes what independently controlled agents read is an interaction with an external system, even though no outbound HTTP call leaves this node.
 
 **Destructive:** no. Claims are append-only: a disagreement is a new row with stance `disputes`, never an edit or removal of an earlier claim.
 
