@@ -48292,6 +48292,20 @@ fn static_release_tslot(band: &str) -> Option<u64> {
     Some(tslot_at_band(unix, band))
 }
 
+/// When the JRC published the GFC2020 version a fact was read from.
+///
+/// `static_release_date` is keyed by band and carried V3's date, so facts
+/// read from V4 tiles after the publisher moved LATEST were stamped as
+/// captured in 2024. An unlisted version gets no date rather than a wrong one.
+fn jrc_gfc2020_release_date(version: u32) -> Option<&'static str> {
+    match version {
+        3 => Some("2024-04-25T00:00:00Z"),
+        // The publisher's LATEST/ listing, which serves V4, dated 2026-09-14.
+        4 => Some("2026-09-14T09:18:00Z"),
+        _ => None,
+    }
+}
+
 fn static_release_date(band: &str) -> Option<&'static str> {
     match band {
         // Cop-DEM GLO-30 v2021 public release.
@@ -55823,7 +55837,7 @@ async fn build_fact_jrc_gfc2020(
                 id: url.clone(),
                 cid: None,
                 hash: None,
-                captured_at: static_release_date(band).map(str::to_string),
+                captured_at: jrc_gfc2020_release_date(version).map(str::to_string),
                 url: Some(url.clone()),
             }],
             derivation: Derivation {
@@ -68849,7 +68863,10 @@ async fn batch_build_facts_via_window(
                 id: url.clone(),
                 cid: None,
                 hash: None,
-                captured_at: static_release_date(band).map(str::to_string),
+                captured_at: match &jrc_url {
+                    Some((_, v)) => jrc_gfc2020_release_date(*v).map(str::to_string),
+                    None => static_release_date(band).map(str::to_string),
+                },
                 url: Some(url.clone()),
             }],
             derivation: emem_fact::Derivation {
