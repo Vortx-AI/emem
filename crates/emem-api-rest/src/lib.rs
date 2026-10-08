@@ -70025,7 +70025,7 @@ const ANNEX_II_POINT_5: &str = "By submitting this due diligence statement the o
 fn statement_of_compliance(verdict: &str, held_for_review: bool) -> &'static str {
     match (verdict, held_for_review) {
         ("pass", false) => ANNEX_II_POINT_5,
-        ("pass", true) => "The due diligence outcome is 'pass', but the statement is held until a person reviews the plots flagged in per_plot_results (tmf_cross_check.review_required, or verdict_support.level 'weak'). The declaration is the Annex II point 5 text; it is not offered for signature until then.",
+        ("pass", true) => "The due diligence outcome is 'pass', but the statement is held until a person reviews the plots flagged in per_plot_results (tmf_cross_check.review_required, or verdict_support.level 'weak'), or reviews a verdict that ran without the JRC baseline (forest_baseline_computed 'hansen_only_jrc_unavailable'). The declaration is the Annex II point 5 text; it is not offered for signature until then.",
         _ => "Statement of compliance cannot be signed because the due diligence outcome is not 'pass'. Operator must address the underlying findings (see per_plot_results) before submitting a DDS to TRACES NT.",
     }
 }
@@ -70121,6 +70121,20 @@ fn build_producer_geojson(
         }]
     });
     (fc, precision_warning)
+}
+
+/// The methodology as it applied to THIS request.
+///
+/// It was one fixed sentence naming the JRC GFC2020 + Hansen consensus, sent
+/// even when JRC errored and the verdict ran on Hansen alone; a partner copied
+/// it into a signed statement whose own baseline field said the opposite.
+fn eudr_methodology_note(computed_baseline: &str) -> String {
+    let base = "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.";
+    if computed_baseline == "hansen_only_jrc_unavailable" {
+        format!("{base} ON THIS REQUEST JRC GFC2020 WAS UNAVAILABLE: the verdict ran on Hansen GFC alone, without the Commission's expected baseline; see `forest_baseline_computed`. Do not describe it as the JRC + Hansen consensus.")
+    } else {
+        base.to_string()
+    }
 }
 
 async fn post_eudr_dds(
@@ -70955,6 +70969,10 @@ async fn post_eudr_dds_inner(
     // Honest baseline provenance: surface what JRC and Hansen actually
     // contributed at request time, not what the algorithm spec says.
     let computed_baseline = aggregate_baseline_provenance(&all_cells_for_provenance);
+    // A pass that ran without the Commission's expected baseline is not a
+    // statement to offer for signature unread, any more than a weak one is.
+    let held_for_review =
+        review_required || weak_support || computed_baseline == "hansen_only_jrc_unavailable";
     let baseline_datasets = forest_baseline_dataset(&baseline_versions);
     let baseline = match req.forest_baseline_override.as_deref() {
         Some(override_v) => override_v.to_string(),
@@ -71077,9 +71095,9 @@ async fn post_eudr_dds_inner(
         "operator":                  req.operator.clone(),
         "geolocationConfidentiality": confidential,
         "commodities":               commodities,
-        "statementOfCompliance":     statement_of_compliance(overall_label, review_required || weak_support),
+        "statementOfCompliance":     statement_of_compliance(overall_label, held_for_review),
         "statementOfComplianceSignable": overall_label == "pass" && !review_required && !weak_support,
-        "statementOfComplianceReviewRequired": review_required || weak_support,
+        "statementOfComplianceReviewRequired": held_for_review,
     });
 
     let mut body = json!({
@@ -71096,7 +71114,7 @@ async fn post_eudr_dds_inner(
         "forest_baseline_computed": computed_baseline,
         "forest_baseline_dataset": baseline_datasets,
         "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); its value `jrc_gfc2020_v3` is a stable enum name, not the dataset version. The version read is `forest_baseline_dataset.version`.",
-        "methodology_note": "Per-cell verdict from eudr_compliance@1 (JRC GFC2020 legal baseline, version in `forest_baseline_dataset` + Hansen GFC v1.13 post-cut-off loss-year). A cell cleared at or before the cut-off year is `not_in_scope` (no longer forest at the cut-off), not `pass`. Plot aggregation applies Article 2(4) 0.5 ha MMU floor (per-cell ≈91 m², ≈55 cells = 0.5 ha). Borderline-canopy flag at ±2 pp of the Article 2(4) 10% threshold. No de-minimis fail-fraction (strict EUDR). JRC TMF v1.2025 DeforestationYear is read on every cell and reported per plot as `tmf_cross_check` (post-cut-off loss agreement with Hansen), NOT counted in the verdict; it is read by HTTP Range from a COG re-encoding of the JRC tiles (source.coop/epoch/jrc-tmf, pixel values spot-checked equal), falling back to the JRC dispatcher. WRI-Sims driver attribution and RADD SAR alerts are off the hot path (signed Absence today). The verdict is the JRC GFC2020 + Hansen consensus only.",
+        "methodology_note": eudr_methodology_note(computed_baseline),
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
@@ -71116,8 +71134,8 @@ async fn post_eudr_dds_inner(
             "verdict_code": overall,
             "n_plots":      req.plots.len(),
         },
-        "statement_of_compliance":     statement_of_compliance(overall_label, review_required || weak_support),
-        "statement_of_compliance_signable": overall_label == "pass" && !review_required && !weak_support,
+        "statement_of_compliance":     statement_of_compliance(overall_label, held_for_review),
+        "statement_of_compliance_signable": overall_label == "pass" && !held_for_review,
         "traces_nt_envelope": traces_nt_envelope,
         "per_plot_results": per_plot_results,
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
@@ -89135,6 +89153,15 @@ mod tests {
             !held.contains("not 'pass'"),
             "a pass held for review is not a non-pass: {held}"
         );
+    }
+
+    #[test]
+    fn the_methodology_names_the_baseline_that_actually_ran() {
+        let jrc = eudr_methodology_note("jrc_gfc2020_v3");
+        assert!(!jrc.contains("UNAVAILABLE"));
+        let hansen = eudr_methodology_note("hansen_only_jrc_unavailable");
+        assert!(hansen.contains("verdict ran on Hansen GFC alone"));
+        assert!(hansen.contains("Do not describe it as the JRC + Hansen consensus"));
     }
 
     #[test]
