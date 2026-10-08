@@ -84,9 +84,9 @@ pub const NORMAL_WINDOW: (i32, i32) = (1991, 2020);
 /// the THREDDS-side aggregation that spans every published year (1950 →
 /// the current calendar year), updated annually as new years are appended.
 ///
-/// Receipts pin the URL via `NormalSample.url`, which is computed against
-/// the *first base that returned a 2xx response* — i.e. the receipt records
-/// which mirror was actually used. Verifiers can replay the same query
+/// Receipts pin the URLs via `NormalSample.urls`, each computed against
+/// the *first base that returned a usable response* for its span, so the
+/// receipt records which mirror was actually used. Verifiers can replay the same query
 /// against any provider in [`NCSS_BASES`] (whose Layer 7 contract — same
 /// dataset name, same NCSS query parameters — is the federation point).
 pub const NCSS_BASE: &str = NCSS_BASES[0];
@@ -435,9 +435,52 @@ async fn ncss_get(url: &str, timeout: Duration) -> Result<Bytes, FetchError> {
             status.as_u16()
         )));
     }
-    resp.bytes()
+    let body = resp
+        .bytes()
         .await
-        .map_err(|e| FetchError::Transport(format!("terraclimate body: {e}")))
+        .map_err(|e| FetchError::Transport(format!("terraclimate body: {e}")))?;
+    // A mirror that does not hold the aggregation answers 200 with no body.
+    // Taken as success, it ended the failover loop and was reported as an
+    // unparseable CSV, hiding the primary's real error behind it.
+    if body.is_empty() {
+        return Err(FetchError::Transport(format!(
+            "terraclimate ncss returned an empty body for {url}"
+        )));
+    }
+    Ok(body)
+}
+
+/// Years per NCSS request. The primary's response time grows with the span
+/// asked for (2.5 s for three months, 41 s for five years, over 90 s for
+/// thirty, measured 2026-10-08), so a thirty-year normal is read as six
+/// concurrent five-year requests over the same rows.
+const CHUNK_YEARS: i32 = 5;
+
+/// Fetch one `[start_year, end_year]` span, trying each mirror in order.
+async fn fetch_rows_span(
+    spec: &VariableSpec,
+    lat: f64,
+    lng: f64,
+    span: (i32, i32),
+    timeout: Duration,
+) -> Result<(Vec<TerraRow>, String), FetchError> {
+    let mut errs: Vec<String> = Vec::new();
+    for base in NCSS_BASES {
+        let url = ncss_url_for_base(base, spec, lat, lng, span.0, span.1);
+        match ncss_get(&url, timeout).await {
+            Ok(body) => {
+                let body_str = std::str::from_utf8(&body)
+                    .map_err(|e| FetchError::Transport(format!("terraclimate body utf8: {e}")))?;
+                return Ok((parse_ncss_csv(body_str, &spec.packed)?, url));
+            }
+            Err(e) => errs.push(e.to_string()),
+        }
+    }
+    Err(FetchError::Transport(if errs.is_empty() {
+        "terraclimate: no NCSS mirror configured".into()
+    } else {
+        errs.join("; ")
+    }))
 }
 
 /// One `(variable, normal_value)` pair as understood by an emem fact.
@@ -449,9 +492,9 @@ pub struct NormalSample {
     pub value: f64,
     /// Unit attached to the fact (`mm`, `degC`).
     pub unit: &'static str,
-    /// URL the responder hit upstream — surfaced in the fact's `Source.id`
-    /// so a verifier can replay the same NCSS query.
-    pub url: String,
+    /// Every URL the responder hit upstream, one per span, each surfaced as
+    /// a `Source` so a verifier can replay the same NCSS queries.
+    pub urls: Vec<String>,
     /// Number of complete years (for annual totals) or monthly samples
     /// (for monthly means) that contributed to the normal. Surfaced in
     /// the fact's `confidence` calibration if a caller wants it.
@@ -487,34 +530,25 @@ pub async fn fetch_terraclimate_normal(
     kind: NormalKind,
     timeout: Duration,
 ) -> Result<NormalSample, FetchError> {
-    // Try each NCSS mirror in order. Receipt pins the URL of the mirror
-    // that actually answered, so a verifier replaying the same query can
-    // tell which provider served the bytes.
-    let mut last_err: Option<FetchError> = None;
-    let mut url = ncss_url(spec, lat, lng, window.0, window.1);
-    let mut body_bytes: Option<Bytes> = None;
-    for base in NCSS_BASES {
-        let try_url = ncss_url_for_base(base, spec, lat, lng, window.0, window.1);
-        match ncss_get(&try_url, timeout).await {
-            Ok(b) => {
-                url = try_url;
-                body_bytes = Some(b);
-                break;
-            }
-            Err(e) => last_err = Some(e),
-        }
+    // Each span tries the mirrors in order, and the receipt pins every URL
+    // that answered, so a verifier replays exactly the queries that were
+    // made and can tell which provider served each span.
+    let spans: Vec<(i32, i32)> = (window.0..=window.1)
+        .step_by(CHUNK_YEARS as usize)
+        .map(|sy| (sy, (sy + CHUNK_YEARS - 1).min(window.1)))
+        .collect();
+    let parts = futures_util::future::try_join_all(
+        spans
+            .iter()
+            .map(|span| fetch_rows_span(spec, lat, lng, *span, timeout)),
+    )
+    .await?;
+    let mut rows: Vec<TerraRow> = Vec::new();
+    let mut urls: Vec<String> = Vec::new();
+    for (part, url) in parts {
+        rows.extend(part);
+        urls.push(url);
     }
-    let body = match body_bytes {
-        Some(b) => b,
-        None => {
-            return Err(last_err.unwrap_or_else(|| {
-                FetchError::Transport("terraclimate: no NCSS mirror configured".into())
-            }))
-        }
-    };
-    let body_str = std::str::from_utf8(&body)
-        .map_err(|e| FetchError::Transport(format!("terraclimate body utf8: {e}")))?;
-    let rows = parse_ncss_csv(body_str, &spec.packed)?;
     let (value, n) = match kind {
         NormalKind::AnnualTotal => {
             let v = annual_total_normal(&rows, window)?;
@@ -546,13 +580,13 @@ pub async fn fetch_terraclimate_normal(
         variable: spec.var,
         value,
         unit: spec.unit,
-        url,
+        urls,
         n_samples: n,
     })
 }
 
 /// Fetch the **mean annual temperature normal** by averaging tmin and tmax
-/// independently and returning their per-month mean. Two upstream calls.
+/// independently and returning their per-month mean. Two concurrent fetches.
 ///
 /// `T_mean = (T_min + T_max) / 2` is the standard meteorological
 /// convention for daily/monthly mean temperature in the absence of a
@@ -565,15 +599,16 @@ pub async fn fetch_terraclimate_tmean_normal(
     window: (i32, i32),
     timeout: Duration,
 ) -> Result<TmeanSample, FetchError> {
-    let tmin = fetch_terraclimate_normal(&TMIN, lat, lng, window, NormalKind::MonthlyMean, timeout)
-        .await?;
-    let tmax = fetch_terraclimate_normal(&TMAX, lat, lng, window, NormalKind::MonthlyMean, timeout)
-        .await?;
+    let (tmin, tmax) = futures_util::future::try_join(
+        fetch_terraclimate_normal(&TMIN, lat, lng, window, NormalKind::MonthlyMean, timeout),
+        fetch_terraclimate_normal(&TMAX, lat, lng, window, NormalKind::MonthlyMean, timeout),
+    )
+    .await?;
     Ok(TmeanSample {
         value: (tmin.value + tmax.value) / 2.0,
         unit: "degC",
-        tmin_url: tmin.url,
-        tmax_url: tmax.url,
+        tmin_urls: tmin.urls,
+        tmax_urls: tmax.urls,
         n_samples: tmin.n_samples.min(tmax.n_samples),
     })
 }
@@ -587,10 +622,10 @@ pub struct TmeanSample {
     pub value: f64,
     /// Unit attached to the fact.
     pub unit: &'static str,
-    /// Upstream URL for the tmin half of the derivation.
-    pub tmin_url: String,
-    /// Upstream URL for the tmax half of the derivation.
-    pub tmax_url: String,
+    /// Upstream URLs for the tmin half of the derivation.
+    pub tmin_urls: Vec<String>,
+    /// Upstream URLs for the tmax half of the derivation.
+    pub tmax_urls: Vec<String>,
     /// Min of (`tmin.n_samples`, `tmax.n_samples`) — the conservative
     /// number of monthly observations that contributed.
     pub n_samples: usize,

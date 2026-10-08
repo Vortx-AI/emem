@@ -33838,7 +33838,7 @@ fn openapi_spec() -> JsonValue {
                 "Cost":            {"type":"object","description":"Self-declared cost block on every receipt. Honest accounting: latencies are observed, freshness is the age of the stalest source cited (null when undatable, never 0 as a stand-in), `was_cached` is true when the hot cache served the read.","properties":{"credits":{"type":"number","description":"Conceptual cost units; 0 for L0/L1 read endpoints on the hosted responder."},"latency_p50_ms":{"type":"number"},"latency_p99_ms":{"type":"number"},"source_freshness_s":{"type":["integer","null"],"description":"Age of the STALEST source this response cites: now minus the earliest captured_at across the returned facts' sources. null when nothing in the response carries a dated source, which is the honest answer for a primitive that reads no observation. Was a hardcoded 0 until 2026-08-05, so a 2021 DEM tile reported as 0 s old; a null here means unknown, never fresh."},"was_cached":{"type":"boolean"}}},
                 "Receipt":         {"type":"object","description":"Ed25519-signed receipt. The browser-side verifier at /verify reconstructs the preimage from the receipt fields alone, no callback to the issuer. **A receipt is byte-for-byte or nothing.** Current receipts carry `preimage_version: 2`, whose preimage binds request_id, served_at, primitive, cells, fact_cids AND, when present, the scope / as_of / edges / source_versions / field digests and the `merkle_proof` segment. Reshaping a receipt — dropping a field an SDK considers redundant, re-keying it, summarising it, round-tripping it through a lossy model — invalidates the signature BY DESIGN, and the result is indistinguishable on the wire from tampering. Store and forward the responder's exact bytes. POST /v1/verify_receipt names which of the two it is where it can prove the difference (`reason: receipt_reshaped_after_signing` with a `failure_detail`). What is NOT signed: the caller's `place`/`q` string, raw `lat`/`lng`, requested `bands[]`, requested `tslot`, and `intent` — a wrong-place geocode produces a valid signature for the wrong cell. Branch on /v1/locate `selected.is_high_confidence` before trusting place-anchored answers. Also: `fact_cid` is per-replica (signed_at differs across responders even for byte-identical upstream pixels); cross-replica join key is the tuple (cell, band, tslot). /v1/recall_polygon emits one independently signed receipt per cell under `by_cell.<cell>.receipt`, `merged_facts[]` is convenience flattening and is NOT covered by an aggregate signature.","required":["request_id","served_at","primitive","cells","fact_cids","schema_cid","responder","responder_key_epoch","responder_pubkey_b32","signature","registry_cid"],"properties":{"request_id":{"type":"string","description":"ULID generated per request."},"served_at":{"type":"string","description":"ISO 8601 UTC, second precision."},"primitive":{"type":"string","description":"Namespaced wire form: `emem.recall`, `emem.find_similar`, `emem.verify`, …"},"intent":{"type":"string","description":"Optional natural-language hint. Populated when served via /v1/intent."},"cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"}},"fact_cids":{"type":"array","items":{"$ref":"#/components/schemas/FactCid"}},"schema_cid":{"type":"string","description":"CID of the active CDDL profile."},"merkle_proof":{"type":"object","description":"Inclusion proof for `fact_cids[0]` when persisted. Omitted from JSON when the cited facts pre-date the proof tree; under preimage_version 2 that absence is itself signed (an explicit ABSENT marker), so it is a statement rather than a gap. Do not strip this field: v2 binds it into the signature and removing it makes an authentic receipt report `signature_valid: false`.","required":["leaf_index","path","root"],"properties":{"leaf_index":{"type":"integer","description":"u32 leaf index in the canonical-sorted batch."},"path":{"type":"array","items":{"type":"array","items":{"type":"integer"},"description":"32-byte sibling hash as a byte array"},"description":"Sibling hashes leaf→root."},"root":{"type":"array","items":{"type":"integer"},"description":"The expected 32-byte batch root as a byte array."},"version":{"type":"integer","description":"Merkle hashing rule: 0 (omitted) = legacy unprefixed, 1 = RFC 6962-style prefixed."}}},"responder":{"$ref":"#/components/schemas/PubKey"},"responder_key_epoch":{"type":"integer","description":"u32 rotation counter; bumps when the operator rotates keys."},"responder_pubkey_b32":{"$ref":"#/components/schemas/PubKey"},"signature":{"type":"string","description":"Ed25519 signature, 64 bytes base32-nopad-lowercase encoded."},"source_versions":{"type":"object","additionalProperties":{"type":"string"},"description":"Per-source freshness map."},"registry_cid":{"type":"string","description":"CID of the function registry version in force."},"cost":{"$ref":"#/components/schemas/Cost"}}},
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
-                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","unknown_band","no_materializer","deferred","retired","not_geographic"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
+                "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -50882,6 +50882,7 @@ async fn materialize_era5_band(
     s: &AppState,
     band: &str,
     target_unix: i64,
+    latest: bool,
 ) -> Result<emem_fact::FactCid, String> {
     let (om_field, unit, confidence) = match band {
         "era5.t2m" => ("temperature_2m", Some("degC"), 0.90),
@@ -50896,10 +50897,22 @@ async fn materialize_era5_band(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-    let date = unix_to_yyyymmdd(target_unix);
-    let date_iso = format!("{}-{}-{}", &date[0..4], &date[4..6], &date[6..8]);
+    let iso_day = |t: i64| {
+        let d = unix_to_yyyymmdd(t);
+        format!("{}-{}-{}", &d[0..4], &d[4..6], &d[6..8])
+    };
+    // ERA5 publishes about five days behind and the lag drifts (5.75 days on
+    // 2026-10-08), so a fixed "five days ago" hour was null and every latest
+    // read failed. Latest mode reads nine days back and takes the newest hour
+    // the archive holds; a named hour is still that hour or an error.
+    let start_iso = iso_day(if latest {
+        target_unix - 9 * 86_400
+    } else {
+        target_unix
+    });
+    let end_iso = iso_day(target_unix);
     let url = format!(
-        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={date_iso}&end_date={date_iso}&timezone=UTC&models=era5"
+        "https://archive-api.open-meteo.com/v1/archive?latitude={lat:.4}&longitude={lng:.4}&hourly={om_field}&start_date={start_iso}&end_date={end_iso}&timezone=UTC&models=era5"
     );
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let resp = tokio::time::timeout(
@@ -50925,28 +50938,37 @@ async fn materialize_era5_band(
         .and_then(|v| v.as_array())
         .ok_or_else(|| format!("era5 response missing hourly.{om_field}"))?;
     let target_hour_unix = (target_unix / 3600) * 3600;
-    let mut chosen: Option<(usize, String)> = None;
+    let mut chosen: Option<(usize, String, i64)> = None;
     for (i, t) in times.iter().enumerate() {
         let Some(s) = t.as_str() else { continue };
-        if let Some(u) = parse_iso_utc_hour(s) {
-            if u == target_hour_unix {
-                chosen = Some((i, s.to_string()));
-                break;
+        let Some(u) = parse_iso_utc_hour(s) else {
+            continue;
+        };
+        if latest {
+            let has_value = values.get(i).and_then(|v| v.as_f64()).is_some();
+            if u <= target_hour_unix && has_value {
+                chosen = Some((i, s.to_string(), u));
             }
+        } else if u == target_hour_unix {
+            chosen = Some((i, s.to_string(), u));
+            break;
         }
     }
-    let (idx, iso) = chosen.ok_or_else(|| {
-        format!(
-            "era5 response had no hour matching target {target_hour_unix}; ERA5 archive starts 1940-01-01"
-        )
+    let (idx, iso, hour_unix) = chosen.ok_or_else(|| {
+        if latest {
+            format!("era5 archive holds no {om_field} value in the nine days to {end_iso}")
+        } else {
+            format!(
+                "era5 response had no hour matching target {target_hour_unix}; ERA5 archive starts 1940-01-01"
+            )
+        }
     })?;
     let v = values
         .get(idx)
         .and_then(|v| v.as_f64())
         .ok_or_else(|| format!("era5 hourly.{om_field}[{idx}] missing or null"))?;
     let signed_at = chrono_iso8601_utc();
-    let tslot =
-        emem_core::tslot::Tslot::from_unix(target_unix, emem_core::tslot::Tempo::UltraFast).0;
+    let tslot = emem_core::tslot::Tslot::from_unix(hour_unix, emem_core::tslot::Tempo::UltraFast).0;
     let fact = Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
@@ -51143,6 +51165,23 @@ async fn materialize_marine_band(
     sign_and_persist(s, fact, &signed_at).await
 }
 
+/// Per-request client timeout for TerraClimate NCSS reads, in seconds.
+const TERRACLIMATE_REQUEST_SECS: u64 = 100;
+
+/// One `Source` per NCSS request a TerraClimate normal was computed from.
+fn terraclimate_sources<'a>(urls: impl IntoIterator<Item = &'a String>, band: &str) -> Vec<Source> {
+    urls.into_iter()
+        .map(|u| Source {
+            scheme: "terraclimate_ncss".into(),
+            id: u.clone(),
+            cid: None,
+            hash: None,
+            captured_at: static_release_date(band).map(str::to_string),
+            url: Some(u.clone()),
+        })
+        .collect()
+}
+
 /// Materialize a TerraClimate **30-year climate normal** at a single
 /// lat/lng. TerraClimate (Abatzoglou et al. 2018, *Scientific Data*; v1.1
 /// 2025 release) is the University of Idaho Climatology Lab's
@@ -51185,7 +51224,12 @@ async fn materialize_terraclimate_band(
     let info = emem_codec::latlng_from_cell64(cell64).map_err(|e| format!("cell decode: {e}"))?;
     let lat = info.lat_deg;
     let lng = info.lng_deg;
-    let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
+    // Per request, not per answer. A normal is static (one fact per cell for
+    // good), and the primary mirror takes about 40 s per five-year span, so
+    // the call answers as a timeout and the read finishes in the background
+    // under the dispatcher's 120 s ceiling, where a retry then finds it.
+    let timeout =
+        std::time::Duration::from_secs(materializer_timeout_secs().max(TERRACLIMATE_REQUEST_SECS));
     let signed_at = chrono_iso8601_utc();
 
     // Sub-band → variable-spec dispatcher. Each branch builds the fact with
@@ -51212,14 +51256,7 @@ async fn materialize_terraclimate_band(
                 // constrained and TerraClimate is widely cited (>5k papers).
                 0.85f32,
                 "terraclimate_ncss",
-                vec![Source {
-                    scheme: "terraclimate_ncss".into(),
-                    id: sample.url.clone(),
-                    cid: None,
-                    hash: None,
-                    captured_at: static_release_date(band).map(str::to_string),
-                    url: Some(sample.url.clone()),
-                }],
+                terraclimate_sources(&sample.urls, band),
                 "terraclimate_ppt_annual_total_normal_1991_2020@1".to_string(),
                 ciborium::Value::Array(vec![
                     ciborium::Value::Float(lat),
@@ -51248,14 +51285,7 @@ async fn materialize_terraclimate_band(
                 sample.unit,
                 0.80f32,
                 "terraclimate_ncss",
-                vec![Source {
-                    scheme: "terraclimate_ncss".into(),
-                    id: sample.url.clone(),
-                    cid: None,
-                    hash: None,
-                    captured_at: static_release_date(band).map(str::to_string),
-                    url: Some(sample.url.clone()),
-                }],
+                terraclimate_sources(&sample.urls, band),
                 "terraclimate_aet_annual_total_normal_1991_2020@1".to_string(),
                 ciborium::Value::Array(vec![
                     ciborium::Value::Float(lat),
@@ -51280,24 +51310,7 @@ async fn materialize_terraclimate_band(
                 sample.unit,
                 0.85f32,
                 "terraclimate_ncss",
-                vec![
-                    Source {
-                        scheme: "terraclimate_ncss".into(),
-                        id: sample.tmin_url.clone(),
-                        cid: None,
-                        hash: None,
-                        captured_at: static_release_date(band).map(str::to_string),
-                        url: Some(sample.tmin_url.clone()),
-                    },
-                    Source {
-                        scheme: "terraclimate_ncss".into(),
-                        id: sample.tmax_url.clone(),
-                        cid: None,
-                        hash: None,
-                        captured_at: static_release_date(band).map(str::to_string),
-                        url: Some(sample.tmax_url.clone()),
-                    },
-                ],
+                terraclimate_sources(sample.tmin_urls.iter().chain(sample.tmax_urls.iter()), band),
                 "terraclimate_tmean_monthly_mean_normal_1991_2020@1".to_string(),
                 ciborium::Value::Array(vec![
                     ciborium::Value::Float(lat),
@@ -58174,6 +58187,10 @@ fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
         ("not_geographic", false)
     } else if reason.contains("unknown_band") {
         ("unknown_band", false)
+    } else if reason.contains("status 404 for ") || reason.contains("status 410 for ") {
+        // A fixed upstream URL that answers 404 has moved or been withdrawn
+        // (NOAA's DMSP composites went behind a login); retrying cannot help.
+        ("upstream_gone", false)
     } else if reason.contains("no_auto_materializer_registered")
         || reason.contains("no materializer")
     {
@@ -59303,7 +59320,7 @@ async fn materialize_band_at(
 
     // Open-Meteo Archive ERA5 (1940-present, hourly).
     if band.starts_with("era5.") {
-        return materialize_era5_band(cell64, s, band, target_unix).await;
+        return materialize_era5_band(cell64, s, band, target_unix, false).await;
     }
 
     // Open-Meteo Marine ECMWF WAM (2022-08-01+, hourly).
@@ -60781,14 +60798,52 @@ async fn materialize_bands_once(
                     }
                 }
             }
-            // Open-Meteo Archive ERA5. Recall path: 5 days ago (ERA5 publishes
-            // with 5-day lag; "current" mode cannot return a value newer than that).
+            // A delta of another band over a window. The backfill dispatcher
+            // routed these and this one did not, so a recall answered "no
+            // materializer" for a band /v1/materializers lists.
+            b_name if b_name.starts_with("temporal_diff:") => {
+                let now_unix = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0);
+                match materialize_temporal_diff(cell64, b, now_unix, s).await {
+                    Ok(cid) => {
+                        tracing::info!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_fact_cid = %cid.as_str(),
+                            materialize_kind = "primary",
+                            "materialize_ok"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: Some(cid.as_str().to_string()),
+                            skip_reason: None,
+                        });
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            target: "emem::materialize",
+                            materialize_cell = %cell64, materialize_band = %b,
+                            materialize_error = %e,
+                            "materialize_failed"
+                        );
+                        out.push(MaterializeOutcome {
+                            band: b.clone(),
+                            fact_cid: None,
+                            skip_reason: Some(e),
+                        });
+                    }
+                }
+            }
+            // Open-Meteo Archive ERA5. Recall path: the newest hour the archive
+            // holds, which runs several days behind real time.
             b_name if b_name.starts_with("era5.") => {
                 let now_unix = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|d| d.as_secs() as i64)
                     .unwrap_or(0);
-                match materialize_era5_band(cell64, s, b, now_unix - 5 * 86_400).await {
+                match materialize_era5_band(cell64, s, b, now_unix, true).await {
                     Ok(cid) => {
                         tracing::info!(
                             target: "emem::materialize",
@@ -92598,6 +92653,13 @@ mod tests {
             ),
             ("not_geographic", false),
             "an address with no latitude never resolves on retry"
+        );
+        assert_eq!(
+            classify_skip_reason(
+                "dmsp_ols fetch failed: status 404 for https://www.ngdc.noaa.gov/eog/data/web_data/v4composites/F182013.v4.tar"
+            ),
+            ("upstream_gone", false),
+            "a moved upstream file does not come back on retry"
         );
     }
 
