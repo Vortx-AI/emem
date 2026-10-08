@@ -51,6 +51,9 @@ pub struct CanonicalKey {
 ///
 /// Implementations are async to play with axum/rmcp runtimes. Methods are
 /// batch-shaped to support bootstrap throughput targets.
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Cache: Send + Sync {
     /// Look up canonical fact CIDs for many keys at once. Returns one slot

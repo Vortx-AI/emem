@@ -69,6 +69,9 @@ pub enum LlmError {
 
 /// Injectable LLM transport. Implemented by the real HTTP gateway and by a
 /// mock in tests.
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait LlmTransport: Send + Sync {
     async fn propose_merge(&self, req: LlmRequest) -> Result<MergeProposal, LlmError>;

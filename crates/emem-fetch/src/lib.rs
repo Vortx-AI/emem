@@ -127,6 +127,9 @@ pub enum FetchError {
 }
 
 /// A connector implementation for one ConnectorKind.
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait SourceConnector: Send + Sync {
     /// Connector kind this implementation handles.

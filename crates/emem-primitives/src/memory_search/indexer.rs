@@ -564,6 +564,9 @@ impl MemoryTextIndex {
 /// `list_all` returns every file currently held; `read_text` returns
 /// the bytes-as-UTF-8 for one path (or `None` when the file vanished
 /// between list and read).
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait::async_trait]
 pub trait MemoryFileSource: Send + Sync {
     /// Enumerate every memory file. Each entry is one indexable row.

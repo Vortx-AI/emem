@@ -707,6 +707,9 @@ pub struct SegmentManifest {
 }
 
 /// A trait alias for backup/replication backends (S3, IPFS, etc.).
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait SegmentBackup: Send + Sync {
     /// Push a sealed segment file + its manifest to remote storage.

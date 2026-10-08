@@ -380,6 +380,9 @@ pub struct MaterializingStorage {
 
 /// The protocol-level storage trait. All primitives program against this
 /// surface. Async + batch-shaped from day one.
+// async_trait marks each declared method #[must_use] on a future that
+// already is; the lint fires inside the macro's expansion, not our code.
+#[allow(clippy::double_must_use)]
 #[async_trait]
 pub trait Storage: Send + Sync {
     /// Look up canonical fact CIDs for many keys.
