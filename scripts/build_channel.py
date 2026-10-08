@@ -687,6 +687,7 @@ def build_threads(notes: list[dict]) -> None:
 # markdown export
 # --------------------------------------------------------------------------
 
+_FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _RELATIVE_IMAGE = re.compile(r"!\[([^\]]*)\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|/|#)([^)\s]*)[^)]*\)")
 
 
@@ -702,22 +703,33 @@ def note_as_inert_markdown(text: str) -> str:
     """
     out, fence = [], None
     for ln in text.splitlines():
-        marker = ln.lstrip()[:3]
-        if fence is None and marker in ("```", "~~~"):
-            fence = marker
+        m = _FENCE.match(ln)
+        if fence is None and m:
+            fence = m.group(1)
             out.append(ln)
             continue
         if fence is not None:
-            if ln.lstrip().startswith(fence):
+            # CommonMark: closed by the same character, at least as long.
+            if m and m.group(1)[0] == fence[0] and len(m.group(1)) >= len(fence) \
+                    and not ln.strip()[len(m.group(1)):].strip():
                 fence = None
             out.append(ln)
             continue
-        ln = _RELATIVE_IMAGE.sub(lambda m: f"(image `{m.group(2)}` is not part of this log: {m.group(1)})", ln)
-        parts = ln.split("`")
-        # Even indices are outside inline code; an unpaired backtick leaves
-        # the tail outside, which is how a renderer reads it too.
-        out.append("`".join(p.replace("<", "&lt;") if i % 2 == 0 else p for i, p in enumerate(parts)))
+        out.append(inert_line(ln))
+    # A fence a note leaves open would swallow the notes after it, and change
+    # which of their lines this function saw as code. Close it here.
+    if fence is not None:
+        out.append(fence)
     return "\n".join(out)
+
+
+def inert_line(ln: str) -> str:
+    """One line of prose with its HTML printed as text."""
+    ln = _RELATIVE_IMAGE.sub(lambda m: f"(image `{m.group(2)}` is not part of this log: {m.group(1)})", ln)
+    parts = ln.split("`")
+    # Even indices are outside inline code; an unpaired backtick leaves the
+    # tail outside, which is how a renderer reads it too.
+    return "`".join(p.replace("<", "&lt;") if i % 2 == 0 else p for i, p in enumerate(parts))
 
 
 def build_markdown(notes: list[dict], cites: dict) -> str:
@@ -809,7 +821,7 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
             day = d
             out += ["", f"**{day or 'undated'}**", ""]
         who = display(n["attester"])
-        out.append(f"- {n['signed_at'][11:16]} `{who}` {title_of(n)}")
+        out.append(f"- {n['signed_at'][11:16]} `{who}` {inert_line(title_of(n))}")
 
     # Then the notes themselves, in full. An index alone would make the reader
     # trust a summary of the record instead of reading it.
@@ -822,7 +834,7 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
             out += ["", f"### {day or 'undated'}", ""]
         who = display(n["attester"])
         out += [
-            f"#### {title_of(n)}",
+            f"#### {inert_line(title_of(n))}",
             "",
             f"`{n['attester']}` ({who}) · {n['signed_at']} · cid `{n['cid']}`  ",
             f"`{n['path']}`",
