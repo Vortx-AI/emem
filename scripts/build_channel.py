@@ -687,6 +687,39 @@ def build_threads(notes: list[dict]) -> None:
 # markdown export
 # --------------------------------------------------------------------------
 
+_RELATIVE_IMAGE = re.compile(r"!\[([^\]]*)\]\((?![a-zA-Z][a-zA-Z0-9+.-]*:|/|#)([^)\s]*)[^)]*\)")
+
+
+def note_as_inert_markdown(text: str) -> str:
+    """A note body that mdbook prints as text and never runs.
+
+    mdbook passes raw HTML through, and every inline script in the book is
+    hashed into the site's CSP. A note is written by whoever holds a key, so a
+    `<script>` in one reached the published log as live markup, and a later
+    build would have allowed it. Outside code, `<` is escaped (code spans and
+    fences already print literally). A relative image named a file on the
+    author's machine and asked this origin for it; it is kept as text.
+    """
+    out, fence = [], None
+    for ln in text.splitlines():
+        marker = ln.lstrip()[:3]
+        if fence is None and marker in ("```", "~~~"):
+            fence = marker
+            out.append(ln)
+            continue
+        if fence is not None:
+            if ln.lstrip().startswith(fence):
+                fence = None
+            out.append(ln)
+            continue
+        ln = _RELATIVE_IMAGE.sub(lambda m: f"(image `{m.group(2)}` is not part of this log: {m.group(1)})", ln)
+        parts = ln.split("`")
+        # Even indices are outside inline code; an unpaired backtick leaves
+        # the tail outside, which is how a renderer reads it too.
+        out.append("`".join(p.replace("<", "&lt;") if i % 2 == 0 else p for i, p in enumerate(parts)))
+    return "\n".join(out)
+
+
 def build_markdown(notes: list[dict], cites: dict) -> str:
     # Only agents who actually have a note here. The roster used to be every
     # attester the responder knows, so this file opened by calling 37 agents
@@ -796,7 +829,7 @@ def build_markdown(notes: list[dict], cites: dict) -> str:
             "",
             # Demote headings so the note's own structure nests under this one.
             "\n".join(("##" + ln) if ln.startswith("#") else ln
-                      for ln in n["content"].splitlines()),
+                      for ln in note_as_inert_markdown(n["content"]).splitlines()),
             "",
         ]
     return "\n".join(out) + "\n"

@@ -1787,14 +1787,7 @@ fn eudr_router(state: AppState) -> Router {
         // the (N+1)th concurrent compile gets a fast 503 and frees its socket
         // instead of piling up, the heavy endpoint can no longer take the
         // site down. Cap via EMEM_EUDR_MAX_INFLIGHT (default 3, clamped 1..=64).
-        .layer(
-            tower::ServiceBuilder::new()
-                .layer(axum::error_handling::HandleErrorLayer::new(handle_overload))
-                .layer(tower::load_shed::LoadShedLayer::new())
-                .layer(tower::limit::GlobalConcurrencyLimitLayer::new(
-                    eudr_max_inflight(),
-                )),
-        )
+        .layer(axum::middleware::from_fn(eudr_admission_layer))
         .layer(axum::middleware::from_fn(security_headers_layer))
         .layer(axum::middleware::from_fn(rate_limit_layer))
         .layer(axum::middleware::from_fn(cors_layer))
@@ -1916,6 +1909,68 @@ fn eudr_max_inflight() -> usize {
         .and_then(|s| s.parse::<usize>().ok())
         .unwrap_or(3)
         .clamp(1, 64)
+}
+
+/// How long a request waits for an EUDR slot before it is shed.
+///
+/// The cap used to shed the (N+1)th request at once. eudr.dev sends four plots
+/// at a time, so the fourth of every burst got a 503 a second before a slot
+/// freed. Waiting holds a socket, not runtime work. Default 30 s, tunable via
+/// `EMEM_EUDR_QUEUE_SECS` (clamped 0..=120; 0 restores immediate shedding).
+fn eudr_queue_secs() -> u64 {
+    std::env::var("EMEM_EUDR_QUEUE_SECS")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(30)
+        .min(120)
+}
+
+/// Admission for the EUDR routes: at most [`eudr_max_inflight`] run, up to four
+/// times that many wait for a slot, and a request still waiting after
+/// [`eudr_queue_secs`] (or arriving to a full queue) gets a typed 503.
+async fn eudr_admission_layer(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    static RUNNING: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    static WAITING: std::sync::OnceLock<std::sync::Arc<tokio::sync::Semaphore>> =
+        std::sync::OnceLock::new();
+    let cap = eudr_max_inflight();
+    let running = RUNNING
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(cap)))
+        .clone();
+    let waiting = WAITING
+        .get_or_init(|| std::sync::Arc::new(tokio::sync::Semaphore::new(cap * 4)))
+        .clone();
+    let wait = std::time::Duration::from_secs(eudr_queue_secs());
+    let permit = match running.clone().try_acquire_owned() {
+        Ok(p) => Some(p),
+        Err(_) => match waiting.try_acquire_owned() {
+            Ok(_queued) => tokio::time::timeout(wait, running.acquire_owned())
+                .await
+                .ok()
+                .and_then(|r| r.ok()),
+            Err(_) => None,
+        },
+    };
+    match permit {
+        Some(_running) => next.run(req).await,
+        None => eudr_overloaded(cap, wait.as_secs()),
+    }
+}
+
+fn eudr_overloaded(cap: usize, waited_s: u64) -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        [(axum::http::header::RETRY_AFTER, RATE_LIMITED_RETRY_AFTER)],
+        Json(json!({
+            "schema":  "emem.error.v1",
+            "code":    "overloaded",
+            "message": format!("the EUDR routes run {cap} requests at a time and none freed within {waited_s} s; retry shortly. This is backpressure, not an outage. Operators tune EMEM_EUDR_MAX_INFLIGHT and EMEM_EUDR_QUEUE_SECS."),
+        })),
+    )
+        .into_response()
 }
 
 /// Error handler for the load-shed / concurrency-limit layer. The only
@@ -3673,21 +3728,42 @@ fn has_src_attr(open_tag: &str) -> bool {
 /// Deduplication makes this cheap. mdbook emits byte-identical bootstrap
 /// blocks on every chapter, so the whole book contributes a handful of
 /// distinct hashes rather than one per page.
+#[cfg(test)]
 fn docs_book_html_pages() -> Vec<&'static str> {
-    fn collect(dir: &'static include_dir::Dir<'static>, out: &mut Vec<&'static str>) {
+    docs_book_html_pages_where(|_| true)
+}
+
+/// The book pages whose inline blocks may be trusted into the CSP.
+///
+/// Not the collaboration log: it reprints notes anyone can sign, so an inline
+/// script inside one would otherwise have its hash allowed at the next build
+/// and run on this origin. mdbook's own inline scripts are on every other
+/// page too, so leaving this one out allows nothing less that is ours.
+fn docs_book_csp_trusted_pages() -> Vec<&'static str> {
+    docs_book_html_pages_where(|path| {
+        path.file_name().and_then(|n| n.to_str()) != Some("collaboration-log.html")
+    })
+}
+
+fn docs_book_html_pages_where(keep: fn(&std::path::Path) -> bool) -> Vec<&'static str> {
+    fn collect(
+        dir: &'static include_dir::Dir<'static>,
+        keep: fn(&std::path::Path) -> bool,
+        out: &mut Vec<&'static str>,
+    ) {
         for f in dir.files() {
-            if f.path().extension().and_then(|e| e.to_str()) == Some("html") {
+            if f.path().extension().and_then(|e| e.to_str()) == Some("html") && keep(f.path()) {
                 if let Some(text) = f.contents_utf8() {
                     out.push(text);
                 }
             }
         }
         for sub in dir.dirs() {
-            collect(sub, out);
+            collect(sub, keep, out);
         }
     }
     let mut out = Vec::new();
-    collect(&DOCS_BOOK, &mut out);
+    collect(&DOCS_BOOK, keep, &mut out);
     out
 }
 
@@ -3696,7 +3772,7 @@ fn collect_inline_hashes() -> (Vec<String>, Vec<String>) {
     let mut styles = std::collections::BTreeSet::new();
     for page in served_html_pages()
         .into_iter()
-        .chain(docs_book_html_pages())
+        .chain(docs_book_csp_trusted_pages())
     {
         extract_inline_blocks(page, "script", |open_tag, body| {
             if has_src_attr(open_tag) {
@@ -29703,22 +29779,6 @@ async fn mcp_with_version(
     tier: &str,
 ) -> axum::response::Response {
     use axum::response::IntoResponse;
-    let negotiated = match mcp_negotiated_version(&headers) {
-        Ok(v) => v,
-        Err(asked) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "unsupported_protocol_version",
-                    "requested": asked,
-                    "supported": MCP_SUPPORTED_VERSIONS,
-                    "latest": MCP_LATEST_VERSION,
-                    "hint": "Resend with an MCP-Protocol-Version this server implements, or omit the header entirely, which is read as 2025-03-26.",
-                })),
-            )
-                .into_response();
-        }
-    };
     // On `initialize` the version is negotiated in the BODY: the spec has the
     // client send `params.protocolVersion` there, and only send the
     // MCP-Protocol-Version HEADER on the requests that follow. So on that one
@@ -29748,6 +29808,26 @@ async fn mcp_with_version(
                 .and_then(|asked| MCP_SUPPORTED_VERSIONS.iter().copied().find(|s| *s == asked))
                 .unwrap_or(MCP_LATEST_VERSION)
         });
+    let negotiated = match mcp_negotiated_version(&headers) {
+        Ok(v) => v,
+        // Only refused AFTER initialize. On initialize the body negotiates and
+        // the server answers with a version it supports; refusing a newer
+        // header there cost every newer client a 400 and a retry per connect.
+        Err(_) if initialize_version.is_some() => MCP_LATEST_VERSION,
+        Err(asked) => {
+            return (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(json!({
+                    "error": "unsupported_protocol_version",
+                    "requested": asked,
+                    "supported": MCP_SUPPORTED_VERSIONS,
+                    "latest": MCP_LATEST_VERSION,
+                    "hint": "Resend with an MCP-Protocol-Version this server implements, or omit the header entirely, which is read as 2025-03-26.",
+                })),
+            )
+                .into_response();
+        }
+    };
     let stamped = initialize_version.unwrap_or(negotiated);
     let mut resp = mcp_jsonrpc_inner(s, headers, body, tier).await;
     if let Ok(v) = axum::http::HeaderValue::from_str(stamped) {
@@ -83714,6 +83794,59 @@ mod tests {
             "lance/memory_text_index_d768.lance"
         );
         assert_eq!(dataset_path_for_callers(""), "");
+    }
+
+    /// A client on a newer MCP revision sends its version in the header on
+    /// `initialize` too. Refusing it there made every such connect a 400 and a
+    /// retry; the body negotiates, so initialize answers with our latest, and
+    /// only the requests after it are held to a version we implement.
+    #[tokio::test]
+    async fn a_newer_version_header_negotiates_on_initialize_and_is_refused_after() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("mcp-protocol-version", "2026-07-28".parse().unwrap());
+        let init = axum::body::Bytes::from(
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#,
+        );
+        let r = mcp_with_version(test_app_state(), headers.clone(), init, "core").await;
+        assert_eq!(r.status(), axum::http::StatusCode::OK);
+        assert_eq!(r.headers()["mcp-protocol-version"], MCP_LATEST_VERSION);
+        let list = axum::body::Bytes::from(
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        );
+        let r = mcp_with_version(test_app_state(), headers, list, "core").await;
+        assert_eq!(r.status(), axum::http::StatusCode::BAD_REQUEST);
+    }
+
+    /// eudr.dev sends four plots at a time and the route runs three. The cap
+    /// shed the fourth with an instant 503; it now waits for a slot.
+    #[tokio::test]
+    async fn a_burst_past_the_eudr_cap_waits_for_a_slot_instead_of_failing() {
+        use tower::ServiceExt;
+        let app: Router = Router::new()
+            .route(
+                "/x",
+                post(|| async {
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                    "ok"
+                }),
+            )
+            .layer(axum::middleware::from_fn(eudr_admission_layer));
+        let n = eudr_max_inflight() + 2;
+        let calls = (0..n).map(|_| {
+            let app = app.clone();
+            async move {
+                let req = axum::http::Request::post("/x")
+                    .body(axum::body::Body::empty())
+                    .unwrap();
+                app.oneshot(req).await.unwrap().status()
+            }
+        });
+        let statuses = futures_util::future::join_all(calls).await;
+        assert!(
+            statuses.iter().all(|s| *s == StatusCode::OK),
+            "a burst of {n} over a cap of {} was not admitted: {statuses:?}",
+            eudr_max_inflight()
+        );
     }
 
     #[tokio::test]
