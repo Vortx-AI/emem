@@ -45,13 +45,18 @@ pub struct LoggedVerdict {
 
 /// A file-backed log.
 ///
-/// The mutex is held across the read-modify-append so two concurrent verdicts
-/// cannot compute the same chain link. Verdict volume is bounded by the
-/// checkpoint's own rate, and an append is a few hundred bytes, so this is
-/// not the bottleneck the budget cares about.
+/// The `state` mutex is held across the read-modify-write so two concurrent
+/// verdicts cannot compute the same chain link. The fsync is not under it:
+/// holding one lock across write AND fsync made 16 concurrent verdicts queue
+/// behind up to 15 fsyncs, past the 1000 ms deadline on a CI disk. Appends
+/// are group-committed instead, see [`FileLog::make_durable`].
 pub struct FileLog {
     path: PathBuf,
     state: Mutex<Tail>,
+    /// The log file, open for append for the life of the log.
+    file: std::fs::File,
+    /// Sequence numbers below this are on disk.
+    durable_through: Mutex<u64>,
     /// The PUBLIC key, stamped on each entry so a reader needs nothing from
     /// us to verify it.
     ///
@@ -84,6 +89,8 @@ struct Tail {
     /// entry 7 and check its signature, or the leaf is a promise with no
     /// mechanism behind it.
     offsets: Vec<u64>,
+    /// Bytes in the file, so a line's offset is known without a stat.
+    len: u64,
 }
 
 impl FileLog {
@@ -129,13 +136,21 @@ impl FileLog {
                     tail.chain = v.chain;
                 }
             }
+            tail.len = offset;
         }
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+        let durable_through = Mutex::new(tail.seq);
         let signer_b32 = data_encoding::BASE32_NOPAD
             .encode(verifying.as_bytes())
             .to_lowercase();
         Ok(Self {
             path,
             state: Mutex::new(tail),
+            file,
+            durable_through,
             signer_b32,
         })
     }
@@ -391,47 +406,80 @@ impl AuditReport {
     }
 }
 
-impl VerdictLog for FileLog {
-    fn append(&self, record: &VerdictRecord, signature: &[u8]) -> Result<String, LogError> {
-        let mut tail = self
+impl FileLog {
+    /// Return once entry `seq` is on disk.
+    ///
+    /// Group commit: whoever takes this lock first fsyncs everything written
+    /// so far, and every append waiting behind it finds its entry already
+    /// covered and returns without a second fsync.
+    fn make_durable(&self, seq: u64) -> Result<(), LogError> {
+        let mut durable = self
+            .durable_through
+            .lock()
+            .map_err(|_| LogError::Unavailable("durability mutex poisoned".into()))?;
+        if *durable > seq {
+            return Ok(());
+        }
+        // Read the written tail before the fsync: everything below it is
+        // already in the file, so this one call makes all of it durable.
+        let written = self
             .state
             .lock()
-            .map_err(|_| LogError::Unavailable("log mutex poisoned".into()))?;
-        let preimage = record.preimage();
-        let chain = chain_link(&tail.chain, &preimage);
-        let entry = LoggedVerdict {
-            seq: tail.seq,
-            record: record.clone(),
-            signature_b32: data_encoding::BASE32_NOPAD.encode(signature).to_lowercase(),
-            signer_b32: self.signer_b32.clone(),
-            chain: chain.clone(),
-        };
-        let line = serde_json::to_string(&entry)
-            .map_err(|e| LogError::Unavailable(format!("serialise: {e}")))?;
+            .map_err(|_| LogError::Unavailable("log mutex poisoned".into()))?
+            .seq;
+        self.file
+            .sync_all()
+            .map_err(|e| LogError::Unavailable(format!("fsync: {e}")))?;
+        *durable = written;
+        Ok(())
+    }
+}
 
-        let mut f = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.path)
-            .map_err(|e| LogError::Unavailable(format!("open {}: {e}", self.path.display())))?;
-        // Where this line starts, so the dedupe index can seek straight to it.
-        let byte_offset = f
-            .metadata()
-            .map_err(|e| LogError::Unavailable(format!("stat: {e}")))?
-            .len();
-        writeln!(f, "{line}").map_err(|e| LogError::Unavailable(format!("write: {e}")))?;
+impl VerdictLog for FileLog {
+    fn append(&self, record: &VerdictRecord, signature: &[u8]) -> Result<String, LogError> {
+        let (seq, byte_offset) = {
+            let mut tail = self
+                .state
+                .lock()
+                .map_err(|_| LogError::Unavailable("log mutex poisoned".into()))?;
+            let preimage = record.preimage();
+            let chain = chain_link(&tail.chain, &preimage);
+            let entry = LoggedVerdict {
+                seq: tail.seq,
+                record: record.clone(),
+                signature_b32: data_encoding::BASE32_NOPAD.encode(signature).to_lowercase(),
+                signer_b32: self.signer_b32.clone(),
+                chain: chain.clone(),
+            };
+            let mut line = serde_json::to_string(&entry)
+                .map_err(|e| LogError::Unavailable(format!("serialise: {e}")))?;
+            line.push('\n');
+            // Where this line starts, so the dedupe index can seek straight to it.
+            let byte_offset = tail.len;
+            (&self.file)
+                .write_all(line.as_bytes())
+                .map_err(|e| LogError::Unavailable(format!("write: {e}")))?;
+            // The line is in the file now, so the tail advances with it even if
+            // the fsync below fails: the in-memory chain must match the file,
+            // which is what a restart rebuilds from.
+            tail.len += line.len() as u64;
+            tail.offsets.push(byte_offset);
+            tail.seq += 1;
+            tail.chain = chain;
+            (entry.seq, byte_offset)
+        };
         // Durable before we report success. `seal` returns to the caller the
         // moment this function does, so an unflushed write would be a verdict
         // that was acted on and is not on disk.
-        f.sync_all()
-            .map_err(|e| LogError::Unavailable(format!("fsync: {e}")))?;
-
-        let leaf = format!("leaf_{}", entry.seq);
-        tail.index.insert(record.request_id.clone(), byte_offset);
-        tail.offsets.push(byte_offset);
-        tail.seq += 1;
-        tail.chain = chain;
-        Ok(leaf)
+        self.make_durable(seq)?;
+        // Indexed only once durable, so a replay cannot be answered with an
+        // entry that a crash could still lose.
+        self.state
+            .lock()
+            .map_err(|_| LogError::Unavailable("log mutex poisoned".into()))?
+            .index
+            .insert(record.request_id.clone(), byte_offset);
+        Ok(format!("leaf_{seq}"))
     }
 }
 

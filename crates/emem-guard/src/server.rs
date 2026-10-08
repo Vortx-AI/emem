@@ -276,17 +276,29 @@ impl Guard {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        let (sealed, log_err) = seal(
-            checkpoint,
-            request_id,
-            returned,
-            now,
-            self.config.mode,
-            &self.modules.config_digest(),
-            signer(&self.signing),
-            &self.log,
-            self.log_failure_policy,
-        );
+        // The append fsyncs before it returns. Run directly on an async
+        // worker, it held that worker for the whole fsync, so concurrent
+        // verdicts were capped at the worker count and could not share one
+        // group commit. `block_in_place`, as for the resolver above.
+        let seal_one = || {
+            seal(
+                checkpoint,
+                request_id,
+                returned,
+                now,
+                self.config.mode,
+                &self.modules.config_digest(),
+                signer(&self.signing),
+                &self.log,
+                self.log_failure_policy,
+            )
+        };
+        let (sealed, log_err) = match tokio::runtime::Handle::try_current() {
+            Ok(h) if h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(seal_one)
+            }
+            _ => seal_one(),
+        };
         if let Some(e) = log_err {
             // Visible, because an unlogged verdict is the one condition that
             // silently weakens the product's whole claim.
