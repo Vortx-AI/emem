@@ -34,6 +34,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.request
 
 from lib_patience import patient
@@ -79,8 +80,16 @@ def _fixtures() -> dict[str, dict]:
     A constant fact_cid or search id would keep passing while the format it
     stands for drifted, so the ones that can be read from the responder are.
     """
-    rec = _post("/v1/recall", {"cell": CELL, "bands": ["indices.ndvi"]})
-    facts = rec.get("facts") or []
+    # On a fresh node this recall is cold: the Sentinel-2 read can outrun the
+    # 14 s answer and come back as a timeout skip with no fact. The read
+    # continues in the background, which is what the skip says, so ask again
+    # before concluding the fixture cannot be built.
+    for attempt in range(6):
+        rec = _post("/v1/recall", {"cell": CELL, "bands": ["indices.ndvi"]})
+        facts = rec.get("facts") or []
+        if facts:
+            break
+        time.sleep(10)
     cid = facts[0].get("fact_cid") if facts else None
     val = facts[0].get("value") if facts else None
     token = f"emem:fact:{CELL}:{cid}" if cid else None
