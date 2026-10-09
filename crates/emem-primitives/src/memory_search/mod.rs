@@ -415,6 +415,33 @@ pub fn memory_index() -> Option<Arc<MemoryTextIndex>> {
     MEMORY_INDEX.read().ok().and_then(|g| g.clone())
 }
 
+static MEMORY_CHUNK_INDEX: std::sync::RwLock<Option<Arc<MemoryTextIndex>>> =
+    std::sync::RwLock::new(None);
+
+/// Install the chunked partition. Search answers from it once it has
+/// completed a full hydration pass, and from the file-level index until then.
+pub fn set_memory_chunk_index(idx: Arc<MemoryTextIndex>) {
+    if let Ok(mut g) = MEMORY_CHUNK_INDEX.write() {
+        *g = Some(idx);
+    }
+}
+
+/// Borrow the chunked partition, if installed.
+pub fn memory_chunk_index() -> Option<Arc<MemoryTextIndex>> {
+    MEMORY_CHUNK_INDEX.read().ok().and_then(|g| g.clone())
+}
+
+/// The index to answer from: the chunked partition when it is complete,
+/// else the file-level one. Returns the index and the `via` it answers as.
+async fn answering_index() -> Option<(Arc<MemoryTextIndex>, &'static str)> {
+    if let Some(c) = memory_chunk_index() {
+        if c.is_hydrated().await {
+            return Some((c, "lance_chunks"));
+        }
+    }
+    memory_index().map(|i| (i, "lance_scan"))
+}
+
 /// Process-global fallback source. The API layer installs an impl that
 /// reads the sled trees directly; tests install in-memory impls.
 static MEMORY_SOURCE: std::sync::RwLock<Option<Arc<dyn MemoryFileSource>>> =
@@ -493,7 +520,7 @@ pub async fn memory_search(
     let mut hits: Vec<MemorySearchHit> = Vec::new();
 
     if !lance_disabled {
-        if let Some(idx) = memory_index() {
+        if let Some((idx, idx_via)) = answering_index().await {
             // The author filter is applied to the store's answer, not the
             // index row, which can carry an author recorded wrongly at
             // embed time; so over-fetch when filtering and cut after.
@@ -509,8 +536,13 @@ pub async fn memory_search(
                 )
                 .await?;
             if !res.is_empty() {
-                via = "lance_scan".into();
-                corpus_size = idx.stats().await.rows as usize;
+                via = idx_via.into();
+                // Files, not rows: the chunked partition holds several rows
+                // per file, and the file-level index is that count already.
+                corpus_size = match memory_index() {
+                    Some(f) => f.stats().await.rows as usize,
+                    None => idx.stats().await.rows as usize,
+                };
                 hits = build_hits_from_indexed(res, &source, q, want, k).await;
             }
         }

@@ -56,6 +56,16 @@ use super::text_embedder::{global_embedder, EmbedError, TextEmbedder, TEXT_EMBED
 /// `vector_index_d{N}.lance` partitions.
 pub const MEMORY_TEXT_DATASET_NAME: &str = "memory_text_index_d768.lance";
 
+/// The chunked partition: one row per 128-token window rather than per
+/// file, so a note is scored by its best window. Same schema; a file simply
+/// has several rows under one `(path, file_cid)`.
+pub const MEMORY_CHUNK_DATASET_NAME: &str = "memory_text_chunks_d768.lance";
+
+/// Windows kept per file in the chunked partition (128-token windows, so
+/// about 6k tokens of a note). A note past this is rare, and its first
+/// windows carry its subject.
+pub const MAX_CHUNKS_PER_FILE: usize = 64;
+
 /// Errors surfaced by the memory-text indexer.
 #[derive(Debug, thiserror::Error)]
 pub enum IndexerError {
@@ -167,6 +177,8 @@ pub struct MemoryTextIndex {
     /// them on one core, no disk at all. Kept in step with appends and
     /// deletes like `known`.
     resident: RwLock<Option<Arc<Vec<IndexedRow>>>>,
+    /// One row per window (the chunked partition) rather than per file.
+    chunked: bool,
 }
 
 /// Resolve the dataset's filesystem path: same root as the fact-vector
@@ -179,9 +191,18 @@ impl MemoryTextIndex {
     /// Open (or initialise) the index. Idempotent — repeated calls are
     /// cheap; first call creates the parent directory.
     pub fn open(root: impl AsRef<Path>) -> std::io::Result<Arc<Self>> {
+        Self::open_named(root, MEMORY_TEXT_DATASET_NAME, false)
+    }
+
+    /// Open (or initialise) the chunked partition beside the file-level one.
+    pub fn open_chunked(root: impl AsRef<Path>) -> std::io::Result<Arc<Self>> {
+        Self::open_named(root, MEMORY_CHUNK_DATASET_NAME, true)
+    }
+
+    fn open_named(root: impl AsRef<Path>, name: &str, chunked: bool) -> std::io::Result<Arc<Self>> {
         let root_ref = root.as_ref();
         std::fs::create_dir_all(root_ref)?;
-        let path = memory_dataset_path(root_ref);
+        let path = root_ref.join(name);
         let poll = std::env::var("EMEM_MEMORY_SEARCH_POLL_SECS")
             .ok()
             .and_then(|s| s.parse::<u64>().ok())
@@ -196,12 +217,30 @@ impl MemoryTextIndex {
             last_indexed_at: RwLock::new(None),
             known: RwLock::new(None),
             resident: RwLock::new(None),
+            chunked,
         }))
+    }
+
+    /// Whether this is the chunked partition.
+    pub fn is_chunked(&self) -> bool {
+        self.chunked
+    }
+
+    /// Whether a full hydration pass has completed in this process, which is
+    /// what makes the index safe to answer from: before it, the partition
+    /// holds only the files reached so far.
+    pub async fn is_hydrated(&self) -> bool {
+        self.last_hydrated_at.read().await.is_some()
     }
 
     /// Open against the default-root location (`<EMEM_DATA>/lance/`).
     pub fn open_default() -> std::io::Result<Arc<Self>> {
         Self::open(crate::lance_index::default_root())
+    }
+
+    /// The chunked partition at the default root.
+    pub fn open_default_chunked() -> std::io::Result<Arc<Self>> {
+        Self::open_chunked(crate::lance_index::default_root())
     }
 
     /// Borrow the dataset (lazy-open from disk if it exists).
@@ -470,17 +509,24 @@ impl MemoryTextIndex {
         if existing.iter().any(|(p, _)| p == path) {
             self.delete_path(path).await?;
         }
-        let vector = embedder.embed_document(text)?;
-        let row = IndexedRow {
-            path: path.to_string(),
-            file_cid: file_cid.to_string(),
-            kind: kind.to_string(),
-            signed_at: signed_at.to_string(),
-            attester_pubkey_b32: attester_pubkey_b32.map(str::to_string),
-            size_bytes,
-            vector,
+        let vectors = if self.chunked {
+            embedder.embed_document_windows(text, MAX_CHUNKS_PER_FILE)?
+        } else {
+            vec![embedder.embed_document(text)?]
         };
-        self.append_rows(std::slice::from_ref(&row)).await?;
+        let rows: Vec<IndexedRow> = vectors
+            .into_iter()
+            .map(|vector| IndexedRow {
+                path: path.to_string(),
+                file_cid: file_cid.to_string(),
+                kind: kind.to_string(),
+                signed_at: signed_at.to_string(),
+                attester_pubkey_b32: attester_pubkey_b32.map(str::to_string),
+                size_bytes,
+                vector,
+            })
+            .collect();
+        self.append_rows(&rows).await?;
         Ok(true)
     }
 
@@ -504,6 +550,13 @@ impl MemoryTextIndex {
         }
         let rows = self.resident_rows().await?;
         let q = query.to_vec();
+        // A file holds several rows in the chunked partition, so the nearest
+        // `k * oversample` rows can name far fewer than `k` files.
+        let oversample = if self.chunked {
+            oversample.max(1) * 8
+        } else {
+            oversample
+        };
         let (kind, path_prefix, attester) = (
             kind.map(str::to_string),
             path_prefix.map(str::to_string),
@@ -666,10 +719,17 @@ pub async fn hydrate_once(
         // would hold for the length of the embedding.
         let emb = embedder.clone();
         let doc = text.clone();
-        let embedded = tokio::task::spawn_blocking(move || emb.embed_document(&doc))
-            .await
-            .unwrap_or_else(|e| Err(EmbedError::Ort(format!("embed task: {e}"))));
-        let vector = match embedded {
+        let chunked = index.is_chunked();
+        let embedded = tokio::task::spawn_blocking(move || {
+            if chunked {
+                emb.embed_document_windows(&doc, MAX_CHUNKS_PER_FILE)
+            } else {
+                emb.embed_document(&doc).map(|v| vec![v])
+            }
+        })
+        .await
+        .unwrap_or_else(|e| Err(EmbedError::Ort(format!("embed task: {e}"))));
+        let vectors = match embedded {
             Ok(v) => v,
             Err(e) => {
                 tracing::warn!(target: "emem::memory_search", path = %s.path, error = %e, "embed failed; file will be retried on next pass");
@@ -685,7 +745,7 @@ pub async fn hydrate_once(
                 continue;
             }
         }
-        pending.push(IndexedRow {
+        pending.extend(vectors.into_iter().map(|vector| IndexedRow {
             path: s.path.clone(),
             file_cid: s.file_cid.clone(),
             kind: s.kind.clone(),
@@ -693,7 +753,7 @@ pub async fn hydrate_once(
             attester_pubkey_b32: s.attester_pubkey_b32.clone(),
             size_bytes: s.size_bytes,
             vector,
-        });
+        }));
         if pending.len() >= BATCH {
             written += flush_rows(index, &mut pending, &mut skipped).await;
         }
@@ -705,8 +765,8 @@ pub async fn hydrate_once(
 
 /// The search `knn` ran through Lance, over resident rows: the `take`
 /// nearest by squared L2 (Lance's default metric for `nearest`), then the
-/// filters, then `1 - distance` clamped to [0, 1], best first, `k` kept.
-/// Same candidates, same order, same scores as the dataset scan it replaces.
+/// filters, then the cosine `1 - distance / 2` clamped to [0, 1], best
+/// first, one hit per path, `k` kept.
 #[allow(clippy::too_many_arguments)]
 fn nearest_resident(
     rows: &[IndexedRow],
@@ -744,10 +804,16 @@ fn nearest_resident(
                 && kind.is_none_or(|want| r.kind == want)
                 && attester_pubkey_b32
                     .is_none_or(|want| r.attester_pubkey_b32.as_deref() == Some(want));
-            keep.then(|| (r.clone(), (1.0_f32 - d).clamp(0.0, 1.0)))
+            // Cosine, from squared L2 between unit vectors: d = 2 - 2cos.
+            // This reported 1 - d, which is 2cos - 1: a typical good match at
+            // cosine 0.6 read as 0.2, and no score meant what it said.
+            keep.then(|| (r.clone(), (1.0_f32 - d / 2.0).clamp(0.0, 1.0)))
         })
         .collect();
     out.sort_by(|a, b| b.1.total_cmp(&a.1));
+    // A file's best window is its score; its other windows are not more hits.
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|(r, _)| seen.insert(r.path.clone()));
     out.truncate(k);
     out
 }
@@ -996,7 +1062,10 @@ mod tests {
                 .downcast_ref::<Float32Array>()
                 .unwrap();
             for i in 0..b.num_rows() {
-                lance.push((p.value(i).to_string(), (1.0 - d.value(i)).clamp(0.0, 1.0)));
+                lance.push((
+                    p.value(i).to_string(),
+                    (1.0 - d.value(i) / 2.0).clamp(0.0, 1.0),
+                ));
             }
         }
         lance.sort_by(|a, b| b.1.total_cmp(&a.1));
@@ -1006,6 +1075,55 @@ mod tests {
             assert_eq!(&r.path, p);
             assert!((s - t).abs() < 1e-5, "{s} vs {t}");
         }
+    }
+
+    fn unit(v: Vec<f32>) -> Vec<f32> {
+        let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.into_iter().map(|x| x / n).collect()
+    }
+
+    fn at(path: &str, v: Vec<f32>) -> IndexedRow {
+        IndexedRow {
+            vector: unit(v),
+            ..row(path, &format!("cid-{path}"), "fact", 0.0)
+        }
+    }
+
+    /// The score is the cosine between unit vectors. It was 1 - d, which is
+    /// 2cos - 1, so an ordinary match at cosine 0.6 was reported as 0.2.
+    #[test]
+    fn the_score_is_the_cosine() {
+        let mut q = vec![0.0f32; TEXT_EMBED_DIM];
+        q[0] = 1.0;
+        let mut v = vec![0.0f32; TEXT_EMBED_DIM];
+        v[0] = 0.6;
+        v[1] = 0.8;
+        let out = nearest_resident(&[at("/a", v)], &q, 1, 1, None, None, None);
+        assert!((out[0].1 - 0.6).abs() < 1e-5, "score {}", out[0].1);
+    }
+
+    /// A file with several windows near the query is one hit, at its best
+    /// window's score, and does not crowd other files out of the top k.
+    #[test]
+    fn a_chunked_file_is_one_hit_at_its_best_window() {
+        let mut q = vec![0.0f32; TEXT_EMBED_DIM];
+        q[0] = 1.0;
+        let w = |a: f32, b: f32| {
+            let mut v = vec![0.0f32; TEXT_EMBED_DIM];
+            v[0] = a;
+            v[1] = b;
+            v
+        };
+        let rows = vec![
+            at("/long", w(0.9, 0.44)),
+            at("/long", w(0.8, 0.6)),
+            at("/long", w(0.7, 0.71)),
+            at("/other", w(0.5, 0.87)),
+        ];
+        let out = nearest_resident(&rows, &q, 2, 8, None, None, None);
+        let paths: Vec<&str> = out.iter().map(|(r, _)| r.path.as_str()).collect();
+        assert_eq!(paths, vec!["/long", "/other"]);
+        assert!(out[0].1 > 0.89, "best window kept: {}", out[0].1);
     }
 
     /// The kept set answers what a rescan would, through appends and

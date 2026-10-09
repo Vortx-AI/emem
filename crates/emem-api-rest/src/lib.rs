@@ -742,6 +742,26 @@ pub fn router(state: AppState) -> Router {
                     state: state.clone(),
                 });
             emem_primitives::memory_search::set_memory_source(source.clone());
+            // The chunked partition (one row per 512-token window) builds
+            // beside it and takes over search once a full pass completes, so
+            // a cold build never leaves search answering from a partial
+            // index. EMEM_MEMORY_SEARCH_CHUNKS=0 keeps the file-level index.
+            if std::env::var("EMEM_MEMORY_SEARCH_CHUNKS").as_deref() != Ok("0") {
+                match emem_primitives::memory_search::MemoryTextIndex::open_default_chunked() {
+                    Ok(chunks) => {
+                        emem_primitives::memory_search::set_memory_chunk_index(chunks.clone());
+                        emem_primitives::memory_search::spawn_polling_indexer(
+                            chunks,
+                            source.clone(),
+                        );
+                    }
+                    Err(e) => tracing::warn!(
+                        target: "emem::memory_search",
+                        error = %e,
+                        "chunked memory index open failed; search stays on the file-level index"
+                    ),
+                }
+            }
             // Polling loop. Spawned even when the model is missing -
             // hydrate_once will fail fast with a typed embed error and
             // log it; the loop keeps retrying so an operator who
@@ -47078,6 +47098,25 @@ fn dataset_path_for_callers(path: &str) -> String {
     parts.into_iter().rev().collect::<Vec<_>>().join("/")
 }
 
+/// Where the chunked partition stands: rows (windows, not files) and
+/// whether search has switched to it, which it does after a full pass.
+async fn chunk_index_status() -> JsonValue {
+    match emem_primitives::memory_search::memory_chunk_index() {
+        Some(c) => {
+            let st = c.stats().await;
+            let hydrated = c.is_hydrated().await;
+            json!({
+                "rows": st.rows,
+                "path": dataset_path_for_callers(&st.path),
+                "hydrated": hydrated,
+                "answering": hydrated,
+                "last_indexed_at_unix_s": st.last_indexed_at_unix_s,
+            })
+        }
+        None => JsonValue::Null,
+    }
+}
+
 /// `GET /v1/memory_search/stats`, snapshot of the memory-text index.
 ///
 /// Includes:
@@ -47105,6 +47144,7 @@ async fn get_memory_search_stats() -> Json<JsonValue> {
         "indexer_mode": stats.indexer_mode,
         "poll_interval_secs": stats.poll_interval_secs,
         "polling_active": stats.polling_active,
+        "chunks": chunk_index_status().await,
     }))
 }
 

@@ -39,6 +39,17 @@ const MODEL_MAX_TOKENS: usize = 512;
 /// module adds around each one.
 const WINDOW_TOKENS: usize = MODEL_MAX_TOKENS - 2;
 
+/// Window size for the chunked index. A section of a note is a few
+/// sentences, and inside a 512-token window it was a few lines among filler:
+/// on a measured note the matching section scored 0.38 cosine at 512 tokens.
+/// The model's cost is about linear in tokens, so smaller windows cost about
+/// the same in total.
+const CHUNK_TOKENS: usize = 128;
+
+/// Step between chunk starts; the 32-token overlap keeps a sentence that
+/// straddles a boundary whole in one of the two windows.
+const CHUNK_STRIDE: usize = 96;
+
 /// Approximate per-chunk sub-word budget, and the assumed character cost
 /// of a token. Used ONLY to cut text into snippet-sized pieces, never to
 /// decide what the model can accept: see `embed_document`, which windows
@@ -257,6 +268,40 @@ impl TextEmbedder {
             *x /= nf;
         }
         Ok(l2_normalised(sum))
+    }
+
+    /// Embed overlapping `CHUNK_TOKENS`-token windows of a document, each as
+    /// its own L2-normalised vector, at most `max_windows` of them.
+    ///
+    /// `embed_document` mean-pools the windows into one vector, so a query
+    /// that matches one section of a long note scores against the average
+    /// of all its sections. A chunked index keeps these separately and
+    /// scores the note by its best window.
+    pub fn embed_document_windows(
+        &self,
+        text: &str,
+        max_windows: usize,
+    ) -> Result<Vec<Vec<f32>>, EmbedError> {
+        let enc = self
+            .tokenizer
+            .encode(text, false)
+            .map_err(|e| EmbedError::Tokenizer(format!("encode: {e}")))?;
+        let ids = enc.get_ids();
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let (cls, sep) = self.special_ids()?;
+        let mut out = Vec::new();
+        let mut start = 0usize;
+        while start < ids.len() && out.len() < max_windows.max(1) {
+            let end = (start + CHUNK_TOKENS).min(ids.len());
+            out.push(self.embed_window(&ids[start..end], cls, sep)?);
+            if end == ids.len() {
+                break;
+            }
+            start += CHUNK_STRIDE;
+        }
+        Ok(out)
     }
 
     /// Embed a query string. Same as `embed_document` but additionally
