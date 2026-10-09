@@ -19730,6 +19730,7 @@ async fn post_trajectory(
     let resp = trajectory(&req, &s).await?;
     let env = resolved_envelope(vec![("cell".into(), rc)]);
     let mut v = serde_json::to_value(resp).unwrap_or(json!({}));
+    label_series_for_charting(&mut v, &req.cell, &resolve_band_name(&req.band));
     // Flag an unknown/mistyped band so an empty series isn't ambiguous
     // between "wrong band name" and "no data in this window" (same fix as
     // /v1/recall). Only flagged when the band is absent from the registry
@@ -19754,6 +19755,35 @@ async fn post_trajectory(
         }
     }
     Ok(Json(attach_resolved(v, env)))
+}
+
+/// Give each trajectory row the two columns a chart or a dashboard tile needs
+/// and a tslot cannot supply: the civil date its slot starts on, and the
+/// `emem:fact:` token a reader opens to check that one point. Both are
+/// derived from fields the receipt already binds (tslot, fact_cid), so they
+/// stay outside the signature. `slot_start` is the start of the band's tempo
+/// slot, not the scene's capture date; the fact itself carries that.
+fn label_series_for_charting(v: &mut JsonValue, cell: &str, band: &str) {
+    let tempo = tempo_for_band(band);
+    let Some(rows) = v.get_mut("series").and_then(|x| x.as_array_mut()) else {
+        return;
+    };
+    for row in rows {
+        let Some(obj) = row.as_object_mut() else {
+            continue;
+        };
+        if let (Some(tempo), Some(t)) = (tempo, obj.get("tslot").and_then(|x| x.as_u64())) {
+            let unix = emem_core::tslot::Tslot(t).to_unix_start(tempo);
+            if unix > 0 {
+                let (y, m, d) = civil_from_days(unix.div_euclid(86_400));
+                obj.insert("slot_start".into(), json!(format!("{y:04}-{m:02}-{d:02}")));
+            }
+        }
+        if let Some(cid) = obj.get("fact_cid").and_then(|x| x.as_str()) {
+            let token = format!("emem:fact:{cell}:{cid}");
+            obj.insert("token".into(), json!(token));
+        }
+    }
 }
 
 /// `POST /v1/memory_contradictions`, scan the multi-attester index
@@ -32775,7 +32805,16 @@ async fn mcp_tool_call_inner(
             Ok(attach_resolved_env(v))
         }
         "emem_diff" => call!(DiffReq, diff).map(attach_resolved_env),
-        "emem_trajectory" => call!(TrajectoryReq, trajectory).map(attach_resolved_env),
+        // Through the REST handler so the MCP door takes the same dates and
+        // place forms and returns the same chart columns as POST /v1/trajectory.
+        "emem_trajectory" => {
+            let req: TrajectoryApiReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match post_trajectory(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(v),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_verify" => call!(VerifyReq, verify).map(attach_resolved_env),
         "emem_memory_contradictions" => {
             let req: ContradictionsReq =
@@ -86208,6 +86247,32 @@ mod tests {
             req_types > 20,
             "found {req_types} request types; this check has stopped reading the file"
         );
+    }
+
+    /// A charted point needs a date and a handle to check it; a tslot is
+    /// neither, so every row gets both, and the date is the slot's own start.
+    #[test]
+    fn a_trajectory_row_carries_its_date_and_its_token() {
+        let band = "indices.ndvi";
+        let tempo = tempo_for_band(band).expect("ndvi has a tempo");
+        let t = emem_core::tslot::Tslot::from_unix(1_717_200_000, tempo).0;
+        let mut v = json!({"series": [
+            {"tslot": t, "value": 0.4, "fact_cid": "banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq"},
+            {"value": 0.1},
+        ]});
+        label_series_for_charting(&mut v, "defi.zb592.nUkO.zEzE", band);
+        let row = &v["series"][0];
+        let start = emem_core::tslot::Tslot(t).to_unix_start(tempo);
+        let (y, m, d) = civil_from_days(start.div_euclid(86_400));
+        assert_eq!(row["slot_start"], json!(format!("{y:04}-{m:02}-{d:02}")));
+        assert!(row["slot_start"].as_str().unwrap().starts_with("2024-0"));
+        assert_eq!(
+            row["token"],
+            json!("emem:fact:defi.zb592.nUkO.zEzE:banvya7hgenuowjggkgguezvltxtefp6jgihocwkgcbddyvqv6bq")
+        );
+        // A row without the fields gets nothing invented for it.
+        assert!(v["series"][1].get("slot_start").is_none());
+        assert!(v["series"][1].get("token").is_none());
     }
 
     /// The trace records whether or not anyone is streaming, and a stage

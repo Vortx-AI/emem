@@ -39,6 +39,8 @@ verifies the receipt offline. emem is a protocol, not a single endpoint.
 | **document-evidence** | `POST /v1/ocr` → `POST /v1/lab_report_parse` or `POST /v1/land_record_parse` |
 | **transparency-log-audit** | `GET /v1/log/sth` → `GET /v1/log/inclusion`, `GET /v1/log/consistency` |
 | **heat-solve-at-a-cell** | `POST /v1/heat_solve` |
+| **dashboard-tile** | `POST /v1/trajectory` (one per tile) |
+| **reasoning-storyboard** | `POST /v1/ask` → `GET /v1/state/{cid}` |
 
 ---
 
@@ -324,15 +326,18 @@ ones.
 ## 7. `trajectory-over-time`: time series at one cell
 
 `POST /v1/trajectory` returns the stored readings for one cell and band
-over a window, as `series[]` of `{tslot, value, fact_cid}`. It does not
-fetch past readings that were never stored; `POST /v1/backfill` does.
+over a window, as `series[]` of `{tslot, slot_start, value, fact_cid,
+token}`. `slot_start` is the YYYY-MM-DD the band's tempo slot starts on (the
+fact carries the scene's own capture date) and `token` is the point's
+`emem:fact:` handle. It does not fetch past readings that were never stored;
+`POST /v1/backfill` does.
 
 ```sh
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
   -d '{"cell":"defi.zb493.zezo.zcb35","band":"indices.ndvi",
        "from_date":"2024-01-01","to_date":"2026-09-30"}' \
-  | jq '{points: (.series | length), series: [.series[] | {tslot, value}]}'
+  | jq '{points: (.series | length), series: [.series[] | {slot_start, value, token}]}'
 ```
 
 `window: [start_tslot, end_tslot]` works in place of the two dates.
@@ -450,6 +455,64 @@ curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
 
 `hours_ahead` is capped at 168; `diffusivity_m2_per_s` defaults to 1e-6
 (urban surfaces).
+
+---
+
+## 13. `dashboard-tile`: a chart whose every point can be checked
+
+A dashboard tile is a trajectory: one cell, one band, one window. Each row
+already has the three columns a chart needs (`slot_start` for the x axis,
+`value` for the y axis) and the one a reader needs to check a point
+(`token`). Show the receipt's `served_at` on the tile as "refreshed", keep the
+whole `receipt` with the tile (it verifies offline, recipe 2), and link each
+point to `https://emem.dev/verify`.
+
+```sh
+BASE=https://emem.dev
+curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
+  -d '{"place":"Mount Fuji","band":"indices.ndvi",
+       "from_date":"2024-01-01","to_date":"2026-10-01"}' \
+  | jq '{refreshed: .receipt.served_at,
+         rows: [.series[] | [.slot_start, .value, .token]]}'
+```
+
+Over MCP the same call is `emem_trajectory` with the same arguments; it is
+not in the core `tools/list` but `tools/call` runs it by name.
+
+- A refresh is the same call again. A new point appears only when a new
+  reading was signed; run `POST /v1/backfill` over the window first if the
+  series is shorter than the window suggests.
+- A gap is not a zero. Missing slots mean nothing was measured, so draw them
+  as gaps, never interpolate across them in the tile.
+- Several places: one trajectory per cell, or `POST /v1/recall_many` for the
+  latest value at up to 256 cells in one call.
+
+---
+
+## 14. `reasoning-storyboard`: the steps behind an answer, as scenes
+
+`POST /v1/ask` returns `reasoning.states[]`, one per stage the answer went
+through (`located`, `routed`, `recalled`, `scored`, ...). Each carries an
+`emem:state:` token that commits to the stage before it and to the facts it
+added, so the list is a chain: an edited stage loses its address.
+`GET /v1/state/{cid}` returns the stored bytes and recomputes the address in
+front of you (`address_holds`).
+
+That chain is a ready storyboard for an animated explainer: one scene per
+stage, captioned with what the stage decided (`reasoning.steps[i].detail`)
+and its state token, ending on the answer and its receipt.
+
+```sh
+BASE=https://emem.dev
+curl -sf -X POST $BASE/v1/ask -H 'content-type: application/json' \
+  -d '{"question":"how green is the farmland near Ludhiana?"}' \
+  | jq '{answer, served_at: .receipt.served_at,
+         scenes: [.reasoning.states[] | {stage, at_ms, state}]}'
+```
+
+The tokens are stable: the same inputs give the same state, and a stage whose
+facts moved gets a new one, so two runs of one explainer show exactly which
+step changed.
 
 ---
 

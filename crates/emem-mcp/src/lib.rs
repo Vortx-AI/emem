@@ -369,10 +369,14 @@ const SCHEMA_COMPARE_SAME_DOY: &str = r#"{"type":"object","required":["band","do
 "cell64":{"type":"string","description":"Alias for `cell`."}
 }}"#;
 
-const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["cell","band","window"],"properties":{
-"cell":{"type":"string","description":"cell64 or free-text place name."},
+const SCHEMA_TRAJECTORY: &str = r#"{"type":"object","required":["band"],"properties":{
+"cell":{"type":"string","description":"cell64 or free-text place name. Or pass `place`, or `lat`+`lng`."},
+"place":{"type":"string","description":"Free-text place name, an alternative to `cell`."},
+"lat":{"type":"number"},"lng":{"type":"number"},
+"from_date":{"type":"string","description":"YYYY-MM-DD window start, with `to_date`; an alternative to `window`."},
+"to_date":{"type":"string","description":"YYYY-MM-DD window end, inclusive."},
 "band":{"type":"string","description":"One band to trace, e.g. \"indices.ndvi\". Returns only what is already attested; it does NOT materialise, so an empty series means nothing has been fetched here yet, not that nothing happened."},
-"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive"},
+"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,"description":"[start_tslot, end_tslot] inclusive. Pass this or `from_date`+`to_date`. Each returned row carries `slot_start` (YYYY-MM-DD) and its `emem:fact:` `token`, ready to chart and cite."},
 "as_of_tslot":{"type":"integer","minimum":0,"description":"Bi-temporal valid-time bound. Skips points with tslot > as_of_tslot, effectively clips the window's upper edge."},
 "as_of_signed_at":{"type":"string","format":"date-time","description":"Bi-temporal transaction-time bound (RFC 3339). Restricts the series to facts signed at or before this instant."},
 "cell64":{"type":"string","description":"Alias for `cell`."},
@@ -2095,10 +2099,10 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_trajectory",
         title: "Time series for one (cell, band)",
         description: "Time series for one (cell, band) over an inclusive [start, end] tslot window. Returns only what's already attested; it does NOT trigger materialization. For historical backfill use `emem_backfill`.",
-        when_to_use: "Call when the user asks 'how did X change over time' for a band that already has multiple historical tslots seeded. IMPORTANT differences from `emem_recall`: (1) trajectory does NOT auto-materialize past tslots, it returns only facts that have already been attested at this responder, so for fast-tempo bands like `indices.ndwi` you'll typically see ONE point at the latest tslot until an attester seeds history. (2) tslots are non-negative `u64`; there's no negative-offset 'last 2 years' shorthand. For LONG-TERM history questions ('flooded in last 2 years', 'forest loss since 2020') prefer either (a) a static-tempo summary band that one fact answers, `surface_water.recurrence` covers 1984-2021 in a single signed value, no trajectory needed, or (b) `emem_backfill` to materialize and sign the missing tslots in one call.",
+        when_to_use: "Call when the user asks 'how did X change over time' for a band that already has multiple historical tslots seeded. IMPORTANT differences from `emem_recall`: (1) trajectory does NOT auto-materialize past tslots, it returns only facts that have already been attested at this responder, so for fast-tempo bands like `indices.ndwi` you'll typically see ONE point at the latest tslot until an attester seeds history. (2) give the window as `from_date`+`to_date` (YYYY-MM-DD) or as raw `window` tslots; there's no negative-offset 'last 2 years' shorthand. Each row carries `slot_start` and an `emem:fact:` `token`, so the series charts and cites without a second call. For LONG-TERM history questions ('flooded in last 2 years', 'forest loss since 2020') prefer either (a) a static-tempo summary band that one fact answers, `surface_water.recurrence` covers 1984-2021 in a single signed value, no trajectory needed, or (b) `emem_backfill` to materialize and sign the missing tslots in one call.",
         input_schema: SCHEMA_TRAJECTORY,
         output_schema: None,
-        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","window":[0,12]}"#,
+        example_args: r#"{"cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","from_date":"2024-01-01","to_date":"2026-01-01"}"#,
         level: "L0", category: ToolCategory::Read,
     read_only_hint: true, destructive_hint: false, idempotent_hint: true, open_world_hint: true,
     tier: "extended",
