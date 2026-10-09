@@ -71248,6 +71248,12 @@ async fn post_eudr_dds_inner(
     );
     let stored_now: std::collections::HashSet<String> =
         to_store.iter().map(|(c, _)| c.clone()).collect();
+    // Cached means no observation was newly signed. The loss-year histogram
+    // is a derivative re-signed on every call, so counting it made a
+    // byte-identical repeat read "not cached" forever.
+    let observations_reused = to_store
+        .iter()
+        .all(|(_, f)| matches!(f, Fact::Derivative(_)));
     if !to_store.is_empty() {
         let (want, facts): (Vec<String>, Vec<Fact>) = to_store.into_iter().unzip();
         let got = sign_and_persist_many(&s, facts, &chrono_iso8601_utc()).await;
@@ -71308,10 +71314,9 @@ async fn post_eudr_dds_inner(
         "emem.eudr_dds",
         all_cells,
         fact_cids,
-        // Every fact this response cites was already stored, so nothing was
-        // newly signed: what an identical repeat looks like. It was a literal
-        // false, so a byte-identical repeat still said "not cached".
-        stored_now.is_empty(),
+        // Every observation this response cites was already stored: what an
+        // identical repeat looks like. It was a literal false.
+        observations_reused,
         started,
         /* intent */ None,
         req.scope.clone(),
