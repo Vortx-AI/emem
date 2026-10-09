@@ -30,14 +30,17 @@ use crate::{AsOfBound, Storage};
 // is process-wide and advisory: it never enters a fact CID or the signed
 // receipt preimage.
 
-/// Twelve log-spaced upper bounds (ms); slot 12 is the `> 5000 ms`
-/// overflow. Each request increments exactly one slot.
-const RECEIPT_LATENCY_BUCKETS_MS: [u32; 12] =
-    [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+/// Seventeen log-spaced upper bounds (ms); slot 17 is the `> 300 s`
+/// overflow. Each request increments exactly one slot. The ladder stopped
+/// at 5 s, so every EUDR call over 5 s read as a p99 of 10000 (the overflow
+/// doubled): a partner measured 25 s against a receipt that said 10 s.
+const RECEIPT_LATENCY_BUCKETS_MS: [u32; 17] = [
+    1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10_000, 20_000, 30_000, 60_000, 300_000,
+];
 
-static PRIMITIVE_LATENCY: OnceLock<Mutex<HashMap<&'static str, [u64; 13]>>> = OnceLock::new();
+static PRIMITIVE_LATENCY: OnceLock<Mutex<HashMap<&'static str, [u64; 18]>>> = OnceLock::new();
 
-fn primitive_latency() -> &'static Mutex<HashMap<&'static str, [u64; 13]>> {
+fn primitive_latency() -> &'static Mutex<HashMap<&'static str, [u64; 18]>> {
     PRIMITIVE_LATENCY.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -50,12 +53,12 @@ fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, 
     let bucket = RECEIPT_LATENCY_BUCKETS_MS
         .iter()
         .position(|b| elapsed_ms <= *b)
-        .unwrap_or(12);
+        .unwrap_or(RECEIPT_LATENCY_BUCKETS_MS.len());
     let mut map = match primitive_latency().lock() {
         Ok(m) => m,
         Err(poisoned) => poisoned.into_inner(),
     };
-    let hist = map.entry(primitive).or_insert([0u64; 13]);
+    let hist = map.entry(primitive).or_insert([0u64; 18]);
     hist[bucket] = hist[bucket].saturating_add(1);
     let total: u64 = hist.iter().sum();
     let percentile = |p: f64| -> u32 {
@@ -70,7 +73,7 @@ fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, 
                 return RECEIPT_LATENCY_BUCKETS_MS
                     .get(i)
                     .copied()
-                    .unwrap_or_else(|| RECEIPT_LATENCY_BUCKETS_MS[11].saturating_mul(2));
+                    .unwrap_or_else(|| RECEIPT_LATENCY_BUCKETS_MS[16].saturating_mul(2));
             }
         }
         0

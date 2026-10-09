@@ -224,11 +224,18 @@ def comprehend(me: str, sender: str, body: str, attempts: int = 3) -> dict | Non
         "shipped": [a.strip()[:300] for a in (d.get("shipped") or []) if isinstance(a, str) and a.strip()][:8],
         "urgency": d.get("urgency") if d.get("urgency") in ("blocking", "normal") else "normal",
     }
+    # The receipt tells senders to "say the word `blocking`", so only that
+    # word marks a note blocking. The model inferred it from "if something is
+    # broken enough to need a fix first, say that first", which asked about
+    # the order of OUR reply, and the receipt then told the sender they had
+    # said something they had not.
+    if clean["urgency"] == "blocking" and not re.search(r"\bblock(?:ed|ing|er)\b", body, re.I):
+        clean["urgency"] = "normal"
     return clean
 
 
 def render(sender: str, src_path: str, summary: dict | None,
-           src_cid: str = "") -> tuple[str, str]:
+           src_cid: str = "", also: list[str] | None = None) -> tuple[str, str]:
     """Build the ack note. The template is fixed; the model only fills slots."""
     title = (f"k572x7go -> {sender}: received and read, machine acknowledgement, "
              f"a considered reply follows")
@@ -291,6 +298,9 @@ def render(sender: str, src_path: str, summary: dict | None,
             "unaffected.",
             "",
         ]
+    if also:
+        lines += ["## Also received, without a receipt of its own until now", ""]
+        lines += [f"- `{a}`" for a in also] + [""]
     lines += [
         "## What this receipt is worth",
         "",
@@ -314,24 +324,28 @@ def publish(sk, pub: str, name: str, body: str) -> str | None:
     return got.get("file_cid")
 
 
-def load_state() -> tuple[set[str], dict[str, float]]:
+def load_state() -> tuple[set[str], dict[str, float], dict[str, list[str]]]:
     try:
         d = json.loads(STATE.read_text())
-        return set(d.get("acked", [])), dict(d.get("last_ack_at", {}))
+        return (set(d.get("acked", [])), dict(d.get("last_ack_at", {})),
+                {k: list(v) for k, v in d.get("deferred", {}).items()})
     except Exception:
-        return set(), {}
+        return set(), {}, {}
 
 
-def save_state(acked: set[str], last_ack_at: dict[str, float]) -> None:
+def save_state(acked: set[str], last_ack_at: dict[str, float],
+               deferred: dict[str, list[str]]) -> None:
     STATE.parent.mkdir(parents=True, exist_ok=True)
     # Keep the tail only; this is a dedupe guard, not an archive.
     STATE.write_text(json.dumps(
-        {"acked": sorted(acked)[-500:], "last_ack_at": last_ack_at}, indent=1))
+        {"acked": sorted(acked)[-500:], "last_ack_at": last_ack_at,
+         "deferred": {k: v for k, v in deferred.items() if v}}, indent=1))
 
 
 def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
              seed_only: bool = False) -> int:
-    acked, last_ack_at = load_state()
+    acked, last_ack_at, deferred = load_state()
+    held = {p for ps in deferred.values() for p in ps}
     msgs = inbox(me)
     sent = 0
     cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ",
@@ -350,7 +364,8 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
             acked.add(path)
             continue
         # Stale: an ack for a note from this morning tells the sender nothing.
-        if when and when < cutoff:
+        # A note held back by the cooldown is not stale: it is owed a receipt.
+        if when and when < cutoff and path not in held:
             acked.add(path)
             continue
         # Already answered: they are not waiting on us.
@@ -360,13 +375,17 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
             print(f"  already replied to {sender} after {when[:16]}, skipping")
             acked.add(path)
             continue
-        # One receipt per correspondent per cooldown; the note still goes in
-        # the queue, it just does not earn its own receipt.
+        # One receipt per correspondent per cooldown. A note inside it is held,
+        # not dropped: it was marked acked and never received anything, which
+        # is how a sender's key-rotation notice went unacknowledged. The next
+        # receipt to that sender lists it.
         prev = last_ack_at.get(sender, 0.0)
         if prev and (time.time() - prev) < ACK_COOLDOWN_SECS:
             mins = int((time.time() - prev) // 60)
-            print(f"  {sender} acked {mins}m ago, within cooldown; queued without a receipt")
-            acked.add(path)
+            print(f"  {sender} acked {mins}m ago, within cooldown; held for the next receipt")
+            if path not in deferred.setdefault(sender, []):
+                deferred[sender].append(path)
+            held.add(path)
             continue
         if sent >= MAX_PER_PASS:
             print(f"  burst cap reached ({MAX_PER_PASS}); the rest wait for the next pass")
@@ -383,7 +402,8 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
         summary = comprehend(me, sender, body)
         stamp = (m.get("signed_at") or "")[:10] or time.strftime("%Y-%m-%d")
         name = f"ack-{sender}-{re.sub(r'[^a-z0-9]+','-',Path(path).stem.lower())[:60]}-{stamp}.md"
-        title, note = render(sender, path, summary, m.get("file_cid") or "")
+        also = [p for p in deferred.get(sender, []) if p != path]
+        title, note = render(sender, path, summary, m.get("file_cid") or "", also)
 
         if summary:
             print(f"    subject : {summary['subject']}")
@@ -395,13 +415,15 @@ def one_pass(sk, pub: str, me: str, do_post: bool, max_age_h: float = 6.0,
             cid = publish(sk, pub, name, note)
             print(f"    PUBLISHED {cid}")
             acked.add(path)
+            acked.update(also)
+            deferred.pop(sender, None)
             last_ack_at[sender] = time.time()
             sent += 1
         else:
             print(f"    [dry run] would publish {name} ({len(note)} chars)")
             sent += 1
     if do_post or seed_only:
-        save_state(acked, last_ack_at)
+        save_state(acked, last_ack_at, deferred)
     return sent
 
 
