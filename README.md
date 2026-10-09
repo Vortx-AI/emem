@@ -238,7 +238,7 @@ The protocol does not care what a fact is about. Earth goes first because its so
 
 ## By the numbers
 
-[114 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 118 wired measurements from 46 declared source schemes, 168 algorithms and 177 paths under /v1/* ([`/v1/agent_card`](https://emem.dev/v1/agent_card) counts all four; [`/openapi.json`](https://emem.dev/openapi.json) lists the paths), and a [transparency log](https://emem.dev/v1/log/sth) of 2,554,331 signed entries (measured 2026-09-30). Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
+[114 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 115 wired measurements from 46 declared source schemes, 168 algorithms and 177 paths under /v1/* ([`/v1/agent_card`](https://emem.dev/v1/agent_card) counts all four; [`/openapi.json`](https://emem.dev/openapi.json) lists the paths), and a [transparency log](https://emem.dev/v1/log/sth) of 2,554,331 signed entries (measured 2026-09-30). Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
 
 ## Who builds on it
 
@@ -288,13 +288,14 @@ GitHub's *Cite this repository* button reads [CITATION.cff](CITATION.cff), which
 Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.md](SECURITY.md). Pure Rust, Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)). Default data sources are open, with no API keys.
 
 
+
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:rz3khhw3oqqqeathaibij4mviy`, root `htxjcrv6n73m75zxrt46h4ggne2wen5iow2ids7mqa6qckvdhvsq`, published under the key `k572x7go`. A single section is `emem:tree:rz3khhw3oqqqeathaibij4mviy#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:t6rzwe6wsgoz2kxoxw3px2oixe`, root `ewqacoe4f53snzwjzsbeadjn3j3o5y6r2d3g2le23uw2vjmie6ia`, published under the key `k572x7go`. A single section is `emem:tree:t6rzwe6wsgoz2kxoxw3px2oixe#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/v1/tree/rz3khhw3oqqqeathaibij4mviy?row=3" > row.json
+curl -s "https://emem.dev/v1/tree/t6rzwe6wsgoz2kxoxw3px2oixe?row=3" > row.json
 python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20260930d.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20260930d.md). The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261009.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261009.md). The tree changes whenever the README does, and this section is left out of it because it names the tree.

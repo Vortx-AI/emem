@@ -36,7 +36,7 @@ allowed for 4 ha or less, except cattle, per Article 2(28); or
 year-by-year Sentinel-2 NDVI and Sentinel-1 backscatter timeline with
 scene links, and several minutes of upstream reads. Top level:
 `cut_off_date` (default `2020-12-31`), `forest_baseline_override`
-(`jrc_gfc2020_v3`, `hansen_only`, `both`), `max_cells_per_plot`
+(`jrc_gfc2020_v4`, `hansen_only`, `both`; `jrc_gfc2020_v3` is still accepted), `max_cells_per_plot`
 (auto-derived from polygon area when omitted). The full schema is
 `GET https://emem.dev/v1/schemas/eudr_dds.json`.
 
@@ -70,10 +70,9 @@ jq '{verdict: .due_diligence_statement.verdict,
   compliant). `per_cell_verdicts` carries the signed fact cids behind
   each; quote them in the Article 12 record.
 - **`forest_baseline_dataset`**: the dataset versions actually read, by
-  name and source. `forest_baseline` is a stable enum name
-  (`jrc_gfc2020_v3`), not the version, and some prose notes in the
-  response still say "Hansen GFC v1.12"; quote the versions from this
-  field.
+  name and source. `forest_baseline` names the JRC version its facts
+  were read from (`jrc_gfc2020_v4`), and the fact derivations carry it
+  too (`jrc_gfc2020_v4_pixel@1`); quote the versions from this field.
 - **`tmf_cross_check`**: JRC TMF deforestation year read on every cell
   and compared with Hansen after the cut-off (`both`, `hansen_only`,
   `tmf_only`, `neither`, `agreement`). It is not counted in the verdict.
@@ -102,7 +101,7 @@ call:
 
 ```json
 {"verdict": "pass", "signable": true, "review_required": false,
- "baseline": "jrc_gfc2020_v3",
+ "baseline": "jrc_gfc2020_v4",
  "datasets": [{"name": "JRC Global Forest Cover 2020", "version": "V4"},
               {"name": "Hansen Global Forest Change", "version": "v1.13 (2025)"}],
  "plots": [{"plot_id": "CIV-001", "verdict": "pass", "failing_area_ha": 0.0,

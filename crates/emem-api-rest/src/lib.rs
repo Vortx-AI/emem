@@ -20284,7 +20284,7 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
             "regulation":      {"const": "EU 2023/1115", "$comment": "Regulation (EU) 2023/1115 of the European Parliament and of the Council of 31 May 2023"},
             "regulation_articles": {"type": "array", "items": {"type": "string"}, "$comment": "EUR-Lex Article references covered by this envelope"},
             "cut_off_date":    {"type": "string", "format": "date", "$comment": "Article 1(2): the regulation's cut-off date is 31 December 2020"},
-            "forest_baseline": {"type": "string", "enum": ["jrc_gfc2020_v3", "hansen_only", "both"], "$comment": "Article 2(4) forest definition; default JRC GFC2020 V3 is the Commission's expected (non-binding) baseline per Bourgoin et al. 2026 ESSD 18:1331"},
+            "forest_baseline": {"type": "string", "enum": ["jrc_gfc2020_v4", "jrc_gfc2020_v3", "jrc_gfc2020", "hansen_only", "both"], "$comment": "Article 2(4) forest definition; default JRC GFC2020 (V4, the publisher's LATEST since 2026-09-14) is the Commission's expected (non-binding) baseline per Bourgoin et al. 2026 ESSD 18:1331. jrc_gfc2020_v3 is accepted and answers with the version that ran."},
             "baseline_note":   {"type": "string", "$comment": "Explanatory note on the chosen baseline"},
             "legality_module": {"type": "string", "$comment": "Article 9(1)(b) legality is structurally out of EO scope; default 'none'"},
             "legality_disclaimer": {"type": "string", "$comment": "Required structured disclaimer when legality_module == 'none'"},
@@ -33816,7 +33816,7 @@ fn openapi_spec() -> JsonValue {
                         "request_visual_evidence":{"type":"boolean","default":false,"description":"Opt-in: build a per-year visual deforestation-evidence block for this plot. Adds a `visual_evidence` field to the per-plot result containing a Sentinel-2 NDVI annual timeline from 2020..current_year + Sentinel-1 RTC VV-backscatter cloud-independent confirmation + per-cell scene.png URLs the agent can render as a 6-up year-by-year grid. Adds upstream Sentinel fan-out per plot, bounded by its own budget (EMEM_EUDR_VISUAL_BUDGET_SECS, default 60 s): past it the verdict is returned with `visual_evidence.verdict: \"incomplete\"`, and what finished is stored so the next request for the plot fills it in. The whole call has 280 s by default, under the ~300 s client/edge cut. Visual-evidence concurrency is bounded (EMEM_EUDR_VISUAL_CONCURRENCY) and the route is capped (EMEM_EUDR_MAX_INFLIGHT) so a visual-evidence burst can't starve the server. The block carries its own `verdict` (`no_visual_deforestation` / `visual_deforestation_suspected` / `indeterminate_no_baseline`) computed from NDVI drop ≥ EMEM_VISUAL_NDVI_DROP_THRESHOLD (default 0.15 vs 2020, Pelletier 2024) and S1 VV drop ≥ EMEM_VISUAL_S1_DROP_DB_THRESHOLD (default 3 dB, Reiche 2018). All underlying facts are signed Primary records under the responder's identity; auditors cite ndvi_fact_cids + s1_fact_cids."}
                     }}},
                     "cut_off_date":{"type":"string","default":"2020-12-31","description":"EUDR cut-off date (ISO 8601). The regulation's value is 2020-12-31."},
-                    "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v3' (default), 'hansen_only', or 'both' (consensus)."},
+                    "forest_baseline_override":{"type":"string","description":"Optional baseline override: 'jrc_gfc2020_v4' (default; 'jrc_gfc2020_v3' is accepted and reports the version that ran), 'hansen_only', or 'both' (consensus)."},
                     "legality_module":{"type":"string","description":"Operator-chosen legality provider. Default 'none' surfaces the explicit Article 9(1)(b) out-of-scope disclaimer."},
                     "operator":{"type":"object","description":"Operator identification per Annex II §1.","properties":{"name":{"type":"string"},"eori":{"type":"string"},"address":{"type":"string"}}},
                     "max_cells_per_plot":{"type":"integer","minimum":1,"maximum":51200,"description":"Sample budget per POLYGON plot. Omit and it is auto-derived from the polygon area (~110 cells/ha, clamped to 51,200); there is no fixed default to declare, which is why this carries none. POINT plots evaluate at 1 cell regardless of this value."}
@@ -36440,6 +36440,7 @@ fn retired_bands() -> &'static std::collections::BTreeSet<String> {
     RETIRED.get_or_init(|| {
         let mut set: std::collections::BTreeSet<String> = RETIRED_ENCODER_BANDS
             .iter()
+            .chain(RETIRED_UPSTREAM_GONE_BANDS)
             .map(|b| (*b).to_string())
             .collect();
         set.extend(
@@ -36470,6 +36471,13 @@ fn is_retired(band: &str) -> bool {
 /// still declares them, so facts signed under them keep recalling and
 /// verifying; nothing here can materialize a new one.
 const RETIRED_ENCODER_BANDS: &[&str] = &["clay_v1", "prithvi_eo2", "galileo"];
+
+/// Bands whose only open upstream is gone. NOAA's DMSP-OLS v4 composites
+/// moved to the Colorado School of Mines behind an OpenID login in 2026, and
+/// every fetch answered 404. The open harmonised series are intercalibrated
+/// products with different values, so serving one under this band would
+/// change what it means. Facts already signed keep recalling and verifying.
+const RETIRED_UPSTREAM_GONE_BANDS: &[&str] = &["nightlights"];
 
 #[derive(Debug, Deserialize)]
 struct StateMultiReq {
@@ -48338,8 +48346,9 @@ fn static_release_date(band: &str) -> Option<&'static str> {
         | "hansen.tree_cover_2000"
         | "hansen.loss_year"
         | "hansen.gain" => Some("2025-04-01T00:00:00Z"),
-        // JRC GFC2020 V3 release per JEODPP.
-        "jrc_gfc2020.forest_2020" => Some("2024-04-25T00:00:00Z"),
+        // JRC GFC2020 V4, the publisher's LATEST since 2026-09-14. Facts date
+        // the version they actually read through `jrc_gfc2020_release_date`.
+        "jrc_gfc2020.forest_2020" => Some("2026-09-14T09:18:00Z"),
         // JRC TMF v2025 release.
         "jrc_tmf.annual_change"
         | "jrc_tmf.deforestation_year"
@@ -55841,7 +55850,7 @@ async fn build_fact_jrc_gfc2020(
                 url: Some(url.clone()),
             }],
             derivation: Derivation {
-                fn_key: "jrc_gfc2020_v3_pixel@1".into(),
+                fn_key: format!("jrc_gfc2020_v{version}_pixel@1"),
                 args: Some(ciborium::Value::Array(vec![
                     ciborium::Value::Float(lat),
                     ciborium::Value::Float(lng),
@@ -59362,8 +59371,8 @@ async fn materialize_band_at(
         return materialize_hansen_band(cell64, s, band).await;
     }
 
-    // JRC GFC2020 V3, EUDR-aligned forest baseline (Article 2(4) at
-    // 10 % canopy / 0.5 ha / 5 m height). Single global COG at JEODPP.
+    // JRC GFC2020 (V4 tiles at JEODPP's LATEST), EUDR-aligned forest
+    // baseline (Article 2(4) at 10 % canopy / 0.5 ha / 5 m height).
     if band == "jrc_gfc2020.forest_2020" {
         return materialize_jrc_gfc2020_band(cell64, s, band).await;
     }
@@ -67008,8 +67017,9 @@ struct EudrDdsReq {
     #[serde(default = "default_eudr_cutoff_date")]
     cut_off_date: String,
     /// Operator may override the forest baseline (advanced; the
-    /// default JRC GFC2020 V3 is what the EU Commission funded).
-    /// Acceptable values: `"jrc_gfc2020_v3"` (default), `"hansen_only"`
+    /// default JRC GFC2020, V4 today, is what the EU Commission funded).
+    /// Acceptable values: `"jrc_gfc2020_v4"` (default; `"jrc_gfc2020_v3"` is
+    /// accepted and reports the version that ran), `"hansen_only"`
     /// (Hansen ≥ 10 % canopy alone), `"both"` (consensus).
     #[serde(default)]
     forest_baseline_override: Option<String>,
@@ -67525,10 +67535,27 @@ fn dataset_version(url: &str, marker: &str) -> Option<u32> {
     digits.parse().ok()
 }
 
+/// The JRC baseline named by the version its facts were read from:
+/// `jrc_gfc2020_v4` today, `jrc_gfc2020_v3` for facts read before the JRC
+/// moved LATEST, both joined when a request mixed them, and the bare name
+/// when no fact said which version it came from.
+fn jrc_baseline_label(versions: &std::collections::BTreeSet<Option<String>>) -> String {
+    let named: Vec<String> = versions
+        .iter()
+        .flatten()
+        .map(|v| v.to_ascii_lowercase())
+        .collect();
+    if named.is_empty() {
+        "jrc_gfc2020".to_string()
+    } else {
+        format!("jrc_gfc2020_{}", named.join("+"))
+    }
+}
+
 /// Aggregate per-cell verdicts to a single "forest_baseline" provenance
 /// label that honestly reflects which baseline(s) contributed. The
 /// shipped value can differ from the operator-requested override when
-/// JRC fails: e.g. requesting `jrc_gfc2020_v3` but JRC errored and the
+/// JRC fails: e.g. requesting `jrc_gfc2020_v4` but JRC errored and the
 /// algorithm ran on Hansen alone surfaces `hansen_only_jrc_unavailable`.
 fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
     if per_cell.is_empty() {
@@ -67537,7 +67564,7 @@ fn aggregate_baseline_provenance(per_cell: &[EudrCellVerdict]) -> &'static str {
     let any_jrc = per_cell.iter().any(|v| v.jrc_forest_2020.is_some());
     let any_hansen = per_cell.iter().any(|v| v.hansen_treecover_2000.is_some());
     if any_jrc {
-        "jrc_gfc2020_v3"
+        "jrc_gfc2020"
     } else if any_hansen {
         "hansen_only_jrc_unavailable"
     } else {
@@ -68642,8 +68669,8 @@ async fn batch_build_facts_via_window(
             // 10° tile covering the polygon centre, small IFD, ~1 s cold.
             // The legacy 41 GB single-COG is never read on this path.
             jrc_url.as_ref().map(|(u, _)| u.clone()).unwrap_or_default(),
-            "jrc.gfc2020.v3",
-            "jrc_gfc2020_v3_pixel@1",
+            "jrc.gfc2020.v4",
+            "jrc_gfc2020_v4_pixel@1",
             "forest_2020",
         ),
         "forest_change.treecover2000" => (
@@ -68870,7 +68897,11 @@ async fn batch_build_facts_via_window(
                 url: Some(url.clone()),
             }],
             derivation: emem_fact::Derivation {
-                fn_key: fn_key.into(),
+                // Named by the version read, as the source scheme is.
+                fn_key: match &jrc_url {
+                    Some((_, v)) => format!("jrc_gfc2020_v{v}_pixel@1"),
+                    None => fn_key.to_string(),
+                },
                 args: Some(ciborium::Value::Array(
                     [ciborium::Value::Float(lat), ciborium::Value::Float(lng)]
                         .into_iter()
@@ -69809,7 +69840,7 @@ async fn try_materialize_one_band(
     // Restart cleared it; this wrapper prevents the accumulation.
     let timeout = std::time::Duration::from_secs(materializer_timeout_secs());
     let inner = async {
-        // JRC GFC2020 V3.
+        // JRC GFC2020, the version the publisher lists (V4 today).
         if band == "jrc_gfc2020.forest_2020" {
             return materialize_jrc_gfc2020_band(cell64, s, band).await;
         }
@@ -70441,8 +70472,11 @@ async fn post_eudr_dds_inner(
             } else {
                 "outside_annex_i"
             };
-            // Article 2(28) point/polygon split.
-            let geometry_kind = if area_ha > 4.0 || is_cattle {
+            // Article 2(28) ALLOWS a point for a plot of 4 ha or less; it does
+            // not turn a polygon the operator supplied into one. Sampling a
+            // 3 ha polygon at its single centre cell missed any clearance
+            // elsewhere on it and reported "weak" for a plot it never read.
+            let geometry_kind = if polygon_opt.is_some() || area_ha > 4.0 || is_cattle {
                 "polygon"
             } else {
                 "point"
@@ -70783,10 +70817,7 @@ async fn post_eudr_dds_inner(
                 "sampled_area_ha": (sampled_area_ha * 100.0).round() / 100.0,
                 "sampled_polygon_fraction": (sampled_polygon_fraction * 10_000.0).round() / 10_000.0,
                 "sampling_note": if sampled_polygon_fraction < 0.5 {
-                    "Polygon is larger than the cell-sampler ceiling (EMEM_BORING_MAX_CELLS=512). \
-                     `failing_area_ha` is the polygon-area projection of `fail_fraction`; \
-                     `sampled_area_ha` is the area actually inspected. Confidence widens as \
-                     sampled_polygon_fraction shrinks."
+                    "Polygon is larger than this request's cell budget (`max_cells_per_plot`, auto-derived at about 110 cells per hectare up to 51,200). `failing_area_ha` is the polygon-area projection of `fail_fraction`; `sampled_area_ha` is the area actually inspected. Confidence widens as sampled_polygon_fraction shrinks."
                 } else {
                     "Polygon was fully sampled, failing_area is per-cell-counted, not projected."
                 },
@@ -70968,15 +70999,21 @@ async fn post_eudr_dds_inner(
 
     // Honest baseline provenance: surface what JRC and Hansen actually
     // contributed at request time, not what the algorithm spec says.
-    let computed_baseline = aggregate_baseline_provenance(&all_cells_for_provenance);
+    let computed_baseline = match aggregate_baseline_provenance(&all_cells_for_provenance) {
+        "jrc_gfc2020" => jrc_baseline_label(&baseline_versions.0),
+        other => other.to_string(),
+    };
     // A pass that ran without the Commission's expected baseline is not a
     // statement to offer for signature unread, any more than a weak one is.
     let held_for_review =
         review_required || weak_support || computed_baseline == "hansen_only_jrc_unavailable";
     let baseline_datasets = forest_baseline_dataset(&baseline_versions);
+    // A JRC override, by either version's name, reports the version that ran.
     let baseline = match req.forest_baseline_override.as_deref() {
+        Some("jrc_gfc2020_v3" | "jrc_gfc2020_v4" | "jrc_gfc2020") | None => {
+            computed_baseline.clone()
+        }
         Some(override_v) => override_v.to_string(),
-        None => computed_baseline.to_string(),
     };
 
     let algorithms_cid = ALGORITHMS_CID.clone();
@@ -71113,8 +71150,8 @@ async fn post_eudr_dds_inner(
         "forest_baseline": baseline,
         "forest_baseline_computed": computed_baseline,
         "forest_baseline_dataset": baseline_datasets,
-        "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); its value `jrc_gfc2020_v3` is a stable enum name, not the dataset version. The version read is `forest_baseline_dataset.version`.",
-        "methodology_note": eudr_methodology_note(computed_baseline),
+        "baseline_note":   "JRC GFC2020 is the EU Commission's expected (non-binding) baseline per Regulation 2023/1115; operators may use a defensible alternative. `forest_baseline_computed` reflects what actually fired at request time (hansen_only_jrc_unavailable if JRC errored); when JRC ran it names the version its facts were read from (`jrc_gfc2020_v4`), the same version `forest_baseline_dataset` lists.",
+        "methodology_note": eudr_methodology_note(&computed_baseline),
         "legality_module": req.legality_module.clone().unwrap_or_else(|| "none".into()),
         "legality_disclaimer": "Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin laws under Article 2(40)) is structurally out of Earth-observation scope. This DDS covers the geolocation + deforestation parts of Annex II only. Operators must pair with a legality module before submitting to the EU Information System (TRACES NT).",
         "degradation_disclaimer": "The verdict measures DEFORESTATION, conversion of forest to non-forest after the cut-off (Article 2(3)), via canopy loss (JRC GFC2020 baseline + Hansen loss-year). It does NOT measure forest DEGRADATION (Article 2(7): structural changes that reduce a forest's biomass or ecological capacity, e.g. primary or naturally regenerating forest converted to planted/plantation forest, or selective/partial-canopy loss that stays above the 10% threshold). The standard `pass` statement-of-compliance wording asserts both; the operator must separately satisfy the degradation limb. The JRC TMF v2025 degradation layer (`jrc_tmf.degradation_year`) is available as an explicit band request; it is not read on this path and does not enter the verdict.",
@@ -89156,8 +89193,21 @@ mod tests {
     }
 
     #[test]
+    fn the_jrc_baseline_is_named_by_the_version_read() {
+        let set = |vs: &[Option<&str>]| -> std::collections::BTreeSet<Option<String>> {
+            vs.iter().map(|v| v.map(str::to_string)).collect()
+        };
+        assert_eq!(jrc_baseline_label(&set(&[Some("V4")])), "jrc_gfc2020_v4");
+        assert_eq!(
+            jrc_baseline_label(&set(&[Some("V3"), Some("V4")])),
+            "jrc_gfc2020_v3+v4"
+        );
+        assert_eq!(jrc_baseline_label(&set(&[None])), "jrc_gfc2020");
+    }
+
+    #[test]
     fn the_methodology_names_the_baseline_that_actually_ran() {
-        let jrc = eudr_methodology_note("jrc_gfc2020_v3");
+        let jrc = eudr_methodology_note("jrc_gfc2020_v4");
         assert!(!jrc.contains("UNAVAILABLE"));
         let hansen = eudr_methodology_note("hansen_only_jrc_unavailable");
         assert!(hansen.contains("verdict ran on Hansen GFC alone"));
@@ -89732,7 +89782,7 @@ mod tests {
     #[test]
     fn forest_baseline_honest_when_jrc_missing() {
         // Every cell has Hansen tc = 100 but JRC = None, must surface
-        // hansen_only_jrc_unavailable, NOT "jrc_gfc2020_v3".
+        // hansen_only_jrc_unavailable, NOT "jrc_gfc2020".
         let cells = vec![
             EudrCellVerdict {
                 cell: "c0".into(),
@@ -89770,10 +89820,10 @@ mod tests {
             "hansen_only_jrc_unavailable"
         );
 
-        // JRC present at one cell → jrc_gfc2020_v3.
+        // JRC present at one cell → jrc_gfc2020, named by version at the call site.
         let mut cells2 = cells.clone();
         cells2[0].jrc_forest_2020 = Some(1);
-        assert_eq!(aggregate_baseline_provenance(&cells2), "jrc_gfc2020_v3");
+        assert_eq!(aggregate_baseline_provenance(&cells2), "jrc_gfc2020");
 
         // Neither baseline anywhere → neither_available.
         let none_cells = vec![EudrCellVerdict {

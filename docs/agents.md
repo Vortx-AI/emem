@@ -1051,7 +1051,7 @@ curl -s -X POST https://emem.dev/v1/eudr_dds \
                  "quantity_kg":12000}]}'
 ```
 
-Runs `eudr_compliance@1` per cell (JRC GFC2020 V3 as the 2020 legal
+Runs `eudr_compliance@1` per cell (JRC GFC2020, V4 today, as the 2020 legal
 baseline, Hansen GFC v1.13 for post-cut-off loss year), applies the
 Article 2(4) 0.5 ha floor, and returns the Annex II-shaped statement
 with a `dds_reference_number` and a signed receipt citing every

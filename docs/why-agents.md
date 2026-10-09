@@ -71,10 +71,11 @@ and the id changes.
 The provenance lives in two different places and they answer different
 questions. `sources[]` is where the bytes came from: the JRC tile URL
 and its capture date. `derivation` is how the value was computed from
-them: `fn_key: "jrc_gfc2020_v3_pixel@1"` plus the lat, lng, the dataset
+them: `fn_key: "jrc_gfc2020_v4_pixel@1"` plus the lat, lng, the dataset
 version it was called with (`v4`) and the pixel reader
-(`reader=cog-pixel-floor@2`). The fn_key keeps its name across dataset
-versions; the version that was read is in the args and in `sources[0].scheme`.
+(`reader=cog-pixel-floor@2`). The fn_key names the dataset version read,
+as the args and `sources[0].scheme` do; facts signed before 2026-10-09
+carry `jrc_gfc2020_v3_pixel@1` with `v4` in their args.
 There is no `derivation.source`.
 
 ### 3. Cite: drop the fact_cid into the report
