@@ -1194,6 +1194,48 @@ pub(crate) fn mcp_projection(mut v: JsonValue) -> JsonValue {
         let n = changes.len();
         let mut sorted = changes.clone();
         sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        // The map, compact: the block values in `blocks.order` and the
+        // window's WGS-84 corners. A renderer draws the grid from these;
+        // the per-block GeoJSON quads stay on the REST answer.
+        let props = |key: &str| -> Vec<JsonValue> {
+            cm["features"]
+                .as_array()
+                .map(|f| {
+                    f.iter()
+                        .map(|x| match x["properties"][key].as_f64() {
+                            Some(v) => json!((v * 1e4).round() / 1e4),
+                            None => JsonValue::Null,
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+        let corners: Vec<[f64; 2]> = cm["features"]
+            .as_array()
+            .map(|f| {
+                f.iter()
+                    .filter_map(|x| x["geometry"]["coordinates"][0].as_array())
+                    .flatten()
+                    .filter_map(|p| Some([p[0].as_f64()?, p[1].as_f64()?]))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let bounds = corners.iter().fold(None, |acc: Option<[f64; 4]>, [x, y]| {
+            Some(match acc {
+                None => [*x, *y, *x, *y],
+                Some([a, b, c, d]) => [a.min(*x), b.min(*y), c.max(*x), d.max(*y)],
+            })
+        });
+        let per_side = (props("change").len() as f64).sqrt().round() as usize;
+        obj.insert(
+            "change_grid".into(),
+            json!({
+                "per_side": per_side,
+                "order": "row-major from the north-west block",
+                "bounds_wgs84": bounds.map(|[a, b, c, d]| json!({"min_lng": a, "min_lat": b, "max_lng": c, "max_lat": d})),
+                "from": props("first"), "to": props("last"), "change": props("change"),
+            }),
+        );
         obj.insert(
             "change_summary".into(),
             json!({
@@ -1303,6 +1345,7 @@ mod tests {
         assert_eq!(p["change_summary"]["blocks_compared"], json!(2));
         assert_eq!(p["change_summary"]["min_change"], json!(-0.3));
         assert_eq!(p["change_summary"]["pairing"], json!("same_season"));
+        assert_eq!(p["change_grid"]["change"], json!([0.1, -0.3, null]));
         assert_eq!(p["token"], json!("emem:fact:c:d"));
         assert_eq!(p["_projection"]["omitted"].as_array().unwrap().len(), 3);
         let q = mcp_projection(
