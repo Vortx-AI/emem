@@ -398,11 +398,17 @@ const SCHEMA_VERIFY: &str = r#"{"type":"object","required":["claim","cell"],"pro
 }}"#;
 
 const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
-"description":"A tagged union: `type` selects the intent and decides which OTHER fields are read. Fields belonging to a different intent are ignored, so send only the ones its row needs.",
+"description":"A tagged union on `type`; fields of other intents are ignored.",
 "properties":{
-"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"],
-  "description":"Which intent, and so which other fields are read: the table in this tool's description gives each row's needed and optional fields. `ask` runs locate, topic routing and recall server-side."},
+"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask","area_over_time"],
+  "description":"Which intent; the table in the description gives each row's fields."},
 "description":{"type":"string","description":"where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents."},
+"geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon; or bbox {min_lat,min_lng,max_lat,max_lng}."},
+"bbox":{"type":"object"},
+"index":{"type":"string","enum":["ndvi","ndwi"]},
+"start_date":{"type":"string","description":"YYYY-MM-DD"},
+"end_date":{"type":"string","description":"YYYY-MM-DD"},
+"max_scenes":{"type":"integer","minimum":3,"maximum":24},
 "cell":{"type":"string","description":"cell64 address, e.g. \"defi.zb64a.cAzU.zfa27\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead."},
 "place":{"type":"string","description":"Free-text place name for what_is_here and ask when you have a name but no cell64, e.g. \"Ashok Nagar, Ranchi\". The responder geocodes it. Ignored when `cell` is present."},
 "lat":{"type":"number","minimum":-90,"maximum":90,"description":"ask only: latitude, paired with `lng`, when you want to pin the location by coordinate rather than by name or cell64."},
@@ -2728,8 +2734,8 @@ pub const TOOLS: &[ToolDescriptor] = &[
     ToolDescriptor {
         name: "emem_intent",
         title: "Intent-routed planner",
-        description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype | needs | optional | answers\nwhere_is | description | | cell64 for a named place\nwhat_is_here | cell OR place | description | what is attested at a location\nis_like | a, b | | cosine similarity of two cells\ndid_change | cell, band, window | | delta for one band over [start,end] tslots\nfind_like | key | k, filter | nearest cells by embedding\nconfirm | claim, cell | | verdict plus the signed facts behind it\nask | description | place/cell/lat+lng | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.",
-        when_to_use: "Call when the question maps onto one of the seven rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but absent from `tools/list` is not a dead end: every one of the {TOOL_TOTAL} dispatches by name at `/mcp` and `/mcp/full`; the core list is {TOOL_CORE} to keep the catalog small, and `emem_tools` enumerates the rest.",
+        description: "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan runs in the same call: you get results, not a list of calls to make.\n\ntype | needs | optional | answers\nwhere_is | description | | cell64 for a named place\nwhat_is_here | cell OR place | description | what is attested at a location\nis_like | a, b | | cosine similarity of two cells\ndid_change | cell, band, window | | delta for one band over [start,end] tslots\nfind_like | key | k, filter | nearest cells by embedding\nconfirm | claim, cell | | verdict plus the signed facts behind it\nask | description | place/cell/lat+lng | free-text question, packaged answer\narea_over_time | geometry OR bbox, start_date, end_date | index, max_scenes | an area's index per overpass with spread and anomaly\n\nAn unknown or missing `type` returns a `needs_intent_type` envelope naming the valid values, not a hard error.",
+        when_to_use: "Call when the question maps onto one of the eight rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but not listed still runs by name through tools/call.",
         input_schema: SCHEMA_INTENT,
         output_schema: None,
         example_args: r#"{"type":"did_change","cell":"defi.zb64a.cAzU.zfa27","band":"indices.ndvi","window":[20245,20620]}"#,

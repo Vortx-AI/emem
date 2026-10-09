@@ -936,9 +936,9 @@
     {
       "name": "emem_intent",
       "title": "Intent-routed planner",
-      "description": "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.\n\ntype | needs | optional | answers\nwhere_is | description | | cell64 for a named place\nwhat_is_here | cell OR place | description | what is attested at a location\nis_like | a, b | | cosine similarity of two cells\ndid_change | cell, band, window | | delta for one band over [start,end] tslots\nfind_like | key | k, filter | nearest cells by embedding\nconfirm | claim, cell | | verdict plus the signed facts behind it\nask | description | place/cell/lat+lng | free-text question, packaged answer\n\nAn unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.\n\nWhen to use: Call when the question maps onto one of the seven rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but absent from `tools/list` is not a dead end: every one of the 115 dispatches by name at `/mcp` and `/mcp/full`; the core list is 18 to keep the catalog small, and `emem_tools` enumerates the rest.\n\nExample arguments: {\"type\":\"did_change\",\"cell\":\"defi.zb64a.cAzU.zfa27\",\"band\":\"indices.ndvi\",\"window\":[20245,20620]}",
+      "description": "Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan runs in the same call: you get results, not a list of calls to make.\n\ntype | needs | optional | answers\nwhere_is | description | | cell64 for a named place\nwhat_is_here | cell OR place | description | what is attested at a location\nis_like | a, b | | cosine similarity of two cells\ndid_change | cell, band, window | | delta for one band over [start,end] tslots\nfind_like | key | k, filter | nearest cells by embedding\nconfirm | claim, cell | | verdict plus the signed facts behind it\nask | description | place/cell/lat+lng | free-text question, packaged answer\narea_over_time | geometry OR bbox, start_date, end_date | index, max_scenes | an area's index per overpass with spread and anomaly\n\nAn unknown or missing `type` returns a `needs_intent_type` envelope naming the valid values, not a hard error.\n\nWhen to use: Call when the question maps onto one of the eight rows above and you would rather state the goal than pick a primitive. Otherwise go direct: a band at a cell is emem_recall, a region is emem_recall_polygon, a free-text place question is emem_ask (type:\"ask\" forwards to it). `window` takes tslots, not dates: get them from emem_trajectory. A tool named here but not listed still runs by name through tools/call.\n\nExample arguments: {\"type\":\"did_change\",\"cell\":\"defi.zb64a.cAzU.zfa27\",\"band\":\"indices.ndvi\",\"window\":[20245,20620]}",
       "inputSchema": {
-        "description": "A tagged union: `type` selects the intent and decides which OTHER fields are read. Fields belonging to a different intent are ignored, so send only the ones its row needs.",
+        "description": "A tagged union on `type`; fields of other intents are ignored.",
         "properties": {
           "a": {
             "description": "is_like only: cell64 of the first place in the pair.",
@@ -951,6 +951,9 @@
           "band": {
             "description": "did_change only: which band to test, e.g. \"indices.ndvi\". One band per call; the answer is a delta over `window`, not a whole-cell diff.",
             "type": "string"
+          },
+          "bbox": {
+            "type": "object"
           },
           "cell": {
             "description": "cell64 address, e.g. \"defi.zb64a.cAzU.zfa27\". Required by did_change and confirm. Optional for what_is_here and ask: supply it to skip geocoding, omit it and give `place` instead.",
@@ -1025,6 +1028,10 @@
             "description": "where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents.",
             "type": "string"
           },
+          "end_date": {
+            "description": "YYYY-MM-DD",
+            "type": "string"
+          },
           "filter": {
             "description": "find_like only: optional claim constraining which cells may be returned. Same object as `claim` below, same ops, same required fields.",
             "properties": {
@@ -1090,6 +1097,17 @@
             ],
             "type": "object"
           },
+          "geometry": {
+            "description": "area_over_time: GeoJSON Polygon; or bbox {min_lat,min_lng,max_lat,max_lng}.",
+            "type": "object"
+          },
+          "index": {
+            "enum": [
+              "ndvi",
+              "ndwi"
+            ],
+            "type": "string"
+          },
           "k": {
             "description": "find_like only: how many neighbours to return. Defaults to the primitive's own default when omitted.",
             "minimum": 1,
@@ -1111,12 +1129,21 @@
             "minimum": -180,
             "type": "number"
           },
+          "max_scenes": {
+            "maximum": 24,
+            "minimum": 3,
+            "type": "integer"
+          },
           "place": {
             "description": "Free-text place name for what_is_here and ask when you have a name but no cell64, e.g. \"Ashok Nagar, Ranchi\". The responder geocodes it. Ignored when `cell` is present.",
             "type": "string"
           },
+          "start_date": {
+            "description": "YYYY-MM-DD",
+            "type": "string"
+          },
           "type": {
-            "description": "Which intent, and so which other fields are read: the table in this tool's description gives each row's needed and optional fields. `ask` runs locate, topic routing and recall server-side.",
+            "description": "Which intent; the table in the description gives each row's fields.",
             "enum": [
               "where_is",
               "what_is_here",
@@ -1124,7 +1151,8 @@
               "did_change",
               "find_like",
               "confirm",
-              "ask"
+              "ask",
+              "area_over_time"
             ],
             "type": "string"
           },

@@ -63,6 +63,38 @@ pub enum Intent {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lng: Option<f64>,
     },
+    /// "How did this area change over this window?" A polygon or bbox, a
+    /// spectral index and a date window, answered by `emem_field_series`.
+    /// It lives here because a host lists the core tools only, and a
+    /// dashboard or an animation needs an area series through one of them.
+    AreaOverTime {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        geometry: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        bbox: Option<serde_json::Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        index: Option<String>,
+        start_date: String,
+        end_date: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_scenes: Option<u32>,
+    },
+}
+
+impl Intent {
+    /// The wire tag, for callers that report which intent ran.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Intent::WhereIs { .. } => "where_is",
+            Intent::WhatIsHere { .. } => "what_is_here",
+            Intent::IsLike { .. } => "is_like",
+            Intent::DidChange { .. } => "did_change",
+            Intent::FindLike { .. } => "find_like",
+            Intent::Confirm { .. } => "confirm",
+            Intent::Ask { .. } => "ask",
+            Intent::AreaOverTime { .. } => "area_over_time",
+        }
+    }
 }
 
 /// A primitive tool invocation.
@@ -162,8 +194,60 @@ pub fn plan(intent: &Intent) -> Plan {
             primitive: "emem_verify".into(),
             args: verify_args(cell.clone(), claim),
         }],
+        Intent::AreaOverTime {
+            geometry,
+            bbox,
+            index,
+            start_date,
+            end_date,
+            max_scenes,
+        } => vec![ToolCall {
+            primitive: "emem_field_series".into(),
+            args: area_over_time_args(
+                geometry.as_ref(),
+                bbox.as_ref(),
+                index.as_deref(),
+                start_date,
+                end_date,
+                *max_scenes,
+            ),
+        }],
     };
     Plan { calls }
+}
+
+/// Build args for `emem_field_series`. The geometry is nested GeoJSON, so it
+/// goes through `json_to_cbor` to land as CBOR maps and arrays, never Text.
+fn area_over_time_args(
+    geometry: Option<&serde_json::Value>,
+    bbox: Option<&serde_json::Value>,
+    index: Option<&str>,
+    start_date: &str,
+    end_date: &str,
+    max_scenes: Option<u32>,
+) -> ciborium::Value {
+    let mut m = serde_json::Map::new();
+    if let Some(g) = geometry {
+        m.insert("geometry".into(), g.clone());
+    }
+    if let Some(b) = bbox {
+        m.insert("bbox".into(), b.clone());
+    }
+    if let Some(i) = index {
+        m.insert("index".into(), serde_json::Value::String(i.to_string()));
+    }
+    m.insert(
+        "start_date".into(),
+        serde_json::Value::String(start_date.into()),
+    );
+    m.insert(
+        "end_date".into(),
+        serde_json::Value::String(end_date.into()),
+    );
+    if let Some(n) = max_scenes {
+        m.insert("max_scenes".into(), serde_json::Value::from(n));
+    }
+    json_to_cbor(serde_json::Value::Object(m)).unwrap_or(ciborium::Value::Map(vec![]))
 }
 
 fn scalar_args(pairs: &[(&str, String)]) -> ciborium::Value {
@@ -456,6 +540,16 @@ mod tests {
                 cell: cell.clone(),
                 claim: claim.clone(),
             },
+            Intent::AreaOverTime {
+                geometry: None,
+                bbox: Some(
+                    serde_json::json!({"min_lat": 30.948, "min_lng": 75.738, "max_lat": 30.957, "max_lng": 75.748}),
+                ),
+                index: Some("ndvi".into()),
+                start_date: "2025-01-01".into(),
+                end_date: "2026-01-01".into(),
+                max_scenes: Some(8),
+            },
         ];
         for v in &variants {
             let p = plan(v);
@@ -471,6 +565,29 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The geometry rides as nested CBOR, so the primitive reads a polygon,
+    /// not a string of one.
+    #[test]
+    fn area_over_time_plans_one_field_series_call_with_nested_geometry() {
+        let i: Intent = serde_json::from_value(serde_json::json!({
+            "type": "area_over_time",
+            "geometry": {"type": "Polygon", "coordinates": [[[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 0.0]]]},
+            "start_date": "2025-01-01", "end_date": "2026-01-01", "max_scenes": 8
+        }))
+        .unwrap();
+        assert_eq!(i.kind(), "area_over_time");
+        let p = plan(&i);
+        assert_eq!(p.calls.len(), 1);
+        assert_eq!(p.calls[0].primitive, "emem_field_series");
+        let g = cbor_get(&p.calls[0].args, "geometry").unwrap();
+        assert!(matches!(g, ciborium::Value::Map(_)), "{g:?}");
+        assert!(matches!(
+            cbor_get(&p.calls[0].args, "max_scenes"),
+            Some(ciborium::Value::Integer(_))
+        ));
+        assert!(cbor_get(&p.calls[0].args, "bbox").is_none());
     }
 
     /// Regression: the old `Intent::FindLike { key, .. }` arm dropped

@@ -467,6 +467,24 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     reject_vec.dedup();
     let reject: std::collections::BTreeSet<u8> = reject_vec.iter().copied().collect();
 
+    // Same area, index, window and policy: same answer, from memory. A
+    // dashboard re-runs its query for every reader, and each run would
+    // otherwise re-read every scene and sign a fresh derivation of identical
+    // rows. It also lets a call that outlived the host's budget (the work is
+    // not cancelled) answer on the retry.
+    let cache_key = serde_json::to_string(&json!({
+        "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
+        "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
+        "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks, "reject": reject_vec,
+    }))
+    .unwrap_or_default();
+    if let Some(mut hit) = cache_get(&cache_key) {
+        if let Some(c) = hit.get_mut("cache").and_then(|c| c.as_object_mut()) {
+            c.insert("hit".into(), json!(true));
+        }
+        return Ok(hit);
+    }
+
     let centre_lat = (b.min_lat + b.max_lat) / 2.0;
     let centre_lng = (b.min_lng + b.max_lng) / 2.0;
     let cli = crate::s2_http_client();
@@ -1041,7 +1059,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             derivation_cid: derivation_cid.clone(),
         },
     );
-    Ok(json!({
+    let out = json!({
         "schema": "emem.field_series.v1",
         "algorithm_key": FN_KEY,
         "index": index.key,
@@ -1065,7 +1083,68 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "token": format!("emem:fact:{centre_cell}:{derivation_cid}"),
         "reproducibility": "every scene id, asset and mask is pinned in the signed record (resolve the token for it); re-reading those scenes with the stated formula, mask, quantile rule and selection gives the same rows",
         "receipt": receipt,
-    }))
+        "cache": {
+            "hit": false,
+            "computed_at": emem_storage::server::iso8601_now(),
+            "ttl_s": cache_ttl_secs(),
+            "_means": "a repeat of this exact request inside ttl_s returns this same signed series; a scene acquired since computed_at appears after it expires",
+        },
+    });
+    cache_put(cache_key, out.clone());
+    Ok(out)
+}
+
+type SeriesCache = std::sync::Mutex<std::collections::HashMap<String, (JsonValue, u64)>>;
+
+fn series_cache() -> &'static SeriesCache {
+    static CACHE: std::sync::OnceLock<SeriesCache> = std::sync::OnceLock::new();
+    CACHE.get_or_init(Default::default)
+}
+
+/// `EMEM_FIELD_SERIES_CACHE_SECS`, default six hours: a Sentinel-2 revisit is
+/// about five days, so a series six hours old misses at most one overpass.
+fn cache_ttl_secs() -> u64 {
+    std::env::var("EMEM_FIELD_SERIES_CACHE_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(6 * 3600)
+        .min(86_400)
+}
+
+const SERIES_CACHE_CAP: usize = 256;
+
+fn cache_get(key: &str) -> Option<JsonValue> {
+    let now = crate::now_unix_ms();
+    let mut map = series_cache().lock().ok()?;
+    match map.get(key) {
+        Some((v, exp)) if now < *exp => Some(v.clone()),
+        Some(_) => {
+            map.remove(key);
+            None
+        }
+        None => None,
+    }
+}
+
+fn cache_put(key: String, value: JsonValue) {
+    let ttl_ms = cache_ttl_secs() * 1000;
+    if ttl_ms == 0 || key.is_empty() {
+        return;
+    }
+    let now = crate::now_unix_ms();
+    if let Ok(mut map) = series_cache().lock() {
+        map.retain(|_, (_, exp)| *exp > now);
+        if map.len() >= SERIES_CACHE_CAP {
+            if let Some(oldest) = map
+                .iter()
+                .min_by_key(|(_, (_, e))| *e)
+                .map(|(k, _)| k.clone())
+            {
+                map.remove(&oldest);
+            }
+        }
+        map.insert(key, (value, now + ttl_ms));
+    }
 }
 
 /// The MCP answer: what a model charts and cites, inside the host's ~24 KB
@@ -1232,6 +1311,16 @@ mod tests {
         assert_eq!(q["rows"][0]["median"], json!(0.1235));
         assert_eq!(q["rows"][0]["n_clear"], json!(9595));
         assert!(q["rows"][0].get("scene").is_none());
+    }
+
+    #[test]
+    fn a_cached_series_is_served_until_it_expires() {
+        cache_put(
+            "k-test".into(),
+            json!({"rows": [1], "cache": {"hit": false}}),
+        );
+        assert_eq!(cache_get("k-test").unwrap()["rows"], json!([1]));
+        assert!(cache_get("k-absent").is_none());
     }
 
     #[test]

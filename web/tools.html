@@ -247,7 +247,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
   <p class="tl"><a href="#emem_guard_verdict">link to this tool</a></p>
 </details>
 
-<details class="tool" id="emem_intent" data-q="emem_intent intent-routed planner say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent and decides which other fields are read, so send only the fields its row needs. the plan is executed in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.
+<details class="tool" id="emem_intent" data-q="emem_intent intent-routed planner say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent and decides which other fields are read, so send only the fields its row needs. the plan runs in the same call: you get results, not a list of calls to make.
 
 type | needs | optional | answers
 where_is | description | | cell64 for a named place
@@ -257,10 +257,11 @@ did_change | cell, band, window | | delta for one band over [start,end] tslots
 find_like | key | k, filter | nearest cells by embedding
 confirm | claim, cell | | verdict plus the signed facts behind it
 ask | description | place/cell/lat+lng | free-text question, packaged answer
+area_over_time | geometry or bbox, start_date, end_date | index, max_scenes | an area&#x27;s index per overpass with spread and anomaly
 
-an unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.">
-  <summary><code>emem_intent</code><span class="tt">Intent-routed planner</span><span class="tw">Call when the question maps onto one of the seven rows above and you would rather state the goal than pick a primitive.</span></summary>
-  <p>Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself.
+an unknown or missing `type` returns a `needs_intent_type` envelope naming the valid values, not a hard error.">
+  <summary><code>emem_intent</code><span class="tt">Intent-routed planner</span><span class="tw">Call when the question maps onto one of the eight rows above and you would rather state the goal than pick a primitive.</span></summary>
+  <p>Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan runs in the same call: you get results, not a list of calls to make.
 
 type | needs | optional | answers
 where_is | description | | cell64 for a named place
@@ -270,8 +271,9 @@ did_change | cell, band, window | | delta for one band over [start,end] tslots
 find_like | key | k, filter | nearest cells by embedding
 confirm | claim, cell | | verdict plus the signed facts behind it
 ask | description | place/cell/lat+lng | free-text question, packaged answer
+area_over_time | geometry OR bbox, start_date, end_date | index, max_scenes | an area&#x27;s index per overpass with spread and anomaly
 
-An unknown or missing `type` returns a structured `needs_intent_type` envelope naming the seven values rather than a hard error, so you can correct it on the next turn.</p>
+An unknown or missing `type` returns a `needs_intent_type` envelope naming the valid values, not a hard error.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_intent&quot;, &quot;arguments&quot;: {&quot;band&quot;: &quot;indices.ndvi&quot;, &quot;cell&quot;: &quot;defi.zb64a.cAzU.zfa27&quot;, &quot;type&quot;: &quot;did_change&quot;, &quot;window&quot;: [20245, 20620]}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_intent">link to this tool</a></p>
 </details>

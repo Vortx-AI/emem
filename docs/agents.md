@@ -1061,9 +1061,12 @@ proves the forest facts and nothing about land tenure.
 
 This endpoint used to be documented here as `/v1/intent` with
 `{"kind":"verify"}`. That request 400s: the field is `type`, not `kind`,
-and `verify` is not one of the seven intents. `/v1/intent` takes
+and `verify` is not one of the intents. `/v1/intent` takes
 `where_is | what_is_here | is_like | did_change | find_like | confirm |
-ask`, and `type` selects which other fields are read:
+ask | area_over_time`, and `type` selects which other fields are read.
+`area_over_time` forwards a polygon or bbox and a date window to
+`emem_field_series`, so a host that lists only the core tools can still get
+an area series:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/intent \

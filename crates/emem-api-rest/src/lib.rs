@@ -20488,6 +20488,16 @@ async fn post_verify(
     )))
 }
 
+/// `mcp_tool_call` as an owned, explicitly `Send` future, so the dispatcher
+/// can spawn a call to itself: the boxed type breaks the cycle the compiler
+/// cannot otherwise close when proving the recursive future `Send`.
+type ToolCallFuture =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<JsonValue, (i64, String)>> + Send>>;
+
+fn mcp_tool_call_task(name: String, args: JsonValue, s: AppState) -> ToolCallFuture {
+    Box::pin(async move { mcp_tool_call(&name, args, &s).await })
+}
+
 async fn post_intent(
     State(s): State<AppState>,
     EmemJson(intent): EmemJson<Intent>,
@@ -20578,6 +20588,11 @@ fn suggest_algorithms_for_intent(intent: &Intent) -> JsonValue {
             "anomaly_zscore",
             "trend_strength",
             "flood_history_class",
+            "vegetation_class_from_ndvi",
+        ],
+        Intent::AreaOverTime { .. } => &[
+            "trend_strength",
+            "anomaly_zscore",
             "vegetation_class_from_ndvi",
         ],
     };
@@ -32325,7 +32340,14 @@ async fn mcp_tool_call_inner(
         "emem_field_series" => {
             let req: field_series::FieldSeriesReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
-            match field_series::post_field_series(State(s.clone()), EmemJson(req)).await {
+            // Boxed: the series future is large, and inline it would grow
+            // this dispatcher's own future by its size.
+            match Box::pin(field_series::post_field_series(
+                State(s.clone()),
+                EmemJson(req),
+            ))
+            .await
+            {
                 Ok(Json(v)) => Ok(field_series::mcp_projection(v)),
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
@@ -33032,6 +33054,7 @@ async fn mcp_tool_call_inner(
                             {"type": "find_like",    "required": ["key"]},
                             {"type": "confirm",      "required": ["claim", "cell"]},
                             {"type": "ask",          "required": ["description"], "optional": ["place", "cell", "lat+lng"]},
+                            {"type": "area_over_time", "required": ["start_date", "end_date"], "required_one_of": ["geometry", "bbox"], "optional": ["index", "max_scenes"]},
                         ],
                         // `valid_types` enumerated the outer union and stopped
                         // there, so the two variants that take a nested one
@@ -33062,7 +33085,16 @@ async fn mcp_tool_call_inner(
             let mut results: Vec<JsonValue> = Vec::with_capacity(p.calls.len());
             for call in &p.calls {
                 let args_json = ciborium_to_json(&call.args);
-                let r = Box::pin(mcp_tool_call(&call.primitive, args_json.clone(), s)).await;
+                // A task of its own, so the planned call is polled from a
+                // fresh stack. Re-entering this dispatcher inline nested one
+                // very large future inside another, and a debug build
+                // overflowed a worker's stack on `ask` and `area_over_time`.
+                let (name, task_args, task_state) =
+                    (call.primitive.clone(), args_json.clone(), s.clone());
+                let r = match tokio::spawn(mcp_tool_call_task(name, task_args, task_state)).await {
+                    Ok(r) => r,
+                    Err(e) => Err((-32603, format!("planned call did not finish: {e}"))),
+                };
                 match r {
                     Ok(v) => results.push(json!({
                         "primitive": call.primitive,
@@ -33794,7 +33826,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/fetch":             {"post":{"summary":"REST mirror of MCP `emem_fetch`. Resolve a fact by `{cid}` OR materialize `{cell, band[, tslot]}` (cell may be place name).","operationId":"emem_fetch_post","tags":["fetch"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/FetchReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify":            {"post":{"summary":"verify a structured claim","operationId":"emem_verify","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/VerifyReq"}}}},"responses":{"200":json_ok}}},
             "/v1/verify_receipt":    {"post":{"summary":"offline-verify any responder's receipt (algebra: verify): rebuild the canonical preimage under the rule the receipt's own `preimage_version` names and check ed25519 against the embedded responder pubkey (or the override). Works on any responder's receipt without trusting this server. Pass the receipt EXACTLY as it was returned: preimage_version 2 binds every field it covers, including `merkle_proof` and `preimage_version` itself, so a reshaped receipt fails the same way a forged one does. Those two are the only omissions that reach a signature failure rather than a 400. When this responder can prove which of the two it is, `reason` is `receipt_reshaped_after_signing` rather than `signature_invalid` and `failure_detail` names the field. Neither ever returns `valid: true`.","operationId":"emem_verify_receipt","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["receipt"],"properties":{"receipt":{"type":"object","description":"The receipt object returned by any /v1/* response","properties":{"request_id":{"type":"string"},"served_at":{"type":"string"},"primitive":{"type":"string"},"cells":{"type":"array","items":{"type":"string"}},"fact_cids":{"type":"array","items":{"type":"string"}},"responder_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}},"pubkey_b32":{"type":"string","description":"Optional override; defaults to receipt.responder_pubkey_b32"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, or `{type:\"ask\",description,place?,cell?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask"]},"cell":{"type":"string"},"place":{"type":"string"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, `{type:\"ask\",description,place?,cell?}`, or `{type:\"area_over_time\",geometry|bbox,start_date,end_date,index?,max_scenes?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask","area_over_time"]},"cell":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":24},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict, but only the facts the response cites are stored (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},

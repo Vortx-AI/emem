@@ -370,7 +370,7 @@ Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wiki
 
 ## `emem_intent`
 
-Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan is EXECUTED in the same call, so you receive the result (the resolved cell64, the similarity, the delta, the verdict), not a list of calls to make yourself. type | needs | optional | answers where_is | description | | cell64 for a named place what_is_here | cell OR place | description | what is attested at a location is_like | a, b | | cosine similarity of two cells…
+Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan runs in the same call: you get results, not a list of calls to make. type | needs | optional | answers where_is | description | | cell64 for a named place what_is_here | cell OR place | description | what is attested at a location is_like | a, b | | cosine similarity of two cells did_change | cell, band, window | | delta for one band over [start,end] tslots find_like |…
 
 **Read-only:** no. It plans a typed intent and dispatches to emem_ask, emem_recall, emem_find_similar, emem_compare, emem_diff, emem_verify or emem_locate. Ask, recall and find_similar can materialise and persist signed facts, so the union is not read-only.
 
