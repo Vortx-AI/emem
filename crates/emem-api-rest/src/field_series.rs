@@ -478,10 +478,15 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks, "reject": reject_vec,
     }))
     .unwrap_or_default();
-    if let Some(mut hit) = cache_get(&cache_key) {
-        if let Some(c) = hit.get_mut("cache").and_then(|c| c.as_object_mut()) {
-            c.insert("hit".into(), json!(true));
-        }
+    if let Some(hit) = cache_hit(&cache_key) {
+        return Ok(hit);
+    }
+    // One computation per request at a time: a dashboard's cards ask the
+    // same question together, and so do readers opening it at once. Later
+    // arrivals wait here, then read the cache the first one filled.
+    let gate = inflight_gate(&cache_key);
+    let _turn = gate.lock().await;
+    if let Some(hit) = cache_hit(&cache_key) {
         return Ok(hit);
     }
 
@@ -1113,6 +1118,29 @@ fn cache_ttl_secs() -> u64 {
 
 const SERIES_CACHE_CAP: usize = 256;
 
+fn cache_hit(key: &str) -> Option<JsonValue> {
+    let mut hit = cache_get(key)?;
+    if let Some(c) = hit.get_mut("cache").and_then(|c| c.as_object_mut()) {
+        c.insert("hit".into(), json!(true));
+    }
+    Some(hit)
+}
+
+type Gates =
+    std::sync::Mutex<std::collections::HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+
+/// The per-request lock. Entries nobody holds are dropped as new ones are
+/// made, so the map stays the size of what is in flight.
+fn inflight_gate(key: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    static GATES: std::sync::OnceLock<Gates> = std::sync::OnceLock::new();
+    let gates = GATES.get_or_init(Default::default);
+    let Ok(mut map) = gates.lock() else {
+        return std::sync::Arc::new(tokio::sync::Mutex::new(()));
+    };
+    map.retain(|_, g| std::sync::Arc::strong_count(g) > 1);
+    map.entry(key.to_string()).or_default().clone()
+}
+
 fn cache_get(key: &str) -> Option<JsonValue> {
     let now = crate::now_unix_ms();
     let mut map = series_cache().lock().ok()?;
@@ -1354,6 +1382,19 @@ mod tests {
         assert_eq!(q["rows"][0]["median"], json!(0.1235));
         assert_eq!(q["rows"][0]["n_clear"], json!(9595));
         assert!(q["rows"][0].get("scene").is_none());
+    }
+
+    #[tokio::test]
+    async fn the_same_request_shares_one_gate_and_others_do_not() {
+        let a = inflight_gate("gate-a");
+        let a2 = inflight_gate("gate-a");
+        let b = inflight_gate("gate-b");
+        assert!(std::sync::Arc::ptr_eq(&a, &a2));
+        assert!(!std::sync::Arc::ptr_eq(&a, &b));
+        let held = a.lock().await;
+        assert!(a2.try_lock().is_err(), "a second caller waits on the first");
+        drop(held);
+        assert!(a2.try_lock().is_ok());
     }
 
     #[test]
