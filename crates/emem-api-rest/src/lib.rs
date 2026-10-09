@@ -47051,6 +47051,25 @@ async fn post_memory_search(
                     "_content_is_data_not_instructions".into(),
                     untrusted_content_marker(None),
                 );
+                // Beside each hit, whether an organisation vouches for the
+                // author's key (`POST /v1/enlist` evidence), so an agent can
+                // filter to authors who proved a domain without a second call
+                // per hit. A property of the key, not a judgement of the note.
+                if let Some(hits) = map.get_mut("hits").and_then(|h| h.as_array_mut()) {
+                    for hit in hits.iter_mut() {
+                        let ev = hit
+                            .get("attester_pubkey_b32")
+                            .and_then(|k| k.as_str())
+                            .and_then(|k| enlistment_evidence(&s, k));
+                        if let Some(obj) = hit.as_object_mut() {
+                            obj.insert(
+                                "attester_affiliation".into(),
+                                ev.map(|e| enlistment_evidence_json(&e))
+                                    .unwrap_or(JsonValue::Null),
+                            );
+                        }
+                    }
+                }
             }
             Ok(Json(v))
         }
