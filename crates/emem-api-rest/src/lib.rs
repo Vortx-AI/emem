@@ -29762,6 +29762,82 @@ const MCP_FULL_ENDPOINT_TIER: &str = "all";
 const MCP_SUPPORTED_VERSIONS: &[&str] = &["2024-11-05", "2025-03-26", "2025-06-18", "2025-11-25"];
 const MCP_LATEST_VERSION: &str = "2025-11-25";
 
+/// The stateless revision: no `initialize`, the version rides in every
+/// request's `_meta` and the `MCP-Protocol-Version` header, and every result
+/// carries `resultType`. emem keeps no session state, so it speaks this
+/// revision on the same dispatcher, with the response shaped to it.
+const MCP_MODERN_VERSION: &str = "2026-07-28";
+
+/// Every revision `server/discover` and a version error advertise.
+fn mcp_all_versions() -> Vec<&'static str> {
+    let mut v = MCP_SUPPORTED_VERSIONS.to_vec();
+    v.push(MCP_MODERN_VERSION);
+    v
+}
+
+/// A JSON-RPC error at HTTP 400, the shape 2026-07-28 uses for version and
+/// header failures. A plain-JSON 400 body is what a modern client reads as
+/// "legacy server" and answers with an `initialize` fallback.
+fn mcp_rpc_400(
+    id: JsonValue,
+    code: i64,
+    message: String,
+    data: JsonValue,
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    (
+        axum::http::StatusCode::BAD_REQUEST,
+        Json(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message,"data":data}})),
+    )
+        .into_response()
+}
+
+/// Shape a dispatcher response for 2026-07-28: `resultType` on every result,
+/// the server identity in `_meta`, cache hints on the cacheable results, and
+/// HTTP 404 for an unknown method.
+async fn mcp_modernize(resp: axum::response::Response, method: &str) -> axum::response::Response {
+    const CACHEABLE: &[&str] = &[
+        "tools/list",
+        "prompts/list",
+        "resources/list",
+        "resources/templates/list",
+        "resources/read",
+        "server/discover",
+    ];
+    if resp.status() == axum::http::StatusCode::ACCEPTED {
+        return resp;
+    }
+    let (mut parts, body) = resp.into_parts();
+    let Ok(bytes) = axum::body::to_bytes(body, 64 * 1024 * 1024).await else {
+        return axum::response::Response::from_parts(parts, axum::body::Body::empty());
+    };
+    let Ok(mut v) = serde_json::from_slice::<JsonValue>(&bytes) else {
+        return axum::response::Response::from_parts(parts, axum::body::Body::from(bytes));
+    };
+    if let Some(r) = v.get_mut("result").and_then(|r| r.as_object_mut()) {
+        r.entry("resultType").or_insert(json!("complete"));
+        let meta = r.entry("_meta").or_insert(json!({}));
+        if let Some(m) = meta.as_object_mut() {
+            m.entry("io.modelcontextprotocol/serverInfo")
+                .or_insert(json!({"name": "emem", "version": env!("CARGO_PKG_VERSION")}));
+        }
+        if CACHEABLE.contains(&method) {
+            // The tool, resource and prompt sets are compiled in, so they
+            // change on a redeploy and not before.
+            r.entry("ttlMs").or_insert(json!(300_000));
+            r.entry("cacheScope").or_insert(json!("public"));
+        }
+    } else if v.pointer("/error/code").and_then(|c| c.as_i64()) == Some(-32601) {
+        parts.status = axum::http::StatusCode::NOT_FOUND;
+    }
+    parts.headers.remove(axum::http::header::CONTENT_LENGTH);
+    if let Ok(h) = axum::http::HeaderValue::from_str(MCP_MODERN_VERSION) {
+        parts.headers.insert("mcp-protocol-version", h);
+    }
+    let out = serde_json::to_vec(&v).unwrap_or_else(|_| bytes.to_vec());
+    axum::response::Response::from_parts(parts, axum::body::Body::from(out))
+}
+
 /// What Streamable HTTP says to assume when a client sends no version header.
 ///
 /// Not our latest, deliberately: a client that omits the header is one written
@@ -29798,7 +29874,54 @@ async fn mcp_with_version(
     body: axum::body::Bytes,
     tier: &str,
 ) -> axum::response::Response {
-    use axum::response::IntoResponse;
+    let parsed: Option<JsonValue> = serde_json::from_slice(&body).ok();
+    let rpc_method = parsed
+        .as_ref()
+        .and_then(|v| v.get("method"))
+        .and_then(|m| m.as_str())
+        .unwrap_or("")
+        .to_string();
+    let rpc_id = parsed
+        .as_ref()
+        .and_then(|v| v.get("id"))
+        .cloned()
+        .unwrap_or(JsonValue::Null);
+    let header_version = headers
+        .get("mcp-protocol-version")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v.trim().to_string());
+    if header_version.as_deref() == Some(MCP_MODERN_VERSION) {
+        // Header and body must agree; a mirror that disagrees with what it
+        // mirrors tells an intermediary one thing and the server another.
+        let body_version = parsed
+            .as_ref()
+            .and_then(|v| v.get("params"))
+            .and_then(|p| p.get("_meta"))
+            .and_then(|m| m.get("io.modelcontextprotocol/protocolVersion"))
+            .and_then(|v| v.as_str());
+        if let Some(bv) = body_version {
+            if bv != MCP_MODERN_VERSION {
+                return mcp_rpc_400(
+                    rpc_id,
+                    -32020,
+                    format!("Header mismatch: MCP-Protocol-Version {MCP_MODERN_VERSION} does not match _meta protocolVersion {bv}"),
+                    JsonValue::Null,
+                );
+            }
+        }
+        if let Some(hm) = headers.get("mcp-method").and_then(|v| v.to_str().ok()) {
+            if !rpc_method.is_empty() && hm != rpc_method {
+                return mcp_rpc_400(
+                    rpc_id,
+                    -32020,
+                    format!("Header mismatch: Mcp-Method header value '{hm}' does not match body value '{rpc_method}'"),
+                    JsonValue::Null,
+                );
+            }
+        }
+        let resp = mcp_jsonrpc_inner(s, headers, body, tier).await;
+        return mcp_modernize(resp, &rpc_method).await;
+    }
     // On `initialize` the version is negotiated in the BODY: the spec has the
     // client send `params.protocolVersion` there, and only send the
     // MCP-Protocol-Version HEADER on the requests that follow. So on that one
@@ -29834,18 +29957,19 @@ async fn mcp_with_version(
         // the server answers with a version it supports; refusing a newer
         // header there cost every newer client a 400 and a retry per connect.
         Err(_) if initialize_version.is_some() => MCP_LATEST_VERSION,
+        // Discovery is how a client learns what to ask for, so it answers
+        // whatever version the request named.
+        Err(_) if rpc_method == "server/discover" => MCP_LATEST_VERSION,
+        // The spec's UnsupportedProtocolVersionError, a JSON-RPC error a
+        // modern client recognises and retries from, rather than a plain
+        // body it reads as a legacy server.
         Err(asked) => {
-            return (
-                axum::http::StatusCode::BAD_REQUEST,
-                Json(json!({
-                    "error": "unsupported_protocol_version",
-                    "requested": asked,
-                    "supported": MCP_SUPPORTED_VERSIONS,
-                    "latest": MCP_LATEST_VERSION,
-                    "hint": "Resend with an MCP-Protocol-Version this server implements, or omit the header entirely, which is read as 2025-03-26.",
-                })),
-            )
-                .into_response();
+            return mcp_rpc_400(
+                rpc_id,
+                -32022,
+                format!("Unsupported protocol version {asked}"),
+                json!({"supported": mcp_all_versions(), "requested": asked}),
+            );
         }
     };
     let stamped = initialize_version.unwrap_or(negotiated);
@@ -30047,7 +30171,7 @@ async fn mcp_jsonrpc_inner(
             }
             Ok(json!({
                 "resultType": "complete",
-                "supportedVersions": MCP_SUPPORTED_VERSIONS,
+                "supportedVersions": mcp_all_versions(),
                 "capabilities": capabilities,
                 "instructions": mcp_instructions(default_tier),
                 "_meta": {
@@ -83990,16 +84114,16 @@ mod tests {
         assert_eq!(dataset_path_for_callers(""), "");
     }
 
-    /// A client on a newer MCP revision sends its version in the header on
-    /// `initialize` too. Refusing it there made every such connect a 400 and a
-    /// retry; the body negotiates, so initialize answers with our latest, and
-    /// only the requests after it are held to a version we implement.
+    /// A client on a newer revision than any we speak sends its version in
+    /// the header on `initialize` too. The body negotiates there; later
+    /// requests at an unknown version get the spec's JSON-RPC error, which a
+    /// modern client retries from instead of falling back to a handshake.
     #[tokio::test]
-    async fn a_newer_version_header_negotiates_on_initialize_and_is_refused_after() {
+    async fn an_unknown_version_negotiates_on_initialize_and_is_refused_after() {
         let mut headers = axum::http::HeaderMap::new();
-        headers.insert("mcp-protocol-version", "2026-07-28".parse().unwrap());
+        headers.insert("mcp-protocol-version", "2099-01-01".parse().unwrap());
         let init = axum::body::Bytes::from(
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2026-07-28","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#,
+            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2099-01-01","capabilities":{},"clientInfo":{"name":"t","version":"0"}}}"#,
         );
         let r = mcp_with_version(test_app_state(), headers.clone(), init, "core").await;
         assert_eq!(r.status(), axum::http::StatusCode::OK);
@@ -84009,6 +84133,56 @@ mod tests {
         );
         let r = mcp_with_version(test_app_state(), headers, list, "core").await;
         assert_eq!(r.status(), axum::http::StatusCode::BAD_REQUEST);
+        let v: JsonValue =
+            serde_json::from_slice(&axum::body::to_bytes(r.into_body(), 1 << 20).await.unwrap())
+                .unwrap();
+        assert_eq!(v["error"]["code"], -32022);
+        assert_eq!(v["error"]["data"]["requested"], "2099-01-01");
+        assert!(v["error"]["data"]["supported"]
+            .as_array()
+            .unwrap()
+            .contains(&json!(MCP_MODERN_VERSION)));
+    }
+
+    /// 2026-07-28 has no handshake: a request carries its version and is
+    /// answered at once, every result says `resultType`, list results carry
+    /// cache hints, and an unknown method is an HTTP 404.
+    #[tokio::test]
+    async fn the_stateless_revision_is_served_without_a_handshake() {
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("mcp-protocol-version", MCP_MODERN_VERSION.parse().unwrap());
+        headers.insert("mcp-method", "tools/list".parse().unwrap());
+        let list = axum::body::Bytes::from(format!(
+            r#"{{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{{"_meta":{{"io.modelcontextprotocol/protocolVersion":"{MCP_MODERN_VERSION}","io.modelcontextprotocol/clientCapabilities":{{}}}}}}}}"#
+        ));
+        let r = mcp_with_version(test_app_state(), headers.clone(), list, "core").await;
+        assert_eq!(r.status(), axum::http::StatusCode::OK);
+        assert_eq!(r.headers()["mcp-protocol-version"], MCP_MODERN_VERSION);
+        let v: JsonValue =
+            serde_json::from_slice(&axum::body::to_bytes(r.into_body(), 1 << 24).await.unwrap())
+                .unwrap();
+        assert_eq!(v["result"]["resultType"], "complete");
+        assert_eq!(v["result"]["cacheScope"], "public");
+        assert!(v["result"]["ttlMs"].as_u64().is_some());
+        assert_eq!(
+            v["result"]["_meta"]["io.modelcontextprotocol/serverInfo"]["name"],
+            "emem"
+        );
+        assert!(!v["result"]["tools"].as_array().unwrap().is_empty());
+
+        let mut bad = headers.clone();
+        bad.insert("mcp-method", "prompts/list".parse().unwrap());
+        let body = axum::body::Bytes::from(
+            r#"{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}"#,
+        );
+        let r = mcp_with_version(test_app_state(), bad, body, "core").await;
+        assert_eq!(r.status(), axum::http::StatusCode::BAD_REQUEST);
+
+        headers.insert("mcp-method", "no/such".parse().unwrap());
+        let body =
+            axum::body::Bytes::from(r#"{"jsonrpc":"2.0","id":3,"method":"no/such","params":{}}"#);
+        let r = mcp_with_version(test_app_state(), headers, body, "core").await;
+        assert_eq!(r.status(), axum::http::StatusCode::NOT_FOUND);
     }
 
     /// eudr.dev sends four plots at a time and the route runs three. The cap
