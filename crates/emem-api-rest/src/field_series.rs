@@ -88,9 +88,10 @@ const INDICES: [Index; 2] = [
 
 #[derive(Debug, Deserialize)]
 pub struct FieldSeriesReq {
-    /// WGS-84 bbox. Give this or `geometry`.
+    /// WGS-84 bbox. Give this or `geometry`. Read as JSON so a host that
+    /// sends the object as a string still lands (see `as_object_value`).
     #[serde(default)]
-    pub bbox: Option<BBox>,
+    pub bbox: Option<JsonValue>,
     /// A GeoJSON Polygon (or a Feature wrapping one), WGS-84. Pixels count
     /// when their centre is inside the outer ring and outside every hole.
     #[serde(default)]
@@ -121,8 +122,24 @@ struct Aoi {
     rings: Vec<Vec<[f64; 2]>>,
 }
 
+/// An object argument as an object. Hosts stringify object arguments their
+/// cached schema does not declare, so a polygon can arrive as the text of
+/// one; that is parsed rather than refused.
+fn as_object_value(v: &JsonValue, what: &str) -> Result<JsonValue, ApiError> {
+    match v {
+        JsonValue::String(text) => serde_json::from_str::<JsonValue>(text)
+            .map_err(|e| bad_request(format!("`{what}` arrived as text that is not JSON: {e}"))),
+        other => Ok(other.clone()),
+    }
+}
+
 fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
-    if let Some(g) = &req.geometry {
+    let geometry = req
+        .geometry
+        .as_ref()
+        .map(|g| as_object_value(g, "geometry"))
+        .transpose()?;
+    if let Some(g) = &geometry {
         let g = if g.get("type").and_then(|t| t.as_str()) == Some("Feature") {
             g.get("geometry").unwrap_or(&JsonValue::Null)
         } else {
@@ -172,10 +189,15 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
         check_bbox(&bbox)?;
         return Ok(Aoi { bbox, rings });
     }
-    let bbox = req
+    let raw = req
         .bbox
-        .clone()
+        .as_ref()
         .ok_or_else(|| bad_request("give the area as `bbox` or `geometry`".into()))?;
+    let bbox: BBox = serde_json::from_value(as_object_value(raw, "bbox")?).map_err(|e| {
+        bad_request(format!(
+            "bbox must be {{min_lat, min_lng, max_lat, max_lng}}: {e}"
+        ))
+    })?;
     check_bbox(&bbox)?;
     Ok(Aoi {
         bbox,
@@ -1328,6 +1350,29 @@ mod tests {
         assert!((erfc(0.0) - 1.0).abs() < 2e-7);
         assert!((erfc(1.0) - 0.157_299_207).abs() < 2e-7);
         assert!((erfc(-1.0) - 1.842_700_793).abs() < 2e-7);
+    }
+
+    /// A host with a stale schema sends the polygon as a string of JSON.
+    #[test]
+    fn a_stringified_polygon_or_bbox_still_parses() {
+        let poly = r#"{"type":"Polygon","coordinates":[[[0,0],[1,0],[1,1],[0,1],[0,0]]]}"#;
+        let req: FieldSeriesReq = serde_json::from_value(json!({
+            "geometry": poly, "start_date": "2025-01-01", "end_date": "2025-06-01"
+        }))
+        .unwrap();
+        let aoi = parse_aoi(&req).unwrap();
+        assert_eq!(aoi.rings[0].len(), 5);
+        let req: FieldSeriesReq = serde_json::from_value(json!({
+            "bbox": r#"{"min_lat":1,"min_lng":2,"max_lat":3,"max_lng":4}"#,
+            "start_date": "2025-01-01", "end_date": "2025-06-01"
+        }))
+        .unwrap();
+        assert_eq!(parse_aoi(&req).unwrap().bbox.max_lng, 4.0);
+        let req: FieldSeriesReq = serde_json::from_value(json!({
+            "geometry": "not json", "start_date": "2025-01-01", "end_date": "2025-06-01"
+        }))
+        .unwrap();
+        assert!(parse_aoi(&req).is_err());
     }
 
     #[test]
