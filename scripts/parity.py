@@ -604,7 +604,7 @@ SKIP_TOOLS = {
     "emem_memory_create", "emem_memory_delete", "emem_memory_rename",
     "emem_memory_insert", "emem_memory_str_replace",
     "emem_jepa_predict",
-    "emem_band_raster", "emem_band_cube", "emem_band_composite",
+    "emem_band_raster", "emem_band_cube", "emem_band_composite", "emem_field_series",
     "emem_cell_scene_rgb", "emem_coverage_map", "emem_eudr_dds",
     "emem_reason", "emem_ask", "emem_guard_selfhost",
 }

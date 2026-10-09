@@ -39,8 +39,8 @@ verifies the receipt offline. emem is a protocol, not a single endpoint.
 | **document-evidence** | `POST /v1/ocr` → `POST /v1/lab_report_parse` or `POST /v1/land_record_parse` |
 | **transparency-log-audit** | `GET /v1/log/sth` → `GET /v1/log/inclusion`, `GET /v1/log/consistency` |
 | **heat-solve-at-a-cell** | `POST /v1/heat_solve` |
-| **dashboard-tile** | `POST /v1/trajectory` (one per tile) |
-| **reasoning-storyboard** | `POST /v1/ask` → `GET /v1/state/{cid}` |
+| **dashboard-tile** | `POST /v1/field_series` (area) or `POST /v1/trajectory` (one cell) |
+| **storyboard** | `POST /v1/field_series` frames, `POST /v1/ask` → `GET /v1/state/{cid}` |
 
 ---
 
@@ -458,61 +458,71 @@ curl -sf -X POST $BASE/v1/heat_solve -H 'content-type: application/json' \
 
 ---
 
-## 13. `dashboard-tile`: a chart whose every point can be checked
+## 13. `dashboard-tile`: an area over time, with its uncertainty and its evidence
 
-A dashboard tile is a trajectory: one cell, one band, one window. Each row
-already has the three columns a chart needs (`slot_start` for the x axis,
-`value` for the y axis) and the one a reader needs to check a point
-(`token`). Show the receipt's `served_at` on the tile as "refreshed", keep the
-whole `receipt` with the tile (it verifies offline, recipe 2), and link each
-point to `https://emem.dev/verify`.
+A tile about a field, a plot or a catchment should not be one pixel's line.
+`POST /v1/field_series` reads every pinned Sentinel-2 overpass in the window
+over the polygon, masks each pixel by its scene classification, and gives per
+scene the share of the area the sky let through (`clear_fraction`) and the
+distribution over the clear pixels inside it. Chart the `median` with a
+`p10`..`p90` band, draw `quality: partial` points lighter, and list
+`excluded` scenes as gaps with their reason. The scenes, mask, formula and
+quantile rule are pinned in the signed record behind `token`.
 
 ```sh
 BASE=https://emem.dev
-curl -sf -X POST $BASE/v1/trajectory -H 'content-type: application/json' \
-  -d '{"place":"Mount Fuji","band":"indices.ndvi",
-       "from_date":"2024-01-01","to_date":"2026-10-01"}' \
-  | jq '{refreshed: .receipt.served_at,
-         rows: [.series[] | [.slot_start, .value, .token]]}'
+curl -sf -X POST $BASE/v1/field_series -H 'content-type: application/json' \
+  -d '{"geometry":{"type":"Polygon","coordinates":[[[75.738,30.948],[75.748,30.948],[75.748,30.957],[75.738,30.957],[75.738,30.948]]]},
+       "index":"ndvi","start_date":"2023-10-01","end_date":"2026-09-30"}' \
+  | jq '{token, estimand: .estimand.statistic,
+         rows: [.rows[] | [.date, .median, .p10, .p90, .clear_fraction, .quality]],
+         excluded: [.excluded[] | [.date, .reason]],
+         anomaly, trend: .trend.slope_per_year, cautions}'
 ```
 
-Over MCP the same call is `emem_trajectory` with the same arguments; it is
-not in the core `tools/list` but `tools/call` runs it by name.
+What the tile states beside the line, each already computed:
 
-- A refresh is the same call again. A new point appears only when a new
-  reading was signed; run `POST /v1/backfill` over the window first if the
-  series is shorter than the window suggests.
-- A gap is not a zero. Missing slots mean nothing was measured, so draw them
-  as gaps, never interpolate across them in the tile.
-- Several places: one trajectory per cell, or `POST /v1/recall_many` for the
-  latest value at up to 256 cells in one call.
+- `anomaly`: the latest scene against earlier years' scenes within 30 days of
+  its day of year. This is the number for "is it greener than usual", because
+  a seasonal index compared across seasons measures the season.
+- `trend`: Theil-Sen slope with Kendall's S and p, seasonal cycle NOT removed.
+  `cautions` says when the seasonal swing dwarfs it.
+- `change_map`: GeoJSON blocks, latest against its same-season partner
+  (`pairing`), ready for a map layer.
+- `estimand`: support (10 m pixels inside the polygon), statistic, operator,
+  mask, unit. Put it in the tile's footnote.
+
+For one cell's stored readings, `POST /v1/trajectory` returns rows with
+`slot_start`, `value` and an `emem:fact:` `token` per point. Over MCP both are
+`emem_field_series` and `emem_trajectory`, callable by name through `tools/call`.
 
 ---
 
-## 14. `reasoning-storyboard`: the steps behind an answer, as scenes
+## 14. `storyboard`: frames an animated explainer can play, each one checkable
 
-`POST /v1/ask` returns `reasoning.states[]`, one per stage the answer went
-through (`located`, `routed`, `recalled`, `scored`, ...). Each carries an
-`emem:state:` token that commits to the stage before it and to the facts it
-added, so the list is a chain: an edited stage loses its address.
-`GET /v1/state/{cid}` returns the stored bytes and recomputes the address in
-front of you (`address_holds`).
+Two kinds of frame come back signed, so every scene of an animation cites what
+it shows.
 
-That chain is a ready storyboard for an animated explainer: one scene per
-stage, captioned with what the stage decided (`reasoning.steps[i].detail`)
-and its state token, ending on the answer and its receipt.
+**The field, frame by frame.** Each `field_series` row carries
+`block_medians`, the area cut into `blocks.per_side` squared blocks in
+`blocks.order`, with each block's quad in `blocks.quads` (WGS-84, from the
+inverse projection). One row is one frame: colour the quads by the medians,
+title it with the row's `date` and `clear_fraction`, and end on `change_map`.
+A null block was under cloud in that frame; leave it grey, never fill it in.
+
+**The reasoning, step by step.** `POST /v1/ask` returns `reasoning.states[]`,
+one `emem:state:` per stage (`located`, `routed`, `recalled`, `scored`), each
+committing to the stage before it and to the facts it added.
+`GET /v1/state/{cid}` returns the bytes and recomputes the address
+(`address_holds`). The same inputs give the same token, so two renders of one
+explainer show exactly which step changed.
 
 ```sh
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/ask -H 'content-type: application/json' \
   -d '{"question":"how green is the farmland near Ludhiana?"}' \
-  | jq '{answer, served_at: .receipt.served_at,
-         scenes: [.reasoning.states[] | {stage, at_ms, state}]}'
+  | jq '{answer, scenes: [.reasoning.states[] | {stage, at_ms, state}]}'
 ```
-
-The tokens are stable: the same inputs give the same state, and a stage whose
-facts moved gets a new one, so two runs of one explainer show exactly which
-step changed.
 
 ---
 
@@ -580,8 +590,8 @@ self-hosting procedure for the guard, as an agent-runnable skill, is
   the loop that the rest of the surface serves: ground a place, cite the fact
   as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let
   them resolve it to the identical signed bytes and check the receipt without
-  trusting you. 114 tools in total (18 core, 96 extended);
-  `https://emem.dev/mcp/full` advertises all 114, and `tools/call` reaches every
+  trusting you. 115 tools in total (18 core, 97 extended);
+  `https://emem.dev/mcp/full` advertises all 115, and `tools/call` reaches every
   tool by name from either, so the narrower list costs no capability. Call
   `emem_tools` to map the surface, filter it by the shape of the answer you
   need (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), or fetch one

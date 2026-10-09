@@ -46,11 +46,11 @@ use emem_core::ErrorCode;
 /// Hard cap per window side. 512 px at 10 m is a 5.12 km square, well
 /// past the 2 km AOI the roadmap's reporting agent needed, and small
 /// enough that a cold scene read stays inside the gateway budget.
-const MAX_SIDE_PX: u32 = 512;
+pub(crate) const MAX_SIDE_PX: u32 = 512;
 
 /// The scene classification asset: `scl` on Element84, `SCL` on Planetary
 /// Computer.
-fn scl_asset(item: &emem_fetch::stac::StacItem) -> Option<String> {
+pub(crate) fn scl_asset(item: &emem_fetch::stac::StacItem) -> Option<String> {
     ["scl", "SCL"]
         .iter()
         .find_map(|k| item.assets.get(*k).cloned())
@@ -69,7 +69,7 @@ fn harmonise(dn: f64, offset: f64) -> f32 {
 /// The raw Sentinel-2 bands this executor serves, with the Element84
 /// STAC asset aliases each may appear under. An allowlist, not a
 /// routing guess: any other band is a typed refusal naming this list.
-const S2_BANDS: [(&str, &[&str]); 6] = [
+pub(crate) const S2_BANDS: [(&str, &[&str]); 6] = [
     ("s2.B02", &["blue", "B02"]),
     ("s2.B03", &["green", "B03"]),
     ("s2.B04", &["red", "B04"]),
@@ -144,7 +144,7 @@ pub struct BandRasterReq {
 
 /// `YYYY-MM-DD` into (year, month, day); the repo's `days_from_civil`
 /// turns it into Unix time without a date crate.
-fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
+pub(crate) fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
     let mut it = s.split('-');
     let y: i32 = it.next()?.parse().ok()?;
     let m: u32 = it.next()?.parse().ok()?;
@@ -155,7 +155,7 @@ fn parse_ymd(s: &str) -> Option<(i32, u32, u32)> {
     Some((y, m, d))
 }
 
-fn bad_request(message: String) -> ApiError {
+pub(crate) fn bad_request(message: String) -> ApiError {
     ApiError(
         StatusCode::BAD_REQUEST,
         ErrorBody {
@@ -166,7 +166,7 @@ fn bad_request(message: String) -> ApiError {
     )
 }
 
-fn upstream_error(message: String) -> ApiError {
+pub(crate) fn upstream_error(message: String) -> ApiError {
     ApiError(
         StatusCode::BAD_GATEWAY,
         ErrorBody {
@@ -180,7 +180,7 @@ fn upstream_error(message: String) -> ApiError {
 /// `aoi_cid`: the full blake3 of the bbox's canonical CBOR, base32, 52
 /// chars: the same identifier discipline every fact uses, so the same
 /// area always names the same field.
-fn aoi_cid(b: &BBox) -> Result<String, ApiError> {
+pub(crate) fn aoi_cid(b: &BBox) -> Result<String, ApiError> {
     let bytes = emem_fact::cbor::to_canonical_cbor(b)
         .map_err(|e| bad_request(format!("bbox does not canonicalize: {e}")))?;
     Ok(data_encoding::BASE32_NOPAD
@@ -2227,7 +2227,7 @@ pub async fn post_cube_resolve(
 /// shadow, 8 cloud (medium prob), 9 cloud (high prob), 10 thin cirrus. Snow
 /// (11) is KEPT: it is surface, not occlusion, so a snow-rejected median would
 /// fabricate a bare winter scene. Overridable via `mask_policy`.
-const DEFAULT_SCL_REJECT: [u8; 6] = [0, 1, 3, 8, 9, 10];
+pub(crate) const DEFAULT_SCL_REJECT: [u8; 6] = [0, 1, 3, 8, 9, 10];
 
 /// Hard cap on scenes read per composite mint; each is two COG window reads.
 const MAX_COMPOSITE_SCENES: usize = 16;
@@ -2253,7 +2253,7 @@ pub struct BandCompositeReq {
 }
 
 /// Day-number tslot for a scene's `YYYY-MM-DD...` capture time.
-fn scene_tslot(datetime: &str) -> u64 {
+pub(crate) fn scene_tslot(datetime: &str) -> u64 {
     let d = datetime.get(..10).unwrap_or("");
     parse_ymd(d)
         .map(|(y, m, dd)| (crate::days_from_civil(y, m, dd).max(0)) as u64)
@@ -2265,7 +2265,7 @@ fn scene_tslot(datetime: &str) -> u64 {
 /// metadata to pin. `None` if the scene is unreadable or off the anchor's
 /// pixel grid (a different native resolution).
 #[allow(clippy::too_many_arguments)]
-async fn read_masked_scene(
+pub(crate) async fn read_masked_scene(
     cli: &reqwest::Client,
     host: &'static str,
     item: &emem_fetch::stac::StacItem,

@@ -1067,6 +1067,18 @@ const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band
 "max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"Cap on scenes read. Default 12."}
 }}"#;
 
+const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","end_date"],"properties":{
+"geometry":{"type":"object","description":"The area as a GeoJSON Polygon (or a Feature wrapping one), WGS-84 [lng, lat]. Holes are honoured. Give this or `bbox`."},
+"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box, when there is no polygon."},
+"index":{"type":"string","enum":["ndvi","ndwi"],"description":"Spectral index: ndvi (B08, B04) or ndwi (B03, B08, McFeeters). Default ndvi."},
+"start_date":{"type":"string","description":"Window start YYYY-MM-DD, inclusive. Up to four years."},
+"end_date":{"type":"string","description":"Window end YYYY-MM-DD, inclusive."},
+"max_scenes":{"type":"integer","minimum":3,"maximum":24,"description":"Scenes read, evenly spaced in time over the window keeping both ends. Default 16."},
+"min_clear_fraction":{"type":"number","minimum":0.05,"maximum":1,"description":"A scene counts when at least this share of the area is clear sky. Default 0.4; scenes under it are listed in `excluded` with their share."},
+"blocks":{"type":"integer","minimum":2,"maximum":8,"description":"Map blocks per side for the per-scene frames and the change map. Default 6."},
+"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes rejected per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."}
+}}"#;
+
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{
 "cell":{"type":"string","description":"cell64 or place name. The 8 neighbour cell64s are derived by perturbing the decoded lat/lng step_cells pitches per axis."},
 "step_cells":{"type":"integer","minimum":1,"default":3,"description":"Stencil step in cell64 pitches (default 3 ≈ 28.7 m, matching the ~30 m Copernicus DEM native resolution). step_cells=1 samples below the DEM resolution and reads flat inside one source pixel; raise it to measure slope at a coarser scale."},
@@ -1553,6 +1565,18 @@ pub const TOOLS: &[ToolDescriptor] = &[
         input_schema: SCHEMA_BAND_COMPOSITE,
         output_schema: None,
         example_args: r#"{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},"band":"s2.B04","start_date":"2026-05-01","end_date":"2026-07-31"}"#,
+        level: "L0", category: ToolCategory::Read,
+        read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
+        tier: "extended",
+    },
+    ToolDescriptor {
+        name: "emem_field_series",
+        title: "Field series: an index over an area through time, signed",
+        description: "A spectral index (NDVI or NDWI) over a polygon or bbox, per Sentinel-2 overpass across a window, computed from the pixels and signed as one derivation. Every pixel is masked by its scene classification (cloud, shadow, cirrus, no-data), and each scene reports its clear-sky share of the area and the distribution over the clear pixels inside it: median, p10, p25, p75, p90, mean, std, n. A scene the sky mostly hid is listed in `excluded` with its share, never averaged in. On top of the rows: a Theil-Sen trend with Kendall's S and p (seasonal cycle not removed, and it says so), a same-season anomaly for the latest scene against earlier years within 30 days of its day of year, per-scene block medians (map frames to animate), and a first-to-last change map as GeoJSON with the day-of-year gap that confounds it. Scene ids, assets, mask, formula, quantile rule and selection are pinned in the signed record, so every number re-derives from the same scenes. Returns rows ready to chart, an emem:fact: token and a receipt binding (aoi_cid, derivation_cid). This signs and persists the derivation.",
+        when_to_use: "Call when the question is about an AREA over time, not one point: how a field, plot, orchard or catchment greened or dried across a season, a dashboard tile with uncertainty bands, a map that changes frame by frame. For one cell's stored readings use emem_trajectory; for one clean composite image use emem_band_composite; for year-over-year at one day of year use emem_compare_same_doy. Areas cap at 512 px (about 5 km) a side and windows at four years.",
+        input_schema: SCHEMA_FIELD_SERIES,
+        output_schema: None,
+        example_args: r#"{"geometry":{"type":"Polygon","coordinates":[[[-5.3012,6.8501],[-5.2988,6.8501],[-5.2988,6.8524],[-5.3012,6.8524],[-5.3012,6.8501]]]},"index":"ndvi","start_date":"2025-01-01","end_date":"2026-09-30"}"#,
         level: "L0", category: ToolCategory::Read,
         read_only_hint: false, destructive_hint: false, idempotent_hint: false, open_world_hint: true,
         tier: "extended",
@@ -3094,6 +3118,7 @@ pub const TOOL_GROUPS: &[(&str, &str, &[&str])] = &[
             "emem_band_raster",
             "emem_band_cube",
             "emem_band_composite",
+            "emem_field_series",
             "emem_raster_resolve",
             "emem_cube_resolve",
             "emem_raster_bundle",
@@ -3279,7 +3304,7 @@ pub const TOOL_SHAPES: &[(&str, &str, &[&str])] = &[
     (
         "timeseries",
         "A value per timestep at one address. Ask for this when the question is about change over time rather than a moment.",
-        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy"],
+        &["emem_trajectory", "emem_temporal_route", "emem_compare_same_doy", "emem_field_series"],
     ),
     (
         "raster",
@@ -3456,7 +3481,7 @@ pub const TOOL_BUNDLES: &[(&str, &str, &[&str])] = &[
         &[
             "emem_ndvi", "emem_soil", "emem_weather", "emem_spi", "emem_water",
             "emem_field_boundaries", "emem_rice_ch4", "emem_lst", "emem_trajectory",
-            "emem_compare",
+            "emem_compare", "emem_field_series",
         ],
     ),
     (
@@ -4434,6 +4459,7 @@ mod tests {
             "emem_band_raster",
             "emem_band_cube",
             "emem_band_composite",
+            "emem_field_series",
             "emem_terrain",
             "emem_region_similarity",
             "emem_embedding_centroid",
@@ -4522,6 +4548,7 @@ mod tests {
             ("emem_band_raster", [false, false, false, true]),
             ("emem_band_cube", [false, false, false, true]),
             ("emem_band_composite", [false, false, false, true]),
+            ("emem_field_series", [false, false, false, true]),
             ("emem_raster_bundle", [false, false, false, true]),
             ("emem_backfill", [false, false, false, true]),
             // Read this node's store and sign an unpersisted response.

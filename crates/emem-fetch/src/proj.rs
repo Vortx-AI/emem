@@ -139,6 +139,54 @@ fn forward_tm_wgs84(lat_deg: f64, lon_deg: f64, zone: u8) -> (f64, f64) {
     (easting, northing)
 }
 
+/// Inverse of [`latlng_to_utm_with_epsg`]: a point in the UTM CRS named by
+/// `epsg` back to WGS84 `(lat, lon)` degrees, by the footpoint-latitude series
+/// (Snyder eqs. 8-12 to 8-25). Inside a zone it round-trips the forward
+/// projection to well under a millimetre, which is what a map of pixel blocks
+/// needs: bounds a reader can draw, in the CRS the request was made in.
+pub fn utm_to_latlng_with_epsg(easting: f64, northing: f64, epsg: u32) -> Option<(f64, f64)> {
+    let (zone, hemi) = epsg_to_zone(epsg)?;
+    let a: f64 = 6_378_137.0;
+    let f: f64 = 1.0 / 298.257_223_563;
+    let e2 = f * (2.0 - f);
+    let ep2 = e2 / (1.0 - e2);
+    let k0: f64 = 0.9996;
+    let lon0 = ((zone as f64 - 1.0) * 6.0 - 180.0 + 3.0).to_radians();
+    let x = easting - 500_000.0;
+    let y = northing - false_northing(hemi);
+
+    let m = y / k0;
+    let mu = m / (a * (1.0 - e2 / 4.0 - 3.0 * e2 * e2 / 64.0 - 5.0 * e2 * e2 * e2 / 256.0));
+    let e1 = (1.0 - (1.0 - e2).sqrt()) / (1.0 + (1.0 - e2).sqrt());
+    let phi1 = mu
+        + (3.0 * e1 / 2.0 - 27.0 * e1.powi(3) / 32.0) * (2.0 * mu).sin()
+        + (21.0 * e1 * e1 / 16.0 - 55.0 * e1.powi(4) / 32.0) * (4.0 * mu).sin()
+        + (151.0 * e1.powi(3) / 96.0) * (6.0 * mu).sin()
+        + (1097.0 * e1.powi(4) / 512.0) * (8.0 * mu).sin();
+
+    let (sin1, cos1, tan1) = (phi1.sin(), phi1.cos(), phi1.tan());
+    let c1 = ep2 * cos1 * cos1;
+    let t1 = tan1 * tan1;
+    let n1 = a / (1.0 - e2 * sin1 * sin1).sqrt();
+    let r1 = a * (1.0 - e2) / (1.0 - e2 * sin1 * sin1).powf(1.5);
+    let d = x / (n1 * k0);
+
+    let lat = phi1
+        - (n1 * tan1 / r1)
+            * (d * d / 2.0
+                - (5.0 + 3.0 * t1 + 10.0 * c1 - 4.0 * c1 * c1 - 9.0 * ep2) * d.powi(4) / 24.0
+                + (61.0 + 90.0 * t1 + 298.0 * c1 + 45.0 * t1 * t1 - 252.0 * ep2 - 3.0 * c1 * c1)
+                    * d.powi(6)
+                    / 720.0);
+    let lon = lon0
+        + (d - (1.0 + 2.0 * t1 + c1) * d.powi(3) / 6.0
+            + (5.0 - 2.0 * c1 + 28.0 * t1 - 3.0 * c1 * c1 + 8.0 * ep2 + 24.0 * t1 * t1)
+                * d.powi(5)
+                / 120.0)
+            / cos1;
+    Some((lat.to_degrees(), lon.to_degrees()))
+}
+
 fn false_northing(hemi: Hemi) -> f64 {
     match hemi {
         Hemi::North => 0.0,
@@ -162,6 +210,27 @@ mod tests {
             .northing;
         assert!((sth - (10_000_000.0 + n)).abs() < 1e-6);
         assert!(latlng_to_utm(-0.05, 33.0, None).northing > 9_990_000.0);
+    }
+
+    /// The inverse undoes the forward projection across a zone and both
+    /// hemispheres, including a northern-zone point just south of the equator.
+    #[test]
+    fn the_inverse_round_trips_the_forward_projection() {
+        for (lat, lng, epsg) in [
+            (35.3628, 138.7307, 32654),
+            (6.8512, -5.3001, 32630),
+            (-33.9249, 18.4241, 32734),
+            (-0.05, 33.0, 32636),
+            (60.1699, 24.9384, 32635),
+        ] {
+            let u = latlng_to_utm_with_epsg(lat, lng, epsg).unwrap();
+            let (la, lo) = utm_to_latlng_with_epsg(u.easting, u.northing, epsg).unwrap();
+            assert!(
+                (la - lat).abs() < 1e-8 && (lo - lng).abs() < 1e-8,
+                "{lat},{lng} -> {la},{lo}"
+            );
+        }
+        assert!(utm_to_latlng_with_epsg(500_000.0, 0.0, 4326).is_none());
     }
 
     fn approx(a: f64, b: f64, tol: f64) -> bool {

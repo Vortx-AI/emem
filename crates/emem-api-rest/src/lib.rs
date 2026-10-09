@@ -54,6 +54,7 @@ mod embedding_analytics;
 pub mod enlistment;
 mod eo_runtime;
 mod eu_mrl;
+mod field_series;
 mod field_signals;
 mod intents;
 mod next_step;
@@ -1432,6 +1433,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/band_raster", post(band_raster::post_band_raster))
         .route("/v1/band_cube", post(band_raster::post_band_cube))
         .route("/v1/band_composite", post(band_raster::post_band_composite))
+        .route("/v1/field_series", post(field_series::post_field_series))
         .route("/v1/artifacts/:cid", get(band_raster::get_artifact))
         .route("/v1/raster/resolve", post(band_raster::post_raster_resolve))
         .route("/v1/raster_bundle", post(band_raster::post_raster_bundle))
@@ -32320,6 +32322,14 @@ async fn mcp_tool_call_inner(
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
+        "emem_field_series" => {
+            let req: field_series::FieldSeriesReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match field_series::post_field_series(State(s.clone()), EmemJson(req)).await {
+                Ok(Json(v)) => Ok(field_series::mcp_projection(v)),
+                Err(e) => Err((-(e.1.code as i64), e.1.message)),
+            }
+        }
         "emem_band_composite" => {
             let req: band_raster::BandCompositeReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -33751,6 +33761,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12; window cap 512 px per side, refused with the cap named. The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
+            "/v1/field_series": {"post":{"summary":"a spectral index (ndvi|ndwi) over a polygon or bbox per Sentinel-2 overpass across a window, signed as one s2_index_series@1 derivation. Each pixel is SCL-masked; each scene reports clear_fraction and the distribution over clear in-area pixels (median, nearest-rank p10/p25/p75/p90, mean, std, n_clear). Scenes under min_clear_fraction are listed in `excluded`. Adds a Theil-Sen trend with Kendall S and p (seasonal cycle not removed), a same-season anomaly for the latest scene, per-scene block medians, and a first-to-last change map as GeoJSON, each with its caution. Scene ids, mask, formula, quantile and selection rules are pinned in the signed record. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_field_series","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start_date","end_date"],"properties":{"geometry":{"type":"object","description":"GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":24},"min_clear_fraction":{"type":"number"},"blocks":{"type":"integer","minimum":2,"maximum":8},"mask_policy":{"type":"array","items":{"type":"integer"}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/band_composite": {"post":{"summary":"a signed, cloud-masked median composite over a date window, as a raster-shaped field artifact (docs/plans/field-tokens.md). Reads every clear Sentinel-2 scene in [start_date, end_date] over the bbox, masks each per pixel by its SCL class (default reject {0,1,3,8,9,10}; snow 11 kept as surface, overridable via mask_policy), and takes the per-pixel lower-of-two median (never averaging two measurements) with a pinned min_valid_count; below that count a pixel is nodata. The mask policy, min_valid_count, and the exact member scene list are pinned in the derivation, so a stranger re-derives the composite pixel for pixel from the same scenes. Returns an emem:raster: token (resolves via /v1/raster/resolve) plus the artifact; the receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment. Same window/px caps as band_raster; needs >=2 clear scenes at one CRS.","operationId":"emem_band_composite","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"start_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"end_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes to reject per pixel; default [0,1,3,8,9,10]"},"min_valid_count":{"type":"integer","minimum":1,"description":"per-pixel minimum valid samples for a value, else nodata; default 1"},"max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"cap on scenes read; default 12"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/cube/resolve": {"post":{"summary":"dereference an emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> token. Same fail-closed rule as raster/resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid/band/tslot-range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409). Returns the record plus the member emem:raster: tokens to resolve independently or batch via resolve_many. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_cube_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle": {"post":{"summary":"bind 2..64 already-minted emem:raster: field tokens (band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE signed manifest, named by an emem:rasterset: token (raster_bundle@1). The composition primitive a world or a DDS cites when it needs one token pointing at every signed layer (ground + geometry + embedding). Mints no new pixels: each member resolves and re-derives on its own. bundle_cid=blake3(ordered member derivation_cids + purpose); a member that is not a live raster-shaped derivation fails the mint by name. Signs and persists the manifest.","operationId":"emem_raster_bundle","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64},"purpose":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
@@ -73296,6 +73307,30 @@ fn spatial_trace_add_ground(trace: &mut JsonValue, live: &JsonValue) {
 /// matters is `truncated`, and it is computed from totals taken BEFORE the cap:
 /// a number derived from an already-capped list cannot witness its own capping,
 /// which is a fault this repo shipped twice in one week.
+/// A trace point's value as a model should read it. A scalar passes through.
+/// A learned embedding does not: one Prithvi vector is 768 floats, about 14 KB
+/// of digits in an answer budgeted at 7 KB, and no reasoning reads it
+/// coordinate by coordinate. It becomes its dimension and L2 norm; the vector
+/// itself is one resolve of the point's fact away.
+fn splat_value(value: &JsonValue) -> JsonValue {
+    const VECTOR_INLINE_MAX: usize = 16;
+    match value.as_array() {
+        Some(a) if a.len() > VECTOR_INLINE_MAX => {
+            let l2 = a
+                .iter()
+                .filter_map(|x| x.as_f64())
+                .map(|x| x * x)
+                .sum::<f64>()
+                .sqrt();
+            json!({
+                "vector": { "dim": a.len(), "l2_norm": l2 },
+                "_means": "an embedding, summarised: resolve this point's fact (`f`) for the full vector",
+            })
+        }
+        _ => value.clone(),
+    }
+}
+
 fn spatial_trace(
     band_observations: &[JsonValue],
     cell: &str,
@@ -73353,7 +73388,7 @@ fn spatial_trace(
         }
         let mut point = serde_json::Map::new();
         point.insert("band".into(), json!(band));
-        point.insert("value".into(), value.clone());
+        point.insert("value".into(), splat_value(value));
         if let Some(u) = o.get("unit").filter(|v| !v.is_null()) {
             point.insert("unit".into(), u.clone());
         }
@@ -86247,6 +86282,28 @@ mod tests {
             req_types > 20,
             "found {req_types} request types; this check has stopped reading the file"
         );
+    }
+
+    /// An embedding in the trace is summarised, never inlined: one vector
+    /// outweighed the whole answer budget.
+    #[test]
+    fn a_trace_embedding_is_its_shape_not_its_digits() {
+        let v: Vec<f64> = (0..768)
+            .map(|i| {
+                if i == 0 {
+                    3.0
+                } else if i == 1 {
+                    4.0
+                } else {
+                    0.0
+                }
+            })
+            .collect();
+        let s = splat_value(&json!(v));
+        assert_eq!(s["vector"]["dim"], json!(768));
+        assert_eq!(s["vector"]["l2_norm"], json!(5.0));
+        assert_eq!(splat_value(&json!(0.4)), json!(0.4));
+        assert_eq!(splat_value(&json!([1.0, 2.0])), json!([1.0, 2.0]));
     }
 
     /// A charted point needs a date and a handle to check it; a tslot is

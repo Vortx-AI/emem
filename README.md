@@ -197,7 +197,7 @@ Framework examples ship in [`examples/`](examples/): [LangChain](examples/langch
 
 ### For agents
 
-Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 114 descriptors costs about 324 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. Ground a place with `emem_locate`, read it with `emem_recall`, and let the receiver check anything you hand it with `emem_verify_receipt`. To hand facts on, prefer a bundle: `emem_memory_bundle` names any number of facts, up to 256, in 38 characters (23 LLM tokens), while one `emem:fact:` token is 84 characters (51 LLM tokens) against a value that averages 5.4, so single tokens cost more context than the values they replace. Writes need no API key either: sign them with an ed25519 key you generate locally, and a refused write hands back the exact digest to sign.
+Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 115 descriptors costs about 324 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. Ground a place with `emem_locate`, read it with `emem_recall`, and let the receiver check anything you hand it with `emem_verify_receipt`. To hand facts on, prefer a bundle: `emem_memory_bundle` names any number of facts, up to 256, in 38 characters (23 LLM tokens), while one `emem:fact:` token is 84 characters (51 LLM tokens) against a value that averages 5.4, so single tokens cost more context than the values they replace. Writes need no API key either: sign them with an ed25519 key you generate locally, and a refused write hands back the exact digest to sign.
 
 
 ## Use it for evals
@@ -238,7 +238,7 @@ The protocol does not care what a fact is about. Earth goes first because its so
 
 ## By the numbers
 
-[114 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 115 wired measurements from 46 declared source schemes, 168 algorithms and 177 paths under /v1/* ([`/v1/agent_card`](https://emem.dev/v1/agent_card) counts all four; [`/openapi.json`](https://emem.dev/openapi.json) lists the paths), and a [transparency log](https://emem.dev/v1/log/sth) of 2,554,331 signed entries (measured 2026-09-30). Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
+[115 MCP tools](https://emem.dev/mcp/full) (an [18-tool core loop](https://emem.dev/mcp) by default), 115 wired measurements from 46 declared source schemes, 168 algorithms and 178 paths under /v1/* ([`/v1/agent_card`](https://emem.dev/v1/agent_card) counts all four; [`/openapi.json`](https://emem.dev/openapi.json) lists the paths), and a [transparency log](https://emem.dev/v1/log/sth) of 2,554,331 signed entries (measured 2026-09-30). Every registry that governs meaning is one of ten content-addressed manifests at [`/v1/manifests`](https://emem.dev/v1/manifests), so citing its cid pins the exact semantics a fact was written under.
 
 ## Who builds on it
 
@@ -289,13 +289,14 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 
 
+
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:t6rzwe6wsgoz2kxoxw3px2oixe`, root `ewqacoe4f53snzwjzsbeadjn3j3o5y6r2d3g2le23uw2vjmie6ia`, published under the key `k572x7go`. A single section is `emem:tree:t6rzwe6wsgoz2kxoxw3px2oixe#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:sqkjtmjoepgarxc64q6spbob2y`, root `2lxknqouqj73uzydzwisdssvzylamnuhyqf2uddvpupqvxxkfaaq`, published under the key `k572x7go`. A single section is `emem:tree:sqkjtmjoepgarxc64q6spbob2y#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/v1/tree/t6rzwe6wsgoz2kxoxw3px2oixe?row=3" > row.json
+curl -s "https://emem.dev/v1/tree/sqkjtmjoepgarxc64q6spbob2y?row=3" > row.json
 python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261009.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261009.md). The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261009b.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261009b.md). The tree changes whenever the README does, and this section is left out of it because it names the tree.

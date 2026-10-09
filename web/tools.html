@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 114 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
+<meta name=description content="All 115 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -94,7 +94,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
   <div>
     <p class="eyebrow">Connect &middot; generated from /v1/tools</p>
     <h1>MCP tools</h1>
-    <p class="purpose">All 114 tools this responder dispatches, each with what it answers and a call you can paste. The 18-tool core loop comes first.</p>
+    <p class="purpose">All 115 tools this responder dispatches, each with what it answers and a call you can paste. The 18-tool core loop comes first.</p>
     <div class="actions">
       <a class="btn" href="#sec-0">Core loop</a>
       <a class="btn ghost" href="/v1/tools">/v1/tools JSON</a>
@@ -113,10 +113,10 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <aside class="tl-side">
   <label for="tl-q">Filter tools</label>
   <input id="tl-q" type="search" placeholder="name or keyword" autocomplete="off" spellcheck="false">
-  <p class="count" id="tl-count" aria-live="polite">114 tools</p>
+  <p class="count" id="tl-count" aria-live="polite">115 tools</p>
   <nav class="doc-toc" aria-label="On this page"><h2>Sections</h2><ol>
 <li><a href="#sec-0"><span>00</span>Core loop (18)</a></li>
-<li><a href="#sec-1"><span>01</span>Read the world (60)</a></li>
+<li><a href="#sec-1"><span>01</span>Read the world (61)</a></li>
 <li><a href="#sec-2"><span>02</span>Write and attest (7)</a></li>
 <li><a href="#sec-3"><span>03</span>Verify and prove (8)</a></li>
 <li><a href="#sec-4"><span>04</span>Introspect the surface (19)</a></li>
@@ -128,9 +128,9 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <h2 id="sec-0-h">Core loop (18)</h2>
 <p class="sub">What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. Every other tool stays callable by name.</p>
 
-<details class="tool" id="emem_tools" data-q="emem_tools what tools exist here, and when to reach for each the map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. pass `name` for one tool&#x27;s full schema and a runnable example. if you are reading a list of 18 tools, you are seeing a curated subset of 114, not the whole surface; hosts strip `_meta`, so the count is repeated here. every catalogued tool stays callable by name through tools/call at either endpoint.">
+<details class="tool" id="emem_tools" data-q="emem_tools what tools exist here, and when to reach for each the map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. pass `name` for one tool&#x27;s full schema and a runnable example. if you are reading a list of 18 tools, you are seeing a curated subset of 115, not the whole surface; hosts strip `_meta`, so the count is repeated here. every catalogued tool stays callable by name through tools/call at either endpoint.">
   <summary><code>emem_tools</code><span class="tt">What tools exist here, and when to reach for each</span><span class="tw">Call FIRST when you do not know which tool answers the question, or need a capability absent from your list: absent from the list is not absent from the server.</span></summary>
-  <p>The map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool&#x27;s full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 114, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint.</p>
+  <p>The map of emem&#x27;s tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool&#x27;s full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 115, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_tools&quot;, &quot;arguments&quot;: {&quot;q&quot;: &quot;ndvi&quot;}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_tools">link to this tool</a></p>
 </details>
@@ -277,7 +277,7 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
 </details>
 </section>
 <section class="tgroup" id="sec-1" aria-labelledby="sec-1-h">
-<h2 id="sec-1-h">Read the world (60)</h2>
+<h2 id="sec-1-h">Read the world (61)</h2>
 
 <details class="tool" id="emem_air" data-q="emem_air air-quality snapshot (cams pm2.5 / no2 / o3) recall the signed copernicus cams air-quality facts (pm2.5 + no2 + o3) at a place&#x27;s cell64, attesting on a miss. composes locate → recall → aggregate; each band carries a citeable fact_cid.">
   <summary><code>emem_air</code><span class="tt">Air-quality snapshot (CAMS PM2.5 / NO2 / O3)</span><span class="tw">Use when the user names a place and asks about air quality, pollution, or emissions exposure.</span></summary>
@@ -466,6 +466,13 @@ An unknown or missing `type` returns a structured `needs_intent_type` envelope n
   <p>Per-field agricultural-boundary polygons from the Fields of The World global product (~3.17B fields, 241 countries, 10 m resolution, CC-BY-4.0). Returns a GeoJSON FeatureCollection with the polygon geometries, FIBOA-compatible properties, and a planar `area_m2` per field, plus provenance (source CID, provider URL, license, attribution).</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_field_boundaries&quot;, &quot;arguments&quot;: {&quot;polygon_bbox&quot;: {&quot;max_lat&quot;: 36.74, &quot;max_lng&quot;: -119.8, &quot;min_lat&quot;: 36.7, &quot;min_lng&quot;: -119.84}}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_field_boundaries">link to this tool</a></p>
+</details>
+
+<details class="tool" id="emem_field_series" data-q="emem_field_series field series: an index over an area through time, signed a spectral index (ndvi or ndwi) over a polygon or bbox, per sentinel-2 overpass across a window, computed from the pixels and signed as one derivation. every pixel is masked by its scene classification (cloud, shadow, cirrus, no-data), and each scene reports its clear-sky share of the area and the distribution over the clear pixels inside it: median, p10, p25, p75, p90, mean, std, n. a scene the sky mostly hid is listed in `excluded` with its share, never averaged in. on top of the rows: a theil-sen trend with kendall&#x27;s s and p (seasonal cycle not removed, and it says so), a same-season anomaly for the latest scene against earlier years within 30 days of its day of year, per-scene block medians (map frames to animate), and a first-to-last change map as geojson with the day-of-year gap that confounds it. scene ids, assets, mask, formula, quantile rule and selection are pinned in the signed record, so every number re-derives from the same scenes. returns rows ready to chart, an emem:fact: token and a receipt binding (aoi_cid, derivation_cid). this signs and persists the derivation.">
+  <summary><code>emem_field_series</code><span class="tt">Field series: an index over an area through time, signed</span><span class="tw">Call when the question is about an AREA over time, not one point: how a field, plot, orchard or catchment greened or dried across a season, a dashboard tile with uncertainty bands, a map that changes frame by frame.</span></summary>
+  <p>A spectral index (NDVI or NDWI) over a polygon or bbox, per Sentinel-2 overpass across a window, computed from the pixels and signed as one derivation. Every pixel is masked by its scene classification (cloud, shadow, cirrus, no-data), and each scene reports its clear-sky share of the area and the distribution over the clear pixels inside it: median, p10, p25, p75, p90, mean, std, n. A scene the sky mostly hid is listed in `excluded` with its share, never averaged in. On top of the rows: a Theil-Sen trend with Kendall&#x27;s S and p (seasonal cycle not removed, and it says so), a same-season anomaly for the latest scene against earlier years within 30 days of its day of year, per-scene block medians (map frames to animate), and a first-to-last change map as GeoJSON with the day-of-year gap that confounds it. Scene ids, assets, mask, formula, quantile rule and selection are pinned in the signed record, so every number re-derives from the same scenes. Returns rows ready to chart, an emem:fact: token and a receipt binding (aoi_cid, derivation_cid). This signs and persists the derivation.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_field_series&quot;, &quot;arguments&quot;: {&quot;end_date&quot;: &quot;2026-09-30&quot;, &quot;geometry&quot;: {&quot;coordinates&quot;: [[[-5.3012, 6.8501], [-5.2988, 6.8501], [-5.2988, 6.8524], [-5.3012, 6.8524], [-5.3012, 6.8501]]], &quot;type&quot;: &quot;Polygon&quot;}, &quot;index&quot;: &quot;ndvi&quot;, &quot;start_date&quot;: &quot;2025-01-01&quot;}}}&#x27;</code></pre>
+  <p class="tl"><a href="#emem_field_series">link to this tool</a></p>
 </details>
 
 <details class="tool" id="emem_forest" data-q="emem_forest forest signals (hansen gfc + esa worldcover) recall the signed forest facts at a place&#x27;s cell64: hansen global forest change (tree cover 2000 baseline + year-of-loss) + esa worldcover 2021 land class, attested on a miss; each carries a citeable fact_cid.">
