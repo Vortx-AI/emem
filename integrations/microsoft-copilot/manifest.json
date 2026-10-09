@@ -1,0 +1,43 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
+  "manifestVersion": "devPreview",
+  "version": "2.4.2",
+  "id": "e292cbde-2d42-5be5-9561-9e786ce9c2c6",
+  "developer": {
+    "name": "Vortx AI Private Limited",
+    "websiteUrl": "https://emem.dev",
+    "privacyUrl": "https://emem.dev/privacy",
+    "termsOfUseUrl": "https://emem.dev/terms"
+  },
+  "name": {
+    "short": "emem",
+    "full": "emem, verifiable memory for AI agents"
+  },
+  "description": {
+    "short": "Signed, citable Earth observation facts for any place. No key to read.",
+    "full": "emem is shared, verifiable memory for AI agents. Every place has one address and every observation one signed fact, so an answer survives leaving the conversation and anyone can re-check it. Ask about a place (vegetation, air quality, flood, fire, elevation, forest loss) and the answer comes back as a measurement from a public Earth-observation source with an Ed25519 receipt attached, plus a short emem:fact: token that resolves anywhere to the same signed bytes. Verify any receipt at https://emem.dev/verify without trusting emem. Reading needs no key and no account; reads are rate-limited per client. This connector exposes the 18-tool core loop; emem_tools lists and runs the rest. Open source, Apache-2.0."
+  },
+  "agentConnectors": [
+    {
+      "id": "emem-connector",
+      "displayName": "emem",
+      "description": "Signed Earth-observation facts for a place: emem_locate, then emem_recall, then cite the emem:fact: token.",
+      "toolSource": {
+        "remoteMcpServer": {
+          "mcpServerUrl": "https://emem.dev/mcp",
+          "mcpToolDescription": {
+            "file": "mcptools.json"
+          },
+          "authorization": {
+            "type": "None"
+          }
+        }
+      }
+    }
+  ],
+  "icons": {
+    "outline": "outline.png",
+    "color": "color.png"
+  },
+  "accentColor": "#178F7F"
+}

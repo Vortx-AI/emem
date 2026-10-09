@@ -1,6 +1,6 @@
 # Microsoft Copilot Studio + Semantic Kernel, Integration Guide
 
-**Status:** Not started  
+**Status:** package built in [`integrations/microsoft-copilot/`](../../integrations/microsoft-copilot/) (manifest, mcptools.json, intro.md, both icons); Semantic Kernel example in `examples/semantic-kernel/`. Remaining: the Microsoft-side steps (Partner Center, the no-auth question, the forms).  
 **Two Microsoft paths, pursue in order:**
 1. M365 Copilot Federated Connector (form submission, fastest)
 2. Copilot Studio MCP Certification (Partner Center, broader reach)
@@ -20,12 +20,7 @@
 | Terms | `https://emem.dev/terms` | ✅ live |
 | AutoGen example (close relative) | `examples/autogen/emem_mcp_geospatial_agent.py` | ✅ exists |
 
-**Missing:**
-- 32×32 white-on-transparent outline PNG (`outline.png`), must be created
-- `mcptools.json`, tool definitions file for Copilot Studio package
-- `manifest.json`, Teams/Copilot Studio package manifest
-- `intro.md`, connector documentation file
-- Semantic Kernel example (`examples/semantic-kernel/`)
+**Built:** everything that was listed missing here (outline icon, `mcptools.json`, `manifest.json`, `intro.md`, the Semantic Kernel example). The package in `integrations/microsoft-copilot/` supersedes the templates below, which are kept as the record of the plan; the template text claimed "no rate limits for reads", which is false (reads are rate-limited per client).
 
 ---
 
