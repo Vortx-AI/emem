@@ -15054,6 +15054,10 @@ struct PlacesOverlayQ {
     height: Option<u32>,
     #[serde(default)]
     tslot: Option<u64>,
+    /// `bare=true` leaves out the title and caption, for a page that sets its
+    /// own over the map (the /gallery heading was drawn on top of this one).
+    #[serde(default)]
+    bare: Option<bool>,
 }
 
 /// Render an SVG value-painted overlay of the resolved place's polygon.
@@ -15241,12 +15245,14 @@ async fn get_places_scene_overlay_svg(
     } else {
         format!("{} per cell", band_human)
     };
-    svg.push_str(&format!(
-        r##"  <text x="22" y="34" class="h1">{safe_place}</text>
+    if !q.bare.unwrap_or(false) {
+        svg.push_str(&format!(
+            r##"  <text x="22" y="34" class="h1">{safe_place}</text>
   <text x="22" y="50" class="dek">{}</text>
 "##,
-        html_escape_min(&dek),
-    ));
+            html_escape_min(&dek),
+        ));
+    }
 
     // Map frame, a hairline rule, paper background already laid down.
     svg.push_str(&format!(

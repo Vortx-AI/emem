@@ -39,7 +39,7 @@
     --ember: #a84423;
     --sky: #3c6786;
 
-    --serif: Georgia, 'Hoefler Text', 'Source Serif Pro', Cambria, 'Times New Roman', serif;
+    --serif: var(--display);
   }
   *{box-sizing:border-box}
   html,body{margin:0;padding:0;background:var(--cream);color:var(--ink);font-family:var(--mono);font-size:var(--t-xs);line-height:1.4}
@@ -774,7 +774,7 @@ input::placeholder{color:var(--mute,#7a7363)}
     // larger values (n=36 default in prior build) timed out for wide
     // OSM polygons like Bengaluru because the SVG renderer waited on
     // 36 per-cell recalls before stamping a single byte to the wire.
-    const url = `${API}/v1/places/scene_overlay.svg?place=${encodeURIComponent(place)}&band=${encodeURIComponent(band)}&n_cells=12`;
+    const url = `${API}/v1/places/scene_overlay.svg?place=${encodeURIComponent(place)}&band=${encodeURIComponent(band)}&n_cells=12&bare=true`;
     const mySeq = ++_sceneBgSeq;
     const img = new Image();
     img.alt = '';

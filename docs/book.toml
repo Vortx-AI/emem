@@ -41,3 +41,10 @@ enable = false
 [build]
 build-dir       = "book"
 create-missing  = false
+
+# The collaboration log is a 24.8 MB generated transcript (scripts/build_channel.py)
+# and was 95% of the search index: 127.5 MB, 17.9 MB gzipped, fetched by any
+# reader who opened search. The page stays in the book; the live, searchable
+# view of the same notes is /channel and POST /v1/memory/search.
+[output.html.search.chapter]
+"collaboration-log.md" = { enable = false }

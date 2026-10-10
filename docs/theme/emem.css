@@ -16,7 +16,7 @@
  * no structural changes, search / fold / mathjax untouched.
  */
 
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap');
 
 /* ── palette: the web/index.html :root token block (oklch, hue 85) ───────── */
 :root {
@@ -35,6 +35,7 @@
   --accent-bg:    oklch(0.93  0.04  145);
   --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --display: 'Newsreader', Georgia, 'Times New Roman', serif;
+  --ui: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 }
 
 /* ── mdbook variable mapping ──────────────────────────────────────────────
@@ -107,9 +108,12 @@ html.light, html.rust, html.navy, html.ayu, html.coal, html:not(.js) {
   --blockquote-caution-color:   oklch(0.50 0.11 35);
 }
 
-/* ── typography: JetBrains Mono everywhere, editorial spacing ─────────────── */
+/* ── typography: the interface face by default, as on the site ──────────────
+   The sidebar, the menu bar and tables are interface; prose and big headings
+   are set in the serif below; code stays mono. Until 2026-10-10 this was
+   JetBrains Mono everywhere, which read as a terminal beside the site. */
 html, body, .content {
-  font-family: var(--mono);
+  font-family: var(--ui);
   font-feature-settings: "ss01","ss02","cv01","cv02";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -310,7 +314,8 @@ ul#mdbook-searchresults li, ul#searchresults li { background: var(--paper-2); }
   font-variation-settings: 'opsz' 18;
 }
 .content :is(p, li, blockquote) :is(code, kbd, samp) { font-family: var(--mono); font-size: 0.84em; }
-.content table, .content table p, .content table li { font-family: var(--mono); font-size: 14px; line-height: 1.5; }
+.content table, .content table p, .content table li { font-family: var(--ui); font-size: 14px; line-height: 1.5; }
+.content table code { font-family: var(--mono); }
 .content h1, .content h2, .content h3 {
   font-family: var(--display);
   font-weight: 450;
@@ -319,7 +324,7 @@ ul#mdbook-searchresults li, ul#searchresults li { background: var(--paper-2); }
 .content h1 { font-size: 42px; line-height: 1.08; font-variation-settings: 'opsz' 48; }
 .content h2 { font-size: 30px; line-height: 1.15; font-variation-settings: 'opsz' 32; }
 .content h3 { font-size: 22px; line-height: 1.25; font-variation-settings: 'opsz' 24; }
-.content h4, .content h5 { font-family: var(--mono); font-size: 14px; letter-spacing: 0.02em; }
+.content h4, .content h5 { font-family: var(--ui); font-size: 15px; font-weight: 600; letter-spacing: 0; }
 .chapter li.chapter-item, .chapter li a { font-size: 14px; }
 .chapter li.part-title { font-size: 12px; font-weight: 600; margin-top: 14px; }
 .menu-title { font-family: var(--display); font-weight: 500; font-size: 20px; letter-spacing: -0.01em; }
