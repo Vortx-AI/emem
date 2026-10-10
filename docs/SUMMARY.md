@@ -7,6 +7,7 @@
      before it. -->
 
 [Introduction](./intro.md)
+[emem in depth](./emem-in-depth.md)
 [Why an agent benefits from emem](./why-agents.md)
 [Quickstart (60 seconds)](./quickstart.md)
 [Your first verified memory (10 minutes)](./tutorials/first-verified-memory.md)

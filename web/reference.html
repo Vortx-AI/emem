@@ -316,6 +316,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 .limits li{padding-left:var(--s-3);border-left:2px solid var(--absent);color:var(--ink-2);line-height:1.55}
 .doc-head .facts dd[data-pending]{min-width:4ch}
 @media (max-width:720px){.ref-tok .path{min-width:11rem}.ref-tok th:nth-child(4),.ref-tok td:nth-child(4){display:none}.scroll-x>table.ref-tok{min-width:600px}}
+.listed{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(210px,100%),1fr));gap:0;border:1px solid var(--rule);margin:1rem 0 1.5rem;padding:0;list-style:none}
+.listed li{padding:.7rem 1rem;border-right:1px solid var(--rule);border-bottom:1px solid var(--rule);font-size:var(--t-xs);display:flex;flex-direction:column;gap:.2rem;background:var(--paper-2)}
+.listed li span{color:var(--mute)}
 </style>
 </head>
 <body class="doc">
@@ -341,7 +344,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 </div>
 <div class="navsec"><h6>connect</h6>
 <a href="/a2a"><b>A2A</b><span>hand memory between agents</span></a>
-<a href="/clients"><b>Clients</b><span>connect Claude, Cursor, ChatGPT</span></a>
+<a href="/reference#client-setup"><b>Connect a client</b><span>Claude, ChatGPT, Cursor, VS Code</span></a>
 <a href="/openapi.json"><b>OpenAPI</b><span>load the machine contract</span></a>
 <a href="/skills.md"><b>Skills</b><span>run a procedure as an agent</span></a>
 </div>
@@ -530,15 +533,20 @@ input::placeholder{color:var(--mute,#7a7363)}
 
   <div class="section-body">
     <h2><span class="num">02</span>Client setup</h2>
-    <p class="lede">The same JSON works in every host that speaks MCP. For a runtime without Streamable HTTP, use the <span class="band">mcp-remote</span> stdio bridge. No key and no install.</p>
+    <p class="lede">emem is a plugin in ChatGPT and Claude, a server in the MCP registries, and one endpoint for every other host.</p><details class="fold"><summary>more</summary><p class="rest">The same JSON works in every host that speaks MCP; for a runtime without Streamable HTTP, use the <span class="band">mcp-remote</span> stdio bridge. No key to read.</p></details>
 
     <div class="connect" id="client-tabs">
       <div class="client active" data-client="claude-code"><span class="name">Claude Code</span><span class="meta">.mcp.json</span></div>
-      <div class="client" data-client="cursor"><span class="name">Cursor</span><span class="meta">.cursor/mcp.json</span></div>
+      <div class="client" data-client="claude-plugin"><span class="name">Claude Code plugin</span><span class="meta">nineteen skills</span></div>
+      <div class="client" data-client="claude-ai"><span class="name">Claude.ai</span><span class="meta">directory or connector</span></div>
       <div class="client" data-client="claude-desktop"><span class="name">Claude Desktop</span><span class="meta">claude_desktop_config.json</span></div>
-      <div class="client" data-client="cline"><span class="name">Cline (VS Code)</span><span class="meta">MCP settings</span></div>
+      <div class="client" data-client="chatgpt"><span class="name">ChatGPT</span><span class="meta">app</span></div>
+      <div class="client" data-client="cursor"><span class="name">Cursor</span><span class="meta">.cursor/mcp.json</span></div>
+      <div class="client" data-client="vscode"><span class="name">VS Code, Copilot</span><span class="meta">MCP registry</span></div>
+      <div class="client" data-client="cline"><span class="name">Cline</span><span class="meta">MCP settings</span></div>
       <div class="client" data-client="gemini"><span class="name">Gemini CLI</span><span class="meta">extension install</span></div>
-      <div class="client" data-client="openai"><span class="name">OpenAI / ChatGPT</span><span class="meta">Action import</span></div>
+      <div class="client" data-client="dify"><span class="name">Dify</span><span class="meta">marketplace plugin</span></div>
+      <div class="client" data-client="openai"><span class="name">Custom GPT</span><span class="meta">Action import</span></div>
       <div class="client" data-client="stdio"><span class="name">stdio bridge</span><span class="meta">mcp-remote</span></div>
       <div class="client" data-client="rest"><span class="name">Plain REST</span><span class="meta">POST /v1/*</span></div>
     </div>
@@ -559,6 +567,25 @@ input::placeholder{color:var(--mute,#7a7363)}
   <span class="tok-p">}</span>
 <span class="tok-p">}</span></code></pre>
     </div>
+
+    <h3 id="listed-in">Where emem is listed</h3>
+    <ul class="listed">
+      <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer">ChatGPT</a><span>app, mention @emem</span></li>
+      <li><a href="https://github.com/Vortx-AI/emem/tree/main/plugins/emem" target="_blank" rel="noopener noreferrer">Claude</a><span>plugin; search emem in the Claude directory</span></li>
+      <li><a href="https://registry.modelcontextprotocol.io/v0/servers/io.github.Vortx-AI%2Femem/versions/latest" target="_blank" rel="noopener noreferrer">MCP Registry</a><span>official, io.github.Vortx-AI/emem</span></li>
+      <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">GitHub MCP Registry</a><span>VS Code and Copilot install</span></li>
+      <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Dify</a><span>verified marketplace plugin</span></li>
+      <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer">Glama</a><span>server and connector</span></li>
+      <li><a href="https://smithery.ai/servers/vortxai/emem" target="_blank" rel="noopener noreferrer">Smithery</a><span>hosted proxy</span></li>
+      <li><a href="https://www.pulsemcp.com/servers/emem" target="_blank" rel="noopener noreferrer">PulseMCP</a><span>official server</span></li>
+      <li><a href="https://mcpmarket.com/server/emem" target="_blank" rel="noopener noreferrer">MCP Market</a><span>server listing</span></li>
+      <li><a href="https://context7.com/vortx-ai/emem" target="_blank" rel="noopener noreferrer">Context7</a><span>docs for coding agents</span></li>
+      <li><a href="https://www.claudepluginhub.com/plugins/vortx-ai-emem-plugins-emem" target="_blank" rel="noopener noreferrer">ClaudePluginHub</a><span>community plugin index</span></li>
+      <li><a href="https://apis.io/a2a/emem-dev/" target="_blank" rel="noopener noreferrer">APIs.io A2A</a><span>A2A v1.0, conformant</span></li>
+      <li><a href="https://pypi.org/project/ememdev/" target="_blank" rel="noopener noreferrer">PyPI</a><span>pip install ememdev</span></li>
+      <li><a href="https://www.npmjs.com/package/@vortxai/emem" target="_blank" rel="noopener noreferrer">npm</a><span>npm i @vortxai/emem</span></li>
+      <li><a href="https://github.com/punkpeye/awesome-mcp-servers" target="_blank" rel="noopener noreferrer">awesome lists</a><span>plus the remote-MCP and Gemini CLI lists</span></li>
+    </ul>
 
     <p>The MCP layer wraps the same handlers as <a href="/openapi.json">/openapi.json</a>. Start with <span class="band">emem_ask</span>: it resolves the place, recalls the bands and runs the matching algorithm in one call.</p>
     <p><span class="band">/v1/attest</span> accepts facts only from this responder's key, an enrolled device or a key the operator lists; any other signature gets 403. Per-agent notes and derivations are signed with the agent's own key.</p>
@@ -902,7 +929,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a href="/tools">MCP tools</a></li>
 <li><a href="/a2a">A2A</a></li>
 <li><a href="/docs/">Docs</a></li>
-<li><a href="/clients">Clients</a></li>
+<li><a href="/reference#client-setup">Connect a client</a></li>
 <li><a href="/openapi.json">OpenAPI</a></li>
 <li><a href="/skills.md">Skills</a></li>
 </ul></div>
@@ -935,8 +962,10 @@ input::placeholder{color:var(--mute,#7a7363)}
         <h4>Listed on</h4>
         <ul>
           <li><a href="https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77" target="_blank" rel="noopener noreferrer" title="emem in the ChatGPT plugin directory">ChatGPT</a></li>
+          <li><a href="https://github.com/Vortx-AI/emem/tree/main/plugins/emem" target="_blank" rel="noopener noreferrer" title="the emem plugin for Claude; search emem in the Claude directory">Claude</a></li>
           <li><a href="https://marketplace.dify.ai/plugin/vortx-ai/emem" target="_blank" rel="noopener noreferrer" title="emem in the Dify marketplace">Dify</a></li>
           <li><a href="https://github.com/mcp/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem in the GitHub MCP registry">MCP registry</a></li>
+          <li><a href="https://glama.ai/mcp/servers/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="emem on Glama">Glama</a></li>
           <li><a href="https://github.com/Vortx-AI/emem" target="_blank" rel="noopener noreferrer" title="the source, Apache-2.0">GitHub</a></li>
           <li><a href="https://doi.org/10.5281/zenodo.20706893" target="_blank" rel="noopener noreferrer" title="the whitepaper, with a DOI">Zenodo</a></li>
         </ul>
@@ -956,6 +985,11 @@ input::placeholder{color:var(--mute,#7a7363)}
   var filename = document.getElementById('connect-filename');
   var configs = {
     'claude-code':    { file: '.mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
+    'claude-plugin':  { file: 'Claude Code', body: '<span class="tok-c"># The plugin: the MCP server plus nineteen skills</span>\n<span class="tok-cmd">$</span> /plugin marketplace add Vortx-AI/emem\n<span class="tok-cmd">$</span> /plugin install emem@emem\n\n<span class="tok-c"># Or only the server</span>\n<span class="tok-cmd">$</span> claude mcp add --transport http emem https://emem.dev/mcp' },
+    'claude-ai':      { file: 'Claude', body: '<span class="tok-c"># In Claude: Settings, Connectors, browse the directory and search emem.</span>\n<span class="tok-c"># Or add a custom connector with this URL:</span>\n<span class="tok-u">https://emem.dev/mcp</span>' },
+    'chatgpt':        { file: 'ChatGPT', body: '<span class="tok-c"># Open the emem app in ChatGPT, then mention @emem in a chat:</span>\n<span class="tok-u">https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77</span>' },
+    'vscode':         { file: 'VS Code', body: '<span class="tok-c"># One click from the GitHub MCP registry:</span>\n<span class="tok-u">https://github.com/mcp/Vortx-AI/emem</span>\n\n<span class="tok-c"># or .vscode/mcp.json (VS Code uses servers, not mcpServers):</span>\n<span class="tok-p">{</span> <span class="tok-key">"servers"</span><span class="tok-p">:</span> <span class="tok-p">{</span> <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span> <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span> <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span> <span class="tok-p">}</span> <span class="tok-p">}</span> <span class="tok-p">}</span>' },
+    'dify':           { file: 'Dify', body: '<span class="tok-c"># Add emem from the Dify Marketplace to an app, agent or workflow:</span>\n<span class="tok-u">https://marketplace.dify.ai/plugin/vortx-ai/emem</span>' },
     'cursor':         { file: '.cursor/mcp.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
     'claude-desktop': { file: 'claude_desktop_config.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"type"</span><span class="tok-p">:</span> <span class="tok-s">"http"</span><span class="tok-p">,</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span>\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },
     'cline':          { file: 'cline_mcp_settings.json', body: '<span class="tok-p">{</span>\n  <span class="tok-key">"mcpServers"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n    <span class="tok-key">"emem"</span><span class="tok-p">:</span> <span class="tok-p">{</span>\n      <span class="tok-key">"url"</span><span class="tok-p">:</span> <span class="tok-s">"https://emem.dev/mcp"</span><span class="tok-p">,</span>\n      <span class="tok-key">"autoApprove"</span><span class="tok-p">:</span> [<span class="tok-s">"emem_recall"</span><span class="tok-p">,</span> <span class="tok-s">"emem_locate"</span><span class="tok-p">,</span> <span class="tok-s">"emem_verify"</span>]\n    <span class="tok-p">}</span>\n  <span class="tok-p">}</span>\n<span class="tok-p">}</span>' },

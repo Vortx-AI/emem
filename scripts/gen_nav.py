@@ -80,7 +80,7 @@ SITE = [
     ("/guard",                "Guard",         "gate an answer on its citations",    "Verify",  "path"),
     ("/a2a",                  "A2A",           "hand memory between agents",         "Connect", "path"),
     ("/docs/",                "Docs",          "read the book",                      "Connect", "ref"),
-    ("/clients",              "Clients",       "connect Claude, Cursor, ChatGPT",    "Connect", "ref"),
+    ("/reference#client-setup", "Connect a client", "Claude, ChatGPT, Cursor, VS Code", "Connect", "ref"),
     ("/openapi.json",         "OpenAPI",       "load the machine contract",          "Connect", "ref"),
     ("/skills.md",            "Skills",        "run a procedure as an agent",        "Connect", "ref"),
     ("/agents",               "Attesters",     "see every key that writes",          "Verify",  "ref"),
@@ -479,10 +479,14 @@ def served_as(name: str) -> str:
 PORTS = [
     ("ChatGPT", "https://chatgpt.com/plugins/plugin_asdk_app_6a6a0832a59081918b19aec0ddf9ec77",
      "emem in the ChatGPT plugin directory"),
+    ("Claude", "https://github.com/Vortx-AI/emem/tree/main/plugins/emem",
+     "the emem plugin for Claude; search emem in the Claude directory"),
     ("Dify", "https://marketplace.dify.ai/plugin/vortx-ai/emem",
      "emem in the Dify marketplace"),
     ("MCP registry", "https://github.com/mcp/Vortx-AI/emem",
      "emem in the GitHub MCP registry"),
+    ("Glama", "https://glama.ai/mcp/servers/Vortx-AI/emem",
+     "emem on Glama"),
     ("GitHub", "https://github.com/Vortx-AI/emem",
      "the source, Apache-2.0"),
 ]
