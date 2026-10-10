@@ -17,11 +17,13 @@
  * ladder is the same ratio, so a gap is always a multiple of something else on
  * the page.
  *
- * Two families, and the split carries meaning rather than decoration. Mono is
- * the machine record: tokens, addresses, code, measured numbers, anything a
+ * Three families, and the split carries meaning rather than decoration. Mono
+ * is the machine record: tokens, addresses, code, measured numbers, anything a
  * reader could resolve or recompute. Serif is the human claim: headlines and
- * the sentences that frame what the record means. That is emem's own thesis
- * set in type, since prose here is never evidence and the token always is.
+ * the sentences that frame what the record means. Sans is the interface: the
+ * bar, buttons, labels, captions, menus and the footer, which are neither a
+ * record nor a claim. They used to be set in mono, which made every control
+ * look like output and the whole site read as a terminal.
  */
 :root{
 --paper:oklch(0.975 0.005 85);--paper-2:oklch(0.955 0.005 85);--paper-3:oklch(0.93 0.006 85);
@@ -51,6 +53,15 @@
      shape scaled, which is what makes large type look drawn rather
      than stretched. */
   --display:'Newsreader',Georgia,'Times New Roman',serif;
+  /* The interface face. Inter's optical-size axis keeps 12-15px labels open
+     and the system stack behind it means a blocked font still reads as UI. */
+  --ui:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;
+
+  /* Corners and depth. Three radii, not a radius per component: a button, a
+     card and a panel each step up one, so nested shapes stay concentric. */
+  --r-1:6px;--r-2:10px;--r-3:14px;--r-pill:999px;
+  --shadow-1:0 1px 2px oklch(0.2 0.01 85 / .06),0 1px 1px oklch(0.2 0.01 85 / .04);
+  --shadow-2:0 10px 30px oklch(0.2 0.01 85 / .10),0 2px 8px oklch(0.2 0.01 85 / .06);
   --pad-x:1.5rem;--col-meta:13.75rem;
   /* One type scale for the whole page, built on the golden ratio.
      Body copy sits at --t-base (1rem = 16px). Steps above it are phi
@@ -137,6 +148,7 @@
     --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
     --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
     --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+    --shadow-1:0 1px 2px oklch(0 0 0 / .4);--shadow-2:0 12px 32px oklch(0 0 0 / .5),0 2px 8px oklch(0 0 0 / .35);
   }
 }
 :root[data-theme="dark"]{
@@ -149,5 +161,6 @@
   --accent:oklch(0.78 0.13 145);--accent-bg:oklch(0.26 0.05 145);
   --absent:oklch(0.72 0.13 35);--absent-bg:oklch(0.26 0.05 35);
   --warn:oklch(0.78 0.13 75);--highlight:oklch(0.30 0.07 95);--machine:oklch(0.78 0.14 270);
+  --shadow-1:0 1px 2px oklch(0 0 0 / .4);--shadow-2:0 12px 32px oklch(0 0 0 / .5),0 2px 8px oklch(0 0 0 / .35);
 }
 

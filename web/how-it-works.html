@@ -22,9 +22,9 @@
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 :root{ /* tokens come from /tokens.css */ }
 
@@ -36,16 +36,6 @@ html,body{margin:0;padding:0}
 a{color:var(--accent)}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
-
-/* statusbar */
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
-.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
-.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
-.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem}
-.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-.statusbar .spacer{flex:1}
 
 /* page shell */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
@@ -130,11 +120,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .hero.hero-lean .hero-cta .btn{justify-content:center}
 }
 
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
-.btn:hover{background:var(--ink-2)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--paper-3)}
-
 /* code block */
 .code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
 .code-head{display:flex;align-items:center;border-bottom:1px solid var(--rule);background:var(--paper-3);font-size:var(--t-xs);color:var(--mute)}
@@ -206,17 +191,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* footer */
 .foot{padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
-.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
-.foot-meta .desc{color:var(--mute);line-height:1.5}
-.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--ink-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
-.foot-bottom a{color:inherit}
 
 /* substrate (memory primitives walkthrough) */
 .substrate-grid{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid var(--rule);margin:1.5rem 0;background:var(--paper-2)}
@@ -281,13 +260,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
 @media (max-width:720px){
   .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
-  .section-meta,.hero-meta,.foot-meta{position:static;max-height:none}
+  .section-meta,.hero-meta{position:static;max-height:none}
   .section-meta{display:none}
-  .foot-grid{grid-template-columns:repeat(2,1fr)}
   .endpoints{font-size:var(--t-xs)}
   .endpoints th,.endpoints td{padding:.4rem .5rem}
-  .statusbar a.nav-sec{display:none}
-  .statusbar-inner{height:36px}
   .memt-block .memt-parts{grid-template-columns:1fr}
   .hero-cta{flex-direction:column;align-items:stretch}
   .hero-cta .btn{justify-content:center}
@@ -302,22 +278,14 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .page{padding:0 1rem}
 }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-/* ── polish: header scrollspy · hand-drawn section dividers · framed buttons ── */
-.statusbar a{position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
-.statusbar a:hover{opacity:1}
-.statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
 .section{position:relative;border-bottom:none}
 .section::after{content:"";position:absolute;left:0;right:0;bottom:-2.5px;height:6px;opacity:.5;background:linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;-webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)}
 .section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
-.btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
-.btn:hover{transform:translateY(-1px)}
-.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
 /* ── Mithila frame system: the double-line + accent node on every panel ──── */
 .code,.fact,.substrate-grid,.memt-block{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
 .code::after,.fact::after,.substrate-grid::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .code-head::before,.memt-block .memt-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
-.statusbar .brand,.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
+.sitenav .brand,.topbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 
 /* ── memory console: live recall + in-browser receipt verify ─────────────────
    Same component as the / homepage, same crypto path as /verify. Tokens are
@@ -423,21 +391,21 @@ input::placeholder{color:var(--mute,#7a7363)}
 .hw-lanes{ display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:var(--s-2); margin-top:var(--s-3); }
 .hw-lanes button{ text-align:left; display:grid; gap:2px; padding:var(--s-2); border:1px solid var(--rule-strong); border-radius:8px; background:var(--paper); color:var(--ink-2); cursor:pointer; font:inherit; }
 .hw-lanes button b{ font-size:var(--t-sm); color:var(--ink); }
-.hw-lanes button span{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); }
+.hw-lanes button span{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); }
 .hw-lanes button[aria-selected="true"]{ border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); }
 .hw-wide{ flex:1 1 18rem; }
 #hw-rform{ margin-bottom:var(--s-2); }
 .hw-wide input{ width:100%; }
-.hw-hint{ font-family:var(--mono); font-size:var(--t-3xs); color:var(--mute); margin:var(--s-1) 0 var(--s-2); }
+.hw-hint{ font-family:var(--ui); font-size:var(--t-3xs); color:var(--mute); margin:var(--s-1) 0 var(--s-2); }
 @media (max-width:640px){ .hw-lanes{ grid-template-columns:1fr; } }
 .hw-run{ border:1px solid var(--rule-strong); border-radius:10px; padding:var(--s-3); background:var(--paper-2); margin-top:var(--s-3); }
 .hw-form{ display:flex; flex-wrap:wrap; gap:var(--s-2); align-items:flex-end; }
 .hw-fld{ display:grid; gap:var(--s-1); flex:1 1 160px; font-size:var(--t-2xs); color:var(--mute); }
 .hw-fld input, .hw-fld select{ width:100%; font-family:var(--mono); font-size:var(--t-sm); padding:var(--s-2); border:1px solid var(--rule-strong); border-radius:6px; background:var(--paper); color:var(--ink); }
-.hw-go{ font-family:var(--mono); font-size:var(--t-sm); padding:var(--s-2) var(--s-3); border-radius:999px; border:1px solid var(--accent); background:var(--accent); color:var(--paper); cursor:pointer; min-height:36px; }
+.hw-go{ font-family:var(--ui); font-size:var(--t-sm); padding:var(--s-2) var(--s-3); border-radius:999px; border:1px solid var(--accent); background:var(--accent); color:var(--paper); cursor:pointer; min-height:36px; }
 .hw-go:disabled{ opacity:.6; cursor:wait; }
 .hw-chips{ display:flex; flex-wrap:wrap; gap:var(--s-1); align-items:center; margin:var(--s-2) 0 var(--s-3); font-size:var(--t-2xs); color:var(--mute); }
-.hw-chips button{ font-family:var(--mono); font-size:var(--t-2xs); padding:var(--s-1) var(--s-2); border:1px solid var(--rule-strong); border-radius:999px; background:var(--paper); color:var(--ink-2); cursor:pointer; min-height:28px; }
+.hw-chips button{ font-family:var(--ui); font-size:var(--t-2xs); padding:var(--s-1) var(--s-2); border:1px solid var(--rule-strong); border-radius:999px; background:var(--paper); color:var(--ink-2); cursor:pointer; min-height:28px; }
 .hw-steps{ list-style:none; margin:0; padding:0; display:grid; gap:var(--s-1); counter-reset:hw; }
 .hw-steps li{ counter-increment:hw; display:grid; grid-template-columns:28px minmax(0,1fr); gap:0 var(--s-2); padding:var(--s-2); border-radius:6px; background:var(--paper); border:1px solid var(--rule); }
 .hw-steps li::before{ content:counter(hw, decimal-leading-zero); grid-row:span 2; font-size:var(--t-2xs); color:var(--mute); padding-top:2px; }
@@ -474,6 +442,7 @@ input::placeholder{color:var(--mute,#7a7363)}
   .hw-tok td:last-child{ color:var(--mute); }
 }
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 
@@ -520,7 +489,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Learn</li><li><span aria-current="page">How it works</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">the address, the fact, the receipt, in order</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Learn</li><li><span aria-current="page">How it works</span></li></ol><span class="aud-for">For anyone</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -817,7 +786,7 @@ input::placeholder{color:var(--mute,#7a7363)}
         <tr><td><code>emem:cell:</code></td><td>a place</td><td class="hw-weak">nothing: an address, until a fact hangs on it</td><td>/v1/recall</td></tr>
       </tbody>
     </table></div>
-    <p>A descriptor token says what it is without a round-trip: coordinates, date and band are words every model has seen.</p><details class="fold"><summary>more</summary><p class="rest">A resolver refuses one whose place, band or date disagrees with the signed body, so a real cid cannot be passed off under a false claim.</p></details>
+    <p>A descriptor token says what it is without a round-trip: coordinates, date and band are words every model has seen. A resolver refuses one whose place, band or date disagrees with the signed body, so a real cid cannot be passed off under a false claim.</p>
   </div>
 </section>
 
@@ -1013,18 +982,9 @@ input::placeholder{color:var(--mute,#7a7363)}
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos"><i>&larr;</i><b>Demos</b></a>
-<ol class="pb-steps">
-<li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end" aria-current="step"><span>3</span></a></li>
-<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
-<li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>
-<li><a href="/verify" title="Verify: paste any token, check it here"><span>6</span></a></li>
-<li><a href="/guard" title="Guard: gate an answer on its citations"><span>7</span></a></li>
-<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/reference"><b>Reference</b><span>call every endpoint</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/demos"><span>Previous</span><b>Demos</b></a>
+<span class="pb-pos">3 of 8</span>
+<a class="pb-next" href="/reference"><span>Next</span><b>Reference</b><em>call every endpoint</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -1056,11 +1016,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

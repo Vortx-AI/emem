@@ -19,9 +19,9 @@
 <meta name=twitter:description content="A content-addressed protocol for verifiable agent memory. Version 0.1.0.">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 :root{ /* tokens come from /tokens.css */ }
 
@@ -33,24 +33,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 ::selection{background:var(--accent);color:var(--paper)}
 :target{scroll-margin-top:64px}
 
-/* statusbar (verbatim from index.html) */
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
-.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
-.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
-.statusbar a:hover{color:var(--ink);background:var(--paper-3);opacity:1}
-.statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem;opacity:1;text-decoration:none;cursor:pointer}
-.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-.statusbar .spacer{flex:1}
-
 /* page shell */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer;position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
-.btn:hover{background:var(--ink-2);transform:translateY(-1px)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
 
 /* a multi-band Mithila rule divider for major parts */
 .band-rule{height:6px;margin:0;border:0;background:
@@ -172,17 +156,11 @@ figure.fig img{display:block;width:100%;max-width:960px;height:auto;margin:0 aut
 
 /* footer (verbatim from index.html) */
 .foot{position:relative;background:var(--paper);padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:13.75rem 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
-.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
-.foot-meta .desc{color:var(--mute);line-height:1.5}
-.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--ink-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
-.foot-bottom a{color:inherit}
 
 /* responsive */
 @media (max-width:980px){
@@ -194,7 +172,6 @@ figure.fig img{display:block;width:100%;max-width:960px;height:auto;margin:0 aut
   .toc .toc-h{-webkit-column-span:all;column-span:all}
   .wp-doc{padding-top:1rem;max-width:none}
   .foot{grid-template-columns:1fr;gap:1.6rem}
-  .foot-grid{grid-template-columns:repeat(2,1fr)}
 }
 @media (max-width:560px){
   .wp-head .actions{flex-direction:column;align-items:stretch}
@@ -202,7 +179,6 @@ figure.fig img{display:block;width:100%;max-width:960px;height:auto;margin:0 aut
   .toc{-webkit-column-count:1;column-count:1}
   .wp-doc h2{font-size:var(--t-xl)}
   .code pre,.formula pre{font-size:var(--t-xs)}
-  .statusbar a.nav-sec{display:none}
 }
 @media (max-width:480px){
   html{font-size:93.75%}
@@ -230,7 +206,20 @@ input::placeholder{color:var(--mute,#7a7363)}
 .archived-note p{margin:0 0 .6rem;font-size:var(--t-sm);line-height:1.55;color:var(--ink-2)}
 .archived-note p:last-child{margin-bottom:0}
 .archived-note a{color:var(--absent);text-decoration:underline}
+
+/* The paper reads as a paper. Prose and headings are set in the serif at
+   reading size, the way tokens.css says the human claim is set; the contents,
+   the edition panel and tables are interface; code stays mono. Until
+   2026-10-10 every paragraph of the whitepaper was in the mono face. */
+.wp-doc p, .wp-doc li, .wp-doc blockquote { font-family: var(--display); font-size: var(--t-md); line-height: 1.65; font-variation-settings: 'opsz' 18 }
+.wp-doc p { max-width: 68ch }
+.wp-doc p.lede { font-size: var(--t-lg); line-height: 1.5 }
+.wp-doc :is(h2, h3, h4) { font-family: var(--display); font-weight: 500; letter-spacing: -.01em }
+.wp-doc :is(p, li) code { font-size: .84em }
+.wp-doc table, .wp-edition, .toc, .wp-head .meta-line { font-family: var(--ui) }
+.wp-doc pre, .wp-doc pre code { font-family: var(--mono) }
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 
@@ -277,7 +266,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-leaders"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Learn</li><li><span aria-current="page">Whitepaper</span></li></ol><span class="aud-for">for leaders</span><span class="aud-what">the long argument, with the proofs</span></div>
+<div class="audience aud-leaders"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Learn</li><li><span aria-current="page">Whitepaper</span></li></ol><span class="aud-for">For leaders</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -552,11 +541,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

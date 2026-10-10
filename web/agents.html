@@ -21,9 +21,9 @@
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 /* Palette and scale come from /tokens.css. Nothing is redefined here: this
    page has no colours of its own, so it inherits dark mode for free. */
@@ -33,10 +33,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);
   font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased}
 a{color:var(--accent)}
 .ag{padding-top:var(--s-4);padding-bottom:var(--s-5)}
-.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600}
-.btn:hover{background:var(--ink-2)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{border-color:var(--accent);background:var(--accent-bg)}
 /* 235 rows would push the glossary three screens down; the box scrolls and
    the header row stays pinned inside it. */
 .ag .rosterbox{max-height:min(70vh,40rem);overflow:auto}
@@ -90,6 +86,7 @@ dl.gloss dd{margin:0;font-size:var(--t-sm);color:var(--ink-2)}
 footer{border-top:1px solid var(--rule);margin-top:var(--s-5);padding:var(--s-4) 0;
   font-size:var(--t-sm);color:var(--mute)}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 
@@ -136,7 +133,7 @@ footer{border-top:1px solid var(--rule);margin-top:var(--s-5);padding:var(--s-4)
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Attesters</span></li></ol><span class="aud-for">for agents</span><span class="aud-what">who writes here, as data</span></div>
+<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Attesters</span></li></ol><span class="aud-for">For agents</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -244,11 +241,11 @@ footer{border-top:1px solid var(--rule);margin-top:var(--s-5);padding:var(--s-4)
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

@@ -566,7 +566,9 @@ jobs:
       # so this holds the line at today's count and comes down as pages are
       # redesigned. It must never go up.
       - name: spacing comes from the scale
-        run: python3 scripts/spacing_scale.py --budget 1379
+        # 1379 until 2026-10-10, when shared components moved to site.css and
+        # demos.css and dead chrome rules came out: 1060 measured after that.
+        run: python3 scripts/spacing_scale.py --budget 1060
 
   # Jobs that check a RUNNING system rather than the source. They are here
   # because the failures they catch are invisible to every other job: the

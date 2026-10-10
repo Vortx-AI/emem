@@ -3220,7 +3220,7 @@ def main() -> int:
         # the generated footer too, from the same site map as the bar; on the
         # page only, since the markdown log and the JSON are not pages
         if path.suffix == ".html":
-            text = gen_nav.apply_foot(text, "/channel")
+            text = gen_nav.apply_head(gen_nav.apply_foot(text, "/channel"))
         tmp = path.with_suffix(path.suffix + ".tmp")
         tmp.write_text(text)
         tmp.replace(path)

@@ -417,7 +417,7 @@ def main() -> int:
     # own generator had written it, and it was right -- the file was not what
     # the checker renders. One string, both paths, or the comparator is
     # checking something that is never written.
-    rendered = offsite_new_tab(build())
+    rendered = _gen_nav.apply_head(offsite_new_tab(build()))
     _assert_well_formed(rendered)
     if "--check" in sys.argv:
         if not OUT.exists():

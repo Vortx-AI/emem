@@ -8,9 +8,9 @@
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--mono);line-height:1.55}
 a{color:var(--accent)}
@@ -42,6 +42,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 .tool[hidden],.tgroup[hidden]{display:none}
 @media (max-width:900px){.tl-body{grid-template-columns:minmax(0,1fr)}.tl-side{position:static;max-height:none}.tool summary{grid-template-columns:minmax(0,1fr)}.tool .tw{display:none}}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -87,7 +88,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Connect</li><li><span aria-current="page">MCP tools</span></li></ol><span class="aud-for">for agents</span><span class="aud-what">the full tool registry, generated, long</span></div>
+<div class="audience aud-agents"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Connect</li><li><span aria-current="page">MCP tools</span></li></ol><span class="aud-for">For agents</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 <header class="doc-head">
@@ -982,18 +983,9 @@ groups.forEach(function(g){g.hidden=!g.querySelector(".tool:not([hidden])");});
 c.textContent=n+(n===1?" tool":" tools")+(v?" match":"");});})();</script>
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/reference"><i>&larr;</i><b>Reference</b></a>
-<ol class="pb-steps">
-<li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
-<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
-<li><a href="/tools" title="MCP tools: browse all tools, copy a call" aria-current="step"><span>5</span></a></li>
-<li><a href="/verify" title="Verify: paste any token, check it here"><span>6</span></a></li>
-<li><a href="/guard" title="Guard: gate an answer on its citations"><span>7</span></a></li>
-<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/verify"><b>Verify</b><span>paste any token, check it here</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/reference"><span>Previous</span><b>Reference</b></a>
+<span class="pb-pos">5 of 8</span>
+<a class="pb-next" href="/verify"><span>Next</span><b>Verify</b><em>paste any token, check it here</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -1025,11 +1017,11 @@ c.textContent=n+(n===1?" tool":" tools")+(v?" match":"");});})();</script>
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

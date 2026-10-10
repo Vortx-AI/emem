@@ -1,0 +1,129 @@
+/* emem shared components: the one place a button, a chip or a code panel is
+ * defined.
+ *
+ * Linked LAST in every page's <head>, after the page's own <style>, by
+ * scripts/gen_nav.py. That order is the point. Until 2026-10-10 the site had
+ * six different .btn rules across nineteen pages: two sizes, three borders, a
+ * double ring drawn with box-shadow on six of them, and pills on the homepage
+ * beside rectangles everywhere else. Each was copied from an older page and
+ * edited in one place. A page may still add a variant of its own (.btn.small,
+ * a page-specific modifier); it may not redraw the base, because this file
+ * wins on equal specificity.
+ *
+ * Values come from /tokens.css. Sizes in px here are tap targets, which WCAG
+ * states in CSS pixels, so they must not move with a page's root font size.
+ */
+
+/* ---- Buttons --------------------------------------------------------------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+  min-height: 40px;
+  padding: 0 18px;
+  box-sizing: border-box;
+  font: 500 var(--t-sm)/1.1 var(--ui);
+  letter-spacing: 0;
+  text-transform: none;
+  text-decoration: none;
+  white-space: nowrap;
+  color: var(--paper);
+  background: var(--ink);
+  border: 1px solid var(--ink);
+  border-radius: var(--r-2);
+  box-shadow: var(--shadow-1);
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+.btn:hover { color: var(--paper); background: var(--ink-2); border-color: var(--ink-2); transform: none }
+.btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.btn.ghost {
+  color: var(--ink);
+  background: var(--paper);
+  border-color: var(--rule-strong);
+  box-shadow: none;
+}
+.btn.ghost:hover { color: var(--ink); background: var(--paper-2); border-color: var(--ink-2) }
+.btn.small { min-height: 32px; padding: 0 12px; font-size: var(--t-xs) }
+.btn[disabled], .btn[aria-disabled="true"] { opacity: .55; cursor: not-allowed }
+@media (pointer: coarse) { .btn { min-height: 44px } }
+
+/* Small actions inside a panel: copy, an example to load, a filter. One shape,
+   so a reader learns it once. */
+button.copy, button.preset, button.chip, button.eg, button.th-eg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  box-sizing: border-box;
+  font: 500 var(--t-xs)/1 var(--ui);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-2);
+  background: var(--paper);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-pill);
+  box-shadow: none;
+  cursor: pointer;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+}
+button.copy { border-radius: var(--r-1) }
+button.copy:hover, button.preset:hover, button.chip:hover, button.eg:hover, button.th-eg:hover {
+  color: var(--ink);
+  background: var(--paper-2);
+  border-color: var(--ink-2);
+}
+:is(button.preset, button.chip, button.eg, button.th-eg):is([aria-pressed="true"], .on, .active) {
+  color: var(--paper);
+  background: var(--ink);
+  border-color: var(--ink);
+}
+:is(button.copy, button.preset, button.chip, button.eg, button.th-eg):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+@media (pointer: coarse) {
+  button.copy, button.preset, button.chip, button.eg, button.th-eg { min-height: 40px }
+}
+
+/* ---- The default face on inner pages ----------------------------------------
+   Several page templates set body{font-family:var(--mono)}, so every label,
+   table cell and panel inherited the terminal face and the site read as one
+   long log. Interface is the default now; the machine record is named, and
+   prose was already moved to the serif by nav.css. body.doc out-ranks a page's
+   plain body rule wherever it sits. */
+body.doc { font-family: var(--ui) }
+body.doc :is(code, pre, kbd, samp, .mono, .tok, .cid, .key, .hash, .addr, .tk-c, .cell64) { font-family: var(--mono) }
+/* A step's output line is what the responder said: the machine record, even
+   inside a list nav.css sets in the serif. */
+body.doc .hw-steps li .hw-o { font-family: var(--mono) }
+
+/* ---- Labels ----------------------------------------------------------------
+   An eyebrow, a margin note's label, a table header: interface text, not a
+   machine record, so it is set in the interface face. The values beside them
+   keep whatever face the page gave them. */
+.eyebrow { font-family: var(--ui) }
+body.doc .section-meta .idx-label,
+body.doc .section-meta dt { font-family: var(--ui); letter-spacing: .06em }
+body.doc .section-meta dd { font-family: var(--ui) }
+body.doc .section-meta dd :is(code, .tok, .mono) { font-family: var(--mono) }
+body.doc th { font-family: var(--ui) }
+
+/* ---- Code panels -----------------------------------------------------------
+   A head (language, file name, copy) over a block. Rounded once, on the
+   outside, so the head and the block read as one object. */
+.code:has(> .code-head) {
+  border: 1px solid var(--rule);
+  border-radius: var(--r-3);
+  overflow: hidden;
+  outline: 0;
+  box-shadow: none;
+}
+.code-head { font-family: var(--ui) }
+
+/* ---- Inputs ---------------------------------------------------------------- */
+body.doc :is(input[type="text"], input[type="search"], input:not([type]), textarea, select) {
+  border-radius: var(--r-2);
+}

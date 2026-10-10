@@ -56,7 +56,7 @@ SCALE_TOKENS = frozenset(
     [f"--t-{k}" for k in ("3xs", "2xs", "xs", "sm", "base", "md", "lg",
                           "xl", "2xl", "3xl", "4xl", "5xl", "6xl")]
     + [f"--s-{i}" for i in range(1, 9)]
-    + ["--phi", "--mono", "--display"])
+    + ["--phi", "--mono", "--display", "--ui"])
 
 # Pages that are one theme on purpose, so the dark-mode check does not apply.
 # Each needs a reason a stranger would accept, and each was re-checked on
@@ -176,6 +176,10 @@ def main():
             fails.append(f"{name} does not request the display face. Three pages "
                          f"requested no webfont at all and drew in whatever "
                          f"monospace the reader's system picked.")
+        if "family=Inter" not in s:
+            fails.append(f"{name} does not request the interface face (Inter), so "
+                         f"its bar, buttons and labels fall back to whatever sans "
+                         f"the system has.")
 
         # A page may not fork the SCALE. Colour is deliberately not covered:
         # /gallery, /scoreboard and /tools carry palettes of their own on

@@ -119,6 +119,14 @@ const TOKENS_CSS: &str = include_str!("../../../web/tokens.css");
 /// The site navigation stylesheet. Generated markup in every page,
 /// one stylesheet here, and no script anywhere: the groups are <details>.
 const NAV_CSS: &str = include_str!("../../../web/nav.css");
+/// Shared components (buttons, chips, code panels), linked last in every page
+/// so the base of each is drawn once rather than once per page.
+const SITE_CSS: &str = include_str!("../../../web/site.css");
+/// The homepage's script: the reel, the composer and the live sections. Served
+/// as a file rather than inlined, so a returning reader's browser keeps it.
+const HOME_JS: &str = include_str!("../../../web/home.js");
+/// The layout every /demos/* page shares, linked rather than copied eight times.
+const DEMOS_CSS: &str = include_str!("../../../web/demos.css");
 const INDEX_HTML: &str = include_str!("../../../web/index.html");
 const VERIFY_HTML: &str = include_str!("../../../web/verify.html");
 
@@ -972,6 +980,9 @@ pub fn router(state: AppState) -> Router {
         .route("/multimodal.md", get(serve_multimodal_md))
         .route("/tokens.css", get(serve_tokens_css))
         .route("/nav.css", get(serve_nav_css))
+        .route("/site.css", get(serve_site_css))
+        .route("/home.js", get(serve_home_js))
+        .route("/demos.css", get(serve_demos_css))
         .route("/llms.txt", get(serve_llms_txt))
         .route("/llms-full.txt", get(serve_llms_full))
         .route("/robots.txt", get(serve_robots))
@@ -2451,6 +2462,17 @@ fn cache_ttl_for_path(path: &str) -> Option<&'static str> {
 
 const IMMUTABLE: &str = "public, max-age=31536000, immutable";
 
+/// Shared assets every page links as `<path>?v=<first 12 hex of sha256>`,
+/// stamped by scripts/gen_nav.py. Asked for by that name, the response may be
+/// kept forever; asked for by the bare path, it carries no promise at all.
+const VERSIONED_ASSETS: &[&str] = &[
+    "/tokens.css",
+    "/nav.css",
+    "/site.css",
+    "/demos.css",
+    "/home.js",
+];
+
 /// The 26-character name of a note stored under its own hash, when `path`
 /// has that shape (`/memories/…/<name>.md`).
 fn hash_named_note(path: &str) -> Option<&str> {
@@ -2471,8 +2493,35 @@ async fn cache_hint_layer(
     next: axum::middleware::Next,
 ) -> Response {
     let path = req.uri().path().to_string();
+    let query = req.uri().query().map(str::to_string);
     let method = req.method().clone();
     let mut resp = next.run(req).await;
+    // Same rule as a hash-named note: the promise is made only when the bytes
+    // served are the bytes the version names, so a stale link after a deploy
+    // gets an uncached response rather than a year-long wrong one.
+    if method == Method::GET
+        && resp.status().is_success()
+        && VERSIONED_ASSETS.contains(&path.as_str())
+    {
+        if let Some(v) = query
+            .as_deref()
+            .and_then(|q| q.split('&').find_map(|kv| kv.strip_prefix("v=")))
+            .map(str::to_string)
+        {
+            let (mut parts, body) = resp.into_parts();
+            let bytes = axum::body::to_bytes(body, usize::MAX)
+                .await
+                .unwrap_or_default();
+            use sha2::{Digest, Sha256};
+            let hex = format!("{:x}", Sha256::digest(&bytes));
+            if v.len() >= 12 && hex.starts_with(&v) {
+                parts
+                    .headers
+                    .insert(CACHE_CONTROL, HeaderValue::from_static(IMMUTABLE));
+            }
+            return Response::from_parts(parts, axum::body::Body::from(bytes));
+        }
+    }
     // A note is only immutable if it IS its name: nothing forces a writer to
     // name a note by its hash, and a note can be edited, so the body is
     // hashed here and the promise made only when it holds.
@@ -5507,6 +5556,15 @@ async fn serve_temporal_md() -> Response {
 }
 async fn serve_nav_css() -> Response {
     text_response("text/css; charset=utf-8", NAV_CSS)
+}
+async fn serve_site_css() -> Response {
+    text_response("text/css; charset=utf-8", SITE_CSS)
+}
+async fn serve_home_js() -> Response {
+    text_response("text/javascript; charset=utf-8", HOME_JS)
+}
+async fn serve_demos_css() -> Response {
+    text_response("text/css; charset=utf-8", DEMOS_CSS)
 }
 /// The browser verifier, shared by `/verify` and the MCP Apps fact card.
 ///

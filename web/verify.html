@@ -26,9 +26,9 @@
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 /* /verify: the homepage's idiom (composer, turns, cards) over the shared
    tokens. Mono is the record, serif the claim. */
@@ -37,7 +37,8 @@
 html{font-size:100%}
 html, body{margin:0;padding:0;overflow-x:clip}
 body{background:var(--paper);color:var(--ink);font-family:var(--display);font-size:var(--t-md);line-height:1.6;-webkit-font-smoothing:antialiased}
-code, kbd, pre, samp, input, textarea, button{font-family:var(--mono)}
+code, kbd, pre, samp, input, textarea{font-family:var(--mono)}
+button{font-family:var(--ui)}
 a{color:var(--accent)}
 ::selection{background:var(--accent);color:var(--paper)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
@@ -51,9 +52,9 @@ a{color:var(--accent)}
 .vfy{display:grid;grid-template-columns:minmax(0,1fr) minmax(16rem,24rem);gap:var(--s-5);align-items:start;max-width:var(--w-page);margin:0 auto;padding-top:var(--s-4);padding-bottom:var(--s-6)}
 .vfy-main{min-width:0;max-width:64rem}
 .vfy-tool{padding:0}
-.vfy-label{margin:var(--s-3) 0 0;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute)}
-.vfy-ref{position:sticky;top:64px;font-family:var(--mono);font-size:var(--t-xs);line-height:1.5;color:var(--ink-2);border-left:1px solid var(--rule);padding-left:var(--s-4)}
-.vfy-ref h2{margin:var(--s-4) 0 var(--s-2);font:600 var(--t-3xs)/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.vfy-label{margin:var(--s-3) 0 0;font-family:var(--ui);font-size:var(--t-2xs);color:var(--mute)}
+.vfy-ref{position:sticky;top:64px;font-family:var(--ui);font-size:var(--t-xs);line-height:1.5;color:var(--ink-2);border-left:1px solid var(--rule);padding-left:var(--s-4)}
+.vfy-ref h2{margin:var(--s-4) 0 var(--s-2);font:600 var(--t-3xs)/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .vfy-ref h2:first-child{margin-top:0}
 .vfy-verdicts{margin:0;display:grid;gap:var(--s-2)}
 .vfy-verdicts dt{font-weight:600}
@@ -73,7 +74,7 @@ a{color:var(--accent)}
 .cmp-in::placeholder{color:var(--mute);opacity:1}
 .cmp-in:focus-visible{outline:0}
 .cmp-row{display:flex;align-items:center;gap:var(--s-1)}
-.cmp-hint{flex:1 1 auto;min-width:0;font-family:var(--mono);font-size:var(--t-3xs);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:var(--s-2)}
+.cmp-hint{flex:1 1 auto;min-width:0;font-family:var(--ui);font-size:var(--t-3xs);color:var(--mute);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:var(--s-2)}
 .cmp-icon{flex:0 0 auto;width:44px;height:44px;display:grid;place-items:center;border:0;border-radius:50%;background:transparent;color:var(--ink-2);cursor:pointer;padding:0}
 .cmp-icon:hover{background:var(--paper-3);color:var(--ink)}
 .cmp-icon svg{width:20px;height:20px}
@@ -92,7 +93,7 @@ a{color:var(--accent)}
 .turn{display:flex;flex-direction:column;gap:var(--s-2);animation:turnin .3s ease both}
 @keyframes turnin{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
 .you{align-self:flex-end;max-width:85%;margin:0;padding:var(--s-2) var(--s-3);border-radius:1.2rem 1.2rem .382rem 1.2rem;background:var(--paper-3);font-family:var(--mono);font-size:var(--t-2xs);line-height:1.5;overflow-wrap:anywhere;white-space:pre-wrap;max-height:8.5em;overflow:hidden}
-.bot-what{margin:0;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute);letter-spacing:.04em}
+.bot-what{margin:0;font-family:var(--ui);font-size:var(--t-2xs);color:var(--mute);letter-spacing:.04em}
 .bot-what b{color:var(--accent);font-weight:600}
 .card{border:1px solid var(--rule);border-radius:1rem;background:var(--field);overflow:hidden}
 .vis{margin:0;background:var(--paper-2);border-bottom:1px solid var(--rule)}
@@ -121,7 +122,7 @@ a{color:var(--accent)}
 .rows dd{margin:0;color:var(--ink-2);overflow-wrap:anywhere}
 .rows dd a{color:var(--accent);text-decoration:none}
 .rows dd a:hover{text-decoration:underline}
-.sub summary{min-height:44px;display:flex;align-items:center;gap:var(--s-2);cursor:pointer;list-style:none;font-family:var(--mono);font-size:var(--t-2xs);color:var(--mute)}
+.sub summary{min-height:44px;display:flex;align-items:center;gap:var(--s-2);cursor:pointer;list-style:none;font-family:var(--ui);font-size:var(--t-2xs);color:var(--mute)}
 .sub summary::-webkit-details-marker{display:none}
 .sub summary::before{content:"";width:.4rem;height:.4rem;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease}
 .sub[open] summary::before{transform:rotate(45deg)}
@@ -147,24 +148,20 @@ a{color:var(--accent)}
 
 /* footer, on the shared tokens */
 .foot{padding:3rem 0 2rem;border-top:1px solid var(--rule);display:grid;grid-template-columns:11rem 1fr;gap:2.4rem;color:var(--mute);font-family:var(--mono);font-size:var(--t-3xs)}
-.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-xs);margin-bottom:.5rem}
-.foot-meta .desc{line-height:1.5}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--ink-2);text-decoration:none;display:inline-flex;align-items:center;min-height:24px}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute)}
-.foot-bottom a{color:inherit}
 .toast{position:fixed;left:50%;bottom:1.4em;transform:translateX(-50%) translateY(8px);background:var(--paper-2);color:var(--ink);border:1px solid var(--rule-strong);padding:.45em .9em;border-radius:999px;font-family:var(--mono);font-size:var(--t-2xs);z-index:200;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}
 .toast.on{opacity:1;transform:translateX(-50%) translateY(0)}
 
 @media (prefers-color-scheme: dark){ :root:not([data-theme="light"]) .vfy{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); } }
 :root[data-theme="dark"] .vfy{ --field:oklch(0.205 0.005 85); --field-shadow:oklch(0 0 0 / .45); }
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-@media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.foot-grid{grid-template-columns:repeat(2,1fr)}.you{max-width:100%}}
+@media (max-width:720px){.foot{grid-template-columns:1fr;gap:1.618rem}.you{max-width:100%}}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 <a class=skip href="#main">Skip to verifier</a>
@@ -211,7 +208,7 @@ a{color:var(--accent)}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li><span aria-current="page">Verify</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">paste a token, watch the proof run</span></div>
+<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li><span aria-current="page">Verify</span></li></ol><span class="aud-for">For developers</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 <header class="doc-head vfy-head">
@@ -284,18 +281,9 @@ a{color:var(--accent)}
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/tools"><i>&larr;</i><b>MCP tools</b></a>
-<ol class="pb-steps">
-<li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
-<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
-<li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>
-<li><a href="/verify" title="Verify: paste any token, check it here" aria-current="step"><span>6</span></a></li>
-<li><a href="/guard" title="Guard: gate an answer on its citations"><span>7</span></a></li>
-<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/guard"><b>Guard</b><span>gate an answer on its citations</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/tools"><span>Previous</span><b>MCP tools</b></a>
+<span class="pb-pos">6 of 8</span>
+<a class="pb-next" href="/guard"><span>Next</span><b>Guard</b><em>gate an answer on its citations</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -327,11 +315,11 @@ a{color:var(--accent)}
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

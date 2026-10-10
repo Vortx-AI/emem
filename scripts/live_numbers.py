@@ -61,6 +61,7 @@ import sys
 # Every page, not just the homepage: /solutions declares live figures too,
 # and a gate that watches one page while a second drifts is theatre.
 import glob
+import os
 PAGES = sorted(glob.glob("web/*.html"))
 
 
@@ -73,6 +74,12 @@ def main():
         except OSError as e:
             print(f"live-numbers: cannot read {page}: {e}", file=sys.stderr)
             return 2
+        # The filler can live in a script the page loads rather than inline:
+        # the homepage moved its 168 KB of script to /home.js on 2026-10-10.
+        for src in re.findall(r'<script[^>]+src="/([\w.-]+\.js)', s):
+            f = os.path.join("web", src)
+            if os.path.exists(f):
+                s += "\n" + open(f, encoding="utf-8").read()
         p_pending = re.findall(r'<([a-z]+)([^>]*\bdata-pending\b[^>]*)>(.*?)</\1>', s, re.S)
         if p_pending:
             pages_with.append(page.split("/")[-1])

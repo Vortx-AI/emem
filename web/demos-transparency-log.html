@@ -16,79 +16,17 @@
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
-<style>
-/* demo page styles: shared by every /demos/* page, copied, not linked */
-*{box-sizing:border-box}
-html,body{margin:0;padding:0}
-body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
-a{color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
-a:hover{color:var(--accent);text-decoration-color:var(--accent)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
-.btn{display:inline-flex;align-items:center;gap:var(--s-2);min-height:44px;padding:0 var(--s-3);border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font:600 var(--t-sm) var(--mono);text-decoration:none;cursor:pointer;border-radius:0}
-.btn:hover{background:var(--accent);border-color:var(--accent);color:var(--paper)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--paper-3);color:var(--ink);border-color:var(--ink)}
-.btn[disabled]{opacity:.5;cursor:progress}
-.btn.small{min-height:36px;font-size:var(--t-xs);padding:0 var(--s-2)}
-.doc-head .eyebrow a{color:var(--mute);text-transform:none;letter-spacing:0}
-.claims{border:1px solid var(--rule-strong);background:var(--paper-2);padding:var(--s-3) var(--s-3) var(--s-2)}
-.claims h2{margin:0 0 var(--s-2);font:600 var(--t-3xs)/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
-.claims ul{margin:0 0 var(--s-3);padding-left:1.1em;font-family:var(--display);font-size:var(--t-md);line-height:1.45;color:var(--ink-2)}
-.claims li{margin-bottom:var(--s-1)}
-.claims code{font-family:var(--mono);font-size:.82em}
-.demo{max-width:var(--w-page);margin:0 auto;padding:0 var(--gutter) var(--s-5);box-sizing:border-box}
-.controls{display:flex;flex-wrap:wrap;align-items:end;gap:var(--s-3);padding:var(--s-4) 0}
-.controls label{display:grid;gap:var(--s-1);font-size:var(--t-2xs);color:var(--mute);text-transform:uppercase;letter-spacing:.06em;flex:1 1 14rem;min-width:0}
-.controls input,.controls select,.controls textarea{min-height:44px;padding:0 var(--s-2);border:1px solid var(--ink);background:var(--paper);color:var(--ink);font:var(--t-sm) var(--mono);border-radius:0;width:100%;text-transform:none;letter-spacing:0}
-.controls textarea{padding:var(--s-2);min-height:12rem;line-height:1.5;resize:vertical}
-.controls .go{display:flex;gap:var(--s-2);flex-wrap:wrap}
-.stage{display:grid;grid-template-columns:var(--col-meta) minmax(0,1fr);gap:var(--s-2) var(--s-5);padding:var(--s-5) 0;border-top:1px solid var(--rule)}
-.stage>*{min-width:0}
-.stage-n{font:600 var(--t-2xs)/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
-.stage-n b{display:block;margin-bottom:var(--s-1);font:400 var(--t-3xl)/1 var(--display);letter-spacing:0;color:var(--ink-2)}
-.stage h2{margin:0 0 var(--s-2);font:400 var(--t-2xl)/1.15 var(--display);font-variation-settings:'opsz' 36;letter-spacing:-.01em}
-.say{margin:0 0 var(--s-3);max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6;color:var(--ink-2)}
-.say code{font-family:var(--mono);font-size:.84em}
-pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--paper-2);border:1px solid var(--rule);font:var(--t-xs)/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2)}
-.out{min-height:1.5em}
-.out:empty::before{content:"not run yet";color:var(--mute-2);font-size:var(--t-xs)}
-.checks{list-style:none;margin:0 0 var(--s-2);padding:0;display:grid;gap:var(--s-1);font-size:var(--t-sm)}
-.checks li{display:grid;grid-template-columns:1.4em minmax(0,1fr);gap:var(--s-1)}
-.checks li>i{font-style:normal;font-weight:700}
-.checks li>span{overflow-wrap:anywhere}
-.checks .ok>i{color:var(--accent)}
-.checks .no>i,.checks .no>span{color:var(--absent)}
-.checks .info>i{color:var(--mute)}
-.checks .run>i{color:var(--warn)}
-.big{margin:0 0 var(--s-2);font:600 var(--t-2xl)/1.2 var(--mono);overflow-wrap:anywhere}
-.big small{display:block;margin-top:var(--s-1);font-size:var(--t-xs);font-weight:400;color:var(--mute)}
-.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px var(--s-3);margin:var(--s-2) 0;font-size:var(--t-xs)}
-.kv dt{color:var(--mute)}
-.kv dd{margin:0;overflow-wrap:anywhere}
-.tok{margin:var(--s-2) 0;padding:var(--s-2) var(--s-3);border:1px solid var(--accent);background:var(--accent-bg);font:var(--t-xs)/1.5 var(--mono);overflow-wrap:anywhere}
-.acts{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-top:var(--s-2)}
-details.raw{margin-top:var(--s-2);font-size:var(--t-xs)}
-details.raw summary{cursor:pointer;color:var(--mute);min-height:24px}
-details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var(--paper-2);border:1px solid var(--rule);white-space:pre-wrap;overflow-wrap:anywhere}
-.limits{padding:var(--s-5) 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) minmax(0,1fr);gap:var(--s-2) var(--s-5)}
-.limits>*{min-width:0}
-.limits h2{margin:0;font:600 var(--t-2xs)/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
-.limits ul{margin:0;padding-left:1.1em;max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6}
-.limits li{margin-bottom:var(--s-2)}
-.limits code{font-family:var(--mono);font-size:.84em}
-@media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
-@media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}
-</style>
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
+<link rel=stylesheet href="/demos.css?v=2778e18319e9">
 <style>
 .wait{font-size:var(--t-xs);color:var(--mute)}
 .path{display:flex;flex-wrap:wrap;gap:3px;margin:var(--s-2) 0}
 .path i{display:block;width:14px;height:14px;background:var(--accent-bg);border:1px solid var(--accent)}
 .path i.bad{background:var(--absent-bg);border-color:var(--absent)}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -134,7 +72,7 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Log only grows</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">a signed log head, and proof it only grew</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><a href="/demos">Demos</a></li><li><span aria-current="page">Log only grows</span></li></ol><span class="aud-for">For anyone</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -219,20 +157,9 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/demos/handoff"><i>&larr;</i><b>Handoff</b></a>
-<ol class="pb-steps">
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>1</span></a></li>
-<li><a href="/demos/signed-answer" title="Signed answer: read a place, check the receipt"><span>2</span></a></li>
-<li><a href="/demos/verify-before-publish" title="Check a draft: catch a wrong number"><span>3</span></a></li>
-<li><a href="/demos/handoff" title="Handoff: check who wrote a note"><span>4</span></a></li>
-<li><a href="/demos/transparency-log" title="Log only grows: prove history was not rewritten" aria-current="step"><span>5</span></a></li>
-<li><a href="/demos/tokenise-files" title="Tokenise a file: cite one section by its hash"><span>6</span></a></li>
-<li><a href="/demos/document-evidence" title="Document evidence: parse a report, check the chain"><span>7</span></a></li>
-<li><a href="/demos/field" title="One field: edges, pixels, NDVI you compute"><span>8</span></a></li>
-<li><a href="/demos/eudr" title="EUDR plot: check a plot against the cut-off"><span>9</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>10</span></a></li>
-</ol>
-<a class="pb-next" href="/demos/tokenise-files"><b>Tokenise a file</b><span>cite one section by its hash</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/demos/handoff"><span>Previous</span><b>Handoff</b></a>
+<span class="pb-pos">5 of 10</span>
+<a class="pb-next" href="/demos/tokenise-files"><span>Next</span><b>Tokenise a file</b><em>cite one section by its hash</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -264,11 +191,11 @@ details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

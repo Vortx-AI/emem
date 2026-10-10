@@ -1,0 +1,65 @@
+/* Shared by every /demos/* page.
+ *
+ * Until 2026-10-10 this block was copied into all eight demo pages (five
+ * identical copies, three with additions on the end), so a fix to one demo's
+ * layout reached one demo. It is linked now; a page keeps only its additions.
+ * Interface text (labels, checks, fields) is set in the interface face; the
+ * machine record (calls, tokens, the signed value, key-value values) stays mono.
+ */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);font-family:var(--ui);font-size:var(--t-base);line-height:1.55;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+a{color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
+a:hover{color:var(--accent);text-decoration-color:var(--accent)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+.btn[disabled]{opacity:.5;cursor:progress}
+.btn.small{min-height:36px;font-size:var(--t-xs);padding:0 var(--s-2)}
+.doc-head .eyebrow a{color:var(--mute);text-transform:none;letter-spacing:0}
+.claims{border:1px solid var(--rule);border-radius:var(--r-3);background:var(--paper-2);padding:var(--s-3) var(--s-4) var(--s-2)}
+.claims h2{margin:0 0 var(--s-3);font:600 var(--t-2xs)/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.claims ul{margin:0 0 var(--s-3);padding-left:1.1em;font-family:var(--display);font-size:var(--t-md);line-height:1.45;color:var(--ink-2)}
+.claims li{margin-bottom:var(--s-1)}
+.claims code{font-family:var(--mono);font-size:.82em}
+.demo{max-width:var(--w-page);margin:0 auto;padding:0 var(--gutter) var(--s-5);box-sizing:border-box}
+.controls{display:flex;flex-wrap:wrap;align-items:end;gap:var(--s-3);padding:var(--s-4) 0}
+.controls label{display:grid;gap:var(--s-1);font-size:var(--t-2xs);font-weight:600;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;flex:1 1 14rem;min-width:0}
+.controls input,.controls select,.controls textarea{min-height:44px;padding:0 var(--s-3);border:1px solid var(--rule-strong);background:var(--paper);color:var(--ink);font:var(--t-sm) var(--ui);border-radius:var(--r-2);width:100%;text-transform:none;letter-spacing:0}
+.controls textarea{padding:var(--s-2);min-height:12rem;line-height:1.5;resize:vertical}
+.controls .go{display:flex;gap:var(--s-2);flex-wrap:wrap}
+.stage{display:grid;grid-template-columns:var(--col-meta) minmax(0,1fr);gap:var(--s-2) var(--s-5);padding:var(--s-5) 0;border-top:1px solid var(--rule)}
+.stage>*{min-width:0}
+.stage-n{font:600 var(--t-2xs)/1.4 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.stage-n b{display:block;margin-bottom:var(--s-1);font:400 var(--t-3xl)/1 var(--display);letter-spacing:0;color:var(--ink-2)}
+.stage h2{margin:0 0 var(--s-2);font:400 var(--t-2xl)/1.15 var(--display);font-variation-settings:'opsz' 36;letter-spacing:-.01em}
+.say{margin:0 0 var(--s-3);max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6;color:var(--ink-2)}
+.say code{font-family:var(--mono);font-size:.84em}
+pre.call{margin:0 0 var(--s-3);padding:var(--s-3);background:var(--paper-2);border:1px solid var(--rule);border-radius:var(--r-2);font:var(--t-xs)/1.55 var(--mono);white-space:pre-wrap;overflow-wrap:anywhere;color:var(--ink-2)}
+.out{min-height:1.5em}
+.out:empty::before{content:"not run yet";color:var(--mute-2);font-size:var(--t-xs)}
+.checks{list-style:none;margin:0 0 var(--s-2);padding:0;display:grid;gap:var(--s-1);font-size:var(--t-sm)}
+.checks li{display:grid;grid-template-columns:1.4em minmax(0,1fr);gap:var(--s-1)}
+.checks li>i{font-style:normal;font-weight:700}
+.checks li>span{overflow-wrap:anywhere}
+.checks .ok>i{color:var(--accent)}
+.checks .no>i,.checks .no>span{color:var(--absent)}
+.checks .info>i{color:var(--mute)}
+.checks .run>i{color:var(--warn)}
+.big{margin:0 0 var(--s-2);font:600 var(--t-2xl)/1.2 var(--mono);overflow-wrap:anywhere}
+.big small{display:block;margin-top:var(--s-1);font-size:var(--t-xs);font-weight:400;color:var(--mute)}
+.kv{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:2px var(--s-3);margin:var(--s-2) 0;font-size:var(--t-xs)}
+.kv dt{color:var(--mute)}
+.kv dd{margin:0;overflow-wrap:anywhere;font-family:var(--mono)}
+.tok{margin:var(--s-2) 0;padding:var(--s-2) var(--s-3);border:1px solid var(--accent);border-radius:var(--r-2);background:var(--accent-bg);font:var(--t-xs)/1.5 var(--mono);overflow-wrap:anywhere}
+.acts{display:flex;flex-wrap:wrap;gap:var(--s-2);margin-top:var(--s-2)}
+details.raw{margin-top:var(--s-2);font-size:var(--t-xs)}
+details.raw summary{cursor:pointer;color:var(--mute);min-height:24px}
+details.raw pre{max-height:22rem;overflow:auto;padding:var(--s-2);background:var(--paper-2);border:1px solid var(--rule);border-radius:var(--r-2);font-family:var(--mono);white-space:pre-wrap;overflow-wrap:anywhere}
+.limits{padding:var(--s-5) 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) minmax(0,1fr);gap:var(--s-2) var(--s-5)}
+.limits>*{min-width:0}
+.limits h2{margin:0;font:600 var(--t-2xs)/1.4 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.limits ul{margin:0;padding-left:1.1em;max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6}
+.limits li{margin-bottom:var(--s-2)}
+.limits code{font-family:var(--mono);font-size:.84em}
+@media(max-width:900px){.stage,.limits{grid-template-columns:minmax(0,1fr)}.stage-n b{display:inline;margin-right:var(--s-2);font-size:var(--t-xl)}}
+@media(max-width:480px){body.doc{--gutter:16px}.big{font-size:var(--t-xl)}}

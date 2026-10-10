@@ -20,9 +20,9 @@
 <link rel="apple-touch-icon" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <style>
 *{box-sizing:border-box}
 html,body{margin:0;padding:0}
@@ -30,12 +30,8 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 a{color:inherit;text-decoration:underline;text-decoration-color:var(--rule-strong);text-underline-offset:3px}
 a:hover{color:var(--accent);text-decoration-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.btn{display:inline-flex;align-items:center;min-height:44px;padding:0 var(--s-3);border:1.5px solid var(--ink);background:var(--ink);color:var(--paper);font:600 var(--t-sm) var(--mono);text-decoration:none}
-.btn:hover{background:var(--accent);border-color:var(--accent);color:var(--paper)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--paper-3);color:var(--ink)}
-.claims{border:1px solid var(--rule-strong);background:var(--paper-2);padding:var(--s-3) var(--s-3) var(--s-2)}
-.claims h2{margin:0 0 var(--s-2);font:600 var(--t-3xs)/1 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.claims{border:1px solid var(--rule);border-radius:var(--r-3);background:var(--paper-2);padding:var(--s-3) var(--s-4) var(--s-2)}
+.claims h2{margin:0 0 var(--s-3);font:600 var(--t-2xs)/1 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .claims ul{margin:0 0 var(--s-3);padding-left:1.1em;font-family:var(--display);font-size:var(--t-md);line-height:1.45;color:var(--ink-2)}
 .claims li{margin-bottom:var(--s-1)}
 .claims code{font-family:var(--mono);font-size:.82em}
@@ -55,11 +51,11 @@ a:hover{color:var(--accent);text-decoration-color:var(--accent)}
 .side dd{margin:0;overflow-wrap:anywhere}
 .side .open{margin-top:var(--s-3)}
 .part{padding:var(--s-5) 0 var(--s-2);border-top:1px solid var(--rule-strong)}
-.part>h2{margin:0 0 var(--s-2);font:600 var(--t-2xs)/1.4 var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
+.part>h2{margin:0 0 var(--s-2);font:600 var(--t-2xs)/1.4 var(--ui);letter-spacing:.08em;text-transform:uppercase;color:var(--mute)}
 .part>p{margin:0 0 var(--s-3);max-width:66ch;font-family:var(--display);font-size:var(--t-md);line-height:1.6;color:var(--ink-2)}
 .part>p code{font-family:var(--mono);font-size:.84em}
 .rest{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(min(22rem,100%),1fr));gap:var(--s-3)}
-.rest li{border:1px solid var(--rule);background:var(--paper-2);padding:var(--s-3)}
+.rest li{border:1px solid var(--rule);border-radius:var(--r-3);background:var(--paper-2);padding:var(--s-3) var(--s-4)}
 .rest b{display:block;font-size:var(--t-sm);margin-bottom:var(--s-1)}
 .rest span{display:block;font-family:var(--display);font-size:var(--t-md);line-height:1.45;color:var(--ink-2)}
 .rest code{font-family:var(--mono);font-size:.84em}
@@ -70,6 +66,7 @@ pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--pa
 @media(max-width:900px){.set>li{grid-template-columns:2.5rem minmax(0,1fr)}.set .side{grid-column:2}.set .n{font-size:var(--t-2xl)}}
 @media(max-width:480px){body.doc{--gutter:16px}.set>li{grid-template-columns:minmax(0,1fr)}.set .side{grid-column:1}}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 <!--nav:start-->
@@ -115,7 +112,7 @@ pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--pa
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><span aria-current="page">Demos</span></li></ol><span class="aud-for">for anyone</span><span class="aud-what">live calls you can run and check</span></div>
+<div class="audience aud-anyone"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Try</li><li><span aria-current="page">Demos</span></li></ol><span class="aud-for">For anyone</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -282,12 +279,12 @@ pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--pa
 
   <section class="part" aria-labelledby="worlds-h">
     <h2 id="worlds-h">3D worlds, unfinished</h2>
-    <p>Eight places are rebuilt as Gaussian-splat scenes, each with a ledger of the signed Sentinel-2 facts it stands on.</p><details class="fold"><summary>more</summary><p class="rest">Both viewers load, but most splats are interpolated rather than measured (0.6% measured at Haridwar), and each world's ledger resolves to signed Sentinel-2 facts. <a href="/worlds#dense">The worlds page</a> lists each one, what it is built from and what is missing.</p></details>
+    <p>Eight places are rebuilt as Gaussian-splat scenes, each with a ledger of the signed Sentinel-2 facts it stands on. Both viewers load, but most splats are interpolated rather than measured (0.6% measured at Haridwar), and each world's ledger resolves to signed Sentinel-2 facts. <a href="/worlds#dense">The worlds page</a> lists each one, what it is built from and what is missing.</p>
   </section>
 
   <section class="part" aria-labelledby="old-h">
     <h2 id="old-h">Older demo URLs</h2>
-    <p>These pages predate the current set. Their URLs still answer, and each says where its demo went.</p>
+    <p>These pages predate the current set. Each URL now redirects to the demo that replaced it.</p>
     <ul class="moved">
       <li><a href="/demos/ask-the-earth">/demos/ask-the-earth</a> <i>now</i> <a href="/demos/signed-answer">/demos/signed-answer</a></li>
       <li><a href="/demos/trajectory">/demos/trajectory</a> <i>now</i> <a href="/demos/signed-answer">/demos/signed-answer</a></li>
@@ -300,18 +297,9 @@ pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--pa
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/"><i>&larr;</i><b>Home</b></a>
-<ol class="pb-steps">
-<li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run live calls in the browser" aria-current="step"><span>2</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
-<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
-<li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>
-<li><a href="/verify" title="Verify: paste any token, check it here"><span>6</span></a></li>
-<li><a href="/guard" title="Guard: gate an answer on its citations"><span>7</span></a></li>
-<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/how-it-works"><b>How it works</b><span>follow one request end to end</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/"><span>Previous</span><b>Home</b></a>
+<span class="pb-pos">2 of 8</span>
+<a class="pb-next" href="/how-it-works"><span>Next</span><b>How it works</b><em>follow one request end to end</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -343,11 +331,11 @@ pre.call{margin:0 0 var(--s-3);padding:var(--s-2) var(--s-3);background:var(--pa
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

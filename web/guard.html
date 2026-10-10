@@ -22,9 +22,9 @@
 <meta name=twitter:image content="https://emem.dev/og-image.png">
 <link rel=preconnect href="https://fonts.googleapis.com">
 <link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
-<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
-<link rel=stylesheet href="/tokens.css">
-<link rel=stylesheet href="/nav.css">
+<link rel=stylesheet href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap">
+<link rel=stylesheet href="/tokens.css?v=7bbfef6e672b">
+<link rel=stylesheet href="/nav.css?v=493492b95d7c">
 <script type=application/ld+json>{"@context":"https://schema.org","@type":"TechArticle","headline":"emem-guard: check the citations in a draft before it goes out","description":"emem-guard finds the emem citations in a draft, checks each against the signed record, and answers allow or deny with a code and a fix. Try it here or run your own.","url":"https://emem.dev/guard","publisher":{"@type":"Organization","name":"Vortx AI Private Limited","url":"https://vortx.ai"},"about":"Checking the citations in AI-written text before it is published","isPartOf":{"@type":"WebSite","name":"emem","url":"https://emem.dev"}}</script>
 <style>
 
@@ -36,16 +36,6 @@ html,body{margin:0;padding:0}
 a{color:var(--accent)}
 body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:var(--t-base);line-height:1.55;font-feature-settings:"ss01","ss02","cv01","cv02";-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 ::selection{background:var(--accent);color:var(--paper)}
-
-/* statusbar */
-.statusbar{border-bottom:1px solid var(--rule);background:var(--paper-2);position:sticky;top:0;z-index:50;backdrop-filter:blur(6px)}
-.statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x);display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-xs)}
-.statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule)}
-.statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
-.statusbar a:hover{color:var(--ink);background:var(--paper-3)}
-.statusbar .brand{font-weight:700;font-size:var(--t-sm);letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem}
-.statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-.statusbar .spacer{flex:1}
 
 /* page shell */
 .page{max-width:var(--w-page);margin:0 auto;padding:0 var(--pad-x)}
@@ -99,11 +89,6 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   .hero.hero-lean .hero-cta{flex-direction:column;align-items:stretch}
   .hero.hero-lean .hero-cta .btn{justify-content:center}
 }
-
-.btn{display:inline-flex;align-items:center;gap:.5rem;padding:.6rem 1rem;border:1px solid var(--ink);background:var(--ink);color:var(--paper);text-decoration:none;font-family:var(--mono);font-size:var(--t-sm);font-weight:600;cursor:pointer}
-.btn:hover{background:var(--ink-2)}
-.btn.ghost{background:transparent;color:var(--ink)}
-.btn.ghost:hover{background:var(--paper-3)}
 
 /* code block */
 .code{position:relative;border:1px solid var(--rule);background:var(--paper-2);margin:1.5rem 0;font-size:var(--t-sm);line-height:1.6}
@@ -175,17 +160,11 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 
 /* footer */
 .foot{padding:2.618rem 0;border-top:1px solid var(--rule);display:grid;grid-template-columns:var(--col-meta) 1fr;gap:2.618rem;color:var(--mute);font-size:var(--t-xs)}
-.foot-meta .name{color:var(--ink);font-weight:700;font-size:var(--t-sm);margin-bottom:.5rem}
-.foot-meta .desc{color:var(--mute);line-height:1.5}
-.foot-meta .desc a{color:var(--ink-2);text-decoration:underline;text-decoration-color:var(--rule)}
-.foot-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(9.5rem,1fr));gap:1.618rem}
 .foot-col h4{font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2);margin:0 0 .618rem;font-weight:700}
 .foot-col ul{margin:0;padding:0;list-style:none}
 .foot-col ul li{margin-bottom:.382rem}
 .foot-col a{color:var(--ink-2);text-decoration:none}
 .foot-col a:hover{color:var(--accent);text-decoration:underline}
-.foot-bottom{border-top:1px solid var(--rule);margin-top:1.618rem;padding-top:1rem;display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;font-size:var(--t-3xs);text-transform:uppercase;letter-spacing:.08em;color:var(--mute-2)}
-.foot-bottom a{color:inherit}
 
 /* horizontal scroll wrapper for wide tables on small screens */
 .scroll-x{overflow-x:auto;-webkit-overflow-scrolling:touch}
@@ -195,34 +174,22 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:900px){:root{--col-meta:10rem}.hero h1{font-size:var(--t-3xl)}.section,.hero{gap:2rem;padding:2.5rem 0}}
 @media (max-width:720px){
   .section,.hero,.foot{grid-template-columns:1fr;padding:2rem 0}
-  .section-meta,.foot-meta{position:static;max-height:none}
+  .section-meta{position:static;max-height:none}
   .section-meta{display:none}
-  .foot-grid{grid-template-columns:repeat(2,1fr)}
   .endpoints{font-size:var(--t-xs)}
   .endpoints th,.endpoints td{padding:.4rem .5rem}
-  .statusbar a.nav-sec{display:none}
-  .statusbar-inner{height:36px}
   .hero-cta{flex-direction:column;align-items:stretch}
   .hero-cta .btn{justify-content:center}
 }
 @media (max-width:560px){.hero h1{font-size:var(--t-2xl);line-height:1.05}.hero .sub{font-size:var(--t-md)}.code pre{font-size:var(--t-xs)}}
 @media (max-width:480px){html{font-size:92%}.page{padding:0 1rem}.stats{grid-template-columns:1fr}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
-/* polish: header scrollspy · hand-drawn section dividers · framed buttons */
-.statusbar a{position:relative;opacity:.55;transition:opacity .18s ease,color .18s ease}
-.statusbar a:hover{opacity:1}
-.statusbar a.on{opacity:1;color:var(--accent)}
-.statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--accent);opacity:.85;border-radius:1px}
 .section{position:relative;border-bottom:none}
 .section::after{content:"";position:absolute;left:0;right:0;bottom:-2.5px;height:6px;opacity:.5;background:linear-gradient(var(--rule),var(--rule)) left top/100% 1px no-repeat,linear-gradient(var(--rule),var(--rule)) left bottom/100% 1px no-repeat,repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px) center/auto 100%;-webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent);mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent)}
 .section::before{content:"";position:absolute;bottom:-3px;left:50%;width:5px;height:5px;margin-left:-2.5px;background:var(--paper);border:1px solid var(--accent);opacity:.5;transform:rotate(45deg);z-index:1}
-.btn{position:relative;border-radius:2px;box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--rule);transition:transform .15s ease,background .15s ease,box-shadow .15s ease,border-color .15s ease}
-.btn:hover{transform:translateY(-1px)}
-.btn.ghost:hover{background:var(--accent-bg);border-color:var(--accent);box-shadow:0 0 0 1px var(--paper),0 0 0 2px var(--accent)}
 .code{position:relative;box-shadow:0 0 0 3px var(--paper),0 0 0 4px var(--rule)}
 .code::after{content:"";position:absolute;inset:-3px;pointer-events:none;opacity:.4;padding:2px;background:repeating-linear-gradient(45deg,var(--rule) 0 .6px,transparent .6px 4px);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);mask-composite:exclude}
 .code-head::before{content:"";width:5px;height:5px;flex:0 0 auto;margin:0 .1rem 0 .7rem;background:var(--paper);border:1px solid var(--accent);opacity:.6;transform:rotate(45deg)}
-.statusbar .brand{opacity:1;text-decoration:none;cursor:pointer}
 .hero.hero-lean{text-align:center}
 .hero.hero-lean .sub{margin-left:auto;margin-right:auto}
 .hero.hero-lean .hero-cta{justify-content:center}
@@ -255,6 +222,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 @media (max-width:560px){.gd-sum div{grid-template-columns:1fr;gap:0}}
 
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 
@@ -301,7 +269,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Guard</span></li></ol><span class="aud-for">for developers</span><span class="aud-what">check a draft here, or run the server that enforces it</span></div>
+<div class="audience aud-developers"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Verify</li><li><span aria-current="page">Guard</span></li></ol><span class="aud-for">For developers</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -309,7 +277,7 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
   <div>
     <p class="eyebrow">Verify &middot; emem-guard</p>
     <h1>emem-guard</h1>
-    <p class="purpose">emem-guard checks every emem citation in a draft before it goes out, and answers allow or deny with a code and a fix.</p><details class="fold"><summary>more</summary><p class="rest">Each citation is looked up in the signed record. It catches a number that disagrees with the fact it cites, a citation pinned to the wrong place, and, if you ask, a measurable claim that cites nothing.</p></details>
+    <p class="purpose">emem-guard checks every emem citation in a draft before it goes out, and answers allow or deny with a code and a fix. Each citation is looked up in the signed record. It catches a number that disagrees with the fact it cites, a citation pinned to the wrong place, and, if you ask, a measurable claim that cites nothing.</p>
     <div class="actions">
       <a class="btn" href="#try">Try it on this page</a>
       <a class="btn ghost" href="#run">Run your own node</a>
@@ -422,10 +390,10 @@ body{background:var(--paper);color:var(--ink);font-family:var(--mono);font-size:
       <tr><td><code>GEO_ZONE</code></td><td>a cited cell is on the operator's restricted list</td><td><code>contact_admin</code></td><td>off; self-hosted only</td></tr>
       <tr><td><code>CLAIM_UNGROUNDED</code></td><td>a measurable claim about a place cites nothing that resolves</td><td><code>cite_observation</code></td><td>off</td></tr>
     </table></div>
-    <p><code>PROV_VALUE</code> judges agreement at the precision the writer chose, so <code>889.6439208984375</code> written as <code>889.6 m</code> passes and <code>5000 m</code> does not.</p><details class="fold"><summary>more</summary><p class="rest">It fires only when the node read a numeric value for the citation and the sentence carries exactly one citation, so it never has to guess which number goes with which token. A citation placed right after the sentence it supports also counts.</p></details>
+    <p><code>PROV_VALUE</code> judges agreement at the precision the writer chose, so <code>889.6439208984375</code> written as <code>889.6 m</code> passes and <code>5000 m</code> does not. It fires only when the node read a numeric value for the citation and the sentence carries exactly one citation, so it never has to guess which number goes with which token. A citation placed right after the sentence it supports also counts.</p>
     <div class="caveat"><b>Two codes no resolver emits yet.</b> <code>PROV_SIG</code> and <code>PROV_DRIFT</code> are in the contract and the rule engine, and their tests pass, but the resolvers that ship (none, a responder over HTTP, and the hosted one) look a fact up by its content address and never report a failed signature or a drift. A lookup by content address already refuses altered bytes, which is what <code>PROV_BYTES</code> and a <code>not_held_here</code> state report.</div>
     <h3>What it does not check</h3>
-    <p><b>Relevance.</b> A citation that resolves is not proof it is about what the sentence says.</p><details class="fold"><summary>more</summary><p class="rest">On 2026-09-28 "Bengaluru rainfall is 28.0 mm" citing the temperature fact above was allowed: the value matched and nothing compared rainfall with <code>weather.temperature_2m</code>. Compare the resolved band and place with the sentence yourself.</p></details>
+    <p><b>Relevance.</b> A citation that resolves is not proof it is about what the sentence says. On 2026-09-28 "Bengaluru rainfall is 28.0 mm" citing the temperature fact above was allowed: the value matched and nothing compared rainfall with <code>weather.temperature_2m</code>. Compare the resolved band and place with the sentence yourself.</p>
     <p><b>Content safety, personal data, secrets.</b> The engine is a chassis for those. A node you run can load modules that detect them; the hosted route loads none.</p>
     <p><b>Tokens it cannot find.</b> A citation this responder does not hold comes back <code>not_held_here</code> and is allowed. It cannot be told apart from one minted by another responder, and denying it would punish an agent for citing somebody else's node.</p>
   </div>
@@ -488,12 +456,12 @@ $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</c
     <p><code>GET /health</code> reports <code>signer_b32</code>, <code>verdicts_logged</code>, <code>log_head</code>, <code>mode</code>, <code>resolver</code>, <code>require_signature</code>, the four rule switches, and <code>verifies_citations</code>, so a load balancer and an auditor read the same answer to "does this node check anything".</p>
 
     <h3>Pass the conformance suite first</h3>
-    <p>Unit tests prove the handlers, not the server you stood up behind a proxy.</p><details class="fold"><summary>more</summary><p class="rest"><code>--conformance</code> runs twelve checks over the wire against a running node and exits non-zero on any failure: health honesty, verdicts for unknown events and malformed and empty bodies, a large body accepted, a complete descriptor, every open route answering, idempotent replay, a fetchable leaf that verifies, an answer inside 1000 ms, and 100 requests at a concurrency of 16.</p></details>
+    <p>Unit tests prove the handlers, not the server you stood up behind a proxy. <code>--conformance</code> runs twelve checks over the wire against a running node and exits non-zero on any failure: health honesty, verdicts for unknown events and malformed and empty bodies, a large body accepted, a complete descriptor, every open route answering, idempotent replay, a fetchable leaf that verifies, an answer inside 1000 ms, and 100 requests at a concurrency of 16.</p>
     <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --conformance https://guard.your-org.example</code></pre></div>
     <p>A checkpoint platform typically refuses private and loopback addresses and does not follow redirects, so put the node behind TLS on a routable host. Proxies in front of it need their body limit raised too: nginx defaults to 1 MB.</p>
 
     <h3>Failure semantics</h3>
-    <p>For a checkpoint webhook, a non-200, a timeout or an unparseable body is a transport failure, not a deny.</p><details class="fold"><summary>more</summary><p class="rest">Under fail-open the request goes through unchecked, and repeated failures can trip the caller's circuit breaker. So every input gets a 200 and a verdict, including an unknown event type, a malformed body and an empty one. The node answers within an 800 ms self-budget and deduplicates on the request id, so a retry gets the answer already recorded.</p></details>
+    <p>For a checkpoint webhook, a non-200, a timeout or an unparseable body is a transport failure, not a deny. Under fail-open the request goes through unchecked, and repeated failures can trip the caller's circuit breaker. So every input gets a 200 and a verdict, including an unknown event type, a malformed body and an empty one. The node answers within an 800 ms self-budget and deduplicates on the request id, so a retry gets the answer already recorded.</p>
   </div>
 </section>
 
@@ -528,7 +496,7 @@ $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</c
 
 { "allow": true, "id": 7,
   "verdict": { "action": "allow", "checked": 0 } }</code></pre></div>
-    <p>On a deny the response carries <code>result</code>, already shaped as a <code>CallToolResult</code> with <code>isError</code> set.</p><details class="fold"><summary>more</summary><p class="rest">Return it in place of running the tool and the model reads the denial and the fix where it reads tool errors. Send <code>params.result</code> instead of <code>params.arguments</code> to check a tool's output before the model reasons on it.</p></details>
+    <p>On a deny the response carries <code>result</code>, already shaped as a <code>CallToolResult</code> with <code>isError</code> set. Return it in place of running the tool and the model reads the denial and the fix where it reads tool errors. Send <code>params.result</code> instead of <code>params.arguments</code> to check a tool's output before the model reasons on it.</p>
   </div>
 </section>
 
@@ -544,7 +512,7 @@ $ ./target/release/emem-guard --responder https://emem.dev --data ./var/guard</c
   <div class="section-body">
     <h2><span class="num">06</span>Claim gating</h2>
     <p class="lede">The other rules deny when a check fails. This one denies when no check was offered: a sentence states a measurable quantity about a place or time and cites nothing that resolves.</p>
-    <p>Because it denies on absence, it ships off.</p><details class="fold"><summary>more</summary><p class="rest">Turn it on for one hosted call with <code>claim_gating: true</code>, as the uncited-claim example in <a href="#try">section 01</a> does. On your own node, run it in shadow first: every rule runs, is signed and logged, and nothing is blocked.</p></details>
+    <p>Because it denies on absence, it ships off. Turn it on for one hosted call with <code>claim_gating: true</code>, as the uncited-claim example in <a href="#try">section 01</a> does. On your own node, run it in shadow first: every rule runs, is signed and logged, and nothing is blocked.</p>
     <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ ./target/release/emem-guard --claim-gating --shadow --data ./var/guard
 $ ./target/release/emem-guard --report --data ./var/guard
 verdicts           5
@@ -557,7 +525,7 @@ by code            enforced / observed
   CLAIM_UNGROUNDED          0 / 1</code></pre></div>
     <p><code>would have blocked</code> is counted from the same append-only file an auditor reads, and <code>GET /log/report</code> serves the same counts. When the rate is acceptable, drop <code>--shadow</code>. The evaluation and the signed record stay the same; only the answer to the caller changes.</p>
     <h3>What counts as a claim</h3>
-    <p>A sentence fires only if its unit is in a table where every row names the band that reports it: metres from <code>copdem30m.elevation_mean</code>, mm/day from <code>weather.precipitation_mm</code>, &micro;g/m&sup3; from <code>cams.pm25</code>.</p><details class="fold"><summary>more</summary><p class="rest">The verdict names that band as <code>claim.source_band</code>. Bytes, seconds, hertz and currency have no band, so "the call took 800 ms" never fires.</p></details>
+    <p>A sentence fires only if its unit is in a table where every row names the band that reports it: metres from <code>copdem30m.elevation_mean</code>, mm/day from <code>weather.precipitation_mm</code>, &micro;g/m&sup3; from <code>cams.pm25</code>. The verdict names that band as <code>claim.source_band</code>. Bytes, seconds, hertz and currency have no band, so "the call took 800 ms" never fires.</p>
     <p>Three more conditions must hold. The sentence has a world anchor (an ISO date, a year, a coordinate pair, or a preposition before a capitalised name). It is an assertion, not a question, hedge or conditional. It is prose, not code or configuration.</p>
     <p>A citation that resolves clears the rule, and then the value rule applies to it. The uncited Sumatra sentence above, given Lusail's elevation fact as its citation, is no longer <code>CLAIM_UNGROUNDED</code>; it is <code>PROV_VALUE</code>, because that fact does not say 31 m.</p>
   </div>
@@ -624,7 +592,7 @@ by code            enforced / observed
 }</code></pre></div>
     <p><code>outcome</code> is what the caller was told and <code>evaluated</code> is what the rules reached. Both are signed, so an operator cannot later relabel a shadow verdict as enforced.</p>
     <h3>Audit the chain</h3>
-    <p>Signatures prove each entry; the chain proves none was removed.</p><details class="fold"><summary>more</summary><p class="rest"><code>emem-guard --audit</code> prints the entry count and any bad signature, broken link or unparseable line, and exits 1 if the log is not intact, so a scheduled audit fails its pipeline. Edit one verdict from allow to deny and it reports that entry under both <code>bad signature</code> and <code>broken chain</code>. Delete a line and every remaining signature still verifies; the chain breaks at the gap.</p></details>
+    <p>Signatures prove each entry; the chain proves none was removed. <code>emem-guard --audit</code> prints the entry count and any bad signature, broken link or unparseable line, and exits 1 if the log is not intact, so a scheduled audit fails its pipeline. Edit one verdict from allow to deny and it reports that entry under both <code>bad signature</code> and <code>broken chain</code>. Delete a line and every remaining signature still verifies; the chain breaks at the gap.</p>
     <div class="code"><div class="code-head"><span class="tab">terminal, your own node</span><span class="lang">sh</span><span class="spacer"></span></div><pre><code>$ emem-guard --audit --data ./var/guard
 entries        5
 bad signature  []
@@ -654,7 +622,7 @@ intact         true</code></pre></div>
       <tr><td><code>--module sidecar:PATH</code></td><td>one line of JSON each way over a unix socket, for a closed engine that will not link against this binary</td></tr>
       <tr><td><code>--signed-module FILE</code> with <code>--trust-publisher KEY</code></td><td>a module whose manifest a publisher signed; nothing loads without a key the operator typed</td></tr>
     </table></div>
-    <p>A module declares a latency class and a data class.</p><details class="fold"><summary>more</summary><p class="rest">A slow module never runs on the enforcing path, a fast one that misses its budget is demoted and stops being able to block, and an abstain is never a deny. <code>--modules-no-text</code> withholds transcript text from every module. The log records the module id, version and an evidence digest, never the matched content.</p></details>
+    <p>A module declares a latency class and a data class. A slow module never runs on the enforcing path, a fast one that misses its budget is demoted and stops being able to block, and an abstain is never a deny. <code>--modules-no-text</code> withholds transcript text from every module. The log records the module id, version and an evidence digest, never the matched content.</p>
   </div>
 </section>
 
@@ -683,18 +651,9 @@ intact         true</code></pre></div>
 
 <!--foot:start-->
 <nav class="pathbar" aria-label="Where this page sits on the developer path">
-<a class="pb-prev" href="/verify"><i>&larr;</i><b>Verify</b></a>
-<ol class="pb-steps">
-<li><a href="/" title="Home: tokenise a file, read a place, ask"><span>1</span></a></li>
-<li><a href="/demos" title="Demos: run live calls in the browser"><span>2</span></a></li>
-<li><a href="/how-it-works" title="How it works: follow one request end to end"><span>3</span></a></li>
-<li><a href="/reference" title="Reference: call every endpoint"><span>4</span></a></li>
-<li><a href="/tools" title="MCP tools: browse all tools, copy a call"><span>5</span></a></li>
-<li><a href="/verify" title="Verify: paste any token, check it here"><span>6</span></a></li>
-<li><a href="/guard" title="Guard: gate an answer on its citations" aria-current="step"><span>7</span></a></li>
-<li><a href="/a2a" title="A2A: hand memory between agents"><span>8</span></a></li>
-</ol>
-<a class="pb-next" href="/a2a"><b>A2A</b><span>hand memory between agents</span><i>&rarr;</i></a>
+<a class="pb-prev" href="/verify"><span>Previous</span><b>Verify</b></a>
+<span class="pb-pos">7 of 8</span>
+<a class="pb-next" href="/a2a"><span>Next</span><b>A2A</b><em>hand memory between agents</em></a>
 </nav>
 <footer class="page foot sitefoot">
 <div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a><p class="sf-proof" data-proof>log head: checking in this tab&hellip;</p></div>
@@ -726,11 +685,11 @@ intact         true</code></pre></div>
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

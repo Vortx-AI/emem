@@ -208,7 +208,7 @@ c.textContent=n+(n===1?" tool":" tools")+(v?" match":"");}});}})();</script>
 </body></html>
 """
     # the generated footer too, from the same site map as the bar
-    (REPO / "web" / "tools.html").write_text(_gen_nav.apply_foot(page, "/tools"))
+    (REPO / "web" / "tools.html").write_text(_gen_nav.apply_head(_gen_nav.apply_foot(page, "/tools")))
     print(f"wrote web/tools.html: {total} tools, {len(sections)} sections")
     return 0
 

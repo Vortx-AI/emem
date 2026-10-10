@@ -47,6 +47,9 @@ import glob
 import os
 import re
 import sys
+from pathlib import Path
+
+REPO_WEB = Path(__file__).resolve().parent.parent / "web"
 
 START = "<!--nav:start-->"
 END = "<!--nav:end-->"
@@ -271,19 +274,20 @@ def render(current: str) -> str:
     out.append('</div></nav></header>')
     # The audience strip. One line, directly under the bar, so a reader knows
     # whose page this is before they start reading it.
+    # It used to repeat the page's own one-line purpose beside the crumbs, which
+    # the header says again three lines lower; now it carries only where you are
+    # and who the page is for. The homepage has neither, so it has no strip.
     who, what = AUDIENCE.get(current, ("anyone", ""))
     row = ROW.get(current)
     crumbs = breadcrumb(current)
     if row and row[4] == "lab":
         # A lab page stays reachable and says what it is before anything else.
-        out.append(f'<div class="audience aud-lab">{crumbs}<span class="aud-for">lab</span>'
-                   f'<span class="aud-what">{what or row[2]}: unfinished, off the developer path</span>'
+        out.append(f'<div class="audience aud-lab">{crumbs}<span class="aud-for">Lab</span>'
+                   f'<span class="aud-what">unfinished, off the developer path</span>'
                    f'<a class="aud-note" href="/demos">start at the demos</a></div>')
-    else:
+    elif current != "/":
         out.append(f'<div class="audience aud-{who}">{crumbs}'
-                   f'<span class="aud-for">for {who}</span>'
-                   f'<span class="aud-what">{what}</span>'
-                   f'</div>')
+                   f'<span class="aud-for">For {who}</span></div>')
     # Progressive enhancement only. Escape and outside-click are the two
     # dismissals <details> has no answer for; everything else is HTML. The
     # phone menu button is the one piece HTML cannot do for us: it closes on
@@ -354,21 +358,18 @@ def render_foot(current: str) -> str:
     nb = path_neighbours(current)
     if nb:
         prev, nxt, i, total, walk = nb
+        # Numbered circles said "step 3" and nothing about what step 3 was; a
+        # reader had to hover each one. Two labelled links and a count do the job.
         out.append('<nav class="pathbar" aria-label="Where this page sits on the developer path">')
         if prev:
-            out.append(f'<a class="pb-prev" href="{prev}"><i>&larr;</i><b>{ROW[prev][1]}</b></a>')
+            out.append(f'<a class="pb-prev" href="{prev}"><span>Previous</span><b>{ROW[prev][1]}</b></a>')
         else:
             out.append('<span class="pb-prev"></span>')
-        out.append('<ol class="pb-steps">')
-        for k, href in enumerate(walk):
-            here = ' aria-current="step"' if href == current else ''
-            out.append(f'<li><a href="{href}" title="{ROW[href][1]}: {ROW[href][2]}"{here}>'
-                       f'<span>{k + 1}</span></a></li>')
-        out.append('</ol>')
+        out.append(f'<span class="pb-pos">{i + 1} of {total}</span>')
         if nxt:
-            out.append(f'<a class="pb-next" href="{nxt}"><b>{ROW[nxt][1]}</b><span>{ROW[nxt][2]}</span><i>&rarr;</i></a>')
+            out.append(f'<a class="pb-next" href="{nxt}"><span>Next</span><b>{ROW[nxt][1]}</b><em>{ROW[nxt][2]}</em></a>')
         else:
-            out.append(f'<a class="pb-next" href="{GITHUB}" target="_blank" rel="noopener noreferrer"><b>GitHub</b><span>star it, fork it, run it</span><i>&rarr;</i></a>')
+            out.append(f'<a class="pb-next" href="{GITHUB}" target="_blank" rel="noopener noreferrer"><span>Next</span><b>GitHub</b><em>star it, fork it, run it</em></a>')
         out.append('</nav>')
     out.append('<footer class="page foot sitefoot">')
     out.append('<div class="sf-top"><a class="sf-brand" href="/"><img src="/vortxgola.gif" alt="">emem</a>'
@@ -378,8 +379,7 @@ def render_foot(current: str) -> str:
         rows = [r for r in SITE if r[3] == sec and r[4] != "demo"]
         out.append(f'<div class="foot-col"><h4>{sec}</h4><ul>')
         for href, label, _, _, kind in rows:
-            tag = ' <i class="labtag">lab</i>' if kind == "lab" else ''
-            out.append(f'<li><a href="{href}">{label}</a>{tag}</li>')
+            out.append(f'<li><a href="{href}">{label}</a></li>')
         out.append('</ul></div>')
     out.append('<div class="foot-col"><h4>Machine</h4><ul>')
     for label, href in MACHINE:
@@ -526,73 +526,56 @@ SKIP = {# channel.html was skipped for "owning its markup". It did own it, and i
                               "conversation, not a page on this site"}
 
 
-# PROSE, FOLDED. A paragraph past FOLD_WORDS keeps its first sentence and
-# folds the rest behind "more": the claim stays on the page, the argument is
-# one click away. Deterministic and idempotent (a folded remainder carries a
-# class, so it is never folded again), so the gate can compare like the nav.
-FOLD_WORDS = 45
-# Generated elsewhere, or a paper whose paragraphs are the point.
-FOLD_SKIP = {"index.html", "tools.html", "channel.html", "whitepaper-v1.html",
-             "whitepaper-v2.html", "the-long-version.html"}
-_INLINE = {"a", "b", "strong", "em", "i", "code", "span", "sup", "sub", "abbr", "kbd", "small", "mark", "q", "s", "u"}
-_VOID = {"br", "img", "wbr"}
+# PROSE, UNFOLDED. Until 2026-10-10 a paragraph past 45 words kept its first
+# sentence and hid the rest behind "more". On a page header that cut the lede
+# mid-thought, and in the body it hid the argument the page exists to make
+# behind a click a reader had no reason to expect. Pages now show their prose
+# whole; this undoes any fold an earlier run wrote, so the check stays exact.
+_FOLDED = re.compile(r'(<p(?:\s[^>]*)?>)((?:(?!</p>).)*?)</p><details class="fold"><summary>more</summary>'
+                     r'<p class="rest">((?:(?!</p>).)*?)</p></details>', re.S)
 
 
-def _split_first(inner: str):
-    """Split paragraph HTML after its first sentence, outside any inline tag."""
-    depth, i, text_len = 0, 0, 0
-    n = len(inner)
-    while i < n:
-        c = inner[i]
-        if c == "<":
-            j = inner.find(">", i)
-            if j < 0:
-                return None
-            tag = inner[i + 1:j].strip()
-            name = re.match(r"/?([a-zA-Z0-9]+)", tag)
-            nm = name.group(1).lower() if name else ""
-            if nm not in _INLINE and nm not in _VOID:
-                return None  # block content inside a <p>: leave it alone
-            if tag.startswith("/"):
-                depth -= 1
-            elif nm not in _VOID and not tag.endswith("/"):
-                depth += 1
-            i = j + 1
-            continue
-        text_len += 1
-        if (c in ".:" and depth == 0 and text_len >= 15 and i + 2 < n
-                and inner[i + 1] == " " and (inner[i + 2].isupper() or inner[i + 2].isdigit() or inner[i + 2] in "<`\"(")):
-            head, tail = inner[:i + 1], inner[i + 2:]
-            if len(re.sub(r"<[^>]+>", "", tail).split()) < 8:
-                return None  # not worth a click
-            return head, tail
-        i += 1
-    return None
+def unfold_prose(html: str) -> str:
+    return _FOLDED.sub(lambda m: f"{m.group(1)}{m.group(2)} {m.group(3)}</p>", html)
 
 
-_P = re.compile(r"<p(\s[^>]*)?>(.*?)</p>", re.S)
-_OPAQUE = re.compile(r"(<script\b.*?</script>|<style\b.*?</style>|<pre\b.*?</pre>|<template\b.*?</template>|"
-                     + re.escape(START) + r".*?" + re.escape(END) + r"|"
-                     + re.escape("<!--foot:start-->") + r".*?" + re.escape("<!--foot:end-->") + r")", re.S)
+# ONE FONT REQUEST, ONE COMPONENT SHEET. Every page asks Google Fonts for the
+# same three families in one URL, and /site.css is the last stylesheet in
+# <head>, after the page's own <style>, so a shared button is the same button
+# on every page instead of six variants that drifted apart.
+FONT_URL = ("https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700"
+            "&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800"
+            "&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap")
+_FONT = re.compile(r"https://fonts\.googleapis\.com/css2\?[^\"']*")
+SITE_CSS = '<link rel=stylesheet href="/site.css">'
+_SITE_CSS_ANY = re.compile(r'<link rel=stylesheet href="/site\.css(?:\?v=[0-9a-f]+)?">\n?')
+
+# Shared assets are linked by version: the first 12 hex of the sha256 of the
+# file. The server marks a response immutable only when the bytes it serves
+# hash to the version asked for (crates/emem-api-rest cache_hint_layer), so a
+# returning reader keeps them, and a deploy that changes one changes its link.
+_ASSET = re.compile(r'(href|src)="/(tokens\.css|nav\.css|site\.css|demos\.css|home\.js)(?:\?v=[0-9a-f]+)?"')
+_VERSIONS: dict = {}
 
 
-def fold_prose(html: str) -> str:
-    def one(m):
-        attrs, inner = m.group(1) or "", m.group(2)
-        # A paragraph a script can address (id, data-*) or one already folded
-        # is left exactly as written.
-        if re.search(r"\b(id|data-[\w-]+)=", attrs) or "rest" in attrs:
-            return m.group(0)
-        if len(re.sub(r"<[^>]+>", "", inner).split()) <= FOLD_WORDS:
-            return m.group(0)
-        cut = _split_first(inner)
-        if not cut:
-            return m.group(0)
-        head, tail = cut
-        return (f'<p{attrs}>{head}</p><details class="fold"><summary>more</summary>'
-                f'<p class="rest">{tail}</p></details>')
-    parts = _OPAQUE.split(html)
-    return "".join(pt if k % 2 else _P.sub(one, pt) for k, pt in enumerate(parts))
+def asset_version(name: str) -> str:
+    if name not in _VERSIONS:
+        import hashlib
+        _VERSIONS[name] = hashlib.sha256((REPO_WEB / name).read_bytes()).hexdigest()[:12]
+    return _VERSIONS[name]
+
+
+def stamp_assets(html: str) -> str:
+    return _ASSET.sub(lambda m: f'{m.group(1)}="/{m.group(2)}?v={asset_version(m.group(2))}"', html)
+
+
+def apply_head(html: str) -> str:
+    html = _FONT.sub(FONT_URL, html)
+    html = _SITE_CSS_ANY.sub("", html)
+    i = html.find("</head>")
+    if i >= 0:
+        html = html[:i] + SITE_CSS + "\n" + html[i:]
+    return stamp_assets(html)
 
 
 def main():
@@ -645,8 +628,8 @@ def main():
         out = apply_foot(out, served_as(name))
         if name != "index.html":
             out = mark_doc(out)
-        if name not in FOLD_SKIP:
-            out = fold_prose(out)
+        out = unfold_prose(out)
+        out = apply_head(out)
         if "/nav.css" not in out:
             out = out.replace('<link rel=stylesheet href="/tokens.css">',
                               '<link rel=stylesheet href="/tokens.css">\n'

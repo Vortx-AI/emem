@@ -16,9 +16,9 @@
 <meta name="twitter:card" content="summary_large_image"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap"/>
-<link rel="stylesheet" href="/tokens.css"/>
-<link rel="stylesheet" href="/nav.css"/>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400..700&family=JetBrains+Mono:ital,wght@0,200..800;1,200..800&family=Newsreader:ital,opsz,wght@0,6..72,300..700;1,6..72,300..700&display=swap"/>
+<link rel="stylesheet" href="/tokens.css?v=7bbfef6e672b"/>
+<link rel="stylesheet" href="/nav.css?v=493492b95d7c"/>
 <style>
   :root{
     --cream: #f4ecd8;
@@ -59,17 +59,6 @@
 
   /* unified statusbar — same shape as the rest of emem.dev, adapted to the
      atlas's cream/forest tokens; sits above the fixed-height shell. */
-  .statusbar{border-bottom:1px solid var(--rule);background:rgba(244,236,216,.85);position:sticky;top:0;z-index:50;backdrop-filter:saturate(120%) blur(6px)}
-  .statusbar-inner{max-width:var(--w-page);margin:0 auto;padding:0 18px;display:flex;align-items:center;gap:1rem;height:40px;font-size:var(--t-3xs)}
-  .statusbar a{color:var(--ink-2);text-decoration:none;padding:0 .5rem;height:100%;display:flex;align-items:center;border-right:1px solid var(--rule);position:relative;opacity:.6;transition:opacity .18s ease,color .18s ease}
-  .statusbar a:first-of-type{border-left:1px solid var(--rule);margin-left:.5rem}
-  .statusbar a:hover{opacity:1;color:var(--ink);background:var(--paper)}
-  .statusbar a.on{opacity:1;color:var(--forest)}
-  .statusbar a.on::after{content:"";position:absolute;left:.5rem;right:.5rem;bottom:5px;height:2px;background:var(--forest);opacity:.85;border-radius:1px}
-  .statusbar .brand{font-weight:700;font-size:var(--t-xs);font-style:normal;letter-spacing:.02em;color:var(--ink);padding-right:1rem;border-right:1px solid var(--rule);display:flex;align-items:center;gap:.382rem;font-family:var(--mono);text-decoration:none}
-  .statusbar .brand img{width:20px;height:20px;object-fit:contain;display:block}
-  .statusbar .spacer{flex:1}
-  @media (max-width:720px){.statusbar a.nav-sec{display:none}}
 
   .shell{position:relative;z-index:1;display:grid;grid-template-rows:48px 1fr 56px;height:calc(100vh - 5.75rem);min-height:36rem}
 
@@ -293,6 +282,7 @@ input[type=text],input[type=search],input[type=email],input[type=url],input[type
 input::placeholder{color:var(--mute,#7a7363)}
 :focus-visible{outline:2px solid var(--accent,#3f7a4e);outline-offset:2px}
 </style>
+<link rel=stylesheet href="/site.css?v=5692554a8f14">
 </head>
 <body class="doc">
 
@@ -339,7 +329,7 @@ input::placeholder{color:var(--mute,#7a7363)}
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Gallery</span></li></ol><span class="aud-for">lab</span><span class="aud-what">the record, rendered: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Gallery</span></li></ol><span class="aud-for">Lab</span><span class="aud-what">unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -493,11 +483,11 @@ input::placeholder{color:var(--mute,#7a7363)}
 <li><a href="/v1/log/sth">Log head</a></li>
 </ul></div>
 <div class="foot-col"><h4>Lab</h4><ul>
-<li><a href="/worlds">Worlds</a> <i class="labtag">lab</i></li>
-<li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
-<li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
-<li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/arcade">Arcade</a> <i class="labtag">lab</i></li>
+<li><a href="/worlds">Worlds</a></li>
+<li><a href="/channel">Channel</a></li>
+<li><a href="/scoreboard">Scoreboard</a></li>
+<li><a href="/gallery">Gallery</a></li>
+<li><a href="/arcade">Arcade</a></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>

@@ -59,7 +59,8 @@ def reachable(doc, path: str) -> bool:
 
 
 def main() -> int:
-    pages = sorted(glob.glob("web/*.html"))
+    # Scripts a page loads are read too: the homepage's script is /home.js.
+    pages = sorted(glob.glob("web/*.html")) + sorted(glob.glob("web/*.js"))
     reads: dict[str, set[str]] = {}
     for page in pages:
         text = open(page, encoding="utf-8").read()
