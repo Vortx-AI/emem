@@ -907,9 +907,12 @@ the registry, the response is explicit, not silent:
 }
 ```
 
-Every skip is typed. `reason_class` is one of `timeout` or `upstream_error`
-(transient, `retryable: true` - retry to warm the cell) or `unknown_band` /
-`no_materializer` (structural, `retryable: false` at this responder).
+Every skip is typed. `reason_class` is `timeout`, `upstream_error` or
+`deferred` (transient, `retryable: true` - retry to warm the cell); or
+`unknown_band`, `no_materializer`, `upstream_gone`, `retired` or
+`not_geographic` (structural, `retryable: false` at this responder); or
+`no_data` (the newest scene has no reading at this pixel, so a retry repeats
+it until the next overpass, `retryable: false`).
 `absence` is always `false`: a skip is *unknown*, never a confirmed absence.
 A genuine "no data here" is a signed fact and comes back as
 `status: "materialized"` with an Absence `fact_cid` you can cite and verify -
