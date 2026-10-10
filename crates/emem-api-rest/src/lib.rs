@@ -999,6 +999,31 @@ pub fn router(state: AppState) -> Router {
         // essay (which stays at /agent.json for the manifest readers).
         .route("/.well-known/agent.json", get(well_known_agent_card))
         .route("/.well-known/agent-card.json", get(well_known_agent_card))
+        // Clients resolve the card relative to the URL they were handed, so
+        // an agent given /mcp or /a2a/tasks asks under it; those 404'd.
+        .route("/mcp/.well-known/agent.json", get(well_known_agent_card))
+        .route(
+            "/mcp/.well-known/agent-card.json",
+            get(well_known_agent_card),
+        )
+        .route(
+            "/mcp/full/.well-known/agent.json",
+            get(well_known_agent_card),
+        )
+        .route(
+            "/mcp/full/.well-known/agent-card.json",
+            get(well_known_agent_card),
+        )
+        .route(
+            "/a2a/tasks/.well-known/agent.json",
+            get(well_known_agent_card),
+        )
+        .route(
+            "/a2a/tasks/.well-known/agent-card.json",
+            get(well_known_agent_card),
+        )
+        .route("/mcp/server-card", get(well_known_mcp))
+        .route("/mcp/server-card.json", get(well_known_mcp))
         .route("/extendedAgentCard", get(get_extended_agent_card))
         .route("/v1/a2a/skills", get(get_a2a_skills))
         // Fronting the local perception service: see perception_proxy.
@@ -1625,6 +1650,10 @@ pub fn router(state: AppState) -> Router {
         // of allocation, as `cog::MAX_WINDOW_PX` now does. This layer is for
         // the ordinary index-out-of-range / unwrap-on-None class across the
         // 105-tool surface, where the alternative is a killed worker task.
+        .layer(axum::middleware::from_fn_with_state(
+            state.clone(),
+            a2a_http_json_binding,
+        ))
         .layer(tower_http::catch_panic::CatchPanicLayer::custom(
             panic_to_typed_500,
         ))
@@ -27943,6 +27972,64 @@ fn first_sentence(s: &str, cap: usize) -> String {
 /// 0.3 dispatch and both Part spellings parse, so a client on either gets the
 /// same code, the same signing and the same artifacts.
 const A2A_SUPPORTED_VERSIONS: &[&str] = &["0.3", "1.0"];
+
+/// A2A's HTTP+JSON binding: `POST /v1/message:send` and
+/// `/v1/message:stream`, the body being the method's params. The same work as
+/// the JSON-RPC methods at /a2a/tasks, so it is re-enveloped and handed to
+/// them. It is a middleware, not a route, because the router reads a `:` in a
+/// path as a parameter.
+async fn a2a_http_json_binding(
+    State(s): State<AppState>,
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> Response {
+    let method = match (req.method() == Method::POST, req.uri().path()) {
+        (true, "/v1/message:send") => "message/send",
+        (true, "/v1/message:stream") => "message/stream",
+        _ => return next.run(req).await,
+    };
+    let headers = req.headers().clone();
+    let body = match axum::body::to_bytes(req.into_body(), body_limit_bytes()).await {
+        Ok(b) => b,
+        Err(e) => {
+            return a2a_bad_request(&format!("a2a: could not read the body: {e}")).into_response()
+        }
+    };
+    let params: JsonValue = match serde_json::from_slice(&body) {
+        Ok(v) => v,
+        Err(e) => {
+            return a2a_bad_request(&format!("a2a: request body is not valid JSON: {e}"))
+                .into_response()
+        }
+    };
+    let wrapped =
+        json!({ "jsonrpc": "2.0", "id": "http-json", "method": method, "params": params });
+    let bytes = Bytes::from(serde_json::to_vec(&wrapped).unwrap_or_default());
+    if method == "message/stream" {
+        return a2a_message_stream(s, bytes).await;
+    }
+    let resp = post_a2a_task(State(s), headers, bytes).await;
+    let (parts, b) = resp.into_parts();
+    let raw = axum::body::to_bytes(b, usize::MAX)
+        .await
+        .unwrap_or_default();
+    // The binding answers with the result itself and an HTTP status for a
+    // failure, not a JSON-RPC envelope.
+    match serde_json::from_slice::<JsonValue>(&raw) {
+        Ok(v) if v.get("result").is_some() => {
+            (StatusCode::OK, Json(v["result"].clone())).into_response()
+        }
+        Ok(v) if v.get("error").is_some() => {
+            let status = if parts.status.is_success() {
+                StatusCode::BAD_REQUEST
+            } else {
+                parts.status
+            };
+            (status, Json(json!({ "error": v["error"].clone() }))).into_response()
+        }
+        _ => Response::from_parts(parts, axum::body::Body::from(raw)),
+    }
+}
 
 async fn post_a2a_task(
     State(s): State<AppState>,
@@ -84289,6 +84376,59 @@ mod tests {
             axum::body::Bytes::from(r#"{"jsonrpc":"2.0","id":3,"method":"no/such","params":{}}"#);
         let r = mcp_with_version(test_app_state(), headers, body, "core").await;
         assert_eq!(r.status(), axum::http::StatusCode::NOT_FOUND);
+    }
+
+    /// The A2A HTTP+JSON binding reaches the same handler as JSON-RPC and
+    /// answers without the JSON-RPC envelope; the relative card paths a
+    /// client derives from /mcp or /a2a/tasks answer with the card.
+    #[tokio::test]
+    async fn the_a2a_http_binding_and_relative_card_paths_answer() {
+        use tower::ServiceExt;
+        let app = router(test_app_state());
+        let req = axum::http::Request::post("/v1/message:send")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"message":{}}"#))
+            .unwrap();
+        let r = app.clone().oneshot(req).await.unwrap();
+        assert_ne!(
+            r.status(),
+            StatusCode::NOT_FOUND,
+            "the binding must not fall through to 404"
+        );
+        let v: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(r.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            v.get("jsonrpc").is_none(),
+            "no JSON-RPC envelope on the HTTP binding: {v}"
+        );
+        assert!(
+            v.get("error").is_some() || v.get("kind").is_some() || v.get("id").is_some(),
+            "{v}"
+        );
+
+        for path in [
+            "/mcp/.well-known/agent-card.json",
+            "/a2a/tasks/.well-known/agent.json",
+            "/mcp/server-card",
+        ] {
+            let req = axum::http::Request::get(path)
+                .body(axum::body::Body::empty())
+                .unwrap();
+            let r = app.clone().oneshot(req).await.unwrap();
+            assert_eq!(r.status(), StatusCode::OK, "{path}");
+        }
+        // Anything else still reaches the router as before.
+        let req = axum::http::Request::post("/v1/message:nope")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.oneshot(req).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     /// eudr.dev sends four plots at a time and the route runs three. The cap

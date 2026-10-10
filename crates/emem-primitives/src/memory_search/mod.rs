@@ -63,7 +63,10 @@ pub const SNIPPET_WINDOW: usize = 200;
 /// can never surface here regardless of filter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemorySearchReq {
-    /// Free-text query. Required, non-empty after trimming.
+    /// Free-text query. Required, non-empty after trimming. `query` and
+    /// `question` are accepted spellings, as on the other read tools: a
+    /// caller who sent `query` got a 400 for missing `q`.
+    #[serde(alias = "query", alias = "question")]
     pub q: String,
     /// Number of hits (default 10, max 100).
     #[serde(default = "default_k")]
