@@ -904,6 +904,7 @@ pub fn router(state: AppState) -> Router {
             get(serve_skill_long_horizon_memory),
         )
         .route("/skills/emem-urban/SKILL.md", get(serve_skill_urban))
+        .route("/skills/:name/:file", get(serve_skill_any_case))
         .route(
             "/skills/emem-research-grade-citation/SKILL.md",
             get(serve_skill_research_grade_citation),
@@ -1577,9 +1578,12 @@ pub fn router(state: AppState) -> Router {
             post(post_temporal_route).get(get_temporal_route),
         )
         .route("/mcp", get(mcp_get).post(mcp_jsonrpc))
+        // A client handed the URL with a trailing slash posts to it.
+        .route("/mcp/", get(mcp_get).post(mcp_jsonrpc))
         // Same server, same dispatch; the only difference is how much of
         // the catalog tools/list advertises. See MCP_CORE_ENDPOINT_TIER.
         .route("/mcp/full", get(mcp_get).post(mcp_jsonrpc_full))
+        .route("/mcp/full/", get(mcp_get).post(mcp_jsonrpc_full))
         // A2A v1.2 Task adapter, accepts either a strict A2A JSON-RPC
         // `message/send` envelope or the friendlier `{skill, args}` shape,
         // dispatches to the underlying MCP tool, and returns an A2A
@@ -1628,6 +1632,7 @@ pub fn router(state: AppState) -> Router {
         // down" rather than "you guessed the path". A directory that probes it
         // on a schedule would have marked us down on a healthy node.
         .route("/v1/health", get(health))
+        .route("/a2a/tasks/health", get(health))
         // Dead-cheap liveness: never touches storage, so it answers even while
         // a cold bake or a deploy has the index-scan path (which /health uses)
         // contended. This is the probe to poll DURING a deploy window, a 200
@@ -5296,6 +5301,37 @@ async fn serve_skills_md() -> Response {
 /// skill served here and a skill the plugin installs are the same bytes
 /// and cannot drift. Moving that directory is a compile error, which is
 /// how the move on 2026-09-16 was caught.
+/// `/skills/<name>/skill.md`, any case of the file name: crawlers asked for
+/// the lower-case spelling of every skill and got a 404, while skills.md
+/// promises each one at this address.
+async fn serve_skill_any_case(Path((name, file)): Path<(String, String)>) -> Response {
+    if !file.eq_ignore_ascii_case("skill.md") {
+        return serve_404(axum::http::Request::new(axum::body::Body::empty())).await;
+    }
+    match name.as_str() {
+        "emem-locate-and-recall" => serve_skill_locate_and_recall().await,
+        "emem-verify-receipt" => serve_skill_verify_receipt().await,
+        "emem-find-similar" => serve_skill_find_similar().await,
+        "emem-recall-polygon" => serve_skill_recall_polygon().await,
+        "emem-field-tokens" => serve_skill_field_tokens().await,
+        "emem-sign-and-attest" => serve_skill_sign_and_attest().await,
+        "emem-multi-agent-handoff" => serve_skill_multi_agent_handoff().await,
+        "emem-shared-identity" => serve_skill_shared_identity().await,
+        "emem-referential-drift" => serve_skill_referential_drift().await,
+        "emem-verify-before-publish" => serve_skill_verify_before_publish().await,
+        "emem-field-signals" => serve_skill_field_signals().await,
+        "emem-eudr-due-diligence" => serve_skill_eudr_due_diligence().await,
+        "emem-document-evidence" => serve_skill_document_evidence().await,
+        "emem-transparency-log" => serve_skill_transparency_log().await,
+        "emem-tokenise-files" => serve_skill_tokenise_files().await,
+        "emem-long-horizon-memory" => serve_skill_long_horizon_memory().await,
+        "emem-urban" => serve_skill_urban().await,
+        "emem-research-grade-citation" => serve_skill_research_grade_citation().await,
+        "emem-device-traces" => serve_skill_device_traces().await,
+        _ => serve_404(axum::http::Request::new(axum::body::Body::empty())).await,
+    }
+}
+
 async fn serve_skill_locate_and_recall() -> Response {
     text_response("text/markdown; charset=utf-8", SKILL_LOCATE_AND_RECALL)
 }
@@ -27983,7 +28019,17 @@ async fn a2a_http_json_binding(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> Response {
-    let method = match (req.method() == Method::POST, req.uri().path()) {
+    // Clients build the binding's URL from whatever base they were given,
+    // so /mcp/full/v1/message:send arrives too.
+    let path = req.uri().path();
+    let tail = ["", "/mcp", "/mcp/full", "/a2a", "/a2a/tasks"]
+        .iter()
+        .find_map(|p| {
+            path.strip_prefix(p)
+                .filter(|t| t.starts_with("/v1/message:"))
+        })
+        .unwrap_or("");
+    let method = match (req.method() == Method::POST, tail) {
         (true, "/v1/message:send") => "message/send",
         (true, "/v1/message:stream") => "message/stream",
         _ => return next.run(req).await,
@@ -41965,7 +42011,9 @@ async fn post_entity(
 
 #[derive(Debug, Clone, serde::Deserialize)]
 struct EntityResolveReq {
-    #[serde(default)]
+    /// `name`, `q` and `query` are accepted spellings: agents sent them and
+    /// got "requires `text`".
+    #[serde(default, alias = "name", alias = "q", alias = "query")]
     text: Option<String>,
     #[serde(default)]
     label: Option<String>,
@@ -84414,6 +84462,9 @@ mod tests {
             "/mcp/.well-known/agent-card.json",
             "/a2a/tasks/.well-known/agent.json",
             "/mcp/server-card",
+            "/skills/emem-sign-and-attest/skill.md",
+            "/skills/emem-urban/SKILL.md",
+            "/a2a/tasks/health",
         ] {
             let req = axum::http::Request::get(path)
                 .body(axum::body::Body::empty())
@@ -84421,6 +84472,32 @@ mod tests {
             let r = app.clone().oneshot(req).await.unwrap();
             assert_eq!(r.status(), StatusCode::OK, "{path}");
         }
+        let req = axum::http::Request::get("/skills/emem-no-such/skill.md")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        let req = axum::http::Request::post("/mcp/full/v1/message:send")
+            .header("content-type", "application/json")
+            .body(axum::body::Body::from(r#"{"message":{}}"#))
+            .unwrap();
+        assert_ne!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::NOT_FOUND
+        );
+        let req = axum::http::Request::post("/mcp/")
+            .header("content-type", "application/json")
+            .header("accept", "application/json, text/event-stream")
+            .body(axum::body::Body::from(
+                r#"{"jsonrpc":"2.0","id":1,"method":"ping"}"#,
+            ))
+            .unwrap();
+        assert_eq!(
+            app.clone().oneshot(req).await.unwrap().status(),
+            StatusCode::OK
+        );
         // Anything else still reaches the router as before.
         let req = axum::http::Request::post("/v1/message:nope")
             .body(axum::body::Body::empty())

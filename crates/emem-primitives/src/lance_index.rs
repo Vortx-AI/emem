@@ -561,7 +561,10 @@ impl LanceIndex {
             .nearest("vector", &q, k.saturating_mul(oversample.max(1)))
             .map_err(|e| LanceError::Lance(e.to_string()))?;
         scanner
-            .project(&["cell64", "band", "fact_cid"])
+            // `_distance` named outright: Lance adds it unasked today and
+            // warns that a projection without it will stop getting it, which
+            // would fail every read below with "_distance column missing".
+            .project(&["cell64", "band", "fact_cid", "_distance"])
             .map_err(|e| LanceError::Lance(e.to_string()))?;
         let stream = scanner
             .try_into_stream()
