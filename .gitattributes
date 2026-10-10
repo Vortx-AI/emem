@@ -1,0 +1,11 @@
+# Generated files: excluded from GitHub's language statistics and collapsed in
+# diffs. Edit the generator, not the file:
+#   web/channel.html, docs/collaboration-log.md   scripts/build_channel.py
+#   web/tools.html                                scripts/gen_tools_page.py
+#   web/whitepaper-v2.html                        scripts/render_whitepaper.py
+#   integrations/chatgpt/tools.md                 scripts/gen_chatgpt_bundle.py
+web/channel.html linguist-generated=true
+docs/collaboration-log.md linguist-generated=true
+web/tools.html linguist-generated=true
+web/whitepaper-v2.html linguist-generated=true
+integrations/chatgpt/tools.md linguist-generated=true
