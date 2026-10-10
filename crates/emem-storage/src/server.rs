@@ -49,7 +49,7 @@ fn primitive_latency() -> &'static Mutex<HashMap<&'static str, [u64; 18]>> {
 /// bucket-boundary resolution (the bucket upper bound) — coarse by
 /// construction, honest, and cheap. Advisory metadata, so a poisoned
 /// lock is recovered rather than panicking on the signing path.
-fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, u32) {
+fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, u32, u64) {
     let bucket = RECEIPT_LATENCY_BUCKETS_MS
         .iter()
         .position(|b| elapsed_ms <= *b)
@@ -78,7 +78,7 @@ fn observe_primitive_latency(primitive: &'static str, elapsed_ms: u32) -> (u32, 
         }
         0
     };
-    (percentile(0.50), percentile(0.99))
+    (percentile(0.50), percentile(0.99), total)
 }
 
 /// A live emem responder. Owned by the HTTP server and lent to each
@@ -321,7 +321,8 @@ impl Server {
         let served_at = iso8601_now();
         let elapsed_ms = started.elapsed().as_millis().min(u32::MAX as u128) as u32;
         // Real per-primitive-class percentiles, not this one sample twice.
-        let (latency_p50_ms, latency_p99_ms) = observe_primitive_latency(primitive, elapsed_ms);
+        let (latency_p50_ms, latency_p99_ms, latency_samples) =
+            observe_primitive_latency(primitive, elapsed_ms);
 
         let scope = scope.filter(|s| !s.is_empty());
         let scope_hex = scope.as_ref().map(|s| s.blake3_hex());
@@ -350,9 +351,12 @@ impl Server {
         // payload, so one inclusion anchor is sufficient. `None` when the
         // cited facts pre-date the proof tree (ephemeral runs, older
         // attestations) — and under v2 that None is itself signed.
-        let merkle_proof = fact_cids
-            .first()
-            .and_then(|c| self.storage.proof_for_cid(c));
+        let merkle_proof = fact_cids.first().and_then(|c| {
+            self.storage.proof_for_cid(c).map(|mut p| {
+                p.fact_cid = Some(c.as_str().to_string());
+                p
+            })
+        });
         let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
             merkle_proof
                 .as_ref()
@@ -413,6 +417,7 @@ impl Server {
                 // the stalest source.
                 source_freshness_s: None,
                 was_cached,
+                latency_samples: Some(latency_samples),
             },
             as_of,
             field,
@@ -792,6 +797,9 @@ mod tests {
                 path: vec![[7u8; 32]],
                 root: [9u8; 32],
                 version: 1,
+                fact_cid: None,
+                leaf_count: None,
+                log_entry_hash: None,
             });
             let msg = rebuild_v1_preimage(&stripped);
             let pk = ed25519_dalek::VerifyingKey::from_bytes(&r.responder.0).unwrap();

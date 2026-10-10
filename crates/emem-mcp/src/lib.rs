@@ -1309,7 +1309,8 @@ const SCHEMA_LOG_STH: &str = r#"{"type":"object","properties":{}}"#;
 // the whole audit loop, and it was unreachable from here for no reason.
 const SCHEMA_LOG_INCLUSION: &str = r#"{"type":"object","properties":{
 "leaf_index":{"type":"integer","minimum":0,"description":"Zero-based position of the entry in the append-only log."},
-"entry_hash":{"type":"string","description":"Alternative to leaf_index: base32-nopad of the record's 32-byte blake3."},
+"entry_hash":{"type":"string","description":"Alternative to leaf_index: base32-nopad of the attestation record's 32-byte blake3 (a receipt's merkle_proof.log_entry_hash)."},
+"fact_cid":{"type":"string","description":"Alternative: a fact's cid; proves the attestation that carried it, for facts signed since that link was recorded."},
 "tree_size":{"type":"integer","minimum":1,"description":"Prove against a historical head of this size rather than the current one, so a proof can be checked against an STH pinned earlier. The returned `root_b32` is then the unsigned root at that size; bind it to a signed head with emem_log_consistency. Defaults to the current head."}
 }}"#;
 
@@ -1319,7 +1320,9 @@ const SCHEMA_LOG_CONSISTENCY: &str = r#"{"type":"object","required":["first"],"p
 }}"#;
 
 const SCHEMA_LOG_WITNESSES: &str = r#"{"type":"object","properties":{
-"tree_size":{"type":"integer","minimum":0,"description":"Optional filter: only co-signatures recorded at this tree size."}
+"tree_size":{"type":"integer","minimum":0,"description":"Optional filter: only co-signatures recorded at this tree size."},
+"limit":{"type":"integer","minimum":1,"maximum":200,"description":"Rows returned, newest first. Default 20."},
+"at_or_after":{"type":"integer","minimum":1,"description":"A tree size you pinned: returns `nearest_witnessed`, the nearest co-signed head at or after it, with a consistency proof from your size to it."}
 }}"#;
 
 /// Normative tool inventory, with rich agent-facing metadata.

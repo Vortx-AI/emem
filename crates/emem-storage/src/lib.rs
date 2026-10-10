@@ -1048,8 +1048,9 @@ impl Storage for MaterializingStorage {
         let cids = self.cache.put_many(&att.facts).await?;
         write_stage("storage.put_facts", t);
         let t = std::time::Instant::now();
-        self.log.append(att).await?;
+        let appended = self.log.append(att).await?;
         write_stage("storage.log_append", t);
+        let log_entry = appended.record_hash;
         // Persist a per-fact merkle inclusion proof so receipts citing
         // any of these CIDs can ship a verifier-ready proof. Best-effort:
         // a tree-write error never fails the attestation itself.
@@ -1079,7 +1080,14 @@ impl Storage for MaterializingStorage {
             let pv = att.preimage_version;
             let scope = att.scope.clone();
             let idx_writes = tokio::task::spawn_blocking(move || {
-                if let Err(e) = persist_fact_proofs(&db, redb_w.as_deref(), &facts, &cids_c, pv) {
+                if let Err(e) = persist_fact_proofs(
+                    &db,
+                    redb_w.as_deref(),
+                    &facts,
+                    &cids_c,
+                    pv,
+                    Some(log_entry),
+                ) {
                     tracing::warn!(error=%e, "fact proof persistence error (ignored)");
                 }
                 if let Err(e) = append_multi_attester(&db, redb_w.as_deref(), &facts, &cids_c) {
@@ -2009,6 +2017,7 @@ fn persist_fact_proofs(
     facts: &[Fact],
     cids: &[FactCid],
     preimage_version: u8,
+    log_entry: Option<[u8; 32]>,
 ) -> Result<(), StorageError> {
     if facts.is_empty() || cids.len() != facts.len() {
         return Ok(());
@@ -2048,6 +2057,10 @@ fn persist_fact_proofs(
             path: paths[sorted_idx].clone(),
             root,
             version: proof_version,
+            fact_cid: None,
+            leaf_count: Some(leaves.len() as u32),
+            log_entry_hash: log_entry
+                .map(|h| data_encoding::BASE32_NOPAD.encode(&h).to_lowercase()),
         };
         let mut buf = Vec::new();
         ciborium::ser::into_writer(&proof, &mut buf)

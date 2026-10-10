@@ -811,6 +811,11 @@ struct Cost {
     // the response carries a dated source; never 0 as a stand-in.
     source_freshness_s: Option<u32>,
     was_cached: bool,
+    // Calls of this primitive the latencies are read over, since the
+    // responder started. The latencies are measured percentiles reported as
+    // histogram bucket upper bounds (1, 2, 5, 10, ... 5000, 10000 ms), hence
+    // round numbers. Unsigned, like the rest of `cost`.
+    latency_samples: Option<u64>,
 }
 ```
 
@@ -980,6 +985,25 @@ absent. The receipt is still a valid signed statement; only the
 attestation-tree anchor is missing. Under v2 that absence is itself
 signed: `merkle_binding_v2(None)` hashes an explicit ABSENT marker, so "I have no proof" is a statement the responder made, not a gap an
 intermediary can create.
+
+The binding covers `leaf_index`, `path`, `root` and `version`. Three more
+fields ride beside them **unsigned**, to say where the proof sits:
+
+- `fact_cid`: the fact the proof is for (`fact_cids[0]`). `leaf_index` is
+  that fact's place in its own attestation's batch, sorted bytewise, not its
+  place in the receipt's list, so it can exceed the list's length.
+- `leaf_count`: how many facts the batch tree holds. A leaf in a short right
+  subtree has a shorter path than `ceil(log2(n))`; check the path length
+  against this before folding.
+- `log_entry_hash`: the transparency-log entry of the attestation that carried
+  the batch, `blake3(attestation CBOR)` in base32. `GET
+  /v1/log/inclusion?entry_hash=` (or `?fact_cid=`) proves it into a signed tree
+  head, so a holder goes fact → batch root → attestation → log entry → STH.
+
+All three are absent on proofs written before they were recorded. The batch
+tree and the log tree are different trees with different rules (sorted leaves
+and a self-paired odd node, against append order and a promoted lone node);
+`GET /v1/log/test_vectors` gives known answers for both.
 
 ### 7.3.1 A receipt is byte-for-byte or nothing
 

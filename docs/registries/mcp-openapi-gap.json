@@ -9,7 +9,7 @@
   "asymmetric_on_purpose_reasons": {
     "emem_guard_verdict": "POST /v1/guard/verdict accepts a chat-completions `messages` array, because a client that already holds an OpenAI-shaped body should not have to reshape it to ask a question. The MCP TOOL does not advertise it: a checker should ask for the smallest input that answers the question, and listing `messages` beside `texts` made handing it the whole conversation look like the documented way in. The wire is unchanged; only the advertisement is. Removing it from /openapi.json too would hide an input the route really accepts."
   },
-  "parameters_documented_only_for_agents": 134,
+  "parameters_documented_only_for_agents": 133,
   "tools": {
     "emem_air": [
       "cell",
@@ -100,9 +100,6 @@
     ],
     "emem_jepa_predict": [
       "place"
-    ],
-    "emem_log_witnesses": [
-      "tree_size"
     ],
     "emem_lst": [
       "cell",

@@ -472,7 +472,7 @@ input::placeholder{color:var(--mute,#7a7363)}
       <p>Three surfaces over one substrate. Pick by what you already speak.</p>
       <p><strong>MCP.</strong> <code>https://emem.dev/mcp</code> serves a 16-tool core; the rest of the 108 are a call away through the same endpoint. <code>tools/call</code> runs any tool by name, listed or not, so a tool missing from your list is not missing from the server. Start with <code>emem_tools</code> to find the rest.</p>
       <p><strong>A2A.</strong> The agent card is at <code>/.well-known/agent-card.json</code>, signed, with <code>message/send</code> over JSON-RPC at <code>/a2a/tasks</code> and a poll-shaped task surface for clients that would rather not hold a connection open.</p>
-      <p><strong>REST.</strong> 178 documented <code>/v1</code> paths, <code>/openapi.json</code> for the shapes.</p>
+      <p><strong>REST.</strong> 179 documented <code>/v1</code> paths, <code>/openapi.json</code> for the shapes.</p>
       <p>Reads are anonymous and free at every tier. There is no account, no bearer token that grants anything, and no payment anywhere in the ladder. Writes are tiered by reach: your own namespace stays free with a signature, the shared entity space asks for more, because it is the one surface where a bad write changes what every other agent resolves a name to.</p>
       <p>The shortest useful path for an agent that has never seen this before: resolve a place, recall a band, hand the returned <code>emem:fact:</code> token to another agent, and have them verify it without asking you anything. If that works, the rest of the protocol is detail.</p>
     </section>

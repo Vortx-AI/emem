@@ -1307,6 +1307,7 @@ mod freshness_tests {
             latency_p99_ms: 0,
             source_freshness_s: None,
             was_cached: false,
+            latency_samples: None,
         };
         let now = 1_700_000_000_i64;
 

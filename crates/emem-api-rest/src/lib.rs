@@ -1289,6 +1289,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/log/entries", get(get_log_entries))
         .route("/v1/log/inclusion", get(get_log_inclusion))
         .route("/v1/log/consistency", get(get_log_consistency))
+        .route("/v1/log/test_vectors", get(get_log_test_vectors))
         .route("/v1/log/witness", post(post_log_witness))
         .route("/v1/log/witnesses", get(get_log_witnesses))
         // Introspection
@@ -22636,12 +22637,24 @@ async fn get_log_inclusion(
     // `tree_size` this route silently ignored, and every proof it got back
     // was against a head it had not pinned. An argument that is not read
     // must be an error, never a no-op.
-    const KNOWN: [&str; 3] = ["leaf_index", "entry_hash", "tree_size"];
+    const KNOWN: [&str; 4] = ["leaf_index", "entry_hash", "fact_cid", "tree_size"];
     if let Some(bad) = q.keys().find(|k| !KNOWN.contains(&k.as_str())) {
         return Err(translog_bad_arg(format!(
-            "unknown argument `{bad}`; this route reads leaf_index, entry_hash, tree_size"
+            "unknown argument `{bad}`; this route reads leaf_index, entry_hash, fact_cid, tree_size"
         )));
     }
+    // A fact is not a log entry: entries are attestations. A fact signed
+    // since its proof began recording it names the attestation's entry, so
+    // a receipt holder can go from the fact to the log in one call.
+    let entry_of_fact = |cid: &str| -> Option<[u8; 32]> {
+        let proof = s
+            .storage
+            .proof_for_cid(&emem_fact::FactCid::new(cid.to_string()))?;
+        let raw = data_encoding::BASE32_NOPAD
+            .decode(proof.log_entry_hash?.to_uppercase().as_bytes())
+            .ok()?;
+        raw.try_into().ok()
+    };
     // Prove against a historical head when asked. RFC 6962's get-proof-by-hash
     // takes the tree size, and a witness checking a leaf against the head it
     // pinned needs the path in THAT tree, not in whatever grew since.
@@ -22660,6 +22673,7 @@ async fn get_log_inclusion(
         None => n,
     };
     let mut note_match: Option<String> = None;
+    let mut fact_match: Option<String> = None;
     let m: usize = if let Some(li) = q.get("leaf_index") {
         li.parse()
             .map_err(|_| translog_bad_arg("leaf_index must be a non-negative integer"))?
@@ -22679,6 +22693,9 @@ async fn get_log_inclusion(
             if let Some((entry, cid)) = memory_log_entry_for_content(&s, &want) {
                 note_match = Some(cid);
                 want = entry;
+            } else if let Some(entry) = entry_of_fact(&eh.to_lowercase()) {
+                fact_match = Some(eh.to_lowercase());
+                want = entry;
             }
         }
         leaves[..size]
@@ -22689,14 +22706,40 @@ async fn get_log_inclusion(
                     StatusCode::NOT_FOUND,
                     ErrorBody {
                         code: ErrorCode::CidNotFound,
-                        message: format!("no log entry with entry_hash={eh}"),
+                        message: format!(
+                            "no log entry with entry_hash={eh}. An entry is an attestation, keyed by blake3 of its CBOR; a fact_cid is not one. \
+                             For a fact, pass fact_cid=<cid>, or read `merkle_proof.log_entry_hash` from the receipt that cited it. \
+                             Facts signed before that field was recorded have no entry link here."
+                        ),
                         details: None,
                     },
                 )
             })?
+    } else if let Some(fc) = q.get("fact_cid") {
+        let want = entry_of_fact(fc).ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!(
+                        "fact {fc} has no recorded log entry here: it was signed before receipts recorded one, or it was not signed by this responder"
+                    ),
+                    details: None,
+                },
+            )
+        })?;
+        fact_match = Some(fc.clone());
+        leaves[..size]
+            .iter()
+            .position(|l| *l == want)
+            .ok_or_else(|| {
+                translog_bad_arg(format!(
+                    "fact {fc}'s attestation is not inside tree_size {size}; ask at a later size"
+                ))
+            })?
     } else {
         return Err(translog_bad_arg(
-            "pass leaf_index=<i> or entry_hash=<base32 of the record's blake3>",
+            "pass leaf_index=<i>, entry_hash=<base32 of the attestation record's blake3>, or fact_cid=<a fact's cid>",
         ));
     };
     // Read the path out of the level tree. The slice recursion folds a
@@ -22738,10 +22781,115 @@ async fn get_log_inclusion(
         "leaf_hash_b32": b32_lower(&leaf),
         "audit_path_b32": path.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
         "sth": sth,
-        "matched": if note_match.is_some() { "memory_note_content" } else { "entry_hash" },
+        "matched": if note_match.is_some() { "memory_note_content" } else if fact_match.is_some() { "fact_cid" } else { "entry_hash" },
         "memory_note_file_cid": note_match,
+        // For matched=fact_cid: the entry is the attestation that carried the
+        // fact; the receipt's merkle_proof joins the fact to that batch's root.
+        "fact_cid": fact_match,
         "verify": "emem_attest::translog::verify_inclusion(leaf_hash, leaf_index, tree_size, audit_path, root). For matched=memory_note_content, also fetch entry leaf_index from /v1/log/entries and check its content_blake3 equals the hash you asked with."
     })))
+}
+
+/// Where a memory note's whole body is served as markdown: `GET /memories/...`.
+fn memory_note_url(path: &str) -> String {
+    match public_origin() {
+        Some(o) => format!("{}{path}", o.trim_end_matches('/')),
+        None => path.to_string(),
+    }
+}
+
+/// `GET /v1/log/test_vectors`: known answers for both of emem's Merkle trees,
+/// computed by the functions that build the log and the receipt proofs. An
+/// independent verifier written from the spec once used `ceil(log2(n))` for
+/// path length and passed every live sample, because each sampled leaf sat in
+/// a left subtree; proving every leaf of every small tree catches that.
+async fn get_log_test_vectors() -> Json<JsonValue> {
+    static VECTORS: std::sync::OnceLock<JsonValue> = std::sync::OnceLock::new();
+    Json(VECTORS.get_or_init(build_log_test_vectors).clone())
+}
+
+fn build_log_test_vectors() -> JsonValue {
+    use emem_attest::translog;
+    let entry = |i: u32| -> [u8; 32] {
+        let mut h = blake3::Hasher::new();
+        h.update(b"emem.test_vector.entry");
+        h.update(&i.to_be_bytes());
+        *h.finalize().as_bytes()
+    };
+    let b32 = |h: &[u8; 32]| b32_lower(h);
+    let entries: Vec<[u8; 32]> = (0..33).map(entry).collect();
+    let log: Vec<JsonValue> = (1..=33usize)
+        .map(|n| {
+            let tree = &entries[..n];
+            let inclusion: Vec<JsonValue> = (0..n)
+                .map(|i| {
+                    let path = translog::inclusion_path(i, tree).unwrap_or_default();
+                    json!({ "leaf_index": i, "audit_path_b32": path.iter().map(b32).collect::<Vec<_>>() })
+                })
+                .collect();
+            let consistency: Vec<JsonValue> = if n <= 16 {
+                (1..n)
+                    .map(|m| {
+                        let p = translog::consistency_proof(m, tree).unwrap_or_default();
+                        json!({ "first_size": m, "path_b32": p.iter().map(b32).collect::<Vec<_>>() })
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+            json!({
+                "tree_size": n,
+                "entries_b32": tree.iter().map(b32).collect::<Vec<_>>(),
+                "leaf_hashes_b32": tree.iter().map(|e| b32(&translog::leaf_hash(e))).collect::<Vec<_>>(),
+                "root_b32": b32(&translog::merkle_tree_hash(tree)),
+                "inclusion": inclusion,
+                "consistency_to_this_size": consistency,
+            })
+        })
+        .collect();
+    let fact_leaf = |i: u32| -> [u8; 32] {
+        let mut h = blake3::Hasher::new();
+        h.update(b"emem.test_vector.fact");
+        h.update(&i.to_be_bytes());
+        *h.finalize().as_bytes()
+    };
+    let batch: Vec<JsonValue> = (1..=17u32)
+        .map(|n| {
+            let mut leaves: Vec<[u8; 32]> = (0..n).map(fact_leaf).collect();
+            leaves.sort();
+            let (root, paths) = emem_attest::merkle_root_and_paths_v1(&leaves);
+            json!({
+                "leaf_count": n,
+                "leaves_sorted_b32": leaves.iter().map(b32).collect::<Vec<_>>(),
+                "root_b32": b32(&root),
+                "paths": paths.iter().enumerate().map(|(i, p)| json!({
+                    "leaf_index": i, "path_b32": p.iter().map(b32).collect::<Vec<_>>(),
+                })).collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    json!({
+        "schema": "emem.log_test_vectors.v1",
+        "_means": "known answers for the two Merkle trees emem signs. They are different trees with different rules; a verifier for one is wrong for the other.",
+        "log": {
+            "what": "the transparency log (GET /v1/log/*): RFC 6962 over attestation entries in append order",
+            "entry": "entry_i = blake3(\"emem.test_vector.entry\" || u32_be(i)) for these vectors; in the live log, blake3 of an attestation's CBOR",
+            "leaf": "blake3(0x00 || entry)",
+            "node": "blake3(0x01 || left || right)",
+            "split": "at the largest power of two below n; a lone node is promoted unchanged, so a leaf in a short right subtree has a shorter path than ceil(log2(n))",
+            "verify": "emem_attest::translog::verify_inclusion / verify_consistency",
+            "trees": log,
+        },
+        "batch": {
+            "what": "the attestation batch tree a receipt's merkle_proof is in (preimage v1)",
+            "leaf": "blake3(0x00 || fact digest), over the batch's fact digests sorted bytewise and deduplicated",
+            "node": "blake3(0x01 || left || right)",
+            "odd": "the last node of an odd layer pairs with itself (unlike the log, where it is promoted)",
+            "verify": "emem_attest::verify_merkle_path_v1(promote_leaf_v1(digest), leaf_index, path, root)",
+            "fact_digest": "fact_i = blake3(\"emem.test_vector.fact\" || u32_be(i)) for these vectors; live, the 32 bytes a fact_cid encodes",
+            "trees": batch,
+        },
+    })
 }
 
 /// The log entry that recorded the memory note whose content hashes to
@@ -23259,6 +23407,83 @@ async fn get_log_witnesses(
         })
         .filter_map(|w| w["entries_behind_current"].as_u64())
         .min();
+    // The nearest witnessed head at or after a size the caller pinned, with
+    // the proof that the log only grew from theirs to it. A receipt pins a
+    // head as it is signed and co-signatures arrive later, so asking for the
+    // exact size found nothing; this is the question a holder can answer.
+    let nearest = match q.get("at_or_after") {
+        None => JsonValue::Null,
+        Some(v) => {
+            let k: u64 = v
+                .parse()
+                .map_err(|_| translog_bad_arg("at_or_after must be a non-negative integer"))?;
+            if k == 0 || k as usize > current {
+                return Err(translog_bad_arg(format!(
+                    "at_or_after must be in 1..={current}, the current head"
+                )));
+            }
+            let independent = |w: &&JsonValue| {
+                w["witness_pubkey_b32"]
+                    .as_str()
+                    .and_then(|key| tiers.get(key))
+                    .is_some_and(|(t, _)| *t != "self_operator")
+            };
+            let pick = |only_independent: bool| -> Option<u64> {
+                all.iter()
+                    .filter(|w| !only_independent || independent(w))
+                    .filter_map(|w| w["tree_size"].as_u64())
+                    .filter(|ts| *ts >= k)
+                    .min()
+            };
+            match pick(true).or_else(|| pick(false)) {
+                None => json!({ "from_size": k, "found": false,
+                    "note": "no co-signature at or after this size yet; witnesses sign periodically, so ask again later" }),
+                Some(m) => {
+                    let at: Vec<&JsonValue> = all
+                        .iter()
+                        .filter(|w| w["tree_size"].as_u64() == Some(m))
+                        .collect();
+                    let by_independent = at.iter().any(independent);
+                    let snap = translog_snapshot(&s).await?;
+                    let (first, second) = (k as usize, m as usize);
+                    let proof = match translog_with_tree(|t| t.consistency_proof(first, second))
+                        .await
+                    {
+                        Some(p) => p,
+                        None => {
+                            emem_attest::translog::consistency_proof(first, &snap.leaves[..second])
+                                .ok_or_else(|| {
+                                    translog_bad_arg("no consistency proof for that pair")
+                                })?
+                        }
+                    };
+                    let first_root = match translog_prefix_root(first).await {
+                        Some(r) => r,
+                        None => emem_attest::translog::merkle_tree_hash(&snap.leaves[..first]),
+                    };
+                    let second_root = match translog_prefix_root(second).await {
+                        Some(r) => r,
+                        None => emem_attest::translog::merkle_tree_hash(&snap.leaves[..second]),
+                    };
+                    json!({
+                        "from_size": k,
+                        "found": true,
+                        "tree_size": m,
+                        "root_b32": b32_lower(&second_root),
+                        "witnessed_by_independent_key": by_independent,
+                        "witnesses": at,
+                        "consistency": {
+                            "first_size": first, "second_size": second,
+                            "first_root_b32": b32_lower(&first_root),
+                            "second_root_b32": b32_lower(&second_root),
+                            "path_b32": proof.iter().map(|h| b32_lower(h)).collect::<Vec<_>>(),
+                        },
+                        "verify": "check each witness signature over (tree_size, root_b32), then emem_attest::translog::verify_consistency(first_size, first_root, second_size, second_root, path): your pinned head is a prefix of the witnessed one",
+                    })
+                }
+            }
+        }
+    };
     let out: Vec<JsonValue> = all
         .into_iter()
         .rev()
@@ -23321,6 +23546,7 @@ async fn get_log_witnesses(
             "self_operator": "this node's declared witness key, or a key vouched by one of this node's own domains",
         },
         "witnesses": out,
+        "nearest_witnessed": nearest,
         "note": "Each entry is a witness's ed25519 co-signature over (tree_size, root). Verify offline; then call /v1/log/consistency?first=<that tree_size>&second=<current> to confirm the log the witness saw is an append-only prefix of the log you see. A witness attests ONLY the prefix it signed: `entries_behind_current` is how much of the current log no witness has seen, and `head_is_witnessed` is false whenever that is non-zero. Read `head_is_witnessed` with care: it counts ANY co-signature including this node's own write-liveness canary, which signs the head every two minutes, so it is nearly always true and is not a measure of outside oversight. `head_is_independently_witnessed` is the same question with `self_witness_pubkey_b32` removed, and it is the one that speaks to split view. Consistency proofs remain checkable by anyone regardless — split-view detection is what needs a second pair of eyes, and that is what a stale witness cannot give you.",
         "submit": "POST /v1/log/witness {tree_size, root_b32, witness_pubkey_b32, signature_b32}",
         "preimage": "PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}"
@@ -33893,9 +34119,10 @@ fn openapi_spec() -> JsonValue {
             "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
             "/.well-known/did.json": {"get":{"summary":"node identity: the did:web document naming this node's responder key (the key under every STH and receipt) and, when the operator declares one, its witness key, both as Multikey. 404 with the fix when the node has no public host.","operationId":"emem_well_known_did","tags":["identity"],"responses":{"200":json_ok,"404":json_not_found}}},
             "/.well-known/emem-agents.json": {"get":{"summary":"organisation vouching: the keys this operator vouches for, from config/emem-agents.json. The enlistment ladder on OTHER nodes fetches this document to move a key to T4_affiliated; a node that asks peers to publish one publishes its own. Public keys only, no redirects, CORS open.","operationId":"emem_well_known_agents","tags":["identity"],"responses":{"200":json_ok}}},
-            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i> or entry_hash=<base32 of the record blake3>; add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i>, entry_hash=<base32 of the attestation record's blake3>, or fact_cid=<a fact's cid> to prove the attestation that carried it (its entry hash is also in a receipt's merkle_proof.log_entry_hash); add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"fact_cid","in":"query","required":false,"schema":{"type":"string"},"description":"a fact signed since receipts recorded its attestation's log entry"},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/log/consistency":   {"get":{"summary":"transparency log: RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current tree size). Verify offline with translog::verify_consistency against the first_root you pinned; a mismatch means the log rewrote history.","operationId":"emem_log_consistency","parameters":[{"name":"first","in":"query","required":true,"schema":{"type":"integer","minimum":1}},{"name":"second","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
-            "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head, independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness.","operationId":"emem_log_witnesses","responses":{"200":json_ok}}},
+            "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head, independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness. Pass at_or_after=<tree_size you pinned> for `nearest_witnessed`: the nearest co-signed head at or after it (an independent key first) with a consistency proof from your size to it.","operationId":"emem_log_witnesses","parameters":[{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}},{"name":"at_or_after","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
+            "/v1/log/test_vectors":  {"get":{"summary":"known answers for emem's two Merkle trees, from the code that builds them: the transparency log (RFC 6962, append order, lone node promoted) for every leaf of trees of size 1..33 with consistency proofs to size 16, and the attestation batch tree a receipt's merkle_proof is in (sorted leaves, odd node paired with itself) for sizes 1..17. For testing an independent verifier.","operationId":"emem_log_test_vectors","responses":{"200":json_ok}}},
             "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
             "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation), pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
@@ -47403,6 +47630,13 @@ async fn post_memory_search(
                             .and_then(|k| k.as_str())
                             .and_then(|k| enlistment_evidence(&s, k));
                         if let Some(obj) = hit.as_object_mut() {
+                            // The whole note, not the snippet: a reader that
+                            // only had search windows rebuilt a 10 KB note
+                            // from 45 queries and still missed most of it.
+                            if let Some(path) = obj.get("path").and_then(|p| p.as_str()) {
+                                let url = memory_note_url(path);
+                                obj.insert("url".into(), json!(url));
+                            }
                             obj.insert(
                                 "attester_affiliation".into(),
                                 ev.map(|e| enlistment_evidence_json(&e))
@@ -64947,6 +65181,7 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
             json!({
                 "from": from,
                 "path": key,
+                "url": memory_note_url(&key),
                 "file_cid": meta.file_cid,
                 "signed_at": meta.signed_at,
                 "title": title,
@@ -84431,6 +84666,79 @@ mod tests {
         assert_eq!(r.status(), axum::http::StatusCode::NOT_FOUND);
     }
 
+    /// Every published vector verifies through the functions a verifier
+    /// would call, and the ragged case the vectors exist for is in them: in a
+    /// tree of three, leaf 2's path is one step, not two.
+    #[test]
+    fn the_log_test_vectors_verify_and_include_ragged_paths() {
+        let v = build_log_test_vectors();
+        let d = |s: &str| -> [u8; 32] {
+            data_encoding::BASE32_NOPAD
+                .decode(s.to_uppercase().as_bytes())
+                .unwrap()
+                .try_into()
+                .unwrap()
+        };
+        let list = |x: &JsonValue| -> Vec<[u8; 32]> {
+            x.as_array()
+                .unwrap()
+                .iter()
+                .map(|h| d(h.as_str().unwrap()))
+                .collect()
+        };
+        let trees = v["log"]["trees"].as_array().unwrap();
+        assert_eq!(trees.len(), 33);
+        for t in trees {
+            let n = t["tree_size"].as_u64().unwrap() as usize;
+            let root = d(t["root_b32"].as_str().unwrap());
+            let leaves = list(&t["leaf_hashes_b32"]);
+            for inc in t["inclusion"].as_array().unwrap() {
+                let i = inc["leaf_index"].as_u64().unwrap() as usize;
+                let path = list(&inc["audit_path_b32"]);
+                assert!(
+                    emem_attest::translog::verify_inclusion(&leaves[i], i, n, &path, &root),
+                    "n={n} i={i}"
+                );
+            }
+            for c in t["consistency_to_this_size"].as_array().unwrap() {
+                let m = c["first_size"].as_u64().unwrap() as usize;
+                let first_root = d(trees[m - 1]["root_b32"].as_str().unwrap());
+                let path = list(&c["path_b32"]);
+                assert!(
+                    emem_attest::translog::verify_consistency(m, &first_root, n, &root, &path),
+                    "{m}->{n}"
+                );
+            }
+        }
+        assert_eq!(
+            trees[2]["inclusion"][2]["audit_path_b32"]
+                .as_array()
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(
+            trees[2]["inclusion"][0]["audit_path_b32"]
+                .as_array()
+                .unwrap()
+                .len(),
+            2
+        );
+        for b in v["batch"]["trees"].as_array().unwrap() {
+            let root = d(b["root_b32"].as_str().unwrap());
+            let leaves = list(&b["leaves_sorted_b32"]);
+            for p in b["paths"].as_array().unwrap() {
+                let i = p["leaf_index"].as_u64().unwrap() as usize;
+                let path = list(&p["path_b32"]);
+                let leaf = emem_attest::promote_leaf_v1(&leaves[i]);
+                assert!(
+                    emem_attest::verify_merkle_path_v1(&leaf, i, &path, &root),
+                    "batch {i}"
+                );
+            }
+        }
+    }
+
     /// The A2A HTTP+JSON binding reaches the same handler as JSON-RPC and
     /// answers without the JSON-RPC envelope; the relative card paths a
     /// client derives from /mcp or /a2a/tasks answer with the card.
@@ -91632,6 +91940,9 @@ mod tests {
                 path: vec![[7u8; 32]],
                 root: [9u8; 32],
                 version: 1,
+                fact_cid: None,
+                leaf_count: None,
+                log_entry_hash: None,
             }),
         };
 
@@ -91717,6 +92028,7 @@ mod tests {
                 latency_p99_ms: 0,
                 source_freshness_s: None,
                 was_cached: true,
+                latency_samples: None,
             },
             as_of: None,
             field: None,

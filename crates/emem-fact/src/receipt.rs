@@ -204,6 +204,13 @@ pub struct Cost {
     pub source_freshness_s: Option<u32>,
     /// Whether the response was served from cache.
     pub was_cached: bool,
+    /// How many calls of this primitive the two latencies are read over,
+    /// since the responder started. The latencies are measured, at histogram
+    /// bucket resolution: each is a bucket's upper bound (1, 2, 5, 10, 20, 50,
+    /// 100, 200, 500, 1000, 2000, 5000, 10000, ... ms), which is why they
+    /// read as round numbers. Not part of any signed preimage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub latency_samples: Option<u64>,
 }
 
 impl Cost {
@@ -246,6 +253,26 @@ pub struct MerkleProof {
     /// (`verify_merkle_path_v1`, leaf promoted via `promote_leaf_v1`).
     #[serde(default, skip_serializing_if = "receipt_u8_is_zero")]
     pub version: u8,
+    /// The fields below are NOT signed: the receipt binding covers
+    /// `leaf_index`, `path`, `root` and `version` only. They say where the
+    /// proof sits, so a holder can check it without guessing.
+    ///
+    /// The fact this proof is for (a receipt's proof is for `fact_cids[0]`).
+    /// `leaf_index` is its place in its own attestation's batch, not in the
+    /// receipt's list, which is why it can exceed the list's length.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fact_cid: Option<String>,
+    /// How many facts the batch tree was built over. A leaf in a short right
+    /// subtree has a shorter path than `ceil(log2(n))`, so a verifier checks
+    /// the path length against this before folding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leaf_count: Option<u32>,
+    /// The transparency-log entry hash of the attestation the batch was
+    /// signed in, base32-nopad lowercase: `blake3` of the attestation's CBOR.
+    /// `GET /v1/log/inclusion?entry_hash=` proves that entry into a signed
+    /// tree head, which joins the batch proof to the log.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_entry_hash: Option<String>,
 }
 
 /// Normalise an RFC 3339 timestamp into the canonical form
