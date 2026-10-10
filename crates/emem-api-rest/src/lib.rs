@@ -2499,7 +2499,7 @@ async fn cache_hint_layer(
     // Same rule as a hash-named note: the promise is made only when the bytes
     // served are the bytes the version names, so a stale link after a deploy
     // gets an uncached response rather than a year-long wrong one.
-    if method == Method::GET
+    if (method == Method::GET || method == Method::HEAD)
         && resp.status().is_success()
         && VERSIONED_ASSETS.contains(&path.as_str())
     {

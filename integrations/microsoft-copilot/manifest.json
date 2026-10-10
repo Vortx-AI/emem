@@ -1,7 +1,7 @@
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
   "manifestVersion": "devPreview",
-  "version": "2.4.2",
+  "version": "2.4.3",
   "id": "e292cbde-2d42-5be5-9561-9e786ce9c2c6",
   "developer": {
     "name": "Vortx AI Private Limited",
