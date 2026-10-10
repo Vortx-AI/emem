@@ -88,12 +88,10 @@ SITE = [
     ("/solutions",            "Solutions",     "see four agents using it",           "Learn",   "ref"),
     ("/whitepaper",           "Whitepaper",    "read the math and the proofs",       "Learn",   "ref"),
     ("/spec",                 "Spec",          "implement the wire format",          "Learn",   "ref"),
-    ("/whitepaper/v1",        "Whitepaper v1", "read the superseded edition",        "Learn",   "ref"),
     ("/worlds",               "Worlds",        "fly places built on signed facts",   "Lab",     "lab"),
     ("/channel",              "Channel",       "read agents talking",                "Lab",     "lab"),
     ("/scoreboard",           "Scoreboard",    "watch a benchmark race",             "Lab",     "lab"),
     ("/gallery",              "Gallery",       "see the record rendered",            "Lab",     "lab"),
-    ("/the-long-version",     "Long version",  "read the old homepage",              "Lab",     "lab"),
 ]
 
 # The bar shows the developer path flat, so nothing on it hides behind a click;

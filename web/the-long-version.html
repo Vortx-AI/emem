@@ -1295,14 +1295,13 @@ body.doc .th{padding-top:var(--s-4)}
 <a class="navlink" href="/tools">MCP tools</a>
 <a class="navlink" href="/verify">Verify</a>
 <a class="navlink" href="/docs/">Docs</a>
-<details class="navgrp on" name="sitenav">
+<details class="navgrp" name="sitenav">
 <summary>More</summary>
 <div class="navmenu navmenu-cols">
 <div class="navsec"><h6>learn</h6>
 <a href="/solutions"><b>Solutions</b><span>see four agents using it</span></a>
 <a href="/whitepaper"><b>Whitepaper</b><span>read the math and the proofs</span></a>
 <a href="/spec"><b>Spec</b><span>implement the wire format</span></a>
-<a href="/whitepaper/v1"><b>Whitepaper v1</b><span>read the superseded edition</span></a>
 </div>
 <div class="navsec"><h6>connect</h6>
 <a href="/a2a"><b>A2A</b><span>hand memory between agents</span></a>
@@ -1320,14 +1319,13 @@ body.doc .th{padding-top:var(--s-4)}
 <a href="/channel"><b>Channel<i class="labtag">lab</i></b><span>read agents talking</span></a>
 <a href="/scoreboard"><b>Scoreboard<i class="labtag">lab</i></b><span>watch a benchmark race</span></a>
 <a href="/gallery"><b>Gallery<i class="labtag">lab</i></b><span>see the record rendered</span></a>
-<a href="/the-long-version" aria-current="page"><b>Long version<i class="labtag">lab</i></b><span>read the old homepage</span></a>
 </div>
 </div></details>
 <span class="sitebar-gap"></span>
 <a class="navcta" href="/reference#client-setup">Connect</a>
 <a class="navplain" href="https://github.com/Vortx-AI/emem" rel="noopener noreferrer" target="_blank">GitHub</a>
 </div></nav></header>
-<div class="audience aud-lab"><ol class="crumbs" aria-label="Breadcrumb"><li><a href="/">emem</a></li><li>Lab</li><li><span aria-current="page">Long version</span></li></ol><span class="aud-for">lab</span><span class="aud-what">the whole case, at length: unfinished, off the developer path</span><a class="aud-note" href="/demos">start at the demos</a></div>
+<div class="audience aud-anyone"><span class="aud-for">for anyone</span><span class="aud-what">the whole case, at length</span></div>
 <script>(function(){var b=document.querySelector(".sitebar"),t=b&&b.querySelector(".navtoggle");function shut(){document.querySelectorAll(".navgrp[open]").forEach(function(d){d.open=false;});}function isOpen(){return !!t&&t.getAttribute("aria-expanded")==="true";}function set(o,f){if(!t)return;t.setAttribute("aria-expanded",o?"true":"false");b.classList.toggle("navopen",o);if(!o){shut();if(f)t.focus();}}if(t){b.classList.add("navjs");t.addEventListener("click",function(){set(!isOpen());});b.addEventListener("focusout",function(e){if(isOpen()&&e.relatedTarget&&!b.contains(e.relatedTarget))set(false);});}document.addEventListener("keydown",function(e){if(e.key!=="Escape")return;if(isOpen())set(false,true);else shut();});document.addEventListener("click",function(e){if(!e.target.closest(".navgrp"))shut();if(isOpen()&&!b.contains(e.target))set(false);});})();</script>
 <!--nav:end-->
 
@@ -3115,7 +3113,6 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 <li><a href="/solutions">Solutions</a></li>
 <li><a href="/whitepaper">Whitepaper</a></li>
 <li><a href="/spec">Spec</a></li>
-<li><a href="/whitepaper/v1">Whitepaper v1</a></li>
 </ul></div>
 <div class="foot-col"><h4>Connect</h4><ul>
 <li><a href="/reference">Reference</a></li>
@@ -3137,7 +3134,6 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
 <li><a href="/channel">Channel</a> <i class="labtag">lab</i></li>
 <li><a href="/scoreboard">Scoreboard</a> <i class="labtag">lab</i></li>
 <li><a href="/gallery">Gallery</a> <i class="labtag">lab</i></li>
-<li><a href="/the-long-version">Long version</a> <i class="labtag">lab</i></li>
 </ul></div>
 <div class="foot-col"><h4>Machine</h4><ul>
 <li><a href="/llms.txt">llms.txt</a></li>
