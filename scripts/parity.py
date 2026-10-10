@@ -236,6 +236,21 @@ def _flatten(params):
     return out
 
 
+def settle(origin, case, tries=4):
+    """Call until the answer stops warming cells.
+
+    A polygon read materialises at most EMEM_BORING_COLD_CAP cold cells per
+    request and says so in `cold_cells_skipped`, so a 16-cell place needs two
+    calls before its aggregate is over the whole sample. One settle call was
+    not enough: the repeat check then saw the second call's fuller mean as
+    instability, once per freshness slot.
+    """
+    for _ in range(tries):
+        ok, body = call_rest(origin, case)
+        if not ok or not (body or {}).get("cold_cells_skipped"):
+            return
+
+
 def call_rest(origin, case):
     """Returns (ok, payload). ok=False means the responder refused."""
     try:
@@ -731,7 +746,7 @@ def main():
         # doors, so a case that reads the newest reading is settled once
         # before the pair is compared.
         if c.name in SETTLE_FIRST:
-            call_rest(origin, c)
+            settle(origin, c)
         cat, detail = compare(c, call_mcp(origin, c), call_rest(origin, c))
         if cat in FAILING and c.name in KNOWN_DIVERGENCES:
             cat, detail = "KNOWN", KNOWN_DIVERGENCES[c.name]
@@ -753,6 +768,7 @@ def main():
     if not a.only:
         for name, tool, path, args in REPEAT_CASES:
             c = Case(name, tool, path, args)
+            settle(origin, c)
             seen = []
             for _ in range(REPEATS):
                 ok, body = call_rest(origin, c)
