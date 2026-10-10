@@ -400,8 +400,9 @@ _TOOL_CLAIMS = [
 #                        notes verbatim; editing them breaks the signatures.
 #   whitepaper-v1.md     KEPT, suppresses 5, and .html KEPT, suppresses 7. The
 #                        DOI-cited version, archived exactly as it shipped.
-#   channel.html         KEPT, suppresses 1. Generated, and it embeds signed
-#                        note bodies verbatim for the same reason as the log.
+#   channel.html         GONE from this list since 2026-10-10: the page is
+#                        untracked (baked on the node, gitignored), so it is
+#                        not scanned at all. See web_pages().
 #   whitepaper-v2.html   KEPT, suppresses 4. Generated from
 #                        docs/whitepaper-v2.md, which IS checked. A rendered
 #                        table cell has no leading pipe, so the HTML cannot tell
@@ -409,10 +410,22 @@ _TOOL_CLAIMS = [
 #                        and the source is the one to fix.
 COUNT_HISTORY = (
     "CHANGELOG.md", "collaboration-log.md",
-    "whitepaper-v1.md", "whitepaper-v1.html", "channel.html",
+    "whitepaper-v1.md", "whitepaper-v1.html",
     "audit-repro",
     "whitepaper-v2.html",
 )
+
+
+# Pages in web/ that are not in the repository. web/channel.html is baked on
+# the node every few minutes and gitignored since 2026-10-10; it exists on the
+# serving box and not in CI, so scanning it made this gate's answer depend on
+# where it ran. It embeds signed note bodies verbatim, which no count gate may
+# correct anyway.
+UNTRACKED_PAGES = {"channel.html"}
+
+
+def web_pages():
+    return sorted(p for p in REPO.glob("web/*.html") if p.name not in UNTRACKED_PAGES)
 
 # The inverted check: a number nothing watches must not pass by default.
 #
@@ -519,7 +532,7 @@ def near_miss_claims(canon):
     out = []
     targets = (
         sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md"))
-        + sorted(REPO.glob("web/*.html"))
+        + web_pages()
         + sorted(REPO.glob("web/*.txt"))
         + [REPO / "README.md", REPO / "AGENTS.md"]
     )
@@ -745,7 +758,7 @@ def verify_prose_version() -> list[str]:
     """
     want = CANON["version"]
     hits: list[str] = []
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + [
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + web_pages() + [
         REPO / "README.md", REPO / "AGENTS.md", REPO / "CHANGELOG.md",
     ]
     for path in targets:
@@ -944,7 +957,7 @@ def verify_prose_counts() -> list[str]:
     # file every registry submission copies its numbers out of, sat two levels
     # down saying "114 REST paths under /v1/*" against a live 157. The pattern
     # to catch that was here; the file was not.
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + web_pages() + named
     # The RENDER of those same docs. `docs/book/` is mdbook output, it is
     # gitignored, and `crates/emem-api-rest` bakes it with include_dir!, so
     # https://emem.dev/docs serves whatever happened to be on the builder's disk
@@ -1080,7 +1093,7 @@ def _script_prose_hits(claims) -> list[str]:
     """
     hits: list[str] = []
     lit = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"|`([^`\\]*)`")
-    for path in sorted(REPO.glob("web/*.html")):
+    for path in web_pages():
         if any(h in path.name for h in COUNT_HISTORY):
             continue
         body = path.read_text(encoding="utf-8", errors="replace")
@@ -1337,7 +1350,7 @@ def write_prose_counts(check_only: bool) -> list[str]:
         REPO / "README.md", REPO / "AGENTS.md", REPO / "ARCHITECTURE_NOTES.md",
         REPO / "docs" / "ARCHITECTURE_NOTES.md", REPO / "web" / "llms.txt",
     ]
-    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + sorted(REPO.glob("web/*.html")) + named
+    targets = sorted(REPO.glob("docs/**/*.md")) + sorted(REPO.glob("integrations/**/*.md")) + web_pages() + named
     out: list[str] = []
     for path in targets:
         if not path.exists() or any(h in path.name for h in COUNT_HISTORY):
@@ -1451,7 +1464,7 @@ STALE_PHRASES = {
     "server.json": ["14-tool", "all 94", "205 KB", "any of the 94", "all 104", "any of the 104"],
     "docs/mcp-directory.md": ["1.2.1", "the full 102", "one of the 94"],
     "web/a2a.html": ["Four entries", "all 102"],
-    # channel.html itself stays in COUNT_HISTORY below, and that exemption is
+    # channel.html itself is not scanned at all (UNTRACKED_PAGES), and that is
     # correct: the page embeds signed note bodies verbatim, and an agent's note
     # titled "the headline number is too high, it is 6 of 9, not 7 of 10" is a
     # true record of what was written. Editing a signed body to satisfy a count
@@ -1483,7 +1496,7 @@ def verify_count_history() -> list[str]:
     """
     scanned = {p.name for p in REPO.glob("docs/*.md")}
     scanned |= {p.name for p in REPO.glob("docs/**/*.md")}
-    scanned |= {p.name for p in REPO.glob("web/*.html")}
+    scanned |= {p.name for p in web_pages()}
     scanned |= {"README.md", "AGENTS.md", "CHANGELOG.md"}
     book = REPO / "docs" / "book"
     if book.is_dir():
