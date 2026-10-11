@@ -104,6 +104,7 @@
       "description": "Plant health, greenness, canopy water content, and stress at a place — leaf-area, biomass, photosynthetic activity. Answers questions about vegetation, crops, forest condition, NDVI/EVI, and plant stress.",
       "aliases": [
         "how green is this place",
+        "how green",
         "vegetation",
         "plant health",
         "is the crop healthy",
@@ -224,7 +225,10 @@
         "groundwater depletion",
         "groundwater table",
         "river discharge",
-        "streamflow"
+        "streamflow",
+        "wind farm",
+        "wind energy",
+        "wind resource"
       ],
       "bands": ["weather.temperature_2m", "weather.cloud_cover", "weather.precipitation_mm", "weather.wind_speed_10m"],
       "algorithms": ["heat_index@2", "heat_health_risk@2", "wind_chill@1", "outdoor_comfort_score@1", "precip_intensity_class@1", "weather_summary@1", "heat_equation_2d@1"]
@@ -337,7 +341,11 @@
         "pasture quality",
         "vineyard",
         "orchard health",
-        "crop yield"
+        "crop yield",
+        "farmland",
+        "farm land",
+        "cropland",
+        "farming"
       ],
       "bands": ["indices.ndvi", "indices.evi", "indices.savi", "indices.ndmi", "indices.ndre", "indices.ndti", "modis.ndvi_mean", "modis.lai_8day", "modis.gpp_8day", "power.t2m", "power.t2m_min", "power.t2m_max", "power.precip", "sentinel1_raw"],
       "algorithms": ["crop_yield_proxy@1", "vineyard_terroir_score@1", "crop_stress_score@1", "typed_stress_attribution@1", "n_uptake_ndre@1", "sowing_date_detection@1", "harvest_date_detection@1", "gdd_phenology@1", "crop_water_stress_index_proxy@1", "crop_archetype_embedding_match@1", "prithvi_canola_yield_frozen_encoder@1"]

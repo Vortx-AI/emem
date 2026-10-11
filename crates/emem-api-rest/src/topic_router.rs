@@ -193,6 +193,57 @@ enum Backend {
 /// the first `/v1/ask` call rather than blocking startup.
 static ROUTER: OnceLock<TopicRouter> = OnceLock::new();
 
+/// `needle` occurs in `hay` with no letter or digit touching either end.
+/// A bare substring test let the alias "evi" fire inside "Seville" and
+/// routed a heat-dome question to vegetation (eval id 140, 2026-10-11).
+fn contains_word(hay: &str, needle: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric());
+    let mut from = 0;
+    while let Some(off) = hay[from..].find(needle) {
+        let at = from + off;
+        let end = at + needle.len();
+        if !word(hay[..at].chars().next_back()) && !word(hay[end..].chars().next()) {
+            return true;
+        }
+        from = at + needle.chars().next().map_or(1, |c| c.len_utf8());
+    }
+    false
+}
+
+/// How far below the best embedding score a topic may sit and still be
+/// routed. `EMEM_TOPIC_MARGIN` overrides it.
+const TOPIC_MARGIN: f32 = 0.05;
+
+/// `EMEM_TOPIC_LEGACY=1` routes as before 2026-10-11: no margin and no cap
+/// on embedding-only topics. An operator's way back, and the baseline a
+/// routing eval compares against.
+fn legacy_routing() -> bool {
+    std::env::var("EMEM_TOPIC_LEGACY").is_ok_and(|v| v == "1")
+}
+
+/// How many topics the embedding may add: beside a keyword match, and on
+/// its own. `EMEM_TOPIC_EMBED_EXTRA="2,4"` overrides them.
+fn embed_extra() -> (usize, usize) {
+    std::env::var("EMEM_TOPIC_EMBED_EXTRA")
+        .ok()
+        .and_then(|v| {
+            let (a, b) = v.split_once(',')?;
+            Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+        })
+        .unwrap_or((2, 4))
+}
+
+fn topic_margin() -> f32 {
+    if legacy_routing() {
+        return 1.0;
+    }
+    std::env::var("EMEM_TOPIC_MARGIN")
+        .ok()
+        .and_then(|s| s.parse::<f32>().ok())
+        .filter(|m| (0.0..=1.0).contains(m))
+        .unwrap_or(TOPIC_MARGIN)
+}
+
 impl TopicRouter {
     /// Get the process-wide router, constructing it on first call.
     pub fn global() -> &'static TopicRouter {
@@ -530,59 +581,13 @@ impl TopicRouter {
                 ..
             } => {
                 let q_vec = embed_one_ort(session, tokenizer, q).unwrap_or_default();
-                let mut scored: Vec<(usize, f32)> = centroids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| (i, cosine(&q_vec, c)))
-                    .filter(|(_, s)| *s >= self.inner.threshold)
-                    .collect();
-                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let mut transformer_hits: Vec<TopicMatch> = scored
-                    .into_iter()
-                    .map(|(i, score)| TopicMatch {
-                        key: self.inner.registry.topics[i].key.clone(),
-                        score,
-                        via: "transformer",
-                    })
-                    .collect();
-                let mut out: Vec<TopicMatch> = Vec::new();
-                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-                for h in keyword_hits.into_iter().chain(transformer_hits.drain(..)) {
-                    if seen.insert(h.key.clone()) {
-                        out.push(h);
-                    }
-                }
-                out.truncate(self.inner.max_topics);
-                out
+                let scores: Vec<f32> = centroids.iter().map(|c| cosine(&q_vec, c)).collect();
+                self.merge(keyword_hits, &scores)
             }
             Backend::Transformer { model, centroids } => {
                 let q_vec = embed_one(model, q);
-                let mut scored: Vec<(usize, f32)> = centroids
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| (i, cosine(&q_vec, c)))
-                    .filter(|(_, s)| *s >= self.inner.threshold)
-                    .collect();
-                scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
-                let mut transformer_hits: Vec<TopicMatch> = scored
-                    .into_iter()
-                    .map(|(i, score)| TopicMatch {
-                        key: self.inner.registry.topics[i].key.clone(),
-                        score,
-                        via: "transformer",
-                    })
-                    .collect();
-                // Merge: keyword hits first (high precision), then
-                // transformer hits not already in the keyword list.
-                let mut out: Vec<TopicMatch> = Vec::new();
-                let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-                for h in keyword_hits.into_iter().chain(transformer_hits.drain(..)) {
-                    if seen.insert(h.key.clone()) {
-                        out.push(h);
-                    }
-                }
-                out.truncate(self.inner.max_topics);
-                out
+                let scores: Vec<f32> = centroids.iter().map(|c| cosine(&q_vec, c)).collect();
+                self.merge(keyword_hits, &scores)
             }
             Backend::Keyword { .. } => {
                 let mut hits = keyword_hits;
@@ -590,6 +595,63 @@ impl TopicRouter {
                 hits
             }
         }
+    }
+
+    /// Keyword hits first (high precision), then embedding hits that clear
+    /// the threshold AND sit within [`TOPIC_MARGIN`] of the best embedding
+    /// score.
+    ///
+    /// The threshold alone let every topic through whenever the scores were
+    /// flat. "How green is the farmland near Ludhiana?" scored five topics
+    /// between 0.648 and 0.693 against a 0.35 threshold, so the answer
+    /// recalled 32 bands and quoted wind chill and air quality (prod,
+    /// 2026-10-11). A score is only evidence relative to the others: what
+    /// the best topic beats by a margin is not about the question.
+    fn merge(&self, keyword_hits: Vec<TopicMatch>, scores: &[f32]) -> Vec<TopicMatch> {
+        let mut scored: Vec<(usize, f32)> = scores
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, s)| *s >= self.inner.threshold)
+            .collect();
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        let best = scored.first().map(|(_, s)| *s).unwrap_or(0.0);
+        let margin = topic_margin();
+        // Close scores are the model saying it cannot tell the topics apart,
+        // so it adds few: two beside a keyword match, four on its own. On the
+        // 132-question eval (tests/comprehensive) margin 0.05 with 2/4 kept
+        // 122 of 127 questions on an expected topic (legacy: 125) while the
+        // share of routed topics that were expected rose from 0.38 to 0.64
+        // and topics per question fell from 5.0 to 2.7 (2026-10-11).
+        let (with_keywords, alone) = embed_extra();
+        let extra = if legacy_routing() {
+            usize::MAX
+        } else if keyword_hits.is_empty() {
+            alone
+        } else {
+            with_keywords
+        };
+        let mut out: Vec<TopicMatch> = Vec::new();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let keyword_keys: std::collections::HashSet<String> =
+            keyword_hits.iter().map(|h| h.key.clone()).collect();
+        let embedded = scored
+            .into_iter()
+            .filter(|(_, s)| *s >= best - margin)
+            .map(|(i, score)| TopicMatch {
+                key: self.inner.registry.topics[i].key.clone(),
+                score,
+                via: "transformer",
+            })
+            .filter(|h| !keyword_keys.contains(&h.key))
+            .take(extra);
+        for h in keyword_hits.into_iter().chain(embedded) {
+            if seen.insert(h.key.clone()) {
+                out.push(h);
+            }
+        }
+        out.truncate(self.inner.max_topics);
+        out
     }
 
     /// Pure substring scoring against `aliases[]` + the topic key.
@@ -631,7 +693,7 @@ impl TopicRouter {
                 if a.is_empty() {
                     continue;
                 }
-                if q_low.contains(a) {
+                if contains_word(&q_low, a) {
                     let s = (a.len() as f32) / (q_low.len() as f32).max(1.0);
                     if s > best {
                         best = s;
@@ -1030,6 +1092,87 @@ mod tests {
     /// The keyword backend always routes "lake water level" to the
     /// flood/water event-window topic. Tests the substring-fallback
     /// path without needing the model file at hand.
+    /// Prod's scores for "how green is the farmland near Ludhiana?": five
+    /// topics within 0.045 of each other, all far above the threshold. Only
+    /// those near the best survive, at most four.
+    #[test]
+    fn an_alias_matches_whole_words_only() {
+        assert!(contains_word("show me evi here", "evi"));
+        assert!(!contains_word("heat dome in seville", "evi"));
+        assert!(contains_word("ndvi, please", "ndvi"));
+        assert!(contains_word("is this flood-prone", "flood-prone"));
+        assert!(!contains_word("solar farmland", "solar farm"));
+        assert!(
+            contains_word("seville evi", "evi"),
+            "a later whole-word hit after a partial one"
+        );
+    }
+
+    #[test]
+    fn flat_embedding_scores_route_only_the_topics_near_the_best() {
+        let registry = (*emem_core::topics::DEFAULT).clone();
+        let idx = |k: &str| registry.topics.iter().position(|t| t.key == k).unwrap();
+        let mut scores = vec![0.1f32; registry.topics.len()];
+        for (k, v) in [
+            ("vegetation_condition", 0.693),
+            ("soil_bare", 0.672),
+            ("esg", 0.653),
+            ("agriculture", 0.651),
+            ("urban_livability", 0.648),
+        ] {
+            scores[idx(k)] = v;
+        }
+        let router = TopicRouter::keyword_only(registry.clone(), 0.35, 5);
+        let keys: Vec<String> = router
+            .merge(Vec::new(), &scores)
+            .into_iter()
+            .map(|m| m.key)
+            .collect();
+        assert_eq!(
+            keys,
+            ["vegetation_condition", "soil_bare", "esg", "agriculture"]
+        );
+        // Five topics within 0.024 (the wind-farm question): at most four
+        // on the embedding alone, two beside a keyword match.
+        let mut flat = vec![0.1f32; scores.len()];
+        for (k, v) in [
+            ("weather_now", 0.639),
+            ("esg", 0.625),
+            ("agriculture", 0.618),
+            ("vegetation_condition", 0.617),
+            ("urban_livability", 0.615),
+        ] {
+            flat[idx(k)] = v;
+        }
+        assert_eq!(router.merge(Vec::new(), &flat).len(), 4);
+        let kw = vec![TopicMatch {
+            key: "weather_now".into(),
+            score: 0.3,
+            via: "keyword",
+        }];
+        let keys: Vec<String> = router.merge(kw, &flat).into_iter().map(|m| m.key).collect();
+        assert_eq!(keys, ["weather_now", "esg", "agriculture"]);
+    }
+
+    #[test]
+    fn farmland_greenness_routes_by_keyword_to_vegetation_and_agriculture() {
+        let registry = (*emem_core::topics::DEFAULT).clone();
+        let router = TopicRouter::keyword_only(registry, 0.0, 5);
+        let mut keys: Vec<String> = router
+            .route("how green is the farmland near Ludhiana?")
+            .into_iter()
+            .map(|m| m.key)
+            .collect();
+        keys.sort();
+        assert_eq!(keys, ["agriculture", "vegetation_condition"]);
+        let wind: Vec<String> = router
+            .route("is this a good site for a wind farm?")
+            .into_iter()
+            .map(|m| m.key)
+            .collect();
+        assert!(!wind.contains(&"agriculture".to_string()), "{wind:?}");
+    }
+
     #[test]
     fn keyword_backend_routes_lake_question() {
         let registry = (*emem_core::topics::DEFAULT).clone();

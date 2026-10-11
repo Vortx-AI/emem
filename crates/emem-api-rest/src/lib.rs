@@ -11902,7 +11902,26 @@ fn topics_payload() -> JsonValue {
 /// first-class endpoint. Same body the `/v1/locate` `data_at_this_cell`
 /// block returns; broken out so an agent can browse the topic
 /// inventory without having to first locate a cell.
-async fn topics() -> Json<JsonValue> {
+async fn topics(Query(q): Query<std::collections::HashMap<String, String>>) -> Json<JsonValue> {
+    // `?q=<question>`: how /v1/ask would route it, without running the ask.
+    // An ask materializes and signs; this reads nothing but the router, so
+    // a routing change can be measured on a whole question set cheaply.
+    if let Some(question) = q.get("q").map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let question: String = question.chars().take(500).collect();
+        let router = topic_router::TopicRouter::global();
+        let routed: Vec<JsonValue> = router
+            .route(&question)
+            .iter()
+            .map(|m| json!({"key": m.key, "score": m.score, "via": m.via}))
+            .collect();
+        return Json(json!({
+            "schema": "emem.topic_route.v1",
+            "question": question,
+            "method": router.backend_name(),
+            "routed": routed,
+            "_means": "the topics POST /v1/ask would route this question to, in order: keyword matches first, then embedding matches near the best score. Nothing is recalled or signed.",
+        }));
+    }
     let topic_reg = &*emem_core::topics::DEFAULT;
     let declared_total = topic_reg.topics.len();
     let materializable: std::collections::HashSet<String> =
@@ -34169,7 +34188,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head, independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness. Pass at_or_after=<tree_size you pinned> for `nearest_witnessed`: the nearest co-signed head at or after it (an independent key first) with a consistency proof from your size to it.","operationId":"emem_log_witnesses","parameters":[{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}},{"name":"at_or_after","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
             "/v1/log/test_vectors":  {"get":{"summary":"known answers for emem's two Merkle trees, from the code that builds them: the transparency log (RFC 6962, append order, lone node promoted) for every leaf of trees of size 1..33 with consistency proofs to size 16, and the attestation batch tree a receipt's merkle_proof is in (sorted leaves, odd node paired with itself) for sizes 1..17. For testing an independent verifier.","operationId":"emem_log_test_vectors","responses":{"200":json_ok}}},
             "/v1/log/witness":       {"post":{"summary":"transparency log: submit a witness ed25519 co-signature over a (tree_size, root) tree-head claim. The responder verifies the signature AND that the root matches its own history at that size before recording it. Preimage: PreimageV1(\"emem.translog.witness.v1\"){1:u64_be tree_size, 2:root, 3:witness_pubkey}.","operationId":"emem_log_witness","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tree_size","root_b32","witness_pubkey_b32","signature_b32"],"properties":{"tree_size":{"type":"integer","minimum":1},"root_b32":{"type":"string"},"witness_pubkey_b32":{"type":"string"},"signature_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
-            "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","responses":{"200":json_ok}}},
+            "/v1/topics":            {"get":{"summary":"topic-grouped band + algorithm registry (single source of truth shared with `/v1/locate`'s `data_at_this_cell` block)","operationId":"emem_topics","parameters":[{"name":"q","in":"query","required":false,"schema":{"type":"string","maxLength":500},"description":"a question: returns how POST /v1/ask would route it (topics, scores, keyword or embedding), without running the ask"}],"responses":{"200":json_ok}}},
             "/v1/algorithms/{key}":  {"get":{"summary":"per-key drill-down on a single algorithm (formula, inputs, citation), pair with /v1/algorithms's catalog","operationId":"emem_explain_algorithm","parameters":[{"name":"key","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/tools":             {"get":{"summary":"MCP tool descriptors with schemas","operationId":"emem_tools","responses":{"200":json_ok}}},
             "/v1/cells/{cell64}":    {"get":{"summary":"recall facts at a cell","operationId":"emem_recall_cell_get","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
