@@ -1074,6 +1074,10 @@ const SCHEMA_BAND_COMPOSITE: &str = r#"{"type":"object","required":["bbox","band
 "max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"Cap on scenes read. Default 12."}
 }}"#;
 
+const SCHEMA_TOPICS: &str = r#"{"type":"object","properties":{
+"q":{"type":"string","maxLength":500,"description":"A question. Returns how POST /v1/ask routes it: the topics, their scores, and keyword or embedding. Without it, the whole topic registry."}
+}}"#;
+
 const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","end_date"],"properties":{
 "geometry":{"type":"object","description":"The area as a GeoJSON Polygon (or a Feature wrapping one), WGS-84 [lng, lat]. Holes are honoured. Give this or `bbox`."},
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box, when there is no polygon."},
@@ -2450,7 +2454,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         title: "Topic-grouped band + algorithm registry",
         description: "Topic-grouped registry of every band and algorithm at this responder. It also lists visual surfaces and the `declared_but_no_materializer_at_this_responder` block. That block lists cube slots reserved without a live connector. It is the single source of truth for `/v1/locate`'s `data_at_this_cell` block too.",
         when_to_use: "Call when the user's question lives in a topic but they haven't named a specific band. Example: 'is this place flood-prone' (→ flood_history_long_term + flood_water_event_window). Example: 'how walkable is this' (→ urban_livability). It returns three blocks. `live_bands_by_topic`: every band you can recall right now. `algorithms_for_topic`: named recipes that compose those bands into derived answers. Pair it with `emem_algorithms` for the formulas. `declared_but_no_materializer_at_this_responder`: honest gaps. Browse here BEFORE inventing your own synthesis formula.",
-        input_schema: SCHEMA_NONE,
+        input_schema: SCHEMA_TOPICS,
         output_schema: None,
         example_args: r#"{}"#,
         level: "L0", category: ToolCategory::Introspect,
