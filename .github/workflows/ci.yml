@@ -558,10 +558,11 @@ jobs:
       # trust-boundary declarations. Source-only, so it needs no responder.
       - name: no sentence carries its own indentation
         run: python3 scripts/no_padded_prose.py
-      # The core tool descriptions are what a model reads to choose a tool.
+      # Tool descriptions are what a model reads to choose a tool.
       # ASD-STE100 limits: 25 words a sentence, 20 an instruction, active
-      # voice. 42 of 167 sentences broke the first limit before 2026-10-11.
-      - name: core tool descriptions keep to ASD-STE100 sentence rules
+      # voice. 42 of the core 167 sentences broke the first limit before
+      # 2026-10-11, and 206 sentences across the other tools.
+      - name: tool descriptions keep to ASD-STE100 sentence rules
         run: python3 scripts/ste_check.py
       # A ratchet, not a standard. tokens.css has carried a golden-ratio
       # spacing scale for a long time and the pages use it for 136 values
@@ -743,6 +744,10 @@ jobs:
       # detector that stopped matching looks exactly like a clean surface.
       - name: nothing a scanner asks for is served
         run: python3 scripts/scanner_surface.py --origin "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
+      # The instructions a host puts in front of the model are built at run
+      # time, so the source-only STE check cannot see them; this one asks.
+      - name: MCP instructions keep to ASD-STE100 sentence rules
+        run: python3 scripts/ste_check.py --instructions-from "${EMEM_ORIGIN:-http://127.0.0.1:5097}"
       # A test case is run by a stranger in a fresh chat. Three of the five in
       # the 2026-08-27 submission pointed at "this farm", "this place" and "an
       # emem:fact: token" with none of the three supplied, so opened cold they

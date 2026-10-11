@@ -11,9 +11,9 @@ meaning. ASD-STE100 (Simplified Technical English) gives measurable limits:
   - use the active voice (rule 3.6).
 
 On 2026-10-11, 42 of the 167 sentences in the 18 core descriptions were over
-25 words (the longest was 45) and 16 used the passive. After the rewrite this
-check counts 0 and 0, and it fails when any core sentence breaks a limit
-again. The passive check is a pattern, not a parser, so it reports only the
+25 words (the longest was 45) and 16 used the passive. The core 18 were
+rewritten first, then the other 97 tools (206 problems in 85 tools). This
+check now covers every tool and fails when any sentence breaks a limit. The passive check is a pattern, not a parser, so it reports only the
 common forms ("is set", "was given"); a sentence it misses is still reviewed
 by a person.
 
@@ -42,7 +42,7 @@ PASSIVE = re.compile(
     re.I,
 )
 # Words that end in -ed but are adjectives in these texts, not participles.
-NOT_PASSIVE = {"signed", "registered", "wired", "attested", "embedded", "cached", "curated"}
+NOT_PASSIVE = {"signed", "registered", "wired", "attested", "embedded", "cached", "curated", "shared"}
 
 
 def literal(src: str, start: int) -> str:
@@ -83,9 +83,18 @@ def tools(src: str):
 
 def sentences(text: str) -> list[str]:
     # A table (emem_intent's rows) is not prose.
-    text = "\n".join(line for line in text.splitlines() if "|" not in line)
+    # A table row has cells and no closing stop; a sentence with a pipe in it
+    # ("Region is {place} | {cells}.") is still a sentence.
+    text = "\n".join(
+        line for line in text.splitlines()
+        if " | " not in line or line.rstrip().endswith((".", "!", "?"))
+    )
     text = re.sub(r"`[^`]*`", "CODE", text)
-    parts = re.split(r"(?:(?<=[.!?])|(?<=[.!?]\)))\s+(?=[A-Z0-9('\"])", text)
+    # A stop that ends an abbreviation ends no sentence.
+    for abbr in ("e.g.", "i.e.", "vs.", "etc."):
+        text = text.replace(abbr, abbr.replace(".", "\u2024"))
+    # A sentence can start with a lower-case tool name (emem_ask, memory_*).
+    parts = re.split(r"(?:(?<=[.!?])|(?<=[.!?]\)))\s+(?=\S)", text)
     return [p.strip() for p in parts if p.strip()]
 
 
@@ -113,10 +122,51 @@ def check(tier_filter: str | None) -> list[str]:
     return problems
 
 
+def instructions_problems(origin: str) -> list[str]:
+    """The MCP `initialize` instructions, which the server builds at run time."""
+    import json
+    import urllib.request
+
+    problems = []
+    for path in ("/mcp", "/mcp/full"):
+        body = json.dumps({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {
+            "protocolVersion": "2025-06-18", "capabilities": {},
+            "clientInfo": {"name": "ste_check", "version": "1"}}}).encode()
+        req = urllib.request.Request(origin + path, data=body, headers={
+            "content-type": "application/json", "accept": "application/json, text/event-stream"})
+        with urllib.request.urlopen(req, timeout=60) as r:
+            text = json.load(r)["result"].get("instructions", "")
+        if not text:
+            problems.append(f"{path}: no instructions came back")
+        # Each line is its own unit: list items and headings end without a stop.
+        for line in text.splitlines():
+            for s in sentences(line):
+                n = words(s)
+                first = s.split()[0].lower().strip("(\"'") if s.split() else ""
+                limit = INSTRUCTION_MAX if first in IMPERATIVE else DESCRIPTIVE_MAX
+                if n > limit:
+                    problems.append(f"{path} instructions: {n} words (max {limit}): {s[:120]}")
+                p = PASSIVE.search(s)
+                if p and p.group(2).lower() not in NOT_PASSIVE:
+                    problems.append(f"{path} instructions: passive '{p.group(0)}': {s[:120]}")
+    return problems
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--report", action="store_true", help="every tier, never fails")
+    ap.add_argument("--report", action="store_true", help="list every problem, never fail")
+    ap.add_argument("--instructions-from", metavar="ORIGIN",
+                    help="also check the initialize instructions a running node serves")
     a = ap.parse_args()
+    if a.instructions_from:
+        problems = instructions_problems(a.instructions_from.rstrip("/"))
+        if problems:
+            print(f"{len(problems)} instruction sentence(s) break an ASD-STE100 limit:")
+            for p in problems:
+                print("  " + p)
+            return 1
+        print("the MCP instructions on /mcp and /mcp/full meet the ASD-STE100 sentence rules.")
+        return 0
     if a.report:
         for p in check(None):
             print(p)
@@ -126,14 +176,15 @@ def main() -> int:
     if len(core) < 10:
         print(f"parsed only {len(core)} core tools from {SRC.name}; the parser no longer matches the source")
         return 1
-    problems = check("core")
+    problems = check(None)
     if problems:
-        print(f"{len(problems)} core tool sentence(s) break an ASD-STE100 limit:")
+        print(f"{len(problems)} tool sentence(s) break an ASD-STE100 limit:")
         for p in problems:
             print("  " + p)
         print("Split the sentence, or make it active. See the docstring for the rules.")
         return 1
-    print(f"the {len(core)} core tool descriptions meet the ASD-STE100 sentence rules.")
+    n = sum(1 for _ in tools(SRC.read_text()))
+    print(f"all {n} tool descriptions ({len(core)} core) meet the ASD-STE100 sentence rules.")
     return 0
 
 
