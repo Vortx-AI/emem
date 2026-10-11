@@ -641,6 +641,20 @@ def main():
                 open(path, "w", encoding="utf-8").write(out)
                 changed.append(name)
 
+    # whitepaper-v2.html is skipped here because render_whitepaper.py writes
+    # it, but it carries this file's nav and the same ?v= asset hashes. A nav
+    # or stylesheet change rewrote every other page and left it stale, and CI
+    # failed on it (2026-10-11). Re-render it in the same run.
+    if not a.check and "whitepaper-v2.html" in present and "whitepaper-v2.html" not in a.exclude:
+        import subprocess
+        wp = Path("web/whitepaper-v2.html")
+        before = wp.read_bytes()
+        r = subprocess.run([sys.executable, "scripts/render_whitepaper.py"], capture_output=True, text=True)
+        if r.returncode != 0:
+            drifted.append(f"render_whitepaper.py failed: {r.stderr.strip()[:200]}")
+        elif wp.read_bytes() != before:
+            changed.append("whitepaper-v2.html (render_whitepaper.py)")
+
     # Every page the nav reaches must have an audience someone chose. A page
     # that falls through to the "anyone" default has not been classified; it
     # has been forgotten, and "for anyone" is exactly the claim the strip
