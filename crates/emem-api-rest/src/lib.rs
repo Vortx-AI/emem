@@ -20482,7 +20482,10 @@ async fn get_eudr_dds_schema() -> Json<JsonValue> {
                         "verdict":         {"type": "string"},
                         "verdict_code":    {"type": "integer"},
                         "fail_fraction":   {"type": "number", "minimum": 0, "maximum": 1, "$comment": "Fraction of sampled cells that fail. Article 2(4) 0.5 ha MMU floor (failing_area_ha < 0.5) demotes the plot to verdict 'below_mmu' rather than 'fail'."},
-                        "failing_cells":   {"type": "integer", "minimum": 0},
+                        "failing_cells":   {"type": "integer", "minimum": 0, "$comment": "Counted before the 0.5 ha floor, forest by JRC OR Hansen; see failing_cells_basis"},
+                        "failing_cells_basis": {"type": "string"},
+                        "failing_cells_by_baseline": {"type": "object", "properties": {"jrc_forest": {"type": "integer", "minimum": 0}, "hansen_only_jrc_non_forest": {"type": "integer", "minimum": 0}, "hansen_only_jrc_missing": {"type": "integer", "minimum": 0}}},
+                        "in_scope_failing_cells": {"type": "integer", "minimum": 0, "$comment": "The failing cells the plot verdict rests on: failing_cells when verdict is fail, else 0"},
                         "total_cells":     {"type": "integer", "minimum": 0},
                         "area_ha_approx":  {"type": "number", "$comment": "Article 2(28) dispatch input: > 4 ha → POLYGON; ≤ 4 ha non-cattle → POINT"},
                         "geometry_kind":   {"type": "string", "enum": ["polygon", "point"], "$comment": "Article 2(28): POLYGON for >4 ha or any cattle plot; POINT for ≤4 ha non-cattle"},
@@ -22751,7 +22754,7 @@ async fn get_log_inclusion(
                         message: format!(
                             "no log entry with entry_hash={eh}. An entry is an attestation, keyed by blake3 of its CBOR; a fact_cid is not one. \
                              For a fact, pass fact_cid=<cid>, or read `merkle_proof.log_entry_hash` from the receipt that cited it. \
-                             Facts signed before that field was recorded have no entry link here."
+                             A fact signed before that field existed is found through its batch root once the log's batch-root index is built (in the background, minutes after a boot)."
                         ),
                         details: None,
                     },
@@ -22764,7 +22767,7 @@ async fn get_log_inclusion(
                 ErrorBody {
                     code: ErrorCode::CidNotFound,
                     message: format!(
-                        "fact {fc} has no recorded log entry here: it was signed before receipts recorded one, or it was not signed by this responder"
+                        "fact {fc} has no log entry here: it was not signed by this responder, it has no stored inclusion proof, or it predates the log link and the batch-root index that recovers it is still being built (retry in a few minutes)"
                     ),
                     details: None,
                 },
@@ -34161,7 +34164,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
             "/.well-known/did.json": {"get":{"summary":"node identity: the did:web document naming this node's responder key (the key under every STH and receipt) and, when the operator declares one, its witness key, both as Multikey. 404 with the fix when the node has no public host.","operationId":"emem_well_known_did","tags":["identity"],"responses":{"200":json_ok,"404":json_not_found}}},
             "/.well-known/emem-agents.json": {"get":{"summary":"organisation vouching: the keys this operator vouches for, from config/emem-agents.json. The enlistment ladder on OTHER nodes fetches this document to move a key to T4_affiliated; a node that asks peers to publish one publishes its own. Public keys only, no redirects, CORS open.","operationId":"emem_well_known_agents","tags":["identity"],"responses":{"200":json_ok}}},
-            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i>, entry_hash=<base32 of the attestation record's blake3>, or fact_cid=<a fact's cid> to prove the attestation that carried it (its entry hash is also in a receipt's merkle_proof.log_entry_hash); add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"fact_cid","in":"query","required":false,"schema":{"type":"string"},"description":"a fact signed since receipts recorded its attestation's log entry"},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i>, entry_hash=<base32 of the attestation record's blake3>, or fact_cid=<a fact's cid> to prove the attestation that carried it (its entry hash is also in a receipt's merkle_proof.log_entry_hash); add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"fact_cid","in":"query","required":false,"schema":{"type":"string"},"description":"a fact this responder signed; one signed before receipts recorded the log entry is found through its batch root"},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/log/consistency":   {"get":{"summary":"transparency log: RFC 6962 consistency proof that the tree of size `first` is an append-only prefix of size `second` (defaults to the current tree size). Verify offline with translog::verify_consistency against the first_root you pinned; a mismatch means the log rewrote history.","operationId":"emem_log_consistency","parameters":[{"name":"first","in":"query","required":true,"schema":{"type":"integer","minimum":1}},{"name":"second","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
             "/v1/log/witnesses":     {"get":{"summary":"transparency log: witness co-signatures recorded for the current signed tree head, independent parties that counter-signed (tree_size, root), so a client can detect split-view equivocation. Empty until witnesses submit via POST /v1/log/witness. Pass at_or_after=<tree_size you pinned> for `nearest_witnessed`: the nearest co-signed head at or after it (an independent key first) with a consistency proof from your size to it.","operationId":"emem_log_witnesses","parameters":[{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":200}},{"name":"at_or_after","in":"query","required":false,"schema":{"type":"integer","minimum":1}}],"responses":{"200":json_ok}}},
             "/v1/log/test_vectors":  {"get":{"summary":"known answers for emem's two Merkle trees, from the code that builds them: the transparency log (RFC 6962, append order, lone node promoted) for every leaf of trees of size 1..33 with consistency proofs to size 16, and the attestation batch tree a receipt's merkle_proof is in (sorted leaves, odd node paired with itself) for sizes 1..17. For testing an independent verifier.","operationId":"emem_log_test_vectors","responses":{"200":json_ok}}},
@@ -67946,6 +67949,28 @@ fn non_forest_deforestation_free(plot_verdict: u8, per_cell: &[EudrCellVerdict])
             .all(|c| c.verdict == 3 && c.refinement_applied.is_none())
 }
 
+const FAILING_CELLS_BASIS: &str = "failing_cells counts sampled cells that were forest at the cut-off (JRC GFC2020 forest, OR Hansen treecover2000 >= 10% with no loss up to the cut-off year) and show loss after it, BEFORE the plot-level Article 2(4) 0.5 ha floor. A plot can carry failing_cells > 0 and verdict below_mmu. in_scope_failing_cells is the part the plot verdict rests on: failing_cells when the verdict is fail, else 0. failing_cells_by_baseline splits the count by which baseline called the cell forest.";
+
+/// Failing cells split by which baseline called them forest at the cut-off:
+/// JRC GFC2020, or Hansen alone where JRC said non-forest or had no reading.
+fn failing_cells_by_baseline(per_cell: &[EudrCellVerdict]) -> JsonValue {
+    let fails = per_cell.iter().filter(|c| c.verdict == 2);
+    let (mut jrc_forest, mut hansen_jrc_non_forest, mut hansen_jrc_missing) =
+        (0usize, 0usize, 0usize);
+    for c in fails {
+        match c.jrc_forest_2020 {
+            Some(v) if v >= 1 => jrc_forest += 1,
+            Some(_) => hansen_jrc_non_forest += 1,
+            None => hansen_jrc_missing += 1,
+        }
+    }
+    json!({
+        "jrc_forest": jrc_forest,
+        "hansen_only_jrc_non_forest": hansen_jrc_non_forest,
+        "hansen_only_jrc_missing": hansen_jrc_missing,
+    })
+}
+
 fn verdict_label(code: u8) -> &'static str {
     match code {
         1 => "pass",
@@ -71492,6 +71517,14 @@ async fn post_eudr_dds_inner(
                 "verdict_code":    plot_verdict,
                 "fail_fraction":   fail_fraction,
                 "failing_cells":   n_fail,
+                // `failing_cells` is counted before the plot-level area floor,
+                // and a cell counts as forest when EITHER baseline says so. A
+                // reader who took it for "cells the verdict rests on" read a
+                // `below_mmu` plot as deforested (eudr.dev, 2026-10-10). These
+                // say what the count is and how much of it the verdict uses.
+                "failing_cells_basis": FAILING_CELLS_BASIS,
+                "failing_cells_by_baseline": failing_cells_by_baseline(&per_cell),
+                "in_scope_failing_cells": if plot_verdict == 2 { n_fail } else { 0 },
                 // Projected to the polygon's real area, not the sampled-cell area
                 // (audit 2026-05-29 fix, see [`mmu_demote`] docs).
                 "failing_area_ha": mmu.failing_area_ha,
@@ -90568,6 +90601,51 @@ mod tests {
             "no cells is no evidence"
         );
         assert!(!non_forest_deforestation_free(1, &[cell(None)]));
+    }
+
+    #[test]
+    fn failing_cells_split_by_the_baseline_that_called_them_forest() {
+        let cell = |verdict: u8, jrc: Option<i64>| EudrCellVerdict {
+            cell: "c".into(),
+            verdict,
+            label: verdict_label(verdict),
+            jrc_forest_2020: jrc,
+            hansen_treecover_2000: Some(40),
+            hansen_lossyear: Some(2022),
+            jrc_tmf_deforestation_year: None,
+            wri_driver_class: None,
+            radd_alert_date: None,
+            refinement_applied: None,
+            borderline_canopy: false,
+            fact_cids: vec![],
+            lossyear_fact_cid: None,
+        };
+        // The eudr.dev plot: loss cells Hansen called forest and JRC did not.
+        let cells = [
+            cell(2, Some(1)),
+            cell(2, Some(0)),
+            cell(2, Some(0)),
+            cell(2, None),
+            cell(1, Some(1)),
+            cell(3, Some(0)),
+        ];
+        let split = failing_cells_by_baseline(&cells);
+        assert_eq!(split["jrc_forest"], 1);
+        assert_eq!(split["hansen_only_jrc_non_forest"], 2);
+        assert_eq!(split["hansen_only_jrc_missing"], 1);
+        let (_, _, n_fail, _) = aggregate_plot_verdict(&cells);
+        let total: u64 = [
+            "jrc_forest",
+            "hansen_only_jrc_non_forest",
+            "hansen_only_jrc_missing",
+        ]
+        .iter()
+        .map(|k| split[*k].as_u64().unwrap())
+        .sum();
+        assert_eq!(
+            total, n_fail as u64,
+            "the split must add up to failing_cells"
+        );
     }
 
     #[test]

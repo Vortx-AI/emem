@@ -32,6 +32,8 @@ pub struct AttestationLog {
     state: std::sync::Arc<Mutex<LogState>>,
     /// Framed records waiting for the next group write, in arrival order.
     queue: std::sync::Mutex<Vec<Pending>>,
+    /// Which log entry carried each batch root; see [`Self::entry_for_batch_root`].
+    root_index: std::sync::Arc<std::sync::Mutex<RootIndex>>,
 }
 
 /// One framed record waiting to be written, and who to tell.
@@ -70,7 +72,51 @@ impl AttestationLog {
             root,
             state: std::sync::Arc::new(Mutex::new(state)),
             queue: std::sync::Mutex::new(Vec::new()),
+            root_index: std::sync::Arc::new(std::sync::Mutex::new(RootIndex::Unopened)),
         })
+    }
+
+    /// The log entry that carried the batch whose Merkle root is `root`, and
+    /// how many facts that batch held: `(entry_hash, fact_count)`.
+    ///
+    /// A fact's stored proof names its batch root. Proofs written before
+    /// 2026-10-10 do not name the log entry, so a receipt citing an older
+    /// fact (which is most cached facts) could not be joined to the log, and
+    /// a caller asking `/v1/log/inclusion?fact_cid=` for one was told it had
+    /// no entry. This answers from an index of the sealed segments, built
+    /// once on a background thread and then read with positioned reads.
+    /// Until the index is ready it returns `None`, which is what those
+    /// receipts said before.
+    pub fn entry_for_batch_root(&self, root: &[u8; 32]) -> Option<([u8; 32], u32)> {
+        let index = {
+            let mut st = self.root_index.lock().unwrap_or_else(|e| e.into_inner());
+            match &*st {
+                RootIndex::Ready(f) => std::sync::Arc::clone(f),
+                RootIndex::Loading | RootIndex::Failed => return None,
+                RootIndex::Unopened => {
+                    *st = RootIndex::Loading;
+                    let dir = self.root.clone();
+                    let slot = std::sync::Arc::clone(&self.root_index);
+                    let spawned = std::thread::Builder::new()
+                        .name("emem-root-index".into())
+                        .spawn(move || {
+                            let next = match open_or_build_root_index(&dir) {
+                                Ok(f) => RootIndex::Ready(std::sync::Arc::new(f)),
+                                Err(e) => {
+                                    tracing::warn!(error=%e, "batch-root index unavailable; older receipts keep no log link");
+                                    RootIndex::Failed
+                                }
+                            };
+                            *slot.lock().unwrap_or_else(|e| e.into_inner()) = next;
+                        });
+                    if spawned.is_err() {
+                        *st = RootIndex::Failed;
+                    }
+                    return None;
+                }
+            }
+        };
+        index.lookup(&self.root, root)
     }
 
     /// Records already on disk when this log was opened, counted once and
@@ -694,6 +740,195 @@ fn count_records_below(root: &std::path::Path, first_own: u64) -> std::io::Resul
     Ok(total)
 }
 
+/// The batch-root index: for every attestation in a sealed segment, the
+/// first 8 bytes of its `batch_root`, its segment, its place in the segment
+/// and its fact count, sorted by root. Layout: "EMEMRIX1", u64 LE row count,
+/// then rows of [`ROOT_ROW`] bytes. The entry hash itself is read from the
+/// segment's leaf sidecar, so a row stays 20 bytes (about 55 MB for this
+/// responder's 2.75M entries) and the index holds nothing that is not
+/// already in the log.
+const ROOT_INDEX_FILE: &str = "merkle.rootidx.v1";
+const ROOT_INDEX_MAGIC: &[u8; 8] = b"EMEMRIX1";
+const ROOT_ROW: usize = 20;
+const ROOT_INDEX_HEADER: u64 = 16;
+
+enum RootIndex {
+    Unopened,
+    Loading,
+    Ready(std::sync::Arc<RootIndexFile>),
+    Failed,
+}
+
+struct RootIndexFile {
+    file: std::fs::File,
+    rows: u64,
+}
+
+/// Only the two fields the index needs. Facts are skipped, not decoded;
+/// a memory-write entry fails to parse as this and is left out.
+#[derive(serde::Deserialize)]
+struct BatchRootOnly {
+    facts: Vec<serde::de::IgnoredAny>,
+    batch_root: [u8; 32],
+}
+
+impl RootIndexFile {
+    fn row(&self, i: u64) -> Option<[u8; ROOT_ROW]> {
+        use std::os::unix::fs::FileExt;
+        let mut r = [0u8; ROOT_ROW];
+        self.file
+            .read_exact_at(&mut r, ROOT_INDEX_HEADER + i * ROOT_ROW as u64)
+            .ok()?;
+        Some(r)
+    }
+
+    fn lookup(&self, log_root: &std::path::Path, root: &[u8; 32]) -> Option<([u8; 32], u32)> {
+        let key = &root[..8];
+        let (mut lo, mut hi) = (0u64, self.rows);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            if &self.row(mid)?[..8] < key {
+                lo = mid + 1;
+            } else {
+                hi = mid;
+            }
+        }
+        if lo >= self.rows {
+            return None;
+        }
+        let r = self.row(lo)?;
+        if &r[..8] != key {
+            return None;
+        }
+        let seg = u32::from_le_bytes(r[8..12].try_into().ok()?);
+        let ordinal = u32::from_le_bytes(r[12..16].try_into().ok()?) as u64;
+        let facts = u32::from_le_bytes(r[16..20].try_into().ok()?);
+        leaf_from_sidecar(log_root, seg as u64, ordinal).map(|leaf| (leaf, facts))
+    }
+}
+
+/// One leaf from a sealed segment's sidecar (see `write_leaf_sidecar`),
+/// checked against the segment's current length so a stale sidecar is not
+/// trusted.
+fn leaf_from_sidecar(root: &std::path::Path, seg: u64, ordinal: u64) -> Option<[u8; 32]> {
+    use std::os::unix::fs::FileExt;
+    let seg_len = std::fs::metadata(root.join(format!("merkle.log.{seg}")))
+        .ok()?
+        .len();
+    let f = std::fs::File::open(root.join(format!("merkle.leaves.{seg}.v1"))).ok()?;
+    let mut head = [0u8; 24];
+    f.read_exact_at(&mut head, 0).ok()?;
+    let len = u64::from_le_bytes(head[8..16].try_into().ok()?);
+    let n = u64::from_le_bytes(head[16..24].try_into().ok()?);
+    if &head[..8] != b"EMEMLVS1" || len != seg_len || ordinal >= n {
+        return None;
+    }
+    let mut leaf = [0u8; 32];
+    f.read_exact_at(&mut leaf, 56 + ordinal * 32).ok()?;
+    Some(leaf)
+}
+
+fn open_or_build_root_index(root: &std::path::Path) -> std::io::Result<RootIndexFile> {
+    let path = root.join(ROOT_INDEX_FILE);
+    if let Some(f) = open_root_index(&path) {
+        return Ok(f);
+    }
+    build_root_index(root, &path)?;
+    open_root_index(&path)
+        .ok_or_else(|| std::io::Error::other("batch-root index unreadable after build"))
+}
+
+fn open_root_index(path: &std::path::Path) -> Option<RootIndexFile> {
+    use std::os::unix::fs::FileExt;
+    let file = std::fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut head = [0u8; ROOT_INDEX_HEADER as usize];
+    file.read_exact_at(&mut head, 0).ok()?;
+    let rows = u64::from_le_bytes(head[8..16].try_into().ok()?);
+    if &head[..8] != ROOT_INDEX_MAGIC || len != ROOT_INDEX_HEADER + rows * ROOT_ROW as u64 {
+        return None;
+    }
+    Some(RootIndexFile { file, rows })
+}
+
+/// Walk every sealed segment once, streaming (a segment can be 1 GiB), and
+/// write the sorted index. Only proofs written before the log link existed
+/// need it, and those batches are all in sealed segments: the segment this
+/// process appends to is left out, and its proofs carry the link already.
+fn build_root_index(root: &std::path::Path, dst: &std::path::Path) -> std::io::Result<()> {
+    let mut segs: Vec<u64> = std::fs::read_dir(root)?
+        .filter_map(|e| e.ok())
+        .filter_map(|e| {
+            e.file_name()
+                .to_str()
+                .and_then(|n| n.strip_prefix("merkle.log."))
+                .and_then(|r| r.parse::<u64>().ok())
+        })
+        .collect();
+    segs.sort_unstable();
+    segs.pop();
+    let started = std::time::Instant::now();
+    let mut rows: Vec<[u8; ROOT_ROW]> = Vec::new();
+    let mut cbor = Vec::new();
+    for seg in segs {
+        let Ok(seg32) = u32::try_from(seg) else {
+            continue;
+        };
+        let f = std::fs::File::open(root.join(format!("merkle.log.{seg}")))?;
+        let mut rd = std::io::BufReader::with_capacity(1 << 20, f);
+        let mut ordinal = 0u32;
+        loop {
+            let mut len = [0u8; 4];
+            if rd.read_exact(&mut len).is_err() {
+                break;
+            }
+            let n = u32::from_le_bytes(len) as usize;
+            // A torn tail can read as any length; no record is near this.
+            if n > 64 << 20 {
+                break;
+            }
+            cbor.resize(n, 0);
+            let mut hash = [0u8; 32];
+            if rd.read_exact(&mut cbor).is_err() || rd.read_exact(&mut hash).is_err() {
+                // The trailing segment hash, or a torn tail: no more records.
+                break;
+            }
+            if let Ok(a) = ciborium::de::from_reader::<BatchRootOnly, _>(&cbor[..]) {
+                let mut r = [0u8; ROOT_ROW];
+                r[..8].copy_from_slice(&a.batch_root[..8]);
+                r[8..12].copy_from_slice(&seg32.to_le_bytes());
+                r[12..16].copy_from_slice(&ordinal.to_le_bytes());
+                r[16..20].copy_from_slice(&(a.facts.len() as u32).to_le_bytes());
+                rows.push(r);
+            }
+            ordinal += 1;
+        }
+        // Leave the disk to the requests this responder is serving: about
+        // 50 MB/s, so the one-time read of a 22 GB log takes minutes and
+        // never starves the reads prod shares this disk with.
+        let seg_bytes = std::fs::metadata(root.join(format!("merkle.log.{seg}")))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        std::thread::sleep(std::time::Duration::from_micros(seg_bytes / 50));
+    }
+    rows.sort_unstable();
+    let mut out = Vec::with_capacity(ROOT_INDEX_HEADER as usize + rows.len() * ROOT_ROW);
+    out.extend_from_slice(ROOT_INDEX_MAGIC);
+    out.extend_from_slice(&(rows.len() as u64).to_le_bytes());
+    for r in &rows {
+        out.extend_from_slice(r);
+    }
+    let tmp = dst.with_extension("v1.tmp");
+    std::fs::write(&tmp, &out)?;
+    std::fs::rename(&tmp, dst)?;
+    tracing::info!(
+        rows = rows.len(),
+        secs = started.elapsed().as_secs(),
+        "batch-root index built"
+    );
+    Ok(())
+}
+
 /// Segment manifest for snapshot/replication. Published to the coverage
 /// manifest CID so any replica can replay-restore from upstream snapshots.
 #[derive(Debug, Clone)]
@@ -1076,6 +1311,49 @@ mod tests {
             first,
             "a damaged sidecar must not be used"
         );
+    }
+
+    /// A batch root resolves to the log entry that carried it, read back from
+    /// the leaves, for every sealed segment; the open segment and an unknown
+    /// root resolve to nothing.
+    #[tokio::test]
+    async fn a_batch_root_finds_the_entry_that_carried_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut seq = 0u64;
+        for count in [3u64, 4, 2] {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..count {
+                log.append(&distinct_attestation(seq)).await.unwrap();
+                seq += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let leaves = log.leaf_hashes().unwrap();
+        let ask = |i: u64| log.entry_for_batch_root(&[i as u8; 32]);
+        // The first ask starts the build; later ones read the index.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while ask(0).is_none() {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the index never became ready"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        for i in 0..7u64 {
+            assert_eq!(ask(i), Some((leaves[i as usize], 0)), "entry {i}");
+        }
+        assert_eq!(ask(7), None, "the open segment is not indexed");
+        assert_eq!(ask(200), None, "an unknown root finds nothing");
+        assert!(tmp.path().join(ROOT_INDEX_FILE).exists());
+
+        // A second process opens the index it finds instead of rebuilding it.
+        let again = AttestationLog::open(tmp.path()).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
+        while again.entry_for_batch_root(&[4u8; 32]).is_none() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert_eq!(again.entry_for_batch_root(&[4u8; 32]), Some((leaves[4], 0)));
     }
 
     #[tokio::test]

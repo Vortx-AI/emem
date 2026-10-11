@@ -7,6 +7,9 @@ to verify.
 
 ## [Unreleased]
 
+- A receipt that cites a fact signed before 2.4.3 now carries `merkle_proof.log_entry_hash` and `leaf_count` too, and `GET /v1/log/inclusion?fact_cid=` answers for it. These facts' stored proofs named only their batch root. The log is now indexed by batch root once, in the background after a boot, reading at about 50 MB/s. Neither field is in the receipt's signed binding, so no signature changes.
+- EUDR plot results say what `failing_cells` counts. `failing_cells_basis` states the rule: a cell counts when either baseline called it forest at the cut-off and it shows loss after it, and it is counted before the 0.5 ha floor, so a `below_mmu` plot can carry failing cells. `failing_cells_by_baseline` splits the count into cells JRC called forest and cells only Hansen did. `in_scope_failing_cells` is the part the plot verdict rests on.
+
 ## [2.4.3] - 2026-10-10
 
 A patch release: no wire change to the signed receipt or the fact preimage. The workspace, the plugin, the SDKs and the registry entry move to 2.4.3 together.

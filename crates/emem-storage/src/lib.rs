@@ -1235,19 +1235,23 @@ impl Storage for MaterializingStorage {
     }
 
     fn proof_for_cid(&self, cid: &FactCid) -> Option<MerkleProof> {
-        let hot = self.hot.as_ref()?;
-        // redb first; the sled tree only while its rows are still moving.
-        if let Some(r) = hot.redb() {
-            if let Ok(Some(b)) = r.kv_get(emem_cache::KvTable::Proofs, cid.as_str().as_bytes()) {
-                return ciborium::de::from_reader::<MerkleProof, _>(&*b).ok();
-            }
-            if r.table_backfill_done(emem_cache::KvTable::Proofs) {
-                return None;
+        let mut p = stored_proof_for_cid(self.hot.as_deref()?, cid)?;
+        // A proof written before the log link existed names its batch root
+        // and nothing else. The batch's log entry and size are recovered
+        // from the log itself; neither is in the receipt's signed binding,
+        // which covers root, leaf_index, path and version only.
+        if p.log_entry_hash.is_none() || p.leaf_count.is_none() {
+            if let Some((entry, facts)) = self.log.entry_for_batch_root(&p.root) {
+                if p.log_entry_hash.is_none() {
+                    p.log_entry_hash =
+                        Some(data_encoding::BASE32_NOPAD.encode(&entry).to_lowercase());
+                }
+                if p.leaf_count.is_none() {
+                    p.leaf_count = Some(facts);
+                }
             }
         }
-        let tree = hot.db().open_tree(TREE_FACT_PROOFS).ok()?;
-        let bytes = tree.get(cid.as_str().as_bytes()).ok()??;
-        ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
+        Some(p)
     }
 
     async fn scan_multi_attester(
@@ -2009,6 +2013,21 @@ fn scan_multi_attester_tree(
         keep(&mut out, &k, &v)?;
     }
     Ok(out)
+}
+
+fn stored_proof_for_cid(hot: &SledHotCache, cid: &FactCid) -> Option<MerkleProof> {
+    // redb first; the sled tree only while its rows are still moving.
+    if let Some(r) = hot.redb() {
+        if let Ok(Some(b)) = r.kv_get(emem_cache::KvTable::Proofs, cid.as_str().as_bytes()) {
+            return ciborium::de::from_reader::<MerkleProof, _>(&*b).ok();
+        }
+        if r.table_backfill_done(emem_cache::KvTable::Proofs) {
+            return None;
+        }
+    }
+    let tree = hot.db().open_tree(TREE_FACT_PROOFS).ok()?;
+    let bytes = tree.get(cid.as_str().as_bytes()).ok()??;
+    ciborium::de::from_reader::<MerkleProof, _>(&*bytes).ok()
 }
 
 fn persist_fact_proofs(
