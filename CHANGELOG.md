@@ -8,6 +8,8 @@ to verify.
 ## [Unreleased]
 
 - A receipt that cites a fact signed before 2.4.3 now carries `merkle_proof.log_entry_hash` and `leaf_count` too, and `GET /v1/log/inclusion?fact_cid=` answers for it. These facts' stored proofs named only their batch root. The log is now indexed by batch root once, in the background after a boot, reading at about 50 MB/s. Neither field is in the receipt's signed binding, so no signature changes.
+- `POST /v1/field_series` takes `areas`: up to 6 areas in one call, each with its own signed series, plus `chart_rows`, one long table that one chart can draw. `emem_intent area_over_time` passes `areas` through, so a dashboard card can compare fields in its live query. Over MCP each area keeps its token, trend, anomaly, change summary and cautions. Six areas measured 13.8 KB.
+- The `/v1/ask` reasoning trace records more. The `scored` state commits to the values it computed, not only to a count, so the state's address changes when a quoted number changes. A `composed` stage records the time-window recipes, which can take most of an ask and had no stage before. Each state has `says`, one sentence that tells what the stage did. `says` is not part of the address.
 - EUDR plot results say what `failing_cells` counts. `failing_cells_basis` states the rule: a cell counts when either baseline called it forest at the cut-off and it shows loss after it, and it is counted before the 0.5 ha floor, so a `below_mmu` plot can carry failing cells. `failing_cells_by_baseline` splits the count into cells JRC called forest and cells only Hansen did. `in_scope_failing_cells` is the part the plot verdict rests on.
 
 ## [2.4.3] - 2026-10-10

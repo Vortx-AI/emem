@@ -33458,7 +33458,7 @@ async fn mcp_tool_call_inner(
                             {"type": "find_like",    "required": ["key"]},
                             {"type": "confirm",      "required": ["claim", "cell"]},
                             {"type": "ask",          "required": ["description"], "optional": ["place", "cell", "lat+lng"]},
-                            {"type": "area_over_time", "required": ["start_date", "end_date"], "required_one_of": ["geometry", "bbox"], "optional": ["index", "max_scenes"]},
+                            {"type": "area_over_time", "required": ["start_date", "end_date"], "required_one_of": ["geometry", "bbox", "areas"], "optional": ["index", "max_scenes"]},
                         ],
                         // `valid_types` enumerated the outer union and stopped
                         // there, so the two variants that take a nested one
@@ -34198,7 +34198,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/band_raster": {"post":{"summary":"a field as a signed derivation (docs/plans/field-tokens.md): native-resolution Sentinel-2 window over a bbox, returned as a content-addressed canonical grid artifact plus a persisted derivation record. The receipt attests the derivation, never a byte pipe: its FIELD preimage segment binds (aoi_cid, derivation_cid), the record pins the scene (id, asset, capture time), the recipe (band_raster@1), the grid georeferencing, and best-effort per-cell anchors bridging to existing signed facts. Bands: s2.B02/B03/B04/B08/B11/B12; window cap 512 px per side, refused with the cap named. The artifact is evictable (GET /v1/artifacts/{cid}); the derivation record persists and pins the rebuild.","operationId":"emem_band_raster","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"string","description":"optional target capture date YYYY-MM-DD; the chosen scene is pinned either way"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/raster/resolve": {"post":{"summary":"dereference an emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid> token. Every claim in the token binds to the signed derivation record before anything dereferences (the fact-token rule applied to fields): the cid must be a band_raster@1 derivation and the token's aoi_cid, band, and tslot must each match the record's body, so a real derivation_cid cannot be passed off under a false area, band, or date; any mismatch is a typed 409. Returns the record and the artifact status; bytes come from GET /v1/artifacts/{cid}. An evicted artifact is a rebuild recipe, not an error. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_raster_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/band_cube": {"post":{"summary":"a field OVER TIME as a signed manifest (docs/plans/field-tokens.md): mints one band_raster member per target date, each an independent, resolvable emem:raster: derivation, then signs a cube record binding the ordered set. A world model is a field over an AOI across time, and this is the token that names one. Lineage terminates in each member's pinned scene; cube_cid content-addresses the ordered membership. Dates that resolve to the same scene collapse; a cube needs >=2 distinct slices and caps at 24 per mint (refused with the cap named). Each member echoes `requested_dates` and `requested_date_distance_days` so a caller maps a requested date to its slice directly. The receipt's FIELD preimage segment binds (aoi_cid, derivation_cid). Returns the emem:cube: token plus the member emem:raster: tokens.","operationId":"emem_band_cube","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","observed_on"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"observed_on":{"type":"array","items":{"type":"string"},"description":"2..24 target capture dates YYYY-MM-DD; each names the nearest scene, pinned per member"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
-            "/v1/field_series": {"post":{"summary":"a spectral index (ndvi|ndwi) over a polygon or bbox per Sentinel-2 overpass across a window, signed as one s2_index_series@1 derivation. Each pixel is SCL-masked; each scene reports clear_fraction and the distribution over clear in-area pixels (median, nearest-rank p10/p25/p75/p90, mean, std, n_clear). Scenes under min_clear_fraction are listed in `excluded`. Adds a Theil-Sen trend with Kendall S and p (seasonal cycle not removed), a same-season anomaly for the latest scene, per-scene block medians, and a first-to-last change map as GeoJSON, each with its caution. Scene ids, mask, formula, quantile and selection rules are pinned in the signed record. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_field_series","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start_date","end_date"],"properties":{"geometry":{"type":"object","description":"GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":24},"min_clear_fraction":{"type":"number"},"blocks":{"type":"integer","minimum":2,"maximum":8},"mask_policy":{"type":"array","items":{"type":"integer"}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
+            "/v1/field_series": {"post":{"summary":"a spectral index (ndvi|ndwi) over a polygon or bbox per Sentinel-2 overpass across a window, signed as one s2_index_series@1 derivation. Each pixel is SCL-masked; each scene reports clear_fraction and the distribution over clear in-area pixels (median, nearest-rank p10/p25/p75/p90, mean, std, n_clear). Scenes under min_clear_fraction are listed in `excluded`. Adds a Theil-Sen trend with Kendall S and p (seasonal cycle not removed), a same-season anomaly for the latest scene, per-scene block medians, and a first-to-last change map as GeoJSON, each with its caution. Scene ids, mask, formula, quantile and selection rules are pinned in the signed record. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_field_series","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["start_date","end_date"],"properties":{"geometry":{"type":"object","description":"GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":24},"min_clear_fraction":{"type":"number"},"blocks":{"type":"integer","minimum":2,"maximum":8},"mask_policy":{"type":"array","items":{"type":"integer"}},"areas":{"type":"array","minItems":1,"maxItems":6,"description":"up to 6 areas, [{id, geometry | bbox}], in place of geometry/bbox; the answer adds chart_rows","items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}}}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/band_composite": {"post":{"summary":"a signed, cloud-masked median composite over a date window, as a raster-shaped field artifact (docs/plans/field-tokens.md). Reads every clear Sentinel-2 scene in [start_date, end_date] over the bbox, masks each per pixel by its SCL class (default reject {0,1,3,8,9,10}; snow 11 kept as surface, overridable via mask_policy), and takes the per-pixel lower-of-two median (never averaging two measurements) with a pinned min_valid_count; below that count a pixel is nodata. The mask policy, min_valid_count, and the exact member scene list are pinned in the derivation, so a stranger re-derives the composite pixel for pixel from the same scenes. Returns an emem:raster: token (resolves via /v1/raster/resolve) plus the artifact; the receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment. Same window/px caps as band_raster; needs >=2 clear scenes at one CRS.","operationId":"emem_band_composite","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["bbox","band","start_date","end_date"],"properties":{"bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"band":{"type":"string","description":"s2.B02|s2.B03|s2.B04|s2.B08|s2.B11|s2.B12"},"start_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"end_date":{"type":"string","description":"YYYY-MM-DD inclusive"},"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes to reject per pixel; default [0,1,3,8,9,10]"},"min_valid_count":{"type":"integer","minimum":1,"description":"per-pixel minimum valid samples for a value, else nodata; default 1"},"max_scenes":{"type":"integer","minimum":2,"maximum":16,"description":"cap on scenes read; default 12"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":{"description":"upstream scene fetch failed; typed"}}}},
             "/v1/cube/resolve": {"post":{"summary":"dereference an emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid> token. Same fail-closed rule as raster/resolve: the cid must be a band_cube@1 derivation, the token's aoi_cid/band/tslot-range must each match the signed record, and cube_cid is recomputed from the record's members so an altered membership is refused (typed 409). Returns the record plus the member emem:raster: tokens to resolve independently or batch via resolve_many. The receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment.","operationId":"emem_cube_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/raster_bundle": {"post":{"summary":"bind 2..64 already-minted emem:raster: field tokens (band_raster / s2_median_composite / dem_raster / embedding_raster) into ONE signed manifest, named by an emem:rasterset: token (raster_bundle@1). The composition primitive a world or a DDS cites when it needs one token pointing at every signed layer (ground + geometry + embedding). Mints no new pixels: each member resolves and re-derives on its own. bundle_cid=blake3(ordered member derivation_cids + purpose); a member that is not a live raster-shaped derivation fails the mint by name. Signs and persists the manifest.","operationId":"emem_raster_bundle","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"minItems":2,"maxItems":64},"purpose":{"type":"string"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
@@ -73364,6 +73364,114 @@ fn ask_streamed(s: AppState, req: AskReq) -> Response {
 /// every emit is a no-op, so the streamed stages cannot describe a different
 /// computation from the one the envelope reports — which is the failure mode a
 /// second streaming pipeline would have by construction.
+/// A stage of an ask, in one sentence, from what the stage recorded.
+fn stage_says(stage: &str, d: &JsonValue) -> String {
+    let n = |k: &str| d.get(k).and_then(|v| v.as_u64()).unwrap_or(0);
+    let list = |k: &str| -> Vec<String> {
+        d.get(k)
+            .and_then(|v| v.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    match stage {
+        "located" => {
+            let p = d.get("place_resolved");
+            let label = p
+                .and_then(|p| p.get("label"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("the place");
+            let cell = d.get("cell").and_then(|v| v.as_str()).unwrap_or("?");
+            format!("Located {label} at cell {cell}.")
+        }
+        "routed" => {
+            let t = list("topics");
+            if t.is_empty() {
+                "Matched no topic, so no band was chosen for the question.".into()
+            } else {
+                format!("Matched {}: {}.", plural(t.len(), "topic"), t.join(", "))
+            }
+        }
+        "recalled" => {
+            let b = list("bands");
+            format!(
+                "Recalled {} across {}{}.",
+                plural(n("facts") as usize, "signed fact"),
+                plural(b.len(), "band"),
+                if b.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", b.join(", "))
+                }
+            )
+        }
+        "composed" => {
+            let r = list("recipes");
+            format!(
+                "Ran {} over time windows, {} back{}.",
+                plural(r.len(), "recipe"),
+                plural(n("rows") as usize, "row"),
+                if d.get("budget_elapsed").and_then(|v| v.as_bool()) == Some(true) {
+                    "; the budget ran out, so the snapshot answer went without them"
+                } else {
+                    ""
+                }
+            )
+        }
+        "scored" => {
+            let vals: Vec<String> = d
+                .get("values")
+                .and_then(|v| v.as_array())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|x| {
+                            let k = x.get("algorithm_key")?.as_str()?;
+                            let v = x.get("value")?.as_f64()?;
+                            Some(format!(
+                                "{} {}",
+                                k.split('@').next().unwrap_or(k),
+                                trim_num(v)
+                            ))
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            format!(
+                "Computed {} of {} evaluated{}.",
+                plural(n("produced_a_value") as usize, "value"),
+                n("evaluated"),
+                if vals.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {}", vals.join("; "))
+                }
+            )
+        }
+        other => format!("Stage {other}."),
+    }
+}
+
+fn plural(n: usize, word: &str) -> String {
+    if n == 1 {
+        format!("1 {word}")
+    } else {
+        format!("{n} {word}s")
+    }
+}
+
+fn trim_num(v: f64) -> String {
+    let s = format!("{v:.3}");
+    let s = s.trim_end_matches('0').trim_end_matches('.');
+    if s.is_empty() || s == "-" {
+        "0".into()
+    } else {
+        s.to_string()
+    }
+}
+
 #[derive(Clone)]
 struct AskTrace {
     /// Set only when the caller asked for the stages as they happen. The
@@ -73560,6 +73668,10 @@ impl AskTrace {
             out.push(json!({
                 "state": token,
                 "stage": step.get("stage"),
+                // One line a person can read, for a storyboard or a drill-down
+                // under a dashboard number. Presentation only: it is built from
+                // the payload and is not part of what the address commits to.
+                "says": stage_says(&rec.kind, step.get("detail").unwrap_or(&JsonValue::Null)),
                 "at_ms": step.get("at_ms"),
                 "computed_at": chrono_iso8601_utc(),
                 "derived_from": rec.derived_from,
@@ -74740,12 +74852,26 @@ async fn ask_inner_traced(
         );
         // On elapse the snapshot answer + scored algorithms still ship;
         // temporal is supplementary, so an empty Vec is the right fallback.
-        tokio::time::timeout(
+        let out = tokio::time::timeout(
             temporal_budget,
             dispatch_temporal_recipes(&cell, &algorithm_keys_with_recipe, &recall_resp, &s),
         )
-        .await
-        .unwrap_or_default()
+        .await;
+        // This phase can take most of an ask (10 s of 10.7 s for "NDVI near
+        // Ludhiana", 2026-10-11) and had no stage, so the trace could not say
+        // where the time went or that a recipe ran out of budget. Timing is
+        // the stage's `at_ms`, outside the payload, so the same inputs still
+        // give the same address.
+        trace.stage(
+            "composed",
+            json!({
+                "recipes": algorithm_keys_with_recipe,
+                "rows": out.as_ref().map(|v| v.len()).unwrap_or(0),
+                "budget_elapsed": out.is_err(),
+                "_means": "time-window recipes run beside the snapshot (antecedent rain, recent radar, a baseline). Supplementary: the snapshot answer does not wait on them past the budget.",
+            }),
+        );
+        out.unwrap_or_default()
     };
 
     // 0.0.3 Phase C, formula-AST evaluation. For every matched
@@ -74812,14 +74938,20 @@ async fn ask_inner_traced(
         all_matched_keys.extend(to_add);
     }
     let algorithm_outcomes = dispatch_algorithms(&all_matched_keys, &recall_resp);
+    // The values themselves, not only how many there were: this stage's
+    // address is then a commitment to the numbers the answer quotes, so an
+    // answer that reports a different value cannot carry the same state.
+    let produced: Vec<JsonValue> = algorithm_outcomes
+        .iter()
+        .filter(|o| o.get("value").map(|v| !v.is_null()).unwrap_or(false))
+        .map(|o| json!({"algorithm_key": o.get("algorithm_key"), "value": o.get("value")}))
+        .collect();
     trace.stage(
         "scored",
         json!({
             "evaluated": all_matched_keys.len(),
-            "produced_a_value": algorithm_outcomes
-                .iter()
-                .filter(|o| o.get("value").map(|v| !v.is_null()).unwrap_or(false))
-                .count(),
+            "produced_a_value": produced.len(),
+            "values": produced,
             "_means": "derived values computed from the facts above, not new observations. Their provenance class is deterministic_index.",
         }),
     );
@@ -90572,6 +90704,38 @@ mod tests {
             .unwrap()
             .is_none());
         assert!(scene_bbox(&q("75.70,x,30.10,75.71,30.11")).is_err());
+    }
+
+    #[test]
+    fn each_ask_stage_reads_as_one_sentence() {
+        assert_eq!(
+            stage_says(
+                "located",
+                &json!({"cell": "defi.a", "place_resolved": {"label": "Ludhiana, IN"}})
+            ),
+            "Located Ludhiana, IN at cell defi.a."
+        );
+        assert_eq!(
+            stage_says("routed", &json!({"topics": ["vegetation_condition"]})),
+            "Matched 1 topic: vegetation_condition."
+        );
+        assert_eq!(
+            stage_says(
+                "recalled",
+                &json!({"facts": 3, "bands": ["indices.ndvi", "indices.ndwi"]})
+            ),
+            "Recalled 3 signed facts across 2 bands (indices.ndvi, indices.ndwi)."
+        );
+        assert_eq!(
+            stage_says("composed", &json!({"recipes": ["flood_risk@1"], "rows": 0, "budget_elapsed": true})),
+            "Ran 1 recipe over time windows, 0 rows back; the budget ran out, so the snapshot answer went without them."
+        );
+        assert_eq!(
+            stage_says("scored", &json!({"evaluated": 23, "produced_a_value": 2, "values": [
+                {"algorithm_key": "vegetation_class_from_ndvi@1", "value": 1.0},
+                {"algorithm_key": "lai_modified_simple_ratio_s2@1", "value": 0.035407}]})),
+            "Computed 2 values of 23 evaluated: vegetation_class_from_ndvi 1; lai_modified_simple_ratio_s2 0.035."
+        );
     }
 
     #[test]

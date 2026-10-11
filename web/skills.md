@@ -492,6 +492,15 @@ What the tile states beside the line, each already computed:
 - `estimand`: support (10 m pixels inside the polygon), statistic, operator,
   mask, unit. Put it in the tile's footnote.
 
+**Several fields on one chart.** Send `areas: [{id, geometry | bbox}]`, up to
+6, in place of `geometry`. Each area is its own signed series with its own
+`token`, and `chart_rows` carries every area's scenes in one table (`date`,
+`area`, `median`, `p10`, `p90`, `clear_fraction`, `quality`), sorted by date.
+Draw one line per area. Areas have their own scene dates, so do not join them
+on date. Over MCP, `emem_intent {type: "area_over_time", areas, start_date,
+end_date}` takes the same list, and a dashboard card can call it as its live
+query.
+
 For one cell's stored readings, `POST /v1/trajectory` returns rows with
 `slot_start`, `value` and an `emem:fact:` `token` per point. Over MCP both are
 `emem_field_series` and `emem_trajectory`, callable by name through `tools/call`.
@@ -511,8 +520,11 @@ title it with the row's `date` and `clear_fraction`, and end on `change_map`.
 A null block was under cloud in that frame; leave it grey, never fill it in.
 
 **The reasoning, step by step.** `POST /v1/ask` returns `reasoning.states[]`,
-one `emem:state:` per stage (`located`, `routed`, `recalled`, `scored`), each
-committing to the stage before it and to the facts it added.
+one `emem:state:` per stage (`located`, `routed`, `recalled`, `composed` when
+a time-window recipe ran, `scored`). Each state commits to the stage before it
+and to the facts it added. The `scored` state also commits to the values it
+computed. Each state has `says`, one sentence that tells what the stage did.
+Use it as the caption of the scene.
 `GET /v1/state/{cid}` returns the bytes and recomputes the address
 (`address_holds`). The same inputs give the same token, so two renders of one
 explainer show exactly which step changed.
@@ -521,7 +533,7 @@ explainer show exactly which step changed.
 BASE=https://emem.dev
 curl -sf -X POST $BASE/v1/ask -H 'content-type: application/json' \
   -d '{"question":"how green is the farmland near Ludhiana?"}' \
-  | jq '{answer, scenes: [.reasoning.states[] | {stage, at_ms, state}]}'
+  | jq '{answer, scenes: [.reasoning.states[] | {stage, says, at_ms, state}]}'
 ```
 
 ---

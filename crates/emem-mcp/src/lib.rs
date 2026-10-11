@@ -405,6 +405,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "description":{"type":"string","description":"where_is: the place to resolve, e.g. \"Mount Everest\". ask: the user's question, forwarded verbatim. what_is_here: optional free text used as the question and, if `place` is absent, as the place. Ignored by the other intents."},
 "geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon; or bbox {min_lat,min_lng,max_lat,max_lng}."},
 "bbox":{"type":"object"},
+"areas":{"type":"array","maxItems":6,"description":"area_over_time: up to 6 {id,geometry|bbox} on one chart"},
 "index":{"type":"string","enum":["ndvi","ndwi"]},
 "start_date":{"type":"string","description":"YYYY-MM-DD"},
 "end_date":{"type":"string","description":"YYYY-MM-DD"},
@@ -418,8 +419,8 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "band":{"type":"string","description":"did_change only: which band to test, e.g. \"indices.ndvi\". One band per call; the answer is a delta over `window`, not a whole-cell diff."},
 "window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2,
   "description":"did_change only: exactly two tslots, [start, end], band-tempo-relative integers from the emem epoch (NOT unix seconds or a date string). Get valid tslots for a cell from emem_trajectory."},
-"key":{"type":"string","description":"find_like only: cell64 to search from. Neighbours are ranked by embedding cosine against this cell."},
-"k":{"type":"integer","minimum":1,"description":"find_like only: how many neighbours to return. Defaults to the primitive's own default when omitted."},
+"key":{"type":"string","description":"find_like only: cell64 to search from, ranked by embedding cosine."},
+"k":{"type":"integer","minimum":1,"description":"find_like only: how many neighbours to return."},
 "filter":{"type":"object","required":["band","op","value"],"description":"find_like only: optional claim constraining which cells may be returned. Same object as `claim` below, same ops, same required fields.","properties":{
   "band":{"type":"string","description":"Band the neighbour must satisfy, e.g. \"indices.ndvi\"."},
   "op":{"type":"string","enum":["eq","ne","lt","le","gt","ge","in","ni","exists","absent"],"description":"Comparison. Symbolic only: `gt`, not `greater_than` or `>`."},
@@ -1082,7 +1083,8 @@ const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","
 "max_scenes":{"type":"integer","minimum":3,"maximum":24,"description":"Scenes read, evenly spaced in time over the window keeping both ends. Default 16."},
 "min_clear_fraction":{"type":"number","minimum":0.05,"maximum":1,"description":"A scene counts when at least this share of the area is clear sky. Default 0.4; scenes under it are listed in `excluded` with their share."},
 "blocks":{"type":"integer","minimum":2,"maximum":8,"description":"Map blocks per side for the per-scene frames and the change map. Default 6."},
-"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes rejected per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."}
+"mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes rejected per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."},
+"areas":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"Up to 6 areas compared on one chart, in place of `geometry`/`bbox`. Each is its own signed series; the answer adds `chart_rows` (date, area, median, p10, p90, clear_fraction), sorted by date."}
 }}"#;
 
 const SCHEMA_TERRAIN: &str = r#"{"type":"object","required":["cell"],"properties":{

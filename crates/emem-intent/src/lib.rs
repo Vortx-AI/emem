@@ -78,6 +78,10 @@ pub enum Intent {
         end_date: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         max_scenes: Option<u32>,
+        /// Several areas compared on one chart, `[{id, geometry | bbox}]`,
+        /// in place of `geometry`/`bbox`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        areas: Option<serde_json::Value>,
     },
 }
 
@@ -201,6 +205,7 @@ pub fn plan(intent: &Intent) -> Plan {
             start_date,
             end_date,
             max_scenes,
+            areas,
         } => vec![ToolCall {
             primitive: "emem_field_series".into(),
             args: area_over_time_args(
@@ -210,6 +215,7 @@ pub fn plan(intent: &Intent) -> Plan {
                 start_date,
                 end_date,
                 *max_scenes,
+                areas.as_ref(),
             ),
         }],
     };
@@ -225,8 +231,12 @@ fn area_over_time_args(
     start_date: &str,
     end_date: &str,
     max_scenes: Option<u32>,
+    areas: Option<&serde_json::Value>,
 ) -> ciborium::Value {
     let mut m = serde_json::Map::new();
+    if let Some(a) = areas {
+        m.insert("areas".into(), a.clone());
+    }
     if let Some(g) = geometry {
         m.insert("geometry".into(), g.clone());
     }
@@ -549,6 +559,7 @@ mod tests {
                 start_date: "2025-01-01".into(),
                 end_date: "2026-01-01".into(),
                 max_scenes: Some(8),
+                areas: None,
             },
         ];
         for v in &variants {

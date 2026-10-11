@@ -113,7 +113,29 @@ pub struct FieldSeriesReq {
     /// SCL classes rejected per pixel; defaults to the composite's policy.
     #[serde(default)]
     pub mask_policy: Option<Vec<u8>>,
+    /// Several areas in one call, in place of `geometry`/`bbox`: a list of
+    /// `{id, geometry | bbox}`, at most [`MAX_AREAS`]. Each is its own
+    /// signed series; the answer adds `chart_rows`, one row per area and
+    /// scene, so one chart can draw them all.
+    #[serde(default)]
+    pub areas: Option<JsonValue>,
 }
+
+/// One area of a multi-area request.
+#[derive(Debug, Deserialize)]
+struct FieldSeriesArea {
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    bbox: Option<JsonValue>,
+    #[serde(default)]
+    geometry: Option<JsonValue>,
+}
+
+/// A dashboard compares a handful of fields, not a region's worth: each
+/// area is a full scene read, so the cap keeps one call inside a host's
+/// tool timeout.
+pub const MAX_AREAS: usize = 6;
 
 /// The area: a bbox, plus the polygon rings when one was given.
 struct Aoi {
@@ -1203,6 +1225,56 @@ fn cache_put(key: String, value: JsonValue) {
 /// the REST response, and the change map is summarised. `_projection` names
 /// every cut and where it is whole.
 pub(crate) fn mcp_projection(mut v: JsonValue) -> JsonValue {
+    // Several areas: each area as one series would be, without its rows,
+    // which `chart_rows` already carries once for all of them. Six areas'
+    // rows twice over would not fit a host's 24 KB tool result.
+    if v["schema"] == json!("emem.field_series_areas.v1") {
+        // Per area, what a chart and its caption need. The rest (receipt,
+        // grid, estimand, selection rules) is one token resolve away and is
+        // identical in kind for every area; at 6 KB an area, six would not
+        // fit. Measured 2026-10-11: two areas 13.7 KB before, about 4 KB after.
+        const KEEP: [&str; 10] = [
+            "id",
+            "ok",
+            "token",
+            "derivation_cid",
+            "index",
+            "window",
+            "trend",
+            "anomaly",
+            "change_summary",
+            "cautions",
+        ];
+        if let Some(areas) = v["areas"].as_array_mut() {
+            for a in areas.iter_mut() {
+                if a["ok"] == json!(true) {
+                    let p = mcp_projection(std::mem::take(a));
+                    *a = JsonValue::Object(
+                        KEEP.iter()
+                            .filter_map(|k| p.get(*k).map(|x| ((*k).to_string(), x.clone())))
+                            .collect(),
+                    );
+                }
+            }
+        }
+        if let Some(o) = v.as_object_mut() {
+            o.insert(
+                "_projection".into(),
+                json!({
+                    "omitted_per_area": ["rows (in chart_rows)", "receipt", "change_grid", "estimand", "selection", "cache"],
+                    "whole_at": "POST /v1/field_series with the same arguments; or resolve each area's token for its signed record",
+                }),
+            );
+        }
+        for row in v["chart_rows"].as_array_mut().into_iter().flatten() {
+            for k in ["median", "p10", "p90", "clear_fraction"] {
+                if let Some(x) = row[k].as_f64() {
+                    row[k] = json!((x * 1e4).round() / 1e4);
+                }
+            }
+        }
+        return v;
+    }
     let Some(obj) = v.as_object_mut() else {
         return v;
     };
@@ -1313,12 +1385,168 @@ pub async fn post_field_series(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<FieldSeriesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
+    if req.areas.is_some() {
+        return Ok(Json(field_series_areas(req, &s).await?));
+    }
     Ok(Json(field_series(req, &s).await?))
+}
+
+/// The same series for several areas, for a chart that compares them.
+///
+/// Each area runs the single-area path, so each is signed, cached and
+/// deduplicated exactly as one call would be; a dashboard whose cards ask
+/// for overlapping areas computes each once. Two run at a time: every area
+/// is a scene read, and six at once would race the host's tool timeout for
+/// nothing. An area that fails says why and does not fail the others.
+async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    use futures_util::StreamExt;
+    if req.geometry.is_some() || req.bbox.is_some() {
+        return Err(bad_request(
+            "give `areas`, or one `geometry`/`bbox`, not both".into(),
+        ));
+    }
+    let raw = as_object_value(req.areas.as_ref().unwrap_or(&JsonValue::Null), "areas")?;
+    let areas: Vec<FieldSeriesArea> = serde_json::from_value(raw)
+        .map_err(|e| bad_request(format!("`areas` is a list of {{id, geometry | bbox}}: {e}")))?;
+    if areas.is_empty() || areas.len() > MAX_AREAS {
+        return Err(bad_request(format!(
+            "`areas` takes 1 to {MAX_AREAS} areas; this call gave {}",
+            areas.len()
+        )));
+    }
+    let mut ids: Vec<String> = Vec::with_capacity(areas.len());
+    for (i, a) in areas.iter().enumerate() {
+        let id = a.id.clone().unwrap_or_else(|| format!("area-{}", i + 1));
+        if ids.contains(&id) {
+            return Err(bad_request(format!("area id `{id}` is given twice")));
+        }
+        ids.push(id);
+    }
+    let index = req.index.clone().unwrap_or_else(|| "ndvi".into());
+    let results: Vec<(String, Result<JsonValue, ApiError>)> =
+        futures_util::stream::iter(areas.into_iter().zip(ids))
+            .map(|(a, id)| {
+                let one = FieldSeriesReq {
+                    bbox: a.bbox,
+                    geometry: a.geometry,
+                    index: Some(index.clone()),
+                    start_date: req.start_date.clone(),
+                    end_date: req.end_date.clone(),
+                    max_scenes: req.max_scenes,
+                    min_clear_fraction: req.min_clear_fraction,
+                    blocks: req.blocks,
+                    mask_policy: req.mask_policy.clone(),
+                    areas: None,
+                };
+                async move { (id, Box::pin(field_series(one, s)).await) }
+            })
+            .buffered(2)
+            .collect()
+            .await;
+
+    let mut chart_rows: Vec<JsonValue> = Vec::new();
+    let mut out: Vec<JsonValue> = Vec::with_capacity(results.len());
+    for (id, r) in results {
+        match r {
+            Ok(mut v) => {
+                for row in v["rows"].as_array().into_iter().flatten() {
+                    chart_rows.push(json!({
+                        "date": row["date"], "area": id,
+                        "median": row["median"], "p10": row["p10"], "p90": row["p90"],
+                        "clear_fraction": row["clear_fraction"], "quality": row["quality"],
+                    }));
+                }
+                if let Some(o) = v.as_object_mut() {
+                    o.insert("id".into(), json!(id));
+                    o.insert("ok".into(), json!(true));
+                }
+                out.push(v);
+            }
+            Err(e) => {
+                out.push(json!({"id": id, "ok": false, "error": e.1.message, "code": e.1.code}))
+            }
+        }
+    }
+    chart_rows.sort_by(|a, b| {
+        let k = |r: &JsonValue| {
+            (
+                r["date"].as_str().unwrap_or("").to_string(),
+                r["area"].as_str().unwrap_or("").to_string(),
+            )
+        };
+        k(a).cmp(&k(b))
+    });
+    let ok = out.iter().filter(|a| a["ok"] == json!(true)).count();
+    Ok(json!({
+        "schema": "emem.field_series_areas.v1",
+        "index": index,
+        "start_date": req.start_date,
+        "end_date": req.end_date,
+        "areas_ok": ok,
+        "areas": out,
+        "chart_rows": chart_rows,
+        "_means": "one signed series per area (each with its own token and receipt), and chart_rows: every area's scenes in one long table (date, area, median, p10, p90, clear_fraction, quality), sorted by date. Areas are read on their own scene dates, so a date can have rows for some areas and not others; draw one line per area rather than joining on date.",
+    }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The refusals happen before any scene is read, so they cost nothing
+    /// and say exactly what was wrong.
+    #[tokio::test]
+    async fn several_areas_are_checked_before_any_scene_is_read() {
+        let s = crate::tests::test_app_state();
+        let ask = |body: JsonValue| {
+            let req: FieldSeriesReq = serde_json::from_value(body).unwrap();
+            let s = s.clone();
+            async move { field_series_areas(req, &s).await }
+        };
+        let bbox = json!({"min_lat": 1, "min_lng": 2, "max_lat": 1.01, "max_lng": 2.01});
+        let w = |extra: JsonValue| {
+            let mut b = json!({"start_date": "2025-01-01", "end_date": "2025-06-01"});
+            b.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            b
+        };
+        let both = ask(w(json!({"bbox": bbox, "areas": [{"bbox": bbox}]}))).await;
+        assert!(both.unwrap_err().1.message.contains("not both"));
+        let seven: Vec<JsonValue> = (0..7)
+            .map(|i| json!({"id": format!("f{i}"), "bbox": bbox}))
+            .collect();
+        let too_many = ask(w(json!({"areas": seven}))).await;
+        assert!(too_many.unwrap_err().1.message.contains("1 to 6"));
+        let twice = ask(w(
+            json!({"areas": [{"id": "a", "bbox": bbox}, {"id": "a", "bbox": bbox}]}),
+        ))
+        .await;
+        assert!(twice.unwrap_err().1.message.contains("given twice"));
+        let as_text = ask(w(json!({"areas": "not a list"}))).await;
+        assert!(as_text.is_err());
+    }
+
+    #[test]
+    fn the_mcp_answer_for_several_areas_keeps_chart_rows_once() {
+        let area = |id: &str| {
+            json!({"id": id, "ok": true, "token": format!("emem:fact:{id}"),
+            "rows": [{"date": "2026-01-01", "median": 0.512345, "block_medians": [0.4]}]})
+        };
+        let v = json!({
+            "schema": "emem.field_series_areas.v1",
+            "areas": [area("a"), area("b"), {"id": "c", "ok": false, "error": "no scene"}],
+            "chart_rows": [{"date": "2026-01-01", "area": "a", "median": 0.512345}],
+        });
+        let p = mcp_projection(v);
+        assert!(
+            p["areas"][0].get("rows").is_none(),
+            "rows travel once, in chart_rows"
+        );
+        assert_eq!(p["areas"][1]["token"], json!("emem:fact:b"));
+        assert_eq!(p["areas"][2]["error"], json!("no scene"));
+        assert_eq!(p["chart_rows"][0]["median"], json!(0.5123));
+    }
 
     #[test]
     fn nearest_rank_quantiles_are_values_a_pixel_had() {
