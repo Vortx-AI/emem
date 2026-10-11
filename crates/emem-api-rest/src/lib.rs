@@ -73404,7 +73404,7 @@ fn stage_says(stage: &str, d: &JsonValue) -> String {
                 if b.is_empty() {
                     String::new()
                 } else {
-                    format!(" ({})", b.join(", "))
+                    format!(" ({})", capped(&b, 6, ", "))
                 }
             )
         }
@@ -73446,11 +73446,25 @@ fn stage_says(stage: &str, d: &JsonValue) -> String {
                 if vals.is_empty() {
                     String::new()
                 } else {
-                    format!(": {}", vals.join("; "))
+                    format!(": {}", capped(&vals, 5, "; "))
                 }
             )
         }
         other => format!("Stage {other}."),
+    }
+}
+
+/// A caption names a few items and counts the rest: a stage that recalled
+/// 32 bands is one sentence, not a paragraph (prod, 2026-10-11).
+fn capped(items: &[String], keep: usize, sep: &str) -> String {
+    if items.len() <= keep {
+        items.join(sep)
+    } else {
+        format!(
+            "{}{sep}and {} more",
+            items[..keep].join(sep),
+            items.len() - keep
+        )
     }
 }
 
@@ -90735,6 +90749,11 @@ mod tests {
                 {"algorithm_key": "vegetation_class_from_ndvi@1", "value": 1.0},
                 {"algorithm_key": "lai_modified_simple_ratio_s2@1", "value": 0.035407}]})),
             "Computed 2 values of 23 evaluated: vegetation_class_from_ndvi 1; lai_modified_simple_ratio_s2 0.035."
+        );
+        let bands: Vec<String> = (0..9).map(|i| format!("b{i}")).collect();
+        assert_eq!(
+            stage_says("recalled", &json!({"facts": 9, "bands": bands})),
+            "Recalled 9 signed facts across 9 bands (b0, b1, b2, b3, b4, b5, and 3 more)."
         );
     }
 
