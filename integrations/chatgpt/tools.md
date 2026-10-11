@@ -14,7 +14,7 @@ Reads need no key and no account. None of emem's write verbs is exposed in this 
 
 ## `emem_ask`
 
-Single-shot free-text answer about a real-world location, backed by signed satellite/elevation/water/built-up receipts. Forwards a place mention plus a question; runs the locate → recall → algorithm chain server-side; returns one packaged envelope. When to use: Call when the question is about a specific place and the answer should carry its own evidence. Send the question verbatim as `q` plus `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection: `answer`, `receipt` (cite `receipt.fact_cids`), `place_resolved`, `routed_to`, `facts_summary`, `algorithm_outcomes_summary`,…
+Answer a free-text question about a real-world location in one call. Signed satellite, elevation, water and built-up receipts support the answer. The tool sends the place and the question through the locate, recall and algorithm chain on the server, and returns one packaged envelope. When to use: Call this when the question is about a specific place and the answer must carry its evidence. Send the question as `q`, with `place`, `cell` or `lat`+`lng`. Over MCP a point answer is a projection. It has `answer`, `receipt` (cite `receipt.fact_cids`), `place_resolved`, `routed_to`,…
 
 **Read-only:** no. ask_inner reads through recall_with_auto_materialize, and for questions whose algorithm has a temporal recipe it also calls materialize_band_at. Both fetch a missing band, sign the fact and persist it to emem's publicly readable store, so the call can change what later readers see.
 
@@ -42,7 +42,7 @@ Required: `q`
 
 ## `emem_locate`
 
-Mint the canonical, vendor-neutral address (cell64) for a real-world place: the shared spatial identity every agent resolves to identically, so two models refer to the same ground instead of two descriptions of it. Also returns the topic-grouped inventory of bands and algorithms recallable there. For a first-class OBJECT identity (a bridge, a plot, a named place) rather than a raw cell, use emem_entity. Send EITHER `lat`+`lng` as numbers OR a free-text place; coordinates win when both arrive. `q`, `query` and `name` are all accepted spellings of `place`. A key this schema does not declare…
+Get the canonical address (cell64) of a real-world place. Every agent resolves a place to the same cell64, so two models refer to the same ground. The answer also lists, by topic, the bands and algorithms that you can recall there. For an OBJECT identity (a bridge, a plot) instead of a cell, use emem_entity. Send `lat`+`lng` as numbers, or a free-text place. When both arrive, the coordinates win. `q`, `query` and `name` are other names for `place`. The answer lists keys that this schema does not declare in `_unrecognised_arguments`, so a typo is visible. When to use: Call this when the…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -67,7 +67,7 @@ Mint the canonical, vendor-neutral address (cell64) for a real-world place: the 
 
 ## `emem_recall`
 
-Read the signed facts at a canonical address (cell64); auto-materializes on a miss for any band with a registered materializer. A fact_cid names one signed attestation, so a recalled fact is citeable and re-verifiable rather than a paraphrase: resolving it anywhere returns those exact bytes. It is NOT a fingerprint of the observation. The digest covers the responder's key and the moment it signed, so two responders that measure the same thing mint different fact_cids and a cid resolves only at the responder that signed it; use emem_entity for identity that crosses responders. Pass…
+Read the signed facts at a canonical address (cell64). When a band has no fact yet but has a registered materializer, the responder fetches it. A fact_cid names one signed attestation, so you can cite a fact and verify it again. Resolve the cid anywhere and you get the same bytes. A fact_cid is NOT a fingerprint of the observation. The digest includes the responder's key and the time it signed. Thus two responders that measure the same thing make different fact_cids, and a cid resolves only at the responder that signed it. For identity across responders, use emem_entity. Send…
 
 **Read-only:** no. The handler is recall_with_auto_materialize. When a requested band is not held for the cell, it fetches the band upstream, signs the fact and persists it to emem's publicly readable store before answering.
 
@@ -95,7 +95,7 @@ Required: `cell`
 
 ## `emem_verify_receipt`
 
-Verify a signed receipt envelope server-side: rebuilds the canonical preimage under the rule the receipt's own `preimage_version` names, runs ed25519 over the embedded key and signature, and returns `{valid, reason, failure_detail, signature_valid, merkle_proof_valid, signer_pubkey_b32, preimage_blake3_hex}`. A receipt is BYTE-FOR-BYTE OR NOTHING: v2 binds the inclusion proof, so any reshaping (a dropped field, a re-keyed one, a summary) invalidates the signature by design. For when the in-browser /verify path is unavailable, or for a server-side audit of a third party's receipt. When to…
+Verify a signed receipt on the server. The tool builds the canonical preimage again, under the rule that the receipt's `preimage_version` names. It checks the ed25519 signature with the embedded key. It returns `{valid, reason, failure_detail, signature_valid, merkle_proof_valid, signer_pubkey_b32, preimage_blake3_hex}`. A receipt verifies BYTE FOR BYTE OR NOT AT ALL. Version 2 binds the inclusion proof, so a change of any kind makes the signature fail: a dropped field, a renamed field, a summary. Use this tool when the browser page /verify is not available. Also use it to audit a receipt…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -120,7 +120,7 @@ Required: `receipt`
 
 ## `emem_memory_token`
 
-Mint a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`), that any agent or LLM resolves to the byte-identical signed object. The antidote to referential drift on the value side: hand this one string to another agent instead of re-describing the fact. Validates both components are non-empty and free of the `:` separator. Memory algebra: the `cite` operation (https://emem.dev/docs/model.html). When to use: Call when you want one rebindable string to cite a place plus an attested fact across messages, threads, agents or tools. Pair it with `emem_echo_verify` before you…
+Make a citation handle, `emem:fact:<cell64>:<fact_cid>` (or `:<state_cid>`). Any agent or LLM resolves it to the same signed object, byte for byte. Give this one string to another agent instead of a new description of the fact. The tool checks that both parts are not empty and do not contain the `:` separator. Memory algebra: the `cite` operation (https://emem.dev/docs/model.html). When to use: Call this when you need one string that cites a place and an attested fact across messages, agents or tools. Use `emem_echo_verify` before you publish the value. FOR MANY FACTS, USE…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -145,7 +145,7 @@ Required: `cell`, `fact_cid`
 
 ## `emem_find_similar`
 
-k-NN over the corpus by cell embedding or inline vector. Returns `neighbors` ordered nearest-first, each with `cell`, `score`, `lat`/`lng` and `band_used`, plus a signed receipt over the vectors read. Scoring is `mode`: cosine is exact fp32; hamming is a sign-bit popcount that scans far more cells for the same budget; hamming_then_rerank does both. `k` is 1..1000, default 10. It ranks what the corpus already holds; only when the KEY's own vector is missing does it materialise that one band for the key, signed and reported in `materialize_notes`, then retry. Neighbours are never…
+Find the k nearest cells in the corpus by cell embedding or by an inline vector. The answer has `neighbors`, nearest first, each with `cell`, `score`, `lat`/`lng` and `band_used`, and a signed receipt over the vectors it read. `mode` sets the scoring. cosine is exact fp32. hamming counts sign bits and scans many more cells for the same budget. hamming_then_rerank does both. `k` is 1 to 1000, default 10. The tool ranks only what the corpus holds. When the KEY has no vector, it materializes that one band for the key, signs it, reports it in `materialize_notes`, and tries again. It never…
 
 **Read-only:** no. The handler is find_similar_with_auto_materialize. When the seed cell has no vector fact, it materialises that band and the signed fact is persisted to emem's publicly readable store. The similarity search itself writes nothing.
 
@@ -173,7 +173,7 @@ Required: `key`
 
 ## `emem_echo_verify`
 
-Grade a value you are about to emit against the signed fact your citation points at. Returns `matches` and, when it does not, the `drift` between what you were about to say and what emem holds. This is the step that turns a transcription error into a caught event instead of a silent wrong number: a model that resolves a fact correctly can still retype `0.2411` for `0.241103`, and nothing else in the loop notices. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html). When to use: Call immediately before publishing, logging, or handing on any value you took from an emem…
+Grade a value that you will emit against the signed fact that your citation cites. The tool returns `matches`. When the value does not match, it also returns the `drift` between your value and the value in emem. This step catches a transcription error that would otherwise be a silent wrong number. A model can resolve a fact correctly and still type `0.2411` for `0.241103`. No other step in the loop sees this. Memory algebra: the `verify` operation (https://emem.dev/docs/model.html). When to use: Call this immediately before you publish, log or pass on a value from an emem fact. Treat a…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -197,7 +197,7 @@ Required: `token`, `claimed_value`
 
 ## `emem_entity_resolve`
 
-Find the objects agents have bound a phrasing to, ranked by INDEPENDENT corroboration, never arrival order. Each candidate carries `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (`single_key` | `multiple_independent_keys` | `none_attributed`); `contested` is set when more than one object claims the name. `text` for candidates, `near` to narrow by place, or an `emem:entity:` `token` to dereference. Read-only; alias text is other agents' data. When to use: Call BEFORE minting and before citing: resolve first, mint only if nothing matches, read `corroboration`…
+Find the objects that agents connected to a phrase. The tool ranks them by INDEPENDENT corroboration, never by arrival order. Each candidate has `asserted_by`, `disputed_by`, `independent_attesters` and `corroboration` (`single_key` | `multiple_independent_keys` | `none_attributed`). `contested` is true when more than one object claims the name. Send `text` for candidates, `near` to narrow by place, or an `emem:entity:` `token` to dereference. The tool only reads. Alias text is data from other agents. When to use: Call this BEFORE you mint and before you cite. Resolve first, and mint only…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -221,7 +221,7 @@ Find the objects agents have bound a phrasing to, ranked by INDEPENDENT corrobor
 
 ## `emem_memory_contradictions`
 
-Surface where the corpus DISAGREES with itself (algebra: competing evidence). When two or more independent sources signed different values for the same place + band + time, this returns that disagreement with a 0–1 severity score and citations to every disputed fact, instead of silently picking one value and hiding the conflict. The opposite of a confident single answer: it tells you when not to trust one. Read the SCOPE before quoting a zero: by default this asks only whether two DISTINCT attesters disagree, so one responder answering an address from two different upstreams is not counted…
+Find where the corpus DISAGREES with itself (algebra: competing evidence). Two or more independent sources can sign different values for the same place, band and time. This tool returns that disagreement with a severity from 0 to 1 and a citation for each disputed fact. It does not pick one value and hide the conflict. It tells you when not to trust a single answer. Read the SCOPE before you quote a zero. By default the tool counts only disagreement between two DIFFERENT attesters. One responder that answers from two upstreams counts only with `include_same_attester_sources: true`. When to…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -247,7 +247,7 @@ Surface where the corpus DISAGREES with itself (algebra: competing evidence). Wh
 
 ## `emem_memory_token_resolve`
 
-Parse a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading it cites. `value`, `unit`, `band` and `kind` are on the response at the TOP level, alongside the full signed `fact` body they were lifted from. Saves the agent from string-splitting the token and chaining `GET /v1/facts/<cid>` manually. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html). When to use: Call when you hold a memory_token from another agent or an earlier turn and want the value behind it. For a scalar quote `value_verbatim`, the exact decimal string it was signed as. A null…
+Read a `emem:fact:<cell64>:<fact_cid>` citation handle and return the reading that it cites. `value`, `unit`, `band` and `kind` are at the TOP level of the answer, beside the full signed `fact` body. You do not split the token or call `GET /v1/facts/<cid>` yourself. Memory algebra: the `resolve` operation (https://emem.dev/docs/model.html). When to use: Call this when you have a memory_token from another agent or an earlier turn and need the value. For a scalar, quote `value_verbatim`, the exact decimal string that the responder signed. A null `value` or `unit` means the fact has none (an…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -269,7 +269,7 @@ Required: `token`
 
 ## `emem_tools`
 
-The map of emem's tool surface, and the only tool you need to find the rest: the working loop in the order you walk it (name, ground, cite, resolve, verify, check for drift), then every other tool grouped by the question it answers, each with its one-line trigger. Pass `name` for one tool's full schema and a runnable example. IF YOU ARE READING A LIST OF 18 TOOLS, YOU ARE SEEING A CURATED SUBSET OF 115, NOT THE WHOLE SURFACE; hosts strip `_meta`, so the count is repeated here. Every catalogued tool stays callable by name through tools/call at either endpoint. When to use: Call FIRST when…
+The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 115, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint. When to use: Call this FIRST when you do not know which…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -294,7 +294,7 @@ The map of emem's tool surface, and the only tool you need to find the rest: the
 
 ## `emem_guard_verdict`
 
-Run emem-guard's policy pipeline over text you are about to send, against this responder's corpus. Finds every emem: citation, resolves each one, and returns allow or deny with a machine-readable reason: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. Codes are PROV_SIG (signature did not verify), PROV_BYTES (resolved to different content than claimed), PROV_DRIFT (reading has moved past its band threshold), PROV_VALUE (a stated value disagrees with the cited fact), CLAIM_UNGROUNDED (a measurable claim with no citation, opt-in via claim_gating). `fix` is the actionable…
+Run the emem-guard policy checks on text before you send it. The checks use this responder's corpus. The tool finds every emem: citation, resolves each one, and returns allow or deny with a reason that a machine can read: `EMEM-GUARD DENY <CODE> token=<token|-> fix=<fix> leaf=<leaf|->`. The codes are: PROV_SIG (the signature did not verify). PROV_BYTES (the citation resolved to different content). PROV_DRIFT (the reading moved past its band threshold). PROV_VALUE (a stated value does not agree with the cited fact). CLAIM_UNGROUNDED (a measurable claim has no citation; turn it on with…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
@@ -317,7 +317,7 @@ Run emem-guard's policy pipeline over text you are about to send, against this r
 
 ## `emem_entity`
 
-Give a real-world object (a bridge, a farm plot, a river, a named place) a single, shared, content-addressed identity that any agent resolves the same way. Returns an `entity_token` (`emem:entity:<entity_cid>`) plus a signed receipt that attests how the reference resolved. Two agents that name the same object mint the SAME entity_cid; when a stable external id (Overture GERS / OSM) is known it dominates identity, so divergent labels for one real object still collapse to one id. This is the object-level antidote to referential drift: 'the damaged bridge near the river' becomes one canonical…
+Give a real-world object (a bridge, a farm plot, a river, a named place) one shared identity. Every agent resolves this identity the same way. The result is an `entity_token` (`emem:entity:<entity_cid>`) and a signed receipt that shows how the reference resolved. Two agents that name the same object get the SAME entity_cid. A stable external id (Overture GERS or OSM) decides identity when the responder knows one, so different labels for one object collapse to one id. This stops referential drift: 'the damaged bridge near the river' becomes one thing that every model reasons about. When to…
 
 **Read-only:** no. post_entity mints a shared identity for a new anchor and writes it, with its alias rows, to the entity registry every agent resolves names against. The enlistment gate refuses callers without a valid signed attester block, so an unsigned call writes nothing.
 
@@ -345,7 +345,7 @@ Required: `label`
 
 ## `emem_entity_link`
 
-Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wikidata) denotes an existing object, or with `stance: "disputes"` that it does not. A shared-space write: it changes what other agents resolve, so it is stored with your key, rate-limited per key, and weighed by how many INDEPENDENT keys agree. One key's binding is shown to every reader as one key's claim, never as the answer. When to use: Call when you can vouch that two phrasings denote one object, or to attach an authoritative external id; your key goes on the record. Use `stance: "disputes"` when another key's…
+Record a signed, ATTRIBUTED claim that a label or an external id (GERS, OSM, Wikidata) names an existing object. With `stance: "disputes"`, record that it does not. This is a write to the shared space: it changes what other agents resolve. The responder stores it with your key, limits the rate for each key, and weighs it by how many INDEPENDENT keys agree. Every reader sees the binding of one key as the claim of one key, never as the answer. When to use: Call this when you can confirm that two names mean one object, or to attach an authoritative external id. Your key goes on the record.…
 
 **Read-only:** no. post_entity_alias appends a signed, attributed claim that a phrasing or external id denotes an existing entity, which changes what other agents see when they resolve that phrasing. The enlistment gate refuses unsigned callers.
 
@@ -370,7 +370,7 @@ Record a signed, ATTRIBUTED claim that a label or external id (GERS / OSM / Wiki
 
 ## `emem_intent`
 
-Say what you want in one typed object and get the answer, without choosing a primitive. `type` is a tagged union: it selects the intent AND decides which other fields are read, so send only the fields its row needs. The plan runs in the same call: you get results, not a list of calls to make. type | needs | optional | answers where_is | description | | cell64 for a named place what_is_here | cell OR place | description | what is attested at a location is_like | a, b | | cosine similarity of two cells did_change | cell, band, window | | delta for one band over [start,end] tslots find_like |…
+State what you want in one typed object and get the answer. You do not choose a primitive. `type` selects the intent AND the other fields that the tool reads. Send only the fields in its row. The plan runs in the same call: you get results, not a list of calls. type | needs | optional | answers where_is | description | | cell64 for a named place what_is_here | cell OR place | description | what is attested at a location is_like | a, b | | cosine similarity of two cells did_change | cell, band, window | | delta for one band over [start,end] tslots find_like | key | k, filter | nearest cells…
 
 **Read-only:** no. It plans a typed intent and dispatches to emem_ask, emem_recall, emem_find_similar, emem_compare, emem_diff, emem_verify or emem_locate. Ask, recall and find_similar can materialise and persist signed facts, so the union is not read-only.
 
@@ -398,7 +398,7 @@ Required: `type`
 
 ## `emem_memory_bundle`
 
-Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple runs through the standard auto-materialize recall path; the resulting fact_cids are bundled into a content-addressed envelope and the responder signs over the full receipt. The composed `bundle_token` is `emem:bundle:<bundle_cid>`, a single rebindable string that cites the whole set. Memory algebra: the `merge` operation (https://emem.dev/docs/model.html). When to use: Call when the agent wants to cite multiple (place, band, vintage) facts as one handle. The bundle stays verifiable offline via /v1/verify_receipt…
+Combine N (cell, band, tslot?) triples into ONE signed envelope. Each triple goes through the standard recall path, which materializes on a miss. The tool puts the resulting fact_cids in a content-addressed envelope, and the responder signs the full receipt. The `bundle_token` is `emem:bundle:<bundle_cid>`: one string that cites the full set. Memory algebra: the `merge` operation (https://emem.dev/docs/model.html). When to use: Call this when you must cite several (place, band, date) facts as one handle. You can verify the bundle offline with /v1/verify_receipt. The receipt covers all the…
 
 **Read-only:** no. post_memory_bundle recalls each (cell, band, tslot) through recall_with_auto_materialize, so a cold member is materialised and persisted, and then stores the bundle record so its token resolves later.
 
@@ -421,7 +421,7 @@ Compose N (cell, band, tslot?) triples into ONE signed envelope. Each triple run
 
 ## `search`
 
-Search emem's signed corpus and return results shaped as citations: each entry is one signed fact, with an `id` to dereference, a `title` naming band, place and the value as signed, and a stable `url` serving those bytes. Takes a place, or a question about one ('NDVI near Mount Fuji': a topic word narrows the results, never fails them), a cell64 or `emem:cell:` handle, or an emem citation (which returns the one fact it cites). Capped for the wire; the first entry (index 0) names the cell and the TRUE total. On a cold cell it MATERIALIZES a missing band first, as `emem_recall` does: fetched…
+Search emem's signed corpus and get results as citations. Each entry is one signed fact. It has an `id` to dereference, a `title` with band, place and signed value, and a stable `url` that serves those bytes. The query can be a place or a question about one. ('NDVI near Mount Fuji': a topic word narrows the results and never removes all of them.) It can also be a cell64, an `emem:cell:` handle, or an emem citation, which returns the one fact it cites. The list has a cap for the wire. The first entry (index 0) names the cell and the TRUE total. On a cold cell, the tool MATERIALIZES a…
 
 **Read-only:** no. openai_search is a projection of emem_recall and calls recall_with_auto_materialize, so on a cold cell it fetches the missing band, signs the fact and persists it to emem's publicly readable store before returning citations.
 
@@ -443,7 +443,7 @@ Required: `query`
 
 ## `fetch`
 
-Dereference an id from `search`: the reading in one line, then the signed body it came from, the URL serving those bytes, and metadata naming cell, band, signing time and key. Takes an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a whole cell. The value is quoted as the exact decimal string it was signed as, never re-rendered. A fact handle writes nothing; a cell handle, like `emem_recall`, MATERIALIZES a missing band on a cold cell (fetched upstream, signed, persisted), so the flags follow that path: readOnlyHint false. When to use: Call on each result you intend…
+Dereference an id from `search`. You get the reading in one line, then the signed body, the URL that serves those bytes, and metadata: cell, band, signing time and key. The id can be an `emem:fact:` citation, a bare fact_cid, or an `emem:cell:` handle for a full cell. The value is the exact decimal string that the responder signed, never a new format. A fact handle writes nothing. A cell handle, like `emem_recall`, MATERIALIZES a missing band on a cold cell: it fetches, signs and stores it. The flags follow that path: readOnlyHint false. When to use: Call this on each result that you will…
 
 **Read-only:** no. Given an emem:fact: citation or a bare fact_cid, openai_fetch reads local storage and writes nothing. Given an emem:cell: handle it calls recall_with_auto_materialize, which can persist a newly materialised fact. The flag follows the second path.
 
