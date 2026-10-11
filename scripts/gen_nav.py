@@ -364,7 +364,7 @@ def render_foot(current: str) -> str:
         if prev:
             out.append(f'<a class="pb-prev" href="{prev}"><span>Previous</span><b>{ROW[prev][1]}</b></a>')
         else:
-            out.append('<span class="pb-prev"></span>')
+            out.append('<span class="pb-prev pb-start">Start of the developer path</span>')
         out.append(f'<span class="pb-pos">{i + 1} of {total}</span>')
         if nxt:
             out.append(f'<a class="pb-next" href="{nxt}"><span>Next</span><b>{ROW[nxt][1]}</b><em>{ROW[nxt][2]}</em></a>')

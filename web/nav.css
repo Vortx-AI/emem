@@ -505,6 +505,7 @@
   transition: border-color .15s ease, background-color .15s ease;
 }
 .pb-prev:empty { border: 0; background: none; padding: 0 }
+.pb-start { border: 0; background: none; justify-content: center; font-size: var(--t-xs); color: var(--mute) }
 .pb-next { align-items: flex-end; text-align: right }
 .pb-prev span, .pb-next span { font-size: var(--t-2xs); color: var(--mute) }
 .pb-prev span::before { content: "\2190\00a0" }
