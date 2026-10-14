@@ -17977,8 +17977,9 @@ struct RecallPolygonReq {
     /// response surfaces this value as `polygon_geojson`; agents
     /// chaining locate → recall_polygon should pass it back verbatim.
     /// Falls back to bbox sampling when omitted, malformed, or the
-    /// upstream geometry was Point/LineString.
-    #[serde(default)]
+    /// upstream geometry was Point/LineString. With no `polygon_bbox` and
+    /// no `place`, the polygon's own bounds are the area.
+    #[serde(default, alias = "geojson", alias = "geometry_geojson")]
     polygon_geojson: Option<JsonValue>,
     /// Opt-in supplements. Currently the only recognized token is
     /// `"ftw_fields"`, when present, the response carries an
@@ -18402,8 +18403,17 @@ async fn post_recall_polygon(
     // `polygon_geojson` field. Used to mask the bbox-grid candidates
     // via point-in-polygon so we only recall cells inside the true
     // boundary instead of the bounding box envelope.
-    let mut polygon_geojson: Option<JsonValue> = req.polygon_geojson.clone();
-    // Resolve polygon_bbox: explicit → place lookup → error.
+    let mut polygon_geojson: Option<JsonValue> = req.polygon_geojson.clone().map(|g| {
+        if g.get("type").and_then(|t| t.as_str()) == Some("Feature") {
+            g.get("geometry").cloned().unwrap_or(JsonValue::Null)
+        } else {
+            g
+        }
+    });
+    // A polygon sent with no box is its own box: callers who hold a plot
+    // boundary send that, and were answered `needs_location`.
+    let polygon_box = polygon_geojson.as_ref().and_then(geojson_bbox);
+    // Resolve polygon_bbox: explicit → polygon bounds → place lookup → error.
     let (bbox, polygon_source, place_label, via): (
         (f64, f64, f64, f64),
         &'static str,
@@ -18416,6 +18426,8 @@ async fn post_recall_polygon(
             None,
             "direct",
         )
+    } else if let (Some(b), None) = (polygon_box, req.place.as_deref()) {
+        (b, "request_polygon_geojson", None, "direct")
     } else if let Some(p) = req.place.as_deref() {
         // Reuse locate_inner so we get the exact same geocoder layering
         // (embedded → cache → Nominatim) including the wide-bbox table.
@@ -18529,7 +18541,11 @@ async fn post_recall_polygon(
         return Ok(Json(json!({
             "schema":  "emem.recall_polygon.v1",
             "status":  "needs_location",
-            "message": "no polygon provided. Pass `place` (free-text place name) or `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}).",
+            "message": if req.polygon_geojson.is_some() {
+                "the polygon has no coordinates to take an area from. Pass a GeoJSON Polygon or MultiPolygon as `polygon_geojson`, or pass `place` or `polygon_bbox`."
+            } else {
+                "no area given. Pass `place` (a place name), `polygon_bbox` ({min_lat, max_lat, min_lng, max_lng}) or `polygon_geojson` (a GeoJSON Polygon; `geojson` is the same field)."
+            },
             "examples": [
                 {"place": "Cambridge, UK"},
                 {"polygon_bbox": {"min_lat": 52.18, "max_lat": 52.22, "min_lng": 0.10, "max_lng": 0.16}},
@@ -95410,6 +95426,16 @@ mod tests {
     }
 
     #[allow(clippy::await_holding_lock)]
+    #[test]
+    fn recall_polygon_takes_a_plot_polygon_as_its_area() {
+        let poly = json!({"type": "Polygon", "coordinates": [[[-5.3012, 6.8501], [-5.2988, 6.8501], [-5.2988, 6.8524], [-5.3012, 6.8524], [-5.3012, 6.8501]]]});
+        for k in ["geojson", "geometry_geojson", "polygon_geojson"] {
+            let r: RecallPolygonReq = serde_json::from_value(json!({ k: poly })).unwrap();
+            let g = r.polygon_geojson.expect("the polygon is kept");
+            assert_eq!(geojson_bbox(&g), Some((6.8501, 6.8524, -5.3012, -5.2988)));
+        }
+    }
+
     #[tokio::test]
     async fn eudr_dds_receipt_cells_capped() {
         let _guard = eudr_test_env_guard();
