@@ -406,7 +406,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon; or bbox {min_lat,min_lng,max_lat,max_lng}."},
 "bbox":{"type":"object"},
 "areas":{"type":"array","maxItems":6,"description":"area_over_time: up to 6 {id,geometry|bbox} on one chart"},
-"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","vv","vh","vh_vv"]},
+"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","evi","vv","vh","vh_vv"]},
 "start_date":{"type":"string","description":"YYYY-MM-DD"},
 "end_date":{"type":"string","description":"YYYY-MM-DD"},
 "max_scenes":{"type":"integer","minimum":3,"maximum":24},
@@ -977,6 +977,7 @@ const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":
 }}"#;
 
 const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properties":{
+"per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) puts every cell's verdict in the answer. anchor leaves the rows out and keeps per_cell_rows_cid, the address of the rows. Ask again with rows to get them."},
 "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate for EUDR compliance.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
   "plot_id":{"type":"string","description":"Operator-supplied plot identifier; preserved verbatim."},
   "geometry_geojson":{"type":"object","description":"GeoJSON Polygon (preferred for >4 ha) OR GeoJSON Point (≤4 ha non-cattle per Article 2(28)) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}."},
@@ -1081,7 +1082,7 @@ const SCHEMA_TOPICS: &str = r#"{"type":"object","properties":{
 const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","end_date"],"properties":{
 "geometry":{"type":"object","description":"The area as a GeoJSON Polygon (or a Feature wrapping one), WGS-84 [lng, lat]. Holes are honoured. Give this or `bbox`."},
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box, when there is no polygon."},
-"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","vv","vh","vh_vv"],"description":"Spectral index: ndvi (B08, B04), ndwi (B03, B08, McFeeters) or ndmi (B8A, B11, at 20 m; lswi is the same index). From Sentinel-1 radar: vv or vh backscatter in dB, or vh_vv (VH minus VV, in dB). Radar sees through cloud. Default ndvi."},
+"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","evi","vv","vh","vh_vv"],"description":"Spectral index: ndvi (B08, B04), ndwi (B03, B08, McFeeters) or ndmi (B8A, B11, at 20 m; lswi is the same index), or evi (B08, B04, B02, on reflectance). From Sentinel-1 radar: vv or vh backscatter in dB, or vh_vv (VH minus VV, in dB). Radar sees through cloud. Default ndvi."},
 "start_date":{"type":"string","description":"Window start YYYY-MM-DD, inclusive. Up to four years."},
 "end_date":{"type":"string","description":"Window end YYYY-MM-DD, inclusive."},
 "max_scenes":{"type":"integer","minimum":3,"maximum":24,"description":"Scenes read, evenly spaced in time over the window keeping both ends. Default 16."},

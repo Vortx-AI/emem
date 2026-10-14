@@ -8,11 +8,13 @@
 # namespace-declaration allocation in NsReader. The XML that object_store
 # parses with quick-xml is list/multipart responses from the configured
 # S3-compatible endpoint, not caller-supplied input, so an attacker would
-# already have to control the bucket endpoint. The fix needs quick-xml
-# >=0.41, and no released object_store admits that yet (0.12.5 pins
-# ^0.38, 0.14.0 pins ^0.40.1), so there is no dependency bump that
-# resolves this today. Drop these two entries once object_store releases
-# against quick-xml 0.41 and the workspace picks it up.
+# already have to control the bucket endpoint (here, Overture's public
+# AWS bucket, over TLS). The fix needs quick-xml >=0.41. object_store
+# 0.14.1 has it, but lance needs datafusion, and datafusion's newest
+# release (55.2, checked 2026-10-14) is still on object_store 0.13
+# (quick-xml ^0.39), as is the datafusion 54 that lance 13 needs. So no
+# dependency set clears it today. Drop these two entries once datafusion
+# releases against object_store >=0.14.1 and lance follows.
 ignore = [
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",

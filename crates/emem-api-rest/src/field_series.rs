@@ -60,20 +60,49 @@ const CLEAR_SCENE_FRACTION: f64 = 0.9;
 /// Below this many kept scenes a trend is not reported.
 const MIN_TREND_SCENES: usize = 6;
 
-/// One index: its two Sentinel-2 bands and the formula `(a - b) / (a + b)`.
+/// One index: its Sentinel-2 bands and its formula. Two bands is the
+/// normalised difference `(a - b) / (a + b)`; a third band `c` makes it EVI,
+/// with a = NIR, b = red and c = blue.
 struct Index {
     key: &'static str,
     a: &'static str,
     b: &'static str,
+    c: Option<&'static str>,
     formula: &'static str,
     reference: &'static str,
 }
 
-const INDICES: [Index; 3] = [
+impl Index {
+    /// The index at one pixel, from harmonised DNs (reflectance x 10000).
+    /// `None` where a band has no reading: 0 is L2A no-data after
+    /// harmonising, and NaN is masked.
+    fn at(&self, a: f32, b: f32, c: Option<f32>) -> Option<f32> {
+        let read = |v: f32| v.is_finite() && v > 0.0;
+        if !(read(a) && read(b)) {
+            return None;
+        }
+        let c = match (self.c, c) {
+            (None, _) => return Some(((a - b) / (a + b)).clamp(-1.0, 1.0)),
+            (Some(_), Some(c)) if read(c) => c,
+            _ => return None,
+        };
+        // EVI is not scale-free like a normalised difference, so it needs
+        // reflectance. Outside -1..1 it is a bright target (cloud edge,
+        // snow, specular water) the mask missed, not vegetation, so the
+        // pixel is dropped rather than clamped into the distribution.
+        let (n, r, bl) = (a / 10_000.0, b / 10_000.0, c / 10_000.0);
+        let den = n + 6.0 * r - 7.5 * bl + 1.0;
+        let v = 2.5 * (n - r) / den;
+        (den.abs() > 1e-6 && v.is_finite() && (-1.0..=1.0).contains(&v)).then_some(v)
+    }
+}
+
+const INDICES: [Index; 4] = [
     Index {
         key: "ndvi",
         a: "s2.B08",
         b: "s2.B04",
+        c: None,
         formula: "(B08 - B04) / (B08 + B04)",
         reference: "Rouse et al. 1974; Tucker 1979",
     },
@@ -81,6 +110,7 @@ const INDICES: [Index; 3] = [
         key: "ndwi",
         a: "s2.B03",
         b: "s2.B08",
+        c: None,
         formula: "(B03 - B08) / (B03 + B08)",
         reference: "McFeeters 1996",
     },
@@ -92,8 +122,19 @@ const INDICES: [Index; 3] = [
         key: "ndmi",
         a: "s2.B8A",
         b: "s2.B11",
+        c: None,
         formula: "(B8A - B11) / (B8A + B11)",
         reference: "Gao 1996; Wilson & Sader 2002; as LSWI, Xiao et al. 2002",
+    },
+    // Less saturated than NDVI over dense canopy, and the blue band damps
+    // the aerosol term. All three bands are 10 m.
+    Index {
+        key: "evi",
+        a: "s2.B08",
+        b: "s2.B04",
+        c: Some("s2.B02"),
+        formula: "2.5 * (B08 - B04) / (B08 + 6 * B04 - 7.5 * B02 + 1), on reflectance (DN / 10000)",
+        reference: "Huete et al. 2002",
     },
 ];
 
@@ -300,6 +341,155 @@ fn zones_bbox(zones: &[Zone]) -> Result<BBox, ApiError> {
     };
     check_bbox(&bbox)?;
     Ok(bbox)
+}
+
+/// A read window's pixel grid in the scene CRS: north-west corner, step, size.
+struct Lattice {
+    epsg: u32,
+    x0: f64,
+    y0: f64,
+    step: f64,
+    w: u32,
+    h: u32,
+}
+
+/// Each field's pixels on the window's lattice, scanned over its own box
+/// only. A field under the support floor is reported in the second list and
+/// gets no pixels, so it is never read.
+fn zone_pixels(
+    zones: &[Zone],
+    g: &Lattice,
+    buffer_m: f64,
+    min_support: usize,
+) -> (Vec<Vec<usize>>, Vec<JsonValue>) {
+    let mut zone_px: Vec<Vec<usize>> = Vec::with_capacity(zones.len());
+    let mut skipped: Vec<JsonValue> = Vec::new();
+    for z in zones {
+        let zr: Vec<Vec<[f64; 2]>> = z
+            .rings
+            .iter()
+            .map(|ring| {
+                ring.iter()
+                    .filter_map(|[lng, lat]| {
+                        emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, g.epsg)
+                            .map(|u| [u.easting, u.northing])
+                    })
+                    .collect()
+            })
+            .collect();
+        let outer = zr.first().map(Vec::as_slice).unwrap_or(&[]);
+        let (zx0, zx1, zy0, zy1) = outer.iter().fold(
+            (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
+            |(a, b, c, d), [x, y]| (a.min(*x), b.max(*x), c.min(*y), d.max(*y)),
+        );
+        let col = |x: f64| ((x - g.x0) / g.step).floor().clamp(0.0, (g.w - 1) as f64) as u32;
+        let row = |y: f64| ((g.y0 - y) / g.step).floor().clamp(0.0, (g.h - 1) as f64) as u32;
+        let mut px: Vec<usize> = Vec::new();
+        if !outer.is_empty() {
+            for r in row(zy1)..=row(zy0) {
+                for c in col(zx0)..=col(zx1) {
+                    let x = g.x0 + (c as f64 + 0.5) * g.step;
+                    let y = g.y0 - (r as f64 + 0.5) * g.step;
+                    if in_polygon(x, y, &zr)
+                        && (buffer_m <= 0.0 || distance_to_edge(x, y, &zr) >= buffer_m)
+                    {
+                        px.push((r * g.w + c) as usize);
+                    }
+                }
+            }
+        }
+        if px.len() < min_support {
+            skipped.push(json!({"id": z.id, "n_px": px.len(),
+                "reason": format!("{} pixel centres, under the {min_support}-pixel support floor", px.len())}));
+            px.clear();
+        }
+        zone_px.push(px);
+    }
+    (zone_px, skipped)
+}
+
+/// What a `fields` request carries per field and scene, as it accumulates.
+struct FieldsAcc {
+    rows: Vec<JsonValue>,
+    series: Vec<(Vec<i64>, Vec<f64>)>,
+}
+
+impl FieldsAcc {
+    fn new(n: usize) -> Self {
+        FieldsAcc {
+            rows: Vec::new(),
+            series: vec![(Vec::new(), Vec::new()); n],
+        }
+    }
+
+    /// One field's reading of one scene, from its values at its pixels. The
+    /// scene counts for the field on the field's own valid share.
+    #[allow(clippy::too_many_arguments)]
+    fn add(
+        &mut self,
+        zi: usize,
+        id: &str,
+        date: &str,
+        day: i64,
+        vals: &mut [f32],
+        n_px: usize,
+        min_share: f64,
+        min_support: usize,
+    ) {
+        let zs = distribution(vals, n_px);
+        let share = zs.n_clear as f64 / n_px as f64;
+        if share < min_share || zs.n_clear < min_support {
+            return;
+        }
+        self.rows.push(json!([
+            id,
+            date,
+            round6(zs.median),
+            round6(zs.p10),
+            round6(zs.p90),
+            zs.n_clear,
+            round6(share)
+        ]));
+        self.series[zi].0.push(day);
+        self.series[zi].1.push(zs.median);
+    }
+
+    /// The `fields` block of the record, or null when there are no fields.
+    fn block(
+        self,
+        zones: &[Zone],
+        zone_px: &[Vec<usize>],
+        skipped: Vec<JsonValue>,
+        count_cols: [&str; 2],
+        rule: &str,
+    ) -> JsonValue {
+        if zones.is_empty() {
+            return JsonValue::Null;
+        }
+        let summary: Vec<JsonValue> = zones
+            .iter()
+            .zip(zone_px)
+            .zip(&self.series)
+            .filter(|((_, px), _)| !px.is_empty())
+            .map(|((z, px), (days, medians))| {
+                let trend = (days.len() >= MIN_TREND_SCENES)
+                    .then(|| {
+                        let t: Vec<f64> = days.iter().map(|d| *d as f64 / 365.25).collect();
+                        theil_sen_kendall(&t, medians)
+                    })
+                    .flatten()
+                    .map(|(slope, _i, _s, _z, p)| json!({"slope_per_year": round6(slope), "p_value": round6(p)}));
+                json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
+            })
+            .collect();
+        json!({
+            "columns": ["id", "date", "median", "p10", "p90", count_cols[0], count_cols[1]],
+            "rows": self.rows,
+            "summary": summary,
+            "skipped": skipped,
+            "rule": rule,
+        })
+    }
 }
 
 /// The area: a bbox, plus the polygon rings when one was given.
@@ -656,12 +846,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let index_key =
         index_alias(&req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase()).to_string();
     if RADAR_INDICES.contains(&index_key.as_str()) {
-        if !zones.is_empty() {
-            return Err(bad_request(
-                "`fields` reads the Sentinel-2 indices; send a radar index one field at a time, or as `areas`".into(),
-            ));
-        }
-        return Box::pin(radar_series(req, aoi, index_key, s, started)).await;
+        return Box::pin(radar_series(req, aoi, zones, index_key, s, started)).await;
     }
     let index = INDICES.iter().find(|i| i.key == index_key).ok_or_else(|| {
         bad_request(format!(
@@ -682,6 +867,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             .unwrap_or(&[])
     };
     let (alias_a, alias_b) = (aliases_of(index.a), aliases_of(index.b));
+    let alias_c: &[&str] = index.c.map(aliases_of).unwrap_or(&[]);
 
     let (sy, sm, sd) = parse_ymd(&req.start_date)
         .ok_or_else(|| bad_request(format!("start_date `{}` is not YYYY-MM-DD", req.start_date)))?;
@@ -791,6 +977,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 && scl_asset(it).is_some()
                 && alias_a.iter().any(|a| it.assets.contains_key(*a))
                 && alias_b.iter().any(|a| it.assets.contains_key(*a))
+                && (alias_c.is_empty() || alias_c.iter().any(|a| it.assets.contains_key(*a)))
         })
         .collect();
     // One CRS for the whole series: the one most candidates share. An area on
@@ -806,8 +993,8 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .map(|(e, _)| *e)
         .ok_or_else(|| {
             upstream_error(format!(
-                "no Sentinel-2 scene with {}, {} and SCL in {}..{} under {CANDIDATE_MAX_CLOUD}% scene cloud",
-                index.a, index.b, req.start_date, req.end_date
+                "no Sentinel-2 scene with {}, {}{} and SCL in {}..{} under {CANDIDATE_MAX_CLOUD}% scene cloud",
+                index.a, index.b, index.c.map(|c| format!(", {c}")).unwrap_or_default(), req.start_date, req.end_date
             ))
         })?;
     // One scene per capture date: overlapping tiles see the same overpass, and
@@ -929,52 +1116,16 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         )));
     }
 
-    // Each field's pixels on the window's lattice, scanned over its own box
-    // only. A field under the support floor is reported, not read.
-    let mut zone_px: Vec<Vec<usize>> = Vec::with_capacity(zones.len());
-    let mut fields_skipped: Vec<JsonValue> = Vec::new();
-    for z in &zones {
-        let zr: Vec<Vec<[f64; 2]>> = z
-            .rings
-            .iter()
-            .map(|ring| {
-                ring.iter()
-                    .filter_map(|[lng, lat]| {
-                        emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg)
-                            .map(|u| [u.easting, u.northing])
-                    })
-                    .collect()
-            })
-            .collect();
-        let outer = zr.first().map(Vec::as_slice).unwrap_or(&[]);
-        let (zx0, zx1, zy0, zy1) = outer.iter().fold(
-            (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
-            |(a, b, c, d), [x, y]| (a.min(*x), b.max(*x), c.min(*y), d.max(*y)),
-        );
-        let col = |x: f64| ((x - wx0) / native_m).floor().clamp(0.0, (w - 1) as f64) as u32;
-        let row = |y: f64| ((wy0 - y) / native_m).floor().clamp(0.0, (h - 1) as f64) as u32;
-        let mut px: Vec<usize> = Vec::new();
-        if !outer.is_empty() {
-            for r in row(zy1)..=row(zy0) {
-                for c in col(zx0)..=col(zx1) {
-                    let (x, y) = centre_of(r, c);
-                    if in_polygon(x, y, &zr)
-                        && (buffer_m <= 0.0 || distance_to_edge(x, y, &zr) >= buffer_m)
-                    {
-                        px.push((r * w + c) as usize);
-                    }
-                }
-            }
-        }
-        if px.len() < min_support {
-            fields_skipped.push(json!({"id": z.id, "n_px": px.len(),
-                "reason": format!("{} pixel centres, under the {min_support}-pixel support floor", px.len())}));
-            px.clear();
-        }
-        zone_px.push(px);
-    }
-    let mut field_rows: Vec<JsonValue> = Vec::new();
-    let mut zone_series: Vec<(Vec<i64>, Vec<f64>)> = vec![(Vec::new(), Vec::new()); zones.len()];
+    let lattice = Lattice {
+        epsg,
+        x0: wx0,
+        y0: wy0,
+        step: native_m,
+        w,
+        h,
+    };
+    let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
+    let mut fields_acc = FieldsAcc::new(zones.len());
 
     // Block lattice: the window cut into blocks x blocks, each with its WGS-84
     // quad from the inverse projection of its corners.
@@ -1015,7 +1166,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let mut reads = Vec::with_capacity(picked.len());
     for chunk in picked.chunks(SCENE_READ_CONCURRENCY) {
         let pairs = futures_util::future::join_all(chunk.iter().map(|it| {
-            futures_util::future::join(
+            futures_util::future::join3(
                 read_masked_scene(
                     &cli,
                     host,
@@ -1040,11 +1191,24 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                     native_m,
                     &reject,
                 ),
+                // No third band: an empty alias list returns at once.
+                read_masked_scene(
+                    &cli,
+                    host,
+                    it,
+                    alias_c,
+                    utm_c.easting,
+                    utm_c.northing,
+                    w,
+                    h,
+                    native_m,
+                    &reject,
+                ),
             )
         }))
         .await;
-        for (it, (a, b)) in chunk.iter().zip(pairs) {
-            reads.push((*it, a, b));
+        for (it, (a, b, c)) in chunk.iter().zip(pairs) {
+            reads.push((*it, a, b, c));
         }
     }
 
@@ -1055,8 +1219,19 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let mut kept_days: Vec<i64> = Vec::new();
     let mut kept_medians: Vec<f64> = Vec::new();
     let mut kept_block_medians: Vec<Vec<Option<f64>>> = Vec::new();
-    for (item, ra, rb) in reads {
+    for (item, ra, rb, rc) in reads {
         let date = item.datetime.get(..10).unwrap_or("").to_string();
+        if index.c.is_some() && rc.is_none() {
+            excluded.push(json!({
+                "date": date, "scene": item.id,
+                "reason": "unreadable: the third band or its scene classification could not be read on this lattice",
+            }));
+            continue;
+        }
+        let (gc, meta_c) = match rc {
+            Some((g, m)) => (Some(g), Some(m)),
+            None => (None, None),
+        };
         let (Some((ga, meta_a)), Some((gb, meta_b))) = (ra, rb) else {
             excluded.push(json!({
                 "date": date, "scene": item.id,
@@ -1076,12 +1251,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 let (bi, bj) = block_of(r, c);
                 let k = (bi * blocks + bj) as usize;
                 inside_per_block[k] += 1;
-                let (va, vb) = (ga[p], gb[p]);
-                // 0 is L2A no-data after harmonising; NaN is masked.
-                if !(va.is_finite() && vb.is_finite()) || va <= 0.0 || vb <= 0.0 {
+                let Some(v) = index.at(ga[p], gb[p], gc.as_ref().map(|g| g[p])) else {
                     continue;
-                }
-                let v = ((va - vb) / (va + vb)).clamp(-1.0, 1.0);
+                };
                 clear.push(v);
                 per_block[k].push(v);
             }
@@ -1096,30 +1268,24 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         for (zi, px) in zone_px.iter().enumerate().filter(|(_, px)| !px.is_empty()) {
             let mut vals: Vec<f32> = px
                 .iter()
-                .filter_map(|p| {
-                    let (va, vb) = (ga[*p], gb[*p]);
-                    (va.is_finite() && vb.is_finite() && va > 0.0 && vb > 0.0)
-                        .then(|| ((va - vb) / (va + vb)).clamp(-1.0, 1.0))
-                })
+                .filter_map(|p| index.at(ga[*p], gb[*p], gc.as_ref().map(|g| g[*p])))
                 .collect();
-            let zs = distribution(&mut vals, px.len());
-            let cf = zs.n_clear as f64 / px.len() as f64;
-            if cf < min_clear || zs.n_clear < min_support {
-                continue;
-            }
-            field_rows.push(json!([
-                zones[zi].id,
-                date,
-                round6(zs.median),
-                round6(zs.p10),
-                round6(zs.p90),
-                zs.n_clear,
-                round6(cf)
-            ]));
-            zone_series[zi].0.push(day);
-            zone_series[zi].1.push(zs.median);
+            fields_acc.add(
+                zi,
+                &zones[zi].id,
+                &date,
+                day,
+                &mut vals,
+                px.len(),
+                min_clear,
+                min_support,
+            );
         }
-        sources.push(json!({"scene": item.id, "date": date, "a": meta_a, "b": meta_b}));
+        let mut source = json!({"scene": item.id, "date": date, "a": meta_a, "b": meta_b});
+        if let (Some(o), Some(m)) = (source.as_object_mut(), meta_c) {
+            o.insert("c".into(), m);
+        }
+        sources.push(source);
         if clear_fraction < min_clear || st.n_clear < min_support {
             excluded.push(json!({
                 "date": date, "scene": item.id,
@@ -1315,33 +1481,13 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         _ => None,
     };
 
-    let fields_block = if zones.is_empty() {
-        JsonValue::Null
-    } else {
-        let summary: Vec<JsonValue> = zones
-            .iter()
-            .zip(&zone_px)
-            .zip(&zone_series)
-            .filter(|((_, px), _)| !px.is_empty())
-            .map(|((z, px), (days, medians))| {
-                let trend = (days.len() >= MIN_TREND_SCENES)
-                    .then(|| {
-                        let t: Vec<f64> = days.iter().map(|d| *d as f64 / 365.25).collect();
-                        theil_sen_kendall(&t, medians)
-                    })
-                    .flatten()
-                    .map(|(slope, _i, _s, _z, p)| json!({"slope_per_year": round6(slope), "p_value": round6(p)}));
-                json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
-            })
-            .collect();
-        json!({
-            "columns": ["id", "date", "median", "p10", "p90", "n_clear", "clear_fraction"],
-            "rows": field_rows,
-            "summary": summary,
-            "skipped": fields_skipped,
-            "rule": "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_clear_fraction and min_support_px on its own pixels, whatever the window's clear share",
-        })
-    };
+    let fields_block = fields_acc.block(
+        &zones,
+        &zone_px,
+        fields_skipped,
+        ["n_clear", "clear_fraction"],
+        "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_clear_fraction and min_support_px on its own pixels, whatever the window's clear share",
+    );
 
     // ── sign the series. ──────────────────────────────────────────────────
     let aoi_id = aoi_cid(b)?;
@@ -1365,8 +1511,12 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
         "mask": {"reject_scl": reject_vec, "keep_snow_11": !reject.contains(&11)},
         "unit": "dimensionless, -1..1",
-        "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of both bands",
-        "known_bias": "the scene classification misses haze and thin cloud edges; what it misses lowers the index, so `partial` scenes can read low",
+        "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
+        "known_bias": if index.c.is_some() {
+            "the scene classification misses haze and thin cloud edges. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low (a monsoon scene can show EVI above its NDVI); pixels where EVI leaves -1..1 are dropped as bright targets"
+        } else {
+            "the scene classification misses haze and thin cloud edges; what it misses lowers the index, so `partial` scenes can read low"
+        },
     });
     let record = json!({
         "schema": "emem.field_series.v1",
@@ -1493,6 +1643,29 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
 const RADAR_INDICES: [&str; 3] = ["vv", "vh", "vh_vv"];
 const RADAR_FN_KEY: &str = "s1_rtc_series@1";
 
+/// Speckle on a uniform area is gamma-distributed at 4.4 looks, and exceeds
+/// 4.12 times its median once in 10,000 pixels (+6.15 dB). A pixel past that
+/// is a point target (a roof, a pump house, a metal fence), not the field.
+const BRIGHT_FACTOR: f64 = 4.12;
+
+/// The point-target cut for one channel over some pixels, in linear power.
+fn bright_cut(v: &[f64], px: impl Iterator<Item = usize>) -> f64 {
+    let mut x: Vec<f64> = px
+        .filter_map(|p| v.get(p).copied())
+        .filter(|x| x.is_finite() && *x > 0.0)
+        .collect();
+    if x.is_empty() {
+        return f64::INFINITY;
+    }
+    let k = x.len() / 2;
+    let (_, m, _) = x.select_nth_unstable_by(k, |a, b| a.total_cmp(b));
+    *m * BRIGHT_FACTOR
+}
+
+/// Sentinel-1 IW's noise-equivalent sigma0 is specified at -22 dB or
+/// better. Below it a pixel is mostly instrument noise: "dark", not a level.
+const NESZ_DB: f64 = -22.0;
+
 /// A Sentinel-1 series over the area: one relative orbit, each scene's
 /// gamma-naught backscatter (RTC, Planetary Computer) in dB, summarised over
 /// the area's pixels like the optical series. One orbit because two tracks
@@ -1503,6 +1676,7 @@ const RADAR_FN_KEY: &str = "s1_rtc_series@1";
 async fn radar_series(
     req: FieldSeriesReq,
     aoi: Aoi,
+    zones: Vec<Zone>,
     index_key: String,
     s: &AppState,
     started: Instant,
@@ -1535,6 +1709,7 @@ async fn radar_series(
         "radar": index_key, "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng], "rings": aoi.rings,
         "start": req.start_date, "end": req.end_date, "max_scenes": max_scenes, "orbit": req.orbit,
         "buffer_m": buffer_m, "min_support": min_support, "min_valid": min_valid,
+        "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
     }))
     .unwrap_or_default();
     if let Some(hit) = cache_hit(&cache_key) {
@@ -1682,11 +1857,23 @@ async fn radar_series(
             "the area holds {n_inside} pixel centres at {native_m} m; this call needs at least {min_support}. Give a larger area, a smaller inner_buffer_m, or a lower min_support_px (4 or more)."
         )));
     }
+    let lattice = Lattice {
+        epsg,
+        x0: wx0,
+        y0: wy0,
+        step: native_m,
+        w,
+        h,
+    };
+    let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
+    let mut fields_acc = FieldsAcc::new(zones.len());
 
     let mut rows: Vec<JsonValue> = Vec::new();
     let mut excluded: Vec<JsonValue> = Vec::new();
     let mut sources: Vec<JsonValue> = Vec::new();
     let (mut kept_days, mut kept_medians) = (Vec::new(), Vec::new());
+    let mut platforms: std::collections::BTreeSet<String> = Default::default();
+    let mut dark_scenes = 0usize;
     for it in &picked {
         let date = it.datetime.get(..10).unwrap_or("").to_string();
         if it.epsg != Some(epsg) {
@@ -1709,29 +1896,122 @@ async fn radar_series(
             excluded.push(json!({"date": date, "scene": it.id, "reason": "unreadable: a polarisation could not be read on this lattice"}));
             continue;
         };
-        let db = |x: f64| {
-            if x.is_finite() && x > 0.0 {
-                Some(10.0 * x.log10())
-            } else {
-                None
-            }
+        let lin = |v: &[f64], p: usize| v.get(p).copied().filter(|x| x.is_finite() && *x > 0.0);
+        let (uses_vv, uses_vh) = (index_key != "vh", index_key != "vv");
+        // A pixel's linear reading of the channels the index uses, and whether
+        // it is a point target: brighter than speckle can make it against the
+        // area's median, in a channel the index reads.
+        let pix = |p: usize, cut: (f64, f64)| -> Option<(f64, f64, bool)> {
+            let a = if uses_vv { lin(&vv, p)? } else { 0.0 };
+            let c = if uses_vh { lin(&vh, p)? } else { 0.0 };
+            Some((a, c, (uses_vv && a > cut.0) || (uses_vh && c > cut.1)))
         };
-        let mut vals: Vec<f32> = Vec::new();
-        for (p, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
-            let (a, c) = (
-                vv.get(p).copied().and_then(db),
-                vh.get(p).copied().and_then(db),
-            );
-            let v = match index_key.as_str() {
-                "vv" => a,
-                "vh" => c,
-                _ => a.zip(c).map(|(a, c)| c - a),
-            };
-            if let Some(v) = v {
-                vals.push(v as f32);
+        let value_db = |a: f64, c: f64| -> f32 {
+            (10.0
+                * match index_key.as_str() {
+                    "vv" => a.log10(),
+                    "vh" => c.log10(),
+                    _ => (c / a).log10(),
+                }) as f32
+        };
+        let inside_px = || {
+            inside
+                .iter()
+                .enumerate()
+                .filter(|(_, v)| **v)
+                .map(|(p, _)| p)
+        };
+        let cut_w = (bright_cut(&vv, inside_px()), bright_cut(&vh, inside_px()));
+        if let Some((y, m, d)) = parse_ymd(&date) {
+            let day = crate::days_from_civil(y, m, d);
+            for (zi, px) in zone_px.iter().enumerate().filter(|(_, px)| !px.is_empty()) {
+                // Each field against its own median: a bright field is not a
+                // point target because its neighbours are darker.
+                let cut = (
+                    bright_cut(&vv, px.iter().copied()),
+                    bright_cut(&vh, px.iter().copied()),
+                );
+                let mut zv: Vec<f32> = px
+                    .iter()
+                    .filter_map(|p| pix(*p, cut))
+                    .filter(|(_, _, bright)| !bright)
+                    .map(|(a, c, _)| value_db(a, c))
+                    .collect();
+                fields_acc.add(
+                    zi,
+                    &zones[zi].id,
+                    &date,
+                    day,
+                    &mut zv,
+                    px.len(),
+                    min_valid,
+                    min_support,
+                );
             }
         }
-        let valid_fraction = vals.len() as f64 / n_inside as f64;
+        // Speckle is multiplicative, so the area's backscatter is the mean of
+        // power, and its log is taken last: under 4.4-look speckle a mean of
+        // decibels reads 0.51 dB low (2.5 dB at one look), and a median 0.34 dB
+        // low. The ratio index is the ratio of the two means for the same reason.
+        // A point target is cut first: one bright roof decides a mean of power.
+        let mut vals: Vec<f32> = Vec::new();
+        let (mut sa, mut sa2, mut sc, mut sc2, mut dark, mut bright) =
+            (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0usize, 0usize);
+        for p in inside_px() {
+            let Some((a, c, is_bright)) = pix(p, cut_w) else {
+                continue;
+            };
+            if is_bright {
+                bright += 1;
+                continue;
+            }
+            vals.push(value_db(a, c));
+            sa += a;
+            sa2 += a * a;
+            sc += c;
+            sc2 += c * c;
+            // The darker channel decides what sits at the noise floor.
+            let probe = if index_key == "vv" { a } else { c };
+            if 10.0 * probe.log10() < NESZ_DB {
+                dark += 1;
+            }
+        }
+        let nl = vals.len();
+        let valid_fraction = (nl + bright) as f64 / n_inside as f64;
+        let nlf = nl.max(1) as f64;
+        // The standard error of a channel's mean, in dB, from the pixels'
+        // own scatter. Neighbouring pixels share speckle (20 m resolution
+        // on 10 m spacing), so this understates it by up to about 2x.
+        let se_db = |s: f64, s2: f64| {
+            let m = s / nlf;
+            let var = ((s2 / nlf - m * m) * nlf / (nlf - 1.0).max(1.0)).max(0.0);
+            (m > 0.0).then(|| 10.0 / std::f64::consts::LN_10 * var.sqrt() / (m * nlf.sqrt()))
+        };
+        let enl = |s: f64, s2: f64| {
+            let m = s / nlf;
+            let var = (s2 / nlf - m * m).max(0.0);
+            (var > 0.0).then(|| m * m / var)
+        };
+        let (mean_db, se, pixel_enl) = match index_key.as_str() {
+            "vv" => (
+                (sa > 0.0).then(|| 10.0 * (sa / nlf).log10()),
+                se_db(sa, sa2),
+                enl(sa, sa2),
+            ),
+            "vh" => (
+                (sc > 0.0).then(|| 10.0 * (sc / nlf).log10()),
+                se_db(sc, sc2),
+                enl(sc, sc2),
+            ),
+            _ => (
+                (sa > 0.0 && sc > 0.0).then(|| 10.0 * (sc / sa).log10()),
+                se_db(sa, sa2)
+                    .zip(se_db(sc, sc2))
+                    .map(|(x, y)| (x * x + y * y).sqrt()),
+                enl(sc, sc2),
+            ),
+        };
+        let below_nesz = dark as f64 / nlf;
         if vals.len() < min_support || valid_fraction < min_valid {
             excluded.push(json!({"date": date, "scene": it.id, "valid_fraction": round6(valid_fraction),
                 "reason": format!("{} valid pixels of {n_inside}: under the floor of {min_support} pixels or the {min_valid} share", vals.len())}));
@@ -1739,16 +2019,28 @@ async fn radar_series(
         }
         vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let n = vals.len() as f64;
-        let mean = vals.iter().map(|v| *v as f64).sum::<f64>() / n;
-        let std = (vals.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>()
+        let mean_of_db = vals.iter().map(|v| *v as f64).sum::<f64>() / n;
+        let std = (vals
+            .iter()
+            .map(|v| (*v as f64 - mean_of_db).powi(2))
+            .sum::<f64>()
             / (n - 1.0).max(1.0))
         .sqrt();
         let median = quantile(&vals, 0.5);
+        if let Some(p) = &it.platform {
+            platforms.insert(p.to_ascii_lowercase());
+        }
+        if below_nesz >= 0.5 {
+            dark_scenes += 1;
+        }
         rows.push(json!({
-            "date": date, "scene": it.id, "orbit": orbit, "orbit_state": it.orbit_state,
+            "date": date, "scene": it.id, "platform": it.platform.as_deref().map(str::to_ascii_lowercase), "orbit": orbit, "orbit_state": it.orbit_state,
             "median": round6(median), "p10": round6(quantile(&vals, 0.1)), "p25": round6(quantile(&vals, 0.25)),
             "p75": round6(quantile(&vals, 0.75)), "p90": round6(quantile(&vals, 0.9)),
-            "mean": round6(mean), "std": round6(std), "n_valid": vals.len(), "valid_fraction": round6(valid_fraction),
+            "mean": mean_db.map(round6), "se_db": se.map(round6), "std": round6(std),
+            "pixel_enl": pixel_enl.map(round6), "below_nesz_share": round6(below_nesz),
+            "bright_rejected": bright,
+            "n_valid": vals.len(), "valid_fraction": round6(valid_fraction),
         }));
         if let Some((y, m, d)) = parse_ymd(&date) {
             kept_days.push(crate::days_from_civil(y, m, d));
@@ -1791,9 +2083,10 @@ async fn radar_series(
         "source": "Sentinel-1 RTC (radiometrically terrain corrected gamma-naught), Microsoft Planetary Computer sentinel-1-rtc",
         "support": format!("{native_m} m pixels whose centre lies {}inside the area ({n_inside} pixels); each scene read on its own grid, centred on the area, so pixels align within one pixel",
             if buffer_m > 0.0 { format!("at least {buffer_m} m ") } else { String::new() }),
-        "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over valid pixels (positive, finite backscatter), plus mean and sample std, in dB",
+        "statistic": "per scene, over valid pixels (positive, finite backscatter; the product's -32768 no-data is dropped): `mean` is 10 log10 of the mean linear power (for vh_vv, of the ratio of the two channel means), the field's multilooked backscatter; `median` and nearest-rank p10/p25/p75/p90 are of per-pixel dB, robust to a bright scatterer in the field, and read about 0.34 dB under `mean` on a uniform field (the median of 4.4-look speckle), a constant offset that leaves a trend unchanged; `std` is the sample std of per-pixel dB; `se_db` is the standard error of `mean` from the pixels' scatter; `pixel_enl` is mean^2/variance of linear power across the pixels; `below_nesz_share` is the share of pixels under the -22 dB noise floor; `bright_rejected` counts point targets left out of every statistic (a pixel above 4.12x the area's median power in a channel the index reads, which 4.4-look speckle exceeds once in 10,000 pixels; in `fields` the cut is each field's own median). `valid_fraction` counts the rejected pixels as read. The trend is on `median`.",
+        "upstream_processing": "Planetary Computer sentinel-1-rtc: GRD calibrated to gamma-naught, thermal noise removed, terrain flattened and terrain corrected on a DEM, 10 m, linear power, about 4.4 looks a pixel. No speckle filter is applied here or upstream: averaging over the area's pixels is the multilook, and a filter would mix pixels across the field edge.",
         "unit": unit,
-        "known_bias": "speckle: a median over few pixels still varies by about 1 dB between scenes; wet soil and standing water lower VV, and a closing canopy raises VH",
+        "known_bias": "speckle: `se_db` understates the scatter by up to about 2x, because neighbouring pixels share speckle; values under the -22 dB noise floor (open water, smooth bare soil) read as dark, not as a level; the product carries no layover or shadow mask, so on a slope facing toward or away from the sensor a field can read bright (layover) or empty (shadow); rain or dew at the overpass raises VV over bare soil and canopy, and wind roughens open water; wet soil and standing water lower VV, and a closing canopy raises VH",
     });
     let record = json!({
         "schema": "emem.field_series.v1", "fn_key": RADAR_FN_KEY,
@@ -1808,6 +2101,13 @@ async fn radar_series(
         },
         "grid": {"width": w, "height": h, "native_m": native_m, "epsg": epsg, "x0": wx0, "y0": wy0},
         "rows": rows, "excluded": excluded, "trend": trend, "sources": sources,
+        "fields": fields_acc.block(
+            &zones,
+            &zone_px,
+            fields_skipped,
+            ["n_valid", "valid_fraction"],
+            "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_valid_share and min_support_px on its own pixels, whatever the window's share",
+        ),
     });
     let signed_at = emem_storage::server::iso8601_now();
     let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
@@ -1868,12 +2168,18 @@ async fn radar_series(
     if n_inside < 30 {
         cautions.push(format!("{n_inside} pixels: speckle leaves about 1 dB of scatter between scenes at this size, so read a change under 2 dB as noise."));
     }
+    if platforms.len() > 1 {
+        cautions.push(format!("the series mixes {}. Units of one mission are cross-calibrated to agree within a few tenths of a dB, not exactly; check `platform` before reading a small step at a platform change.", platforms.into_iter().collect::<Vec<_>>().join(" and ")));
+    }
+    if dark_scenes > 0 {
+        cautions.push(format!("{dark_scenes} scene(s) have half or more of the area under the -22 dB noise floor (`below_nesz_share`). There the value says the surface is dark (water, or smooth bare soil), not how dark."));
+    }
     let out = json!({
         "schema": "emem.field_series.v1", "algorithm_key": RADAR_FN_KEY, "index": index_key,
         "estimand": record["estimand"], "window": record["window"],
-        "columns": ["date", "orbit", "median", "p10", "p25", "p75", "p90", "mean", "std", "n_valid", "valid_fraction"],
+        "columns": ["date", "platform", "orbit", "mean", "se_db", "median", "p10", "p25", "p75", "p90", "std", "pixel_enl", "below_nesz_share", "n_valid", "valid_fraction"],
         "rows": record["rows"], "excluded": record["excluded"], "trend": record["trend"],
-        "selection": record["selection"], "polygon_cid": record["polygon_cid"], "cautions": cautions,
+        "selection": record["selection"], "polygon_cid": record["polygon_cid"], "fields": record["fields"], "cautions": cautions,
         "derivation_cid": derivation_cid, "token": format!("emem:fact:{centre_cell}:{derivation_cid}"),
         "reproducibility": "every scene id, asset, orbit and the pixel rule are pinned in the signed record; re-reading those scenes gives the same rows",
         "receipt": receipt,
@@ -2295,6 +2601,31 @@ mod tests {
             .map(|_| json!({"geometry": sq(75.0)}))
             .collect();
         assert!(parse_fields(&JsonValue::Array(many)).is_err());
+    }
+
+    #[test]
+    fn evi_reads_reflectance_and_drops_bright_targets() {
+        let evi = INDICES.iter().find(|i| i.key == "evi").unwrap();
+        // Dense canopy: NIR 0.40, red 0.04, blue 0.02 reflectance.
+        let v = evi.at(4000.0, 400.0, Some(200.0)).unwrap();
+        let want = 2.5 * (0.40 - 0.04) / (0.40 + 6.0 * 0.04 - 7.5 * 0.02 + 1.0);
+        assert!((v - want).abs() < 1e-6, "{v} vs {want}");
+        assert_eq!(evi.at(4000.0, 400.0, None), None);
+        assert_eq!(evi.at(4000.0, 400.0, Some(0.0)), None);
+        // Blue far above red: the denominator nears zero and EVI leaves -1..1.
+        assert_eq!(evi.at(3000.0, 100.0, Some(2200.0)), None);
+        let ndvi = INDICES.iter().find(|i| i.key == "ndvi").unwrap();
+        assert_eq!(ndvi.at(3000.0, 1000.0, None), Some(0.5));
+    }
+
+    #[test]
+    fn a_point_target_is_cut_against_the_area_median() {
+        let mut v = vec![0.1; 99];
+        v.push(10.0);
+        let cut = bright_cut(&v, 0..v.len());
+        assert!((cut - 0.1 * BRIGHT_FACTOR).abs() < 1e-12);
+        assert!(v[99] > cut && v[0] < cut);
+        assert_eq!(bright_cut(&[f64::NAN, -32768.0], 0..2), f64::INFINITY);
     }
 
     #[test]

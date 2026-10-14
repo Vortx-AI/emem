@@ -99,6 +99,10 @@ pub struct StacItem {
     /// `sat:orbit_state`, `ascending` or `descending` (Sentinel-1).
     #[serde(default)]
     pub orbit_state: Option<String>,
+    /// STAC `platform`, e.g. `sentinel-1a` or `sentinel-1c`. Two units of one
+    /// mission are calibrated to agree, not to be identical.
+    #[serde(default)]
+    pub platform: Option<String>,
 }
 
 impl StacItem {
@@ -381,6 +385,10 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .get("sat:orbit_state")
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
+    let platform = props
+        .get("platform")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let mut assets = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
@@ -404,6 +412,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         footprint: parse_footprint(f.get("geometry")),
         relative_orbit,
         orbit_state,
+        platform,
     }
 }
 
