@@ -7,6 +7,8 @@ to verify.
 
 ## [Unreleased]
 
+- `POST /v1/eudr_dds` reads the TMF cross-check (`jrc_tmf.deforestation_year`) by one window per tile from the range-served mirror, like the three verdict bands. It was read cell by cell, and a mirror miss fell back to an 80 to 119 MB dispatcher tile per cell, so every cell waited out the 14 s materializer timeout, eight at a time: a 64-cell plot took 112 s and the TMF check read no cell. The same plot now answers in 1.0 s warm and 19.7 s cold, with TMF read on 64 of 64 cells. The windowed fact equals the per-cell mirror fact in every field but the signature and time, so stored facts are reused. Verdicts do not change: TMF is reported beside the verdict, not in it.
+
 - `POST /v1/field_series` takes `fields`: up to 500 field polygons in one window of at most 512 pixels a side. Each scene is read once over the fields' joint box and every field is summarised from that read, so the cost follows the window, not the field count: 24 fields over 12 scenes answered in 4 s. The answer adds `fields`, one row per field and scene (median, p10, p90, clear pixels, clear share) and a summary per field with its `polygon_cid` and trend. A field's scene counts on the field's own clear share, not the window's. A field read this way gives the same medians as the same polygon sent alone. `POST /v1/a2a/tasks` runs it as a job.
 - The optical series answer carries `polygon_cid` (it was in the signed record only).
 - `rustls` 0.23.46 and `quinn-proto` 0.11.19, for RUSTSEC-2026-0338 to 0342 and 0346 to 0349.

@@ -56736,7 +56736,34 @@ async fn build_fact_jrc_tmf(
             _ => return Err(format!("jrc_tmf band {band} not registered")),
         };
 
-    Ok(Fact::Primary(PrimaryFact {
+    Ok(jrc_tmf_fact(
+        s,
+        cell64,
+        band,
+        (lat, lng),
+        (value_int, unit),
+        dataset_tag,
+        url,
+        mirror,
+        signed_at,
+    ))
+}
+
+/// A TMF pixel as a fact. The per-cell read and the windowed EUDR read both
+/// build it here, so one pixel from one file is one fact cid either way.
+#[allow(clippy::too_many_arguments)]
+fn jrc_tmf_fact(
+    s: &AppState,
+    cell64: &str,
+    band: &str,
+    (lat, lng): (f64, f64),
+    (value_int, unit): (i64, &'static str),
+    dataset_tag: String,
+    url: String,
+    mirror: bool,
+    signed_at: &str,
+) -> Fact {
+    Fact::Primary(PrimaryFact {
         cell: cell64.to_string(),
         band: band.to_string(),
         tslot: tslot_for_year(2025, band),
@@ -56775,7 +56802,7 @@ async fn build_fact_jrc_tmf(
         signer: s.identity.pubkey,
         signed_at: signed_at.to_string(),
         served_via: None,
-    }))
+    })
 }
 
 async fn materialize_jrc_tmf_band(
@@ -69189,6 +69216,13 @@ async fn build_eudr_band_fact(
 /// polygon-batched cascade for STAC bands is its own design pass.
 fn static_cog_url_for_band(band: &str, centre_lat: f64, centre_lng: f64) -> Option<String> {
     match band {
+        // The range-served mirror only. Off the tropical belt there is no
+        // tile, and the per-cell path signs the coverage gap.
+        "jrc_tmf.deforestation_year" => Some(emem_fetch::jrc_tmf::mirror_url(
+            emem_fetch::jrc_tmf::DATASET_DEFORESTATION_YEAR,
+            &emem_fetch::jrc_tmf::tile_lat_tag(centre_lat)?,
+            &emem_fetch::jrc_tmf::tile_lng_tag(centre_lng)?,
+        )),
         "jrc_gfc2020.forest_2020" => Some(emem_fetch::jrc_gfc2020::tile_url_for(
             centre_lat, centre_lng,
         )),
@@ -69459,14 +69493,14 @@ async fn batch_build_facts_via_window(
             "esa_worldcover_2021_pixel@1",
             "lc_2021",
         ),
-        // NOTE: jrc_tmf.deforestation_year is intentionally NOT handled
-        // here, it was removed from the EUDR hot path (see the band-list
-        // comment in `evaluate_eudr_plot_batched`). Its 119 MB full-tile
-        // download (no upstream HTTP Range) cost ~78 s cold and dominated
-        // the per-plot budget, exactly like the WRI GDM / RADD probes that
-        // were dropped earlier. The verdict computes from the JRC GFC2020
-        // legal baseline + Hansen loss-year. The connector remains
-        // available for explicit `jrc_tmf.*` band requests off this path.
+        // The cross-check, from the range-served mirror. Its facts come from
+        // `jrc_tmf_fact`, so they match a per-cell mirror read byte for byte.
+        "jrc_tmf.deforestation_year" => (
+            static_cog_url_for_band(band, centre_lat, centre_lng).unwrap_or_default(),
+            "jrc.tmf.v2025",
+            "jrc_tmf_v2025_pixel@1",
+            "DeforestationYear",
+        ),
         _ => {
             return cells
                 .iter()
@@ -69581,6 +69615,33 @@ async fn batch_build_facts_via_window(
             continue;
         }
         let raw_value = pixels[idx];
+        if band == "jrc_tmf.deforestation_year" {
+            if !(raw_value.is_finite()
+                && (0.0..=u16::MAX as f64).contains(&raw_value)
+                && raw_value.fract() == 0.0)
+            {
+                out.push((
+                    i,
+                    Err(format!("pixel value {raw_value} out of range at {url}")),
+                ));
+                continue;
+            }
+            out.push((
+                i,
+                Ok(jrc_tmf_fact(
+                    s,
+                    cell,
+                    band,
+                    (lat, lng),
+                    (raw_value as i64, "year_of_deforestation"),
+                    "DeforestationYear".to_string(),
+                    url.clone(),
+                    true,
+                    signed_at,
+                )),
+            ));
+            continue;
+        }
         // CRITICAL: Hansen lossyear is stored on disk as a year-2000 offset
         // byte (1..=24). Decode it to the CALENDAR year here so the value is
         // identical to the per-cell `build_fact_hansen` path AND so the
@@ -69772,6 +69833,11 @@ async fn batch_materialize_eudr_band(
             // Forest-context bands: also EPSG:4326 static COGs, windowed.
             | "forest_change.gain"
             | "esa_worldcover.lc_2021"
+            // Read cell by cell, a mirror miss fell back to an 80-119 MB
+            // dispatcher tile per cell, and every cell waited out the
+            // materializer timeout: 64 cells took 112 s. One window per tile
+            // costs one timeout at most.
+            | "jrc_tmf.deforestation_year"
     );
 
     // One window reads one tile, the one under its cells' centre: a plot
@@ -69788,7 +69854,16 @@ async fn batch_materialize_eudr_band(
             groups.entry(key).or_default().push(i);
         }
         let mut out = Vec::with_capacity(n_cells);
-        for idxs in groups.into_values() {
+        for (key, idxs) in groups {
+            if key.is_empty() && band.starts_with("jrc_tmf.") {
+                for i in idxs {
+                    out.push((
+                        i,
+                        build_eudr_band_fact(&s, &cells[i], band, signed_at).await,
+                    ));
+                }
+                continue;
+            }
             let group: Vec<String> = idxs.iter().map(|&i| cells[i].clone()).collect();
             for (j, r) in batch_build_facts_via_window(&s, &group, band, signed_at).await {
                 out.push((idxs[j], r));
