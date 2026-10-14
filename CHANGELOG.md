@@ -7,6 +7,10 @@ to verify.
 
 ## [Unreleased]
 
+- `POST /v1/field_series` takes `fields`: up to 500 field polygons in one window of at most 512 pixels a side. Each scene is read once over the fields' joint box and every field is summarised from that read, so the cost follows the window, not the field count: 24 fields over 12 scenes answered in 4 s. The answer adds `fields`, one row per field and scene (median, p10, p90, clear pixels, clear share) and a summary per field with its `polygon_cid` and trend. A field's scene counts on the field's own clear share, not the window's. A field read this way gives the same medians as the same polygon sent alone. `POST /v1/a2a/tasks` runs it as a job.
+- The optical series answer carries `polygon_cid` (it was in the signed record only).
+- `rustls` 0.23.46 and `quinn-proto` 0.11.19, for RUSTSEC-2026-0338 to 0342 and 0346 to 0349.
+
 - `POST /v1/field_series` reads Sentinel-1 radar too. `index` takes `vv` and `vh` (gamma-naught backscatter from Planetary Computer `sentinel-1-rtc`, in dB) and `vh_vv` (VH minus VV, in dB), signed as `s1_rtc_series@1`. Radar sees through the monsoon cloud that empties a kharif optical series. A series reads one relative orbit, the one with the most scenes or the caller's `orbit`, because two tracks see a field at two incidence angles. The answer names every orbit it saw. Over a Ludhiana field from June to November 2025, VH minus VV rose from -7.8 to -5.8 dB as the canopy closed and fell back after harvest.
 - `field_series` also takes `ndmi` (B8A and B11 at 20 m; `lswi` is the same index), `inner_buffer_m` (count a pixel only this far inside the edge, 0 to 60 m) and `min_support_px` (down to 4 pixels, for small fields). `min_valid_share` is an alias of `min_clear_fraction`. The record and `field_boundaries` features carry `polygon_cid`, a hash of the polygon's rings at 1e-7 degrees, so two callers can tell they asked about the same polygon.
 

@@ -211,6 +211,12 @@ pub struct FieldSeriesReq {
     /// scene, so one chart can draw them all.
     #[serde(default)]
     pub areas: Option<JsonValue>,
+    /// Many fields in one window, in place of `geometry`/`bbox`: a list of
+    /// `{id, geometry}`, at most [`MAX_FIELDS`]. Each scene is read once over
+    /// the fields' joint box and every field is summarised from that one
+    /// read, so the cost is the window's, not the field count's.
+    #[serde(default)]
+    pub fields: Option<JsonValue>,
 }
 
 /// One area of a multi-area request.
@@ -228,6 +234,73 @@ struct FieldSeriesArea {
 /// area is a full scene read, so the cap keeps one call inside a host's
 /// tool timeout.
 pub const MAX_AREAS: usize = 6;
+
+/// Fields read from one window. The window cap (512 px a side) bounds the
+/// read; this bounds the signed record, about 1 KB a field over 16 scenes.
+pub const MAX_FIELDS: usize = 500;
+
+/// One field of a `fields` request.
+struct Zone {
+    id: String,
+    rings: Vec<Vec<[f64; 2]>>,
+    polygon_cid: Option<String>,
+}
+
+fn parse_fields(raw: &JsonValue) -> Result<Vec<Zone>, ApiError> {
+    let list = as_object_value(raw, "fields")?;
+    let list = list
+        .as_array()
+        .ok_or_else(|| bad_request("`fields` is a list of {id, geometry}".into()))?;
+    if list.is_empty() || list.len() > MAX_FIELDS {
+        return Err(bad_request(format!(
+            "`fields` takes 1 to {MAX_FIELDS} fields; this call gave {}",
+            list.len()
+        )));
+    }
+    let mut zones: Vec<Zone> = Vec::with_capacity(list.len());
+    for (i, f) in list.iter().enumerate() {
+        let id = match f.get("id") {
+            Some(JsonValue::String(t)) => t.clone(),
+            Some(JsonValue::Number(n)) => n.to_string(),
+            _ => format!("field-{}", i + 1),
+        };
+        if zones.iter().any(|z| z.id == id) {
+            return Err(bad_request(format!("field id `{id}` is given twice")));
+        }
+        let g = f
+            .get("geometry")
+            .ok_or_else(|| bad_request(format!("field `{id}` has no geometry")))?;
+        let aoi = aoi_from_geometry(&as_object_value(g, "geometry")?)
+            .map_err(|e| bad_request(format!("field `{id}`: {}", e.1.message)))?;
+        let polygon_cid = polygon_cid(&json!({"type": "Polygon", "coordinates": aoi.rings}));
+        zones.push(Zone {
+            id,
+            rings: aoi.rings,
+            polygon_cid,
+        });
+    }
+    Ok(zones)
+}
+
+/// The box that holds every field.
+fn zones_bbox(zones: &[Zone]) -> Result<BBox, ApiError> {
+    let (mut min_lng, mut min_lat, mut max_lng, mut max_lat) =
+        (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+    for [lng, lat] in zones.iter().filter_map(|z| z.rings.first()).flatten() {
+        min_lng = min_lng.min(*lng);
+        max_lng = max_lng.max(*lng);
+        min_lat = min_lat.min(*lat);
+        max_lat = max_lat.max(*lat);
+    }
+    let bbox = BBox {
+        min_lat,
+        min_lng,
+        max_lat,
+        max_lng,
+    };
+    check_bbox(&bbox)?;
+    Ok(bbox)
+}
 
 /// The area: a bbox, plus the polygon rings when one was given.
 struct Aoi {
@@ -254,6 +327,26 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
         .map(|g| as_object_value(g, "geometry"))
         .transpose()?;
     if let Some(g) = &geometry {
+        return aoi_from_geometry(g);
+    }
+    let raw = req
+        .bbox
+        .as_ref()
+        .ok_or_else(|| bad_request("give the area as `bbox` or `geometry`".into()))?;
+    let bbox: BBox = serde_json::from_value(as_object_value(raw, "bbox")?).map_err(|e| {
+        bad_request(format!(
+            "bbox must be {{min_lat, min_lng, max_lat, max_lng}}: {e}"
+        ))
+    })?;
+    check_bbox(&bbox)?;
+    Ok(Aoi {
+        bbox,
+        rings: Vec::new(),
+    })
+}
+
+fn aoi_from_geometry(g: &JsonValue) -> Result<Aoi, ApiError> {
+    {
         let g = if g.get("type").and_then(|t| t.as_str()) == Some("Feature") {
             g.get("geometry").unwrap_or(&JsonValue::Null)
         } else {
@@ -301,22 +394,8 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
             max_lng,
         };
         check_bbox(&bbox)?;
-        return Ok(Aoi { bbox, rings });
+        Ok(Aoi { bbox, rings })
     }
-    let raw = req
-        .bbox
-        .as_ref()
-        .ok_or_else(|| bad_request("give the area as `bbox` or `geometry`".into()))?;
-    let bbox: BBox = serde_json::from_value(as_object_value(raw, "bbox")?).map_err(|e| {
-        bad_request(format!(
-            "bbox must be {{min_lat, min_lng, max_lat, max_lng}}: {e}"
-        ))
-    })?;
-    check_bbox(&bbox)?;
-    Ok(Aoi {
-        bbox,
-        rings: Vec::new(),
-    })
 }
 
 fn check_bbox(b: &BBox) -> Result<(), ApiError> {
@@ -554,11 +633,34 @@ fn round6(x: f64) -> JsonValue {
 
 pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
-    let aoi = parse_aoi(&req)?;
+    let zones = match &req.fields {
+        Some(raw) => {
+            if req.geometry.is_some() || req.bbox.is_some() {
+                return Err(bad_request(
+                    "give `fields`, or one `geometry`/`bbox`, not both".into(),
+                ));
+            }
+            parse_fields(raw)?
+        }
+        None => Vec::new(),
+    };
+    let aoi = if zones.is_empty() {
+        parse_aoi(&req)?
+    } else {
+        Aoi {
+            bbox: zones_bbox(&zones)?,
+            rings: Vec::new(),
+        }
+    };
     let b = &aoi.bbox;
     let index_key =
         index_alias(&req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase()).to_string();
     if RADAR_INDICES.contains(&index_key.as_str()) {
+        if !zones.is_empty() {
+            return Err(bad_request(
+                "`fields` reads the Sentinel-2 indices; send a radar index one field at a time, or as `areas`".into(),
+            ));
+        }
         return Box::pin(radar_series(req, aoi, index_key, s, started)).await;
     }
     let index = INDICES.iter().find(|i| i.key == index_key).ok_or_else(|| {
@@ -627,6 +729,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
         "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks, "reject": reject_vec,
         "buffer_m": buffer_m, "min_support": min_support,
+        "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
     }))
     .unwrap_or_default();
     if let Some(hit) = cache_hit(&cache_key) {
@@ -826,6 +929,53 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         )));
     }
 
+    // Each field's pixels on the window's lattice, scanned over its own box
+    // only. A field under the support floor is reported, not read.
+    let mut zone_px: Vec<Vec<usize>> = Vec::with_capacity(zones.len());
+    let mut fields_skipped: Vec<JsonValue> = Vec::new();
+    for z in &zones {
+        let zr: Vec<Vec<[f64; 2]>> = z
+            .rings
+            .iter()
+            .map(|ring| {
+                ring.iter()
+                    .filter_map(|[lng, lat]| {
+                        emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg)
+                            .map(|u| [u.easting, u.northing])
+                    })
+                    .collect()
+            })
+            .collect();
+        let outer = zr.first().map(Vec::as_slice).unwrap_or(&[]);
+        let (zx0, zx1, zy0, zy1) = outer.iter().fold(
+            (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
+            |(a, b, c, d), [x, y]| (a.min(*x), b.max(*x), c.min(*y), d.max(*y)),
+        );
+        let col = |x: f64| ((x - wx0) / native_m).floor().clamp(0.0, (w - 1) as f64) as u32;
+        let row = |y: f64| ((wy0 - y) / native_m).floor().clamp(0.0, (h - 1) as f64) as u32;
+        let mut px: Vec<usize> = Vec::new();
+        if !outer.is_empty() {
+            for r in row(zy1)..=row(zy0) {
+                for c in col(zx0)..=col(zx1) {
+                    let (x, y) = centre_of(r, c);
+                    if in_polygon(x, y, &zr)
+                        && (buffer_m <= 0.0 || distance_to_edge(x, y, &zr) >= buffer_m)
+                    {
+                        px.push((r * w + c) as usize);
+                    }
+                }
+            }
+        }
+        if px.len() < min_support {
+            fields_skipped.push(json!({"id": z.id, "n_px": px.len(),
+                "reason": format!("{} pixel centres, under the {min_support}-pixel support floor", px.len())}));
+            px.clear();
+        }
+        zone_px.push(px);
+    }
+    let mut field_rows: Vec<JsonValue> = Vec::new();
+    let mut zone_series: Vec<(Vec<i64>, Vec<f64>)> = vec![(Vec::new(), Vec::new()); zones.len()];
+
     // Block lattice: the window cut into blocks x blocks, each with its WGS-84
     // quad from the inverse projection of its corners.
     let block_of = |r: u32, c: u32| {
@@ -943,6 +1093,32 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             date.get(5..7).and_then(|x| x.parse().ok()).unwrap_or(1),
             date.get(8..10).and_then(|x| x.parse().ok()).unwrap_or(1),
         );
+        for (zi, px) in zone_px.iter().enumerate().filter(|(_, px)| !px.is_empty()) {
+            let mut vals: Vec<f32> = px
+                .iter()
+                .filter_map(|p| {
+                    let (va, vb) = (ga[*p], gb[*p]);
+                    (va.is_finite() && vb.is_finite() && va > 0.0 && vb > 0.0)
+                        .then(|| ((va - vb) / (va + vb)).clamp(-1.0, 1.0))
+                })
+                .collect();
+            let zs = distribution(&mut vals, px.len());
+            let cf = zs.n_clear as f64 / px.len() as f64;
+            if cf < min_clear || zs.n_clear < min_support {
+                continue;
+            }
+            field_rows.push(json!([
+                zones[zi].id,
+                date,
+                round6(zs.median),
+                round6(zs.p10),
+                round6(zs.p90),
+                zs.n_clear,
+                round6(cf)
+            ]));
+            zone_series[zi].0.push(day);
+            zone_series[zi].1.push(zs.median);
+        }
         sources.push(json!({"scene": item.id, "date": date, "a": meta_a, "b": meta_b}));
         if clear_fraction < min_clear || st.n_clear < min_support {
             excluded.push(json!({
@@ -1139,6 +1315,34 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         _ => None,
     };
 
+    let fields_block = if zones.is_empty() {
+        JsonValue::Null
+    } else {
+        let summary: Vec<JsonValue> = zones
+            .iter()
+            .zip(&zone_px)
+            .zip(&zone_series)
+            .filter(|((_, px), _)| !px.is_empty())
+            .map(|((z, px), (days, medians))| {
+                let trend = (days.len() >= MIN_TREND_SCENES)
+                    .then(|| {
+                        let t: Vec<f64> = days.iter().map(|d| *d as f64 / 365.25).collect();
+                        theil_sen_kendall(&t, medians)
+                    })
+                    .flatten()
+                    .map(|(slope, _i, _s, _z, p)| json!({"slope_per_year": round6(slope), "p_value": round6(p)}));
+                json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
+            })
+            .collect();
+        json!({
+            "columns": ["id", "date", "median", "p10", "p90", "n_clear", "clear_fraction"],
+            "rows": field_rows,
+            "summary": summary,
+            "skipped": fields_skipped,
+            "rule": "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_clear_fraction and min_support_px on its own pixels, whatever the window's clear share",
+        })
+    };
+
     // ── sign the series. ──────────────────────────────────────────────────
     let aoi_id = aoi_cid(b)?;
     let polygon_cid_v = if aoi.rings.is_empty() {
@@ -1194,6 +1398,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "excluded": excluded,
         "trend": trend,
         "anomaly": anomaly,
+        "fields": fields_block,
         "sources": sources,
     });
     let signed_at = emem_storage::server::iso8601_now();
@@ -1266,6 +1471,8 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "rule": "a block's median counts when at least half of its in-area pixels are clear",
         },
         "selection": record["selection"],
+        "polygon_cid": record["polygon_cid"],
+        "fields": record["fields"],
         "cautions": cautions,
         "derivation_cid": derivation_cid,
         "token": format!("emem:fact:{centre_cell}:{derivation_cid}"),
@@ -1973,6 +2180,7 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     min_support_px: req.min_support_px,
                     orbit: req.orbit,
                     areas: None,
+                    fields: None,
                 };
                 async move { (id, Box::pin(field_series(one, s)).await) }
             })
@@ -2066,6 +2274,27 @@ mod tests {
         assert!(twice.unwrap_err().1.message.contains("given twice"));
         let as_text = ask(w(json!({"areas": "not a list"}))).await;
         assert!(as_text.is_err());
+    }
+
+    #[test]
+    fn fields_parse_with_ids_cids_and_one_box() {
+        let sq = |x: f64| json!({"type": "Polygon", "coordinates": [[[x, 30.0], [x + 0.001, 30.0], [x + 0.001, 30.001], [x, 30.001], [x, 30.0]]]});
+        let zones =
+            parse_fields(&json!([{"id": "a", "geometry": sq(75.0)}, {"geometry": sq(75.01)}]))
+                .unwrap();
+        assert_eq!(zones[1].id, "field-2");
+        assert_eq!(zones[0].polygon_cid, polygon_cid(&sq(75.0)));
+        let b = zones_bbox(&zones).unwrap();
+        assert!(b.min_lng == 75.0 && (b.max_lng - 75.011).abs() < 1e-12);
+        assert!(parse_fields(
+            &json!([{"id": "a", "geometry": sq(75.0)}, {"id": "a", "geometry": sq(75.01)}])
+        )
+        .is_err());
+        assert!(parse_fields(&json!([])).is_err());
+        let many: Vec<JsonValue> = (0..=MAX_FIELDS)
+            .map(|_| json!({"geometry": sq(75.0)}))
+            .collect();
+        assert!(parse_fields(&JsonValue::Array(many)).is_err());
     }
 
     #[test]

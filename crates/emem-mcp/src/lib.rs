@@ -1091,6 +1091,8 @@ const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","
 "inner_buffer_m":{"type":"number","minimum":0,"maximum":60,"description":"Count a pixel only when its centre is at least this many metres inside the edge. Default 0."},
 "min_support_px":{"type":"integer","minimum":4,"maximum":30,"description":"The fewest pixels the area may hold. Default 30."},
 "orbit":{"type":"integer","description":"Radar indices only. The Sentinel-1 relative orbit to read. Default: the orbit with the most scenes."},
+"min_valid_share":{"type":"number","minimum":0.05,"maximum":1,"description":"Another name for min_clear_fraction."},
+"fields":{"type":"array","minItems":1,"maxItems":500,"items":{"type":"object","required":["geometry"],"properties":{"id":{"type":"string"},"geometry":{"type":"object"}}},"description":"Up to 500 field polygons in one window of at most 512 pixels a side, in place of `geometry`/`bbox`. Each scene is read once for all of them. The answer adds `fields`: one row per field and scene, and a summary per field with its polygon_cid and trend. Sentinel-2 indices only."},
 "areas":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"Up to 6 areas compared on one chart, in place of `geometry`/`bbox`. Each is its own signed series; the answer adds `chart_rows` (date, area, median, p10, p90, clear_fraction), sorted by date."}
 }}"#;
 
