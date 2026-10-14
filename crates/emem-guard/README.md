@@ -76,7 +76,7 @@ A third party ships a module nobody here compiled by publishing its manifest **s
 
 Diagrams: [nine doors, one decision](https://emem.dev/docs/diagrams/40-guard-checkpoints.svg) · [one verdict, in order](https://emem.dev/docs/diagrams/41-guard-verdict-path.svg) · [the chassis your DLP runs on](https://emem.dev/docs/diagrams/42-guard-dlp-chassis.svg) · [three deployments](https://emem.dev/docs/diagrams/43-guard-deployments.svg).
 
-Walk it: [emem.dev/guard](https://emem.dev/guard) is the self-host skill run end to end with the real output of each step. Self-host guide written for an agent to run unattended: [crates/emem-guard/SKILL.md](crates/emem-guard/SKILL.md), also served at `GET /v1/guard/selfhost` and as the MCP tool `emem_guard_selfhost`.
+Walk it: [emem.dev/guard](https://emem.dev/guard) is the self-host skill run end to end with the real output of each step. Self-host guide written for an agent to run unattended: [SKILL.md](SKILL.md), also served at `GET /v1/guard/selfhost` and as the MCP tool `emem_guard_selfhost`.
 
 To consult a verdict without running anything, `POST /v1/guard/verdict` on this responder answers with the same engine over the shared corpus. It is advisory and blocks nothing; the MCP tool is `emem_guard_verdict`.
 
