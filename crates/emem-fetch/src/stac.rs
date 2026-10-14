@@ -91,6 +91,14 @@ pub struct StacItem {
     /// asking again. Empty when the item carried no polygon.
     #[serde(default)]
     pub footprint: Vec<Vec<[f64; 2]>>,
+    /// `sat:relative_orbit` (Sentinel-1): the track a scene was acquired on.
+    /// Two tracks see a field from different angles, so a radar series that
+    /// mixes them shows the geometry change as if the field had changed.
+    #[serde(default)]
+    pub relative_orbit: Option<u64>,
+    /// `sat:orbit_state`, `ascending` or `descending` (Sentinel-1).
+    #[serde(default)]
+    pub orbit_state: Option<String>,
 }
 
 impl StacItem {
@@ -368,6 +376,11 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
     let sun_elevation = props.get("view:sun_elevation").and_then(|v| v.as_f64());
     let view_azimuth = props.get("view:azimuth").and_then(|v| v.as_f64());
     let view_incidence = props.get("view:incidence_angle").and_then(|v| v.as_f64());
+    let relative_orbit = props.get("sat:relative_orbit").and_then(|v| v.as_u64());
+    let orbit_state = props
+        .get("sat:orbit_state")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let mut assets = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
@@ -389,6 +402,8 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         view_azimuth,
         view_incidence,
         footprint: parse_footprint(f.get("geometry")),
+        relative_orbit,
+        orbit_state,
     }
 }
 

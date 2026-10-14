@@ -406,7 +406,7 @@ const SCHEMA_INTENT: &str = r#"{"type":"object","required":["type"],
 "geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon; or bbox {min_lat,min_lng,max_lat,max_lng}."},
 "bbox":{"type":"object"},
 "areas":{"type":"array","maxItems":6,"description":"area_over_time: up to 6 {id,geometry|bbox} on one chart"},
-"index":{"type":"string","enum":["ndvi","ndwi"]},
+"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","vv","vh","vh_vv"]},
 "start_date":{"type":"string","description":"YYYY-MM-DD"},
 "end_date":{"type":"string","description":"YYYY-MM-DD"},
 "max_scenes":{"type":"integer","minimum":3,"maximum":24},
@@ -1081,13 +1081,16 @@ const SCHEMA_TOPICS: &str = r#"{"type":"object","properties":{
 const SCHEMA_FIELD_SERIES: &str = r#"{"type":"object","required":["start_date","end_date"],"properties":{
 "geometry":{"type":"object","description":"The area as a GeoJSON Polygon (or a Feature wrapping one), WGS-84 [lng, lat]. Holes are honoured. Give this or `bbox`."},
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box, when there is no polygon."},
-"index":{"type":"string","enum":["ndvi","ndwi"],"description":"Spectral index: ndvi (B08, B04) or ndwi (B03, B08, McFeeters). Default ndvi."},
+"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","vv","vh","vh_vv"],"description":"Spectral index: ndvi (B08, B04), ndwi (B03, B08, McFeeters) or ndmi (B8A, B11, at 20 m; lswi is the same index). From Sentinel-1 radar: vv or vh backscatter in dB, or vh_vv (VH minus VV, in dB). Radar sees through cloud. Default ndvi."},
 "start_date":{"type":"string","description":"Window start YYYY-MM-DD, inclusive. Up to four years."},
 "end_date":{"type":"string","description":"Window end YYYY-MM-DD, inclusive."},
 "max_scenes":{"type":"integer","minimum":3,"maximum":24,"description":"Scenes read, evenly spaced in time over the window keeping both ends. Default 16."},
 "min_clear_fraction":{"type":"number","minimum":0.05,"maximum":1,"description":"A scene counts when at least this share of the area is clear sky. Default 0.4; scenes under it are listed in `excluded` with their share."},
 "blocks":{"type":"integer","minimum":2,"maximum":8,"description":"Map blocks per side for the per-scene frames and the change map. Default 6."},
 "mask_policy":{"type":"array","items":{"type":"integer"},"description":"SCL classes rejected per pixel. Default [0,1,3,8,9,10]; snow 11 is kept as surface."},
+"inner_buffer_m":{"type":"number","minimum":0,"maximum":60,"description":"Count a pixel only when its centre is at least this many metres inside the edge. Default 0."},
+"min_support_px":{"type":"integer","minimum":4,"maximum":30,"description":"The fewest pixels the area may hold. Default 30."},
+"orbit":{"type":"integer","description":"Radar indices only. The Sentinel-1 relative orbit to read. Default: the orbit with the most scenes."},
 "areas":{"type":"array","minItems":1,"maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"Up to 6 areas compared on one chart, in place of `geometry`/`bbox`. Each is its own signed series; the answer adds `chart_rows` (date, area, median, p10, p90, clear_fraction), sorted by date."}
 }}"#;
 

@@ -69,7 +69,7 @@ struct Index {
     reference: &'static str,
 }
 
-const INDICES: [Index; 2] = [
+const INDICES: [Index; 3] = [
     Index {
         key: "ndvi",
         a: "s2.B08",
@@ -84,7 +84,85 @@ const INDICES: [Index; 2] = [
         formula: "(B03 - B08) / (B03 + B08)",
         reference: "McFeeters 1996",
     },
+    // Canopy and surface water content. B8A, not B08, because B11 is 20 m:
+    // both bands then sit on one pixel grid and the median is per pixel.
+    // LSWI is this formula under another name (Xiao et al. 2002), and the
+    // request accepts that name.
+    Index {
+        key: "ndmi",
+        a: "s2.B8A",
+        b: "s2.B11",
+        formula: "(B8A - B11) / (B8A + B11)",
+        reference: "Gao 1996; Wilson & Sader 2002; as LSWI, Xiao et al. 2002",
+    },
 ];
+
+/// Other names a caller may use for an index.
+fn index_alias(key: &str) -> &str {
+    match key {
+        "lswi" | "ndwi_gao" => "ndmi",
+        k => k,
+    }
+}
+
+/// A polygon's identity: blake3 over the canonical CBOR of its type and its
+/// rings, each coordinate rounded to 1e-7 degrees (about 1 cm) and held as
+/// an integer, so the same outline serialised by two float formatters gets
+/// one id and a corner moved by more than a centimetre gets another. Rings
+/// keep their order and their start vertex: a rotated ring is a different
+/// id, which is said in the response rather than hidden. `aoi_cid` stays the
+/// bbox hash the receipt binds; this sits beside it.
+pub(crate) fn polygon_cid(geometry: &JsonValue) -> Option<String> {
+    let kind = geometry.get("type")?.as_str()?;
+    let q = |v: &JsonValue| -> Option<Vec<Vec<[i64; 2]>>> {
+        v.as_array()?
+            .iter()
+            .map(|ring| {
+                ring.as_array()?
+                    .iter()
+                    .map(|p| {
+                        let lng = p.get(0)?.as_f64()?;
+                        let lat = p.get(1)?.as_f64()?;
+                        Some([(lng * 1e7).round() as i64, (lat * 1e7).round() as i64])
+                    })
+                    .collect()
+            })
+            .collect()
+    };
+    let coords = geometry.get("coordinates")?;
+    let parts: Vec<Vec<Vec<[i64; 2]>>> = match kind {
+        "Polygon" => vec![q(coords)?],
+        "MultiPolygon" => coords.as_array()?.iter().map(q).collect::<Option<_>>()?,
+        _ => return None,
+    };
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(&(kind, parts), &mut buf).ok()?;
+    Some(
+        data_encoding::BASE32_NOPAD
+            .encode(blake3::hash(&buf).as_bytes())
+            .to_lowercase(),
+    )
+}
+
+/// Distance from a point to the nearest edge of any ring, in the rings' units.
+fn distance_to_edge(x: f64, y: f64, rings: &[Vec<[f64; 2]>]) -> f64 {
+    let mut best = f64::INFINITY;
+    for ring in rings {
+        for w in ring.windows(2) {
+            let ([ax, ay], [bx, by]) = (w[0], w[1]);
+            let (dx, dy) = (bx - ax, by - ay);
+            let len2 = dx * dx + dy * dy;
+            let t = if len2 > 0.0 {
+                (((x - ax) * dx + (y - ay) * dy) / len2).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
+            let (px, py) = (ax + t * dx - x, ay + t * dy - y);
+            best = best.min((px * px + py * py).sqrt());
+        }
+    }
+    best
+}
 
 #[derive(Debug, Deserialize)]
 pub struct FieldSeriesReq {
@@ -104,9 +182,23 @@ pub struct FieldSeriesReq {
     #[serde(default)]
     pub max_scenes: Option<usize>,
     /// Scenes whose clear-sky share of the area is below this are excluded,
-    /// with the share stated. Default 0.4.
-    #[serde(default)]
+    /// with the share stated. Default 0.4. `min_valid_share` is the same.
+    #[serde(default, alias = "min_valid_share")]
     pub min_clear_fraction: Option<f64>,
+    /// Count a pixel only when its centre is at least this far inside the
+    /// area's edge, in metres (0..=60). A field pipeline drops the mixed
+    /// pixels on a bund this way. Default 0.
+    #[serde(default)]
+    pub inner_buffer_m: Option<f64>,
+    /// The fewest pixels the area may hold, 4..=30. Default 30: below it a
+    /// distribution of one scene is a handful of values, and the answer says
+    /// how many it rests on either way.
+    #[serde(default)]
+    pub min_support_px: Option<usize>,
+    /// Radar indices only: the Sentinel-1 relative orbit to read. Default:
+    /// the orbit with the most scenes over the area in the window.
+    #[serde(default)]
+    pub orbit: Option<u64>,
     /// Map blocks per side, 2..=8. Default 6.
     #[serde(default)]
     pub blocks: Option<u32>,
@@ -464,16 +556,25 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let started = Instant::now();
     let aoi = parse_aoi(&req)?;
     let b = &aoi.bbox;
-    let index_key = req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase();
+    let index_key =
+        index_alias(&req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase()).to_string();
+    if RADAR_INDICES.contains(&index_key.as_str()) {
+        return Box::pin(radar_series(req, aoi, index_key, s, started)).await;
+    }
     let index = INDICES.iter().find(|i| i.key == index_key).ok_or_else(|| {
         bad_request(format!(
-            "index `{index_key}` is not served; this executor computes {}",
-            INDICES.iter().map(|i| i.key).collect::<Vec<_>>().join(", ")
+            "index `{index_key}` is not served; this executor computes {}, and from Sentinel-1 {}",
+            INDICES.iter().map(|i| i.key).collect::<Vec<_>>().join(", "),
+            RADAR_INDICES.join(", ")
         ))
     })?;
+    // B8A is read here only, for the moisture index; the raw-band surface
+    // keeps its documented six.
+    const EXTRA_BANDS: [(&str, &[&str]); 1] = [("s2.B8A", &["nir08", "B8A"])];
     let aliases_of = |band: &str| {
         S2_BANDS
             .iter()
+            .chain(EXTRA_BANDS.iter())
             .find(|(k, _)| *k == band)
             .map(|(_, a)| *a)
             .unwrap_or(&[])
@@ -502,6 +603,11 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .unwrap_or(DEFAULT_SCENES)
         .clamp(3, MAX_SCENES);
     let min_clear = req.min_clear_fraction.unwrap_or(0.4).clamp(0.05, 1.0);
+    let buffer_m = req.inner_buffer_m.unwrap_or(0.0).clamp(0.0, 60.0);
+    let min_support = req
+        .min_support_px
+        .unwrap_or(MIN_SUPPORT_PX)
+        .clamp(4, MIN_SUPPORT_PX);
     let blocks = req.blocks.unwrap_or(6).clamp(2, 8);
     let mut reject_vec = req
         .mask_policy
@@ -520,6 +626,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
         "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
         "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks, "reject": reject_vec,
+        "buffer_m": buffer_m, "min_support": min_support,
     }))
     .unwrap_or_default();
     if let Some(hit) = cache_hit(&cache_key) {
@@ -678,6 +785,21 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 .collect()
         })
         .collect();
+    // The inner buffer measures to the polygon's edges, or the box's when
+    // there is no polygon.
+    let edge_rings: Vec<Vec<[f64; 2]>> = if rings_utm.is_empty() {
+        let (x0, x1) = (
+            utm_min.easting.min(utm_max.easting),
+            utm_min.easting.max(utm_max.easting),
+        );
+        let (y0, y1) = (
+            utm_min.northing.min(utm_max.northing),
+            utm_min.northing.max(utm_max.northing),
+        );
+        vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]
+    } else {
+        rings_utm.clone()
+    };
     let npix = (w as usize) * (h as usize);
     let mut inside = vec![false; npix];
     for r in 0..h {
@@ -687,17 +809,20 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 && x <= utm_min.easting.max(utm_max.easting)
                 && y >= utm_min.northing.min(utm_max.northing)
                 && y <= utm_min.northing.max(utm_max.northing);
-            inside[(r * w + c) as usize] = if rings_utm.is_empty() {
+            let within = if rings_utm.is_empty() {
                 in_box
             } else {
                 in_polygon(x, y, &rings_utm)
             };
+            let deep = buffer_m <= 0.0 || within && distance_to_edge(x, y, &edge_rings) >= buffer_m;
+            inside[(r * w + c) as usize] = within && deep;
         }
     }
     let n_inside = inside.iter().filter(|v| **v).count();
-    if n_inside < MIN_SUPPORT_PX {
+    if n_inside < min_support {
         return Err(bad_request(format!(
-            "the area holds {n_inside} pixel centres at {native_m} m; a distribution needs at least {MIN_SUPPORT_PX}. Give a larger area."
+            "the area holds {n_inside} pixel centres at {native_m} m{}; this call needs at least {min_support}. Give a larger area, a smaller inner_buffer_m, or a lower min_support_px (4 or more).",
+            if buffer_m > 0.0 { format!(" after a {buffer_m} m inner buffer") } else { String::new() }
         )));
     }
 
@@ -819,13 +944,13 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             date.get(8..10).and_then(|x| x.parse().ok()).unwrap_or(1),
         );
         sources.push(json!({"scene": item.id, "date": date, "a": meta_a, "b": meta_b}));
-        if clear_fraction < min_clear || st.n_clear < MIN_SUPPORT_PX {
+        if clear_fraction < min_clear || st.n_clear < min_support {
             excluded.push(json!({
                 "date": date, "scene": item.id,
                 "clear_fraction": round6(clear_fraction),
                 "n_clear": st.n_clear,
-                "reason": if st.n_clear < MIN_SUPPORT_PX {
-                    format!("{} clear pixels, under the {MIN_SUPPORT_PX}-pixel support floor", st.n_clear)
+                "reason": if st.n_clear < min_support {
+                    format!("{} clear pixels, under the {min_support}-pixel support floor", st.n_clear)
                 } else {
                     format!("{:.0}% of the area clear, under the {:.0}% floor", clear_fraction * 100.0, min_clear * 100.0)
                 },
@@ -1016,11 +1141,23 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
 
     // ── sign the series. ──────────────────────────────────────────────────
     let aoi_id = aoi_cid(b)?;
+    let polygon_cid_v = if aoi.rings.is_empty() {
+        JsonValue::Null
+    } else {
+        let g = json!({"type": "Polygon", "coordinates": aoi.rings});
+        polygon_cid(&g)
+            .map(JsonValue::String)
+            .unwrap_or(JsonValue::Null)
+    };
     let estimand = json!({
         "quantity": format!("{} of the area, per Sentinel-2 overpass", index.key.to_uppercase()),
         "operator": index.formula,
         "reference": index.reference,
-        "support": format!("{native_m} m Sentinel-2 L2A pixels whose centre lies inside the area ({n_inside} pixels)"),
+        "support": if buffer_m > 0.0 {
+            format!("{native_m} m Sentinel-2 L2A pixels whose centre lies at least {buffer_m} m inside the area's edge ({n_inside} pixels)")
+        } else {
+            format!("{native_m} m Sentinel-2 L2A pixels whose centre lies inside the area ({n_inside} pixels)")
+        },
         "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
         "mask": {"reject_scl": reject_vec, "keep_snow_11": !reject.contains(&11)},
         "unit": "dimensionless, -1..1",
@@ -1033,6 +1170,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "aoi": {"bbox": {"min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng},
                 "polygon": if aoi.rings.is_empty() { JsonValue::Null } else { json!(aoi.rings) }},
         "aoi_cid": aoi_id,
+        "polygon_cid": polygon_cid_v,
         "index": index.key,
         "estimand": estimand,
         "window": {"start": req.start_date, "end": req.end_date, "days": window_days},
@@ -1044,7 +1182,8 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "scene_max_cloud_pct": CANDIDATE_MAX_CLOUD,
             "epsg": epsg,
             "min_clear_fraction": min_clear,
-            "min_support_px": MIN_SUPPORT_PX,
+            "min_support_px": min_support,
+            "inner_buffer_m": buffer_m,
         },
         // The window's north-west corner in the CRS: with width, height and
         // the step it fixes every pixel and every block quad, so the map
@@ -1138,6 +1277,400 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "ttl_s": cache_ttl_secs(),
             "_means": "a repeat of this exact request inside ttl_s returns this same signed series; a scene acquired since computed_at appears after it expires",
         },
+    });
+    cache_put(cache_key, out.clone());
+    Ok(out)
+}
+
+/// Sentinel-1 indices: VV or VH backscatter in dB, or VH minus VV in dB.
+const RADAR_INDICES: [&str; 3] = ["vv", "vh", "vh_vv"];
+const RADAR_FN_KEY: &str = "s1_rtc_series@1";
+
+/// A Sentinel-1 series over the area: one relative orbit, each scene's
+/// gamma-naught backscatter (RTC, Planetary Computer) in dB, summarised over
+/// the area's pixels like the optical series. One orbit because two tracks
+/// see a field at two incidence angles, and a series that mixes them shows
+/// the geometry change as a change in the field. Radar sees through the
+/// monsoon cloud that empties a kharif optical series, which is why it is
+/// here.
+async fn radar_series(
+    req: FieldSeriesReq,
+    aoi: Aoi,
+    index_key: String,
+    s: &AppState,
+    started: Instant,
+) -> Result<JsonValue, ApiError> {
+    let b = &aoi.bbox;
+    let (sy, sm, sd) = parse_ymd(&req.start_date)
+        .ok_or_else(|| bad_request(format!("start_date `{}` is not YYYY-MM-DD", req.start_date)))?;
+    let (ey, em, ed) = parse_ymd(&req.end_date)
+        .ok_or_else(|| bad_request(format!("end_date `{}` is not YYYY-MM-DD", req.end_date)))?;
+    let (start_day, end_day) = (
+        crate::days_from_civil(sy, sm, sd),
+        crate::days_from_civil(ey, em, ed),
+    );
+    if start_day > end_day || end_day - start_day > MAX_WINDOW_DAYS {
+        return Err(bad_request(format!(
+            "the window must run forward and span at most {MAX_WINDOW_DAYS} days"
+        )));
+    }
+    let max_scenes = req
+        .max_scenes
+        .unwrap_or(DEFAULT_SCENES)
+        .clamp(3, MAX_SCENES);
+    let buffer_m = req.inner_buffer_m.unwrap_or(0.0).clamp(0.0, 60.0);
+    let min_support = req
+        .min_support_px
+        .unwrap_or(MIN_SUPPORT_PX)
+        .clamp(4, MIN_SUPPORT_PX);
+    let min_valid = req.min_clear_fraction.unwrap_or(0.4).clamp(0.05, 1.0);
+    let cache_key = serde_json::to_string(&json!({
+        "radar": index_key, "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng], "rings": aoi.rings,
+        "start": req.start_date, "end": req.end_date, "max_scenes": max_scenes, "orbit": req.orbit,
+        "buffer_m": buffer_m, "min_support": min_support, "min_valid": min_valid,
+    }))
+    .unwrap_or_default();
+    if let Some(hit) = cache_hit(&cache_key) {
+        return Ok(hit);
+    }
+    let gate = inflight_gate(&cache_key);
+    let _held = gate.lock().await;
+    if let Some(hit) = cache_hit(&cache_key) {
+        return Ok(hit);
+    }
+
+    let cli = crate::s2_http_client();
+    let (found, _more) = emem_fetch::stac::search_bbox_at(
+        &cli,
+        emem_fetch::stac::STAC_MPC_V1,
+        "sentinel-1-rtc",
+        [b.min_lng, b.min_lat, b.max_lng, b.max_lat],
+        &format!("{}T00:00:00Z/{}T23:59:59Z", req.start_date, req.end_date),
+        None,
+        400,
+    )
+    .await
+    .map_err(|e| upstream_error(format!("sentinel-1 search: {e}")))?;
+    let has_pols = |it: &&emem_fetch::stac::StacItem| {
+        (it.assets.contains_key("vv") || it.assets.contains_key("VV"))
+            && (it.assets.contains_key("vh") || it.assets.contains_key("VH"))
+    };
+    let usable: Vec<&emem_fetch::stac::StacItem> = found.iter().filter(has_pols).collect();
+    let mut by_orbit: std::collections::BTreeMap<u64, usize> = Default::default();
+    for it in &usable {
+        if let Some(o) = it.relative_orbit {
+            *by_orbit.entry(o).or_default() += 1;
+        }
+    }
+    let orbit = match req.orbit {
+        Some(o) => o,
+        None => by_orbit
+            .iter()
+            .max_by(|a, b| a.1.cmp(b.1).then(b.0.cmp(a.0)))
+            .map(|(o, _)| *o)
+            .ok_or_else(|| {
+                upstream_error("no Sentinel-1 RTC scene with VV and VH and a relative orbit covers this area in the window".into())
+            })?,
+    };
+    // One scene per date on the orbit, oldest first.
+    let mut on_orbit: Vec<&emem_fetch::stac::StacItem> = usable
+        .into_iter()
+        .filter(|it| it.relative_orbit == Some(orbit))
+        .collect();
+    on_orbit.sort_by(|a, b| a.datetime.cmp(&b.datetime));
+    on_orbit.dedup_by(|a, b| a.datetime.get(..10) == b.datetime.get(..10));
+    if on_orbit.is_empty() {
+        return Err(bad_request(format!(
+            "relative orbit {orbit} has no scene over this area in the window; orbits seen: {by_orbit:?}"
+        )));
+    }
+    let picked: Vec<&emem_fetch::stac::StacItem> = spread(on_orbit.len(), max_scenes)
+        .into_iter()
+        .map(|i| on_orbit[i])
+        .collect();
+    let sas = emem_fetch::stac::mpc_sas_token(&cli, "sentinel-1-rtc")
+        .await
+        .map_err(|e| upstream_error(format!("planetary computer sas: {e}")))?;
+    let signed = |raw: &str| format!("{raw}{}{sas}", if raw.contains('?') { '&' } else { '?' });
+    let asset = |it: &emem_fetch::stac::StacItem, k: &str| {
+        it.assets
+            .get(k)
+            .or_else(|| it.assets.get(&k.to_uppercase()))
+            .cloned()
+    };
+
+    // The lattice, from the newest picked scene.
+    let anchor = *picked
+        .last()
+        .ok_or_else(|| upstream_error("no scene picked".into()))?;
+    let epsg = anchor
+        .epsg
+        .ok_or_else(|| upstream_error("scene has no proj:epsg".into()))?;
+    let anchor_url = signed(&asset(anchor, "vv").unwrap_or_default());
+    let prof = emem_fetch::cog::open_profile(&cli, &anchor_url)
+        .await
+        .map_err(|e| upstream_error(format!("open anchor COG: {e}")))?;
+    let native_m = prof.pixel_scale.0.abs();
+    let to_utm = |lat: f64, lng: f64| {
+        emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
+            .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))
+    };
+    let (centre_lat, centre_lng) = ((b.min_lat + b.max_lat) / 2.0, (b.min_lng + b.max_lng) / 2.0);
+    let utm_c = to_utm(centre_lat, centre_lng)?;
+    let utm_min = to_utm(b.min_lat, b.min_lng)?;
+    let utm_max = to_utm(b.max_lat, b.max_lng)?;
+    let w = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
+    let h = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    if w > MAX_SIDE_PX || h > MAX_SIDE_PX {
+        return Err(bad_request(format!(
+            "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
+        )));
+    }
+    let (cc, cr) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
+    let (wx0, wy0) = prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2);
+    let rings_utm: Vec<Vec<[f64; 2]>> = aoi
+        .rings
+        .iter()
+        .map(|ring| {
+            ring.iter()
+                .filter_map(|[lng, lat]| {
+                    emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg)
+                        .map(|u| [u.easting, u.northing])
+                })
+                .collect()
+        })
+        .collect();
+    let (x0, x1) = (
+        utm_min.easting.min(utm_max.easting),
+        utm_min.easting.max(utm_max.easting),
+    );
+    let (y0, y1) = (
+        utm_min.northing.min(utm_max.northing),
+        utm_min.northing.max(utm_max.northing),
+    );
+    let edge_rings = if rings_utm.is_empty() {
+        vec![vec![[x0, y0], [x1, y0], [x1, y1], [x0, y1], [x0, y0]]]
+    } else {
+        rings_utm.clone()
+    };
+    let mut inside = vec![false; (w * h) as usize];
+    for r in 0..h {
+        for c in 0..w {
+            let (x, y) = (
+                wx0 + (c as f64 + 0.5) * native_m,
+                wy0 - (r as f64 + 0.5) * native_m,
+            );
+            let within = if rings_utm.is_empty() {
+                x >= x0 && x <= x1 && y >= y0 && y <= y1
+            } else {
+                in_polygon(x, y, &rings_utm)
+            };
+            inside[(r * w + c) as usize] =
+                within && (buffer_m <= 0.0 || distance_to_edge(x, y, &edge_rings) >= buffer_m);
+        }
+    }
+    let n_inside = inside.iter().filter(|v| **v).count();
+    if n_inside < min_support {
+        return Err(bad_request(format!(
+            "the area holds {n_inside} pixel centres at {native_m} m; this call needs at least {min_support}. Give a larger area, a smaller inner_buffer_m, or a lower min_support_px (4 or more)."
+        )));
+    }
+
+    let mut rows: Vec<JsonValue> = Vec::new();
+    let mut excluded: Vec<JsonValue> = Vec::new();
+    let mut sources: Vec<JsonValue> = Vec::new();
+    let (mut kept_days, mut kept_medians) = (Vec::new(), Vec::new());
+    for it in &picked {
+        let date = it.datetime.get(..10).unwrap_or("").to_string();
+        if it.epsg != Some(epsg) {
+            excluded.push(json!({"date": date, "scene": it.id, "reason": format!("scene is in EPSG {:?}, the series lattice in {epsg}", it.epsg)}));
+            continue;
+        }
+        let read = |k: &'static str| {
+            let url = asset(it, k).map(|u| signed(&u));
+            let cli = &cli;
+            async move {
+                let url = url?;
+                let p = emem_fetch::cog::open_profile(cli, &url).await.ok()?;
+                emem_fetch::cog::sample_window(cli, &url, &p, utm_c.easting, utm_c.northing, w, h)
+                    .await
+                    .ok()
+            }
+        };
+        let (vv, vh) = futures_util::future::join(read("vv"), read("vh")).await;
+        let (Some(vv), Some(vh)) = (vv, vh) else {
+            excluded.push(json!({"date": date, "scene": it.id, "reason": "unreadable: a polarisation could not be read on this lattice"}));
+            continue;
+        };
+        let db = |x: f64| {
+            if x.is_finite() && x > 0.0 {
+                Some(10.0 * x.log10())
+            } else {
+                None
+            }
+        };
+        let mut vals: Vec<f32> = Vec::new();
+        for (p, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
+            let (a, c) = (
+                vv.get(p).copied().and_then(db),
+                vh.get(p).copied().and_then(db),
+            );
+            let v = match index_key.as_str() {
+                "vv" => a,
+                "vh" => c,
+                _ => a.zip(c).map(|(a, c)| c - a),
+            };
+            if let Some(v) = v {
+                vals.push(v as f32);
+            }
+        }
+        let valid_fraction = vals.len() as f64 / n_inside as f64;
+        if vals.len() < min_support || valid_fraction < min_valid {
+            excluded.push(json!({"date": date, "scene": it.id, "valid_fraction": round6(valid_fraction),
+                "reason": format!("{} valid pixels of {n_inside}: under the floor of {min_support} pixels or the {min_valid} share", vals.len())}));
+            continue;
+        }
+        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let n = vals.len() as f64;
+        let mean = vals.iter().map(|v| *v as f64).sum::<f64>() / n;
+        let std = (vals.iter().map(|v| (*v as f64 - mean).powi(2)).sum::<f64>()
+            / (n - 1.0).max(1.0))
+        .sqrt();
+        let median = quantile(&vals, 0.5);
+        rows.push(json!({
+            "date": date, "scene": it.id, "orbit": orbit, "orbit_state": it.orbit_state,
+            "median": round6(median), "p10": round6(quantile(&vals, 0.1)), "p25": round6(quantile(&vals, 0.25)),
+            "p75": round6(quantile(&vals, 0.75)), "p90": round6(quantile(&vals, 0.9)),
+            "mean": round6(mean), "std": round6(std), "n_valid": vals.len(), "valid_fraction": round6(valid_fraction),
+        }));
+        if let Some((y, m, d)) = parse_ymd(&date) {
+            kept_days.push(crate::days_from_civil(y, m, d));
+            kept_medians.push(median);
+        }
+        sources.push(
+            json!({"scene": it.id, "date": date, "vv": asset(it, "vv"), "vh": asset(it, "vh")}),
+        );
+    }
+    let trend = if rows.len() >= MIN_TREND_SCENES {
+        let t: Vec<f64> = kept_days.iter().map(|d| *d as f64 / 365.25).collect();
+        theil_sen_kendall(&t, &kept_medians).map(|(slope, _i, s_, z, p)| {
+            json!({"method": "Theil-Sen slope of the per-scene median (dB per year); Kendall S, two-sided",
+                   "slope_per_year": round6(slope), "kendall_s": s_, "z": round6(z), "p_value": round6(p),
+                   "n": rows.len(), "seasonal_cycle_removed": false})
+        })
+    } else {
+        None
+    };
+    let (unit, quantity, operator) = match index_key.as_str() {
+        "vv" => ("dB", "VV backscatter of the area", "10 log10(gamma0_VV)"),
+        "vh" => ("dB", "VH backscatter of the area", "10 log10(gamma0_VH)"),
+        _ => (
+            "dB",
+            "VH minus VV of the area (the cross-polarisation ratio)",
+            "10 log10(gamma0_VH) - 10 log10(gamma0_VV)",
+        ),
+    };
+    let aoi_id = aoi_cid(b)?;
+    let polygon_cid_v = if aoi.rings.is_empty() {
+        JsonValue::Null
+    } else {
+        polygon_cid(&json!({"type": "Polygon", "coordinates": aoi.rings}))
+            .map(JsonValue::String)
+            .unwrap_or(JsonValue::Null)
+    };
+    let estimand = json!({
+        "quantity": format!("{quantity}, per Sentinel-1 overpass on one relative orbit"),
+        "operator": operator,
+        "source": "Sentinel-1 RTC (radiometrically terrain corrected gamma-naught), Microsoft Planetary Computer sentinel-1-rtc",
+        "support": format!("{native_m} m pixels whose centre lies {}inside the area ({n_inside} pixels); each scene read on its own grid, centred on the area, so pixels align within one pixel",
+            if buffer_m > 0.0 { format!("at least {buffer_m} m ") } else { String::new() }),
+        "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over valid pixels (positive, finite backscatter), plus mean and sample std, in dB",
+        "unit": unit,
+        "known_bias": "speckle: a median over few pixels still varies by about 1 dB between scenes; wet soil and standing water lower VV, and a closing canopy raises VH",
+    });
+    let record = json!({
+        "schema": "emem.field_series.v1", "fn_key": RADAR_FN_KEY,
+        "aoi": {"bbox": {"min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng},
+                "polygon": if aoi.rings.is_empty() { JsonValue::Null } else { json!(aoi.rings) }},
+        "aoi_cid": aoi_id, "polygon_cid": polygon_cid_v, "index": index_key, "estimand": estimand,
+        "window": {"start": req.start_date, "end": req.end_date, "days": end_day - start_day},
+        "selection": {
+            "rule": "scenes with VV and VH on one relative orbit (the caller's, or the one with the most scenes), one per date, then up to max_scenes evenly spaced in time keeping both ends",
+            "orbit": orbit, "orbits_seen": by_orbit, "max_scenes": max_scenes, "epsg": epsg,
+            "min_valid_share": min_valid, "min_support_px": min_support, "inner_buffer_m": buffer_m,
+        },
+        "grid": {"width": w, "height": h, "native_m": native_m, "epsg": epsg, "x0": wx0, "y0": wy0},
+        "rows": rows, "excluded": excluded, "trend": trend, "sources": sources,
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.series".to_string(),
+        tslot_window: [
+            kept_days.first().copied().unwrap_or(start_day).max(0) as u64,
+            kept_days.last().copied().unwrap_or(end_day).max(0) as u64,
+        ],
+        op: "index_series".to_string(),
+        parents: vec![],
+        value: json_to_cbor(&record),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: RADAR_FN_KEY.to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("series attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the series".into()))?;
+    let receipt = s.sign_receipt_field(
+        "emem.field_series",
+        vec![centre_cell.clone()],
+        vec![FactCid::new(derivation_cid.clone())],
+        false,
+        started,
+        FieldBinding {
+            aoi_cid: aoi_id.clone(),
+            derivation_cid: derivation_cid.clone(),
+        },
+    );
+    let mut cautions: Vec<String> = Vec::new();
+    if by_orbit.len() > 1 {
+        cautions.push(format!("{} orbits cover this area; this series reads orbit {orbit} only. Pass `orbit` to read another, and never join two orbits in one line.", by_orbit.len()));
+    }
+    if n_inside < 30 {
+        cautions.push(format!("{n_inside} pixels: speckle leaves about 1 dB of scatter between scenes at this size, so read a change under 2 dB as noise."));
+    }
+    let out = json!({
+        "schema": "emem.field_series.v1", "algorithm_key": RADAR_FN_KEY, "index": index_key,
+        "estimand": record["estimand"], "window": record["window"],
+        "columns": ["date", "orbit", "median", "p10", "p25", "p75", "p90", "mean", "std", "n_valid", "valid_fraction"],
+        "rows": record["rows"], "excluded": record["excluded"], "trend": record["trend"],
+        "selection": record["selection"], "polygon_cid": record["polygon_cid"], "cautions": cautions,
+        "derivation_cid": derivation_cid, "token": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        "reproducibility": "every scene id, asset, orbit and the pixel rule are pinned in the signed record; re-reading those scenes gives the same rows",
+        "receipt": receipt,
+        "cache": {"hit": false, "computed_at": emem_storage::server::iso8601_now(), "ttl_s": cache_ttl_secs()},
     });
     cache_put(cache_key, out.clone());
     Ok(out)
@@ -1436,6 +1969,9 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     min_clear_fraction: req.min_clear_fraction,
                     blocks: req.blocks,
                     mask_policy: req.mask_policy.clone(),
+                    inner_buffer_m: req.inner_buffer_m,
+                    min_support_px: req.min_support_px,
+                    orbit: req.orbit,
                     areas: None,
                 };
                 async move { (id, Box::pin(field_series(one, s)).await) }
@@ -1450,11 +1986,16 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
         match r {
             Ok(mut v) => {
                 for row in v["rows"].as_array().into_iter().flatten() {
-                    chart_rows.push(json!({
+                    let mut c = json!({
                         "date": row["date"], "area": id,
                         "median": row["median"], "p10": row["p10"], "p90": row["p90"],
                         "clear_fraction": row["clear_fraction"], "quality": row["quality"],
-                    }));
+                    });
+                    // Radar has no sky to be clear; its rows carry the share of valid pixels.
+                    if let (Some(o), Some(vf)) = (c.as_object_mut(), row.get("valid_fraction")) {
+                        o.insert("valid_fraction".into(), vf.clone());
+                    }
+                    chart_rows.push(c);
                 }
                 if let Some(o) = v.as_object_mut() {
                     o.insert("id".into(), json!(id));
@@ -1528,6 +2069,14 @@ mod tests {
     }
 
     #[test]
+    fn radar_indices_do_not_shadow_an_optical_index() {
+        for k in RADAR_INDICES {
+            assert_eq!(index_alias(k), k);
+            assert!(INDICES.iter().all(|i| i.key != k));
+        }
+    }
+
+    #[test]
     fn the_mcp_answer_for_several_areas_keeps_chart_rows_once() {
         let area = |id: &str| {
             json!({"id": id, "ok": true, "token": format!("emem:fact:{id}"),
@@ -1546,6 +2095,40 @@ mod tests {
         assert_eq!(p["areas"][1]["token"], json!("emem:fact:b"));
         assert_eq!(p["areas"][2]["error"], json!("no scene"));
         assert_eq!(p["chart_rows"][0]["median"], json!(0.5123));
+    }
+
+    #[test]
+    fn a_polygon_keeps_its_id_across_float_spellings_and_loses_it_when_moved() {
+        let a = json!({"type": "Polygon", "coordinates": [[[75.739, 30.9505], [75.7403, 30.9505], [75.7403, 30.9495], [75.739, 30.9505]]]});
+        let same = json!({"type": "Polygon", "coordinates": [[[75.73900000001, 30.9505], [75.7403, 30.95050000002], [75.7403, 30.9495], [75.739, 30.9505]]]});
+        let moved = json!({"type": "Polygon", "coordinates": [[[75.7391, 30.9505], [75.7403, 30.9505], [75.7403, 30.9495], [75.7391, 30.9505]]]});
+        let id = polygon_cid(&a).unwrap();
+        assert_eq!(id.len(), 52);
+        assert_eq!(polygon_cid(&same).unwrap(), id);
+        assert_ne!(polygon_cid(&moved).unwrap(), id);
+        assert!(polygon_cid(&json!({"type": "Point", "coordinates": [1, 2]})).is_none());
+    }
+
+    #[test]
+    fn the_inner_buffer_measures_to_the_nearest_edge() {
+        let square = vec![vec![
+            [0.0, 0.0],
+            [100.0, 0.0],
+            [100.0, 100.0],
+            [0.0, 100.0],
+            [0.0, 0.0],
+        ]];
+        assert!((distance_to_edge(50.0, 50.0, &square) - 50.0).abs() < 1e-9);
+        assert!((distance_to_edge(3.0, 40.0, &square) - 3.0).abs() < 1e-9);
+        assert!((distance_to_edge(50.0, 98.0, &square) - 2.0).abs() < 1e-9);
+        assert_eq!(index_alias("lswi"), "ndmi");
+        assert_eq!(index_alias("ndvi"), "ndvi");
+        let ndmi = INDICES.iter().find(|i| i.key == "ndmi").unwrap();
+        assert_eq!(
+            (ndmi.a, ndmi.b),
+            ("s2.B8A", "s2.B11"),
+            "both bands on the 20 m grid"
+        );
     }
 
     #[test]
