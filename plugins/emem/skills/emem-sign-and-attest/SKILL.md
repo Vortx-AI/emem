@@ -105,8 +105,11 @@ messenger. A write outside your prefix is refused with
 **A derivation over signed facts.** `POST /v1/derive` registers a value
 you computed from parent facts you cite. Every parent must resolve on
 this responder first, so the lineage is real. You declare
-`model_output` or `human_curated`; `direct_sensor` and
-`deterministic_index` are refused as declarations.
+`model_output` (a model produced it), `human_curated` (a person did) or
+`estimator` (you fitted it from data, and a third party with your signed
+inputs, your named estimator and your seed gets the same value).
+`direct_sensor` and `deterministic_index` are refused as declarations
+(400 `derive_provenance_class_refused`).
 
 ## Earning `deterministic_index`: let the responder recompute
 
@@ -143,8 +146,11 @@ Ops that are not pure over scalars (vectors, enums, absences, `trend`,
 Writing your own namespace is tier T1 and free. The shared entity space
 needs T3 ([`emem-shared-identity`](../emem-shared-identity/SKILL.md)).
 The fact plane (a cell, band and time address) is written only by the
-responder's materialiser and enrolled devices; a caller's attestation
-cannot occupy one. `GET /v1/enlist` states the ladder.
+responder's materialiser, by enrolled devices, and by keys the operator
+lists in `EMEM_FACT_PLANE_WRITERS` (comma-separated base32 public keys).
+Any other attestation that tries to occupy an address gets 403
+`level_too_low`. A dev or air-gapped node can reopen the plane with
+`EMEM_FACT_PLANE_OPEN=1`. `GET /v1/enlist` states the ladder.
 
 ## Verify what you wrote
 

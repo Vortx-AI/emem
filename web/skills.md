@@ -303,9 +303,10 @@ curl -sf -X POST $BASE/v1/recall_many -H 'content-type: application/json' \
 ## 6. `area-recall`: recall across an area
 
 `POST /v1/recall_polygon` samples cells inside an area and recalls the
-bands at each. Pass `place` (free text) or `polygon_bbox` (an object
-with named corners; arrays are refused), optionally with
-`polygon_geojson` to mask to a real boundary. Returns `by_cell`,
+bands at each. Pass `place` (free text), `polygon_bbox` (an object
+with named corners; arrays are refused) or `polygon_geojson`. A polygon
+alone sets the area and masks the sample to its boundary; `geojson` and
+`geometry_geojson` are aliases. Returns `by_cell`,
 `cells_sampled`, `coverage_fraction`, `area_km2` and per-cell receipts.
 
 ```sh
@@ -396,6 +397,16 @@ A cold plot can take minutes: warm it with a recall of
 `forest_change.treecover2000` on one cell first. The schema is at
 `GET /v1/schemas/eudr_dds.json`; the plugin's `emem-eudr-due-diligence`
 skill walks the response.
+
+Every sampled cell's facts are stored. Each plot's `per_cell_rows_cid`
+is blake3 hex over one line per cell,
+`<cell>|<verdict>|<fact_cids joined by ,>\n`. Send
+`per_cell_detail: "anchor"` to leave the rows out and keep the cid, or
+`rows` (default) to inline them. Page the rows with `per_cell_offset`
+and follow `per_cell_next_offset` until it is `null`. Coverage is
+`sampled_polygon_fraction`, never a count of rows. Read the top-level
+`statement_of_compliance_signable` before you offer a statement for
+signature.
 
 ---
 
@@ -500,6 +511,34 @@ Draw one line per area. Areas have their own scene dates, so do not join them
 on date. Over MCP, `emem_intent {type: "area_over_time", areas, start_date,
 end_date}` takes the same list, and a dashboard card can call it as its live
 query.
+
+**Indices.** `index` is `ndvi` (default), `ndwi`, `ndmi` (`lswi` is an
+alias), or `evi`, all from Sentinel-2. `vv`, `vh` and `vh_vv` read
+Sentinel-1 backscatter in dB on one relative orbit. Pass `orbit` to pick
+it; the default is the orbit with the most scenes. Never join two orbits
+in one line. A radar row has no `clear_fraction`. It carries `mean` (10
+log10 of the mean linear power), `se_db`, `pixel_enl`,
+`below_nesz_share`, `bright_rejected`, `n_valid` and `valid_fraction`,
+and the trend is on `median`.
+
+**Pixel rules.** `inner_buffer_m` (0 to 60, default 0) counts a pixel
+only when its centre is that far inside the edge. `min_support_px` (4 to
+30, default 30) is the fewest pixels a scene may rest on. Each answer
+carries `polygon_cid`, an id over the outline rounded to about 1 cm,
+beside `aoi_cid`, the bbox hash the receipt binds.
+
+**Many fields in one window.** Send `fields: [{id, geometry}]`, up to
+500, in place of `geometry`. Each scene is read once over the fields'
+joint box, which must fit in 512 px a side. The `fields` block has one
+row per field and scene.
+
+**Scene check (optical only).** A scene the cloud mask passed, but both
+neighbouring scenes refute in the same direction, gets
+`quality: "suspect"` and a `scene_check` object. It stays in the rows
+and is left out of the trend. In a `fields` answer the rows get a
+`suspect` column, and `suspect_dates` lists the dates where a large
+share of the fields failed the check. Radar takes no scene check,
+because a sudden drop there is often a flood.
 
 For one cell's stored readings, `POST /v1/trajectory` returns rows with
 `slot_start`, `value` and an `emem:fact:` `token` per point. Over MCP both are

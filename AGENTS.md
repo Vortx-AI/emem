@@ -38,7 +38,7 @@ for agents editing the source.
 
 Rust workspace, 19 crates, version 2.4.3, MSRV 1.91. `emem-guard` is the verdict server for AI inference checkpoints (Anthropic Inference hooks, Claude Code hooks); it is a separate binary and shares no code path with the responder. The bulk of the code
 lives in `crates/emem-api-rest/src/lib.rs` (HTTP/MCP router plus every inline materializer) and
-`crates/emem-fetch/src/*.rs` (27 data connectors + 7 utility modules).
+`crates/emem-fetch/src/*.rs` (27 data connectors + 8 utility modules).
 Earlier versions ran Clay, Prithvi, Galileo and JEPA-v2 on a GPU sidecar;
 facts they signed still verify. Web surface in `web/` is plain HTML, no build step, included via
 `include_str!`.
@@ -49,15 +49,24 @@ facts they signed still verify. Web surface in `web/` is plain HTML, no build st
 # Full workspace, debug
 cargo build --workspace
 
-# Production binary (what /home/ubuntu/.config/systemd/user/emem-server.service runs)
+# Release binary, for a local or self-hosted node
 cargo build --release --bin emem-server
-
-# After release rebuild on systems that need port 443 binding:
-sudo setcap 'cap_net_bind_service=+ep' target/release/emem-server
-systemctl --user restart emem-server.service
 ```
 
-`scripts/redeploy.sh` does build + setcap + restart in one shot.
+Production (emem.dev) does not run a binary built on the host. It runs a
+container under the system unit `/etc/systemd/system/emem-server.service`,
+which starts the image with `docker run`. To deploy:
+
+1. Push the commit to `main`.
+2. Wait for the `publish` workflow (`.github/workflows/publish.yml`) to
+   finish with success. It builds and pushes the image.
+3. Run `/home/ubuntu/emem-ops/pending_deploy.sh <new7> <good7>`. Both
+   arguments are 7-character commit shas: the new one, and the last good
+   one to roll back to.
+
+Do not use `scripts/redeploy.sh` on the production host. It builds on the
+host and restarts a user unit that production no longer uses. It is only
+for a node that runs the binary directly.
 
 ## Test
 
@@ -72,8 +81,9 @@ cargo test --workspace --test live_cog_fetch
 ```
 
 Unit tests live inline in `src/` next to the code they cover (`#[cfg(test)] mod tests`).
-Crate-level integration tests live under `crates/<crate>/tests/`. Only two
-crates have those today: `emem-fact` (round-trip) and `emem-fetch` (live COG fetch).
+Crate-level integration tests live under `crates/<crate>/tests/`. Five
+crates have those today: `emem-airgap`, `emem-fact` (round-trip),
+`emem-fetch` (live COG fetch), `emem-primitives` and `emem-trace`.
 
 ## Lint + format
 
@@ -83,8 +93,9 @@ cargo fmt --all --check                                          # CI gate
 cargo clippy --workspace --all-targets -- -D warnings            # CI gate
 ```
 
-Both gates run in `.github/workflows/ci.yml` against Linux + macOS, plus
-an MSRV 1.91 build job. Don't ship a commit that fails either: the CI
+Both gates run in `.github/workflows/ci.yml` on Linux. Only the
+`test` job runs on Linux and macOS. There is also an MSRV 1.91 build
+job. Don't ship a commit that fails either: the CI
 will reject it and the next agent will have to figure out why.
 
 Two hard-won specifics. CI pins `dtolnay/rust-toolchain@stable`, so the
@@ -98,7 +109,10 @@ what you missed.
 
 ## Code style
 
-- **No `unsafe`.** Every crate carries `#![forbid(unsafe_code)]` at the top.
+- **No `unsafe`.** Every crate carries `#![forbid(unsafe_code)]` at the top,
+  except three that do not yet: `emem-airgap`, `emem-scorecard` and
+  `emem-sleep-agent`. They use no `unsafe`; add the attribute when you
+  next edit them.
 - **No `unwrap()` on user-facing paths.** Use `?` with structured errors;
   the `MaterializeMiss` / `CidNotFound` types are designed to surface
   honest gaps without panicking. `unwrap()` is fine inside tests.
@@ -148,12 +162,12 @@ hook fails, fix the underlying issue.
 |---|---|
 | HTTP/MCP router, route registrations | `crates/emem-api-rest/src/lib.rs` |
 | Inline materializers | `crates/emem-api-rest/src/lib.rs` (search `^async fn materialize_`) |
-| Open-data connectors | `crates/emem-fetch/src/*.rs` (27 data modules + 7 utility) |
+| Open-data connectors | `crates/emem-fetch/src/*.rs` (27 data modules + 8 utility) |
 | Receipt signing + preimage | `crates/emem-storage/src/server.rs::sign_receipt` |
 | Canonical CBOR + FactCid | `crates/emem-fact/src/{cbor,cid}.rs` |
 | Cell64 / tslot / alphabet | `crates/emem-codec/src/` |
 | Merkle log + per-fact proofs | `crates/emem-storage/src/{merkle_log,server}.rs` |
-| Registries (8 manifests) | `crates/emem-core/data/*.json` + `src/` |
+| Registries (10 manifest digests, `GET /v1/manifests`) | `crates/emem-core/data/*.json` + `src/` |
 | MCP tool registry (115 tools) | `crates/emem-mcp/src/lib.rs` |
 | Read primitives | `crates/emem-primitives/src/*.rs` |
 | Hunter and corpus-audit classifiers for /v1/ask | `crates/emem-api-rest/src/ask_foundation.rs` |

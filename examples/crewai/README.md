@@ -19,7 +19,7 @@ python emem_mcp_geospatial_agent.py
 
 ## What it does
 
-1. Connects to `https://emem.dev/mcp` via Streamable HTTP using
+1. Connects to `https://emem.dev/mcp/full` via Streamable HTTP using
    `crewai_tools.MCPServerAdapter`.
 2. Auto-discovers all emem MCP tools (`emem_locate`, `emem_recall`,
    `emem_eudr_dds`, `emem_verify_receipt`, …).

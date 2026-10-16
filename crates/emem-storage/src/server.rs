@@ -560,6 +560,91 @@ impl Server {
 
 /// ISO 8601 UTC timestamp like `2026-04-26T13:55:00Z`. Computed without a
 /// chrono dependency using the Howard Hinnant civil-from-days algorithm.
+/// The 32 bytes a receipt's signature covers, rebuilt from the receipt alone
+/// under the rule its own `preimage_version` names: v2, v1, or the legacy v0
+/// stream for receipts that carry no version. Every verifier calls this one
+/// function. The CLI kept its own copy of the v0 stream and rejected every
+/// receipt signed after v1 shipped, which is what copies of a preimage do.
+pub fn receipt_message(r: &Receipt) -> [u8; 32] {
+    let scope_hex = r
+        .scope
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.blake3_hex());
+    let as_of_hex = r
+        .as_of
+        .as_ref()
+        .filter(|a| !a.is_unbounded())
+        .map(|a| a.blake3_hex());
+    let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
+    let manifest_hex = if r.source_versions.is_empty() {
+        None
+    } else {
+        let mut buf = Vec::with_capacity(128);
+        let _ = ciborium::into_writer(&r.source_versions, &mut buf);
+        Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
+    };
+    let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
+    if r.preimage_version >= emem_attest::PREIMAGE_V2 {
+        let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
+            r.merkle_proof
+                .as_ref()
+                .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
+        ));
+        emem_attest::receipt_preimage_v2(
+            &r.request_id,
+            &r.served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex.as_deref(),
+            field_hex.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+            &merkle_hex,
+        )
+    } else if r.preimage_version >= emem_attest::PREIMAGE_V1 {
+        emem_attest::receipt_preimage_v1(
+            &r.request_id,
+            &r.served_at,
+            scope_hex.as_deref(),
+            as_of_hex.as_deref(),
+            edges_hex.as_deref(),
+            manifest_hex.as_deref(),
+            field_hex.as_deref(),
+            &r.primitive,
+            r.cells.iter().map(|s| s.as_str()),
+            r.fact_cids.iter().map(|c| c.as_str()),
+        )
+    } else {
+        let mut h = blake3::Hasher::new();
+        h.update(r.request_id.as_bytes());
+        h.update(b"|");
+        h.update(r.served_at.as_bytes());
+        h.update(b"|");
+        for part in [&scope_hex, &as_of_hex, &edges_hex, &manifest_hex]
+            .into_iter()
+            .flatten()
+        {
+            h.update(part.as_bytes());
+            h.update(b"|");
+        }
+        h.update(r.primitive.as_bytes());
+        h.update(b"|");
+        for c in &r.cells {
+            h.update(c.as_bytes());
+            h.update(b",");
+        }
+        h.update(b"|");
+        for c in &r.fact_cids {
+            h.update(c.as_str().as_bytes());
+            h.update(b",");
+        }
+        *h.finalize().as_bytes()
+    }
+}
+
 pub fn iso8601_now() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let secs = SystemTime::now()
@@ -654,58 +739,7 @@ mod tests {
     /// Rebuild the v1 preimage from a receipt's body exactly as an
     /// offline verifier does, returning the bytes ed25519 should accept.
     fn rebuild_v1_preimage(r: &Receipt) -> [u8; 32] {
-        let manifest_hex = if r.source_versions.is_empty() {
-            None
-        } else {
-            let mut buf = Vec::new();
-            let _ = ciborium::into_writer(&r.source_versions, &mut buf);
-            Some(data_encoding::HEXLOWER.encode(blake3::hash(&buf).as_bytes()))
-        };
-        let scope_hex = r
-            .scope
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .map(|s| s.blake3_hex());
-        let as_of_hex = r
-            .as_of
-            .as_ref()
-            .filter(|a| !a.is_unbounded())
-            .map(|a| a.blake3_hex());
-        let edges_hex = Server::edges_blake3_hex(&r.edge_cids);
-        let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
-        if r.preimage_version >= emem_attest::PREIMAGE_V2 {
-            let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
-                r.merkle_proof
-                    .as_ref()
-                    .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
-            ));
-            emem_attest::receipt_preimage_v2(
-                &r.request_id,
-                &r.served_at,
-                scope_hex.as_deref(),
-                as_of_hex.as_deref(),
-                edges_hex.as_deref(),
-                manifest_hex.as_deref(),
-                field_hex.as_deref(),
-                &r.primitive,
-                r.cells.iter().map(|s| s.as_str()),
-                r.fact_cids.iter().map(|c| c.as_str()),
-                &merkle_hex,
-            )
-        } else {
-            emem_attest::receipt_preimage_v1(
-                &r.request_id,
-                &r.served_at,
-                scope_hex.as_deref(),
-                as_of_hex.as_deref(),
-                edges_hex.as_deref(),
-                manifest_hex.as_deref(),
-                field_hex.as_deref(),
-                &r.primitive,
-                r.cells.iter().map(|s| s.as_str()),
-                r.fact_cids.iter().map(|c| c.as_str()),
-            )
-        }
+        receipt_message(r)
     }
 
     /// Verify a receipt the way an offline verifier does: rebuild the

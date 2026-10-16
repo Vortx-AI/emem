@@ -88,7 +88,7 @@ Out of the workspace:
 | `emem-demo` | smoke test: 3 cells × 1 band against an existing endpoint |
 | `emem-livedemo` | full audit-trail run: 4 cells × 2 bands × 3 tslots = 24 facts; writes per-step JSON + curl repro + blake3 hashes + `trace.json` to `var/demos/<UTC>/` |
 | `emem-realdemo` | live-data run against Cop-DEM 30 m S3 tiles for Mt Fuji, Mt Everest, Grand Canyon |
-| `emem-ask-eval` | CI regression for `/v1/ask` topic routing — 12 fixed questions plus 1 intentional out-of-scope |
+| `emem-ask-eval` | Routing check for `/v1/ask`: 12 fixed questions plus 1 intentional out-of-scope. Run it by hand; no CI job runs it. |
 | `emem-purge-fnkey` | admin cache-purge by `derivation.fn_key`; **server must be stopped** (sled holds an exclusive lock) |
 
 The three demo binaries are intentionally non-overlapping. Use
@@ -306,8 +306,8 @@ topics via `BAAI/bge-base-en-v1.5` (CPU ort by default). Pre-stage with
 `scripts/install-topic-model.sh` so the first request is not paying
 a 90-second cold-start. Force the keyword backend for tests with
 `EMEM_TOPIC_BACKEND=keyword`. Override the model path with
-`EMEM_TOPIC_MODEL_DIR=/path/to/bge-base-en-v1.5`. The CI regression
-that locks routing accuracy is `emem-ask-eval`:
+`EMEM_TOPIC_MODEL_DIR=/path/to/bge-base-en-v1.5`. The routing check
+is `emem-ask-eval`. No CI job runs it, so run it by hand after a routing change:
 
 ```
 ./target/release/emem-ask-eval --base http://127.0.0.1:5051

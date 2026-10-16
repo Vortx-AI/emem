@@ -118,7 +118,9 @@ def evaluate_one(q: dict, endpoint: str, timeout: int) -> dict:
 
     facts_block = resp.get("facts") or {}
     facts = facts_block.get("facts") if isinstance(facts_block, dict) else None
-    facts_n = len(facts or [])
+    # /v1/ask returns `facts` only with include: ["facts_full"]; the
+    # top-level `fact_cids` list is always there.
+    facts_n = len(resp.get("fact_cids") or facts or [])
     bands_attested = facts_block.get("bands_already_attested_at_cell") if isinstance(facts_block, dict) else None
     bands_attested_n = len(bands_attested or []) if bands_attested else 0
 

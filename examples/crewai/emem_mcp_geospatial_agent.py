@@ -26,13 +26,15 @@ import os
 from crewai import Agent, Crew, Process, Task
 from crewai_tools import MCPServerAdapter
 
-EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
+# /mcp/full, not /mcp: emem_eudr_dds is an extended-tier tool, and /mcp
+# lists only the 18 core tools.
+EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp/full")
 
 QUESTION = (
     "Using the emem MCP tools, decide whether the point at latitude "
     "-3.10 longitude -60.02 (Manaus, Brazil) is deforested under EUDR "
     "Article 2(4). Call emem_eudr_dds with a single-point plot of "
-    "cocoa (HS 1801), commodity quantity 1000 kg, country BR. Report "
+    "cocoa (HS 1801), commodity quantity 1000 kg, country BRA. Report "
     "the top-level verdict, every per-cell verdict, the fact_cids "
     "supporting the answer, and the responder pubkey. Do not invent "
     "fact_cids; only quote what the tool returns."

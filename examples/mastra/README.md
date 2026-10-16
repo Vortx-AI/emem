@@ -22,7 +22,7 @@ npx tsx emem_mcp_geospatial_agent.ts
 
 ## What it does
 
-1. Connects to `https://emem.dev/mcp` via Streamable HTTP using
+1. Connects to `https://emem.dev/mcp/full` via Streamable HTTP using
    `@mastra/mcp` `MCPClient`.
 2. Auto-discovers all emem MCP tools (`emem_locate`, `emem_recall`,
    `emem_hunt`, `emem_verify_receipt`, …).

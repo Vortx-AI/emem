@@ -84,14 +84,19 @@ jq '{verdict: .due_diligence_statement.verdict,
   of a 0.5 ha square), each shortfall listed in `limits`. It is not a
   calibrated probability.
 - **`traces_nt_envelope`**: the TRACES NT shaped statement.
-  `statementOfComplianceSignable` is true only for an overall `pass`
-  with no TMF review required; `statementOfComplianceReviewRequired`
-  says when a person must look first. `ddsReferenceNumber` is an emem
-  placeholder; TRACES NT issues the real one.
+  `statementOfComplianceReviewRequired` says when a person must look
+  first. `ddsReferenceNumber` is an emem placeholder; TRACES NT issues
+  the real one.
 
-The top-level `statement_of_compliance_signable` does not take the TMF
-review into account; read the envelope's `statementOfComplianceSignable`
-instead.
+A statement is held for review when any plot has
+`tmf_cross_check.review_required`, when any plot has
+`verdict_support.level` `weak`, or when the verdict ran without the JRC
+baseline (`forest_baseline_computed` is `hansen_only_jrc_unavailable`).
+The top-level `statement_of_compliance_signable` is true only for an
+overall `pass` that is not held for review. Read that flag. The
+envelope's `statementOfComplianceSignable` does not check the JRC
+baseline, so it can be true while `statementOfComplianceReviewRequired`
+is also true.
 
 ## Recorded on 2026-09-28
 
@@ -121,10 +126,34 @@ lower the level. And one Point cell is about 9.5 m of a plot of up to
 
 The response carries a signed `receipt` over the per-cell fact cids. On
 a large plot it lists the first ones by cid and says so
-(`receipt_fact_cids_capped`, `receipt_fact_cids_total`). Every cell's
-facts decide the verdict, but only the ones the response cites are
-stored: `facts_persisted` of `facts_computed`, per plot. Every fact cid
-in the response resolves at `/v1/facts/<cid>`. Verify the receipt offline with
+(`receipt_fact_cids_capped`, `receipt_fact_cids_total`). Every sampled
+cell's facts decide the verdict and are stored, because each plot's
+`per_cell_rows_cid` addresses all of them, inlined or not
+(`facts_computed` and `facts_persisted`, per plot and in total). Every
+fact cid in the response, and every one behind `per_cell_rows_cid`,
+resolves at `/v1/facts/<cid>`.
+
+### Per-cell rows
+
+Each plot carries `per_cell_verdicts`, `per_cell_rows_cid` and the
+paging fields.
+
+- `per_cell_detail`: `rows` (default) inlines `per_cell_verdicts`.
+  `anchor` leaves the rows out and keeps `per_cell_rows_cid`. Ask again
+  with `rows` to expand it.
+- `per_cell_offset`: send it to page the rows in canonical order, one
+  inline cap at a time. Follow `per_cell_next_offset` until it is
+  `null`.
+- `per_cell_rows_cid`: blake3 hex over one line per sampled cell,
+  `<cell>|<verdict>|<fact_cids joined by ,>` and a newline, over every
+  cell. The joined pages recompute it. It is not part of the signed
+  receipt, but the fact cids inside it are signed.
+- Coverage is `sampled_polygon_fraction` (sampled area over polygon
+  area). Never use a count of the rows as coverage. Without
+  `per_cell_offset`, the inlined rows over the cap are a sample:
+  failing cells first, then the first of the rest.
+
+Verify the receipt offline with
 [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md), and keep the
 fact cids (or a bundle of them, `POST /v1/memory_bundle
 {"fact_cids":[...]}`) in the operator's record. For a lab certificate or

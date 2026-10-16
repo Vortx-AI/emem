@@ -1,6 +1,8 @@
 """LangChain tools for emem — Earth memory protocol.
 
-Drop this file next to your agent code. The tools wrap the live emem
+Copy this file next to your agent code as `langchain_emem.py`. Do not keep
+the name `langchain.py`: it would shadow the `langchain` package. The tools
+wrap the live emem
 HTTPS REST surface with type-checked LangChain Tool decorators so any
 LangGraph / LangChain agent can call them directly. The hosted
 responder at https://emem.dev is HTTPS-only; no keys required.

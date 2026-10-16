@@ -4,7 +4,7 @@
     "emem": {
       "url": "https://emem.dev/mcp",
       "disabled": false,
-      "autoApprove": ["emem.recall", "emem.compare", "emem.find_similar", "emem.bands", "emem.manifests", "emem.tools", "emem.agent_card"]
+      "autoApprove": ["emem_locate", "emem_recall", "emem_find_similar", "emem_tools", "emem_verify_receipt", "emem_memory_token_resolve"]
     }
   }
 }

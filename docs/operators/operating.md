@@ -488,7 +488,7 @@ regression test, the demo binaries write everything to disk:
 | `emem-demo` | console only | smoke test, 3 cells × 1 band |
 | `emem-livedemo` | `var/demos/<UTC>/` (override `EMEM_DEMOS_DIR`) | full audit trail: 4 cells × 2 bands × 3 tslots, every primitive, per-step JSON + curl repro + blake3 |
 | `emem-realdemo` | `var/demos/realdata_<UTC>/` | live-ingest validation, Cop-DEM 30 m for Mt Fuji / Mt Everest / Grand Canyon |
-| `emem-ask-eval` | console + exit code | CI regression for `/v1/ask` topic routing |
+| `emem-ask-eval` | console + exit code | `/v1/ask` routing check, run by hand (no CI job runs it) |
 | `emem-purge-fnkey` | sled mutations (default dry-run) | drop facts by `derivation.fn_key`; **server must be stopped** |
 
 The livedemo output is the canonical artifact for "what was the

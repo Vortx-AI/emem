@@ -391,21 +391,41 @@ pub fn host_is_publicly_routable(host: &str) -> Result<(), String> {
 pub fn addr_is_publicly_routable(ip: std::net::IpAddr) -> bool {
     match ip {
         std::net::IpAddr::V4(v4) => {
+            let o = v4.octets();
             !(v4.is_private()
                 || v4.is_loopback()
                 || v4.is_link_local()
                 || v4.is_broadcast()
                 || v4.is_documentation()
                 || v4.is_unspecified()
+                || v4.is_multicast()
+                // "This network" 0.0.0.0/8, reserved 240.0.0.0/4 and the
+                // benchmarking 198.18.0.0/15, none of which is a public host.
+                || o[0] == 0
+                || o[0] >= 240
+                || (o[0] == 198 && (o[1] & 0xfe) == 18)
                 // CGNAT 100.64.0.0/10, which is_private() does not cover.
-                || (v4.octets()[0] == 100 && (64..128).contains(&v4.octets()[1])))
+                || (o[0] == 100 && (64..128).contains(&o[1])))
         }
         std::net::IpAddr::V6(v6) => {
+            // An IPv4 address carried in IPv6 (::ffff:a.b.c.d, or the old
+            // ::a.b.c.d) reaches that IPv4 host, so it answers to the IPv4
+            // rules: ::ffff:127.0.0.1 is loopback whatever the family says.
+            if let Some(v4) = v6.to_ipv4() {
+                if !v6.is_loopback() && !v6.is_unspecified() {
+                    return addr_is_publicly_routable(std::net::IpAddr::V4(v4));
+                }
+            }
+            let seg = v6.segments();
             !(v6.is_loopback()
                 || v6.is_unspecified()
+                || v6.is_multicast()
                 // Unique-local fc00::/7 and link-local fe80::/10.
-                || (v6.segments()[0] & 0xfe00) == 0xfc00
-                || (v6.segments()[0] & 0xffc0) == 0xfe80)
+                || (seg[0] & 0xfe00) == 0xfc00
+                || (seg[0] & 0xffc0) == 0xfe80
+                // NAT64 64:ff9b::/96 translates to an IPv4 host this check
+                // cannot see, so it is refused rather than guessed.
+                || (seg[0] == 0x64 && seg[1] == 0xff9b && seg[2..6] == [0, 0, 0, 0]))
         }
     }
 }
@@ -878,13 +898,22 @@ mod tests {
             "::1",
             "fc00::1",
             "fe80::1",
+            "::ffff:127.0.0.1",
+            "::ffff:10.0.0.1",
+            "::ffff:169.254.169.254",
+            "64:ff9b::7f00:1",
+            "ff02::1",
+            "224.0.0.1",
+            "0.1.2.3",
+            "240.0.0.1",
+            "198.18.0.1",
         ] {
             assert!(
                 !addr_is_publicly_routable(bad.parse::<IpAddr>().unwrap()),
                 "{bad} was treated as publicly routable"
             );
         }
-        for good in ["1.1.1.1", "8.8.8.8", "2606:4700::1111"] {
+        for good in ["1.1.1.1", "8.8.8.8", "2606:4700::1111", "::ffff:1.1.1.1"] {
             assert!(
                 addr_is_publicly_routable(good.parse::<IpAddr>().unwrap()),
                 "{good}"

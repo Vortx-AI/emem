@@ -77,7 +77,8 @@ offline at `/verify`.
   about 9.55 m at the equator); every measurement there is a fact keyed
   by `(cell, band, tslot)`, signed by the responder over the blake3 of
   its canonical CBOR. The address space is the planet, the state is
-  persistent, the bytes are reproducible across any replica.
+  persistent, and a fact's bytes verify the same on any replica that
+  holds them.
 - *Agent memory*: above the spatial fact store sits a writable scratchpad
   the agent owns. Six Anthropic memory-tool verbs (`emem_memory_view`,
   `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`,
@@ -285,11 +286,11 @@ new attestations land:
 The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface documents 179 paths under
 `/v1/*` (190 total in `/openapi.json`), 115 MCP tools (18 core, 97 extended, with
-`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 115), 20 static MCP
+`/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 115), 21 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
-not yet wired), and 27 data
-connectors + 7 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
+not yet wired), 113 materializers in `/v1/materializers`, and 27 data
+connectors + 8 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
 Version 2.4.3, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
 Four discovery URLs for agent onboarding:
@@ -309,13 +310,13 @@ Four discovery URLs for agent onboarding:
 | Resource | Live count |
 |---|---|
 | REST paths (OpenAPI) | 190 documented, 179 under `/v1/*` |
-| MCP tools | 113 (18 core / 97 extended) |
+| MCP tools | 115 (18 core / 97 extended) |
 | Algorithms (composition recipes) | 168 |
 | Band-cube slots | 43 |
-| MCP resources | 20 static + 9 URI templates |
-| Materializer-wired band names | 129 |
+| MCP resources | 21 static + 9 URI templates |
+| Materializers (`/v1/materializers` `pagination.total`) | 113 |
 | Source schemes | 46 declared (several not yet wired) |
-| Data connectors | 27 data + 7 utility modules |
+| Data connectors | 27 data + 8 utility modules |
 | Topics (declared / live) | 27 / 27 |
 | Version | 2.4.3 |
 
@@ -574,7 +575,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | Path | Purpose |
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
-| `/v1/topics` | Topic-grouped registry of bands and algorithms |
+| `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
 | `/v1/algorithms` | 168 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
@@ -604,10 +605,29 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
 | POST | `/v1/find_similar` | `{key, k?, band?, mode?}` |
 | POST | `/v1/trajectory` | `{cell, band, window:[a,b]}` |
+| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?}` |
 | POST | `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
 
 `query_region` `max_cells` is bbox-area-derived (target ~1 cell per
 (10 km)², clamped to `[64, 1024]`).
+
+`field_series` reads an area over time, one row per scene.
+
+- `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`) or `evi` from
+  Sentinel-2. `vv`, `vh` or `vh_vv` from Sentinel-1, on one relative
+  orbit (`orbit`; default: the orbit with the most scenes).
+- `fields`: up to 500 `{id, geometry}` polygons, read once from one
+  window of at most 512 px a side.
+- `inner_buffer_m` (0 to 60) drops edge pixels. `min_support_px` (4 to
+  30, default 30) is the fewest pixels a scene may rest on.
+- `polygon_cid` identifies the outline. `aoi_cid` is the bbox hash the
+  receipt binds.
+- Scene check, optical only: a scene that both time neighbours refute
+  gets `quality: "suspect"` and `scene_check`, and is left out of the
+  trend. A `fields` answer adds a `suspect` column and `suspect_dates`.
+- Radar rows have no `clear_fraction`. `mean` is the dB of the mean
+  linear power. Rows also carry `se_db`, `pixel_enl`, `below_nesz_share`
+  and `bright_rejected`.
 
    #### Geocoding and dispatch
 
@@ -773,7 +793,8 @@ The MCP catalog omits two L2 write surfaces. `emem_attest` and
 hosts cannot manage keys safely, so writes go through plain REST from a
 process you control: `POST /v1/attest` (JSON) or `POST /v1/attest_cbor`
 (canonical CBOR). Key generation, signing, and rotation are documented
-in `docs/ATTESTING.md`; the schema is in `/openapi.json`.
+in [emem-sign-and-attest](../plugins/emem/skills/emem-sign-and-attest/SKILL.md)
+and [protocol.md](protocol.md); the schema is in `/openapi.json`.
 
 ---
 
@@ -889,10 +910,11 @@ an upstream fetch (Sentinel-2 STAC + COG range reads, Copernicus DEM,
 JRC GSW, Hansen GFC, Overture, ...), signs the result under the
 responder's identity, persists it, and returns it in the same response.
 
-Latency: ~180 ms cold (one upstream round-trip), ~10 ms warm (sled
-cache). Every cell on Earth answers; nothing needs to be pre-seeded.
+Latency: ~180 ms cold (one upstream round-trip), ~10 ms warm (stored
+fact). Every cell on Earth answers; nothing needs to be pre-seeded.
 
-20 materializers are registered today. When the band key is not even in
+113 materializers are registered today (`GET /v1/materializers`,
+`pagination.total`). When the band key is not even in
 the registry, the response is explicit, not silent:
 
 ```json
@@ -933,7 +955,7 @@ That is the no-silent-fallbacks contract: empty result must distinguish
 | `wide_bbox` | Curated table for ambiguous large polities | Exits with full bbox + admin polygon |
 | `embedded` | In-binary gazetteer | Major cities, country capitals |
 | `geonames` | GeoNames cities-5000, 68,581 places, in-process | Unified gazetteer surface |
-| `cache` | sled cache | Hits prior Photon/Nominatim lookups |
+| `cache` | geocode cache | Hits prior Photon/Nominatim lookups |
 | `photon` | komoot Photon (primary live) | Fuzzy matching |
 | `nominatim` | OSM Nominatim (secondary) | Fallback |
 | `overture_divisions` | Overture `divisions/division_area` | Admin-boundary fix when Nominatim returns a POI (e.g. Karnal-district courthouse case) |
@@ -1057,10 +1079,19 @@ curl -s -X POST https://emem.dev/v1/eudr_dds \
 Runs `eudr_compliance@1` per cell (JRC GFC2020, V4 today, as the 2020 legal
 baseline, Hansen GFC v1.13 for post-cut-off loss year), applies the
 Article 2(4) 0.5 ha floor, and returns the Annex II-shaped statement
-with a `dds_reference_number` and a signed receipt citing every
-contributing fact CID. It also carries a `legality_disclaimer`: Article
-9(1)(b) legality is out of Earth-observation scope, so the receipt
-proves the forest facts and nothing about land tenure.
+with a `dds_reference_number` and a signed receipt over the per-cell
+fact CIDs (capped on a large plot, disclosed as
+`receipt_fact_cids_capped`). It also carries a `legality_disclaimer`:
+Article 9(1)(b) legality is out of Earth-observation scope, so the
+receipt proves the forest facts and nothing about land tenure.
+
+Each plot carries `per_cell_rows_cid`: blake3 hex over one line per
+sampled cell, `<cell>|<verdict>|<fact_cids joined by ,>\n`. Every
+sampled cell's facts are stored, so every fact CID behind it resolves.
+`per_cell_detail: "anchor"` leaves the rows out and keeps the cid;
+`rows` (default) inlines them. Page the rows with `per_cell_offset` and
+follow `per_cell_next_offset` until it is `null`. For coverage, read
+`sampled_polygon_fraction`, never a count of rows.
 
 This endpoint used to be documented here as `/v1/intent` with
 `{"kind":"verify"}`. That request 400s: the field is `type`, not `kind`,
@@ -1164,8 +1195,9 @@ agents that are only reachable through their host. Walk it with real output at
 ## Verify a receipt offline
 
 Every receipt carries a `preimage_version` field that selects the signing
-rule. Receipts signed today use **v1**: a domain-separated, length-prefixed
-byte stream,
+rule. Receipts signed today use **v2** (`GET /v1/verifier_spec` reports
+`current_emitted_version: 2`). Older receipts use v1 and still verify.
+Both are a domain-separated, length-prefixed byte stream,
 
 ```
 blake3(
@@ -1175,6 +1207,8 @@ blake3(
     || [seg(0x05, edges_hex)] || [seg(0x06, manifest_hex)]
     || seg(0x07, primitive)
     || seg_list(0x08, cells) || seg_list(0x09, fact_cids)
+    || [seg(0x0a, field_hex)]
+    || seg(0x0b, merkle_hex)          (v2 only, always written)
 )
 ```
 
@@ -1182,7 +1216,12 @@ where `seg(tag, bytes)` is `tag || u32-LE length || bytes` and
 `seg_list(tag, items)` is `tag || u32-LE count || (u32-LE len || bytes)*`.
 The bracketed segments are present only when the receipt body carries the
 matching field: `manifest_hex`, for example, is the lowercase blake3 hex of
-the canonical-CBOR encoding of a non-empty `source_versions` map. No two
+the canonical-CBOR encoding of a non-empty `source_versions` map.
+`field_hex` is present only on field responses. It is the lowercase hex of
+a sub-preimage with domain `field` over `seg(0x01, aoi_cid)` and
+`seg(0x02, derivation_cid)`. `merkle_hex` is the lowercase hex of a
+sub-preimage with domain `merkle` over the inclusion proof, or over the
+single marker `seg(0x05, "")` when the receipt has no proof. No two
 distinct responses can share signed bytes, and the merkle tree uses
 RFC 6962 leaf/node domain separation. Receipts signed before the cutover
 (no `preimage_version` field) still verify under the original
@@ -1254,6 +1293,17 @@ if r.get("source_versions"):
 seg(0x07, r["primitive"].encode())
 seg_list(0x08, r["cells"])
 seg_list(0x09, r["fact_cids"])
+
+# 0x0a, field responses only: a digest over the two cids of the `field`
+# object, never a hash of the JSON object itself.
+if r.get("field"):
+    f = blake3.blake3()
+    f.update(b"emem.preimage.v1\x00")
+    f.update(len(b"field").to_bytes(4, "little")); f.update(b"field")
+    for tag, key in ((0x01, "aoi_cid"), (0x02, "derivation_cid")):
+        v = r["field"][key].encode()
+        f.update(bytes([tag])); f.update(len(v).to_bytes(4, "little")); f.update(v)
+    seg(0x0a, f.hexdigest().encode())
 
 # v2 only: bind the inclusion proof, or its declared absence. The ABSENT
 # marker is hashed rather than the segment omitted, so a proof stripped in
@@ -1475,11 +1525,14 @@ Check `/v1/data_availability` before picking a tslot or backfill window.
 
    ### Timeouts
 
-- Materializer per-upstream timeout: 30 s
-  (`EMEM_MATERIALIZER_TIMEOUT_SECS`).
-- Gateway timeout: 180 s (`EMEM_TIMEOUT_SECS`). Slow paths (Cop-DEM, S2
-  STAC + COG range reads for an uncached scene) sometimes need the full
-  window.
+- Materializer per-upstream timeout: 14 s by default
+  (`EMEM_MATERIALIZER_TIMEOUT_SECS`, 2 to 240).
+- Gateway timeout: 40 s by default (`EMEM_TIMEOUT_SECS`, 1 to 600).
+  `/v1/eudr_dds` has its own longer ceiling (`EMEM_EUDR_TIMEOUT_SECS`).
+  `GET /v1/agent_card` reports both values under `runtime`. A region fan-out
+  (`recall_many`, `recall_polygon`) without `budget_ms` gets 75% of the
+  gateway timeout and answers with a
+  partial 200 and a retry hint.
 - Treat 5xx as transient and retry once; treat 4xx as permanent.
 
    ### find_similar caveats
@@ -1495,7 +1548,9 @@ Check `/v1/data_availability` before picking a tslot or backfill window.
 `fact_cid = base32_nopad_lowercase(blake3(canonical_cbor(fact)))`, the full
 32-byte digest as 52 characters, NOT truncated. (`entity_cid` and
 `bundle_cid` are the truncated ones, `[..16]` and 26 characters.) Same fact
-at two responders produces byte-identical CBOR and the same CID.
+body hashes to the same CID anywhere. But two responders that each
+materialise the same reading produce two CIDs, because `signed_at` is in
+the hashed body (see Per-replica fact identity above).
 Re-encoding the fact body changes the CID and the original signature
 stops verifying. Always fetch by CID through `/v1/fetch` or
 `GET /v1/facts/:cid`.
@@ -1527,7 +1582,8 @@ because authentication is not part of the read path."
 - `https://emem.dev/v1/agent_card`, `/v1/quickstart`: discover-first
   card + onboarding flow.
 - `docs/developers/architecture.md`, `docs/protocol.md`, `docs/whitepaper-v2.md`,
-  `docs/ATTESTING.md`: deeper protocol and math docs, write path.
+  `plugins/emem/skills/emem-sign-and-attest/SKILL.md`: deeper protocol and
+  math docs, write path.
 - `https://emem.dev/splats/spark/`: the agora, the agent channel rendered
   live with browser-side authorship verification.
 - `crates/emem-mcp/src/lib.rs`: canonical MCP tool descriptors.

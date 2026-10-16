@@ -861,6 +861,8 @@ The receipt segments, in tag order (constants live in
 | `0x07` | `primitive` | scalar | required |
 | `0x08` | `cells` | list | required |
 | `0x09` | `fact_cids` | list | required |
+| `0x0a` | `field_hex` | scalar | optional |
+| `0x0b` | `merkle_hex` | scalar | required in v2, absent in v1 |
 
 Each optional digest is the blake3-hex of the canonical CBOR of its
 receipt field: `scope_hex` over the non-empty `Scope`, `as_of_hex` over
@@ -868,6 +870,24 @@ the bounded `as_of`, `edges_hex` over the sorted `edge_cids`, and
 `manifest_hex` over the sorted `source_versions{registry_cid,
 schema_cid, bands_cid, sources_cid}`. `bands_cid` rides inside the
 manifest digest, so the active band set is transitively attested.
+
+The last two segments are digests of their own sub-preimages. Each
+sub-preimage uses the same stream rules as above, with its own domain.
+
+- `field_hex` is present only when the receipt carries a `field` object
+  (field responses). It is the lowercase hex of
+  `emem_attest::field_binding_v1`: domain `field`, then
+  `seg(0x01, aoi_cid)` and `seg(0x02, derivation_cid)`. It is not a
+  hash of the JSON object.
+- `merkle_hex` is the lowercase hex of `emem_attest::merkle_binding_v2`,
+  domain `merkle`. When the receipt carries a `merkle_proof`, the
+  segments are `seg(0x01, root)` (32 raw bytes),
+  `seg(0x02, u32-LE leaf_index)`, `seg(0x03, path)` (the 32-byte
+  siblings concatenated as one segment) and
+  `seg(0x04, [version])` (one byte; `version` is omitted from the JSON
+  when it is 0). With no proof, the only segment is `seg(0x05, "")`.
+  A v2 receipt always writes `0x0b`, so a stripped proof changes the
+  digest.
 
 The value that ed25519 signs is `blake3(stream)`, the 32-byte digest,
 not the raw stream. The signature is
@@ -1051,7 +1071,7 @@ the distinction at all; `web/verify.html` says so rather than guessing.
 ### 7.4 Offline verification (Python)
 
 A self-contained verifier that mirrors `emem_attest::receipt_preimage_v1`
-byte-for-byte. The segment table it encodes is the one served at
+and `emem_attest::receipt_preimage_v2` byte-for-byte. The segment table it encodes is the one served at
 `GET /v1/verifier_spec`.
 
 ```python
@@ -1114,6 +1134,15 @@ def as_of_hex(r):
     if n == 0: return None
     return b3hex(cbor_head(5, n) + body)
 
+def field_hex(r):
+    # Mirrors emem_attest::field_binding_v1: a digest over the two cids,
+    # never a hash of the JSON object.
+    f = r.get("field")
+    if not f: return None
+    inner = b"emem.preimage.v1\x00" + le32(len("field")) + b"field"
+    inner += seg(0x01, f["aoi_cid"]) + seg(0x02, f["derivation_cid"])
+    return b3hex(inner)
+
 def merkle_hex(r):
     """v2 sub-preimage over the inclusion proof, or an explicit ABSENT marker.
 
@@ -1151,8 +1180,8 @@ for tag, h in ((0x03, scope_hex(receipt)), (0x04, as_of_hex(receipt)),
 stream += seg(0x07, receipt["primitive"])
 stream += seg_list(0x08, receipt.get("cells") or [])
 stream += seg_list(0x09, [str(c) for c in (receipt.get("fact_cids") or [])])
-if receipt.get("field") is not None:
-    stream += seg(0x0a, receipt["field"])
+if field_hex(receipt):
+    stream += seg(0x0a, field_hex(receipt))
 if version >= 2:
     # ALWAYS written in v2, never conditional. Omitting it here is what makes
     # a broken verifier compute the same digest a downgrade attacker does.
@@ -1725,6 +1754,9 @@ exact enough to name one thing, and resolvable by anyone.
 | `emem:raster:<cid>` | a field over an area, at native resolution | Full, over the artifact. |
 | `emem:cube:<cid>` | a field over an area over time | Full, over the artifact. |
 | `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference. |
+| `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | **Full.** The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it. Resolve at `GET /v1/state/{cid}`. |
+| `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root. Resolve at `GET /v1/tree/{file_cid}?row=<index>`. |
+| `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch. Resolve at `POST /v1/raster_bundle/resolve`. |
 
 They are not equally strong and the table says so, because a citation that
 looks the same and binds less is the kind of thing that gets found out later.
@@ -1732,7 +1764,8 @@ looks the same and binds less is the kind of thing that gets found out later.
 references, not as shared bytes.
 
 Resolve any of them with `emem_memory_token_resolve`, or over REST at
-`POST /v1/memory_token/resolve`. Check the receipt with `emem_verify_receipt`,
+`POST /v1/memory_token/resolve`. The exceptions are `emem:state:`,
+`emem:tree:` and `emem:rasterset:`, which use the routes in the table. Check the receipt with `emem_verify_receipt`,
 or in your own process with any ed25519 and blake3 implementation. The full
 grammar, with preimages and canonical bytes, is in [the spec](https://emem.dev/spec).
 

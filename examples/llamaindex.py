@@ -1,5 +1,8 @@
 """LlamaIndex tools for emem — Earth memory protocol.
 
+Copy this file next to your agent code as `llamaindex_emem.py`, the
+module name the usage below imports.
+
 Install:
     pip install llama-index-core requests
 
@@ -13,7 +16,7 @@ Usage:
         llm=OpenAI(model="gpt-4.1-mini"),
         verbose=True,
     )
-    agent.chat("What's at cell ento.bria.calo.tris?")
+    agent.chat("What's at cell defi.zb545.qEcI.zb974?")
 """
 import os
 from typing import Any

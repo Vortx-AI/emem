@@ -24,10 +24,13 @@ For the full-resolution pixel grid over an area use
 
 ## How to invoke
 
-Pass exactly one of `place` (free text, geocoded) or `polygon_bbox` (an
-object with named corners; an array is refused, because bbox array
-orders disagree between conventions). Add `polygon_geojson` beside a
-bbox to mask the sample to a real boundary; on its own it is not enough.
+Give the area in one of three ways: `place` (free text, geocoded),
+`polygon_bbox` (an object with named corners; an array is refused,
+because bbox array orders disagree between conventions), or
+`polygon_geojson` (a GeoJSON Polygon, MultiPolygon or Feature). A
+polygon on its own sets the area: its bounds become the box and its
+boundary masks the sample. `geojson` and `geometry_geojson` are aliases
+of `polygon_geojson`. Beside a bbox, the polygon only masks the sample.
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/recall_polygon \

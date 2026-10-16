@@ -6659,7 +6659,16 @@ async fn get_a2a_skills(
         .get("cell")
         .map(|c| c.trim().to_string())
         .unwrap_or_default();
-    let peers = peers_declaring(&s, &cell).unwrap_or_default();
+    // Every declaration in every namespace is read here, so it runs on the
+    // blocking pool rather than a worker.
+    let peers = {
+        let (s_c, cell_c) = (s.clone(), cell.clone());
+        tokio::task::spawn_blocking(move || peers_declaring(&s_c, &cell_c))
+            .await
+            .ok()
+            .flatten()
+            .unwrap_or_default()
+    };
 
     Json(json!({
         "query": {"q": needle, "tag": tag, "category": category, "cell": cell, "limit": limit},
@@ -21729,89 +21738,7 @@ async fn post_verify_receipt(
     };
 
     let field_hex = r.field.as_ref().map(|f| f.blake3_hex());
-    let msg: [u8; 32] = if r.preimage_version >= emem_attest::PREIMAGE_V2 {
-        // v2 binds the inclusion proof into the signature, which is what
-        // makes STRIPPING detectable. Rebuild the binding from whatever
-        // proof the receipt now carries: if an intermediary deleted it,
-        // this hashes the ABSENT marker instead of the proof digest, the
-        // preimage differs, and the signature fails. Under v1 the same
-        // deletion changed nothing the signature covered.
-        //
-        // A downgrade needs no separate defence. An attacker who rewrites
-        // preimage_version to 1 and strips the proof sends the verifier
-        // down the v1 branch, which rebuilds WITHOUT the MERKLE segment —
-        // a different digest from the v2 stream the responder actually
-        // signed. The signature fails there too, so the version field is
-        // not a lever.
-        let merkle_hex = data_encoding::HEXLOWER.encode(&emem_attest::merkle_binding_v2(
-            r.merkle_proof
-                .as_ref()
-                .map(|p| (&p.root, p.leaf_index, p.path.as_slice(), p.version)),
-        ));
-        emem_attest::receipt_preimage_v2(
-            &r.request_id,
-            &r.served_at,
-            scope_hex.as_deref(),
-            as_of_hex.as_deref(),
-            edges_hex.as_deref(),
-            manifest_hex_opt.as_deref(),
-            field_hex.as_deref(),
-            &r.primitive,
-            r.cells.iter().map(|s| s.as_str()),
-            r.fact_cids.iter().map(|c| c.as_str()),
-            &merkle_hex,
-        )
-    } else if r.preimage_version >= emem_attest::PREIMAGE_V1 {
-        emem_attest::receipt_preimage_v1(
-            &r.request_id,
-            &r.served_at,
-            scope_hex.as_deref(),
-            as_of_hex.as_deref(),
-            edges_hex.as_deref(),
-            manifest_hex_opt.as_deref(),
-            field_hex.as_deref(),
-            &r.primitive,
-            r.cells.iter().map(|s| s.as_str()),
-            r.fact_cids.iter().map(|c| c.as_str()),
-        )
-    } else {
-        // Legacy v0 rule. The edges segment sits AFTER as_of, BEFORE
-        // manifest (v0.0.9 layout); scope/as_of/manifest are untagged
-        // hex emitted only when present.
-        let mut h = blake3::Hasher::new();
-        h.update(r.request_id.as_bytes());
-        h.update(b"|");
-        h.update(r.served_at.as_bytes());
-        h.update(b"|");
-        if let Some(ref sh) = scope_hex {
-            h.update(sh.as_bytes());
-            h.update(b"|");
-        }
-        if let Some(ref ah) = as_of_hex {
-            h.update(ah.as_bytes());
-            h.update(b"|");
-        }
-        if let Some(ref eh) = edges_hex {
-            h.update(eh.as_bytes());
-            h.update(b"|");
-        }
-        if let Some(ref mh) = manifest_hex_opt {
-            h.update(mh.as_bytes());
-            h.update(b"|");
-        }
-        h.update(r.primitive.as_bytes());
-        h.update(b"|");
-        for c in &r.cells {
-            h.update(c.as_bytes());
-            h.update(b",");
-        }
-        h.update(b"|");
-        for c in &r.fact_cids {
-            h.update(c.as_str().as_bytes());
-            h.update(b",");
-        }
-        *h.finalize().as_bytes()
-    };
+    let msg: [u8; 32] = emem_storage::server::receipt_message(r);
 
     let pk = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes).map_err(|e| {
         ApiError(
@@ -45092,7 +45019,14 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         // a cid whose path is gone still resolves to its bytes with an honest
         // statement that authorship is no longer recoverable here.
         let text = String::from_utf8_lossy(&bytes).into_owned();
-        if let Some(path) = memory_path_for_cid(db, cid) {
+        // A linear walk of every path; off the worker for the same reason as
+        // the directory listing.
+        let (db_c, cid_c) = (db.clone(), cid.to_string());
+        let found = tokio::task::spawn_blocking(move || memory_path_for_cid(&db_c, &cid_c))
+            .await
+            .ok()
+            .flatten();
+        if let Some(path) = found {
             // Carry the caller's view through. `..Default::default()` alone
             // dropped it, so `view: "front"` by cid returned the whole body.
             if let Ok(mut by_path) = Box::pin(memory_view_inner(
@@ -45178,57 +45112,77 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         // listing_priority before serialising, Core entries surface
         // first ahead of every other kind, ties broken alphabetically
         // by path inside each priority band.
-        let mut typed: Vec<(MemoryKind, String, JsonValue)> = Vec::new();
-        for kv in paths.scan_prefix(path.as_bytes()).flatten() {
-            let key = String::from_utf8_lossy(&kv.0).into_owned();
-            let cid = String::from_utf8_lossy(&kv.1).into_owned();
-            // Resolve typed kind from meta; defaults to Resource for
-            // legacy records (their on-disk meta predates the kind tag).
-            let entry_kind: MemoryKind = metas
-                .get(cid.as_bytes())
-                .ok()
-                .flatten()
-                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-                .and_then(|m| MemoryKind::from_wire(&m.kind))
-                .unwrap_or(MemoryKind::Resource);
-            if let Some(want) = kind_filter {
-                if entry_kind != want {
-                    continue;
+        // A listing of a large prefix walks every file and decodes each one's
+        // meta: seconds of CPU at tens of thousands of notes, which on a worker
+        // thread stalls every other request with it. The blocking pool is for
+        // exactly that.
+        let scan_path = path.clone();
+        let mut typed: Vec<(MemoryKind, String, JsonValue)> =
+            tokio::task::spawn_blocking(move || {
+                let mut typed: Vec<(MemoryKind, String, JsonValue)> = Vec::new();
+                for kv in paths.scan_prefix(scan_path.as_bytes()).flatten() {
+                    let key = String::from_utf8_lossy(&kv.0).into_owned();
+                    let cid = String::from_utf8_lossy(&kv.1).into_owned();
+                    // Resolve typed kind from meta; defaults to Resource for
+                    // legacy records (their on-disk meta predates the kind tag).
+                    let entry_kind: MemoryKind = metas
+                        .get(cid.as_bytes())
+                        .ok()
+                        .flatten()
+                        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+                        .and_then(|m| MemoryKind::from_wire(&m.kind))
+                        .unwrap_or(MemoryKind::Resource);
+                    if let Some(want) = kind_filter {
+                        if entry_kind != want {
+                            continue;
+                        }
+                    }
+                    // FOUR ROUTES TO ONE OBJECT SAID THREE DIFFERENT THINGS ABOUT
+                    // WHO WROTE IT.
+                    //
+                    // Measured 2026-09-10: emem_memory_search returns
+                    // `attester_pubkey_b32`, /v1/inbox returns `from`, and both this
+                    // listing and the by-cid read returned nothing at all. So whether
+                    // authorship is knowable depended on which door a reader came
+                    // through, and the two doors that said "no" are the two an agent
+                    // holding a citation reaches for.
+                    //
+                    // The geo.qa frontend agent demonstrated the cost from the other
+                    // side: handed three file_cids and needing the author, they listed
+                    // this directory and matched on the path prefix, because the
+                    // listing carried no author and the cid route was not in the
+                    // schema. The workaround was reading authorship out of a string.
+                    //
+                    // A KEY, not an author, and the field name says which: one key can
+                    // be held by more than one writer, which is exactly what happened
+                    // to the notes that prompted this. Eight characters because that
+                    // is what the namespace carries; emem_memory_search returns the
+                    // full 52-character key for the same note.
+                    let entry = json!({
+                        "path": key.clone(),
+                        "file_cid": cid,
+                        "kind": "file",
+                        "memory_kind": entry_kind.as_str(),
+                        "attester_pubkey8": key
+                            .strip_prefix("/memories/by_attester/")
+                            .and_then(|rest| rest.split('/').next())
+                            .filter(|p| !p.is_empty()),
+                    });
+                    typed.push((entry_kind, key, entry));
                 }
-            }
-            // FOUR ROUTES TO ONE OBJECT SAID THREE DIFFERENT THINGS ABOUT
-            // WHO WROTE IT.
-            //
-            // Measured 2026-09-10: emem_memory_search returns
-            // `attester_pubkey_b32`, /v1/inbox returns `from`, and both this
-            // listing and the by-cid read returned nothing at all. So whether
-            // authorship is knowable depended on which door a reader came
-            // through, and the two doors that said "no" are the two an agent
-            // holding a citation reaches for.
-            //
-            // The geo.qa frontend agent demonstrated the cost from the other
-            // side: handed three file_cids and needing the author, they listed
-            // this directory and matched on the path prefix, because the
-            // listing carried no author and the cid route was not in the
-            // schema. The workaround was reading authorship out of a string.
-            //
-            // A KEY, not an author, and the field name says which: one key can
-            // be held by more than one writer, which is exactly what happened
-            // to the notes that prompted this. Eight characters because that
-            // is what the namespace carries; emem_memory_search returns the
-            // full 52-character key for the same note.
-            let entry = json!({
-                "path": key.clone(),
-                "file_cid": cid,
-                "kind": "file",
-                "memory_kind": entry_kind.as_str(),
-                "attester_pubkey8": key
-                    .strip_prefix("/memories/by_attester/")
-                    .and_then(|rest| rest.split('/').next())
-                    .filter(|p| !p.is_empty()),
-            });
-            typed.push((entry_kind, key, entry));
-        }
+                typed
+            })
+            .await
+            .map_err(|e| {
+                ApiError(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    ErrorBody {
+                        code: ErrorCode::Internal,
+                        message: format!("memory listing task: {e}"),
+                        details: None,
+                    },
+                )
+            })?;
         // Newest first within kind. A long listing gets truncated to fit the
         // MCP budget, and truncation keeps the head, so whatever sorts last is
         // what a caller silently loses. Alphabetical made that arbitrary: an
@@ -72156,7 +72110,10 @@ async fn post_eudr_dds_inner(
         "geolocationConfidentiality": confidential,
         "commodities":               commodities,
         "statementOfCompliance":     statement_of_compliance(overall_label, held_for_review),
-        "statementOfComplianceSignable": overall_label == "pass" && !review_required && !weak_support,
+        // The same rule as the top-level flag. Computing it here from two of
+        // the three reasons let a pass that ran without the JRC baseline read
+        // signable beside `statementOfComplianceReviewRequired: true`.
+        "statementOfComplianceSignable": overall_label == "pass" && !held_for_review,
         "statementOfComplianceReviewRequired": held_for_review,
     });
 

@@ -20,7 +20,9 @@ import { Agent } from "@mastra/core/agent";
 import { MCPClient } from "@mastra/mcp";
 import { openai } from "@ai-sdk/openai";
 
-const EMEM_MCP_URL = process.env.EMEM_MCP_URL ?? "https://emem.dev/mcp";
+// /mcp/full, not /mcp: emem_hunt is an extended-tier tool, and /mcp
+// lists only the 18 core tools.
+const EMEM_MCP_URL = process.env.EMEM_MCP_URL ?? "https://emem.dev/mcp/full";
 
 const QUESTION =
   "Using the emem MCP tools, find the most likely active algal bloom " +

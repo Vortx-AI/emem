@@ -22,18 +22,18 @@ async function main(): Promise<void> {
     cell,
     bands: ["copdem30m.elevation_mean"],
   })) as {
-    facts?: Array<{ band?: string; value?: number; cid?: string; tslot?: number }>;
-    receipt?: { responder_pubkey?: string; fact_cids?: string[] };
+    facts?: Array<{ band?: string; value?: number; fact_cid?: string; tslot?: number }>;
+    receipt?: { responder_pubkey_b32?: string; fact_cids?: string[] };
   };
 
   for (const f of facts.facts ?? []) {
     console.log(
       `  ${f.band ?? "?"} = ${f.value ?? "?"} ` +
-        `(cid=${(f.cid ?? "").slice(0, 12)}…, tslot=${f.tslot ?? "?"})`,
+        `(cid=${(f.fact_cid ?? "").slice(0, 12)}…, tslot=${f.tslot ?? "?"})`,
     );
   }
 
-  const pk = facts.receipt?.responder_pubkey ?? "";
+  const pk = facts.receipt?.responder_pubkey_b32 ?? "";
   const cids = facts.receipt?.fact_cids ?? [];
   console.log(`  receipt: signed by ${pk.slice(0, 16)}… over ${cids.length} fact CID(s)`);
 }

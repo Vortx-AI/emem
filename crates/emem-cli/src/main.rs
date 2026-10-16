@@ -188,8 +188,9 @@ fn main() -> anyhow::Result<()> {
 /// Read a receipt from `path` (or stdin if `path == "-"`), determine the
 /// verifying pubkey (explicit `--pubkey` > `--base-url`/`EMEM_BASE_URL`'s
 /// `/.well-known/emem.json` > the receipt's embedded `responder`), and run
-/// the same blake3 preimage + ed25519 strict-verify the server uses for
-/// `POST /v1/verify_receipt` (`crates/emem-api-rest/src/lib.rs::post_verify_receipt`).
+/// the preimage the receipt's `preimage_version` names
+/// (`emem_storage::server::receipt_message`, the one `POST /v1/verify_receipt`
+/// uses) and an ed25519 strict-verify.
 ///
 /// Returns the process exit code: 0 = valid, 1 = invalid.
 fn run_verify(
@@ -229,30 +230,14 @@ fn run_verify(
         }
     };
 
-    // Reproduce the server-side preimage byte-for-byte. See
-    // `crates/emem-storage/src/server.rs::sign_receipt`.
-    let mut h = blake3::Hasher::new();
-    h.update(receipt.request_id.as_bytes());
-    h.update(b"|");
-    h.update(receipt.served_at.as_bytes());
-    h.update(b"|");
-    h.update(receipt.primitive.as_bytes());
-    h.update(b"|");
-    for c in &receipt.cells {
-        h.update(c.as_bytes());
-        h.update(b",");
-    }
-    h.update(b"|");
-    for c in &receipt.fact_cids {
-        h.update(c.as_str().as_bytes());
-        h.update(b",");
-    }
-    let msg = h.finalize();
+    // The rule the receipt's own `preimage_version` names, from the one
+    // function every verifier uses.
+    let msg = emem_storage::server::receipt_message(&receipt);
 
     let pk = ed25519_dalek::VerifyingKey::from_bytes(&pk_bytes)
         .map_err(|e| anyhow::anyhow!("bad pubkey bytes: {e}"))?;
     let sig = ed25519_dalek::Signature::from_bytes(&receipt.signature.0);
-    let valid = pk.verify_strict(msg.as_bytes(), &sig).is_ok();
+    let valid = pk.verify_strict(&msg, &sig).is_ok();
 
     let signer_b32 = data_encoding::BASE32_NOPAD.encode(&pk_bytes).to_lowercase();
 
@@ -266,7 +251,7 @@ fn run_verify(
             "served_at": receipt.served_at,
             "fact_cids_count": receipt.fact_cids.len(),
             "cells_count": receipt.cells.len(),
-            "preimage_blake3_hex": msg.to_hex().to_string(),
+            "preimage_blake3_hex": data_encoding::HEXLOWER.encode(&msg),
         }))?
     );
 

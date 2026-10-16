@@ -92,10 +92,10 @@ curl -sf "https://emem.dev/v1/log/witnesses?limit=5" \
          head_is_independently_witnessed, freshest_independent_witness_entries_behind}'
 ```
 
-A witness attests only the prefix it signed. On 2026-09-28 there were
-111 independent witnesses and one independent operator (`geo.qa`), and
-the freshest independent co-signature was 732 entries behind the head,
-so `head_is_independently_witnessed` was false. Read those fields rather
+A witness attests only the prefix it signed. On 2026-10-16 there were
+112 independent witnesses and two independent operators (`eudr.dev` and
+`geo.qa`), and the freshest independent co-signature was 92 entries
+behind the head, so `head_is_independently_witnessed` was false. Read those fields rather
 than `head_is_witnessed`, which also counts the node's own liveness
 canary. To check a co-signature, verify it offline, then run a
 consistency proof from its `tree_size` to the head you hold.

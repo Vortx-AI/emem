@@ -16,6 +16,19 @@ it was computed from and a signed receipt.
 | `POST /v1/field_burn_scar` | was residue burned between two dates: `burn`, `signal_only`, `no_burn` or `inconclusive` |
 | `POST /v1/field_actual_et` | actual evapotranspiration over a window, in mm and m³/ha |
 | `GET /v1/scene.png?bbox=w,s,e,n` | a true-colour Sentinel-2 crop of the plot at native 10 m, up to 1024 px a side |
+| `POST /v1/field_series` (MCP `emem_field_series`) | an index over the field per scene: `ndvi`, `ndwi`, `ndmi` (alias `lswi`), `evi`, or Sentinel-1 `vv`, `vh`, `vh_vv` |
+
+`field_series` takes `geometry` (or `bbox`), `index`, `start_date` and
+`end_date`. Radar reads one relative orbit; pass `orbit` to choose it.
+Radar rows have no `clear_fraction`: `mean` is the dB of the mean
+linear power, with `se_db`, `pixel_enl`, `below_nesz_share` and
+`bright_rejected`. Pass `fields: [{id, geometry}]` for up to 500 fields
+in one window of at most 512 px a side. `inner_buffer_m` drops pixels
+near the edge, and `min_support_px` (4 to 30) sets the fewest pixels a
+scene needs. `polygon_cid` identifies each outline. On optical indices
+a scene that both time neighbours refute gets `quality: "suspect"` and
+a `scene_check`, and the trend leaves it out. A `fields` answer adds a
+`suspect` column and `suspect_dates`.
 
 `field_burn_scar` and `field_actual_et` take the same body: `start` and
 `end` (YYYY-MM-DD, inclusive, at most 400 days), and the field as

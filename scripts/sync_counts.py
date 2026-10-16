@@ -106,7 +106,7 @@ CANON = {
     # and the raw S1/S2/DEM bands) is the replacement and is recomputable,
     # which a learned embedding never was.
     "foundation_encoders": 0,
-    "mcp_resources": 20,       # resources/list entries (emem-mcp 7 + emem-api-rest 12)
+    "mcp_resources": 21,       # resources/list entries (emem-mcp 8 + emem-api-rest 12 docs + 1 MCP Apps view)
     "mcp_uri_templates": 9,    # resource template entries (emem-mcp 3 + emem-api-rest 5)
     "crates": 19,
     "version": "2.4.3",
@@ -142,6 +142,11 @@ def compute_offline() -> dict:
     rest_res = re.search(r"fn mcp_static_resources\(\)[^{]*\{(.*?)\n\}", rest, re.S)
     rest_tmpl = re.search(r"fn mcp_resource_templates\(\)[^{]*\{(.*?)\n\}", rest, re.S)
     resources += len(re.findall(r"(?m)^\s+\(\s*$", rest_res.group(1))) if rest_res else 0
+    # mcp_full_resources() also pushes entries by constant (the MCP Apps fact
+    # card). Missing it made this count 20 while resources/list served 21, and
+    # the hook then "corrected" a doc that had the live number.
+    rest_full = re.search(r"fn mcp_full_resources\(\)[^{]*\{(.*?)\n\}", rest, re.S)
+    resources += len(re.findall(r'"uri":\s+[A-Z][A-Z0-9_]*,', rest_full.group(1))) if rest_full else 0
     templates += len(re.findall(r'"uriTemplate"\s*:', rest_tmpl.group(1))) if rest_tmpl else 0
 
     cargo = CARGO.read_text()

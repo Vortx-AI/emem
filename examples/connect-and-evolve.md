@@ -23,12 +23,27 @@ export EMEM=http://127.0.0.1:5051     # or: export EMEM=https://emem.dev
 The refinement loop in step 3 is **opt-in**. Start the responder with:
 
 ```bash
-EMEM_REFINEMENT_ENABLED=1 cargo run --release --bin emem-server
+EMEM_REFINEMENT_ENABLED=1 EMEM_FACT_PLANE_OPEN=1 cargo run --release --bin emem-server
 # optional knobs (all have safe defaults):
 #   EMEM_REFINEMENT_INTERVAL_SECS   how often the pass runs
 #   EMEM_REFINEMENT_MIN_SEVERITY    contradictions below this are skipped
 #   EMEM_REFINEMENT_CELL_PREFIX     restrict the pass to a region
 ```
+
+> **Step 1 needs a node whose fact plane admits your keys.** The fact
+> plane is closed by default. A node accepts a fact at an address
+> (cell, band, tslot) only from its own key, from an enrolled device, or
+> from a key in `EMEM_FACT_PLANE_WRITERS`. Every other attestation gets
+> 403 `level_too_low` (see `GET /v1/enlist`, surface `fact_plane`, tier
+> T4). So https://emem.dev refuses step 1. Run a local node instead:
+>
+> - `EMEM_FACT_PLANE_OPEN=1` admits any signing key. Use it for the
+>   bundled demos, because they make a new key on each run.
+> - `EMEM_FACT_PLANE_WRITERS=<key>,<key>` admits only the listed
+>   base32-nopad ed25519 public keys. Use it when you sign the envelopes
+>   yourself with fixed keys.
+>
+> Steps 2 to 5 are reads. They work on any node that holds the facts.
 
 ---
 
@@ -45,6 +60,7 @@ Start a responder with the refinement loop enabled:
 
 ```bash
 EMEM_REFINEMENT_ENABLED=1 \
+EMEM_FACT_PLANE_OPEN=1 \
 EMEM_REFINEMENT_INTERVAL_SECS=3 \
 EMEM_REFINEMENT_MIN_SEVERITY=0.1 \
 cargo run --release --bin emem-server
@@ -145,15 +161,19 @@ citations to **every** disputed fact CID. It does **not** silently
 reconcile.
 
 ```bash
-curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=damO&band=indices.ndvi&min_severity=0.1" | jq
+curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=defi.zb3d8&band=indices.ndvi&min_severity=0.1" | jq
 ```
+
+`defi.zb3d8` is a prefix of `defi.zb3d8.wOsu.zf07c`, the cell for
+lat -3.4653, lng -62.2159 that `emem-connect-demo` uses. Use a prefix of
+your own cell if you signed at a different place.
 
 or the POST form (same primitive, richer filters):
 
 ```bash
 curl -sS -X POST "$EMEM/v1/memory_contradictions" \
   -H 'content-type: application/json' \
-  -d '{"cell_prefix":"damO","band":"indices.ndvi","min_severity":0.1}' | jq
+  -d '{"cell_prefix":"defi.zb3d8","band":"indices.ndvi","min_severity":0.1}' | jq
 ```
 
 Response shape:
@@ -183,9 +203,9 @@ Response shape:
 Grab the two disputed CIDs for the next steps:
 
 ```bash
-SUBJ=$(curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=damO&band=indices.ndvi&min_severity=0.1" \
+SUBJ=$(curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=defi.zb3d8&band=indices.ndvi&min_severity=0.1" \
   | jq -r '.contradictions[0].attestations[0].fact_cid')
-OBJ=$(curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=damO&band=indices.ndvi&min_severity=0.1" \
+OBJ=$(curl -sS "$EMEM/v1/memory_contradictions?cell_prefix=defi.zb3d8&band=indices.ndvi&min_severity=0.1" \
   | jq -r '.contradictions[0].attestations[1].fact_cid')
 echo "subject=$SUBJ object=$OBJ"
 ```

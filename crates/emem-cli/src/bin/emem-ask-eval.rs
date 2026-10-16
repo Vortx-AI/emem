@@ -195,16 +195,16 @@ fn evaluate(q: &str, place: &str, expected: &str, status: u16, v: &Value) -> Res
         .pointer("/topic_routing/out_of_scope")
         .and_then(|x| x.as_bool())
         .unwrap_or(false);
-    let fact_count = v
-        .pointer("/facts/facts")
-        .and_then(|x| x.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
-    let receipt_cids = v
-        .pointer("/facts/receipt/fact_cids")
-        .and_then(|x| x.as_array())
-        .map(|a| a.len())
-        .unwrap_or(0);
+    // `/v1/ask` returns the cited cids at the top level and the receipt beside
+    // them; the full `facts` block only comes with `include: ["facts_full"]`.
+    // The old `/facts/...` paths are read too, for a node that predates that.
+    let len_at = |ptrs: &[&str]| {
+        ptrs.iter()
+            .find_map(|p| v.pointer(p).and_then(|x| x.as_array()).map(|a| a.len()))
+            .unwrap_or(0)
+    };
+    let fact_count = len_at(&["/fact_cids", "/facts/facts"]);
+    let receipt_cids = len_at(&["/receipt/fact_cids", "/facts/receipt/fact_cids"]);
 
     let mut pass = true;
     let mut notes: Vec<String> = Vec::new();

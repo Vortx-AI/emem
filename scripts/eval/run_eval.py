@@ -46,7 +46,9 @@ for q in QUESTIONS:
     matched_with_score = [(m.get('topic'), round(m.get('score', 0), 3), m.get('via'))
                            for m in tr.get('matched_keywords', [])]
     routed_via = tr.get('routing', {}).get('method')
-    facts_n = len(body.get('facts', []) or [])
+    # /v1/ask returns `facts` only with include: ["facts_full"]; the
+    # top-level `fact_cids` list is always there.
+    facts_n = len(body.get('fact_cids') or body.get('facts') or [])
     notes_n = len(body.get('materialize_notes', []) or [])
     place_resolved = bool(body.get('place_resolved'))
     expect = q.get('expect', [])
