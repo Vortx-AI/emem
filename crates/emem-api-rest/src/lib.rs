@@ -21001,8 +21001,12 @@ async fn post_attest_cbor(
             },
         )
     })?;
-    match s.storage.put_attestation(&att).await {
-        Ok(cids) => {
+    // The same gate and limit as the JSON route. Without them an enrolled
+    // device key could post an untraced attestation here that /v1/attest
+    // refuses, and no per-key bound applied.
+    enforce_write_rate_limit_key(&emem_fact::render_attester_b32(&att.attester))?;
+    match s.storage.put_attestation_gated(&att, None).await {
+        Ok((cids, _admitted)) => {
             metrics_inc(&ATTEST_TOTAL);
             let cid_strs: Vec<&str> = cids.iter().map(|c| c.as_str()).collect();
             Ok(Json(json!({ "cids": cid_strs, "count": cids.len() })))
@@ -40068,6 +40072,8 @@ fn recompute_pure_op(op: &str, values: &[f64]) -> Option<f64> {
 /// build the response. Owns its inputs so `post_derive` can spawn it as a
 /// detached task under `budget_ms`, the registration then completes in the
 /// background even if the caller's request has already timed out.
+const MAX_DERIVE_INPUTS: usize = 1024;
+
 async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, ApiError> {
     let started = std::time::Instant::now();
 
@@ -40096,6 +40102,18 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             "derive_invalid_cell",
             format!(
                 "`cell` `{cell}` is not a valid cell64 shape (four `.`-separated base-65,536 bigrams). Use /v1/locate to get the canonical address for a place."
+            ),
+        ));
+    }
+    // Every parent is read from the store before the signature is checked,
+    // so an unsigned body with a quarter of a million tokens bought as many
+    // reads. A derivation over more parents than this cites a bundle.
+    if req.inputs.len() > MAX_DERIVE_INPUTS {
+        return Err(bad_request(
+            "derive_too_many_inputs",
+            format!(
+                "`inputs` names {} parents; the cap is {MAX_DERIVE_INPUTS}. Collapse them into one emem:bundle: token with emem_memory_bundle and cite that.",
+                req.inputs.len()
             ),
         ));
     }
@@ -43755,8 +43773,54 @@ fn enforce_open_namespace_owner(
             },
         ));
     }
+    // A vault entry records its author on the entry itself (it never enters
+    // the plaintext tree the checks below read), so it is checked here, for
+    // every verb that reaches a vault path.
+    if let (Some(owner), Some(a)) = (
+        read_vault_entry(s, path)?.and_then(|v| v.attester_pubkey_b32),
+        attester,
+    ) {
+        if !owner.eq_ignore_ascii_case(&a.pubkey_b32) {
+            return Err(ApiError(
+                StatusCode::FORBIDDEN,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "memory_namespace_violation: the vault entry at `{path}` was written by another key, and only that key may change or delete it."
+                    ),
+                    details: Some(json!({
+                        "code": "memory_namespace_violation",
+                        "reason": "vault_owner_mismatch",
+                        "path": path,
+                    })),
+                },
+            ));
+        }
+    }
     if emem_primitives::namespace_requires_attester(path) {
-        return Ok(()); // the path itself carries the owner
+        // The path names its owner by an 8-character key prefix, which is 40
+        // bits: a key sharing a victim's prefix can be ground in about a GPU
+        // day, as onion vanity names are. So a file that already records its
+        // full author answers to that key alone. The prefix still decides who
+        // may write a path for the first time.
+        let recorded = read_memory_file(s, path)?.and_then(|(_, m)| m.attester_pubkey_b32);
+        return match (recorded, attester) {
+            (Some(owner), Some(a)) if !owner.eq_ignore_ascii_case(&a.pubkey_b32) => Err(ApiError(
+                StatusCode::FORBIDDEN,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "memory_namespace_violation: `{path}` was written by another key that shares this namespace's 8-character prefix. A file answers to the full key that wrote it."
+                    ),
+                    details: Some(json!({
+                        "code": "memory_namespace_violation",
+                        "reason": "owner_key_mismatch",
+                        "path": path,
+                    })),
+                },
+            )),
+            _ => Ok(()),
+        };
     }
     let Some((_, meta)) = read_memory_file(s, path)? else {
         return Ok(()); // nothing there yet: this caller becomes the owner
@@ -45546,9 +45610,10 @@ fn persist_vault_write(
     s: &AppState,
     path: &str,
     plaintext: &[u8],
+    attester: Option<&str>,
 ) -> Result<vault::SealedVaultEntry, ApiError> {
     let db = memory_db(s)?;
-    let sealed = vault::seal(
+    let mut sealed = vault::seal(
         &responder_secret_bytes(s),
         &s.identity.pubkey.0,
         path,
@@ -45565,6 +45630,7 @@ fn persist_vault_write(
             },
         )
     })?;
+    sealed.attester_pubkey_b32 = attester.map(str::to_string);
     let tree = db.open_tree(emem_storage::TREE_MEMORY_VAULT).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -45663,7 +45729,12 @@ async fn memory_create_inner(s: &AppState, req: MemoryCreateReq) -> Result<JsonV
     // ONLY. It never touches the plaintext file trees, so it can never be
     // indexed by memory_search or scanned for contradictions.
     if kind == MemoryKind::Vault {
-        let sealed = persist_vault_write(s, &path, body)?;
+        let sealed = persist_vault_write(
+            s,
+            &path,
+            body,
+            req.attester.as_ref().map(|a| a.pubkey_b32.as_str()),
+        )?;
         let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
             .encode(&s.identity.pubkey.0)
             .to_lowercase();
@@ -46233,6 +46304,16 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     let raw = req.path.trim();
     let is_dir = raw.ends_with('/');
     let path = validate_memory_path(&req.path, is_dir)?;
+    if is_dir && path == MEMORY_ROOT {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "memory_namespace_violation: the root `/memories/` is every author's and is closed to a directory delete. Delete your own files, or a directory inside `/memories/by_attester/<your-pubkey8>/`.".into(),
+                details: Some(json!({"code": "memory_namespace_violation", "reason": "root_directory_delete", "path": path})),
+            },
+        ));
+    }
     // W2 attester binding (delete has no body, use blake3(b"")).
     let empty_bh = emem_primitives::body_hash(b"");
     validate_attester_binding(
@@ -46319,6 +46400,44 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             .scan_prefix(path.as_bytes())
             .filter_map(|r| r.ok().map(|(k, v)| (k.to_vec(), v)))
             .collect();
+        // The ownership check above ran on the directory path, which owns
+        // nothing: a prefix such as `/memories/` passed it, and the sweep then
+        // removed every file under it, every author's. A directory delete is
+        // a delete of each file, so each file answers to the same rules as a
+        // single delete, before any of them is removed.
+        let foreign: Vec<String> = pairs
+            .iter()
+            .map(|(k, _)| String::from_utf8_lossy(k).into_owned())
+            .filter(|key| {
+                let by_path = req
+                    .attester
+                    .as_ref()
+                    .is_none_or(|a| emem_primitives::namespace_ownership_ok(key, &a.pubkey_b32));
+                !by_path
+                    || enforce_open_namespace_owner(s, "delete", key, req.attester.as_ref())
+                        .is_err()
+            })
+            .collect();
+        if !foreign.is_empty() {
+            return Err(ApiError(
+                StatusCode::FORBIDDEN,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "memory_namespace_violation: `{path}` holds {} file(s) this key does not own, for example `{}`. A directory delete removes nothing unless every file under it is yours. Delete your own files, or a directory inside your namespace.",
+                        foreign.len(),
+                        foreign[0]
+                    ),
+                    details: Some(json!({
+                        "code": "memory_namespace_violation",
+                        "reason": "directory_holds_foreign_files",
+                        "path": path,
+                        "foreign_files": foreign.len(),
+                        "example": foreign[0],
+                    })),
+                },
+            ));
+        }
         if pairs.is_empty() {
             return Err(ApiError(
                 StatusCode::NOT_FOUND,
@@ -93294,6 +93413,122 @@ mod tests {
             pubkey_b32,
             sig_b32,
         }
+    }
+
+    /// A directory delete is a delete of every file under it. Reported
+    /// 2026-10-16: the owner check ran on the directory path alone, which owns
+    /// nothing, so any key could sweep `/memories/` and remove every author's
+    /// notes.
+    #[tokio::test]
+    async fn a_directory_delete_cannot_remove_another_keys_files() {
+        let s = test_app_state();
+        let (ska, pka) = test_attester_signer();
+        let (skb, pkb) = test_attester_signer();
+        let short_a = emem_primitives::pubkey_short_from_b32(&pka);
+        let short_b = emem_primitives::pubkey_short_from_b32(&pkb);
+        let create = |sk: &ed25519_dalek::SigningKey, path: &str, body: &str| {
+            let att = sign_attester(sk, "create", path, body.as_bytes());
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: body.into(),
+                kind: Some("episodic".into()),
+                attester: Some(att),
+            }
+        };
+        let a_note = format!("/memories/by_attester/{short_a}/mine.md");
+        let b_note = format!("/memories/by_attester/{short_b}/b.md");
+        for (sk, p) in [(&ska, a_note.as_str()), (&skb, b_note.as_str())] {
+            memory_create_inner(&s, create(sk, p, "kept"))
+                .await
+                .map_err(|e| e.1.message)
+                .unwrap();
+        }
+        memory_create_inner(&s, create(&ska, "/memories/shared/a.md", "a's"))
+            .await
+            .map_err(|e| e.1.message)
+            .unwrap();
+        memory_create_inner(&s, create(&skb, "/memories/shared/b.md", "b's"))
+            .await
+            .map_err(|e| e.1.message)
+            .unwrap();
+        let delete = |sk: &ed25519_dalek::SigningKey, path: &str| {
+            let base = current_base_cid(&s, path);
+            MemoryDeleteReq {
+                path: path.into(),
+                attester: Some(sign_attester_v2(sk, "delete", path, b"", &base)),
+            }
+        };
+        for dir in ["/memories/", "/memories/by_attester/", "/memories/shared/"] {
+            let r = memory_delete_inner(&s, delete(&skb, dir)).await;
+            assert!(r.is_err(), "B swept `{dir}`");
+            assert_eq!(r.err().map(|e| e.0), Some(StatusCode::FORBIDDEN), "{dir}");
+        }
+        for p in [
+            a_note.as_str(),
+            b_note.as_str(),
+            "/memories/shared/a.md",
+            "/memories/shared/b.md",
+        ] {
+            assert!(
+                read_memory_file(&s, p).unwrap().is_some(),
+                "{p} was removed"
+            );
+        }
+        // Your own namespace directory still deletes.
+        let own = format!("/memories/by_attester/{short_b}/");
+        memory_delete_inner(&s, delete(&skb, &own))
+            .await
+            .map_err(|e| e.1.message)
+            .unwrap();
+        assert!(read_memory_file(&s, &b_note).unwrap().is_none());
+        assert!(read_memory_file(&s, &a_note).unwrap().is_some());
+    }
+
+    /// A vault entry answers to the key that sealed it. It never enters the
+    /// plaintext tree where authorship is recorded, so until 2026-10-16 any
+    /// key could overwrite or delete another's secret.
+    #[tokio::test]
+    async fn a_vault_entry_answers_to_the_key_that_sealed_it() {
+        let s = test_app_state();
+        let (ska, _) = test_attester_signer();
+        let (skb, _) = test_attester_signer();
+        let path = "/memories/creds/api.md";
+        let seal = |sk: &ed25519_dalek::SigningKey, body: &str| MemoryCreateReq {
+            path: path.into(),
+            file_text: body.into(),
+            kind: Some("vault".into()),
+            attester: Some(sign_attester_v2(
+                sk,
+                "create",
+                path,
+                body.as_bytes(),
+                &current_base_cid(&s, path),
+            )),
+        };
+        memory_create_inner(&s, seal(&ska, "a's secret"))
+            .await
+            .map_err(|e| e.1.message)
+            .unwrap();
+        let over = memory_create_inner(&s, seal(&skb, "b's")).await;
+        assert_eq!(over.err().map(|e| e.0), Some(StatusCode::FORBIDDEN));
+        let del = |sk: &ed25519_dalek::SigningKey| MemoryDeleteReq {
+            path: path.into(),
+            attester: Some(sign_attester_v2(
+                sk,
+                "delete",
+                path,
+                b"",
+                &current_base_cid(&s, path),
+            )),
+        };
+        let b_del = memory_delete_inner(&s, del(&skb)).await;
+        assert_eq!(b_del.err().map(|e| e.0), Some(StatusCode::FORBIDDEN));
+        assert!(read_vault_entry(&s, path).unwrap().is_some());
+        memory_delete_inner(&s, del(&ska))
+            .await
+            .map_err(|e| e.1.message)
+            .unwrap();
+        assert!(read_vault_entry(&s, path).unwrap().is_none());
     }
 
     #[tokio::test]

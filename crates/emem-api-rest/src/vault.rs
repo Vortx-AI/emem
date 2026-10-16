@@ -65,6 +65,12 @@ pub struct SealedVaultEntry {
     pub plaintext_len: u64,
     /// ISO 8601 UTC instant the entry was sealed.
     pub sealed_at: String,
+    /// The key that wrote the entry. A vault entry never enters the plaintext
+    /// file tree, where authorship is recorded, so without this any key could
+    /// overwrite or delete another's secret. Entries sealed before it carry
+    /// none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attester_pubkey_b32: Option<String>,
 }
 
 fn default_vault_schema() -> String {
@@ -141,6 +147,7 @@ pub fn seal(
         responder_pubkey_b32: b32(responder_pubkey),
         plaintext_len: plaintext.len() as u64,
         sealed_at,
+        attester_pubkey_b32: None,
     })
 }
 
