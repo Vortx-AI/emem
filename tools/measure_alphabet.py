@@ -17,9 +17,12 @@ Algorithm:
 Usage:
   python tools/measure_alphabet.py --out crates/emem-codec/data/cell64-alphabet-v0.bin
 
-Note: v0.0.2 ships a synthetic placeholder alphabet in
-crates/emem-codec/src/alphabet.rs. This tool replaces it in v0.0.3 once
-tokenizer access is wired up.
+HISTORICAL. Do not use this tool to replace the alphabet. The deterministic
+alphabet in crates/emem-codec/src/alphabet.rs is canonical. Every cell64 in
+the corpus and every signed fact's cell is spelled in it, so a new alphabet
+rotates every address. AGENTS.md lists alphabet.rs as off-limits without a
+registry CID rotation plan. Nothing reads this tool's output, and the output
+directory does not exist. It is kept as a record of the v0.0.2 plan.
 """
 from __future__ import annotations
 
