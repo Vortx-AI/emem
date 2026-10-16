@@ -24,7 +24,7 @@ numbers move.
 - Endpoint: `https://emem.dev/mcp`, MCP Streamable HTTP (2025-11-25).
   `/mcp` advertises the 18-tool core loop; `/mcp/full` lists all 102;
   `tools/call` dispatches every tool by name at either endpoint.
-- 115 MCP tools (18 core, 97 extended), 20 static resources + 9 URI
+- 115 MCP tools (18 core, 97 extended), 21 static resources + 9 URI
   templates, 179 REST paths under `/v1/*`.
 - Auth posture: reads are open, no key, no account; writes are
   authenticated by an ed25519 signature on the request body.

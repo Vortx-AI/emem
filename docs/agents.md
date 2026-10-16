@@ -289,7 +289,7 @@ port 5051. The live surface documents 179 paths under
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 115), 21 static MCP
 resources + 9 URI templates, 168 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
-not yet wired), 113 materializers in `/v1/materializers`, and 27 data
+not yet wired), 113 entries in `/v1/materializers` (115 materializer-wired band names), and 27 data
 connectors + 8 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
 Version 2.4.3, MSRV Rust 1.91. No API keys. Agent-memory writes (the memory_* file verbs) ship over MCP; fact attestation stays REST-only (`POST /v1/attest`) because it needs an Ed25519 secret no LLM host can manage safely.
 
@@ -913,8 +913,8 @@ responder's identity, persists it, and returns it in the same response.
 Latency: ~180 ms cold (one upstream round-trip), ~10 ms warm (stored
 fact). Every cell on Earth answers; nothing needs to be pre-seeded.
 
-113 materializers are registered today (`GET /v1/materializers`,
-`pagination.total`). When the band key is not even in
+`GET /v1/materializers` lists 113 entries today
+(`pagination.total`). When the band key is not even in
 the registry, the response is explicit, not silent:
 
 ```json
