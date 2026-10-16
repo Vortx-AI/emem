@@ -410,9 +410,14 @@ fn zone_pixels(
 
 /// What a `fields` request carries per field and scene, as it accumulates.
 struct FieldsAcc {
-    rows: Vec<JsonValue>,
+    /// (field index, day, row)
+    rows: Vec<(usize, i64, JsonValue)>,
     series: Vec<(Vec<i64>, Vec<f64>)>,
 }
+
+/// A date is a fault across the window when at least this share of the
+/// fields read on it fail their own time-neighbour check.
+const DISTRICT_DIP_SHARE: f64 = 0.25;
 
 impl FieldsAcc {
     fn new(n: usize) -> Self {
@@ -441,30 +446,75 @@ impl FieldsAcc {
         if share < min_share || zs.n_clear < min_support {
             return;
         }
-        self.rows.push(json!([
-            id,
-            date,
-            round6(zs.median),
-            round6(zs.p10),
-            round6(zs.p90),
-            zs.n_clear,
-            round6(share)
-        ]));
+        self.rows.push((
+            zi,
+            day,
+            json!([
+                id,
+                date,
+                round6(zs.median),
+                round6(zs.p10),
+                round6(zs.p90),
+                zs.n_clear,
+                round6(share)
+            ]),
+        ));
         self.series[zi].0.push(day);
         self.series[zi].1.push(zs.median);
     }
 
     /// The `fields` block of the record, or null when there are no fields.
+    /// With `check_scenes`, each field's series is checked against its own
+    /// time neighbours ([`scene_dips`]), and a date that fails for a large
+    /// share of the fields is a fault for all of them. Radar does not take the
+    /// check: a sudden drop there is often a flood, which is the signal.
     fn block(
-        self,
+        mut self,
         zones: &[Zone],
         zone_px: &[Vec<usize>],
         skipped: Vec<JsonValue>,
         count_cols: [&str; 2],
         rule: &str,
+        check_scenes: bool,
     ) -> JsonValue {
         if zones.is_empty() {
             return JsonValue::Null;
+        }
+        let mut flagged: std::collections::BTreeSet<(usize, i64)> = Default::default();
+        let mut district: std::collections::BTreeSet<i64> = Default::default();
+        if check_scenes {
+            let mut read_on: std::collections::BTreeMap<i64, (usize, usize)> = Default::default();
+            for (zi, (days, vals)) in self.series.iter().enumerate() {
+                for (day, dip) in days.iter().zip(scene_dips(days, vals)) {
+                    let e = read_on.entry(*day).or_default();
+                    e.1 += 1;
+                    if dip.is_some() {
+                        e.0 += 1;
+                        flagged.insert((zi, *day));
+                    }
+                }
+            }
+            district = read_on
+                .into_iter()
+                .filter(|(_, (bad, n))| *n >= 3 && *bad as f64 >= DISTRICT_DIP_SHARE * *n as f64)
+                .map(|(d, _)| d)
+                .collect();
+            for (zi, day, row) in &mut self.rows {
+                let suspect = district.contains(day) || flagged.contains(&(*zi, *day));
+                if let Some(a) = row.as_array_mut() {
+                    a.push(json!(suspect));
+                }
+            }
+            for (zi, (days, vals)) in self.series.iter_mut().enumerate() {
+                let keep: Vec<bool> = days
+                    .iter()
+                    .map(|d| !district.contains(d) && !flagged.contains(&(zi, *d)))
+                    .collect();
+                let mut k = keep.iter();
+                days.retain(|_| *k.next().unwrap_or(&true));
+                let mut k = keep.iter();
+                vals.retain(|_| *k.next().unwrap_or(&true));
+            }
         }
         let summary: Vec<JsonValue> = zones
             .iter()
@@ -482,13 +532,44 @@ impl FieldsAcc {
                 json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
             })
             .collect();
-        json!({
-            "columns": ["id", "date", "median", "p10", "p90", count_cols[0], count_cols[1]],
-            "rows": self.rows,
+        let mut columns = vec![
+            "id",
+            "date",
+            "median",
+            "p10",
+            "p90",
+            count_cols[0],
+            count_cols[1],
+        ];
+        if check_scenes {
+            columns.push("suspect");
+        }
+        let mut out = json!({
+            "columns": columns,
+            "rows": self.rows.into_iter().map(|(_, _, r)| r).collect::<Vec<_>>(),
             "summary": summary,
             "skipped": skipped,
             "rule": rule,
-        })
+        });
+        if check_scenes {
+            if let Some(o) = out.as_object_mut() {
+                o.insert(
+                    "suspect_dates".into(),
+                    json!(district
+                        .iter()
+                        .map(|d| {
+                            let (y, m, dd) = crate::civil_from_days(*d);
+                            format!("{y:04}-{m:02}-{dd:02}")
+                        })
+                        .collect::<Vec<_>>()),
+                );
+                o.insert(
+                    "scene_check".into(),
+                    json!(format!("a row is suspect when the field's value sits on the same side of both neighbouring scenes by at least {DIP_MIN} from each (neighbours at most {DIP_MAX_GAP_DAYS} days apart), or on a `suspect_dates` date, where at least {:.0}% of the fields read that day failed that check. Suspect rows are left out of each field's trend.", DISTRICT_DIP_SHARE * 100.0)),
+                );
+            }
+        }
+        out
     }
 }
 
@@ -679,6 +760,44 @@ fn distribution(values: &mut [f32], n_aoi: usize) -> SceneStats {
 
 /// Theil-Sen slope (median of pairwise slopes) and Kendall's S with its
 /// no-ties normal approximation. Returns (slope, intercept, s, z, p).
+/// A scene must jump at least this far (index units) from EACH neighbour in
+/// time, the same way, to be called a fault. Smaller swings are within what
+/// a partly clear scene or a field operation does.
+const DIP_MIN: f64 = 0.2;
+/// Neighbours further apart than this leave room for a real change between.
+const DIP_MAX_GAP_DAYS: i64 = 30;
+
+/// Scenes the cloud mask passed that the series itself refutes. An interior
+/// scene is flagged when it sits on the same side of BOTH neighbours by at
+/// least [`DIP_MIN`] each, with the neighbours at most [`DIP_MAX_GAP_DAYS`]
+/// apart: a field does not lose and regain that much canopy inside a month,
+/// while fog, haze and a bad tile do exactly that. No spread estimate: a
+/// seasonal series' own swings would set it, and the dip would inflate it.
+/// The first and last scenes have one neighbour and are never flagged.
+/// Returns `(expected, residual)` per flagged index, `expected` being the
+/// line between the neighbours.
+fn scene_dips(days: &[i64], vals: &[f64]) -> Vec<Option<(f64, f64)>> {
+    let n = days.len().min(vals.len());
+    let mut out = vec![None; n];
+    for i in 1..n.saturating_sub(1) {
+        if days[i + 1] - days[i - 1] > DIP_MAX_GAP_DAYS {
+            continue;
+        }
+        let (a, b) = (vals[i] - vals[i - 1], vals[i] - vals[i + 1]);
+        if a.signum() == b.signum() && a.abs().min(b.abs()) >= DIP_MIN {
+            let span = (days[i + 1] - days[i - 1]) as f64;
+            let w = if span > 0.0 {
+                (days[i] - days[i - 1]) as f64 / span
+            } else {
+                0.5
+            };
+            let expected = vals[i - 1] + w * (vals[i + 1] - vals[i - 1]);
+            out[i] = Some((expected, vals[i] - expected));
+        }
+    }
+    out
+}
+
 fn theil_sen_kendall(t: &[f64], y: &[f64]) -> Option<(f64, f64, i64, f64, f64)> {
     let n = t.len();
     if n < 2 || n != y.len() {
@@ -1333,22 +1452,50 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         kept_block_medians.push(block_medians);
     }
 
+    // The series checks its own scenes: one the mask passed but both
+    // neighbours in time refute is marked, kept in the rows for the reader,
+    // and left out of the trend.
+    let dips = scene_dips(&kept_days, &kept_medians);
+    for (row, dip) in rows.iter_mut().zip(&dips) {
+        if let (Some((expected, residual)), Some(o)) = (dip, row.as_object_mut()) {
+            o.insert("quality".into(), json!("suspect"));
+            o.insert(
+                "scene_check".into(),
+                json!({"expected": round6(*expected), "residual": round6(*residual),
+                       "reason": "both neighbouring scenes refute it: fog, haze or a bad tile the scene classification passed"}),
+            );
+        }
+    }
+    let n_suspect = dips.iter().filter(|d| d.is_some()).count();
+    let (trend_days, trend_medians): (Vec<i64>, Vec<f64>) = kept_days
+        .iter()
+        .zip(&kept_medians)
+        .zip(&dips)
+        .filter(|(_, d)| d.is_none())
+        .map(|((d, m), _)| (*d, *m))
+        .unzip();
+
     // ── what a reader would otherwise get wrong by eye. ───────────────────
     let mut cautions: Vec<String> = Vec::new();
+    if n_suspect > 0 {
+        cautions.push(format!(
+            "{n_suspect} scene(s) passed the cloud mask but fall far from both neighbours in time, the same way (`quality: suspect`, with `scene_check`). They stay in the rows and are left out of the trend. In January on the Indo-Gangetic plain this is usually fog."
+        ));
+    }
     let months: std::collections::BTreeSet<u32> = kept_days
         .iter()
         .map(|d| crate::civil_from_days(*d).1)
         .collect();
-    let trend = if rows.len() >= MIN_TREND_SCENES {
-        let t: Vec<f64> = kept_days.iter().map(|d| *d as f64 / 365.25).collect();
-        theil_sen_kendall(&t, &kept_medians).map(|(slope, _icpt, s, z, p)| {
+    let trend = if trend_days.len() >= MIN_TREND_SCENES {
+        let t: Vec<f64> = trend_days.iter().map(|d| *d as f64 / 365.25).collect();
+        theil_sen_kendall(&t, &trend_medians).map(|(slope, _icpt, s, z, p)| {
             json!({
-                "method": "Theil-Sen slope of the per-scene median; Kendall S with the no-ties normal approximation, two-sided",
+                "method": "Theil-Sen slope of the per-scene median; Kendall S with the no-ties normal approximation, two-sided; scenes marked suspect are left out",
                 "slope_per_year": round6(slope),
                 "kendall_s": s,
                 "z": round6(z),
                 "p_value": round6(p),
-                "n": rows.len(),
+                "n": trend_days.len(),
                 "seasonal_cycle_removed": false,
             })
         })
@@ -1487,6 +1634,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         fields_skipped,
         ["n_clear", "clear_fraction"],
         "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_clear_fraction and min_support_px on its own pixels, whatever the window's clear share",
+        true,
     );
 
     // ── sign the series. ──────────────────────────────────────────────────
@@ -2107,6 +2255,7 @@ async fn radar_series(
             fields_skipped,
             ["n_valid", "valid_fraction"],
             "each field's pixels are the window pixels whose centre lies inside it (and inner_buffer_m inside its edge); a field's scene counts when it meets min_valid_share and min_support_px on its own pixels, whatever the window's share",
+            false,
         ),
     });
     let signed_at = emem_storage::server::iso8601_now();
@@ -2626,6 +2775,23 @@ mod tests {
         assert!((cut - 0.1 * BRIGHT_FACTOR).abs() < 1e-12);
         assert!(v[99] > cut && v[0] < cut);
         assert_eq!(bright_cut(&[f64::NAN, -32768.0], 0..2), f64::INFINITY);
+    }
+
+    #[test]
+    fn a_fog_dip_is_flagged_and_a_harvest_is_not() {
+        // Hapur, 2025-26, the field_series medians: 18 January reads 0.10
+        // between 0.48 and 0.76; the April drop is a harvest, low on both sides.
+        let days = [0i64, 8, 20, 28, 33, 53, 58, 63, 90, 110, 113, 118];
+        let vals = [
+            0.55, 0.58, 0.43, 0.48, 0.10, 0.76, 0.84, 0.79, 0.69, 0.26, 0.27, 0.22,
+        ];
+        let d = scene_dips(&days, &vals);
+        assert!(d[4].is_some(), "the fog scene is flagged");
+        assert_eq!(d.iter().filter(|x| x.is_some()).count(), 1, "{d:?}");
+        assert!(d[0].is_none() && d[11].is_none());
+        // Neighbours too far apart leave room for a real change.
+        assert!(scene_dips(&[0, 20, 40], &[0.7, 0.1, 0.7])[1].is_none());
+        assert!(scene_dips(&[0, 10, 20], &[0.7, 0.1, 0.7])[1].is_some());
     }
 
     #[test]

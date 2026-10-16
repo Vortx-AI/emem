@@ -34288,7 +34288,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/intent":            {"post":{"summary":"typed agent intent → execution plan. Body is a tagged Intent enum: pass `{type:\"where_is\",description:...}`, `{type:\"what_is_here\",cell:...|place:...}`, `{type:\"is_like\",a:...,b:...}`, `{type:\"did_change\",cell,band,window:[u64,u64]}`, `{type:\"find_like\",key,k?,filter?}`, `{type:\"confirm\",claim,cell}`, `{type:\"ask\",description,place?,cell?}`, or `{type:\"area_over_time\",geometry|bbox|areas,start_date,end_date,index?,max_scenes?}`. New variants ship under semver.","operationId":"emem_intent","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["type"],"properties":{"type":{"type":"string","enum":["where_is","what_is_here","is_like","did_change","find_like","confirm","ask","area_over_time"]},"cell":{"type":"string"},"place":{"type":"string"},"lat":{"type":"number"},"lng":{"type":"number"},"geometry":{"type":"object","description":"area_over_time: GeoJSON Polygon or Feature, WGS-84"},"bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}}},"index":{"type":"string","enum":["ndvi","ndwi","ndmi","lswi","evi","vv","vh","vh_vv"]},"start_date":{"type":"string"},"end_date":{"type":"string"},"max_scenes":{"type":"integer","minimum":3,"maximum":24},"areas":{"type":"array","maxItems":6,"items":{"type":"object","properties":{"id":{"type":"string"},"geometry":{"type":"object"},"bbox":{"type":"object"}}},"description":"area_over_time: up to 6 areas on one chart, in place of geometry/bbox; the answer adds chart_rows"},"description":{"type":"string"},"a":{"type":"string"},"b":{"type":"string"},"band":{"type":"string"},"window":{"type":"array","items":{"type":"integer"},"minItems":2,"maxItems":2},"key":{"type":"string"},"k":{"type":"integer"},"filter":{"$ref":"#/components/schemas/Claim"},"claim":{"$ref":"#/components/schemas/Claim"}}}}}},"responses":{"200":json_ok}}},
             "/v1/ask":               {"post":{"summary":"single-shot free-text answer with signed evidence. The envelope carries `reasoning`: the ordered stages (located, routed, recalled, scored) with the fact_cids each grounded, and one emem:state: address per stage. Send `Accept: text/event-stream` to receive the same stages as they complete, one emem.ask_stage.v1 JSON object per event, ending in an `answer` stage that carries the envelope a plain POST returns for the same body, or a `failed` stage. One additional event, schema `emem.spatial_trace_event.v1` with `stage: \"splat\"`, is emitted at `recalled`: the signed readings as drawable primitives (band, value, unit, age, provenance class, and an index into the fact_cids already cited), so a consumer can render the evidence before the prose is written. The same projection is in every envelope under `spatial_trace`. One route, negotiated by Accept; there is no separate stream path.","operationId":"emem_ask","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/AskReq"}}}},"responses":{"200":{"description":"application/json envelope by default; text/event-stream of emem.ask_stage.v1 events when the request sends Accept: text/event-stream","content":{"application/json":{"schema":{"type":"object"}},"text/event-stream":{"schema":{"type":"string"}}}}}}},
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
-            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict, but only the facts the response cites are stored (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
+            "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `signature` (ed25519 over blake3(batch_root||registry_cid||schema_cid)), and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","signature","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over blake3(batch_root||registry_cid||schema_cid), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
@@ -34489,8 +34489,9 @@ fn openapi_spec() -> JsonValue {
                     "region":{"type":"string","description":"Free-text region. Resolved through the same geocoder as /v1/locate. REQUIRED unless `polygon_bbox` is provided."},
                     "polygon_bbox":{"type":"object","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"}},"description":"Explicit polygon bbox; alternative to `region`."}
                 }, "description":"Hunter-mode body. Either `region` (geocoded) or `polygon_bbox` (explicit). The responder samples up to 32 cells (8 for slow primary bands such as MODIS LST), recalls the algorithm's primary scalar input plus any configured gate band, optionally re-ranks the top-K via Tessera embedding coherence, and returns the top 8 hotspots."},
-                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict, but only the facts the response cites are stored (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
+                "EudrDdsReq": {"type":"object","required":["plots"],"description":"POST /v1/eudr_dds body, produces a signed Annex II-shaped Due Diligence Statement per Regulation (EU) 2023/1115. Pair every plot with its operator-supplied geometry (GeoJSON Polygon for >4 ha, Point for ≤4 ha non-cattle per Article 2(28)), country of production (ISO3), Combined Nomenclature code (HS-6+), and quantity in kg. The endpoint runs eudr_compliance@1 per cell (JRC GFC2020 legal baseline + Hansen GFC v1.13 post-cut-off loss-year consensus; JRC GFC2020 is read as 10° COG tiles for fast cold reads across all geographies). JRC TMF DeforestationYear is read on every cell and reported as `tmf_cross_check` (a TMF-only loss sets review_required); WRI-Sims driver attribution and RADD SAR are not wired here. Applies the Article 2(4) 0.5 ha MMU floor at plot aggregation, validates `commodity_hs` against Annex I, and emits the structured envelope. The response carries an explicit `legality_disclaimer` because Article 9(1)(b) legality verification (land tenure, FPIC, country-of-origin law compliance) is structurally out of Earth-observation scope. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>. Pass an optional `scope` block (`{user_id, agent_id, run_id, org_id}`) to bind the receipt to a tenant.", "properties":{
                     "per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) inlines per_cell_verdicts; anchor leaves them out and keeps per_cell_rows_cid, a blake3 address over every cell's verdict and fact cids. Ask again with rows to expand it."},
+                    "per_cell_offset":{"type":"integer","minimum":0,"description":"page the rows in the order per_cell_rows_cid hashes them, from this index, one inline cap at a time; follow per_cell_next_offset until null, and the joined pages recompute per_cell_rows_cid"},
                     "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
                         "plot_id":{"type":"string","description":"Operator-supplied identifier; preserved verbatim in the response."},
                         "geometry_geojson":{"description":"GeoJSON Polygon (preferred) OR Point (for ≤4 ha non-cattle) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}.","oneOf":[{"type":"object","required":["type","coordinates"],"properties":{"type":{"type":"string","enum":["Polygon","Point"]},"coordinates":{}}},{"type":"object","required":["bbox"],"properties":{"bbox":{"type":"array","items":{"type":"number"},"minItems":4,"maxItems":4}}}]},
@@ -67784,6 +67785,11 @@ struct EudrDdsReq {
     /// kilobytes and its rows stay addressable.
     #[serde(default)]
     per_cell_detail: Option<String>,
+    /// Page the rows in the order `per_cell_rows_cid` hashes them: the cells
+    /// from this index, as many as the inline cap. Without it a plot over the
+    /// cap returns its failing cells first, a sample, not a page.
+    #[serde(default)]
+    per_cell_offset: Option<usize>,
     /// EUDR cut-off date in ISO 8601. Defaults to the regulation's
     /// 2020-12-31; only loss after this date counts as failure.
     #[serde(default = "default_eudr_cutoff_date")]
@@ -68037,6 +68043,8 @@ fn eudr_rows_cid(per_cell: &[EudrCellVerdict]) -> String {
     }
     h.finalize().to_hex().to_string()
 }
+
+const EUDR_ROWS_MEANS: &str = "per_cell_verdicts holds the rows this response carries, not the sampling. Over the inline cap without per_cell_offset it is a sample: failing cells first, then the first of the rest. Coverage is sampled_polygon_fraction (sampled_area_ha over the polygon's area), never a count of these rows. With per_cell_offset the rows are a page in canonical order: request each per_cell_next_offset until it is null, join the pages, and the joined rows recompute per_cell_rows_cid.";
 
 const EUDR_ROWS_CID_MEANS: &str = "blake3 (hex) over one line per sampled cell, `<cell>|<verdict>|<fact_cid>,<fact_cid>...` and a newline, in the order per_cell_verdicts lists them, over every cell, not only the inlined ones. When per_cell_verdicts_truncated is false the inlined rows recompute it. The same request repeated returns the same rows while the cited facts stand, so per_cell_detail `anchor` can be expanded later by asking again with `rows`. It is not part of the signed receipt; the fact cids inside it are signed.";
 
@@ -71098,6 +71106,7 @@ async fn post_eudr_dds_inner(
             },
         ));
     }
+    let per_cell_offset = req.per_cell_offset;
     let rows_anchor_only = match req.per_cell_detail.as_deref() {
         None | Some("rows") => false,
         Some("anchor") => true,
@@ -71651,8 +71660,19 @@ async fn post_eudr_dds_inner(
                 .and_then(|v| v.parse::<usize>().ok())
                 .filter(|n| (1..=51_200).contains(n))
                 .unwrap_or(256);
-            let per_cell_truncated = per_cell.len() > per_cell_cap;
-            let per_cell_for_response: Vec<EudrCellVerdict> = if per_cell_truncated {
+            let page = per_cell_offset.map(|o| o.min(per_cell.len()));
+            let per_cell_truncated = per_cell.len() > per_cell_cap || page.is_some_and(|o| o > 0);
+            let per_cell_next_offset = page
+                .map(|o| o + per_cell_cap)
+                .filter(|n| *n < per_cell.len());
+            let per_cell_for_response: Vec<EudrCellVerdict> = if let Some(o) = page {
+                per_cell
+                    .iter()
+                    .skip(o)
+                    .take(per_cell_cap)
+                    .cloned()
+                    .collect()
+            } else if per_cell_truncated {
                 let mut fails: Vec<EudrCellVerdict> = per_cell
                     .iter()
                     .filter(|c| c.verdict == 2)
@@ -71720,6 +71740,9 @@ async fn post_eudr_dds_inner(
                 "per_cell_verdicts_total": n_total,
                 "per_cell_verdicts_truncated": per_cell_truncated || rows_anchor_only,
                 "per_cell_detail": if rows_anchor_only { "anchor" } else { "rows" },
+                "per_cell_offset": page,
+                "per_cell_next_offset": per_cell_next_offset,
+                "per_cell_verdicts_means": EUDR_ROWS_MEANS,
                 "per_cell_rows_cid": eudr_rows_cid(&per_cell),
                 "per_cell_rows_cid_means": EUDR_ROWS_CID_MEANS,
             });
@@ -71796,15 +71819,15 @@ async fn post_eudr_dds_inner(
                     .collect(),
                 histogram_fact_cid,
             };
-            // Only these can reach the response: what the plot object names,
-            // and the plot's first cids in sort order, the only ones the
-            // receipt cap can keep.
+            // What the plot object names, and every cell's facts: the plot's
+            // `per_cell_rows_cid` addresses all of them, inlined or not, so
+            // each must resolve, and must still be the same fact when the
+            // rows are paged or asked for again. Storing only the inlined
+            // rows let every other cell be rebuilt with a new time and a new
+            // cid on the next call, and the anchor moved under the caller.
             let unsaved: EudrUnsaved = eudr_facts_named(
                 &plot_obj,
-                ctx.fact_cids
-                    .iter()
-                    .take(eudr_receipt_max_facts())
-                    .map(String::as_str),
+                ctx.fact_cids.iter().map(String::as_str),
                 &unsaved,
             )
             .into_iter()
@@ -72119,12 +72142,16 @@ async fn post_eudr_dds_inner(
             .collect();
     }
 
-    // Every fact was built for the verdict; only the ones this response
-    // names are stored, and they are stored before the receipt is signed,
-    // because the receipt binds the first cited fact's inclusion proof.
+    // Store what this response names, and every sampled cell's facts, which
+    // `per_cell_rows_cid` addresses. They are stored before the receipt is
+    // signed, because the receipt binds the first cited fact's inclusion proof.
     let to_store = eudr_facts_named(
         &body,
-        all_fact_cids_raw.iter().map(String::as_str),
+        all_fact_cids_raw.iter().map(String::as_str).chain(
+            all_cells_for_provenance
+                .iter()
+                .flat_map(|cv| cv.fact_cids.iter().map(String::as_str)),
+        ),
         &unsaved,
     );
     let stored_now: std::collections::HashSet<String> =
@@ -72182,7 +72209,7 @@ async fn post_eudr_dds_inner(
         obj.insert("facts_persisted".into(), json!(persisted_all.len()));
         obj.insert(
             "facts_note".into(),
-            json!("Every sampled cell's facts are computed and decide the verdict (facts_computed, per plot and in total). Only the facts this response cites are stored: receipt.fact_cids, the inlined per_cell_verdicts, the loss-year histogram and its parents, and facts stored by an earlier request (facts_persisted). Every fact_cid in this response resolves at /v1/facts/<cid>; the other computed facts were not stored and do not."),
+            json!("Every sampled cell's facts are computed, decide the verdict and are stored (facts_computed, facts_persisted, per plot and in total), because each plot's per_cell_rows_cid addresses all of them, inlined or not. Every fact_cid in this response, and every one behind per_cell_rows_cid, resolves at /v1/facts/<cid>. A fact stored by an earlier request is reused rather than signed again."),
         );
     }
 
@@ -95293,6 +95320,7 @@ mod tests {
     fn make_point_eudr_req(lat: f64, lng: f64, scope: Option<emem_fact::Scope>) -> EudrDdsReq {
         EudrDdsReq {
             per_cell_detail: None,
+            per_cell_offset: None,
             plots: vec![EudrPlot {
                 plot_id: "test-plot-1".into(),
                 geometry_geojson: json!({"type": "Point", "coordinates": [lng, lat]}),
@@ -95531,6 +95559,7 @@ mod tests {
         });
         let req = EudrDdsReq {
             per_cell_detail: None,
+            per_cell_offset: None,
             plots: vec![EudrPlot {
                 plot_id: "test-plot-cap".into(),
                 geometry_geojson: polygon,

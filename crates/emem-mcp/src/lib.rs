@@ -978,6 +978,7 @@ const SCHEMA_HUNT: &str = r#"{"type":"object","required":["event"],"properties":
 
 const SCHEMA_EUDR_DDS: &str = r#"{"type":"object","required":["plots"],"properties":{
 "per_cell_detail":{"type":"string","enum":["rows","anchor"],"description":"rows (default) puts every cell's verdict in the answer. anchor leaves the rows out and keeps per_cell_rows_cid, the address of the rows. Ask again with rows to get them."},
+"per_cell_offset":{"type":"integer","minimum":0,"description":"Get the rows one page at a time, in the order per_cell_rows_cid uses. Start at 0 and send each per_cell_next_offset until it is null. The joined pages give per_cell_rows_cid again."},
 "plots":{"type":"array","minItems":1,"description":"One or more plots to evaluate for EUDR compliance.","items":{"type":"object","required":["plot_id","geometry_geojson","country_of_production","commodity_hs","quantity_kg"],"properties":{
   "plot_id":{"type":"string","description":"Operator-supplied plot identifier; preserved verbatim."},
   "geometry_geojson":{"type":"object","description":"GeoJSON Polygon (preferred for >4 ha) OR GeoJSON Point (≤4 ha non-cattle per Article 2(28)) OR a bare {bbox:[minlng,minlat,maxlng,maxlat]}."},
