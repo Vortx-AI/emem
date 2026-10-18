@@ -27,31 +27,34 @@ numbers.
 
 ## Set up once
 
-```sh
-SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/scripts/sign_write.py"
-python3 "$SIGN" --init     # creates ~/.config/emem/agent_identity.json once, mode 600
-mcp() {  # mcp TOOL ARGS_JSON OUT_FILE
-  jq -n --arg n "$1" --argjson a "$2" \
-    '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$n,arguments:$a}}' \
-  | curl -sf -X POST https://emem.dev/mcp -H 'content-type: application/json' \
-      -H 'accept: application/json, text/event-stream' -d @- -o "$3"
-}
-PK8=$(python3 "$SIGN" --whoami | jq -r .namespace | cut -d/ -f4)
-```
-
-`--init` never overwrites an existing identity. Writes are MCP tools;
-there is no REST write route.
+Set your signing key once, as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md)
+describes: a plugin option that only the local `emem-signer` process
+sees. Then call `signer_whoami`. It returns your public key and your
+namespace, `/memories/by_attester/<pubkey8>/`. Writes are MCP tools on
+the emem server (`emem_memory_create` and the other verbs); there is no
+REST write route.
 
 ## Write a checkpoint
 
-```sh
-P="/memories/by_attester/$PK8/state/project-log.md"
-printf -- '# project log\n\nstatus: started 2026-09-28\nnext: cite the Bengaluru temperature fact\n' > log.md
-ARGS=$(jq -n --arg p "$P" --rawfile t log.md '{path:$p,file_text:$t,kind:"semantic"}')
-mcp emem_memory_create "$ARGS" refusal.json
-ATT=$(python3 "$SIGN" write create "$P" log.md absent refusal.json)
-mcp emem_memory_create "$(jq -c --argjson att "$ATT" '. + {attester:$att}' <<<"$ARGS")" created.json
+Use a path in your namespace, for example
+`/memories/by_attester/<pubkey8>/state/project-log.md`, and compose the
+whole file:
+
+```text
+# project log
+
+status: started 2026-09-28
+next: cite the Bengaluru temperature fact
 ```
+
+1. Call `emem_memory_create` with `{path, file_text, kind: "semantic"}`
+   and no `attester`. The refusal names the digest to sign at
+   `details.how_to_sign.sign_this.digest_hex`.
+2. Call `signer_sign_write` with `verb: "create"`, the same `path`, the
+   same text as `text`, `base: "absent"`, and that digest as
+   `expected_digest_hex`. It returns `{pubkey_b32, sig_b32}`.
+3. Call `emem_memory_create` again with the same arguments plus
+   `attester: {pubkey_b32, sig_b32}`.
 
 Use `kind: "semantic"` or `"procedural"` for state that must last. A
 responder that enables note expiry (off on emem.dev) drops `episodic`
@@ -64,29 +67,29 @@ Re-read before you edit. The current `file_cid` is the `base` of your
 next write, and a stale base is refused rather than silently
 overwriting a newer version.
 
-```sh
-mcp emem_memory_view "$(jq -n --arg p "$P" '{path:$p}')" view.json
-BASE=$(jq -r '.result.content[0].text' view.json | jq -r .file_cid)
-jq -r '.result.content[0].text' view.json | jq -j .content > log.md
-python3 "${CLAUDE_SKILL_DIR}/../emem-multi-agent-handoff/scripts/verify_note.py" view.json
-```
+1. Call `emem_memory_view` with `{path}`. Keep its `file_cid` and its
+   `content`.
+2. Save the result's JSON text to `view.json`, and check that your key
+   signed these exact bytes before you trust them:
 
-Run `verify_note.py` before trusting a note you are resuming from: it
-checks the signature is your key's over these exact bytes. Then edit,
-signing the whole file as it will read after the edit:
+   ```sh
+   python3 "${CLAUDE_SKILL_DIR}/scripts/verify_note.py" view.json
+   ```
 
-```sh
-sed 's/^status: started 2026-09-28$/status: fact cited 2026-09-28/' log.md > log.new
-ARGS=$(jq -n --arg p "$P" '{path:$p,old_str:"status: started 2026-09-28",new_str:"status: fact cited 2026-09-28"}')
-mcp emem_memory_str_replace "$ARGS" refusal.json
-ATT=$(python3 "$SIGN" write str_replace "$P" log.new "$BASE" refusal.json)
-mcp emem_memory_str_replace "$(jq -c --argjson att "$ATT" '. + {attester:$att}' <<<"$ARGS")" replaced.json
-```
+   `scripts/verify_note.py` ships with this skill. It makes no network
+   calls, and exits 0 only when every check passes.
+3. Edit with `emem_memory_str_replace` (for example
+   `old_str: "status: started 2026-09-28"`,
+   `new_str: "status: fact cited 2026-09-28"`), sent first without an
+   `attester`.
+4. Call `signer_sign_write` with `verb: "str_replace"`, the whole file
+   as it will read after the edit as `text`, the `file_cid` from step 1
+   as `base`, and the refusal's digest as `expected_digest_hex`. Then
+   re-send the edit with the attester block.
 
-`jq -j`, not `jq -r`: `-r` adds a newline, the text no longer matches
-the note, and `sign_write.py` refuses because the digest the responder
-names differs from the one it computed. That refusal is the check
-working.
+If the text you pass differs from the note by even a trailing newline,
+the signer refuses, because the digest the responder names differs from
+the one it computed. That refusal is the check working.
 
 To list what you left: `emem_memory_view` on `/memories/by_attester/<pk8>/`.
 To reach an earlier version: `emem_memory_view` with `{"file_cid": ...}`.

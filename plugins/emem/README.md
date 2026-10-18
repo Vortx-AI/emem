@@ -63,19 +63,42 @@ Seven skills ship a small Python script beside their `SKILL.md`:
 | `emem-field-tokens/scripts/rehash.py` | re-hashes a downloaded artifact against its cid |
 | `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note |
 | `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
-| `emem-sign-and-attest/scripts/sign_write.py` | holds the agent's key and signs a write it composed |
+| `emem-long-horizon-memory/scripts/verify_note.py` | the same note check, shipped with the skill that uses it |
 
-Each reads only the files you pass it (and `sign_write.py` its identity
-file) and makes no network call. BLAKE3
+Each reads only the files you pass it and makes no network call. BLAKE3
 and Ed25519 verification come from one module, `emem_crypto.py`, shipped
 in each skill's `scripts/` so a skill copied on its own still runs: plain Python 3 with no third-party packages and
 no compiled code, so nothing is installed to run them. Every verifier
 takes `--self-test`, which checks that module against the official
 BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
-signatures it must reject. `sign_write.py` is the one script that
-touches a secret key; it signs with the `cryptography` package
-(OpenSSL's constant-time Ed25519) and reports when that package is
-absent rather than installing it.
+signatures it must reject.
+
+## Signing key
+
+Reads need no key. To write signed notes, the plugin runs a local signer,
+`signer/emem_signer.py`, as a second MCP server (`emem-signer`, over
+stdio). It holds the one secret the plugin touches: your Ed25519 signing
+seed, which you set as the plugin's sensitive **Signing key** option
+(`/plugin configure emem@<marketplace>`). Claude Code keeps that value in
+its secure credential store and passes it only to the signer process,
+in the process environment. The signer never reads your files, never
+writes the seed to disk, makes no network call, and returns only public
+keys and signatures. Its tools are `signer_whoami`, `signer_sign_write`
+(it signs only when its own digest of your write equals the one the
+server names) and `signer_sign_digest`. It signs with the `cryptography`
+package (OpenSSL's constant-time Ed25519) and reports when that package
+is absent rather than installing it.
+
+To make a seed, run this in your own terminal, outside Claude Code, and
+keep a copy somewhere safe:
+
+```sh
+python3 -c "import os; print(os.urandom(32).hex())"
+```
+
+If you used an earlier version of this plugin, your seed is the
+`seed_hex` value in `~/.config/emem/agent_identity.json`. Paste that into
+the option to keep your namespace. The plugin no longer reads that file.
 
 ## Data
 
@@ -83,9 +106,7 @@ The MCP server and every command in the skills talk to one host,
 `https://emem.dev`, operated by Vortx AI Private Limited. The skills never
 call a third-party service; emem.dev fetches open data upstream on its own
 side. It needs no credentials. On your machine, the skill commands save
-the JSON they fetch into the current directory, and `sign_write.py --init`
-writes an Ed25519 key to `~/.config/emem/agent_identity.json` (mode 600) if
-you ask it to; nothing else is written.
+the JSON they fetch into the current directory; nothing else is written.
 
 | What you call | What is sent | How long it is kept |
 |---|---|---|

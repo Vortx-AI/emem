@@ -3,6 +3,16 @@
     "emem": {
       "type": "http",
       "url": "https://emem.dev/mcp"
+    },
+    "emem-signer": {
+      "type": "stdio",
+      "command": "python3",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/signer/emem_signer.py"
+      ],
+      "env": {
+        "EMEM_SIGNING_SEED_HEX": "${user_config.signing_seed_hex}"
+      }
     }
   }
 }

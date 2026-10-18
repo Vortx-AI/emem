@@ -608,7 +608,7 @@ cp -r emem/plugins/emem/skills/emem-* .claude/skills/
 | `emem-research-grade-citation` | the estimand behind a fact, its units and ranges, and a methods paragraph |
 | `emem-tokenise-files` | a file cut into units under one signed Merkle root; prove one unit (`tree_proof.py`) |
 | `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed (`verify_doc.py`) |
-| `emem-sign-and-attest` | write with your own key; the refusal names the bytes to sign (`sign_write.py`) |
+| `emem-sign-and-attest` | write with your own key; the refusal names the bytes to sign, and the plugin's local `emem-signer` signs them |
 | `emem-long-horizon-memory` | signed working state that survives a context reset, and the inbox |
 | `emem-multi-agent-handoff` | hand findings to other agents as tokens, and check who wrote a note (`verify_note.py`) |
 | `emem-shared-identity` | make two agents refer to one object, and know what each token proves |

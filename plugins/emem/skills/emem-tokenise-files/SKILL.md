@@ -50,21 +50,22 @@ as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md) describes:
 send it unsigned, let the refusal name the digest, and sign only after
 the digest you compute for your own write matches it.
 
+Call `signer_whoami` for your namespace, and use a path in it, for
+example `/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md`.
+
+1. Call `emem_memory_create` with `{path, file_text: <the text of index.md>, kind: "resource"}`
+   and no `attester`. The refusal names the digest at
+   `details.how_to_sign.sign_this.digest_hex`.
+2. Call `signer_sign_write` with `verb: "create"`, the same `path`, the
+   same text, `base: "absent"`, and that digest as `expected_digest_hex`.
+3. Call `emem_memory_create` again with the attester block it returns.
+   Keep the `file_cid` from the result.
+
+For the shell steps below, set the two values you now hold:
+
 ```sh
-SIGN="${CLAUDE_SKILL_DIR}/../emem-sign-and-attest/scripts/sign_write.py"
-mcp() {  # mcp TOOL ARGS_JSON OUT_FILE
-  jq -n --arg n "$1" --argjson a "$2" \
-    '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:$n,arguments:$a}}' \
-  | curl -sf -X POST https://emem.dev/mcp -H 'content-type: application/json' \
-      -H 'accept: application/json, text/event-stream' -d @- -o "$3"
-}
-PK8=$(python3 "$SIGN" --whoami | jq -r .namespace | cut -d/ -f4)
-P="/memories/by_attester/$PK8/trees/site-survey-plot-7.md"
-ARGS=$(jq -n --arg p "$P" --rawfile t index.md '{path:$p,file_text:$t,kind:"resource"}')
-mcp emem_memory_create "$ARGS" refusal.json
-ATT=$(python3 "$SIGN" write create "$P" index.md absent refusal.json)
-mcp emem_memory_create "$(jq -c --argjson att "$ATT" '. + {attester:$att}' <<<"$ARGS")" created.json
-CID=$(jq -r '.result.content[0].text' created.json | jq -r .file_cid)
+P="/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md"
+CID="<the file_cid from the create result>"
 ```
 
 Published notes are public and permanent. Do not tokenise a file whose
