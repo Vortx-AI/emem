@@ -7,6 +7,11 @@ to verify.
 
 ## [Unreleased]
 
+## [2.4.4] - 2026-10-18
+
+A patch release: no wire change to the signed receipt or the fact preimage. Receipts and facts signed before it verify unchanged. It ships security fixes to memory writes from an audit of the oldest code, new field series (radar, EVI, many fields per window, a scene check), EUDR row paging, and a Claude Code plugin that keeps its signing key out of the user's files. The workspace, the plugin, the SDKs and the registry entry move to 2.4.4 together.
+
+- The Claude Code plugin signs through a local signer it ships, `emem-signer`, a stdio MCP server. The signing seed is the plugin's sensitive `signing_seed_hex` option, which Claude Code keeps in its secure credential store and passes only to that process. The plugin no longer reads or writes `~/.config/emem/agent_identity.json`, and each skill runs only scripts it ships. `scripts/plugin_skill_lint.py` (in CI) fails on undefined shell variables, scripts run from a sibling skill, reads of the user's home or config, fetches from hosts other than emem.dev, and piped execution.
 - The EUDR envelope's `statementOfComplianceSignable` uses the same rule as the top-level `statement_of_compliance_signable`. It left out the Hansen-only fallback, so a pass that ran without the JRC baseline could read signable beside `statementOfComplianceReviewRequired: true`.
 - `emem verify` (the CLI) verified only the original receipt preimage and rejected every receipt signed since v1. It now calls `emem_storage::server::receipt_message`, the one function `POST /v1/verify_receipt` also uses, for v2, v1 and legacy receipts alike. `emem-ask-eval` read response fields `/v1/ask` no longer returns and failed every in-scope question; it reads `fact_cids` and `receipt` now (14 of 14 against emem.dev).
 - Outbound fetches to caller-named hosts refuse IPv4 addresses carried in IPv6 when the IPv4 address is not public (`::ffff:127.0.0.1`), NAT64, multicast, and the reserved and benchmarking IPv4 ranges.

@@ -162,7 +162,7 @@ def handle(msg: dict):
         result = {
             "protocolVersion": asked if asked in PROTOCOL_VERSIONS else PROTOCOL_VERSIONS[0],
             "capabilities": {"tools": {}},
-            "serverInfo": {"name": "emem-signer", "version": "2.4.3"},
+            "serverInfo": {"name": "emem-signer", "version": "2.4.4"},
             "instructions": "Signs emem memory writes with the key set in the plugin's options. The key never leaves this process.",
         }
     elif method == "ping":

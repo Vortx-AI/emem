@@ -143,7 +143,7 @@ This lists emem in **Copilot Studio + Azure Foundry**, broader than M365 Copilot
 {
   "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/vDevPreview/MicrosoftTeams.schema.json",
   "manifestVersion": "devPreview",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "id": "com.vortxai.emem",
   "developer": {
     "name": "Vortx AI Private Limited",

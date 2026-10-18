@@ -19,7 +19,7 @@ There are **four distinct integration paths**, pursue them in priority order.
 **Verify the extension manifest is live before starting:**
 ```bash
 curl -s https://raw.githubusercontent.com/Vortx-AI/emem/main/gemini-extension.json | jq '{name, version, url: .mcpServers.emem.httpUrl}'
-# Expected: { name: "emem", version: "2.4.3", url: "https://emem.dev/mcp" }
+# Expected: { name: "emem", version: "2.4.4", url: "https://emem.dev/mcp" }
 # The installable manifest is the one at the repo root; Gemini CLI installs
 # from a git repository or a local path, never from a JSON URL.
 ```

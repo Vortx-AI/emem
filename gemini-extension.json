@@ -1,6 +1,6 @@
 {
   "name": "emem",
-  "version": "2.4.3",
+  "version": "2.4.4",
   "description": "Shared, verifiable memory for machines and AI. Encode where the data lives, decode with any AI: resolve emem tokens to signed records and check them offline. No API key to read.",
   "mcpServers": {
     "emem": {

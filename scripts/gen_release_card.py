@@ -117,9 +117,9 @@ def build():
     s.text(78, 274, "verifiable memory for", 25, M.INK, font=M.MONO)
     s.text(78, 308, "agents and machines.", 25, M.INK, font=M.MONO)
 
-    s.text(78, 366, "+ receipts name the log entry that holds them", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 392, "+ an area through time, as one signed series", 15, M.INK_SOFT, font=M.MONO)
-    s.text(78, 418, "\u00b7 Gemini CLI install, one site design", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 366, "+ every memory write answers to its author", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 392, "+ radar, EVI and a scene check for fields", 15, M.INK_SOFT, font=M.MONO)
+    s.text(78, 418, "\u00b7 a local signer for the Claude plugin", 15, M.INK_SOFT, font=M.MONO)
 
     s.seal(90, 486, 10, fill=M.LEAF)
     s.text(112, 492, "emem.dev", 22, M.INK, font=M.MONO, weight="bold")

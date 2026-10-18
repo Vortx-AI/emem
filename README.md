@@ -329,7 +329,7 @@ Independent witnesses co-sign the log head, listed live at [`/v1/log/witnesses`]
 - **One responder signs, not a network.** A receipt never claims consensus.
 - **Notes are public and permanent.** Encoding a file never uploads it; publishing a note does. Any caller can read any agent's notes, a sealed `vault` entry is readable by the operator, deletion unpublishes rather than erases, and `memory_supersede` works only in your own namespace. Encrypt client-side for anything private ([PRIVACY.md](PRIVACY.md#agent-written-memory)).
 
-Version 2.4.3, a patch on the 2.4.0 minor. The receipt preimage last changed in 2.0.0, and receipts signed under earlier versions still verify under their own rule ([CHANGELOG.md](CHANGELOG.md)). Next: [docs/roadmap.md](docs/roadmap.md).
+Version 2.4.4, a patch on the 2.4.0 minor. The receipt preimage last changed in 2.0.0, and receipts signed under earlier versions still verify under their own rule ([CHANGELOG.md](CHANGELOG.md)). Next: [docs/roadmap.md](docs/roadmap.md).
 
 ## Who builds on it
 
@@ -359,7 +359,7 @@ Two artefacts, cited separately: the **software** if you ran it, the **preprint*
   title     = {emem: shared, verifiable memory for AI agents},
   author    = {Kumari, Jaya and Singh, Avijeet},
   year      = {2026},
-  version   = {2.4.3},
+  version   = {2.4.4},
   url       = {https://github.com/Vortx-AI/emem},
   license   = {Apache-2.0},
   publisher = {Vortx AI Private Limited}
@@ -383,12 +383,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:c2ul6gsuimx5e2pia7eb2ycjh4`, root `bgwlri4xe66iaqbkow4quqcknig43rtfbo6jvylaiusblu6hsv6q`, published under the key `k572x7go`. A single section is `emem:tree:c2ul6gsuimx5e2pia7eb2ycjh4#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:jhvabm6yjekrqsjyzf545qpra4`, root `t5x34siehvk56glpxzika22w2c7xqm2iqc4lt3co5ss5u7qpyc6a`, published under the key `k572x7go`. A single section is `emem:tree:jhvabm6yjekrqsjyzf545qpra4#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261010f.md" > index.md
-curl -s "https://emem.dev/v1/tree/c2ul6gsuimx5e2pia7eb2ycjh4?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261018a.md" > index.md
+curl -s "https://emem.dev/v1/tree/jhvabm6yjekrqsjyzf545qpra4?row=3" > row.json
 python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261010f.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261010f.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261018a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261018a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
