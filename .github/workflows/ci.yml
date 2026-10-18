@@ -423,6 +423,8 @@ jobs:
         run: python3 scripts/doc_lint.py
       - name: plugin skills carry identical crypto
         run: python3 scripts/plugin_crypto_copies.py
+      - name: plugin skills pass the directory checks
+        run: python3 scripts/plugin_skill_lint.py
       # `include_str!` makes a repo file a BUILD input, and the Dockerfile
       # copies selectively, so adding an include in Rust can break the image
       # build from a file nobody edited. server.json did exactly that on
