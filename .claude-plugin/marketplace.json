@@ -5,7 +5,7 @@
     "email": "avijeet@vortx.ai",
     "url": "https://emem.dev"
   },
-  "description": "The emem plugin: verifiable shared memory for AI agents, as an MCP server plus nineteen worked skills.",
+  "description": "The emem plugins: verifiable shared memory for AI agents, as an MCP server plus nineteen worked skills, and an optional local signer for writes.",
   "plugins": [
     {
       "name": "emem",
@@ -38,6 +38,34 @@
         "earth-observation",
         "ed25519",
         "content-addressed",
+        "agent-memory"
+      ]
+    },
+    {
+      "name": "emem-signer",
+      "displayName": "emem signer",
+      "source": "./plugins/emem-signer",
+      "description": "Optional local signer for emem memory writes: your key stays in a sensitive option and one local process.",
+      "version": "2.4.4",
+      "author": {
+        "name": "Vortx AI",
+        "email": "avijeet@vortx.ai",
+        "url": "https://vortx.ai"
+      },
+      "homepage": "https://emem.dev",
+      "repository": "https://github.com/Vortx-AI/emem",
+      "license": "Apache-2.0",
+      "category": "memory",
+      "keywords": [
+        "emem",
+        "ed25519",
+        "signing",
+        "agent-memory"
+      ],
+      "tags": [
+        "emem",
+        "ed25519",
+        "signing",
         "agent-memory"
       ]
     }

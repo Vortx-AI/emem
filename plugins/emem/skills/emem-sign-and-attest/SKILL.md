@@ -24,14 +24,20 @@ do not test with a throwaway key: a note signed by a key you then
 discard can never be taken down. Test with your persisted key, under a
 path like `.../scratch/`, and delete what you no longer need.
 
-The plugin keeps the key for you in a local signer, the `emem-signer` MCP
-server that ships with it. The key is a plugin option, not a file:
+A local signer can keep the key for you: the `emem-signer` MCP server,
+in the optional `emem-signer` plugin from the same marketplace. This
+plugin holds no key. The key is an option of that plugin, not a file:
 
 1. Make a 32-byte Ed25519 seed in your own terminal, outside Claude Code,
    for example `python3 -c "import os; print(os.urandom(32).hex())"`.
    Keep a copy somewhere safe. The seed is your identity.
-2. Run `/plugin configure emem@<marketplace>`, paste the 64 hex characters
-   into **Signing key**, and restart Claude Code.
+2. Run `/plugin install emem-signer@<marketplace>`, paste the 64 hex
+   characters into **Signing key**, and restart Claude Code. To change
+   it later, run `/plugin configure emem-signer@<marketplace>`.
+
+If the `signer_*` tools are not in your tool list, the signer plugin is
+not installed. Then sign the digest that the refusal names with an
+Ed25519 tool you already trust.
 
 Claude Code keeps the value in its secure credential store and gives it
 only to the signer process. The signer never writes it to disk, never

@@ -20,14 +20,5 @@
     "agent-memory"
   ],
   "icon": "icon.png",
-  "privacyPolicyUrl": "https://emem.dev/privacy",
-  "userConfig": {
-    "signing_seed_hex": {
-      "type": "string",
-      "title": "Signing key",
-      "description": "Optional. The 32-byte Ed25519 seed that signs your emem memory writes, as 64 hex characters. Leave it empty to only read. It is stored in your secure credential store and given only to the local emem-signer process.",
-      "sensitive": true,
-      "required": false
-    }
-  }
+  "privacyPolicyUrl": "https://emem.dev/privacy"
 }

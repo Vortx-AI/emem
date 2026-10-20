@@ -2,8 +2,8 @@
 """A local MCP server that signs the emem memory writes an agent composes.
 
 The signing seed reaches this process only through its environment, as
-EMEM_SIGNING_SEED_HEX, which Claude Code fills from the plugin's sensitive
-`signing_seed_hex` option. Nothing here reads the user's files, writes the
+EMEM_SIGNING_SEED_HEX, which Claude Code fills from the emem-signer
+plugin's sensitive `signing_seed_hex` option. Nothing here reads the user's files, writes the
 seed anywhere, or sends it over the network: the seed stays in this
 process, and the tools return only public keys and signatures.
 
@@ -36,8 +36,8 @@ from emem_crypto import blake3  # noqa: E402
 SIGNED_BODY_VERBS = ("create", "str_replace", "insert")
 PROTOCOL_VERSIONS = ("2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05")
 NOT_CONFIGURED = (
-    "No signing key is configured, so this plugin can read emem but not sign writes. "
-    "Run `/plugin configure emem@<marketplace>` and set the signing key (a 64-character hex "
+    "No signing key is configured, so nothing can be signed yet. "
+    "Run `/plugin configure emem-signer@<marketplace>` and set the signing key (a 64-character hex "
     "Ed25519 seed). Restart Claude Code after you save it."
 )
 

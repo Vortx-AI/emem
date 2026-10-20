@@ -50,8 +50,9 @@ as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md) describes:
 send it unsigned, let the refusal name the digest, and sign only after
 the digest you compute for your own write matches it.
 
-Call `signer_whoami` for your namespace, and use a path in it, for
-example `/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md`.
+Call `signer_whoami` (from the optional `emem-signer` plugin) for your
+namespace, and use a path in it, for example
+`/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md`.
 
 1. Call `emem_memory_create` with `{path, file_text: <the text of index.md>, kind: "resource"}`
    and no `attester`. The refusal names the digest at

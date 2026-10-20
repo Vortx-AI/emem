@@ -75,30 +75,13 @@ signatures it must reject.
 
 ## Signing key
 
-Reads need no key. To write signed notes, the plugin runs a local signer,
-`signer/emem_signer.py`, as a second MCP server (`emem-signer`, over
-stdio). It holds the one secret the plugin touches: your Ed25519 signing
-seed, which you set as the plugin's sensitive **Signing key** option
-(`/plugin configure emem@<marketplace>`). Claude Code keeps that value in
-its secure credential store and passes it only to the signer process,
-in the process environment. The signer never reads your files, never
-writes the seed to disk, makes no network call, and returns only public
-keys and signatures. Its tools are `signer_whoami`, `signer_sign_write`
-(it signs only when its own digest of your write equals the one the
-server names) and `signer_sign_digest`. It signs with the `cryptography`
-package (OpenSSL's constant-time Ed25519) and reports when that package
-is absent rather than installing it.
-
-To make a seed, run this in your own terminal, outside Claude Code, and
-keep a copy somewhere safe:
-
-```sh
-python3 -c "import os; print(os.urandom(32).hex())"
-```
-
-If you used an earlier version of this plugin, your seed is the
-`seed_hex` value in `~/.config/emem/agent_identity.json`. Paste that into
-the option to keep your namespace. The plugin no longer reads that file.
+Reads need no key, and this plugin holds none. To write signed notes,
+also install the optional `emem-signer` plugin from the same
+marketplace (`/plugin install emem-signer@emem`). It keeps your Ed25519
+key in a sensitive plugin option and signs in one local process; its
+[README](../emem-signer/README.md) has the details. Without it, the
+skills that write tell you how to sign with an Ed25519 tool you already
+trust.
 
 ## Data
 

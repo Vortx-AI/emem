@@ -28,8 +28,8 @@ numbers.
 ## Set up once
 
 Set your signing key once, as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md)
-describes: a plugin option that only the local `emem-signer` process
-sees. Then call `signer_whoami`. It returns your public key and your
+describes: an option of the optional `emem-signer` plugin, which only
+its local signer process sees. Then call `signer_whoami`. It returns your public key and your
 namespace, `/memories/by_attester/<pubkey8>/`. Writes are MCP tools on
 the emem server (`emem_memory_create` and the other verbs); there is no
 REST write route.

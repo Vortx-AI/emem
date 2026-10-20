@@ -1,11 +1,11 @@
 ---
 name: emem-device-traces
-description: Inspects and verifies the execution evidence emem holds for devices such as robots, drones, satellites and sensor hosts. Lists enrolled devices and their assurance tier, resolves an emem:trace token to its signed OS trace, re-verifies the trace (segment chain, clocks, required layers, output binding, device signature), and reads the platform registry to say which hardware roots of trust are actually admitted. Use when a fact or claim is said to come from a device, when an agent receives an emem:trace or emem:attestation token, or when someone asks whether a robot or satellite can prove what it ran. Read-only; states plainly what is roadmap.
+description: Reads and checks the signed activity records (OS traces) emem holds for devices such as robots, drones, satellites and sensor hosts. Lists enrolled devices and their assurance tier, resolves an emem:trace token to its signed OS trace, re-verifies the trace (segment chain, clocks, required layers, output binding, device signature), and reads the platform registry to say which hardware roots of trust are actually admitted. Use when a fact or claim is said to come from a device, when an agent receives an emem:trace or emem:attestation token, or when someone asks whether a robot or satellite can prove what it ran. Read-only: it sends and receives JSON, runs nothing it receives, and states plainly what is roadmap.
 ---
 
 # emem-device-traces
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send and receive JSON to `https://emem.dev` only, the service the plugin's MCP server connects to. Each answer goes straight into `jq` to print a summary; nothing is saved, and nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
 
 The verify step is also an MCP tool, `emem_trace_verify`: call it by name with `tools/call` on the plugin's MCP server (`tools/list` on `https://emem.dev/mcp/full` shows it). Listing devices and resolving a trace token are REST reads only; no MCP tool covers them yet.
 
@@ -25,8 +25,8 @@ attestation; that path ends in a rejection today.
 ## Who is enrolled
 
 ```sh
-curl -sf -o devices.json https://emem.dev/v1/devices
-jq '{count, devices: [.devices[] | {device_key, platform_id, profile_id, assurance, endorsed_by, traces}]}' devices.json
+curl -sf https://emem.dev/v1/devices \
+  | jq '{count, devices: [.devices[] | {device_key, platform_id, profile_id, assurance, endorsed_by, traces}]}'
 ```
 
 Recorded on 2026-09-28: `count: 1`, platform `generic.linux-host`,
@@ -41,15 +41,25 @@ profile `host.counters.v1`, assurance `operator_endorsed` by
 
 ## Resolve and re-verify a trace
 
+Look at the trace:
+
+```sh
+TOKEN=emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a
+curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
+  -d "{\"token\":\"$TOKEN\"}" \
+  | jq '{resolved, profile: .trace.device.substrate_profile,
+         segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}'
+```
+
+Send the same record back to be checked. `jq` reshapes the JSON and the
+second `curl` posts it from standard input (`-d @-`):
+
 ```sh
 curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' -o trace.json
-jq '{resolved, profile: .trace.device.substrate_profile,
-     segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}' trace.json
-jq '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json > verify_req.json
-curl -sf -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' \
-  -d @verify_req.json -o verdict.json
-jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}' verdict.json
+  -d "{\"token\":\"$TOKEN\"}" \
+  | jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' \
+  | curl -sf -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
+  | jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}'
 ```
 
 Recorded on 2026-09-28: four `linux.ftrace.v1` segments (scheduler
@@ -83,10 +93,10 @@ bound and inside the window, and the device key's Ed25519 signature
 ## The registries
 
 ```sh
-curl -sf -o platforms.json https://emem.dev/v1/device_platforms
-jq '[.registry.platforms[] | {id, status, root_of_trust,
-     anchors: [.trust_anchors[]? | {id, provisional}]}]' platforms.json
-curl -sf -o encodings.json https://emem.dev/v1/trace_encodings
+curl -sf https://emem.dev/v1/device_platforms \
+  | jq '[.registry.platforms[] | {id, status, root_of_trust,
+         anchors: [.trust_anchors[]? | {id, provisional}]}]'
+curl -sf https://emem.dev/v1/trace_encodings | jq '{manifest_cid, encodings: [.registry.encodings[]?.id]}'
 ```
 
 On 2026-09-28: 17 platforms, every hardware platform `candidate` with

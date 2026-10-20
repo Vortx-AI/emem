@@ -7,6 +7,9 @@ to verify.
 
 ## [Unreleased]
 
+- The Claude Code signer is its own plugin, `emem-signer`, in the same marketplace. The `emem` plugin now holds no credential and runs no local process: one remote MCP server and its skills. Install `emem-signer` beside it to write signed notes; its `signing_seed_hex` option and tools are unchanged. If you set the key on the `emem` plugin in 2.4.4, set it again with `/plugin install emem-signer@emem`.
+- The device-traces skill pipes each JSON answer straight into `jq` instead of saving it, and says what a trace is: a JSON record of OS events that is read and checked, never run.
+
 ## [2.4.4] - 2026-10-18
 
 A patch release: no wire change to the signed receipt or the fact preimage. Receipts and facts signed before it verify unchanged. It ships security fixes to memory writes from an audit of the oldest code, new field series (radar, EVI, many fields per window, a scene check), EUDR row paging, and a Claude Code plugin that keeps its signing key out of the user's files. The workspace, the plugin, the SDKs and the registry entry move to 2.4.4 together.

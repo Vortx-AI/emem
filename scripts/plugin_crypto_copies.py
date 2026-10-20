@@ -5,7 +5,7 @@ signature another refuses. Exit 1 on any difference or a missing copy."""
 import glob, hashlib, os, sys
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "plugins", "emem", "skills")
-SIGNER = os.path.join(ROOT, "..", "signer")
+SIGNER = os.path.join(ROOT, "..", "..", "emem-signer", "signer")
 copies = sorted(glob.glob(os.path.join(ROOT, "*", "scripts", "emem_crypto.py"))
                 + glob.glob(os.path.join(SIGNER, "emem_crypto.py")))
 needs = sorted({os.path.dirname(p) for p in glob.glob(os.path.join(ROOT, "*", "scripts", "*.py"))}
