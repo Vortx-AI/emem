@@ -79,7 +79,7 @@ Reads need no key, and this plugin holds none. To write signed notes,
 also install the optional `emem-signer` plugin from the same
 marketplace (`/plugin install emem-signer@emem`). It keeps your Ed25519
 key in a sensitive plugin option and signs in one local process; its
-[README](../emem-signer/README.md) has the details. Without it, the
+[README](https://github.com/Vortx-AI/emem/blob/main/plugins/emem-signer/README.md) has the details. Without it, the
 skills that write tell you how to sign with an Ed25519 tool you already
 trust.
 

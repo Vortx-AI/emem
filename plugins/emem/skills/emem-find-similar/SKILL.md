@@ -41,7 +41,7 @@ this embedding aliases very different climates that share a texture.
 ## Step 1: resolve the seed
 
 ```sh
-SEED=$(curl -sf -X POST https://emem.dev/v1/locate \
+CELL=$(curl -sf -X POST https://emem.dev/v1/locate \
   -H 'content-type: application/json' \
   -d '{"q":"Bengaluru, India"}' | jq -r '.cell64')
 ```
@@ -51,7 +51,7 @@ SEED=$(curl -sf -X POST https://emem.dev/v1/locate \
 ```sh
 curl -s -X POST https://emem.dev/v1/find_similar \
   -H 'content-type: application/json' \
-  -d "{\"key\":\"$SEED\",\"k\":12}" > sim.json
+  -d "{\"key\":\"$CELL\",\"k\":12}" > sim.json
 jq 'if .code then {code, message}
     else [.neighbors[] | {cell, score, place: .place_label_cached, lat, lng}] end' sim.json
 ```

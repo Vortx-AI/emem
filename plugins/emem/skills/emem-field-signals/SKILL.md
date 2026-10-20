@@ -106,12 +106,13 @@ June to September 2025 returned it on 2026-09-28).
 ## Step 4: look at it
 
 ```sh
-curl -sf -D scene_headers.txt -o plot.png \
-  'https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903'
-grep -i '^x-emem-scene' scene_headers.txt
+curl -sf -o plot.png -w '%{header_json}' \
+  'https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903' \
+  | jq 'with_entries(select(.key | startswith("x-emem-scene")))'
 ```
 
-The headers name the scene id, capture time, cloud cover, EPSG, CRS
+The image is saved as `plot.png`, and `jq` prints the scene headers
+(curl 7.83 or later). The headers name the scene id, capture time, cloud cover, EPSG, CRS
 bounds, pixel size and per-channel stretch; `max_cloud` and `datetime`
 narrow the choice. Recorded on 2026-09-28: a 39 x 34 px PNG from
 `S2C_MSIL2A_20260923T053641_R005_T43REQ_20260923T101809`, 14.74 % cloud.

@@ -18,6 +18,10 @@ Each rule is a finding a review made, or a mistake made while fixing one:
                   credential could reach the parts that send data, so the
                   key lives only in the separate emem-signer plugin
                   (review, 2026-10-20)
+  secret-shape    a shell variable named like a secret (TOKEN, KEY, SEED,
+                  SECRET, AUTH, PASS, CRED), or a header dump (-D); the
+                  review read an emem:trace token in $TOKEN as a
+                  credential (review, 2026-10-20)
 
 Exit 1 on any finding, with file and line.
 """
@@ -33,6 +37,8 @@ ENV_OK = {"CLAUDE_SKILL_DIR", "CLAUDE_PLUGIN_ROOT", "CLAUDE_PLUGIN_DATA", "HOME"
 ALLOWED_HOSTS = {"emem.dev"}
 LOCAL_READ = re.compile(r"(~/\.|\$HOME\b|\$\{HOME\}|Path\.home\(|expanduser\()")
 FETCH = re.compile(r"\b(?:curl|wget)\b[^\n]*?https?://([a-zA-Z0-9.-]+)")
+SECRET_VAR = re.compile(r"(?:^|[\s;(])([A-Z_]*(?:TOKEN|KEY|SEED|SECRET|AUTH|PASS|CRED)[A-Z_]*)=")
+HEADER_DUMP = re.compile(r"\bcurl\b[^\n]*(?:\s-D\s|--dump-header)")
 PIPE_EXEC = re.compile(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node|perl|ruby)\b(?!\S)")
 findings = []
 
@@ -58,6 +64,10 @@ for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))):
             for host in FETCH.findall(line):
                 if host not in ALLOWED_HOSTS:
                     findings.append((rel(f), n, "foreign-host", host))
+            for v in SECRET_VAR.findall(line):
+                findings.append((rel(f), n, "secret-shape", f"${v} reads like a secret; name it for what it holds"))
+            if HEADER_DUMP.search(line):
+                findings.append((rel(f), n, "secret-shape", "a header dump; print the headers you need with -w '%{header_json}'"))
             if PIPE_EXEC.search(line):
                 findings.append((rel(f), n, "pipe-exec", line.strip()[:100]))
     for n, line in enumerate(text.splitlines(), 1):
@@ -81,4 +91,4 @@ for f, n, rule, what in findings:
     print(f"{f}:{n}: {rule}: {what}")
 if findings:
     sys.exit(1)
-print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution or credentials in the emem plugin")
+print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names or credentials in the emem plugin")

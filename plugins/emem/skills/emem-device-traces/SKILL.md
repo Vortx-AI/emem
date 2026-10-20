@@ -44,9 +44,8 @@ profile `host.counters.v1`, assurance `operator_endorsed` by
 Look at the trace:
 
 ```sh
-TOKEN=emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a
 curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d "{\"token\":\"$TOKEN\"}" \
+  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' \
   | jq '{resolved, profile: .trace.device.substrate_profile,
          segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}'
 ```
@@ -56,7 +55,7 @@ second `curl` posts it from standard input (`-d @-`):
 
 ```sh
 curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d "{\"token\":\"$TOKEN\"}" \
+  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' \
   | jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' \
   | curl -sf -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
   | jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}'
