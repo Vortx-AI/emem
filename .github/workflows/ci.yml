@@ -306,7 +306,9 @@ jobs:
 
   python-sdks:
     name: python SDK tests (${{ matrix.python }})
-    runs-on: ubuntu-latest
+    # setup-python ships no 3.9 for Ubuntu 26.04, which ubuntu-latest
+    # became on 2026-10-19; the floor test needs 24.04 until it moves.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
