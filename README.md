@@ -9,6 +9,7 @@
 <p><a href="https://emem.dev">Try it, no key</a> · <a href="#quickstart">Quickstart</a> · <a href="#memory-that-changes-without-losing-its-history">A worked example</a> · <a href="https://emem.dev/verify">Verify a token</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
+[![Toolweather](https://toolweather.toolweather.workers.dev/badge/io.github.Vortx-AI/emem.svg)](https://toolweather.pages.dev/servers/io.github.Vortx-AI--emem/)
 [![PyPI](https://img.shields.io/pypi/v/ememdev?label=pypi%20ememdev)](https://pypi.org/project/ememdev/)
 [![npm](https://img.shields.io/npm/v/@vortxai/emem?label=npm%20%40vortxai%2Femem)](https://www.npmjs.com/package/@vortxai/emem)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
