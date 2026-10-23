@@ -9,8 +9,9 @@
 //!
 //! 1. **Select candidates** — top-N memory paths ranked by multi-attester
 //!    contradiction severity (`POST /v1/memory_contradictions`) and/or by
-//!    high write-churn (the `memory_file_history` length surfaced through
-//!    `memory_view` / `memory_list_by_kind`).
+//!    high write-churn (the `memory_file_history` length, read with
+//!    `memory_view {path, view: "history"}`; `memory_list_by_kind` does not
+//!    carry it).
 //! 2. **Rewrite + merge** — for each candidate cluster of near-duplicate
 //!    memory files, ask an operator-configured LLM to propose a single
 //!    reconciled memory.

@@ -44819,7 +44819,8 @@ struct MemoryViewReq {
     vault_capability: Option<String>,
     /// `"front"` returns the note's front matter and not its body, so an
     /// agent reading a catalog of notes does not fetch every body to learn
-    /// what each one is.
+    /// what each one is. `"history"` lists every version this path has held,
+    /// oldest first, without bodies.
     #[serde(default)]
     view: Option<String>,
 }
@@ -45147,6 +45148,9 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
     let is_dir = raw.ends_with('/');
     let path = validate_memory_path(&req.path, /*allow_directory=*/ is_dir)?;
     let kind_filter = req.kind.as_deref().and_then(MemoryKind::from_wire);
+    if req.view.as_deref() == Some("history") && !is_dir {
+        return memory_history_inner(s, &path);
+    }
     if is_dir {
         // Directory listing under `path`. List every key in
         // memory_files whose path starts with `path` (which already
@@ -45551,6 +45555,75 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         "content_omitted": front_only.as_ref().map(|(_, why)| why),
         "signed_at": meta.signed_at,
         "receipt": meta.receipt,
+    }))
+}
+
+/// Every version a path has held, oldest first, from the append-only history
+/// tree that each write extends. Each version's `base` is the version before
+/// it, which is what the signed v2 preimage binds, so the chain can be walked
+/// without trusting this listing: the bodies resolve by `file_cid`.
+fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError> {
+    let db = memory_db(s)?;
+    let open = |name: &str, tree: &str| {
+        db.open_tree(tree).map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open {name}: {e}"),
+                    details: None,
+                },
+            )
+        })
+    };
+    let history = open(
+        "memory_file_history",
+        emem_storage::TREE_MEMORY_FILE_HISTORY,
+    )?;
+    let metas = open("memory_file_meta", emem_storage::TREE_MEMORY_FILE_META)?;
+    let cids: Vec<String> = history
+        .get(path.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|v| ciborium::de::from_reader(&v[..]).ok())
+        .ok_or_else(|| {
+            ApiError(
+                StatusCode::NOT_FOUND,
+                ErrorBody {
+                    code: ErrorCode::CidNotFound,
+                    message: format!("no history for `{path}`"),
+                    details: None,
+                },
+            )
+        })?;
+    let mut prev: Option<&String> = None;
+    let versions: Vec<JsonValue> = cids
+        .iter()
+        .map(|cid| {
+            let meta = metas
+                .get(cid.as_bytes())
+                .ok()
+                .flatten()
+                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+            let v = json!({
+                "file_cid": cid,
+                "base": prev,
+                "signed_at": meta.as_ref().map(|m| m.signed_at.as_str()),
+                "verb": meta.as_ref().map(|m| m.verb.as_str()),
+                "attester_pubkey_b32": meta.as_ref().and_then(|m| m.attester_pubkey_b32.as_deref()),
+                "signed_base": meta.as_ref().and_then(|m| m.attester_base.as_deref()),
+            });
+            prev = Some(cid);
+            v
+        })
+        .collect();
+    Ok(json!({
+        "kind": "history",
+        "path": path,
+        "count": versions.len(),
+        "order": "oldest_first",
+        "versions": versions,
+        "note": "Read a version's bytes with memory_view {file_cid}. `base` is the previous version here; `signed_base` is the base the author's own signature named, when it signed one. A path that was written and later deleted keeps its history.",
     }))
 }
 
@@ -95313,6 +95386,62 @@ mod tests {
         let back: MemoryFileMeta = ciborium::de::from_reader(&old[..]).expect("old meta decodes");
         assert!(back.supersede.is_none());
         assert_eq!(back.superseded_by.as_deref(), Some("d"));
+    }
+
+    /// History was stored on every write and served to no one.
+    #[tokio::test]
+    async fn view_history_lists_every_version_oldest_first_with_base_chain() {
+        let s = test_app_state();
+        let path = "/memories/hist-chain-test.md";
+        let created = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.into(),
+                file_text: "alpha beta gamma".into(),
+                kind: None,
+                attester: None,
+            },
+        )
+        .await
+        .expect("create");
+        let c1 = created["file_cid"].as_str().unwrap().to_string();
+        let mut cids = vec![c1];
+        for (old, new) in [("alpha", "ALPHA"), ("beta", "BETA")] {
+            let r = memory_str_replace_inner(
+                &s,
+                MemoryStrReplaceReq {
+                    path: path.into(),
+                    old_str: old.into(),
+                    new_str: new.into(),
+                    kind: None,
+                    attester: None,
+                },
+            )
+            .await
+            .expect("str_replace");
+            cids.push(r["file_cid"].as_str().unwrap().to_string());
+        }
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                path: path.into(),
+                view: Some("history".into()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("history");
+        let versions = view["versions"].as_array().expect("versions");
+        assert_eq!(versions.len(), 3);
+        for (i, v) in versions.iter().enumerate() {
+            assert_eq!(v["file_cid"].as_str(), Some(cids[i].as_str()));
+            assert!(v["signed_at"].as_str().is_some());
+            assert!(v["verb"].as_str().is_some());
+            let base = v["base"].as_str();
+            assert_eq!(base, i.checked_sub(1).map(|j| cids[j].as_str()));
+        }
+        assert_eq!(versions[0]["verb"].as_str(), Some("create"));
+        assert_eq!(versions[2]["verb"].as_str(), Some("str_replace"));
     }
 
     /// A supersession pointing at something nobody can resolve leaves the
