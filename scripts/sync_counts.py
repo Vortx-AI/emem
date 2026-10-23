@@ -63,9 +63,9 @@ CANON = {
     # counts inside MCP tool text are now filled from the registry at render
     # time (emem_mcp::with_counts), so only the static twins below still need
     # a human to move them.
-    "mcp_tools": 115,
+    "mcp_tools": 116,
     "mcp_core": 18,
-    "mcp_extended": 97,
+    "mcp_extended": 98,
     # The subset the ChatGPT app submission declares. A real quantity, not a
     # stale copy of `mcp_core`: the near-miss sweep flagged the bundle's "16
     # tools" as a drifted 18 because 16 is within its tolerance of 18, and the
@@ -83,8 +83,9 @@ CANON = {
     # +1 each (and emem_grid, 114 tools) for /v1/grid.
     # +1 each (and emem_field_series, 115 tools) for /v1/field_series.
     # +1 each for /v1/log/test_vectors.
-    "rest_paths_v1": 179,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 190,  # all paths in OpenAPI
+    # +1 each (and emem_inferences, 116 tools) for /v1/inferences.
+    "rest_paths_v1": 180,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 191,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was

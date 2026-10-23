@@ -269,7 +269,7 @@ Required: `token`
 
 ## `emem_tools`
 
-The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 115, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint. When to use: Call this FIRST when you do not know which…
+The map of emem's tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 116, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint. When to use: Call this FIRST when you do not know which…
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 

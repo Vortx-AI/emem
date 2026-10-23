@@ -4,7 +4,7 @@
 <meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Every tool · emem</title>
-<meta name=description content="All 115 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
+<meta name=description content="All 116 emem MCP tools from the registry: what each answers and the exact call. The 18-tool core loop first. Free to read; writes are signed and tiered.">
 <link rel=canonical href="https://emem.dev/tools">
 <link rel=icon type="image/gif" href="/vortxgola.gif">
 <link rel=preconnect href="https://fonts.googleapis.com"><link rel=preconnect href="https://fonts.gstatic.com" crossorigin>
@@ -95,7 +95,7 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
   <div>
     <p class="eyebrow">Connect &middot; generated from /v1/tools</p>
     <h1>MCP tools</h1>
-    <p class="purpose">All 115 tools this responder dispatches, each with what it answers and a call you can paste. The 18-tool core loop comes first.</p>
+    <p class="purpose">All 116 tools this responder dispatches, each with what it answers and a call you can paste. The 18-tool core loop comes first.</p>
     <div class="actions">
       <a class="btn" href="#sec-0">Core loop</a>
       <a class="btn ghost" href="/v1/tools">/v1/tools JSON</a>
@@ -114,10 +114,10 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <aside class="tl-side">
   <label for="tl-q">Filter tools</label>
   <input id="tl-q" type="search" placeholder="name or keyword" autocomplete="off" spellcheck="false">
-  <p class="count" id="tl-count" aria-live="polite">115 tools</p>
+  <p class="count" id="tl-count" aria-live="polite">116 tools</p>
   <nav class="doc-toc" aria-label="On this page"><h2>Sections</h2><ol>
 <li><a href="#sec-0"><span>00</span>Core loop (18)</a></li>
-<li><a href="#sec-1"><span>01</span>Read the world (61)</a></li>
+<li><a href="#sec-1"><span>01</span>Read the world (62)</a></li>
 <li><a href="#sec-2"><span>02</span>Write and attest (7)</a></li>
 <li><a href="#sec-3"><span>03</span>Verify and prove (8)</a></li>
 <li><a href="#sec-4"><span>04</span>Introspect the surface (19)</a></li>
@@ -129,9 +129,9 @@ h2{font-family:var(--display);font-weight:420;font-size:var(--t-2xl);line-height
 <h2 id="sec-0-h">Core loop (18)</h2>
 <p class="sub">What /mcp lists by default: enough to name a thing, ground it to a place, read, cite and verify. Every other tool stays callable by name.</p>
 
-<details class="tool" id="emem_tools" data-q="emem_tools what tools exist here, and when to reach for each the map of emem&#x27;s tools, and the one tool that finds all the others. it gives the working loop in order (name, ground, cite, resolve, verify, check for drift). then it groups every other tool by the question it answers, each with a one-line trigger. send `name` for the full schema of one tool and an example that runs. if you see a list of 18 tools, it is a curated subset of 115, not the full surface. hosts remove `_meta`, so this text repeats the count. you can call every catalogued tool by name through tools/call at either endpoint.">
+<details class="tool" id="emem_tools" data-q="emem_tools what tools exist here, and when to reach for each the map of emem&#x27;s tools, and the one tool that finds all the others. it gives the working loop in order (name, ground, cite, resolve, verify, check for drift). then it groups every other tool by the question it answers, each with a one-line trigger. send `name` for the full schema of one tool and an example that runs. if you see a list of 18 tools, it is a curated subset of 116, not the full surface. hosts remove `_meta`, so this text repeats the count. you can call every catalogued tool by name through tools/call at either endpoint.">
   <summary><code>emem_tools</code><span class="tt">What tools exist here, and when to reach for each</span><span class="tw">Call this FIRST when you do not know which tool answers the question.</span></summary>
-  <p>The map of emem&#x27;s tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 115, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint.</p>
+  <p>The map of emem&#x27;s tools, and the one tool that finds all the others. It gives the working loop in order (name, ground, cite, resolve, verify, check for drift). Then it groups every other tool by the question it answers, each with a one-line trigger. Send `name` for the full schema of one tool and an example that runs. IF YOU SEE A LIST OF 18 TOOLS, IT IS A CURATED SUBSET OF 116, NOT THE FULL SURFACE. Hosts remove `_meta`, so this text repeats the count. You can call every catalogued tool by name through tools/call at either endpoint.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_tools&quot;, &quot;arguments&quot;: {&quot;q&quot;: &quot;ndvi&quot;}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_tools">link to this tool</a></p>
 </details>
@@ -280,7 +280,7 @@ An unknown or missing `type` returns a `needs_intent_type` envelope with the val
 </details>
 </section>
 <section class="tgroup" id="sec-1" aria-labelledby="sec-1-h">
-<h2 id="sec-1-h">Read the world (61)</h2>
+<h2 id="sec-1-h">Read the world (62)</h2>
 
 <details class="tool" id="emem_air" data-q="emem_air air-quality snapshot (cams pm2.5 / no2 / o3) recall the signed copernicus cams air-quality facts (pm2.5 + no2 + o3) at a place&#x27;s cell64, attesting on a miss. composes locate → recall → aggregate; each band carries a citeable fact_cid.">
   <summary><code>emem_air</code><span class="tt">Air-quality snapshot (CAMS PM2.5 / NO2 / O3)</span><span class="tw">Use when the user names a place and asks about air quality, pollution, or emissions exposure.</span></summary>
@@ -408,9 +408,9 @@ An unknown or missing `type` returns a `needs_intent_type` envelope with the val
   <p class="tl"><a href="#emem_deforestation_alert">link to this tool</a></p>
 </details>
 
-<details class="tool" id="emem_derive_list" data-q="emem_derive_list list one attester&#x27;s registered derivations list the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). this is the explicit opt-in read for caller-registered derivatives. they hold no canonical key, so no default read path returns them. this is the only way to enumerate one rather than resolve it by token.">
+<details class="tool" id="emem_derive_list" data-q="emem_derive_list list one attester&#x27;s registered derivations list the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). this is the explicit opt-in read for caller-registered derivatives. they hold no canonical key, so no default read path returns them. this tool lists them by key. emem_inferences lists them by place, across keys, under a stated trust policy.">
   <summary><code>emem_derive_list</code><span class="tt">List one attester&#x27;s registered derivations</span><span class="tw">Call to enumerate your own derivations (pass your pubkey_b32).</span></summary>
-  <p>List the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). This is the explicit opt-in read for caller-registered derivatives. They hold no canonical key, so no default read path returns them. This is the only way to enumerate one rather than resolve it by token.</p>
+  <p>List the derivations registered by one ed25519 key, optionally filtered to a cell (and then a band). This is the explicit opt-in read for caller-registered derivatives. They hold no canonical key, so no default read path returns them. This tool lists them by key. emem_inferences lists them by place, across keys, under a stated trust policy.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_derive_list&quot;, &quot;arguments&quot;: {&quot;attester_pubkey_b32&quot;: &quot;n2vqbtqx4dmz3xk6yqhkdmnjmfqvnqzq2qgz7ymkflgnvzptdcaa&quot;, &quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_derive_list">link to this tool</a></p>
 </details>
@@ -504,6 +504,13 @@ An unknown or missing `type` returns a `needs_intent_type` envelope with the val
   <p>Event-discovery sweep: pick an event keyword plus a region (free-text name or polygon_bbox). Event keywords: algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick. The responder geocodes the region and fans out across up to 32 sampled cells. It recalls each event&#x27;s primary scalar input band. It returns the top 8 hotspots, ranked by that scalar. Each hotspot is an attested entry in the shared memory. Each one carries its cell64, lat/lng, the recalled value, a fact_cid for citation, and a scene.png URL. For free-text input, the bypass is `emem_ask`. The classifier in /v1/ask routes &quot;find X in Y&quot; questions to the same hunter path.</p>
   <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_hunt&quot;, &quot;arguments&quot;: {&quot;event&quot;: &quot;algal_bloom&quot;, &quot;region&quot;: &quot;Lake Erie&quot;}}}&#x27;</code></pre>
   <p class="tl"><a href="#emem_hunt">link to this tool</a></p>
+</details>
+
+<details class="tool" id="emem_inferences" data-q="emem_inferences find what other agents concluded at a place return the signed derivations that other agents registered at one place, across attesters. a derivation is a conclusion over parent facts, such as a delta, a verdict or a model output. the tool returns the newest derivation for each (fn_key, attester) pair. each item gives the token, fn_key, op, band, value, confidence, provenance_class, signed_at, tslot_window and parent tokens. it also gives the attester key with its tier and nick, and the recomputation verdict when there is one. the response states its trust policy in words. by default it admits only keys at t4_affiliated or above, which means an organisation vouched for the key. a signature proves who concluded something, never that it is true.">
+  <summary><code>emem_inferences</code><span class="tt">Find what other agents concluded at a place</span><span class="tw">Call this when you want the research conclusions that other agents drew at a place, not only its measurements.</span></summary>
+  <p>Return the signed derivations that other agents registered at one place, across attesters. A derivation is a conclusion over parent facts, such as a delta, a verdict or a model output. The tool returns the newest derivation for each (fn_key, attester) pair. Each item gives the token, fn_key, op, band, value, confidence, provenance_class, signed_at, tslot_window and parent tokens. It also gives the attester key with its tier and nick, and the recomputation verdict when there is one. The response states its trust policy in words. By default it admits only keys at T4_affiliated or above, which means an organisation vouched for the key. A signature proves who concluded something, never that it is true.</p>
+  <pre><code>curl -s -X POST https://emem.dev/mcp -H &#x27;content-type: application/json&#x27; -d &#x27;{&quot;jsonrpc&quot;: &quot;2.0&quot;, &quot;id&quot;: 1, &quot;method&quot;: &quot;tools/call&quot;, &quot;params&quot;: {&quot;name&quot;: &quot;emem_inferences&quot;, &quot;arguments&quot;: {&quot;cell&quot;: &quot;defi.zb493.xoso.zcb6a&quot;, &quot;fn_key_prefix&quot;: &quot;ndvi_&quot;}}}&#x27;</code></pre>
+  <p class="tl"><a href="#emem_inferences">link to this tool</a></p>
 </details>
 
 <details class="tool" id="emem_jepa_predict" data-q="emem_jepa_predict closed-form next-month ndvi predictor predict next-month ndvi at a cell using a closed-form ar(2) seasonal predictor. reads up to 24 past months of `indices.ndvi`, fits a closed-form predictor `y_{t+1} = α·(lag-12 ndvi or recent mean) + β·(last + slope) + γ·recent_mean`, returns the prediction clamped to ndvi&#x27;s physical range. coefficients (α=0.6, β=0.3, γ=0.1) are not learned, they&#x27;re fixed from the agricultural-ndvi literature.">
