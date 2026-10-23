@@ -442,9 +442,11 @@ async fn main() -> anyhow::Result<()> {
             "binding TLS listener"
         );
         eprintln!("boot: binding :443 at t+{} ms", boot.elapsed().as_millis());
-        axum_server::bind(tls_bind)
-            .acceptor(acceptor)
-            .handle(handle)
+        let mut tls_server = axum_server::bind(tls_bind)
+            .acceptor(ConnectionDeadlines::new(acceptor))
+            .handle(handle);
+        idle_connection_timers(tls_server.http_builder(), REQUEST_START_DEADLINE);
+        tls_server
             .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
             .await?;
         flush_and_exit(&server_for_shutdown).await
@@ -612,4 +614,323 @@ fn decode_secret(s: &str) -> anyhow::Result<ResponderIdentity> {
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&bytes);
     Ok(ResponderIdentity::from_secret(sec, 0))
+}
+
+/// How long a client gets to finish the TLS handshake.
+const TLS_HANDSHAKE_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
+/// How long a connection may stay silent after the handshake before its
+/// first request byte, and between requests on an HTTP/1 keep-alive.
+const REQUEST_START_DEADLINE: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Neither rustls-acme's acceptor nor axum-server's builder closes a
+/// connection that goes quiet: no handshake deadline, no timer for hyper's
+/// header-read timeout, and none on the read that tells HTTP/1 from HTTP/2.
+/// Clients that open a connection and walk away left one socket each until
+/// the process hit its file limit (2,403 "Too many open files" on
+/// 2026-10-22, 158 sockets from one address idle for over 6 h). These
+/// deadlines cover only waiting for a request to start, so a slow request
+/// already running (an EUDR run, an SSE stream) is never cut off.
+fn idle_connection_timers(
+    builder: &mut hyper_util::server::conn::auto::Builder<hyper_util::rt::TokioExecutor>,
+    request_start: std::time::Duration,
+) {
+    builder
+        .http1()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .header_read_timeout(request_start);
+    builder
+        .http2()
+        .timer(hyper_util::rt::TokioTimer::new())
+        .keep_alive_interval(std::time::Duration::from_secs(60))
+        .keep_alive_timeout(std::time::Duration::from_secs(20));
+}
+
+#[derive(Clone)]
+struct ConnectionDeadlines<A> {
+    inner: A,
+    handshake: std::time::Duration,
+    request_start: std::time::Duration,
+}
+
+impl<A> ConnectionDeadlines<A> {
+    fn new(inner: A) -> Self {
+        Self {
+            inner,
+            handshake: TLS_HANDSHAKE_DEADLINE,
+            request_start: REQUEST_START_DEADLINE,
+        }
+    }
+}
+
+impl<A, I, S> axum_server::accept::Accept<I, S> for ConnectionDeadlines<A>
+where
+    A: axum_server::accept::Accept<I, S>,
+    A::Future: Send + 'static,
+    A::Stream: Send + 'static,
+    A::Service: Send + 'static,
+{
+    type Stream = FirstByteDeadline<A::Stream>;
+    type Service = A::Service;
+    type Future = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = std::io::Result<(Self::Stream, Self::Service)>> + Send,
+        >,
+    >;
+
+    fn accept(&self, stream: I, service: S) -> Self::Future {
+        let handshake = self.inner.accept(stream, service);
+        let (limit, request_start) = (self.handshake, self.request_start);
+        Box::pin(async move {
+            let (stream, service) =
+                tokio::time::timeout(limit, handshake).await.map_err(|_| {
+                    std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "TLS handshake did not finish in time",
+                    )
+                })??;
+            Ok((FirstByteDeadline::new(stream, request_start), service))
+        })
+    }
+}
+
+/// Fails the read with `TimedOut` if no byte arrives before `after`; after
+/// the first byte it only passes through.
+struct FirstByteDeadline<T> {
+    io: T,
+    deadline: Option<std::pin::Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl<T> FirstByteDeadline<T> {
+    fn new(io: T, after: std::time::Duration) -> Self {
+        Self {
+            io,
+            deadline: Some(Box::pin(tokio::time::sleep(after))),
+        }
+    }
+}
+
+impl<T: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for FirstByteDeadline<T> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        use std::future::Future;
+        use std::task::Poll;
+        let this = &mut *self;
+        let before = buf.filled().len();
+        match std::pin::Pin::new(&mut this.io).poll_read(cx, buf) {
+            Poll::Ready(result) => {
+                if buf.filled().len() > before {
+                    this.deadline = None;
+                }
+                Poll::Ready(result)
+            }
+            Poll::Pending => {
+                let expired = this
+                    .deadline
+                    .as_mut()
+                    .is_some_and(|deadline| deadline.as_mut().poll(cx).is_ready());
+                if expired {
+                    Poll::Ready(Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "no request arrived on the connection in time",
+                    )))
+                } else {
+                    Poll::Pending
+                }
+            }
+        }
+    }
+}
+
+impl<T: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for FirstByteDeadline<T> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.io).poll_write(cx, buf)
+    }
+
+    fn poll_write_vectored(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.io).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.io.is_write_vectored()
+    }
+
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.io).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.io).poll_shutdown(cx)
+    }
+}
+
+#[cfg(test)]
+mod connection_deadline_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    const SHORT: Duration = Duration::from_secs(1);
+
+    #[derive(Clone)]
+    struct NeverHandshakes;
+
+    /// Holds the socket and never completes, like a client that connects
+    /// and sends no ClientHello.
+    impl<I: Send + 'static, S: Send + 'static> axum_server::accept::Accept<I, S> for NeverHandshakes {
+        type Stream = I;
+        type Service = S;
+        type Future =
+            std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<(I, S)>> + Send>>;
+
+        fn accept(&self, stream: I, _service: S) -> Self::Future {
+            Box::pin(async move {
+                let _held = stream;
+                std::future::pending().await
+            })
+        }
+    }
+
+    fn app() -> axum::Router {
+        axum::Router::new()
+            .route("/fast", axum::routing::get(|| async { "fast" }))
+            .route(
+                "/slow",
+                axum::routing::get(|| async {
+                    tokio::time::sleep(Duration::from_secs(3)).await;
+                    "slow"
+                }),
+            )
+    }
+
+    async fn start<A>(inner: A) -> std::net::SocketAddr
+    where
+        A: axum_server::accept::Accept<
+                tokio::net::TcpStream,
+                axum::Router,
+                Stream = tokio::net::TcpStream,
+                Service = axum::Router,
+            > + Clone
+            + Send
+            + Sync
+            + 'static,
+        A::Future: Send + 'static,
+    {
+        let handle = axum_server::Handle::new();
+        let mut server = axum_server::bind("127.0.0.1:0".parse().unwrap())
+            .acceptor(ConnectionDeadlines {
+                inner,
+                handshake: SHORT,
+                request_start: SHORT,
+            })
+            .handle(handle.clone());
+        idle_connection_timers(server.http_builder(), SHORT);
+        tokio::spawn(server.serve(app().into_make_service()));
+        handle.listening().await.unwrap()
+    }
+
+    /// Reads until the server closes the connection or `limit` passes;
+    /// returns what arrived and whether it was closed.
+    async fn read_until_closed(s: &mut tokio::net::TcpStream, limit: Duration) -> (String, bool) {
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        let deadline = Instant::now() + limit;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            match tokio::time::timeout(left, s.read(&mut buf)).await {
+                Ok(Ok(0)) | Ok(Err(_)) => return (String::from_utf8_lossy(&got).into(), true),
+                Ok(Ok(n)) => got.extend_from_slice(&buf[..n]),
+                Err(_) => return (String::from_utf8_lossy(&got).into(), false),
+            }
+        }
+    }
+
+    fn get(path: &str) -> Vec<u8> {
+        format!("GET {path} HTTP/1.1\r\nHost: t\r\nConnection: keep-alive\r\n\r\n").into_bytes()
+    }
+
+    #[tokio::test]
+    async fn a_silent_connection_is_closed() {
+        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let t = Instant::now();
+        let (_, closed) = read_until_closed(&mut s, Duration::from_secs(6)).await;
+        assert!(closed, "a connection that sent nothing stayed open");
+        assert!(
+            t.elapsed() < Duration::from_secs(4),
+            "closed only after {:?}",
+            t.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn an_idle_keep_alive_is_closed_after_its_answer() {
+        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        s.write_all(&get("/fast")).await.unwrap();
+        let (got, closed) = read_until_closed(&mut s, Duration::from_secs(6)).await;
+        assert!(
+            got.starts_with("HTTP/1.1 200"),
+            "no answer before the close: {got:?}"
+        );
+        assert!(got.ends_with("fast"), "{got:?}");
+        assert!(closed, "an idle keep-alive connection stayed open");
+    }
+
+    #[tokio::test]
+    async fn a_request_slower_than_the_deadline_still_gets_its_answer() {
+        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        s.write_all(&get("/slow")).await.unwrap();
+        let (got, _) = read_until_closed(&mut s, Duration::from_secs(8)).await;
+        assert!(got.starts_with("HTTP/1.1 200"), "{got:?}");
+        assert!(got.contains("slow"), "{got:?}");
+    }
+
+    #[tokio::test]
+    async fn a_second_request_inside_the_window_is_served() {
+        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        for _ in 0..2 {
+            s.write_all(&get("/fast")).await.unwrap();
+            let mut buf = [0u8; 4096];
+            let n = tokio::time::timeout(Duration::from_secs(3), s.read(&mut buf))
+                .await
+                .unwrap()
+                .unwrap();
+            let got = String::from_utf8_lossy(&buf[..n]);
+            assert!(got.starts_with("HTTP/1.1 200"), "{got:?}");
+            tokio::time::sleep(Duration::from_millis(300)).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn a_handshake_that_never_finishes_is_cut_off() {
+        let addr = start(NeverHandshakes).await;
+        let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let t = Instant::now();
+        let (_, closed) = read_until_closed(&mut s, Duration::from_secs(6)).await;
+        assert!(closed, "a stalled handshake held its connection");
+        assert!(
+            t.elapsed() < Duration::from_secs(4),
+            "closed only after {:?}",
+            t.elapsed()
+        );
+    }
 }

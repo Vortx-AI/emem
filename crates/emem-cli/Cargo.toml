@@ -66,6 +66,7 @@ tokio-stream    = { workspace = true }
 futures-util    = { workspace = true }
 axum            = { workspace = true }
 axum-server     = { workspace = true }
+hyper-util      = { workspace = true }
 rustls          = { workspace = true }
 rustls-acme     = { workspace = true }
 tracing         = { workspace = true }
