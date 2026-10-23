@@ -468,6 +468,7 @@ impl AttestationLog {
             }
         }
         indices.sort_unstable();
+        let open_segment = indices.last().copied();
 
         let mut out: Vec<(u64, Vec<u8>)> = Vec::new();
         let mut global = 0u64;
@@ -480,7 +481,16 @@ impl AttestationLog {
             // count, without reading them: a leaf near the head used to read
             // every earlier segment (4.7 GB, ~5.5 s), and witnesses sampling
             // leaves for a custody audit timed out on it.
-            let n = segment_record_count(&path)?;
+            // Only the newest segment still grows. The others are sealed, so
+            // their counts come from the sidecar that outlives the process.
+            // The in-memory count alone was empty after every restart, and a
+            // witness's first random read re-read every earlier segment: up
+            // to 28.7 s for one entry on 2026-10-23, of a 22.6 GB log.
+            let n = if Some(idx) == open_segment {
+                segment_record_count(&path)?
+            } else {
+                frozen_segment_count(&self.root, &path)?
+            };
             if global + n <= start {
                 global += n;
                 continue;
@@ -1040,6 +1050,59 @@ mod tests {
     /// Ranges are half-open and a short result means the log ended, which is
     /// what RFC 6962 permits. A range past the end must be empty, not an error,
     /// and must never wrap or panic.
+    /// A read deep in the log leaves the sealed segments' counts in the
+    /// sidecar, so the next process skips them without reading them. The
+    /// open segment, which still grows, is never written there.
+    #[tokio::test]
+    async fn entries_remember_sealed_segment_counts_across_restarts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut n = 0u64;
+        for _ in 0..4 {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..3 {
+                log.append(&distinct_attestation(n)).await.unwrap();
+                n += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        log.append(&distinct_attestation(n)).await.unwrap();
+        n += 1;
+        let _ = std::fs::remove_file(tmp.path().join(COUNTS_FILE));
+        let got = log.entries(n - 1, n).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].0, n - 1);
+
+        let mut segments: Vec<u64> = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(|e| {
+                e.ok()?
+                    .file_name()
+                    .to_str()?
+                    .strip_prefix("merkle.log.")?
+                    .parse()
+                    .ok()
+            })
+            .collect();
+        segments.sort_unstable();
+        let open = segments.pop().unwrap();
+        let sidecar = std::fs::read_to_string(tmp.path().join(COUNTS_FILE)).unwrap_or_default();
+        for seg in &segments {
+            assert!(
+                sidecar
+                    .lines()
+                    .any(|l| l.starts_with(&format!("merkle.log.{seg} "))),
+                "sealed segment {seg} was read but its count was not kept: {sidecar:?}"
+            );
+        }
+        assert!(
+            !sidecar
+                .lines()
+                .any(|l| l.starts_with(&format!("merkle.log.{open} "))),
+            "the open segment must not be remembered: {sidecar:?}"
+        );
+        assert_eq!(log.entries(0, n).unwrap().len() as u64, n);
+    }
+
     /// Entries deep in a many-segment log come from skipping whole segments
     /// by count, and match what a full walk returns, including after the
     /// open segment grows between calls.
