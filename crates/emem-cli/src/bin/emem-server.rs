@@ -592,28 +592,29 @@ fn decode_secret(s: &str) -> anyhow::Result<ResponderIdentity> {
 /// That silence is why the watchdog threshold had to cover a whole cold boot.
 /// Logs every 30 s until the returned sender is dropped, i.e. the open returns.
 fn storage_open_heartbeat(started: std::time::Instant) -> std::sync::mpsc::Sender<()> {
-    heartbeat_every(std::time::Duration::from_secs(30), move || {
+    let (done, _thread) = heartbeat_every(std::time::Duration::from_secs(30), move || {
         tracing::info!(
             target: "emem::boot",
             elapsed_ms = started.elapsed().as_millis() as u64,
             "still opening persistent storage"
         );
-    })
+    });
+    done
 }
 
 /// Runs `tick` every `every` on its own thread until the returned sender is
-/// dropped.
+/// dropped; the thread then exits.
 fn heartbeat_every(
     every: std::time::Duration,
     tick: impl Fn() + Send + 'static,
-) -> std::sync::mpsc::Sender<()> {
+) -> (std::sync::mpsc::Sender<()>, std::thread::JoinHandle<()>) {
     let (done, wait) = std::sync::mpsc::channel::<()>();
-    std::thread::spawn(move || {
+    let thread = std::thread::spawn(move || {
         while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) = wait.recv_timeout(every) {
             tick();
         }
     });
-    done
+    (done, thread)
 }
 
 /// On SIGTERM or ctrl-c: stop accepting, give open connections
@@ -827,27 +828,32 @@ mod heartbeat_tests {
 
     /// The watchdog skips a missed /live only while boot lines keep coming,
     /// so the heartbeat must tick for as long as the open runs and stop the
-    /// moment it returns.
+    /// moment it returns. Timed windows made this flaky on a loaded macOS
+    /// runner, so it waits for ticks and for the thread to exit instead.
     #[test]
     fn the_heartbeat_ticks_until_its_sender_drops() {
         let ticks = Arc::new(AtomicUsize::new(0));
         let seen = ticks.clone();
-        let done = heartbeat_every(Duration::from_millis(20), move || {
+        let (done, thread) = heartbeat_every(Duration::from_millis(5), move || {
             seen.fetch_add(1, Ordering::SeqCst);
         });
-        std::thread::sleep(Duration::from_millis(150));
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        while ticks.load(Ordering::SeqCst) < 3 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "no 3 ticks within 10 s"
+            );
+            std::thread::sleep(Duration::from_millis(5));
+        }
         drop(done);
-        std::thread::sleep(Duration::from_millis(30));
-        let at_drop = ticks.load(Ordering::SeqCst);
+        let (exited, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = thread.join();
+            let _ = exited.send(());
+        });
         assert!(
-            at_drop >= 3,
-            "only {at_drop} ticks in 150 ms at a 20 ms interval"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-        assert_eq!(
-            ticks.load(Ordering::SeqCst),
-            at_drop,
-            "it kept ticking after the open returned"
+            wait.recv_timeout(Duration::from_secs(10)).is_ok(),
+            "the heartbeat thread kept running after the open returned"
         );
     }
 }
