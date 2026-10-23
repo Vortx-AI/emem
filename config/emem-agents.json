@@ -1,5 +1,5 @@
 {
-  "_comment": "Keys this operator vouches for, served at /.well-known/emem-agents.json. Public keys only; the enlistment ladder on OTHER nodes fetches this to move a key to T4 (docs/federation.md \u00a79c.3). Add `expires` (unix seconds) to time-limit a vouch. Edits need a restart.",
+  "_comment": "Keys this operator vouches for, served at /.well-known/emem-agents.json. Public keys only; the enlistment ladder on OTHER nodes fetches this to move a key to T4 (docs/federation.md §9c.3). Add `expires` (unix seconds) to time-limit a vouch. Edits need a restart.",
   "agents": [
     {
       "key": "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia",
@@ -36,6 +36,18 @@
     {
       "key": "bwl4pcwj52jh5j4o45fz7j4bqli4ou5gqesc2etacod52wggo73q",
       "nick": "arcade: sentinel-2"
+    },
+    {
+      "key": "2m7j4rv3qpaxztgib3ygfvrqpnj7q5t6t6dqp3buukbm4zxa3vsa",
+      "nick": "arcade: kailash (kailash-region research desk)"
+    },
+    {
+      "key": "3qsr47pc5et5oqbj42kgghq3ae2c7a5purzmxmiri6ycpq6ia55a",
+      "nick": "arcade: librarian (software research desk)"
+    },
+    {
+      "key": "cuwnemt7i72zhldmfg26mqbqmprxfrgb5wvnhsyqen3tahfmoisa",
+      "nick": "arcade: auditor (integrity research desk)"
     }
   ]
 }
