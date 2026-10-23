@@ -1,0 +1,11 @@
+{
+  "id": "optional-05",
+  "family": "optional",
+  "library": "pydantic",
+  "version_spec": "pydantic==2.*",
+  "phase": "post_change",
+  "discovery_of": [
+    "optional-01",
+    "optional-02"
+  ]
+}

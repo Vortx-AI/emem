@@ -1,0 +1,11 @@
+{
+  "id": "coercion-04",
+  "family": "coercion",
+  "library": "pydantic",
+  "version_spec": "pydantic==1.10.*",
+  "phase": "transfer",
+  "discovery_of": [
+    "coercion-01",
+    "coercion-02"
+  ]
+}

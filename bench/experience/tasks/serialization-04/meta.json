@@ -1,0 +1,11 @@
+{
+  "id": "serialization-04",
+  "family": "serialization",
+  "library": "pydantic",
+  "version_spec": "pydantic==1.10.*",
+  "phase": "transfer",
+  "discovery_of": [
+    "serialization-01",
+    "serialization-02"
+  ]
+}

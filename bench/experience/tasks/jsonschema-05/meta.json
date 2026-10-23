@@ -1,0 +1,11 @@
+{
+  "id": "jsonschema-05",
+  "family": "jsonschema",
+  "library": "pydantic",
+  "version_spec": "pydantic==2.*",
+  "phase": "post_change",
+  "discovery_of": [
+    "jsonschema-01",
+    "jsonschema-02"
+  ]
+}
