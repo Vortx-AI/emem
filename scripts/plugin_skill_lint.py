@@ -38,7 +38,7 @@ ALLOWED_HOSTS = {"emem.dev"}
 LOCAL_READ = re.compile(r"(~/\.|\$HOME\b|\$\{HOME\}|Path\.home\(|expanduser\()")
 FETCH = re.compile(r"\b(?:curl|wget)\b[^\n]*?https?://([a-zA-Z0-9.-]+)")
 SECRET_VAR = re.compile(r"(?:^|[\s;(])([A-Z_]*(?:TOKEN|KEY|SEED|SECRET|AUTH|PASS|CRED)[A-Z_]*)=")
-HEADER_DUMP = re.compile(r"\bcurl\b[^\n]*(?:\s-D\s|--dump-header)")
+HEADER_DUMP = re.compile(r"\bcurl\b[^\n]*(?:\s-D\s|--dump-header|header_json|\s-[iI]\b|--include|--head\b)")
 PIPE_EXEC = re.compile(r"\|\s*(?:sudo\s+)?(?:sh|bash|zsh|python3?|node|perl|ruby)\b(?!\S)")
 findings = []
 
@@ -67,7 +67,7 @@ for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))):
             for v in SECRET_VAR.findall(line):
                 findings.append((rel(f), n, "secret-shape", f"${v} reads like a secret; name it for what it holds"))
             if HEADER_DUMP.search(line):
-                findings.append((rel(f), n, "secret-shape", "a header dump; print the headers you need with -w '%{header_json}'"))
+                findings.append((rel(f), n, "secret-shape", "reads response headers, which is where credentials live; take what you need from a JSON body"))
             if PIPE_EXEC.search(line):
                 findings.append((rel(f), n, "pipe-exec", line.strip()[:100]))
     for n, line in enumerate(text.splitlines(), 1):
