@@ -110,6 +110,35 @@ snapshot_wedge() {
 fails=$(cat "$STATE" 2>/dev/null || echo 0)
 case "$fails" in ''|*[!0-9]*) fails=0 ;; esac
 
+# One line per tick, whatever happens next. Memory climbed to 58 GB over four
+# days before the 2026-10-22 stall and nothing recorded the climb: every
+# restart erased the only evidence, so the growth went unseen until a
+# snapshot happened to catch it. Columns are in the header line.
+record_metrics() {
+  pid=$(docker inspect --format '{{.State.Pid}}' emem-server 2>/dev/null)
+  case "$pid" in ''|0|*[!0-9]*) return 0 ;; esac
+  [ -r "/proc/$pid/status" ] || return 0
+  dir="${EMEM_WEDGE_DIR:-/home/ubuntu/emem/var/wedge}"
+  mkdir -p "$dir" || return 0
+  out="$dir/metrics.tsv"
+  if [ -f "$out" ] && [ "$(stat -c %s "$out" 2>/dev/null || echo 0)" -gt 20971520 ]; then
+    mv -f "$out" "$out.1"
+  fi
+  [ -s "$out" ] || printf 'utc\tpid\trss_kb\trss_anon_kb\tthreads\tfds\ttcp_estab\ttcp_close_wait\tmem_available_kb\n' >"$out"
+  fds=$(ls "/proc/$pid/fd" 2>/dev/null | wc -l)
+  [ "$fds" -gt 0 ] || fds=$(sudo -n ls "/proc/$pid/fd" 2>/dev/null | wc -l)
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$pid" \
+    "$(awk '/^VmRSS/{print $2}' "/proc/$pid/status")" \
+    "$(awk '/^RssAnon/{print $2}' "/proc/$pid/status")" \
+    "$(awk '/^Threads/{print $2}' "/proc/$pid/status")" \
+    "$fds" \
+    "$(ss -tan state established 2>/dev/null | tail -n +2 | wc -l)" \
+    "$(ss -tan state close-wait 2>/dev/null | tail -n +2 | wc -l)" \
+    "$(awk '/^MemAvailable/{print $2}' /proc/meminfo)" >>"$out"
+}
+record_metrics || true
+
 # The maintenance sentinel has to be honoured before EITHER signal is read.
 # On 2026-09-14 18:35 it sat only on the /live-miss path, so a slow warm read
 # during a paced store migration counted as a wedge three times and restarted a

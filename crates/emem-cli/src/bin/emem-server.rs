@@ -103,6 +103,7 @@ async fn main() -> anyhow::Result<()> {
         MaterializingStorage::ephemeral(bands.clone(), functions.clone(), sources.clone())?
     } else {
         tracing::info!(%data, "opening persistent storage");
+        let _heartbeat = storage_open_heartbeat(t);
         MaterializingStorage::rooted(&data, bands.clone(), functions.clone(), sources.clone())?
     };
     boot_step("storage_open", t);
@@ -583,6 +584,27 @@ fn decode_secret(s: &str) -> anyhow::Result<ResponderIdentity> {
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&bytes);
     Ok(ResponderIdentity::from_secret(sec, 0))
+}
+
+/// The watchdog does not count a missed `/live` while `emem::boot` lines are
+/// still arriving, but the storage open is one long call that logged nothing:
+/// 286 s of silence on 2026-10-22, counted as two misses of a healthy boot.
+/// That silence is why the watchdog threshold had to cover a whole cold boot.
+/// Logs every 30 s until the returned sender is dropped, i.e. the open returns.
+fn storage_open_heartbeat(started: std::time::Instant) -> std::sync::mpsc::Sender<()> {
+    let (done, wait) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        while let Err(std::sync::mpsc::RecvTimeoutError::Timeout) =
+            wait.recv_timeout(std::time::Duration::from_secs(30))
+        {
+            tracing::info!(
+                target: "emem::boot",
+                elapsed_ms = started.elapsed().as_millis() as u64,
+                "still opening persistent storage"
+            );
+        }
+    });
+    done
 }
 
 /// On SIGTERM or ctrl-c: stop accepting, give open connections
