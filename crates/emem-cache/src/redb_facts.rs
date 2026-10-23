@@ -791,13 +791,22 @@ mod close_tests {
         let path = dir.path().join("facts.redb");
 
         let r = RedbFacts::open(&path).unwrap();
-        // The control. A brand-new file goes through the same rebuild path,
-        // so this is `true`, and that is what makes the flag observable here at
-        // all: a test where both arms read `false` would prove nothing.
-        assert!(r.repaired(), "a fresh create is initialised through repair");
         r.kv_put_batch(KvTable::Proofs, &[(b"k".to_vec(), b"v".to_vec())], true)
             .unwrap();
+        // The control: a copy taken while the store is open is a file nobody
+        // closed, so opening it must go through the repair path. A test where
+        // both arms read `false` would prove nothing. Up to redb 4.2 a fresh
+        // create went through repair and served as this control; 4.4 creates
+        // without it, so the control is now an unclosed copy.
+        let unclosed = dir.path().join("unclosed.redb");
+        std::fs::copy(&path, &unclosed).unwrap();
         r.close();
+        let copy = RedbFacts::open(&unclosed).unwrap();
+        assert!(
+            copy.repaired(),
+            "an unclosed file must be rebuilt, or the flag is blind"
+        );
+        copy.close();
 
         // Every operation after close reports it; nothing unwraps a None.
         let err = r.kv_get(KvTable::Proofs, b"k").unwrap_err().to_string();
