@@ -44036,6 +44036,20 @@ fn publish_memory_event(event: MemoryEvent) {
     let _ = memory_event_bus().send(event);
 }
 
+/// What a supersede signed, kept beside the note it retired. The signature
+/// binds `superseded_by|reason`, so serving all three lets a reader verify the
+/// reason was not reworded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SupersedeRecord {
+    reason: String,
+    #[serde(default)]
+    attester_pubkey_b32: Option<String>,
+    #[serde(default)]
+    sig_b32: Option<String>,
+    #[serde(default)]
+    log_entry_hash_b32: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct MemoryFileMeta {
     /// Content-addressed file CID (base32-nopad-lc(blake3(bytes)[:16])).
@@ -44096,6 +44110,11 @@ struct MemoryFileMeta {
     /// consolidated summary that supersedes it.
     #[serde(default)]
     superseded_by: Option<String>,
+    /// The signed supersede that set `superseded_by`: reason, key, signature
+    /// and log entry. `None` for consolidation and for rows superseded before
+    /// this was kept.
+    #[serde(default)]
+    supersede: Option<SupersedeRecord>,
     /// Signed receipt over the write.
     receipt: emem_fact::Receipt,
 }
@@ -45052,6 +45071,7 @@ fn read_memory_file(
             attester_base: None,
             log_entry_hash_b32: None,
             superseded_by: None,
+            supersede: None,
             // Synthesise a minimal receipt for pre-meta entries. The
             // round-trip test path always writes meta, so this branch
             // only triggers for upgrade-in-place corner cases.
@@ -45540,9 +45560,51 @@ fn memory_log_record(meta: &MemoryFileMeta, content_blake3: &[u8; 32]) -> Vec<u8
     buf
 }
 
-/// Which kind a log entry is: `emem.memory_write.v1`, or `attestation`.
+/// The kind tag of a supersede entry in the transparency log.
+const SUPERSEDE_LOG_KIND: &str = "emem.memory_supersede.v1";
+
+/// A supersede as a log entry. The signed reason is carried whole, since it is
+/// the part the author cannot be allowed to reword.
+fn supersede_log_record(
+    path: &str,
+    file_cid: &str,
+    superseded_by: &str,
+    reason: &str,
+    signed_at: &str,
+    attester: Option<&MemoryAttester>,
+) -> Vec<u8> {
+    use ciborium::Value as V;
+    let mut entries: Vec<(&str, V)> = vec![
+        ("kind", V::Text(SUPERSEDE_LOG_KIND.into())),
+        ("path", V::Text(path.into())),
+        ("file_cid", V::Text(file_cid.into())),
+        ("superseded_by", V::Text(superseded_by.into())),
+        ("reason", V::Text(reason.into())),
+        ("signed_at", V::Text(signed_at.into())),
+        (
+            "attester_pubkey_b32",
+            attester.map_or(V::Null, |a| V::Text(a.pubkey_b32.clone())),
+        ),
+        (
+            "sig_b32",
+            attester.map_or(V::Null, |a| V::Text(a.sig_b32.clone())),
+        ),
+    ];
+    entries.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(b.0)));
+    let map = V::Map(
+        entries
+            .into_iter()
+            .map(|(k, v)| (V::Text(k.into()), v))
+            .collect(),
+    );
+    let mut buf = Vec::new();
+    let _ = ciborium::ser::into_writer(&map, &mut buf);
+    buf
+}
+
+/// Which kind a log entry is: a memory write, a supersede, or `attestation`.
 fn log_entry_kind(cbor: &[u8]) -> &'static str {
-    let is_memory = ciborium::de::from_reader::<ciborium::Value, _>(cbor)
+    let tag = ciborium::de::from_reader::<ciborium::Value, _>(cbor)
         .ok()
         .and_then(|v| match v {
             ciborium::Value::Map(m) => m.into_iter().find_map(|(k, v)| match (k, v) {
@@ -45551,11 +45613,11 @@ fn log_entry_kind(cbor: &[u8]) -> &'static str {
             }),
             _ => None,
         })
-        .is_some_and(|k| k == MEMORY_LOG_KIND);
-    if is_memory {
-        MEMORY_LOG_KIND
-    } else {
-        "attestation"
+        .unwrap_or_default();
+    match tag.as_str() {
+        MEMORY_LOG_KIND => MEMORY_LOG_KIND,
+        SUPERSEDE_LOG_KIND => SUPERSEDE_LOG_KIND,
+        _ => "attestation",
     }
 }
 
@@ -45597,6 +45659,7 @@ async fn persist_memory_write(
         attester_base: signed_preimage.and_then(|p| p.base),
         log_entry_hash_b32: None,
         superseded_by: None,
+        supersede: None,
         receipt,
     };
 
@@ -46561,6 +46624,11 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                                   stale; the bytes are unchanged and still \
                                   verify, which is exactly why they can \
                                   mislead you.",
+            "reason": meta.supersede.as_ref().map(|r| r.reason.as_str()),
+            "attester_pubkey_b32": meta.supersede.as_ref().and_then(|r| r.attester_pubkey_b32.as_deref()),
+            "sig_b32": meta.supersede.as_ref().and_then(|r| r.sig_b32.as_deref()),
+            "signed_preimage": "verb supersede, this path, body_hash = blake3(superseded_by|reason); the signature covers the reason as stored",
+            "log_entry_hash_b32": meta.supersede.as_ref().and_then(|r| r.log_entry_hash_b32.as_deref()),
         })
     });
 
@@ -47305,7 +47373,30 @@ async fn memory_supersede_inner(
         ));
     }
 
+    // Logged before the meta commit so the meta can carry the entry hash. A
+    // log failure is logged and the supersede still lands, as for writes.
+    let mut log_entry_hash = None;
+    if let Some(log) = s.storage.transparency_log() {
+        let record = supersede_log_record(
+            &path,
+            &cid,
+            &target,
+            &reason,
+            &emem_storage::server::iso8601_now(),
+            req.attester.as_ref(),
+        );
+        match log.append_cbor(record).await {
+            Ok(out) => log_entry_hash = Some(b32_lower(&out.record_hash)),
+            Err(e) => tracing::warn!(path, error = %e, "supersede not logged"),
+        }
+    }
     meta.superseded_by = Some(target.clone());
+    meta.supersede = Some(SupersedeRecord {
+        reason: reason.clone(),
+        attester_pubkey_b32: req.attester.as_ref().map(|a| a.pubkey_b32.clone()),
+        sig_b32: req.attester.as_ref().map(|a| a.sig_b32.clone()),
+        log_entry_hash_b32: log_entry_hash.clone(),
+    });
     let mut buf = Vec::new();
     ciborium::ser::into_writer(&meta, &mut buf).map_err(|e| {
         ApiError(
@@ -47338,6 +47429,7 @@ async fn memory_supersede_inner(
         "file_cid": cid,
         "superseded_by": target,
         "reason": reason,
+        "log_entry_hash_b32": log_entry_hash,
         "note": "Readers of this path now receive `superseded_by` and a \
                  `_superseded` banner. The original content is unchanged and \
                  still resolves by its own cid: this is a redirection, not a \
@@ -47921,6 +48013,7 @@ async fn memory_list_by_kind_inner(
                 attester_base: None,
                 log_entry_hash_b32: None,
                 superseded_by: None,
+                supersede: None,
                 receipt: synth_memory_receipt(
                     s,
                     path,
@@ -96247,6 +96340,120 @@ mod tests {
         );
         // The bytes are untouched. This is redirection, not retraction.
         assert!(view["content"].as_str().unwrap().contains("+0.738"));
+    }
+
+    /// The docs say the reason is signed so it cannot be reworded; that only
+    /// holds if the reason and signature are kept and served, and the
+    /// supersede is in the log.
+    #[tokio::test]
+    async fn supersede_keeps_serves_and_logs_its_reason_and_signature() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/sup-log-claim.md");
+        let new = format!("/memories/by_attester/{short}/sup-log-fix.md");
+        publish_note(&s, &sk, &old, b"claim before").await;
+        let new_cid = publish_note(&s, &sk, &new, b"claim after").await;
+        let reason = "sign flipped";
+        let att = sign_supersede(&sk, &old, &new_cid, reason);
+        let out = memory_supersede_inner(
+            &s,
+            MemorySupersedeReq {
+                path: old.clone(),
+                superseded_by: new_cid.clone(),
+                reason: Some(reason.into()),
+                attester: Some(att.clone()),
+            },
+        )
+        .await
+        .expect("supersede");
+        let entry_hash = out["log_entry_hash_b32"]
+            .as_str()
+            .expect("logged")
+            .to_string();
+
+        let view = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                file_cid: None,
+                path: old.clone(),
+                view_range: None,
+                kind: None,
+                offset: None,
+                vault_capability: None,
+                view: None,
+            },
+        )
+        .await
+        .expect("view");
+        let banner = &view["_superseded"];
+        assert_eq!(banner["reason"].as_str(), Some(reason));
+        assert_eq!(banner["sig_b32"].as_str(), Some(att.sig_b32.as_str()));
+        assert_eq!(
+            banner["attester_pubkey_b32"].as_str(),
+            Some(att.pubkey_b32.as_str())
+        );
+        assert_eq!(
+            banner["log_entry_hash_b32"].as_str(),
+            Some(entry_hash.as_str())
+        );
+
+        // The log is shared by every test in the process, so look for this
+        // entry by its path rather than counting entries.
+        let log = s.storage.transparency_log().expect("log");
+        let total = log.record_count().await;
+        let rows = log.entries(0, total).expect("entries");
+        let found = rows
+            .iter()
+            .filter(|(_, cbor)| {
+                log_entry_kind(cbor) == SUPERSEDE_LOG_KIND
+                    && cbor.windows(old.len()).any(|w| w == old.as_bytes())
+            })
+            .count();
+        assert_eq!(found, 1, "exactly one supersede entry for this path");
+    }
+
+    /// Metadata written before `supersede` existed must still decode.
+    #[test]
+    fn meta_without_supersede_field_still_decodes() {
+        let s = test_app_state();
+        let meta = MemoryFileMeta {
+            file_cid: "c".into(),
+            path: "/memories/x.md".into(),
+            signed_at: "t".into(),
+            signed_at_unix_s: 1,
+            size_bytes: 1,
+            verb: "create".into(),
+            kind: default_kind_str(),
+            attester_pubkey_b32: None,
+            attester_sig_b32: None,
+            attester_body_hash_hex: None,
+            attester_preimage_version: None,
+            attester_base: None,
+            log_entry_hash_b32: None,
+            superseded_by: Some("d".into()),
+            supersede: None,
+            receipt: synth_memory_receipt(
+                &s,
+                "/memories/x.md",
+                "c",
+                "create",
+                None,
+                std::time::Instant::now(),
+            ),
+        };
+        let mut buf = Vec::new();
+        ciborium::ser::into_writer(&meta, &mut buf).unwrap();
+        let mut v: ciborium::Value = ciborium::de::from_reader(&buf[..]).unwrap();
+        let ciborium::Value::Map(m) = &mut v else {
+            panic!("meta is a map")
+        };
+        m.retain(|(k, _)| k.as_text() != Some("supersede"));
+        let mut old = Vec::new();
+        ciborium::ser::into_writer(&v, &mut old).unwrap();
+        let back: MemoryFileMeta = ciborium::de::from_reader(&old[..]).expect("old meta decodes");
+        assert!(back.supersede.is_none());
+        assert_eq!(back.superseded_by.as_deref(), Some("d"));
     }
 
     /// A supersession pointing at something nobody can resolve leaves the
