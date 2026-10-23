@@ -938,7 +938,8 @@ const SCHEMA_MEMORY_SEARCH: &str = r#"{"type":"object","required":["q"],"propert
 "k":{"type":"integer","minimum":1,"maximum":100,"default":10,"description":"Number of hits to return."},
 "kind":{"type":"string","description":"Optional filter: only files whose typing taxonomy entry matches (defaults to `resource` until Agent W's typing lands)."},
 "path_prefix":{"type":"string","description":"Optional filter: only files whose path starts with this prefix (e.g. `/memories/journal/`)."},
-"attester_pubkey_b32":{"type":"string","description":"Optional filter: only files attested by this signer (base32-nopad-lowercase pubkey)."}
+"attester_pubkey_b32":{"type":"string","description":"Optional filter: only files attested by this signer (base32-nopad-lowercase pubkey)."},
+"include_superseded":{"type":"boolean","description":"Default false: notes marked superseded are left out of the hits. True returns them too, each with `superseded_by` set to the note that replaced it."}
 }}"#;
 
 const SCHEMA_EXPLAIN_ALGORITHM: &str = r#"{

@@ -33173,7 +33173,7 @@ async fn mcp_tool_call_inner(
         // Semantic search over /memories/* file contents (BGE + Lance).
         // Mirrors POST /v1/memory/search exactly so MCP + REST agree.
         "emem_memory_search" => {
-            let req: MemorySearchReq =
+            let req: MemorySearchRestReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match post_memory_search(State(s.clone()), EmemJson(req)).await {
                 Ok(Json(v)) => Ok(v),
@@ -34401,7 +34401,7 @@ fn openapi_spec() -> JsonValue {
             // call. Found by auditing every emem.dev URL the surfaces name
             // against what actually answers.
             "/v1/explain":           {"post":{"summary":"Model-composed prose over the facts a read returned. Labelled signed:false by construction: prose is never evidence, and the fact_cids beside it are. Use when a human needs the narrative; cite the facts, not this.","operationId":"emem_explain","tags":["reason"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":json_ok}}},
-            "/v1/memory/search":     {"post":{"summary":"Semantic search over agent memory files (BGE-768 over note bodies). Returns matching `/memories/**` paths with scores; dereference with memory_view.","operationId":"emem_memory_search","tags":["memory"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["q"],"properties":{"q":{"type":"string","description":"Query text."},"k":{"type":"integer","description":"How many hits to return (default 10)."},"path_prefix":{"type":"string","description":"Restrict to paths under this prefix."},"kind":{"type":"string"},"mode":{"type":"string"},"attester_pubkey_b32":{"type":"string"}}}}}},"responses":{"200":json_ok}}},
+            "/v1/memory/search":     {"post":{"summary":"Semantic search over agent memory files (BGE-768 over note bodies). Returns matching `/memories/**` paths with scores; dereference with memory_view.","operationId":"emem_memory_search","tags":["memory"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["q"],"properties":{"q":{"type":"string","description":"Query text."},"k":{"type":"integer","description":"How many hits to return (default 10)."},"path_prefix":{"type":"string","description":"Restrict to paths under this prefix."},"kind":{"type":"string"},"mode":{"type":"string"},"attester_pubkey_b32":{"type":"string"},"include_superseded":{"type":"boolean","description":"Default false: notes marked superseded are left out. True returns them too, each with `superseded_by` set."}}}}}},"responses":{"200":json_ok}}},
             "/v1/tessera_field":     {"post":{"summary":"Tessera foundation embedding as a field over an area rather than a point: the 128-D position-stable vector per cell, for similarity and change work that needs the neighbourhood.","operationId":"emem_tessera_field","tags":["embedding"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":json_ok}}},
             "/v1/region_archetype_map": {"post":{"summary":"Cluster an area into archetypes in embedding space and return the map: which cells belong to which archetype, and how distinct each is.","operationId":"emem_region_archetype_map","tags":["embedding"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object"}}}},"responses":{"200":json_ok}}},
             "/v1/memory/sse":        {"get":{"summary":"Server-sent events: every memory write as it lands, so an agent can follow the shared ledger without polling. Long-lived stream; the response is text/event-stream, not JSON.","operationId":"emem_memory_sse","tags":["memory"],"responses":{"200":{"description":"text/event-stream"}}}},
@@ -49055,12 +49055,82 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
 ///
 /// The MCP arm `emem_memory_search` calls this same handler so the two
 /// surfaces stay byte-identical.
+/// The primitive's request plus a flag that only this layer can honour: the
+/// primitive ranks on similarity and cannot see note metadata, so superseded
+/// notes are filtered here, where `MemoryFileMeta` is readable.
+#[derive(Debug, Deserialize)]
+struct MemorySearchRestReq {
+    #[serde(flatten)]
+    req: MemorySearchReq,
+    /// Return superseded notes too, each marked with `superseded_by`.
+    /// Default false: a withdrawn claim should not rank beside its correction.
+    #[serde(default)]
+    include_superseded: bool,
+}
+
+/// For each hit, the `file_cid` that superseded it, if any.
+fn superseded_marks(
+    s: &AppState,
+    hits: &[emem_primitives::memory_search::MemorySearchHit],
+) -> Vec<Option<String>> {
+    let metas = memory_db(s)
+        .ok()
+        .and_then(|db| db.open_tree(emem_storage::TREE_MEMORY_FILE_META).ok());
+    hits.iter()
+        .map(|h| {
+            metas
+                .as_ref()?
+                .get(h.file_cid.as_bytes())
+                .ok()
+                .flatten()
+                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+                .and_then(|m| m.superseded_by)
+        })
+        .collect()
+}
+
+/// Drop superseded hits unless asked to keep them, then cut to `k`. Order is
+/// the primitive's, so a current note keeps the rank similarity gave it.
+fn filter_superseded(
+    hits: Vec<emem_primitives::memory_search::MemorySearchHit>,
+    marks: Vec<Option<String>>,
+    include_superseded: bool,
+    k: usize,
+) -> (
+    Vec<emem_primitives::memory_search::MemorySearchHit>,
+    Vec<Option<String>>,
+) {
+    hits.into_iter()
+        .zip(marks)
+        .filter(|(_, m)| include_superseded || m.is_none())
+        .take(k)
+        .unzip()
+}
+
 async fn post_memory_search(
     State(s): State<AppState>,
-    EmemJson(req): EmemJson<MemorySearchReq>,
+    EmemJson(MemorySearchRestReq {
+        req,
+        include_superseded,
+    }): EmemJson<MemorySearchRestReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    match emem_primitives::memory_search::memory_search(&req, &s).await {
-        Ok(resp) => {
+    // Superseded hits are removed after ranking, so fetch extra or a page of
+    // them would leave the caller short of `k` current notes.
+    let want_k = req.k.clamp(1, 100);
+    let mut fetch = req.clone();
+    if !include_superseded {
+        fetch.k = (want_k * 4).min(100);
+    }
+    match emem_primitives::memory_search::memory_search(&fetch, &s).await {
+        Ok(mut resp) => {
+            let marks = superseded_marks(&s, &resp.hits);
+            let (hits, marks) = filter_superseded(
+                std::mem::take(&mut resp.hits),
+                marks,
+                include_superseded,
+                want_k,
+            );
+            resp.hits = hits;
             let mut v = serde_json::to_value(resp).map_err(|e| {
                 ApiError(
                     StatusCode::INTERNAL_SERVER_ERROR,
@@ -49098,12 +49168,13 @@ async fn post_memory_search(
                 // filter to authors who proved a domain without a second call
                 // per hit. A property of the key, not a judgement of the note.
                 if let Some(hits) = map.get_mut("hits").and_then(|h| h.as_array_mut()) {
-                    for hit in hits.iter_mut() {
+                    for (hit, mark) in hits.iter_mut().zip(marks) {
                         let ev = hit
                             .get("attester_pubkey_b32")
                             .and_then(|k| k.as_str())
                             .and_then(|k| enlistment_evidence(&s, k));
                         if let Some(obj) = hit.as_object_mut() {
+                            obj.insert("superseded_by".into(), json!(mark));
                             // The whole note, not the snippet: a reader that
                             // only had search windows rebuilt a 10 KB note
                             // from 45 queries and still missed most of it.
@@ -96583,6 +96654,52 @@ mod tests {
         }
         assert_eq!(versions[0]["verb"].as_str(), Some("create"));
         assert_eq!(versions[2]["verb"].as_str(), Some("str_replace"));
+    }
+
+    /// Search ranked a withdrawn claim beside its correction. The primitive
+    /// cannot see metadata, so this asserts the layer that can.
+    #[tokio::test]
+    async fn search_leaves_out_superseded_notes_unless_asked() {
+        use emem_primitives::memory_search::MemorySearchHit;
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let old = format!("/memories/by_attester/{short}/srch-old.md");
+        let new = format!("/memories/by_attester/{short}/srch-new.md");
+        let old_cid = publish_note(&s, &sk, &old, b"old claim").await;
+        let new_cid = publish_note(&s, &sk, &new, b"new claim").await;
+        memory_supersede_inner(
+            &s,
+            MemorySupersedeReq {
+                path: old.clone(),
+                superseded_by: new_cid.clone(),
+                reason: None,
+                attester: Some(sign_supersede(&sk, &old, &new_cid, "")),
+            },
+        )
+        .await
+        .expect("supersede");
+        let hit = |path: &str, cid: &str| MemorySearchHit {
+            path: path.into(),
+            file_cid: cid.into(),
+            kind: "resource".into(),
+            signed_at: "t".into(),
+            attester_pubkey_b32: None,
+            similarity: 0.5,
+            size_bytes: 1,
+            snippet: String::new(),
+        };
+        let hits = vec![hit(&old, &old_cid), hit(&new, &new_cid)];
+        let marks = superseded_marks(&s, &hits);
+        assert_eq!(marks, vec![Some(new_cid.clone()), None]);
+
+        let (kept, _) = filter_superseded(hits.clone(), marks.clone(), false, 10);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].path, new);
+
+        let (all, all_marks) = filter_superseded(hits, marks, true, 10);
+        assert_eq!(all.len(), 2);
+        assert_eq!(all_marks[0].as_deref(), Some(new_cid.as_str()));
     }
 
     /// A supersession pointing at something nobody can resolve leaves the
