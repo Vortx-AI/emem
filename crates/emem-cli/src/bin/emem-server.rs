@@ -298,25 +298,7 @@ async fn main() -> anyhow::Result<()> {
             "emem listening on http://{bind}  (boot {} ms)",
             boot.elapsed().as_millis()
         );
-        // `with_graceful_shutdown` alone waits for every open connection to
-        // close, with no deadline. A keep-alive SSE stream never closes, so
-        // the race below puts a ceiling on the wait: whichever finishes first,
-        // the clean drain or the grace timer, ends the serve.
-        let serving = axum::serve(
-            listener,
-            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .with_graceful_shutdown(shutdown_signal());
-        let grace = shutdown_grace();
-        tokio::select! {
-            r = serving => { r?; }
-            _ = async { shutdown_signal().await; tokio::time::sleep(grace).await; } => {
-                tracing::warn!(
-                    grace_s = grace.as_secs(),
-                    "drain deadline reached with connections still open, closing them"
-                );
-            }
-        }
+        serve_plain(listener, app, REQUEST_START_DEADLINE).await?;
         flush_and_exit(&server_for_shutdown).await
     } else {
         // Native TLS via rustls + Let's Encrypt (TLS-ALPN-01). Only :443 needed.
@@ -396,12 +378,11 @@ async fn main() -> anyhow::Result<()> {
             tokio::spawn(async move {
                 if let Ok(listener) = tokio::net::TcpListener::bind(&plain_bind).await {
                     tracing::info!(bind=%plain_bind, "emem also listening on plain HTTP (loopback unless EMEM_BIND set)");
-                    let _ = axum::serve(
-                        listener,
-                        app_for_http.into_make_service_with_connect_info::<std::net::SocketAddr>(),
-                    )
-                    .with_graceful_shutdown(shutdown_signal())
-                    .await;
+                    if let Err(e) =
+                        serve_plain(listener, app_for_http, REQUEST_START_DEADLINE).await
+                    {
+                        tracing::warn!(bind=%plain_bind, error=%e, "plain HTTP listener stopped");
+                    }
                 }
             });
         }
@@ -423,19 +404,7 @@ async fn main() -> anyhow::Result<()> {
         // it, every anonymous request collapses into one shared
         // "unknown" bucket and the per-IP limit becomes a global limit.
         let handle = axum_server::Handle::new();
-        {
-            let handle = handle.clone();
-            let grace = shutdown_grace();
-            tokio::spawn(async move {
-                shutdown_signal().await;
-                tracing::info!(
-                    grace_s = grace.as_secs(),
-                    "no longer accepting connections, draining"
-                );
-                eprintln!("emem: draining, {}s deadline", grace.as_secs());
-                handle.graceful_shutdown(Some(grace));
-            });
-        }
+        drain_on_signal(handle.clone());
         tracing::info!(
             target: "emem::boot",
             boot_ms = boot.elapsed().as_millis() as u64,
@@ -614,6 +583,45 @@ fn decode_secret(s: &str) -> anyhow::Result<ResponderIdentity> {
     let mut sec = [0u8; 32];
     sec.copy_from_slice(&bytes);
     Ok(ResponderIdentity::from_secret(sec, 0))
+}
+
+/// On SIGTERM or ctrl-c: stop accepting, give open connections
+/// `shutdown_grace()`, then close what is left. A keep-alive SSE stream never
+/// ends on its own, so a drain with no deadline would never finish.
+fn drain_on_signal(handle: axum_server::Handle) {
+    let grace = shutdown_grace();
+    tokio::spawn(async move {
+        shutdown_signal().await;
+        tracing::info!(
+            grace_s = grace.as_secs(),
+            "no longer accepting connections, draining"
+        );
+        eprintln!("emem: draining, {}s deadline", grace.as_secs());
+        handle.graceful_shutdown(Some(grace));
+    });
+}
+
+/// Plain HTTP, with the same connection deadlines and drain as the TLS
+/// listener. `axum::serve` exposes no hyper builder, so it could not close
+/// an idle connection either.
+async fn serve_plain(
+    listener: tokio::net::TcpListener,
+    app: axum::Router,
+    request_start: std::time::Duration,
+) -> std::io::Result<()> {
+    let handle = axum_server::Handle::new();
+    drain_on_signal(handle.clone());
+    let mut server = axum_server::from_tcp(listener.into_std()?)
+        .acceptor(ConnectionDeadlines {
+            inner: axum_server::accept::DefaultAcceptor,
+            handshake: TLS_HANDSHAKE_DEADLINE,
+            request_start,
+        })
+        .handle(handle);
+    idle_connection_timers(server.http_builder(), request_start);
+    server
+        .serve(app.into_make_service_with_connect_info::<std::net::SocketAddr>())
+        .await
 }
 
 /// How long a client gets to finish the TLS handshake.
@@ -845,6 +853,13 @@ mod connection_deadline_tests {
         handle.listening().await.unwrap()
     }
 
+    async fn start_plain() -> std::net::SocketAddr {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(serve_plain(listener, app(), SHORT));
+        addr
+    }
+
     /// Reads until the server closes the connection or `limit` passes;
     /// returns what arrived and whether it was closed.
     async fn read_until_closed(s: &mut tokio::net::TcpStream, limit: Duration) -> (String, bool) {
@@ -867,7 +882,7 @@ mod connection_deadline_tests {
 
     #[tokio::test]
     async fn a_silent_connection_is_closed() {
-        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let addr = start_plain().await;
         let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
         let t = Instant::now();
         let (_, closed) = read_until_closed(&mut s, Duration::from_secs(6)).await;
@@ -881,7 +896,7 @@ mod connection_deadline_tests {
 
     #[tokio::test]
     async fn an_idle_keep_alive_is_closed_after_its_answer() {
-        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let addr = start_plain().await;
         let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
         s.write_all(&get("/fast")).await.unwrap();
         let (got, closed) = read_until_closed(&mut s, Duration::from_secs(6)).await;
@@ -895,7 +910,7 @@ mod connection_deadline_tests {
 
     #[tokio::test]
     async fn a_request_slower_than_the_deadline_still_gets_its_answer() {
-        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let addr = start_plain().await;
         let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
         s.write_all(&get("/slow")).await.unwrap();
         let (got, _) = read_until_closed(&mut s, Duration::from_secs(8)).await;
@@ -905,7 +920,7 @@ mod connection_deadline_tests {
 
     #[tokio::test]
     async fn a_second_request_inside_the_window_is_served() {
-        let addr = start(axum_server::accept::DefaultAcceptor).await;
+        let addr = start_plain().await;
         let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
         for _ in 0..2 {
             s.write_all(&get("/fast")).await.unwrap();
