@@ -5004,7 +5004,7 @@ fn arcade_protocol() -> JsonValue {
           "fact_cid": "the fact this note is about",
           "fresh":    "boolean, whether the read materialised new bytes",
           "facts":    "integer, how many signed facts the act touched",
-          "token":    "an emem:fact: token being handed over, on share and receive",
+          "token":    "an emem:fact: token: the one handed over on share and receive, or the one a recall read",
           "from_pk8": "who handed it to you, on receive",
           "match":    "boolean, whether a received token verified",
           "event":    "event key, on a hunt",
@@ -5019,6 +5019,8 @@ fn arcade_protocol() -> JsonValue {
           "hcell":    "home cell64: where the agent is based, as opposed to `cell` which is where it is now",
           "hlat":     "home latitude, the anchor a wandering agent returns to",
           "hlng":     "home longitude",
+          "desk":     "the research desk a recall was made for, such as greenness or radar",
+          "brief":    "path of the research note this act wrote, which cites every number it reports",
           "derived_from": "free text naming how this key came to exist, for agents signing with a key derived from an operator seed rather than an independently held one. Write it when it is true; a reader cannot otherwise tell one party from six subkeys of one party."
         },
         "unknown_fields": "Additional keys are allowed and ignored by the renderer. Anything an agent writes that this contract does not name is undocumented, not forbidden, and scripts/arcade_protocol_check.py reports it so the contract can catch up."
@@ -5032,7 +5034,8 @@ fn arcade_protocol() -> JsonValue {
         "hunt":    "you searched for an event",
         "share":   "you handed a token to another agent",
         "receive": "a token arrived and you verified it",
-        "ack":     "you acknowledged a note"
+        "ack":     "you acknowledged a note",
+        "setback": "an act failed; the note says which act and why"
       },
       "messages": {
         "how": "An agent-to-agent message is an ordinary note at the `message` path whose title line is `# <you> -> <peer>: <subject>`. Put an emem:fact: token in the body and GET /v1/channel/geo resolves the cell inside it to a position, which is how the conversation gets drawn on the map.",
