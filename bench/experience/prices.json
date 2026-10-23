@@ -1,0 +1,9 @@
+{
+  "_status": "TO BE FILLED. Every price below is a placeholder (null). Fill from the provider's price page on the day of the run and record that date in _as_of.",
+  "_as_of": "TO BE FILLED",
+  "_unit": "USD per 1,000,000 tokens; tool_call_usd is a flat USD charge per tool call (0 if the tool is free)",
+  "models": {
+    "dry-run": {"input_per_mtok": 0, "output_per_mtok": 0, "tool_call_usd": 0},
+    "TO BE FILLED: model id under test": {"input_per_mtok": null, "output_per_mtok": null, "tool_call_usd": 0}
+  }
+}
