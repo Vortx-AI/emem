@@ -87,10 +87,14 @@ class EmemProcedures(BaselineFresh):
 
     name = "emem_procedures"
 
-    def __init__(self, adapter, store: EmemStore, versions: dict, max_turns: int = 8):
+    def __init__(self, adapter, store: EmemStore, versions: dict, max_turns: int = 8,
+                 compact: bool = False, card_chars: int = 1500):
         super().__init__(adapter, max_turns)
         self.store, self.versions = store, versions
+        self.compact, self.card_chars = compact, card_chars
         self.retrieved_log: list = []
+        if compact:
+            self.name = "emem_cards"
 
     def solve(self, task_spec: str, context: dict) -> tuple:
         version = self.versions[context["version_spec"]]
@@ -98,9 +102,21 @@ class EmemProcedures(BaselineFresh):
         self.retrieved_log.append({"task_id": context["task_id"], "paths": [p["path"] for p in procs]})
         blocks = []
         for p in procs:
+            status = _status_for(p["content"], version)
+            name = p["path"].rsplit("/", 1)[-1]
+            if self.compact:
+                # A card is the verified code and its status, nothing else. A
+                # stale procedure is a one-line warning, never code to imitate.
+                if not status.startswith("PASS"):
+                    blocks.append(f"- {name}: written for an earlier release, FAILS its tests under "
+                                  f"{version}. Do not copy it.")
+                    continue
+                code = re.search(r"## Code\n\n```python\n(.*?)```", p["content"], re.S)
+                blocks.append(f"### {name} (verified under {version})\n```python\n"
+                              f"{(code.group(1) if code else '')[: self.card_chars]}```")
+                continue
             body = re.sub(r"^---.*?---\n", "", p["content"], flags=re.S)
-            blocks.append(f"### {p['path'].rsplit('/', 1)[-1]} — under your release ({version}): "
-                          f"{_status_for(p['content'], version)}\n\n{body[:6000]}")
+            blocks.append(f"### {name} — under your release ({version}): {status}\n\n{body[:6000]}")
         system = SYSTEM
         if blocks:
             system += ("\n\nVerified procedures retrieved from shared memory. Each was signed by a "

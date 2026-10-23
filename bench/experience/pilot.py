@@ -75,6 +75,8 @@ def main() -> int:
     ap.add_argument("--attempts", type=int, default=3)
     ap.add_argument("--limit", type=int, default=0)
     ap.add_argument("--skip-publish", action="store_true")
+    ap.add_argument("--cards", action="store_true", help="compact verified cards, k=2, stale as a warning")
+    ap.add_argument("--k", type=int, default=3)
     args = ap.parse_args()
 
     tasks = taskset.load_tasks()
@@ -103,10 +105,10 @@ def main() -> int:
             time.sleep(15)
 
     adapter = ShimAdapter()
-    store = EmemStore(prefix)
-    arms = [BaselineFresh(adapter), EmemProcedures(adapter, store, versions)]
+    store = EmemStore(prefix, k=args.k)
+    arms = [BaselineFresh(adapter), EmemProcedures(adapter, store, versions, compact=args.cards)]
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    out = HERE / "runs" / f"pilot-{stamp}.jsonl"
+    out = HERE / "runs" / f"pilot-{stamp}{'-cards' if args.cards else ''}.jsonl"
     out.parent.mkdir(exist_ok=True)
     records = []
     for t in evals:
@@ -135,7 +137,7 @@ def main() -> int:
                    "input_tokens": sum(a["input_tokens"] for a in attempts),
                    "output_tokens": sum(a["output_tokens"] for a in attempts),
                    "cost_usd": sum(a["cost_usd"] for a in attempts)}
-            if arm.name == "emem_procedures" and arm.retrieved_log:
+            if arm.name.startswith("emem_") and arm.retrieved_log:
                 rec["retrieved"] = arm.retrieved_log[-1]["paths"]
             records.append(rec)
             with open(out, "a") as f:
