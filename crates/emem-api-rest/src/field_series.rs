@@ -604,7 +604,8 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
         .bbox
         .as_ref()
         .ok_or_else(|| bad_request("give the area as `bbox` or `geometry`".into()))?;
-    let bbox: BBox = serde_json::from_value(as_object_value(raw, "bbox")?).map_err(|e| {
+    let raw = bbox_array_as_object(raw)?;
+    let bbox: BBox = serde_json::from_value(as_object_value(&raw, "bbox")?).map_err(|e| {
         bad_request(format!(
             "bbox must be {{min_lat, min_lng, max_lat, max_lng}}: {e}"
         ))
@@ -614,6 +615,24 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
         bbox,
         rings: Vec::new(),
     })
+}
+
+/// An array bbox is `[w, s, e, n]`, longitude first: GeoJSON's order, and the
+/// one `field_burn_scar`, `field_actual_et` and `scene.png` take. Left to
+/// serde, an array fills `BBox` in field order, latitude first, so
+/// `[77.59, 12.97, 77.60, 12.98]` for Bengaluru read as 77.6 N and returned a
+/// signed series of Svalbard scenes (2026-10-23).
+fn bbox_array_as_object(raw: &JsonValue) -> Result<JsonValue, ApiError> {
+    let Some(a) = raw.as_array() else {
+        return Ok(raw.clone());
+    };
+    let n: Vec<f64> = a.iter().filter_map(|v| v.as_f64()).collect();
+    if a.len() != 4 || n.len() != 4 {
+        return Err(bad_request(
+            "an array bbox is [w, s, e, n]: four numbers in degrees, longitude first".into(),
+        ));
+    }
+    Ok(json!({"min_lng": n[0], "min_lat": n[1], "max_lng": n[2], "max_lat": n[3]}))
 }
 
 fn aoi_from_geometry(g: &JsonValue) -> Result<Aoi, ApiError> {
@@ -2905,6 +2924,22 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(parse_aoi(&req).unwrap().bbox.max_lng, 4.0);
+        // An array is [w, s, e, n], as the other field routes read it.
+        let req: FieldSeriesReq = serde_json::from_value(json!({
+            "bbox": [77.5915, 12.9735, 77.5945, 12.9765],
+            "start_date": "2025-01-01", "end_date": "2025-06-01"
+        }))
+        .unwrap();
+        let b = parse_aoi(&req).unwrap().bbox;
+        assert_eq!(
+            (b.min_lng, b.min_lat, b.max_lng, b.max_lat),
+            (77.5915, 12.9735, 77.5945, 12.9765)
+        );
+        let req: FieldSeriesReq = serde_json::from_value(json!({
+            "bbox": [77.59, 12.97, 77.6], "start_date": "2025-01-01", "end_date": "2025-06-01"
+        }))
+        .unwrap();
+        assert!(parse_aoi(&req).is_err(), "three numbers is not a bbox");
         let req: FieldSeriesReq = serde_json::from_value(json!({
             "geometry": "not json", "start_date": "2025-01-01", "end_date": "2025-06-01"
         }))
