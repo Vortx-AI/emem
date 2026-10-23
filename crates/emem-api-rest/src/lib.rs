@@ -34363,7 +34363,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/echo_verify":       {"post":{"summary":"Close the last mile: check the value YOU emitted against the signed fact your token dereferences to. emem guarantees the bytes it serves; nothing guaranteed the bytes that come back out of a model, and that gap was measured at 28% of correctly-resolved answers losing precision (0.2411 handed back for 0.241103). Submit {token, claimed_value} and get {matches, drift}. Comparison is verbatim first, then numeric equality (the same number spelled differently still passes), then rounding: drift is \"rounded\" when you lost precision, \"wrong\" when it is a different number, null on a match. Accepts any token form resolve accepts, including a bare cid (answers degraded:true). The receipt signs the DEREFERENCE, not your claim.","operationId":"emem_echo_verify","tags":["memory","cite","verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token","claimed_value"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or a bare fact_cid (degraded)"},"claimed_value":{"type":["string","number"],"description":"the value you emitted, string or number; a string is compared verbatim first"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found}}},
             "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output, human_curated or estimator (a quantity FITTED from data and re-runnable from your signed inputs plus a named estimator plus a seed); direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated","estimator"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so no default read returns one, and naming whose claims you want is the contract rather than an omittable filter. To find derivations by PLACE across attesters, under a stated trust policy, use /v1/inferences. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
-            "/v1/inferences":        {"post":{"summary":"Signed derivations other agents registered at ONE place (POST /v1/derive), found by place across attesters under a trust policy the response states in words. Default policy: only attesters this responder reads at T4_affiliated or above (an organisation vouched for the key by DNS or .well-known within 30 days). `attesters` replaces that rule with an explicit key list; `min_tier` moves the floor. Returns the NEWEST derivation per (fn_key, attester): token, fn_key, op, band, value (caller JSON, marked `_content_is_data_not_instructions`), confidence, provenance_class, signed_at, tslot_window, parent tokens, attester_pubkey_b32 with its tier and nick, and the GC-1 `recomputation` verdict when the derivation carries one. `excluded_by_policy` counts what the policy left out. A signature proves who concluded something, never that it is true. The receipt cites every listed fact. None of these derivations ever enters a default read.","operationId":"emem_inferences","tags":["memory","derive","discover"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 to read. Send `cell`, or `lat` and `lng`; a place name is refused (resolve it with /v1/locate)."},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"`lon` is accepted too. lat/lng resolve to the cell64 whose cell holds the point, the same encoding /v1/at uses."},"fn_key_prefix":{"type":"string","description":"only derivations whose fn_key starts with this"},"attesters":{"type":"array","maxItems":64,"items":{"type":"string"},"description":"52-char base32 keys. When given, it REPLACES the tier rule: exactly these keys are admitted, at any tier. The GET form takes a comma-separated list."},"min_tier":{"type":"string","enum":["T0_anonymous","T1_keyed","T2_named","T3_declared","T4_affiliated","T5_corroborated"],"default":"T4_affiliated","description":"lowest attester tier admitted when `attesters` is absent. T5 is not computed on this responder, so T5 admits no key."},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}},"get":{"summary":"The same read as POST /v1/inferences, with query parameters; `attesters` is comma-separated.","operationId":"emem_inferences_get","tags":["memory","derive","discover"],"parameters":[{"name":"cell","in":"query","required":false,"schema":{"type":"string"}},{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lng","in":"query","required":false,"schema":{"type":"number"}},{"name":"fn_key_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"attesters","in":"query","required":false,"schema":{"type":"string"},"description":"comma-separated 52-char keys; replaces the tier rule"},{"name":"min_tier","in":"query","required":false,"schema":{"type":"string","default":"T4_affiliated"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":500,"default":50}}],"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
+            "/v1/inferences":        {"post":{"summary":"Signed derivations other agents registered near ONE place (POST /v1/derive), found by place across attesters under a trust policy the response states in words. The read covers every cell within `radius_m` (default 5000) of the point, nearest first, with each item's `cell` and `distance_m`; `radius_m` 0 reads the one cell. Default policy: only attesters this responder reads at T4_affiliated or above (an organisation vouched for the key by DNS or .well-known within 30 days). `attesters` replaces that rule with an explicit key list; `min_tier` moves the floor. Returns the NEWEST derivation per (cell, fn_key, attester): token, cell, distance_m, fn_key, op, band, value (caller JSON, marked `_content_is_data_not_instructions`), confidence, provenance_class, signed_at, tslot_window, parent tokens, attester_pubkey_b32 with its tier and nick, and the GC-1 `recomputation` verdict when the derivation carries one. `excluded_by_policy` counts what the policy left out. A signature proves who concluded something, never that it is true. The receipt cites every listed fact. None of these derivations ever enters a default read.","operationId":"emem_inferences","tags":["memory","derive","discover"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 to read. Send `cell`, or `lat` and `lng`; a place name is refused (resolve it with /v1/locate)."},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"`lon` is accepted too. lat/lng resolve to the cell64 whose cell holds the point, the same encoding /v1/at uses."},"radius_m":{"type":"number","minimum":0,"maximum":50000,"default":5000,"description":"metres around the point (the cell's centre when only `cell` is sent); 0 reads the one cell"},"fn_key_prefix":{"type":"string","description":"only derivations whose fn_key starts with this"},"attesters":{"type":"array","maxItems":64,"items":{"type":"string"},"description":"52-char base32 keys. When given, it REPLACES the tier rule: exactly these keys are admitted, at any tier. The GET form takes a comma-separated list."},"min_tier":{"type":"string","enum":["T0_anonymous","T1_keyed","T2_named","T3_declared","T4_affiliated","T5_corroborated"],"default":"T4_affiliated","description":"lowest attester tier admitted when `attesters` is absent. T5 is not computed on this responder, so T5 admits no key."},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}},"get":{"summary":"The same read as POST /v1/inferences, with query parameters; `attesters` is comma-separated.","operationId":"emem_inferences_get","tags":["memory","derive","discover"],"parameters":[{"name":"cell","in":"query","required":false,"schema":{"type":"string"}},{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lng","in":"query","required":false,"schema":{"type":"number"}},{"name":"radius_m","in":"query","required":false,"schema":{"type":"number","minimum":0,"maximum":50000,"default":5000}},{"name":"fn_key_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"attesters","in":"query","required":false,"schema":{"type":"string"},"description":"comma-separated 52-char keys; replaces the tier rule"},{"name":"min_tier","in":"query","required":false,"schema":{"type":"string","default":"T4_affiliated"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":500,"default":50}}],"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
             // Discovery and introspection. An agent planning a read needs the
@@ -39647,7 +39647,7 @@ async fn post_memory_token_resolve_many(
 //     claim cannot surface in another agent's default read. It is
 //     reachable only by asking for derivations on purpose: by its token,
 //     through `/v1/derived`, which requires the attester's pubkey, or
-//     through `/v1/inferences`, which reads one place under a trust
+//     through `/v1/inferences`, which reads around one place under a trust
 //     policy it states (by default, keys an organisation vouched for).
 //
 // That is the point rather than a limitation. The caller's need is
@@ -39685,28 +39685,54 @@ const DERIVED_BY_BODY_TREE: &str = "emem.derived_by_body_hash";
 
 /// sled tree backing `/v1/inferences`: every caller-registered derivation,
 /// keyed by the place it is anchored at. Key layout is
-/// `<cell> 0x00 <fn_key> 0x00 <signed_at> 0x00 <attester_pubkey_b32>`, value
-/// the `emem:fact:` token.
+/// `<tile> 0x00 <cell> 0x00 <fn_key> 0x00 <signed_at> 0x00 <attester_pubkey_b32>`,
+/// value the `emem:fact:` token.
 ///
 /// [`DERIVED_TREE`] answers "what did this key conclude" and cannot answer
-/// "what was concluded here" without walking every attester. Cell first makes
-/// the second question a prefix scan, and `signed_at` before the attester
-/// keeps one (cell, fn_key)'s rows in time order, so the newest row per
-/// (fn_key, attester) is the last one a scan meets.
+/// "what was concluded here" without walking every attester. A cell is
+/// 9.55 m, so "here" is rarely one cell: a desk anchors a field study at its
+/// own point and a reader asks from theirs. The tile ([`DERIVED_TILE_DEG`])
+/// in front makes "near here" a few prefix scans, and the cell after it
+/// keeps the exact-cell read one scan.
 ///
-/// `fn_key` is caller text and may itself contain NUL, so a key is split from
-/// the right: the attester and `signed_at` never contain one.
+/// `fn_key` is caller text and may itself contain NUL, so the tail of a key
+/// is split from the right: the attester and `signed_at` never contain one.
 const DERIVED_BY_CELL_TREE: &str = "emem.derived_by_cell";
 
 /// Done flag for the one-time backfill of [`DERIVED_BY_CELL_TREE`] from
 /// [`DERIVED_TREE`]. It lives in the same tree under a key that starts with
-/// NUL: every row key starts with a cell64, which never holds one, so no
-/// cell scan can reach the flag.
+/// NUL: every row key starts with a tile's digits or `nogeo`, so no scan
+/// reaches it.
 const DERIVED_BY_CELL_BACKFILL_DONE: &[u8] = b"\0backfill_from_derived_by_attester_v1";
 
 /// NUL separator for [`DERIVED_TREE`] key segments. Not a legal byte in a
 /// cell64, a band key, a CID, or base32, so the segments cannot collide.
 const DERIVED_KEY_SEP: u8 = 0;
+
+/// Edge of a place-index tile in degrees, about 11 km of latitude. Coarse
+/// enough that the largest radius a read accepts touches a few dozen tiles.
+const DERIVED_TILE_DEG: f64 = 0.1;
+const DERIVED_TILE_ROWS: i64 = 1_800;
+const DERIVED_TILE_COLS: i64 = 3_600;
+
+/// The tile holding a point. Longitude wraps; latitude clamps at the poles.
+fn derived_tile_of(lat: f64, lng: f64) -> (i64, i64) {
+    let row = (((lat + 90.0) / DERIVED_TILE_DEG).floor() as i64).clamp(0, DERIVED_TILE_ROWS - 1);
+    let col = (((lng + 180.0) / DERIVED_TILE_DEG).floor() as i64).rem_euclid(DERIVED_TILE_COLS);
+    (row, col)
+}
+
+/// A tile's key prefix: fixed-width digits, then the separator.
+fn derived_tile_prefix((row, col): (i64, i64)) -> Vec<u8> {
+    let mut k = format!("{row:04}.{col:04}").into_bytes();
+    k.push(DERIVED_KEY_SEP);
+    k
+}
+
+/// The tile segment for a cell64 that is not a geographic cell (an older
+/// mode with no lat/lng). Such a cell is read by exact match only; no radius
+/// reaches it, because it has no centre to measure from.
+const DERIVED_TILE_NOT_GEO: &[u8] = b"nogeo\0";
 
 /// Build a [`DERIVED_BY_CELL_TREE`] row key.
 fn derived_by_cell_key(cell: &str, fn_key: &str, signed_at: &str, attester: &str) -> Vec<u8> {
@@ -39722,7 +39748,10 @@ fn derived_by_cell_key(cell: &str, fn_key: &str, signed_at: &str, attester: &str
 /// the `fn_key`s that start with `fn_key_prefix`. The prefix is left open on
 /// the right, so `ndvi_` matches `ndvi_delta@1` and `ndvi_trend@2`.
 fn derived_by_cell_prefix(cell: &str, fn_key_prefix: Option<&str>) -> Vec<u8> {
-    let mut k = Vec::with_capacity(160);
+    let mut k = match emem_codec::latlng_from_cell64(cell) {
+        Ok(c) => derived_tile_prefix(derived_tile_of(c.lat_deg, c.lng_deg)),
+        Err(_) => DERIVED_TILE_NOT_GEO.to_vec(),
+    };
     k.extend_from_slice(cell.as_bytes());
     k.push(DERIVED_KEY_SEP);
     if let Some(p) = fn_key_prefix {
@@ -39731,25 +39760,70 @@ fn derived_by_cell_prefix(cell: &str, fn_key_prefix: Option<&str>) -> Vec<u8> {
     k
 }
 
-/// Split a [`DERIVED_BY_CELL_TREE`] row key for `cell` into
-/// `(fn_key, signed_at, attester)`. `None` for a key outside the cell or
-/// with too few segments.
-fn parse_derived_by_cell_key(key: &[u8], cell: &str) -> Option<(String, String, String)> {
-    let rest = key
-        .strip_prefix(cell.as_bytes())?
-        .strip_prefix(&[DERIVED_KEY_SEP])?;
-    let mut parts = rest.rsplitn(3, |b| *b == DERIVED_KEY_SEP);
-    let attester = parts.next()?;
-    let signed_at = parts.next()?;
-    let fn_key = parts.next()?;
-    if fn_key.is_empty() || signed_at.is_empty() || attester.is_empty() {
+/// A [`DERIVED_BY_CELL_TREE`] row key split into
+/// `(cell, fn_key, signed_at, attester)`. `None` for a key with too few
+/// segments.
+fn parse_derived_by_cell_key(key: &[u8]) -> Option<(String, String, String, String)> {
+    let mut head = key.splitn(3, |b| *b == DERIVED_KEY_SEP);
+    let (_tile, cell, rest) = (head.next()?, head.next()?, head.next()?);
+    let mut tail = rest.rsplitn(3, |b| *b == DERIVED_KEY_SEP);
+    let attester = tail.next()?;
+    let signed_at = tail.next()?;
+    let fn_key = tail.next()?;
+    if cell.is_empty() || fn_key.is_empty() || signed_at.is_empty() || attester.is_empty() {
         return None;
     }
-    Some((
-        String::from_utf8_lossy(fn_key).into_owned(),
-        String::from_utf8_lossy(signed_at).into_owned(),
-        String::from_utf8_lossy(attester).into_owned(),
-    ))
+    let text = |b: &[u8]| String::from_utf8_lossy(b).into_owned();
+    Some((text(cell), text(fn_key), text(signed_at), text(attester)))
+}
+
+/// The tiles a circle of `radius_m` around a point touches, nearest first,
+/// so a read that hits its scan cap drops the far edge. `None` when there are
+/// more than `max_tiles`, which only happens within a few km of a pole.
+fn derived_tiles_within(
+    lat: f64,
+    lng: f64,
+    radius_m: f64,
+    max_tiles: usize,
+) -> Option<Vec<(i64, i64)>> {
+    // The bounds of a spherical cap, on the sphere `haversine_km` uses, so
+    // every cell the distance filter keeps lies in a tile scanned here. Its
+    // widest longitude is asin(sin θ / cos φ), and a cap that reaches a pole
+    // spans every longitude.
+    let theta = radius_m / 6_371_008.8;
+    let dlat = theta.to_degrees();
+    let (lat_lo, lat_hi) = ((lat - dlat).max(-90.0), (lat + dlat).min(90.0));
+    let ratio = theta.sin() / lat.to_radians().cos();
+    let (r0, _) = derived_tile_of(lat_lo, lng);
+    let (r1, _) = derived_tile_of(lat_hi, lng);
+    let mut cols: Vec<i64> = if ratio.is_nan() || ratio >= 1.0 {
+        (0..DERIVED_TILE_COLS).collect()
+    } else {
+        let dlng = ratio.asin().to_degrees();
+        let c0 = ((lng - dlng + 180.0) / DERIVED_TILE_DEG).floor() as i64;
+        let c1 = ((lng + dlng + 180.0) / DERIVED_TILE_DEG).floor() as i64;
+        (c0..=c1).map(|c| c.rem_euclid(DERIVED_TILE_COLS)).collect()
+    };
+    cols.sort_unstable();
+    cols.dedup();
+    if (r1 - r0 + 1) as usize * cols.len() > max_tiles {
+        return None;
+    }
+    let centre = |(r, c): (i64, i64)| {
+        (
+            (r as f64 + 0.5) * DERIVED_TILE_DEG - 90.0,
+            (c as f64 + 0.5) * DERIVED_TILE_DEG - 180.0,
+        )
+    };
+    let mut tiles: Vec<((i64, i64), f64)> = (r0..=r1)
+        .flat_map(|r| cols.iter().map(move |&c| (r, c)))
+        .map(|t| {
+            let (tl, tg) = centre(t);
+            (t, haversine_km(lat, lng, tl, tg))
+        })
+        .collect();
+    tiles.sort_by(|a, b| a.1.total_cmp(&b.1).then_with(|| a.0.cmp(&b.0)));
+    Some(tiles.into_iter().map(|(t, _)| t).collect())
 }
 
 /// Build a [`DERIVED_TREE`] key or key-prefix. Passing `None` for a
@@ -41235,14 +41309,14 @@ async fn post_derived_list(
         attester_pubkey_b32: pubkey_b32,
         derivations,
         truncated,
-        scoping: "Derivations are attester-scoped. They carry no canonical (cell, band, tslot) key, so no default read path returns them. This endpoint, token resolution, and POST /v1/inferences (one place, under a stated trust policy) are the only ways to reach one.",
+        scoping: "Derivations are attester-scoped. They carry no canonical (cell, band, tslot) key, so no default read path returns them. This endpoint, token resolution, and POST /v1/inferences (around one place, under a stated trust policy) are the only ways to reach one.",
         receipt,
     }))
 }
 
 // ── /v1/inferences ───────────────────────────────────────────────────────
 //
-// What did research conclude at this place? A derivation is a signed,
+// What did research conclude near this place? A derivation is a signed,
 // reusable conclusion with its lineage attached, and until this route the
 // only way to find one was to know already whose it was. This route reads
 // the place index under a trust policy that the response states in words:
@@ -41250,10 +41324,16 @@ async fn post_derived_list(
 // caller names. A derivation still never reaches a default read; this is a
 // read a caller makes on purpose.
 
-/// Most place-index rows one call reads for one cell. Past it the answer
-/// comes from the first rows in key order and says so, and `fn_key_prefix`
-/// reaches the rest.
+/// Most place-index rows one call reads. Tiles are read nearest first, so
+/// past it the answer drops the far edge and says so; a smaller `radius_m`
+/// or a `fn_key_prefix` reaches the rest.
 const INFERENCES_MAX_SCAN: usize = 5_000;
+/// Default search radius. A cell is 9.55 m and a study anchors at its own
+/// point, so an exact-cell read would miss a conclusion drawn a street away.
+const INFERENCES_DEFAULT_RADIUS_M: f64 = 5_000.0;
+const INFERENCES_MAX_RADIUS_M: f64 = 50_000.0;
+/// Most tiles one read scans; only a wide radius near a pole exceeds it.
+const INFERENCES_MAX_TILES: usize = 4_096;
 /// Most keys `attesters` may name.
 const INFERENCES_MAX_ATTESTERS: usize = 64;
 /// Most excluded attesters a response lists by key.
@@ -41316,6 +41396,10 @@ struct InferencesReq {
     lat: Option<f64>,
     #[serde(default, alias = "lon")]
     lng: Option<f64>,
+    /// Metres around the point (the cell's centre, for `cell`). 0 reads the
+    /// one cell. Default 5000, max 50000.
+    #[serde(default)]
+    radius_m: Option<f64>,
     /// Only derivations whose `fn_key` starts with this.
     #[serde(default)]
     fn_key_prefix: Option<String>,
@@ -41395,6 +41479,10 @@ struct InferenceItem {
     /// resolver like any other fact.
     token: String,
     fact_cid: String,
+    /// The cell the derivation is anchored at.
+    cell: String,
+    /// From the point read to this cell's centre, in whole metres.
+    distance_m: u64,
     fn_key: String,
     op: String,
     band: String,
@@ -41428,15 +41516,19 @@ struct InferencesResp {
     /// How `cell` was reached: the cell64 the caller sent, or the lat/lng
     /// it encodes.
     resolved_from: JsonValue,
+    /// The circle read: its centre, its radius, and how distance is taken.
+    search: JsonValue,
     trust_policy: JsonValue,
-    /// Newest derivation per (fn_key, attester), newest first.
+    /// Newest derivation per (cell, fn_key, attester), nearest first, then
+    /// newest first.
     inferences: Vec<InferenceItem>,
     count: usize,
     /// More admitted inferences exist than `limit` returned.
     truncated: bool,
-    /// The place index held more rows for this cell than one call reads.
+    /// The place index held more rows in the circle than one call reads.
     scan_truncated: bool,
-    /// Newest-per-(fn_key, attester) derivations the policy did not admit.
+    /// Newest-per-(cell, fn_key, attester) derivations the policy did not
+    /// admit.
     excluded_by_policy: usize,
     /// Who those were, by key and tier, so a caller can widen on purpose.
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -41455,8 +41547,11 @@ fn is_zero_usize(n: &usize) -> bool {
     *n == 0
 }
 
-/// One newest row per (fn_key, attester), with the attester's tier read.
+/// One newest row per (cell, fn_key, attester), with the attester's tier
+/// read.
 struct InferenceRow {
+    cell: String,
+    distance_m: u64,
     fn_key: String,
     signed_at: String,
     attester: String,
@@ -41484,8 +41579,12 @@ fn inferences_internal(code: &'static str, e: impl std::fmt::Display) -> ApiErro
     )
 }
 
-/// The cell a request names, and how it got there.
-fn inferences_cell(req: &InferencesReq) -> Result<(String, JsonValue), ApiError> {
+/// The cell a request names, the point a radius is measured from (the
+/// caller's lat/lng, or the cell's centre; `None` for a cell with no
+/// centre), and how it got there.
+type InferencePlace = (String, Option<(f64, f64)>, JsonValue);
+
+fn inferences_cell(req: &InferencesReq) -> Result<InferencePlace, ApiError> {
     let from_latlng = match (req.lat, req.lng) {
         (None, None) => None,
         (Some(lat), Some(lng)) => {
@@ -41534,11 +41633,16 @@ fn inferences_cell(req: &InferencesReq) -> Result<(String, JsonValue), ApiError>
                         ),
                     ));
                 }
+                return Ok((c.to_string(), Some((lat, lng)), json!({"input": "cell"})));
             }
-            Ok((c.to_string(), json!({"input": "cell"})))
+            let centre = emem_codec::latlng_from_cell64(c)
+                .ok()
+                .map(|p| (p.lat_deg, p.lng_deg));
+            Ok((c.to_string(), centre, json!({"input": "cell"})))
         }
         (None, Some((cell, lat, lng))) => Ok((
             cell,
+            Some((lat, lng)),
             json!({
                 "input": "lat_lng",
                 "lat": lat,
@@ -41610,12 +41714,20 @@ fn inferences_policy(req: &InferencesReq) -> Result<(InferencePolicy, bool, bool
     }
 }
 
-/// Read one cell's place-index rows, keep the newest per (fn_key, attester),
-/// and sort them by the policy. Synchronous: it is sled scans and point
-/// reads, so callers run it on the blocking pool.
+/// Where a read looks: one cell, or every cell whose centre is within
+/// `radius_m` of `point`.
+struct InferenceArea<'a> {
+    cell: &'a str,
+    point: Option<(f64, f64)>,
+    radius_m: f64,
+}
+
+/// Read the place-index rows in an area, keep the newest per
+/// (cell, fn_key, attester), and sort them by the policy. Synchronous: it is
+/// sled scans and point reads, so callers run it on the blocking pool.
 fn inferences_scan_sync(
     s: &AppState,
-    cell: &str,
+    area: &InferenceArea<'_>,
     fn_key_prefix: Option<&str>,
     policy: &InferencePolicy,
 ) -> Result<InferenceScan, ApiError> {
@@ -41633,30 +41745,83 @@ fn inferences_scan_sync(
         .open_tree(DERIVED_BY_CELL_TREE)
         .map_err(|e| inferences_internal("inferences_index_open_failed", e))?;
 
-    let mut newest: std::collections::HashMap<(String, String), (String, String)> =
+    // An exact-cell read is one narrow prefix; a radius read is one prefix
+    // per tile, filtered by distance below.
+    let prefixes: Vec<Vec<u8>> = match area.point {
+        Some((lat, lng)) if area.radius_m > 0.0 => derived_tiles_within(
+            lat,
+            lng,
+            area.radius_m,
+            INFERENCES_MAX_TILES,
+        )
+            .ok_or_else(|| {
+                bad_request(
+                    "inferences_radius_too_wide",
+                    format!(
+                        "a {} m circle at lat {lat} touches more than {INFERENCES_MAX_TILES} index tiles this close to a pole; send a smaller `radius_m`",
+                        area.radius_m
+                    ),
+                )
+            })?
+        .into_iter()
+        .map(derived_tile_prefix)
+        .collect(),
+        _ => vec![derived_by_cell_prefix(area.cell, fn_key_prefix)],
+    };
+
+    let mut centres: std::collections::HashMap<String, Option<u64>> =
         std::collections::HashMap::new();
-    let mut scan_truncated = false;
-    for (scanned, row) in tree
-        .scan_prefix(derived_by_cell_prefix(cell, fn_key_prefix))
-        .enumerate()
-    {
-        if scanned == INFERENCES_MAX_SCAN {
-            scan_truncated = true;
-            break;
+    let mut distance_to = |cell: &str| -> Option<u64> {
+        if let Some(d) = centres.get(cell) {
+            return *d;
         }
-        let (k, v) = row.map_err(|e| inferences_internal("inferences_index_scan_failed", e))?;
-        let Some((fn_key, signed_at, attester)) = parse_derived_by_cell_key(&k, cell) else {
-            continue;
-        };
-        let token = String::from_utf8_lossy(&v).into_owned();
-        match newest.entry((fn_key, attester)) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
-                if signed_at >= e.get().0 {
-                    e.insert((signed_at, token));
-                }
+        // A cell with no centre is only ever read by exact match, where it
+        // is the place asked about: distance 0.
+        let d = match (area.point, emem_codec::latlng_from_cell64(cell)) {
+            (Some((lat, lng)), Ok(c)) => {
+                Some((haversine_km(lat, lng, c.lat_deg, c.lng_deg) * 1000.0).round() as u64)
             }
-            std::collections::hash_map::Entry::Vacant(e) => {
-                e.insert((signed_at, token));
+            _ if cell == area.cell => Some(0),
+            _ => None,
+        };
+        centres.insert(cell.to_string(), d);
+        d
+    };
+
+    type Newest = std::collections::HashMap<(String, String, String), (String, String, u64)>;
+    let mut newest: Newest = std::collections::HashMap::new();
+    let mut scanned = 0usize;
+    let mut scan_truncated = false;
+    'tiles: for prefix in prefixes {
+        for row in tree.scan_prefix(prefix) {
+            if scanned == INFERENCES_MAX_SCAN {
+                scan_truncated = true;
+                break 'tiles;
+            }
+            scanned += 1;
+            let (k, v) = row.map_err(|e| inferences_internal("inferences_index_scan_failed", e))?;
+            let Some((cell, fn_key, signed_at, attester)) = parse_derived_by_cell_key(&k) else {
+                continue;
+            };
+            if fn_key_prefix.is_some_and(|p| !fn_key.starts_with(p)) {
+                continue;
+            }
+            let Some(distance_m) = distance_to(&cell) else {
+                continue;
+            };
+            if area.radius_m > 0.0 && distance_m as f64 > area.radius_m {
+                continue;
+            }
+            let token = String::from_utf8_lossy(&v).into_owned();
+            match newest.entry((cell, fn_key, attester)) {
+                std::collections::hash_map::Entry::Occupied(mut e) => {
+                    if signed_at >= e.get().0 {
+                        e.insert((signed_at, token, distance_m));
+                    }
+                }
+                std::collections::hash_map::Entry::Vacant(e) => {
+                    e.insert((signed_at, token, distance_m));
+                }
             }
         }
     }
@@ -41666,7 +41831,7 @@ fn inferences_scan_sync(
     let mut admitted = Vec::new();
     let mut excluded: std::collections::BTreeMap<String, (crate::enlistment::Tier, usize)> =
         std::collections::BTreeMap::new();
-    for ((fn_key, attester), (signed_at, token)) in newest {
+    for ((cell, fn_key, attester), (signed_at, token, distance_m)) in newest {
         let (tier, nick) = read
             .entry(attester.clone())
             .or_insert_with(|| {
@@ -41678,6 +41843,8 @@ fn inferences_scan_sync(
             .clone();
         if policy.admits(&attester, tier) {
             admitted.push(InferenceRow {
+                cell,
+                distance_m,
                 fn_key,
                 signed_at,
                 attester,
@@ -41690,8 +41857,9 @@ fn inferences_scan_sync(
         }
     }
     admitted.sort_by(|a, b| {
-        b.signed_at
-            .cmp(&a.signed_at)
+        a.distance_m
+            .cmp(&b.distance_m)
+            .then_with(|| b.signed_at.cmp(&a.signed_at))
             .then_with(|| a.fn_key.cmp(&b.fn_key))
             .then_with(|| a.attester.cmp(&b.attester))
     });
@@ -41711,8 +41879,17 @@ fn inferences_scan_sync(
 /// `emem_inferences` tool.
 async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesResp, ApiError> {
     let started = std::time::Instant::now();
-    let (cell, resolved_from) = inferences_cell(&req)?;
+    let (cell, point, resolved_from) = inferences_cell(&req)?;
     let (policy, min_tier_default, min_tier_ignored) = inferences_policy(&req)?;
+    let radius_m = req.radius_m.unwrap_or(INFERENCES_DEFAULT_RADIUS_M);
+    if !radius_m.is_finite() || !(0.0..=INFERENCES_MAX_RADIUS_M).contains(&radius_m) {
+        return Err(bad_request(
+            "inferences_invalid_radius",
+            format!(
+                "`radius_m` must be between 0 (this cell only) and {INFERENCES_MAX_RADIUS_M} metres, got {radius_m}"
+            ),
+        ));
+    }
     let limit = req.limit.unwrap_or(50).clamp(1, 500);
     let fn_key_prefix = req
         .fn_key_prefix
@@ -41724,7 +41901,12 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
     let scan = {
         let (s, cell, policy) = (s.clone(), cell.clone(), policy.clone());
         tokio::task::spawn_blocking(move || {
-            inferences_scan_sync(&s, &cell, fn_key_prefix.as_deref(), &policy)
+            let area = InferenceArea {
+                cell: &cell,
+                point,
+                radius_m,
+            };
+            inferences_scan_sync(&s, &area, fn_key_prefix.as_deref(), &policy)
         })
         .await
         .map_err(|e| inferences_internal("inferences_scan_task_failed", e))??
@@ -41750,6 +41932,8 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
 
     let mut inferences = Vec::with_capacity(page.len());
     let mut cited: Vec<emem_fact::FactCid> = Vec::with_capacity(page.len());
+    // The receipt names the cell asked about and every cell it served from.
+    let mut cells = vec![cell.clone()];
     let mut unresolved_rows = 0usize;
     for (row, cid) in page.into_iter().zip(page_cids) {
         let Some(cid) = cid else {
@@ -41768,7 +41952,7 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
             Some(ciborium::Value::Text(t)) => Some(t.clone()),
             _ => None,
         };
-        if d.cell != cell
+        if d.cell != row.cell
             || d.derivation.fn_key != row.fn_key
             || d.signed_at != row.signed_at
             || arg_text("attester_pubkey_b32").as_deref() != Some(row.attester.as_str())
@@ -41791,9 +41975,14 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
             .map(ciborium_to_json);
         let provenance_class = arg_text("provenance_class").unwrap_or_else(|| "unstated".into());
         cited.push(emem_fact::FactCid::new(cid.clone()));
+        if !cells.contains(&d.cell) {
+            cells.push(d.cell.clone());
+        }
         inferences.push(InferenceItem {
             token: format!("emem:fact:{}:{cid}", d.cell),
             fact_cid: cid,
+            cell: d.cell,
+            distance_m: row.distance_m,
             value: ciborium_to_json(&d.value),
             fn_key: d.derivation.fn_key,
             op: d.op,
@@ -41823,18 +42012,20 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
         "inferences[].op",
         "inferences[].band"
     ]);
-    let receipt = s.sign_receipt(
-        "emem.inferences",
-        vec![cell.clone()],
-        cited,
-        true,
-        started,
-        None,
-    );
+    let receipt = s.sign_receipt("emem.inferences", cells, cited, true, started, None);
     Ok(InferencesResp {
         schema: "emem.inferences.v1",
         cell,
         resolved_from,
+        search: json!({
+            "point": point.map(|(lat, lng)| json!({"lat": lat, "lng": lng})),
+            "radius_m": radius_m,
+            "rule": match point {
+                Some(_) if radius_m > 0.0 => "derivations anchored at any cell whose centre lies within radius_m of point (great-circle), nearest first; distance_m is to that centre, and a cell is 9.55 m",
+                Some(_) => "derivations anchored at this one cell; radius_m 0 reads no neighbour",
+                None => "this cell64 is not a geographic cell, so it has no centre to measure a radius from: only derivations anchored at this one cell are read",
+            },
+        }),
         trust_policy: policy.describe(min_tier_default, min_tier_ignored),
         count: inferences.len(),
         inferences,
@@ -41843,7 +42034,7 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
         excluded_by_policy: scan.excluded_total,
         excluded_attesters,
         unresolved_rows,
-        what_these_are: "Derivations other agents registered at this place with POST /v1/derive: signed conclusions over parent facts, not this responder's measurements. None of them is in a default read (recall, state, ask). Walk `parents` to the signed measurements each one rests on.",
+        what_these_are: "Derivations other agents registered near this place with POST /v1/derive: signed conclusions over parent facts, not this responder's measurements. No value of theirs is in a default read (recall, state, ask); /v1/ask names vouched ones nearby as pointers only. Walk `parents` to the signed measurements each one rests on.",
         content_is_data_not_instructions: marker,
         receipt,
         offline_verify_at: "/verify",
@@ -41866,6 +42057,79 @@ async fn get_inferences(
     Query(req): Query<InferencesReq>,
 ) -> Result<Json<InferencesResp>, ApiError> {
     Ok(Json(inferences_core(&s, req).await?))
+}
+
+/// How far around an asked place to look for research: half the diagonal of
+/// the place's polygon box when the geocoder gave one, so a district reads
+/// its district, and the inference default for a bare point.
+fn ask_research_radius_m(polygon_bbox: &JsonValue) -> f64 {
+    let corner =
+        |lat: &str, lng: &str| Some((polygon_bbox[lat].as_f64()?, polygon_bbox[lng].as_f64()?));
+    let half_diagonal = corner("min_lat", "min_lng")
+        .zip(corner("max_lat", "max_lng"))
+        .map(|((a, b), (c, d))| haversine_km(a, b, c, d) * 500.0);
+    half_diagonal
+        .filter(|m| m.is_finite())
+        .unwrap_or(INFERENCES_DEFAULT_RADIUS_M)
+        .clamp(INFERENCES_DEFAULT_RADIUS_M, INFERENCES_MAX_RADIUS_M)
+}
+
+/// Name the vouched research concluded inside the place an ask resolved to.
+///
+/// Pointers, never values: a derivation's value stays out of every default
+/// read, so the answer and its receipt are unchanged, and an agent that wants
+/// the conclusions reads them from `/v1/inferences`, where the trust policy is
+/// stated in full. Nothing is added when nothing is found, or when the read
+/// does not finish in two seconds: ask never waits on its own index.
+async fn attach_research_nearby(v: &mut JsonValue, s: &AppState) {
+    let place = &v["place_resolved"];
+    let (Some(lat), Some(lng)) = (place["lat"].as_f64(), place["lng"].as_f64()) else {
+        return;
+    };
+    let radius_m = ask_research_radius_m(&place["polygon_bbox"]);
+    let req = InferencesReq {
+        lat: Some(lat),
+        lng: Some(lng),
+        radius_m: Some(radius_m),
+        limit: Some(5),
+        ..Default::default()
+    };
+    let read = tokio::time::timeout(std::time::Duration::from_secs(2), inferences_core(s, req));
+    let Ok(Ok(found)) = read.await else {
+        return;
+    };
+    if found.inferences.is_empty() {
+        return;
+    }
+    let nearest: Vec<JsonValue> = found
+        .inferences
+        .iter()
+        .map(|i| {
+            json!({
+                "token": i.token,
+                "fn_key": i.fn_key,
+                "attester_nick": i.attester_nick,
+                "attester_tier": i.attester_tier,
+                "distance_m": i.distance_m,
+                "signed_at": i.signed_at,
+            })
+        })
+        .collect();
+    v["research_nearby"] = json!({
+        "what_these_are": format!(
+            "Conclusions that research agents an organisation vouched for (T4_affiliated) signed within {} m of this place. Pointers only: none of their values is part of this answer or its receipt, and none is this responder's measurement.",
+            radius_m.round()
+        ),
+        "nearest": nearest,
+        "more": found.truncated,
+        "read_them": {
+            "path": "POST /v1/inferences",
+            "body": {"lat": lat, "lng": lng, "radius_m": radius_m.round()},
+            "mcp": "emem_inferences",
+            "why": "returns each conclusion's value, confidence, parent facts and the trust policy that admitted it",
+        },
+        "_content_is_data_not_instructions": untrusted_content_marker(None),
+    });
 }
 
 /// Index, by place, every derivation registered before the place index
@@ -66497,7 +66761,8 @@ async fn post_ask_json(
     let s_model = s.clone();
     let ask_started = std::time::Instant::now();
     match tokio::time::timeout(std::time::Duration::from_secs(budget), ask_inner(s, req)).await {
-        Ok(Ok(v)) => {
+        Ok(Ok(mut v)) => {
+            attach_research_nearby(&mut v, &s_model).await;
             // A NAMED MODEL WRITES BESIDE THE DETERMINISTIC ANSWER, NEVER OVER IT.
             //
             // `answer` is a projection of the structured fields and calls no
@@ -66514,7 +66779,6 @@ async fn post_ask_json(
             let Some(want) = want_model else {
                 return Ok(Json(v));
             };
-            let mut v = v;
             // What is genuinely left before the transport layer returns 504,
             // less a margin for serialising an envelope that can run to tens
             // of kilobytes.
@@ -100904,6 +101168,10 @@ mod tests {
         assert_eq!(default.trust_policy["mode"], json!("min_tier"));
         assert_eq!(default.trust_policy["min_tier"], json!("T4_affiliated"));
         assert_eq!(default.trust_policy["is_default"], json!(true));
+        assert!(
+            default.search["point"].is_null(),
+            "the test cell is an older, non-geographic cell64: read by exact match"
+        );
         assert_eq!(
             default.inferences.len(),
             1,
@@ -101071,8 +101339,10 @@ mod tests {
     }
 
     /// `lat`+`lng` reach the cell64 the point encodes, the same cell the
-    /// cell64 form names. The control is a point about a kilometre away,
-    /// which is another cell and finds nothing.
+    /// cell64 form names, and `radius_m` 0 reads that cell alone. The
+    /// controls are a point about a kilometre away, which finds nothing at
+    /// radius 0 or 500 m and finds the derivation at its true distance with
+    /// the default radius, and a point 11 km away, outside the default.
     #[tokio::test]
     async fn inferences_by_lat_lng_read_the_same_cell_as_the_cell64() {
         let s = test_app_state();
@@ -101085,47 +101355,240 @@ mod tests {
         req.attester = Some(sign_derive(&sk, &req));
         let Json(d) = derive_core(req, s.clone()).await.expect("derive");
 
-        let by = |cell: Option<String>, lat: Option<f64>, lng: Option<f64>| InferencesReq {
-            cell,
-            lat,
-            lng,
-            attesters: Some(pk.clone()),
-            ..Default::default()
+        let by =
+            |cell: Option<String>, lat: Option<f64>, lng: Option<f64>, radius_m: Option<f64>| {
+                InferencesReq {
+                    cell,
+                    lat,
+                    lng,
+                    radius_m,
+                    attesters: Some(pk.clone()),
+                    ..Default::default()
+                }
+            };
+        let cids = |r: &InferencesResp| -> Vec<String> {
+            r.inferences.iter().map(|i| i.fact_cid.clone()).collect()
         };
-        let by_cell = inferences_core(&s, by(Some(cell.clone()), None, None))
+        let by_cell = inferences_core(&s, by(Some(cell.clone()), None, None, Some(0.0)))
             .await
             .expect("by cell");
-        let by_point = inferences_core(&s, by(None, Some(lat), Some(lng)))
+        let by_point = inferences_core(&s, by(None, Some(lat), Some(lng), Some(0.0)))
             .await
             .expect("by lat/lng");
         assert_eq!(by_point.cell, cell);
         assert_eq!(by_point.cell, by_cell.cell);
         assert_eq!(by_point.resolved_from["input"], json!("lat_lng"));
-        let cids = |r: &InferencesResp| -> Vec<String> {
-            r.inferences.iter().map(|i| i.fact_cid.clone()).collect()
-        };
         assert_eq!(cids(&by_point), vec![d.fact_cid.clone()]);
         assert_eq!(cids(&by_point), cids(&by_cell));
+        assert_eq!(by_cell.inferences[0].cell, cell);
+        assert!(
+            by_point.inferences[0].distance_m <= 7,
+            "a point is within half a cell diagonal of its cell's centre"
+        );
 
-        let away = inferences_core(&s, by(None, Some(lat + 0.01), Some(lng)))
+        let north =
+            |dlat: f64, radius_m: Option<f64>| by(None, Some(lat + dlat), Some(lng), radius_m);
+        let away = inferences_core(&s, north(0.01, Some(0.0)))
             .await
-            .expect("a point elsewhere");
+            .expect("radius 0");
         assert_ne!(
             away.cell, cell,
             "control: a kilometre north is another cell"
         );
-        assert!(away.inferences.is_empty());
+        assert!(away.inferences.is_empty(), "radius 0 reads no neighbour");
+        let short = inferences_core(&s, north(0.01, Some(500.0)))
+            .await
+            .expect("500 m");
+        assert!(short.inferences.is_empty(), "a kilometre is outside 500 m");
+        let near = inferences_core(&s, north(0.01, None))
+            .await
+            .expect("default radius");
+        assert_eq!(near.search["radius_m"], json!(INFERENCES_DEFAULT_RADIUS_M));
+        assert_eq!(cids(&near), vec![d.fact_cid.clone()]);
+        let metres = near.inferences[0].distance_m;
+        assert!(
+            (1_100..=1_125).contains(&metres),
+            "0.01 deg of latitude is about 1112 m, got {metres}"
+        );
+        let far = inferences_core(&s, north(0.1, None)).await.expect("11 km");
+        assert!(
+            far.inferences.is_empty(),
+            "11 km is outside the default 5 km"
+        );
 
-        inferences_core(&s, by(Some(cell.clone()), Some(lat), Some(lng)))
+        inferences_core(&s, by(Some(cell.clone()), Some(lat), Some(lng), None))
             .await
             .expect("both forms are accepted when they agree");
-        let err = inferences_core(&s, by(Some(cell), Some(lat + 0.01), Some(lng)))
-            .await
-            .expect_err("both forms naming two places are refused");
+        let err = inferences_core(
+            &s,
+            by(Some(cell.clone()), Some(lat + 0.01), Some(lng), None),
+        )
+        .await
+        .expect_err("both forms naming two places are refused");
         assert_eq!(
             err.1.details.unwrap()["code"],
             json!("inferences_cell_latlng_disagree")
         );
+        let err = inferences_core(&s, by(Some(cell), None, None, Some(50_001.0)))
+            .await
+            .expect_err("a radius past the cap is refused");
+        assert_eq!(
+            err.1.details.unwrap()["code"],
+            json!("inferences_invalid_radius")
+        );
+    }
+
+    /// A radius read crosses index tiles. One derivation sits 11 m south of
+    /// a tile edge and the reader 56 m north of it. The control checks the
+    /// tiles themselves: they differ, so a read that scanned only the
+    /// reader's tile would miss it. Nearer derivations come first.
+    #[tokio::test]
+    async fn an_inference_read_crosses_tile_edges_nearest_first() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pk) = derive_keypair([38u8; 32]);
+        let (edge_lng, reader) = (77.55, (13.0005, 77.55));
+        let mut cids = Vec::new();
+        for (lat, value) in [(12.9999, 0.5), (12.98, 0.6)] {
+            let mut req = derive_req(inputs.clone());
+            req.cell = emem_codec::cell64_from_latlng(lat, edge_lng);
+            req.value = json!(value);
+            req.attester = Some(sign_derive(&sk, &req));
+            let Json(d) = derive_core(req, s.clone()).await.expect("derive");
+            cids.push(d.fact_cid);
+        }
+        let near_cell = emem_codec::cell64_from_latlng(12.9999, edge_lng);
+        let centre = emem_codec::latlng_from_cell64(&near_cell).unwrap();
+        assert_ne!(
+            derived_tile_of(centre.lat_deg, centre.lng_deg),
+            derived_tile_of(reader.0, reader.1),
+            "control: the reader and the near derivation are in different tiles"
+        );
+        let got = inferences_core(
+            &s,
+            InferencesReq {
+                lat: Some(reader.0),
+                lng: Some(reader.1),
+                radius_m: Some(3_000.0),
+                attesters: Some(pk.clone()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("read");
+        let order: Vec<&str> = got.inferences.iter().map(|i| i.fact_cid.as_str()).collect();
+        assert_eq!(
+            order,
+            vec![cids[0].as_str(), cids[1].as_str()],
+            "nearest first"
+        );
+        assert!(
+            got.inferences[0].distance_m < 70,
+            "{}",
+            got.inferences[0].distance_m
+        );
+        assert!(got.inferences[1].distance_m > 2_000);
+        assert_eq!(
+            got.receipt.cells.len(),
+            3,
+            "the receipt names the cell asked about and both cells served"
+        );
+    }
+
+    /// The tile set covers the whole circle: a point just inside its rim, at
+    /// every bearing, falls in a listed tile, across the antimeridian too.
+    #[test]
+    fn derived_tiles_cover_every_point_of_the_circle() {
+        let cases = [
+            (13.0, 77.55, 50_000.0),
+            (64.1, -21.9, 30_000.0),
+            (0.0, 179.99, 20_000.0),
+        ];
+        for (lat, lng, radius_m) in cases {
+            let tiles = derived_tiles_within(lat, lng, radius_m, INFERENCES_MAX_TILES).unwrap();
+            let theta = 0.999 * radius_m / 6_371_008.8;
+            let (p1, l1) = (f64::to_radians(lat), f64::to_radians(lng));
+            for step in 0..360 {
+                let bearing = (step as f64).to_radians();
+                let p2 = (p1.sin() * theta.cos() + p1.cos() * theta.sin() * bearing.cos()).asin();
+                let l2 = l1
+                    + (bearing.sin() * theta.sin() * p1.cos())
+                        .atan2(theta.cos() - p1.sin() * p2.sin());
+                let point = (p2.to_degrees(), (l2.to_degrees() + 540.0) % 360.0 - 180.0);
+                assert!(
+                    tiles.contains(&derived_tile_of(point.0, point.1)),
+                    "({lat},{lng}) r={radius_m}: {point:?} is in no listed tile"
+                );
+            }
+        }
+        assert!(
+            derived_tiles_within(89.99, 0.0, 50_000.0, INFERENCES_MAX_TILES).is_none(),
+            "a wide circle at the pole is refused, not scanned"
+        );
+    }
+
+    /// An ask names vouched research inside the place it resolved to, as
+    /// pointers. The controls: a stranger's derivation at the same spot is
+    /// not named, a bare point reads only the 5 km default and so misses a
+    /// study 5.1 km out, and an envelope with no place is left as it was.
+    #[tokio::test]
+    async fn an_ask_points_at_vouched_research_inside_its_place() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let study = emem_codec::cell64_from_latlng(30.9015, 75.802);
+        let (sk_vouched, pk_vouched) = derive_keypair([39u8; 32]);
+        let (sk_stranger, _) = derive_keypair([40u8; 32]);
+        let ludhiana = json!({
+            "lat": 30.912, "lng": 75.854,
+            "polygon_bbox": {"min_lat": 30.56, "min_lng": 75.356, "max_lat": 31.018, "max_lng": 76.323},
+        });
+        let derive_at = |sk: ed25519_dalek::SigningKey| {
+            let mut req = derive_req(inputs.clone());
+            req.cell = study.clone();
+            req.attester = Some(sign_derive(&sk, &req));
+            req
+        };
+        let _ = derive_core(derive_at(sk_stranger), s.clone())
+            .await
+            .expect("derive");
+        let mut env = json!({"answer": "x", "place_resolved": ludhiana.clone()});
+        attach_research_nearby(&mut env, &s).await;
+        assert!(
+            env.get("research_nearby").is_none(),
+            "control: a stranger is not named"
+        );
+
+        let _ = derive_core(derive_at(sk_vouched), s.clone())
+            .await
+            .expect("derive");
+        vouch_for(&s, &pk_vouched, "agriculture-india");
+        attach_research_nearby(&mut env, &s).await;
+        let r = &env["research_nearby"];
+        assert_eq!(r["nearest"].as_array().map(Vec::len), Some(1), "{r}");
+        let first = &r["nearest"][0];
+        assert_eq!(first["attester_nick"], json!("agriculture-india"));
+        let metres = first["distance_m"].as_u64().unwrap();
+        assert!(
+            (4_900..=5_300).contains(&metres),
+            "the study is about 5.1 km out, got {metres}"
+        );
+        assert!(first.get("value").is_none(), "pointers, never values");
+        assert_eq!(
+            r["read_them"]["body"]["radius_m"],
+            json!(50_000.0),
+            "the district box, capped"
+        );
+        assert_eq!(env["answer"], json!("x"), "the answer itself is untouched");
+
+        let mut bare = json!({"place_resolved": {"lat": 30.912, "lng": 75.854}});
+        attach_research_nearby(&mut bare, &s).await;
+        assert!(
+            bare.get("research_nearby").is_none(),
+            "5.1 km is outside a bare point's 5 km"
+        );
+        let mut placeless = json!({"answer": "x"});
+        attach_research_nearby(&mut placeless, &s).await;
+        assert_eq!(placeless, json!({"answer": "x"}));
     }
 
     /// A derivation registered before the place index existed is in

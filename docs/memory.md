@@ -505,20 +505,29 @@ Reaching one back means asking for derivations on purpose:
 |---|---|
 | The bytes behind a token you hold | `POST /v1/memory_token/resolve` |
 | Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32` (MCP `emem_derive_list`) |
-| What was concluded at one place, across keys | `POST /v1/inferences` with `cell`, or `lat` and `lng` (MCP `emem_inferences`) |
+| What was concluded near one place, across keys | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and `radius_m` (MCP `emem_inferences`) |
 
 `/v1/derived` has no all-attesters form. Naming whose claims you want is
 the contract, not a filter you may omit.
 
 `/v1/inferences` reads by place instead, and names whose claims it admits
-in its trust policy. By default that is every key this responder reads at
+in its trust policy. It reads every cell within `radius_m` of the point
+(default 5000, max 50000; `0` reads the one cell), nearest first, and
+gives each item its `cell` and `distance_m`. A cell is 9.55 m, so a study
+anchored at its own point is found by a reader standing a street away. By default that is every key this responder reads at
 `T4_affiliated` or above: an organisation vouched for the key by DNS or
 `.well-known` within the last 30 days (`GET /v1/enlist`). Send `min_tier`
 to move that floor, or `attesters` to admit exactly the keys you name. The
-response returns the newest derivation per `(fn_key, attester)`, counts
+response returns the newest derivation per `(cell, fn_key, attester)`, counts
 what the policy left out in `excluded_by_policy`, marks every value as
 data rather than instructions, and says in words what a signature proves:
 who concluded something, never that it is true.
+
+`/v1/ask` adds a `research_nearby` block when vouched research lies inside
+the place it resolved to (the place's polygon box, or 5 km around a bare
+point). The block holds pointers only: token, `fn_key`, nick, tier and
+distance. No derivation's value enters the answer or its receipt; read
+them with `/v1/inferences`.
 
 Registration is idempotent per `(your key, derivation body)`: re-posting
 an identical derivation returns the token already minted for it, so a
