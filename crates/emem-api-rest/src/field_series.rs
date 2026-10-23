@@ -52,6 +52,11 @@ const MIN_SUPPORT_PX: usize = 30;
 /// Scene-level cloud ceiling for candidates. The per-pixel mask is what
 /// decides; this only stops reading scenes that are almost all cloud.
 const CANDIDATE_MAX_CLOUD: f64 = 80.0;
+/// Catalogue items fetched per series, newest first. Where tiles overlap one
+/// date returns several items, and a 200-item cap reached back only about 8
+/// months at Lake Manasarovar: a 14-month window silently lost its first half,
+/// and with it the earlier year a same-season comparison needs (2026-10-23).
+const CANDIDATE_LIMIT: usize = 1000;
 const SCENE_READ_CONCURRENCY: usize = 6;
 /// Same-season baseline half-width, in days of year.
 const SEASON_HALF_WIDTH_DAYS: i64 = 30;
@@ -617,6 +622,27 @@ fn parse_aoi(req: &FieldSeriesReq) -> Result<Aoi, ApiError> {
     })
 }
 
+/// Said when the first usable scene is more than a month after the window's
+/// start: the series, its trend and any same-season comparison begin there.
+fn coverage_caution(start: &str, covered_from: Option<&str>, capped: bool) -> Option<String> {
+    let (sy, sm, sd) = parse_ymd(start)?;
+    let (fy, fm, fd) = parse_ymd(covered_from?)?;
+    let late = crate::days_from_civil(fy, fm, fd) - crate::days_from_civil(sy, sm, sd);
+    if late <= 31 {
+        return None;
+    }
+    Some(format!(
+        "no usable scene before {}, {late} days into the window{}: the series, its trend and any \
+same-season comparison start there, not at {start}.",
+        covered_from?,
+        if capped {
+            format!(", because the catalogue search reached its {CANDIDATE_LIMIT}-item cap")
+        } else {
+            String::new()
+        }
+    ))
+}
+
 /// An array bbox is `[w, s, e, n]`, longitude first: GeoJSON's order, and the
 /// one `field_burn_scar`, `field_actual_et` and `scene.png` take. Left to
 /// serde, an array fills `BBox` in field order, latitude first, so
@@ -1085,7 +1111,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             centre_lat,
             &datetime,
             Some(CANDIDATE_MAX_CLOUD),
-            200,
+            CANDIDATE_LIMIT,
         )
         .await;
         let signed = match searched {
@@ -1149,6 +1175,11 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         }
     }
     let candidates: Vec<&emem_fetch::stac::StacItem> = per_date.into_values().collect();
+    let search_capped = items.len() >= CANDIDATE_LIMIT;
+    let covered_from: Option<String> = candidates
+        .first()
+        .and_then(|it| it.datetime.get(..10))
+        .map(str::to_string);
     let mut chosen: Vec<usize> = spread(candidates.len(), max_scenes);
     let same_season = same_season_partners(&candidates, &chosen);
     for i in &same_season {
@@ -1496,6 +1527,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
 
     // ── what a reader would otherwise get wrong by eye. ───────────────────
     let mut cautions: Vec<String> = Vec::new();
+    if let Some(c) = coverage_caution(&req.start_date, covered_from.as_deref(), search_capped) {
+        cautions.push(c);
+    }
     if n_suspect > 0 {
         cautions.push(format!(
             "{n_suspect} scene(s) passed the cloud mask but fall far from both neighbours in time, the same way (`quality: suspect`, with `scene_check`). They stay in the rows and are left out of the trend. In January on the Indo-Gangetic plain this is usually fog."
@@ -1699,6 +1733,8 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "rule": "one scene per capture date (least scene cloud), then up to max_scenes evenly spaced in time keeping both ends, plus for the newest the least cloudy scene within 30 days of its day of year in each of up to three earlier years",
             "same_season_added": same_season.len(),
             "candidate_dates": candidates.len(),
+            "covered_from": covered_from,
+            "search_capped": search_capped,
             "max_scenes": max_scenes,
             "scene_max_cloud_pct": CANDIDATE_MAX_CLOUD,
             "epsg": epsg,
@@ -2940,6 +2976,25 @@ mod tests {
         }))
         .unwrap();
         assert!(parse_aoi(&req).is_err(), "three numbers is not a bbox");
+    }
+
+    /// A series that starts months after its window says so, and says why when the
+    /// catalogue cap was the reason; a series covering its window says nothing.
+    #[test]
+    fn a_series_that_misses_the_start_of_its_window_says_so() {
+        let late = coverage_caution("2025-08-25", Some("2026-02-24"), true).expect("caution");
+        assert!(
+            late.contains("2026-02-24") && late.contains("183 days"),
+            "{late}"
+        );
+        assert!(late.contains("1000-item cap"), "{late}");
+        let no_cap = coverage_caution("2025-08-25", Some("2026-02-24"), false).expect("caution");
+        assert!(!no_cap.contains("cap"), "{no_cap}");
+        assert_eq!(
+            coverage_caution("2025-08-25", Some("2025-09-10"), true),
+            None
+        );
+        assert_eq!(coverage_caution("2025-08-25", None, true), None);
         let req: FieldSeriesReq = serde_json::from_value(json!({
             "geometry": "not json", "start_date": "2025-01-01", "end_date": "2025-06-01"
         }))
