@@ -1,0 +1,11 @@
+{
+  "id": "validators-05",
+  "family": "validators",
+  "library": "pydantic",
+  "version_spec": "pydantic==2.*",
+  "phase": "post_change",
+  "discovery_of": [
+    "validators-01",
+    "validators-02"
+  ]
+}
