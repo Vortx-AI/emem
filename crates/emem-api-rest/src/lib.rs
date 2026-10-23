@@ -65257,6 +65257,80 @@ async fn post_inbox(
     Ok(Json(body))
 }
 
+/// What the inbox reads from a note's body.
+struct InboxNoteHead {
+    direct: Vec<String>,
+    cc: Vec<String>,
+    broadcast: bool,
+    reply_to: Option<String>,
+    title: String,
+    line: Option<String>,
+}
+
+/// Parsed note headings by file_cid. A file_cid names one byte string, so an
+/// entry never goes stale. Every inbox call read and parsed all 78k note
+/// bodies (1.3 s each, 2026-10-23), and that churn of short-lived buffers on
+/// the blocking pool is the kind glibc's arenas keep after they are freed.
+static INBOX_NOTE_HEADS: LazyLock<Mutex<std::collections::HashMap<String, Arc<InboxNoteHead>>>> =
+    LazyLock::new(|| Mutex::new(std::collections::HashMap::new()));
+
+/// Cleared wholesale past this many entries, as the tile caches are.
+const INBOX_NOTE_HEADS_CAP: usize = 500_000;
+
+/// The parsed heading for `cid`, reading the body only on a cache miss.
+/// `None` when the blob is gone.
+fn inbox_note_head(blobs: &sled::Tree, cid: &str) -> Result<Option<Arc<InboxNoteHead>>, ApiError> {
+    if let Some(head) = INBOX_NOTE_HEADS
+        .lock()
+        .ok()
+        .and_then(|c| c.get(cid).cloned())
+    {
+        return Ok(Some(head));
+    }
+    let Some(bytes) = blobs.get(cid.as_bytes()).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("read memory_file_blobs: {e}"),
+                details: None,
+            },
+        )
+    })?
+    else {
+        return Ok(None);
+    };
+    let body = String::from_utf8_lossy(&bytes);
+    let (direct, cc, broadcast) = parse_note_addressing(&body);
+    let title: String = body
+        .lines()
+        .find(|l| l.trim_start().starts_with("# "))
+        .map(|l| {
+            l.trim_start()
+                .trim_start_matches("# ")
+                .trim()
+                .chars()
+                .take(200)
+                .collect()
+        })
+        .unwrap_or_default();
+    let head = Arc::new(InboxNoteHead {
+        direct,
+        cc,
+        broadcast,
+        reply_to: reply_to_cid(&body),
+        title,
+        line: note_line(&body),
+    });
+    if let Ok(mut c) = INBOX_NOTE_HEADS.lock() {
+        if c.len() >= INBOX_NOTE_HEADS_CAP {
+            c.clear();
+        }
+        c.insert(cid.to_string(), head.clone());
+    }
+    Ok(Some(head))
+}
+
 fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
     let want = req.to.trim().to_lowercase();
     if want.len() < 8 {
@@ -65299,6 +65373,21 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
         )
     })?;
 
+    let open = |name: &str| {
+        db.open_tree(name).map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open {name}: {e}"),
+                    details: None,
+                },
+            )
+        })
+    };
+    let blobs = open(emem_storage::TREE_MEMORY_FILE_BLOBS)?;
+    let metas = open(emem_storage::TREE_MEMORY_FILE_META)?;
+
     // cid -> author, for threading. One scan of path->file_cid with no file
     // reads: the path already names the namespace owner, which the store
     // guarantees, so this costs a walk of keys rather than of bodies.
@@ -65337,59 +65426,76 @@ fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
         {
             continue;
         }
-        let Some((bytes, meta)) = read_memory_file(&s, &key)? else {
-            continue;
+        // The small meta record first, so `since` (every agent's poll sets it)
+        // skips old notes without reading their bodies. The body is read only
+        // for a file_cid this process has not parsed before.
+        let cid = String::from_utf8_lossy(&kv.1).into_owned();
+        let meta = metas
+            .get(cid.as_bytes())
+            .ok()
+            .flatten()
+            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+        let (file_cid, signed_at, signed_at_unix_s, signed) = match meta {
+            Some(m) => (
+                m.file_cid,
+                m.signed_at,
+                m.signed_at_unix_s,
+                m.attester_sig_b32.is_some(),
+            ),
+            None => (
+                cid.clone(),
+                emem_storage::server::iso8601_now(),
+                now_unix_s_local(),
+                false,
+            ),
         };
-        if !since.is_empty() && meta.signed_at.as_str() < since {
+        if !since.is_empty() && signed_at.as_str() < since {
             continue;
         }
-        let body = String::from_utf8_lossy(&bytes);
+        let Some(head) = inbox_note_head(&blobs, &cid)? else {
+            // The path names a blob that is gone; drop the dangling index
+            // entry, as `read_memory_file` does.
+            let _ = paths.remove(key.as_bytes());
+            continue;
+        };
         if let Some(t) = &thread {
-            if reply_to_cid(&body).as_deref() != Some(t.as_str()) {
+            if head.reply_to.as_deref() != Some(t.as_str()) {
                 continue;
             }
         }
-        let (direct, cc, broadcast) = parse_note_addressing(&body);
-        let hit_direct = direct.iter().any(|t| t.to_lowercase().starts_with(&want8));
-        let hit_cc = cc.iter().any(|t| t.to_lowercase().starts_with(&want8));
-        let hit_bcast = broadcast && include_broadcast;
+        let hit_direct = head
+            .direct
+            .iter()
+            .any(|t| t.to_lowercase().starts_with(&want8));
+        let hit_cc = head.cc.iter().any(|t| t.to_lowercase().starts_with(&want8));
+        let hit_bcast = head.broadcast && include_broadcast;
         // Threading: a note answering one of yours is addressed to you even
         // when it names nobody. See `reply_to_cid`.
         let hit_thread = !hit_direct
             && !hit_cc
             && !hit_bcast
-            && reply_to_cid(&body)
-                .and_then(|c| cid_author.get(&c).cloned())
+            && head
+                .reply_to
+                .as_ref()
+                .and_then(|c| cid_author.get(c))
                 .map(|a| a.to_lowercase().starts_with(&want8))
                 .unwrap_or(false);
         if !(hit_direct || hit_cc || hit_bcast || hit_thread) {
             continue;
         }
-        let title: String = body
-            .lines()
-            .find(|l| l.trim_start().starts_with("# "))
-            .map(|l| {
-                l.trim_start()
-                    .trim_start_matches("# ")
-                    .trim()
-                    .chars()
-                    .take(200)
-                    .collect()
-            })
-            .unwrap_or_default();
         items.push((
-            meta.signed_at_unix_s,
+            signed_at_unix_s,
             json!({
                 "from": from,
                 "path": key,
                 "url": memory_note_url(&key),
-                "file_cid": meta.file_cid,
-                "signed_at": meta.signed_at,
-                "title": title,
-                "line": note_line(&body),
+                "file_cid": file_cid,
+                "signed_at": signed_at,
+                "title": head.title,
+                "line": head.line,
                 "to_you": if hit_direct { "direct" } else if hit_cc { "cc" }
                           else if hit_thread { "thread" } else { "broadcast" },
-                "authorship_verifiable_offline": meta.attester_sig_b32.is_some(),
+                "authorship_verifiable_offline": signed,
             }),
         ));
     }
@@ -94683,6 +94789,126 @@ mod tests {
         let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).unwrap();
         assert!(paths.get(new_path.as_bytes()).unwrap().is_some());
         assert!(paths.get(old_path.as_bytes()).unwrap().is_none());
+    }
+
+    /// Who sees what in an inbox, asked twice so the second pass reads the
+    /// parsed headings it cached on the first.
+    #[tokio::test]
+    async fn the_inbox_delivers_by_address_cc_broadcast_and_thread() {
+        let s = test_app_state();
+        let (alice_sk, alice_pk) = test_attester_signer();
+        let (bob_sk, bob_pk) = test_attester_signer();
+        let (carol_sk, carol_pk) = test_attester_signer();
+        let short = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (a8, b8, c8) = (short(&alice_pk), short(&bob_pk), short(&carol_pk));
+        let path = |who: &str, name: &str| format!("/memories/by_attester/{who}/{name}.md");
+
+        let direct = path(&a8, "to-bob");
+        publish_note(
+            &s,
+            &alice_sk,
+            &direct,
+            format!("# {a8} -> {b8}: hello\n\nbody").as_bytes(),
+        )
+        .await;
+        let cc = path(&c8, "cc-bob");
+        publish_note(
+            &s,
+            &carol_sk,
+            &cc,
+            format!("---\nto: zzzzzzzz\ncc: {b8}\n---\n# a copy\n").as_bytes(),
+        )
+        .await;
+        let bcast = path(&c8, "news");
+        publish_note(
+            &s,
+            &carol_sk,
+            &bcast,
+            format!("# {c8} -> the channel: news\n").as_bytes(),
+        )
+        .await;
+        let own = path(&b8, "mine");
+        let own_cid = publish_note(
+            &s,
+            &bob_sk,
+            &own,
+            format!("# {b8} -> {a8}: from bob\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &alice_sk,
+            &path(&a8, "diary"),
+            b"# a private journal entry\n",
+        )
+        .await;
+        let reply = path(&c8, "reply");
+        publish_note(
+            &s,
+            &carol_sk,
+            &reply,
+            format!("# re\n\n**In reply to:** `{own_cid}`\n").as_bytes(),
+        )
+        .await;
+
+        let ask = |extra: JsonValue| {
+            let mut req = json!({"to": b8});
+            req.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let req: InboxReq = serde_json::from_value(req).unwrap();
+            let out = post_inbox_sync(s.clone(), req)
+                .map_err(|e| e.1.message)
+                .unwrap();
+            let mut got: Vec<(String, String)> = out["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|m| {
+                    (
+                        m["path"].as_str().unwrap().to_string(),
+                        m["to_you"].as_str().unwrap().to_string(),
+                    )
+                })
+                .collect();
+            got.sort();
+            got
+        };
+        let pair = |p: &str, how: &str| (p.to_string(), how.to_string());
+        let mut everything = vec![
+            pair(&direct, "direct"),
+            pair(&cc, "cc"),
+            pair(&bcast, "broadcast"),
+            pair(&reply, "thread"),
+        ];
+        everything.sort();
+        for pass in ["first", "cached"] {
+            assert_eq!(ask(json!({})), everything, "{pass} pass, no filter");
+            assert_eq!(
+                ask(json!({"include_broadcast": false})).len(),
+                3,
+                "{pass} pass"
+            );
+            assert_eq!(
+                ask(json!({"from": a8})),
+                vec![pair(&direct, "direct")],
+                "{pass} pass"
+            );
+            assert_eq!(
+                ask(json!({"in_reply_to": own_cid})),
+                vec![pair(&reply, "thread")],
+                "{pass} pass"
+            );
+            assert_eq!(
+                ask(json!({"since": "1970-01-01T00:00:00Z"})),
+                everything,
+                "{pass} pass"
+            );
+            assert!(
+                ask(json!({"since": "2999-01-01T00:00:00Z"})).is_empty(),
+                "{pass} pass"
+            );
+        }
     }
 
     /// Helper: publish a note and return its file_cid.

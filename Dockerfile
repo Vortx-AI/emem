@@ -168,8 +168,15 @@ USER emem
 # EMEM_BIND is intentionally NOT baked: the entrypoint derives it from
 # PORT (the PaaS convention Glama and friends inject) with 5051 as the
 # fallback, and an explicit -e EMEM_BIND=... still wins.
+# MALLOC_ARENA_MAX: glibc gives each thread an arena, up to 8 per core, and
+# memory freed in one arena is not reused by threads on another. The tokio
+# blocking pool runs hundreds of threads over a day, and the responder's
+# anonymous memory climbed to 58 GB over four days on a 61 GB host, most of
+# it in 64 MB arena heaps, starving the page cache the stores read through.
+# Four arenas bound that. Override with -e MALLOC_ARENA_MAX=... per node.
 ENV EMEM_DATA=/var/emem \
-    RUST_LOG=info
+    RUST_LOG=info \
+    MALLOC_ARENA_MAX=4
 
 # 5051 — plain HTTP for local / proxy deployments.
 # 443  — HTTPS via rustls + Let's Encrypt ACME (set EMEM_TLS_DOMAINS).

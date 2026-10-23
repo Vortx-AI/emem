@@ -176,7 +176,13 @@ pub struct MemoryTextIndex {
     /// rows. The same rows in memory are ~160 MB and a query is a pass over
     /// them on one core, no disk at all. Kept in step with appends and
     /// deletes like `known`.
-    resident: RwLock<Option<Arc<Vec<IndexedRow>>>>,
+    ///
+    /// Each row sits behind its own `Arc` because a search holds a clone of
+    /// the outer `Arc` while it scans, and an append that lands meanwhile
+    /// runs `Arc::make_mut`. With rows held by value that cloned every row,
+    /// vectors and strings: 1.1 GB for the 342k-row chunked partition on
+    /// 2026-10-23, freed again a second later. Now it copies the pointers.
+    resident: RwLock<Option<Arc<Vec<Arc<IndexedRow>>>>>,
     /// One row per window (the chunked partition) rather than per file.
     chunked: bool,
 }
@@ -294,7 +300,7 @@ impl MemoryTextIndex {
             known.extend(rows.iter().map(|r| (r.path.clone(), r.file_cid.clone())));
         }
         if let Some(resident) = resident.as_mut() {
-            Arc::make_mut(resident).extend(rows.iter().cloned());
+            Arc::make_mut(resident).extend(rows.iter().cloned().map(Arc::new));
         }
         let now = unix_s();
         *self.last_indexed_at.write().await = Some(now);
@@ -470,7 +476,7 @@ impl MemoryTextIndex {
     }
 
     /// The resident rows, read from the dataset on first use.
-    async fn resident_rows(&self) -> Result<Arc<Vec<IndexedRow>>, IndexerError> {
+    async fn resident_rows(&self) -> Result<Arc<Vec<Arc<IndexedRow>>>, IndexerError> {
         if let Some(rows) = self.resident.read().await.as_ref() {
             return Ok(rows.clone());
         }
@@ -478,7 +484,8 @@ impl MemoryTextIndex {
         if let Some(rows) = resident.as_ref() {
             return Ok(rows.clone());
         }
-        let rows = Arc::new(self.read_all().await?);
+        let rows: Arc<Vec<Arc<IndexedRow>>> =
+            Arc::new(self.read_all().await?.into_iter().map(Arc::new).collect());
         *resident = Some(rows.clone());
         Ok(rows)
     }
@@ -564,7 +571,7 @@ impl MemoryTextIndex {
         );
         tokio::task::spawn_blocking(move || {
             nearest_resident(
-                &rows,
+                rows.as_slice(),
                 &q,
                 k,
                 oversample,
@@ -768,8 +775,8 @@ pub async fn hydrate_once(
 /// filters, then the cosine `1 - distance / 2` clamped to [0, 1], best
 /// first, one hit per path, `k` kept.
 #[allow(clippy::too_many_arguments)]
-fn nearest_resident(
-    rows: &[IndexedRow],
+fn nearest_resident<R: std::borrow::Borrow<IndexedRow>>(
+    rows: &[R],
     query: &[f32],
     k: usize,
     oversample: usize,
@@ -780,6 +787,7 @@ fn nearest_resident(
     let take = k.saturating_mul(oversample.max(1)).max(k);
     let mut scored: Vec<(usize, f32)> = rows
         .iter()
+        .map(|r| r.borrow())
         .enumerate()
         .filter(|(_, r)| r.vector.len() == query.len())
         .map(|(i, r)| {
@@ -799,7 +807,7 @@ fn nearest_resident(
     let mut out: Vec<(IndexedRow, f32)> = scored
         .into_iter()
         .filter_map(|(i, d)| {
-            let r = &rows[i];
+            let r: &IndexedRow = rows[i].borrow();
             let keep = path_prefix.is_none_or(|p| r.path.starts_with(p))
                 && kind.is_none_or(|want| r.kind == want)
                 && attester_pubkey_b32
@@ -1013,6 +1021,35 @@ mod tests {
         idx.append_rows(std::slice::from_ref(&a)).await.unwrap();
         let pairs = idx.existing_pairs().await.unwrap();
         assert!(pairs.contains(&("/memories/a.md".into(), "cid-a".into())));
+    }
+
+    /// An append that lands while a search holds the resident snapshot must
+    /// share the existing rows, not copy them: with rows held by value,
+    /// `Arc::make_mut` cloned every vector in the index on each such append.
+    #[tokio::test]
+    async fn an_append_during_a_search_shares_the_rows_it_already_has() {
+        let tmp = TempDir::new().unwrap();
+        let idx = MemoryTextIndex::open(tmp.path()).unwrap();
+        let first: Vec<IndexedRow> = (0..8)
+            .map(|i| {
+                row(
+                    &format!("/memories/n{i}.md"),
+                    &format!("cid{i}"),
+                    "fact",
+                    i as f32 * 0.01,
+                )
+            })
+            .collect();
+        idx.append_rows(&first).await.unwrap();
+        let held = idx.resident_rows().await.unwrap();
+        let more = row("/memories/late.md", "cid-late", "fact", 0.5);
+        idx.append_rows(std::slice::from_ref(&more)).await.unwrap();
+        let now = idx.resident_rows().await.unwrap();
+        assert_eq!(held.len(), 8, "the held snapshot must not change");
+        assert_eq!(now.len(), 9);
+        for (a, b) in held.iter().zip(now.iter()) {
+            assert!(Arc::ptr_eq(a, b), "row {} was copied, not shared", a.path);
+        }
     }
 
     /// The resident search returns what Lance's own `nearest` scan does:
