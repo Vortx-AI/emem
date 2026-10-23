@@ -77,11 +77,14 @@ def main() -> int:
     ap.add_argument("--skip-publish", action="store_true")
     ap.add_argument("--cards", action="store_true", help="compact verified cards, k=2, stale as a warning")
     ap.add_argument("--k", type=int, default=3)
+    ap.add_argument("--phase", choices=["transfer", "post_change"], help="evaluate one phase only")
     args = ap.parse_args()
 
     tasks = taskset.load_tasks()
     discovery = [t for t in tasks if t.phase == "discovery"]
     evals = [t for t in taskset.stream_order(tasks) if t.phase in ("transfer", "post_change")]
+    if args.phase:
+        evals = [t for t in evals if t.phase == args.phase]
     if args.limit:
         evals = evals[: args.limit]
     lib = librarian()
