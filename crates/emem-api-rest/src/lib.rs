@@ -657,6 +657,10 @@ pub fn router(state: AppState) -> Router {
     // restarts the process.
     warm_translog_head(&state);
 
+    // Index, by place, the derivations registered before /v1/inferences
+    // existed. Once per store; see backfill_derived_by_cell.
+    spawn_derived_by_cell_backfill(&state);
+
     // W3: scheduled memory consolidation + TTL background tasks.
     // Opt-in via EMEM_MEMORY_TTL_ENABLED=1 /
     // EMEM_MEMORY_CONSOLIDATION_ENABLED=1.
@@ -1425,6 +1429,9 @@ pub fn router(state: AppState) -> Router {
         // Never reachable from a default read; see post_derive.
         .route("/v1/derive", post(post_derive))
         .route("/v1/derived", post(post_derived_list))
+        // The same derivations found by place, under a trust policy the
+        // response states. Still never part of a default read.
+        .route("/v1/inferences", post(post_inferences).get(get_inferences))
         .route("/v1/memory_bundle", post(post_memory_bundle))
         .route("/v1/memory_bundle/:token", get(get_memory_bundle))
         // Entity registry: content-addressed object identity (emem:entity:).
@@ -33046,6 +33053,14 @@ async fn mcp_tool_call_inner(
                 Err(e) => Err(mcp_err(e)),
             }
         }
+        "emem_inferences" => {
+            let req: InferencesReq =
+                serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
+            match inferences_core(s, req).await {
+                Ok(v) => Ok(serde_json::to_value(v).map_err(|e| (-32603, e.to_string()))?),
+                Err(e) => Err(mcp_err(e)),
+            }
+        }
         "emem_memory_bundle" => {
             let req: emem_primitives::memory_bundle::BundleReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
@@ -34347,7 +34362,8 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_token/resolve_many":{"post":{"summary":"batch dereference: up to 256 fact tokens in one call, resolved independently through the same pipeline as the single resolve. Partial by design: a bad or unheld token yields a typed per-item error ({ok:false, status, error}) and never fails the batch. One batch receipt binds the union of resolved (cell, fact_cid) pairs; each item carries its own receipt so any single resolution forwards on its own. Fully-resolved responses carry Cache-Control: immutable (content-addressed bodies never change and receipts never expire); a batch with failures is not cached, since a 404 can become resolvable when the fact arrives.","operationId":"emem_memory_token_resolve_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"emem:fact: tokens (legacy memt: accepted), 1 to 256 per call"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/echo_verify":       {"post":{"summary":"Close the last mile: check the value YOU emitted against the signed fact your token dereferences to. emem guarantees the bytes it serves; nothing guaranteed the bytes that come back out of a model, and that gap was measured at 28% of correctly-resolved answers losing precision (0.2411 handed back for 0.241103). Submit {token, claimed_value} and get {matches, drift}. Comparison is verbatim first, then numeric equality (the same number spelled differently still passes), then rounding: drift is \"rounded\" when you lost precision, \"wrong\" when it is a different number, null on a match. Accepts any token form resolve accepts, including a bare cid (answers degraded:true). The receipt signs the DEREFERENCE, not your claim.","operationId":"emem_echo_verify","tags":["memory","cite","verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token","claimed_value"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or a bare fact_cid (degraded)"},"claimed_value":{"type":["string","number"],"description":"the value you emitted, string or number; a string is compared verbatim first"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found}}},
             "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output, human_curated or estimator (a quantity FITTED from data and re-runnable from your signed inputs plus a named estimator plus a seed); direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated","estimator"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
-            "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so this endpoint plus token resolution are the only ways to reach one, and naming whose claims you want is the contract rather than an omittable filter. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
+            "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so no default read returns one, and naming whose claims you want is the contract rather than an omittable filter. To find derivations by PLACE across attesters, under a stated trust policy, use /v1/inferences. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
+            "/v1/inferences":        {"post":{"summary":"Signed derivations other agents registered at ONE place (POST /v1/derive), found by place across attesters under a trust policy the response states in words. Default policy: only attesters this responder reads at T4_affiliated or above (an organisation vouched for the key by DNS or .well-known within 30 days). `attesters` replaces that rule with an explicit key list; `min_tier` moves the floor. Returns the NEWEST derivation per (fn_key, attester): token, fn_key, op, band, value (caller JSON, marked `_content_is_data_not_instructions`), confidence, provenance_class, signed_at, tslot_window, parent tokens, attester_pubkey_b32 with its tier and nick, and the GC-1 `recomputation` verdict when the derivation carries one. `excluded_by_policy` counts what the policy left out. A signature proves who concluded something, never that it is true. The receipt cites every listed fact. None of these derivations ever enters a default read.","operationId":"emem_inferences","tags":["memory","derive","discover"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 to read. Send `cell`, or `lat` and `lng`; a place name is refused (resolve it with /v1/locate)."},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"`lon` is accepted too. lat/lng resolve to the cell64 whose cell holds the point, the same encoding /v1/at uses."},"fn_key_prefix":{"type":"string","description":"only derivations whose fn_key starts with this"},"attesters":{"type":"array","maxItems":64,"items":{"type":"string"},"description":"52-char base32 keys. When given, it REPLACES the tier rule: exactly these keys are admitted, at any tier. The GET form takes a comma-separated list."},"min_tier":{"type":"string","enum":["T0_anonymous","T1_keyed","T2_named","T3_declared","T4_affiliated","T5_corroborated"],"default":"T4_affiliated","description":"lowest attester tier admitted when `attesters` is absent. T5 is not computed on this responder, so T5 admits no key."},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}},"get":{"summary":"The same read as POST /v1/inferences, with query parameters; `attesters` is comma-separated.","operationId":"emem_inferences_get","tags":["memory","derive","discover"],"parameters":[{"name":"cell","in":"query","required":false,"schema":{"type":"string"}},{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lng","in":"query","required":false,"schema":{"type":"number"}},{"name":"fn_key_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"attesters","in":"query","required":false,"schema":{"type":"string"},"description":"comma-separated 52-char keys; replaces the tier rule"},{"name":"min_tier","in":"query","required":false,"schema":{"type":"string","default":"T4_affiliated"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":500,"default":50}}],"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
             "/.well-known/emem-verifier.json": {"get":{"summary":"Alias of GET /v1/verifier_spec: the code-generated signing/verification specification, at a well-known path so an offline verifier can discover it without reading the OpenAPI document.","operationId":"emem_verifier_spec_well_known","tags":["verify"],"responses":{"200":json_ok}}},
             // Discovery and introspection. An agent planning a read needs the
@@ -39629,8 +39645,10 @@ async fn post_memory_token_resolve_many(
 //     read (recall, recall_polygon, state, query_region, memory_search,
 //     find_similar) reads through one of those indexes, so a stranger's
 //     claim cannot surface in another agent's default read. It is
-//     reachable only by naming it: by its token, or through
-//     `/v1/derived`, which requires the attester's pubkey.
+//     reachable only by asking for derivations on purpose: by its token,
+//     through `/v1/derived`, which requires the attester's pubkey, or
+//     through `/v1/inferences`, which reads one place under a trust
+//     policy it states (by default, keys an organisation vouched for).
 //
 // That is the point rather than a limitation. The caller's need is
 // citation and resolution: their world must hand a stranger a token that
@@ -39665,9 +39683,74 @@ const DERIVED_TREE: &str = "emem.derived_by_attester";
 /// exactly what their signature covers), so it is the honest dedup key.
 const DERIVED_BY_BODY_TREE: &str = "emem.derived_by_body_hash";
 
+/// sled tree backing `/v1/inferences`: every caller-registered derivation,
+/// keyed by the place it is anchored at. Key layout is
+/// `<cell> 0x00 <fn_key> 0x00 <signed_at> 0x00 <attester_pubkey_b32>`, value
+/// the `emem:fact:` token.
+///
+/// [`DERIVED_TREE`] answers "what did this key conclude" and cannot answer
+/// "what was concluded here" without walking every attester. Cell first makes
+/// the second question a prefix scan, and `signed_at` before the attester
+/// keeps one (cell, fn_key)'s rows in time order, so the newest row per
+/// (fn_key, attester) is the last one a scan meets.
+///
+/// `fn_key` is caller text and may itself contain NUL, so a key is split from
+/// the right: the attester and `signed_at` never contain one.
+const DERIVED_BY_CELL_TREE: &str = "emem.derived_by_cell";
+
+/// Done flag for the one-time backfill of [`DERIVED_BY_CELL_TREE`] from
+/// [`DERIVED_TREE`]. It lives in the same tree under a key that starts with
+/// NUL: every row key starts with a cell64, which never holds one, so no
+/// cell scan can reach the flag.
+const DERIVED_BY_CELL_BACKFILL_DONE: &[u8] = b"\0backfill_from_derived_by_attester_v1";
+
 /// NUL separator for [`DERIVED_TREE`] key segments. Not a legal byte in a
 /// cell64, a band key, a CID, or base32, so the segments cannot collide.
 const DERIVED_KEY_SEP: u8 = 0;
+
+/// Build a [`DERIVED_BY_CELL_TREE`] row key.
+fn derived_by_cell_key(cell: &str, fn_key: &str, signed_at: &str, attester: &str) -> Vec<u8> {
+    let mut k = derived_by_cell_prefix(cell, Some(fn_key));
+    k.push(DERIVED_KEY_SEP);
+    k.extend_from_slice(signed_at.as_bytes());
+    k.push(DERIVED_KEY_SEP);
+    k.extend_from_slice(attester.as_bytes());
+    k
+}
+
+/// The [`DERIVED_BY_CELL_TREE`] prefix for one cell, optionally narrowed to
+/// the `fn_key`s that start with `fn_key_prefix`. The prefix is left open on
+/// the right, so `ndvi_` matches `ndvi_delta@1` and `ndvi_trend@2`.
+fn derived_by_cell_prefix(cell: &str, fn_key_prefix: Option<&str>) -> Vec<u8> {
+    let mut k = Vec::with_capacity(160);
+    k.extend_from_slice(cell.as_bytes());
+    k.push(DERIVED_KEY_SEP);
+    if let Some(p) = fn_key_prefix {
+        k.extend_from_slice(p.as_bytes());
+    }
+    k
+}
+
+/// Split a [`DERIVED_BY_CELL_TREE`] row key for `cell` into
+/// `(fn_key, signed_at, attester)`. `None` for a key outside the cell or
+/// with too few segments.
+fn parse_derived_by_cell_key(key: &[u8], cell: &str) -> Option<(String, String, String)> {
+    let rest = key
+        .strip_prefix(cell.as_bytes())?
+        .strip_prefix(&[DERIVED_KEY_SEP])?;
+    let mut parts = rest.rsplitn(3, |b| *b == DERIVED_KEY_SEP);
+    let attester = parts.next()?;
+    let signed_at = parts.next()?;
+    let fn_key = parts.next()?;
+    if fn_key.is_empty() || signed_at.is_empty() || attester.is_empty() {
+        return None;
+    }
+    Some((
+        String::from_utf8_lossy(fn_key).into_owned(),
+        String::from_utf8_lossy(signed_at).into_owned(),
+        String::from_utf8_lossy(attester).into_owned(),
+    ))
+}
 
 /// Build a [`DERIVED_TREE`] key or key-prefix. Passing `None` for a
 /// trailing segment yields the prefix that scans every value of it.
@@ -40535,6 +40618,7 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
     // fact's own fields and re-check the caller's ed25519 signature
     // without holding the original request.
     let signed_at = emem_storage::server::iso8601_now();
+    let index_signed_at = signed_at.clone();
     let mut args_entries = vec![
         (
             ciborium::Value::Text("attester_pubkey_b32".into()),
@@ -40649,13 +40733,15 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
         .as_str()
         .to_string();
 
-    // Two index writes, both best-effort exactly like the bundle
-    // resolver's tree: the token already resolves without either.
+    // Three index writes, all best-effort exactly like the bundle
+    // resolver's tree: the token already resolves without any of them.
     //
     //  - DERIVED_TREE is the attester-scoped listing. Derivative facts
-    //    carry no canonical key, so this is the ONLY way to enumerate
-    //    them, and it is keyed by pubkey first: reading it without naming
-    //    an attester is not a supported query.
+    //    carry no canonical key, so this is one of only two ways to
+    //    enumerate them, and it is keyed by pubkey first.
+    //  - DERIVED_BY_CELL_TREE is the other: the place index behind
+    //    `/v1/inferences`, which reads it under a stated trust policy and
+    //    never through the canonical index that default reads walk.
     //  - DERIVED_BY_BODY_TREE is what makes a retry return this same
     //    token instead of minting a twin.
     if let Some(db) = s.storage.hot_sled_db() {
@@ -40663,6 +40749,13 @@ async fn derive_core(req: DeriveReq, s: AppState) -> Result<Json<DeriveResp>, Ap
             let mut key = derived_index_key(&attester.pubkey_b32, Some(&cell), Some(&band));
             key.extend_from_slice(fact_cid.as_bytes());
             let _ = tree.insert(key, fact_cid.as_bytes());
+            if let Err(e) = flush_off_runtime(&tree).await {
+                tracing::error!(target: "emem::durability", error = %e, "flush failed");
+            }
+        }
+        if let Ok(tree) = db.open_tree(DERIVED_BY_CELL_TREE) {
+            let key = derived_by_cell_key(&cell, &fn_key, &index_signed_at, &attester.pubkey_b32);
+            let _ = tree.insert(key, format!("emem:fact:{cell}:{fact_cid}").as_bytes());
             if let Err(e) = flush_off_runtime(&tree).await {
                 tracing::error!(target: "emem::durability", error = %e, "flush failed");
             }
@@ -40829,6 +40922,7 @@ fn derive_response(
                 "POST /v1/memory_token/resolve with the token above (or emem_memory_token_resolve)",
                 "GET /v1/facts/<fact_cid>",
                 format!("POST /v1/derived with attester_pubkey_b32 = {attester_pubkey_b32}"),
+                format!("POST /v1/inferences with cell = {cell}, when the caller's trust policy admits this key (the default admits T4_affiliated and above; `attesters` names keys explicitly)"),
             ],
         }),
         deduplicated,
@@ -41141,9 +41235,782 @@ async fn post_derived_list(
         attester_pubkey_b32: pubkey_b32,
         derivations,
         truncated,
-        scoping: "Derivations are attester-scoped. They carry no canonical (cell, band, tslot) key, so no default read path returns them; this endpoint and token resolution are the only ways to reach one.",
+        scoping: "Derivations are attester-scoped. They carry no canonical (cell, band, tslot) key, so no default read path returns them. This endpoint, token resolution, and POST /v1/inferences (one place, under a stated trust policy) are the only ways to reach one.",
         receipt,
     }))
+}
+
+// ── /v1/inferences ───────────────────────────────────────────────────────
+//
+// What did research conclude at this place? A derivation is a signed,
+// reusable conclusion with its lineage attached, and until this route the
+// only way to find one was to know already whose it was. This route reads
+// the place index under a trust policy that the response states in words:
+// by default only keys an organisation vouched for, or exactly the keys the
+// caller names. A derivation still never reaches a default read; this is a
+// read a caller makes on purpose.
+
+/// Most place-index rows one call reads for one cell. Past it the answer
+/// comes from the first rows in key order and says so, and `fn_key_prefix`
+/// reaches the rest.
+const INFERENCES_MAX_SCAN: usize = 5_000;
+/// Most keys `attesters` may name.
+const INFERENCES_MAX_ATTESTERS: usize = 64;
+/// Most excluded attesters a response lists by key.
+const INFERENCES_MAX_EXCLUDED_LISTED: usize = 20;
+
+const INFERENCES_SIGNATURE_MEANS: &str =
+    "A signature proves which key concluded something, never that the conclusion is true. Each \
+     attester signed its own derivation; this responder's receipt signs that it served these \
+     derivations. Neither signature checks the value, except where `recomputation.verified` is \
+     true: there this responder re-ran the arithmetic over the cited parents itself.";
+
+const INFERENCES_TIER_IS_READ: &str =
+    "Per attester key, from the checks GET /v1/agents reports: a signed profile.md (T2_named) \
+     and a signed agent-skills.md (T3_declared) in the key's own namespace, and DNS or \
+     .well-known organisation evidence for the full key, checked within the last 30 days \
+     (T4_affiliated). Every derivation's key proved itself by signing it, so the floor is \
+     T1_keyed. Corroboration (T5_corroborated) is not computed on this responder, so no key \
+     reads above T4_affiliated. GET /v1/enlist lists each check.";
+
+/// Every tier, ascending, so a caller's `min_tier` can be parsed without
+/// widening the enlistment module's public surface.
+const INFERENCE_TIERS: [crate::enlistment::Tier; 6] = [
+    crate::enlistment::Tier::T0Anonymous,
+    crate::enlistment::Tier::T1Keyed,
+    crate::enlistment::Tier::T2Named,
+    crate::enlistment::Tier::T3Declared,
+    crate::enlistment::Tier::T4Affiliated,
+    crate::enlistment::Tier::T5Corroborated,
+];
+
+/// `T4_affiliated`, `t4_affiliated` and `T4` all name the same tier.
+fn parse_inference_tier(raw: &str) -> Option<crate::enlistment::Tier> {
+    let want = raw.trim();
+    INFERENCE_TIERS.into_iter().find(|t| {
+        let name = t.as_str();
+        name.eq_ignore_ascii_case(want)
+            || name
+                .split('_')
+                .next()
+                .is_some_and(|short| short.eq_ignore_ascii_case(want))
+    })
+}
+
+/// A value from a CBOR map with text keys, as `derivation.args` is stored.
+fn cbor_map_get<'a>(v: &'a ciborium::Value, key: &str) -> Option<&'a ciborium::Value> {
+    match v {
+        ciborium::Value::Map(entries) => entries
+            .iter()
+            .find_map(|(k, val)| matches!(k, ciborium::Value::Text(t) if t == key).then_some(val)),
+        _ => None,
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct InferencesReq {
+    /// cell64 to read. Send this, or `lat` and `lng`.
+    #[serde(default, alias = "cell64")]
+    cell: Option<String>,
+    #[serde(default)]
+    lat: Option<f64>,
+    #[serde(default, alias = "lon")]
+    lng: Option<f64>,
+    /// Only derivations whose `fn_key` starts with this.
+    #[serde(default)]
+    fn_key_prefix: Option<String>,
+    /// Explicit attester keys, as a JSON list or a CSV string (the GET form).
+    /// When given, it replaces the tier rule.
+    #[serde(default, deserialize_with = "bands_csv_or_list")]
+    attesters: Option<String>,
+    /// Lowest tier admitted when `attesters` is absent. Default T4_affiliated.
+    #[serde(default)]
+    min_tier: Option<String>,
+    /// Max inferences returned, 1..=500, default 50.
+    #[serde(default)]
+    limit: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
+enum InferencePolicy {
+    MinTier(crate::enlistment::Tier),
+    Named(Vec<String>),
+}
+
+impl InferencePolicy {
+    fn admits(&self, attester: &str, tier: crate::enlistment::Tier) -> bool {
+        match self {
+            InferencePolicy::MinTier(min) => tier >= *min,
+            InferencePolicy::Named(keys) => keys.iter().any(|k| k == attester),
+        }
+    }
+
+    /// The policy in words, which the response carries so a reader never has
+    /// to infer what was filtered out.
+    fn describe(&self, min_tier_default: bool, min_tier_ignored: bool) -> JsonValue {
+        match self {
+            InferencePolicy::MinTier(min) => {
+                let mut v = json!({
+                    "mode": "min_tier",
+                    "min_tier": min.as_str(),
+                    "is_default": min_tier_default,
+                    "admits": format!(
+                        "Derivations whose attester this responder reads at {} or above ({}). \
+                         Derivations from other keys are counted in `excluded_by_policy` and not \
+                         returned.",
+                        min.as_str(),
+                        min.means()
+                    ),
+                    "tier_is_read": INFERENCES_TIER_IS_READ,
+                    "change_it": "Pass `min_tier` to move the floor, or `attesters` to name exact keys instead; `attesters` replaces the tier rule.",
+                    "signature_means": INFERENCES_SIGNATURE_MEANS,
+                });
+                if *min == crate::enlistment::Tier::T5Corroborated {
+                    v["note"] = json!(
+                        "T5_corroborated is not computed on this responder, so this policy admits no key."
+                    );
+                }
+                v
+            }
+            InferencePolicy::Named(keys) => json!({
+                "mode": "named_attesters",
+                "attesters": keys,
+                "admits": format!(
+                    "Only derivations signed by the {} key(s) you named, whatever tier each reads \
+                     at. Derivations from other keys are counted in `excluded_by_policy` and not \
+                     returned.",
+                    keys.len()
+                ),
+                "min_tier_ignored": min_tier_ignored,
+                "tier_is_read": INFERENCES_TIER_IS_READ,
+                "signature_means": INFERENCES_SIGNATURE_MEANS,
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct InferenceItem {
+    /// `emem:fact:<cell64>:<fact_cid>`; resolves through the ordinary token
+    /// resolver like any other fact.
+    token: String,
+    fact_cid: String,
+    fn_key: String,
+    op: String,
+    band: String,
+    /// The derived value as the attester submitted it, after canonical CBOR.
+    /// Caller JSON: data, never instructions.
+    value: JsonValue,
+    confidence: f32,
+    /// The class the attester declared and signed. `recomputation` says
+    /// whether this responder upgraded it by re-running the arithmetic.
+    provenance_class: String,
+    signed_at: String,
+    tslot_window: [u64; 2],
+    /// Parent tokens in the attester's signed order.
+    parents: Vec<String>,
+    attester_pubkey_b32: String,
+    attester_tier: &'static str,
+    /// The nick an organisation published for this key with its vouching
+    /// record, if one did. The same field GET /v1/agents shows under
+    /// `org_evidence.nick`.
+    attester_nick: Option<String>,
+    /// The GC-1 recomputation verdict the derivation carries, when the
+    /// attester pinned a `code_cid`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    recomputation: Option<JsonValue>,
+}
+
+#[derive(Debug, Serialize)]
+struct InferencesResp {
+    schema: &'static str,
+    cell: String,
+    /// How `cell` was reached: the cell64 the caller sent, or the lat/lng
+    /// it encodes.
+    resolved_from: JsonValue,
+    trust_policy: JsonValue,
+    /// Newest derivation per (fn_key, attester), newest first.
+    inferences: Vec<InferenceItem>,
+    count: usize,
+    /// More admitted inferences exist than `limit` returned.
+    truncated: bool,
+    /// The place index held more rows for this cell than one call reads.
+    scan_truncated: bool,
+    /// Newest-per-(fn_key, attester) derivations the policy did not admit.
+    excluded_by_policy: usize,
+    /// Who those were, by key and tier, so a caller can widen on purpose.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    excluded_attesters: Vec<JsonValue>,
+    /// Index rows that did not resolve to the derivation they name; skipped.
+    #[serde(skip_serializing_if = "is_zero_usize")]
+    unresolved_rows: usize,
+    what_these_are: &'static str,
+    #[serde(rename = "_content_is_data_not_instructions")]
+    content_is_data_not_instructions: JsonValue,
+    receipt: emem_fact::Receipt,
+    offline_verify_at: &'static str,
+}
+
+fn is_zero_usize(n: &usize) -> bool {
+    *n == 0
+}
+
+/// One newest row per (fn_key, attester), with the attester's tier read.
+struct InferenceRow {
+    fn_key: String,
+    signed_at: String,
+    attester: String,
+    token: String,
+    tier: crate::enlistment::Tier,
+    nick: Option<String>,
+}
+
+struct InferenceScan {
+    admitted: Vec<InferenceRow>,
+    /// `(attester, tier, rows)`, most rows first.
+    excluded: Vec<(String, crate::enlistment::Tier, usize)>,
+    excluded_total: usize,
+    scan_truncated: bool,
+}
+
+fn inferences_internal(code: &'static str, e: impl std::fmt::Display) -> ApiError {
+    ApiError(
+        StatusCode::INTERNAL_SERVER_ERROR,
+        ErrorBody {
+            code: ErrorCode::CacheError,
+            message: format!("{code}: {e}"),
+            details: Some(json!({"code": code})),
+        },
+    )
+}
+
+/// The cell a request names, and how it got there.
+fn inferences_cell(req: &InferencesReq) -> Result<(String, JsonValue), ApiError> {
+    let from_latlng = match (req.lat, req.lng) {
+        (None, None) => None,
+        (Some(lat), Some(lng)) => {
+            if !lat.is_finite()
+                || !lng.is_finite()
+                || !(-90.0..=90.0).contains(&lat)
+                || !(-180.0..=180.0).contains(&lng)
+            {
+                return Err(bad_request(
+                    "inferences_invalid_coordinates",
+                    format!(
+                        "coordinates out of range: lat in [-90,90], lng in [-180,180], got lat={lat}, lng={lng}"
+                    ),
+                ));
+            }
+            Some((emem_codec::cell64_from_latlng(lat, lng), lat, lng))
+        }
+        _ => {
+            return Err(bad_request(
+                "inferences_invalid_coordinates",
+                "send `lat` and `lng` together, or send `cell` alone".to_string(),
+            ))
+        }
+    };
+    let cell = req.cell.as_deref().map(str::trim).filter(|c| !c.is_empty());
+    match (cell, from_latlng) {
+        (None, None) => Err(bad_request(
+            "inferences_place_required",
+            "name the place: `cell` (a cell64), or `lat` and `lng`. A place name is not accepted here; resolve it with /v1/locate first.".to_string(),
+        )),
+        (Some(c), latlng) => {
+            if !emem_codec::is_cell64_shape(c) {
+                return Err(bad_request(
+                    "inferences_invalid_cell",
+                    format!(
+                        "`cell` `{c}` is not a cell64 (four `.`-separated bigrams, e.g. defi.zb493.xuqA.zcb5f). Use /v1/locate to get the address for a place, or send `lat` and `lng`."
+                    ),
+                ));
+            }
+            if let Some((from, lat, lng)) = latlng {
+                if from != c {
+                    return Err(bad_request(
+                        "inferences_cell_latlng_disagree",
+                        format!(
+                            "`cell` is `{c}` but lat={lat}, lng={lng} encodes `{from}`. Send one of them."
+                        ),
+                    ));
+                }
+            }
+            Ok((c.to_string(), json!({"input": "cell"})))
+        }
+        (None, Some((cell, lat, lng))) => Ok((
+            cell,
+            json!({
+                "input": "lat_lng",
+                "lat": lat,
+                "lng": lng,
+                "rule": "the cell64 whose cell holds the point, by the same encoding GET /v1/at uses",
+            }),
+        )),
+    }
+}
+
+/// The trust policy a request asks for, and whether a `min_tier` it sent
+/// was set aside because `attesters` replaced it.
+fn inferences_policy(req: &InferencesReq) -> Result<(InferencePolicy, bool, bool), ApiError> {
+    let mut keys: Vec<String> = Vec::new();
+    for k in req.attesters.as_deref().unwrap_or("").split(',') {
+        let k = k.trim().to_lowercase();
+        if !k.is_empty() && !keys.contains(&k) {
+            keys.push(k);
+        }
+    }
+    if keys.len() > INFERENCES_MAX_ATTESTERS {
+        return Err(bad_request(
+            "inferences_too_many_attesters",
+            format!(
+                "`attesters` names {} keys; the cap is {INFERENCES_MAX_ATTESTERS}. Use `min_tier` for a wider set.",
+                keys.len()
+            ),
+        ));
+    }
+    for k in &keys {
+        let decodes_to_key = data_encoding::BASE32_NOPAD
+            .decode(k.to_uppercase().as_bytes())
+            .map(|b| b.len() == 32)
+            .unwrap_or(false);
+        if !decodes_to_key {
+            return Err(bad_request(
+                "inferences_attester_malformed",
+                format!(
+                    "`attesters` entry `{k}` is not a 32-byte ed25519 key in RFC 4648 base32, no padding, lowercase (52 characters)."
+                ),
+            ));
+        }
+    }
+    let min_tier_sent = req
+        .min_tier
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty());
+    let min_tier = match min_tier_sent {
+        None => crate::enlistment::Tier::T4Affiliated,
+        Some(raw) => parse_inference_tier(raw).ok_or_else(|| {
+            bad_request(
+                "inferences_unknown_tier",
+                format!(
+                    "`min_tier` `{raw}` is not a tier. Use one of: {}.",
+                    INFERENCE_TIERS.map(|t| t.as_str()).join(", ")
+                ),
+            )
+        })?,
+    };
+    if keys.is_empty() {
+        Ok((
+            InferencePolicy::MinTier(min_tier),
+            min_tier_sent.is_none(),
+            false,
+        ))
+    } else {
+        Ok((InferencePolicy::Named(keys), false, min_tier_sent.is_some()))
+    }
+}
+
+/// Read one cell's place-index rows, keep the newest per (fn_key, attester),
+/// and sort them by the policy. Synchronous: it is sled scans and point
+/// reads, so callers run it on the blocking pool.
+fn inferences_scan_sync(
+    s: &AppState,
+    cell: &str,
+    fn_key_prefix: Option<&str>,
+    policy: &InferencePolicy,
+) -> Result<InferenceScan, ApiError> {
+    let db = s.storage.hot_sled_db().ok_or_else(|| {
+        ApiError(
+            StatusCode::SERVICE_UNAVAILABLE,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: "inferences_index_unavailable: this responder has no durable store mounted, so it holds no place index. Resolve derivations by token instead.".into(),
+                details: Some(json!({"code": "inferences_index_unavailable"})),
+            },
+        )
+    })?;
+    let tree = db
+        .open_tree(DERIVED_BY_CELL_TREE)
+        .map_err(|e| inferences_internal("inferences_index_open_failed", e))?;
+
+    let mut newest: std::collections::HashMap<(String, String), (String, String)> =
+        std::collections::HashMap::new();
+    let mut scan_truncated = false;
+    for (scanned, row) in tree
+        .scan_prefix(derived_by_cell_prefix(cell, fn_key_prefix))
+        .enumerate()
+    {
+        if scanned == INFERENCES_MAX_SCAN {
+            scan_truncated = true;
+            break;
+        }
+        let (k, v) = row.map_err(|e| inferences_internal("inferences_index_scan_failed", e))?;
+        let Some((fn_key, signed_at, attester)) = parse_derived_by_cell_key(&k, cell) else {
+            continue;
+        };
+        let token = String::from_utf8_lossy(&v).into_owned();
+        match newest.entry((fn_key, attester)) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                if signed_at >= e.get().0 {
+                    e.insert((signed_at, token));
+                }
+            }
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert((signed_at, token));
+            }
+        }
+    }
+
+    let mut read: std::collections::HashMap<String, (crate::enlistment::Tier, Option<String>)> =
+        std::collections::HashMap::new();
+    let mut admitted = Vec::new();
+    let mut excluded: std::collections::BTreeMap<String, (crate::enlistment::Tier, usize)> =
+        std::collections::BTreeMap::new();
+    for ((fn_key, attester), (signed_at, token)) in newest {
+        let (tier, nick) = read
+            .entry(attester.clone())
+            .or_insert_with(|| {
+                (
+                    key_tier(s, &attester),
+                    enlistment_evidence(s, &attester).and_then(|e| e.nick),
+                )
+            })
+            .clone();
+        if policy.admits(&attester, tier) {
+            admitted.push(InferenceRow {
+                fn_key,
+                signed_at,
+                attester,
+                token,
+                tier,
+                nick,
+            });
+        } else {
+            excluded.entry(attester).or_insert((tier, 0)).1 += 1;
+        }
+    }
+    admitted.sort_by(|a, b| {
+        b.signed_at
+            .cmp(&a.signed_at)
+            .then_with(|| a.fn_key.cmp(&b.fn_key))
+            .then_with(|| a.attester.cmp(&b.attester))
+    });
+    let excluded_total = excluded.values().map(|(_, n)| n).sum();
+    let mut excluded: Vec<(String, crate::enlistment::Tier, usize)> =
+        excluded.into_iter().map(|(k, (t, n))| (k, t, n)).collect();
+    excluded.sort_by(|a, b| b.2.cmp(&a.2).then_with(|| a.0.cmp(&b.0)));
+    Ok(InferenceScan {
+        admitted,
+        excluded,
+        excluded_total,
+        scan_truncated,
+    })
+}
+
+/// The shared core of `POST /v1/inferences`, `GET /v1/inferences` and the
+/// `emem_inferences` tool.
+async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesResp, ApiError> {
+    let started = std::time::Instant::now();
+    let (cell, resolved_from) = inferences_cell(&req)?;
+    let (policy, min_tier_default, min_tier_ignored) = inferences_policy(&req)?;
+    let limit = req.limit.unwrap_or(50).clamp(1, 500);
+    let fn_key_prefix = req
+        .fn_key_prefix
+        .as_deref()
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .map(str::to_string);
+
+    let scan = {
+        let (s, cell, policy) = (s.clone(), cell.clone(), policy.clone());
+        tokio::task::spawn_blocking(move || {
+            inferences_scan_sync(&s, &cell, fn_key_prefix.as_deref(), &policy)
+        })
+        .await
+        .map_err(|e| inferences_internal("inferences_scan_task_failed", e))??
+    };
+
+    let truncated = scan.admitted.len() > limit;
+    let page: Vec<InferenceRow> = scan.admitted.into_iter().take(limit).collect();
+    let page_cids: Vec<Option<String>> = page
+        .iter()
+        .map(|r| parse_memory_token(&r.token).ok().map(|(_, cid)| cid))
+        .collect();
+    let want: Vec<emem_fact::FactCid> = page_cids
+        .iter()
+        .flatten()
+        .map(|c| emem_fact::FactCid::new(c.clone()))
+        .collect();
+    let mut facts = s
+        .storage
+        .get_facts_many(&want)
+        .await
+        .map_err(ApiError::from)?
+        .into_iter();
+
+    let mut inferences = Vec::with_capacity(page.len());
+    let mut cited: Vec<emem_fact::FactCid> = Vec::with_capacity(page.len());
+    let mut unresolved_rows = 0usize;
+    for (row, cid) in page.into_iter().zip(page_cids) {
+        let Some(cid) = cid else {
+            unresolved_rows += 1;
+            continue;
+        };
+        // The index is a pointer, the fact is the record: a row whose fact is
+        // gone, or names another place, recipe, time or attester than its key
+        // does, is skipped rather than served under the key's description.
+        let Some(Some(emem_fact::Fact::Derivative(d))) = facts.next() else {
+            unresolved_rows += 1;
+            continue;
+        };
+        let args = d.derivation.args.as_ref();
+        let arg_text = |k: &str| match args.and_then(|a| cbor_map_get(a, k)) {
+            Some(ciborium::Value::Text(t)) => Some(t.clone()),
+            _ => None,
+        };
+        if d.cell != cell
+            || d.derivation.fn_key != row.fn_key
+            || d.signed_at != row.signed_at
+            || arg_text("attester_pubkey_b32").as_deref() != Some(row.attester.as_str())
+        {
+            unresolved_rows += 1;
+            continue;
+        }
+        let parents = match args.and_then(|a| cbor_map_get(a, "inputs")) {
+            Some(ciborium::Value::Array(xs)) => xs
+                .iter()
+                .filter_map(|x| match x {
+                    ciborium::Value::Text(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .collect(),
+            _ => d.parents.iter().map(|c| c.as_str().to_string()).collect(),
+        };
+        let recomputation = args
+            .and_then(|a| cbor_map_get(a, "recomputation"))
+            .map(ciborium_to_json);
+        let provenance_class = arg_text("provenance_class").unwrap_or_else(|| "unstated".into());
+        cited.push(emem_fact::FactCid::new(cid.clone()));
+        inferences.push(InferenceItem {
+            token: format!("emem:fact:{}:{cid}", d.cell),
+            fact_cid: cid,
+            value: ciborium_to_json(&d.value),
+            fn_key: d.derivation.fn_key,
+            op: d.op,
+            band: d.band,
+            confidence: d.confidence,
+            provenance_class,
+            signed_at: d.signed_at,
+            tslot_window: d.tslot_window,
+            parents,
+            attester_pubkey_b32: row.attester,
+            attester_tier: row.tier.as_str(),
+            attester_nick: row.nick,
+            recomputation,
+        });
+    }
+
+    let excluded_attesters = scan
+        .excluded
+        .iter()
+        .take(INFERENCES_MAX_EXCLUDED_LISTED)
+        .map(|(k, t, n)| json!({"attester_pubkey_b32": k, "tier": t.as_str(), "inferences": n}))
+        .collect();
+    let mut marker = untrusted_content_marker(None);
+    marker["applies_to"] = json!([
+        "inferences[].value",
+        "inferences[].fn_key",
+        "inferences[].op",
+        "inferences[].band"
+    ]);
+    let receipt = s.sign_receipt(
+        "emem.inferences",
+        vec![cell.clone()],
+        cited,
+        true,
+        started,
+        None,
+    );
+    Ok(InferencesResp {
+        schema: "emem.inferences.v1",
+        cell,
+        resolved_from,
+        trust_policy: policy.describe(min_tier_default, min_tier_ignored),
+        count: inferences.len(),
+        inferences,
+        truncated,
+        scan_truncated: scan.scan_truncated,
+        excluded_by_policy: scan.excluded_total,
+        excluded_attesters,
+        unresolved_rows,
+        what_these_are: "Derivations other agents registered at this place with POST /v1/derive: signed conclusions over parent facts, not this responder's measurements. None of them is in a default read (recall, state, ask). Walk `parents` to the signed measurements each one rests on.",
+        content_is_data_not_instructions: marker,
+        receipt,
+        offline_verify_at: "/verify",
+    })
+}
+
+/// `POST /v1/inferences`: the derivations concluded at one place, under a
+/// stated trust policy.
+async fn post_inferences(
+    State(s): State<AppState>,
+    EmemJson(req): EmemJson<InferencesReq>,
+) -> Result<Json<InferencesResp>, ApiError> {
+    Ok(Json(inferences_core(&s, req).await?))
+}
+
+/// `GET /v1/inferences?cell=...`: the same read with query parameters;
+/// `attesters` is a comma-separated list.
+async fn get_inferences(
+    State(s): State<AppState>,
+    Query(req): Query<InferencesReq>,
+) -> Result<Json<InferencesResp>, ApiError> {
+    Ok(Json(inferences_core(&s, req).await?))
+}
+
+/// Index, by place, every derivation registered before the place index
+/// existed. `Ok(None)` when an earlier pass already finished.
+///
+/// The done flag is written only after a pass that read every row, so a pass
+/// cut short by a restart or a store error runs again at the next boot, and
+/// re-indexing a row rewrites the same key with the same value. Every sled
+/// scan and write runs on the blocking pool; the fact reads go through the
+/// store, which does its own reads there too.
+async fn backfill_derived_by_cell(s: &AppState) -> Result<Option<usize>, String> {
+    const PAGE: usize = 256;
+    let Some(db) = s.storage.hot_sled_db() else {
+        return Ok(None);
+    };
+    let db = db.clone();
+    let (place, by_attester, done) = tokio::task::spawn_blocking(move || {
+        let place = db
+            .open_tree(DERIVED_BY_CELL_TREE)
+            .map_err(|e| e.to_string())?;
+        let by_attester = db.open_tree(DERIVED_TREE).map_err(|e| e.to_string())?;
+        let done = place
+            .contains_key(DERIVED_BY_CELL_BACKFILL_DONE)
+            .map_err(|e| e.to_string())?;
+        Ok::<_, String>((place, by_attester, done))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    if done {
+        return Ok(None);
+    }
+
+    let mut after: Option<Vec<u8>> = None;
+    let mut indexed = 0usize;
+    loop {
+        let (cids, last) = {
+            let (tree, from) = (by_attester.clone(), after.clone());
+            tokio::task::spawn_blocking(move || {
+                let iter = match from {
+                    Some(k) => tree.range::<Vec<u8>, _>((
+                        std::ops::Bound::Excluded(k),
+                        std::ops::Bound::Unbounded,
+                    )),
+                    None => tree.iter(),
+                };
+                let mut cids = Vec::with_capacity(PAGE);
+                let mut last = None;
+                for kv in iter.take(PAGE) {
+                    let (k, v) = kv.map_err(|e| e.to_string())?;
+                    cids.push(emem_fact::FactCid::new(
+                        String::from_utf8_lossy(&v).into_owned(),
+                    ));
+                    last = Some(k.to_vec());
+                }
+                Ok::<_, String>((cids, last))
+            })
+            .await
+            .map_err(|e| e.to_string())??
+        };
+        if cids.is_empty() {
+            break;
+        }
+        let full_page = cids.len() == PAGE;
+        let facts = s
+            .storage
+            .get_facts_many_uncited(&cids)
+            .await
+            .map_err(|e| e.to_string())?;
+        // The attester comes from the signed fact rather than the listing key,
+        // so the row and the record it points at cannot name different keys.
+        let rows: Vec<(Vec<u8>, Vec<u8>)> = cids
+            .iter()
+            .zip(facts)
+            .filter_map(|(cid, fact)| match fact {
+                Some(emem_fact::Fact::Derivative(d)) => {
+                    let attester = d
+                        .derivation
+                        .args
+                        .as_ref()
+                        .and_then(|a| cbor_map_get(a, "attester_pubkey_b32"))
+                        .and_then(|v| match v {
+                            ciborium::Value::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })?;
+                    Some((
+                        derived_by_cell_key(&d.cell, &d.derivation.fn_key, &d.signed_at, &attester),
+                        format!("emem:fact:{}:{}", d.cell, cid.as_str()).into_bytes(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        indexed += rows.len();
+        let tree = place.clone();
+        tokio::task::spawn_blocking(move || {
+            for (k, v) in rows {
+                tree.insert(k, v).map_err(|e| e.to_string())?;
+            }
+            Ok::<_, String>(())
+        })
+        .await
+        .map_err(|e| e.to_string())??;
+        after = last;
+        if !full_page {
+            break;
+        }
+    }
+
+    tokio::task::spawn_blocking(move || {
+        place
+            .insert(DERIVED_BY_CELL_BACKFILL_DONE, &b"1"[..])
+            .map_err(|e| e.to_string())?;
+        flush_off_runtime_blocking(&place);
+        Ok::<_, String>(())
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    Ok(Some(indexed))
+}
+
+/// Start [`backfill_derived_by_cell`] at boot without making the listener
+/// wait for it. A responder with no durable store, or a router built outside
+/// a runtime (a plain `#[test]`), has nothing to backfill.
+fn spawn_derived_by_cell_backfill(state: &AppState) {
+    if state.storage.hot_sled_db().is_none() || tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    let s = state.clone();
+    tokio::spawn(async move {
+        let t0 = std::time::Instant::now();
+        match backfill_derived_by_cell(&s).await {
+            Ok(Some(indexed)) => tracing::info!(
+                target: "emem::derive",
+                indexed,
+                elapsed_ms = t0.elapsed().as_millis() as u64,
+                "derived_by_cell backfill complete"
+            ),
+            Ok(None) => {}
+            Err(e) => tracing::warn!(
+                target: "emem::derive",
+                error = %e,
+                "derived_by_cell backfill failed; it runs again at the next boot, and new derivations are indexed as they register"
+            ),
+        }
+    });
 }
 
 // ── /v1/memory_bundle ────────────────────────────────────────────────────
@@ -64046,11 +64913,20 @@ fn attester_tier(
             ..Default::default()
         });
     };
-    let org_verified = enlistment_evidence(s, &att.pubkey_b32)
+    key_tier(s, &att.pubkey_b32)
+}
+
+/// The tier of a key whose signature a stored record already verified: a
+/// derivation, or a write this request just checked. The same checks the
+/// roster runs, as point reads rather than a scan, so the same T5 caveat
+/// applies: corroboration is never computed here.
+fn key_tier(s: &AppState, pubkey_b32: &str) -> crate::enlistment::Tier {
+    use crate::enlistment::{tier_for, Facts};
+    let org_verified = enlistment_evidence(s, pubkey_b32)
         .map(|e| e.is_fresh(now_unix()))
         .unwrap_or(false);
     // Two point reads at the caller's own namespace, not a scan.
-    let ns = att.pubkey_b32.chars().take(8).collect::<String>();
+    let ns = pubkey_b32.chars().take(8).collect::<String>();
     let note = |name: &str| {
         read_memory_file(s, &format!("/memories/by_attester/{ns}/{name}"))
             .ok()
@@ -64062,8 +64938,9 @@ fn attester_tier(
         .is_some();
     tier_for(&Facts {
         has_signed_note: true,
-        // The caller presented an attester block; the per-verb signature check
-        // on the write path is what proves it, and runs before this.
+        // Every caller arrives with this key's signature already verified:
+        // the per-verb check on a write path, or the check `/v1/derive` ran
+        // before it stored the derivation being read.
         namespace_proven: true,
         has_profile_with_nick,
         declares_endpoint,
@@ -99971,6 +100848,403 @@ mod tests {
             .unwrap_err();
             assert_eq!(err.0, StatusCode::BAD_REQUEST, "{why} pubkey is refused");
         }
+    }
+
+    // ── /v1/inferences ───────────────────────────────────────────────
+
+    /// Make a key read T4_affiliated the way production does: by the stored
+    /// outcome of a DNS check that passed, fresh, under the key.
+    fn vouch_for(s: &AppState, pubkey_b32: &str, nick: &str) {
+        let ev = crate::enlistment::Evidence {
+            method: crate::enlistment::Method::Dns,
+            domain: "example.org".into(),
+            nick: Some(nick.into()),
+            checked_at: now_unix(),
+            detail: "test: a TXT record vouches for this key".into(),
+            ok: true,
+        };
+        s.storage
+            .hot_sled_db()
+            .expect("sled")
+            .open_tree(emem_storage::TREE_ENLISTMENT_EVIDENCE)
+            .unwrap()
+            .insert(pubkey_b32.as_bytes(), serde_json::to_vec(&ev).unwrap())
+            .unwrap();
+    }
+
+    fn inferences_at(cell: &str) -> InferencesReq {
+        InferencesReq {
+            cell: Some(cell.into()),
+            ..Default::default()
+        }
+    }
+
+    /// The trust policy is the point of the route. Two keys conclude at one
+    /// place and only one is vouched for: the default read admits that one,
+    /// counts the other instead of hiding it, and naming both keys admits
+    /// both. The second call is also the control: it shows the default's
+    /// single row is the policy filtering, not a row that was never indexed.
+    #[tokio::test]
+    async fn inferences_default_admits_only_vouched_attesters() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk_vouched, pk_vouched) = derive_keypair([31u8; 32]);
+        let (sk_stranger, pk_stranger) = derive_keypair([32u8; 32]);
+        for (sk, value) in [(&sk_vouched, 0.11), (&sk_stranger, 0.22)] {
+            let mut req = derive_req(inputs.clone());
+            req.value = json!(value);
+            req.attester = Some(sign_derive(sk, &req));
+            let _ = derive_core(req, s.clone()).await.expect("derive");
+        }
+        vouch_for(&s, &pk_vouched, "ndvi-lab");
+
+        let default = inferences_core(&s, inferences_at(DERIVE_CELL))
+            .await
+            .expect("the default read");
+        assert_eq!(default.trust_policy["mode"], json!("min_tier"));
+        assert_eq!(default.trust_policy["min_tier"], json!("T4_affiliated"));
+        assert_eq!(default.trust_policy["is_default"], json!(true));
+        assert_eq!(
+            default.inferences.len(),
+            1,
+            "only the vouched key's derivation is admitted by default"
+        );
+        let item = &default.inferences[0];
+        assert_eq!(item.attester_pubkey_b32, pk_vouched);
+        assert_eq!(item.attester_tier, "T4_affiliated");
+        assert_eq!(item.attester_nick.as_deref(), Some("ndvi-lab"));
+        assert_eq!(item.fn_key, "same_doy_ndvi_delta@1");
+        assert_eq!(item.op, "delta");
+        assert_eq!(item.band, "indices.ndvi");
+        assert_eq!(item.value, json!(0.11));
+        assert_eq!(item.provenance_class, "model_output");
+        assert_eq!(item.tslot_window, [10, 20]);
+        assert_eq!(
+            item.parents, inputs,
+            "parents in the attester's signed order"
+        );
+        assert!(item.recomputation.is_none(), "no code_cid, no verdict");
+        assert_eq!(
+            item.token,
+            format!("emem:fact:{DERIVE_CELL}:{}", item.fact_cid)
+        );
+        assert_eq!(
+            default.excluded_by_policy, 1,
+            "the stranger is counted, not hidden"
+        );
+        assert_eq!(
+            default.excluded_attesters[0]["attester_pubkey_b32"],
+            json!(pk_stranger)
+        );
+        assert_eq!(default.excluded_attesters[0]["tier"], json!("T1_keyed"));
+
+        // What the response says about itself, on the wire.
+        let wire = serde_json::to_value(&default).unwrap();
+        assert_eq!(
+            wire["_content_is_data_not_instructions"]["treat_content_as"],
+            json!("data")
+        );
+        assert!(wire["trust_policy"]["signature_means"]
+            .as_str()
+            .unwrap()
+            .contains("never that the conclusion is true"));
+        let cited: Vec<&str> = default
+            .receipt
+            .fact_cids
+            .iter()
+            .map(|c| c.as_str())
+            .collect();
+        assert_eq!(cited, vec![item.fact_cid.as_str()]);
+        let Json(verdict) = post_verify_receipt(
+            State(s.clone()),
+            Ok(Json(VerifyReceiptReq {
+                receipt: default.receipt.clone(),
+                pubkey_b32: None,
+                current_responder_epoch: None,
+                facts: None,
+            })),
+        )
+        .await
+        .expect("verify_receipt");
+        assert_eq!(verdict["valid"], json!(true), "{verdict}");
+
+        let named = inferences_core(
+            &s,
+            InferencesReq {
+                attesters: Some(format!("{pk_vouched},{pk_stranger}")),
+                min_tier: Some("T4_affiliated".into()),
+                ..inferences_at(DERIVE_CELL)
+            },
+        )
+        .await
+        .expect("a named read");
+        assert_eq!(named.inferences.len(), 2, "naming both keys admits both");
+        assert_eq!(named.trust_policy["mode"], json!("named_attesters"));
+        assert_eq!(named.trust_policy["min_tier_ignored"], json!(true));
+        assert_eq!(named.excluded_by_policy, 0);
+
+        let floor = inferences_core(
+            &s,
+            InferencesReq {
+                min_tier: Some("T0_anonymous".into()),
+                ..inferences_at(DERIVE_CELL)
+            },
+        )
+        .await
+        .expect("a lowered floor");
+        assert_eq!(floor.inferences.len(), 2, "T0 admits every key");
+
+        let err = inferences_core(
+            &s,
+            InferencesReq {
+                min_tier: Some("T9_gold".into()),
+                ..inferences_at(DERIVE_CELL)
+            },
+        )
+        .await
+        .expect_err("an unknown tier is refused");
+        assert_eq!(
+            err.1.details.unwrap()["code"],
+            json!("inferences_unknown_tier")
+        );
+    }
+
+    /// One attester revises a conclusion: the place read returns the
+    /// revision, not both. The control is the raw index, which holds both
+    /// rows, so a read that did not pick the newest would return two.
+    #[tokio::test]
+    async fn inferences_return_only_the_newest_per_fn_key_and_attester() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pk) = derive_keypair([33u8; 32]);
+
+        let mut first = derive_req(inputs.clone());
+        first.value = json!(0.10);
+        first.attester = Some(sign_derive(&sk, &first));
+        let Json(older) = derive_core(first, s.clone()).await.expect("first");
+        // signed_at has one-second resolution; two rows need two seconds.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        let mut second = derive_req(inputs.clone());
+        second.value = json!(0.20);
+        second.attester = Some(sign_derive(&sk, &second));
+        let Json(newer) = derive_core(second, s.clone()).await.expect("second");
+        assert_ne!(older.fact_cid, newer.fact_cid);
+
+        let rows = s
+            .storage
+            .hot_sled_db()
+            .unwrap()
+            .open_tree(DERIVED_BY_CELL_TREE)
+            .unwrap()
+            .scan_prefix(derived_by_cell_prefix(DERIVE_CELL, None))
+            .count();
+        assert_eq!(rows, 2, "control: the index holds both revisions");
+
+        let mine = || InferencesReq {
+            attesters: Some(pk.clone()),
+            ..inferences_at(DERIVE_CELL)
+        };
+        let got = inferences_core(&s, mine()).await.expect("read");
+        assert_eq!(got.inferences.len(), 1, "one per (fn_key, attester)");
+        assert_eq!(got.inferences[0].fact_cid, newer.fact_cid);
+        assert_eq!(got.inferences[0].value, json!(0.20));
+
+        // Another recipe from the same key is another conclusion.
+        let mut other = derive_req(inputs);
+        other.fn_key = "ndvi_trend@1".into();
+        other.op = "trend".into();
+        other.attester = Some(sign_derive(&sk, &other));
+        let _ = derive_core(other, s.clone()).await.expect("other recipe");
+        let both = inferences_core(&s, mine()).await.expect("read");
+        assert_eq!(both.inferences.len(), 2);
+        let narrowed = inferences_core(
+            &s,
+            InferencesReq {
+                fn_key_prefix: Some("ndvi_".into()),
+                ..mine()
+            },
+        )
+        .await
+        .expect("narrowed");
+        assert_eq!(narrowed.inferences.len(), 1);
+        assert_eq!(narrowed.inferences[0].fn_key, "ndvi_trend@1");
+    }
+
+    /// `lat`+`lng` reach the cell64 the point encodes, the same cell the
+    /// cell64 form names. The control is a point about a kilometre away,
+    /// which is another cell and finds nothing.
+    #[tokio::test]
+    async fn inferences_by_lat_lng_read_the_same_cell_as_the_cell64() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (lat, lng) = (12.9716, 77.5946);
+        let cell = emem_codec::cell64_from_latlng(lat, lng);
+        let (sk, pk) = derive_keypair([34u8; 32]);
+        let mut req = derive_req(inputs);
+        req.cell = cell.clone();
+        req.attester = Some(sign_derive(&sk, &req));
+        let Json(d) = derive_core(req, s.clone()).await.expect("derive");
+
+        let by = |cell: Option<String>, lat: Option<f64>, lng: Option<f64>| InferencesReq {
+            cell,
+            lat,
+            lng,
+            attesters: Some(pk.clone()),
+            ..Default::default()
+        };
+        let by_cell = inferences_core(&s, by(Some(cell.clone()), None, None))
+            .await
+            .expect("by cell");
+        let by_point = inferences_core(&s, by(None, Some(lat), Some(lng)))
+            .await
+            .expect("by lat/lng");
+        assert_eq!(by_point.cell, cell);
+        assert_eq!(by_point.cell, by_cell.cell);
+        assert_eq!(by_point.resolved_from["input"], json!("lat_lng"));
+        let cids = |r: &InferencesResp| -> Vec<String> {
+            r.inferences.iter().map(|i| i.fact_cid.clone()).collect()
+        };
+        assert_eq!(cids(&by_point), vec![d.fact_cid.clone()]);
+        assert_eq!(cids(&by_point), cids(&by_cell));
+
+        let away = inferences_core(&s, by(None, Some(lat + 0.01), Some(lng)))
+            .await
+            .expect("a point elsewhere");
+        assert_ne!(
+            away.cell, cell,
+            "control: a kilometre north is another cell"
+        );
+        assert!(away.inferences.is_empty());
+
+        inferences_core(&s, by(Some(cell.clone()), Some(lat), Some(lng)))
+            .await
+            .expect("both forms are accepted when they agree");
+        let err = inferences_core(&s, by(Some(cell), Some(lat + 0.01), Some(lng)))
+            .await
+            .expect_err("both forms naming two places are refused");
+        assert_eq!(
+            err.1.details.unwrap()["code"],
+            json!("inferences_cell_latlng_disagree")
+        );
+    }
+
+    /// A derivation registered before the place index existed is in
+    /// DERIVED_TREE only. The backfill indexes it once. The control is the
+    /// read before the backfill, which finds nothing, so the read after it
+    /// can only succeed because the backfill wrote the row.
+    #[tokio::test]
+    async fn the_backfill_indexes_a_derivation_the_place_index_never_saw() {
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let (sk, pk) = derive_keypair([35u8; 32]);
+        let mut req = derive_req(inputs);
+        req.attester = Some(sign_derive(&sk, &req));
+        let Json(d) = derive_core(req, s.clone()).await.expect("derive");
+
+        let place = s
+            .storage
+            .hot_sled_db()
+            .unwrap()
+            .open_tree(DERIVED_BY_CELL_TREE)
+            .unwrap();
+        let drop_rows = || {
+            for kv in place.scan_prefix(derived_by_cell_prefix(DERIVE_CELL, None)) {
+                place.remove(kv.unwrap().0).unwrap();
+            }
+        };
+        drop_rows();
+        let mine = || InferencesReq {
+            attesters: Some(pk.clone()),
+            ..inferences_at(DERIVE_CELL)
+        };
+        assert!(
+            inferences_core(&s, mine())
+                .await
+                .expect("read")
+                .inferences
+                .is_empty(),
+            "control: with no place row the read finds nothing"
+        );
+        let Json(listed) = post_derived_list(
+            State(s.clone()),
+            EmemJson(DerivedListReq {
+                attester_pubkey_b32: Some(pk.clone()),
+                cell: None,
+                band: None,
+                limit: None,
+            }),
+        )
+        .await
+        .expect("list");
+        assert_eq!(listed.derivations.len(), 1, "it is in DERIVED_TREE");
+
+        assert_eq!(
+            backfill_derived_by_cell(&s).await.expect("backfill"),
+            Some(1)
+        );
+        let got = inferences_core(&s, mine()).await.expect("read");
+        assert_eq!(got.inferences.len(), 1);
+        assert_eq!(got.inferences[0].fact_cid, d.fact_cid);
+        assert_eq!(got.inferences[0].attester_pubkey_b32, pk);
+
+        // Once per store: the flag makes a second pass a no-op, so a row
+        // removed after it stays removed.
+        drop_rows();
+        assert_eq!(backfill_derived_by_cell(&s).await.expect("again"), None);
+        assert!(place.contains_key(DERIVED_BY_CELL_BACKFILL_DONE).unwrap());
+        assert!(inferences_core(&s, mine())
+            .await
+            .expect("read")
+            .inferences
+            .is_empty());
+    }
+
+    /// The GET form takes `attesters` as a comma-separated list, and the
+    /// MCP tool reaches the same core.
+    #[tokio::test]
+    async fn inferences_answer_over_get_and_mcp() {
+        use tower::ServiceExt;
+        let s = test_app_state();
+        let inputs = seed_derive_parents(&s).await;
+        let mut keys = Vec::new();
+        for (seed, value) in [([36u8; 32], 0.3), ([37u8; 32], 0.4)] {
+            let (sk, pk) = derive_keypair(seed);
+            let mut req = derive_req(inputs.clone());
+            req.value = json!(value);
+            req.attester = Some(sign_derive(&sk, &req));
+            let _ = derive_core(req, s.clone()).await.expect("derive");
+            keys.push(pk);
+        }
+        let uri = format!(
+            "/v1/inferences?cell={DERIVE_CELL}&attesters={},{}",
+            keys[0], keys[1]
+        );
+        let r = router(s.clone())
+            .oneshot(
+                axum::http::Request::get(uri)
+                    .body(axum::body::Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(r.status(), StatusCode::OK);
+        let v: JsonValue = serde_json::from_slice(
+            &axum::body::to_bytes(r.into_body(), usize::MAX)
+                .await
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(v["count"], json!(2), "{v}");
+
+        let m = mcp_tool_call_inner(
+            "emem_inferences",
+            json!({"cell": DERIVE_CELL, "attesters": [keys[0].clone()]}),
+            &s,
+        )
+        .await
+        .expect("the tool answers");
+        assert_eq!(m["count"], json!(1));
+        assert_eq!(m["inferences"][0]["attester_pubkey_b32"], json!(keys[0]));
     }
 
     /// The canonical body must not depend on the caller's JSON key

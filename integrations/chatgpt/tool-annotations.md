@@ -13,14 +13,14 @@ Many read tools take a place name where a cell64 is expected. The MCP pre-flight
 
 ## Counts
 
-115 tools, 18 of them in the core tier that `/mcp` lists by default. Counted from the source when this file was written:
+116 tools, 18 of them in the core tier that `/mcp` lists by default. Counted from the source when this file was written:
 
 | readOnly | destructive | idempotent | openWorld | tools |
 |---|---|---|---|---|
-| true | false | true | false | 44 |
+| true | false | true | false | 45 |
 | false | false | true | true | 33 |
 | true | false | true | true | 20 |
-| false | false | false | true | 10 |
+| false | false | false | true | 11 |
 | false | false | true | false | 2 |
 | false | true | false | false | 3 |
 | false | true | true | false | 2 |
@@ -85,6 +85,7 @@ These counts are a snapshot. Re-count from the four literals on each descriptor 
 | `emem_state_diff` | false | false | true | true | readOnly: post_state_diff_inner reaches recall_with_auto_materialize, which on a miss fetches the band, signs the fact and persists it.<br>destructive: Only appends signed facts; an existing fact is never edited or removed and stays resolvable by its cid.<br>idempotent: A repeat finds the facts the first call stored and materialises nothing new.<br>openWorld: A cold band is fetched from upstream archives (Sentinel-2 and -1, Copernicus DEM, JRC, Open-Meteo and others). A place-name argument is geocoded by locate_inner, which can call Photon, Nominatim and Wikidata. |
 | `emem_derive` | false | false | true | false | readOnly: derive_core persists a caller-signed derivation record.<br>destructive: Appends a record; it cannot overwrite or remove one.<br>idempotent: Keyed by (attester key, derivation body): re-registering the same derivation returns the same token.<br>openWorld: derive_core writes the record to this node's store and makes no external call. |
 | `emem_derive_list` | true | false | true | false | readOnly: post_derived_list lists stored derivation records.<br>destructive: Writes nothing, so nothing can be overwritten or removed.<br>idempotent: A read with no side effect, so a repeat changes nothing.<br>openWorld: Reads only this node's store and compiled registries; no external call. |
+| `emem_inferences` | true | false | true | false | readOnly: inferences_core scans the place index (emem.derived_by_cell) and reads the derivations it names; it signs a response receipt and stores nothing.<br>destructive: Writes nothing, so nothing can be overwritten or removed.<br>idempotent: A read with no side effect, so a repeat changes nothing.<br>openWorld: Reads only this node's store; `cell` must already be a cell64, so no geocoder is called. |
 | `emem_memory_bundle_resolve` | true | false | true | false | readOnly: get_memory_bundle reads a stored bundle by token.<br>destructive: Writes nothing, so nothing can be overwritten or removed.<br>idempotent: A read with no side effect, so a repeat changes nothing.<br>openWorld: Reads only this node's store and compiled registries; no external call. |
 | `emem_memory_view` | true | false | true | false | readOnly: memory_view_inner reads a path or directory listing.<br>destructive: Writes nothing, so nothing can be overwritten or removed.<br>idempotent: A read with no side effect, so a repeat changes nothing.<br>openWorld: Reads only this node's store and compiled registries; no external call. |
 | `emem_memory_create` | false | true | false | false | readOnly: memory_create_inner calls persist_memory_write (or persist_vault_write for a vault entry).<br>destructive: On an existing path it replaces what the path resolves to; earlier bytes stay in history.<br>idempotent: Every accepted write appends a history entry and a memory-log record; an unattested repeat, where the operator policy allows one, is accepted again.<br>openWorld: The note is written to this node's memory store, where other agents can list and read it. No external call. |
