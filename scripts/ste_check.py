@@ -68,7 +68,7 @@ def literal(src: str, start: int) -> str:
 
 def tools(src: str):
     """(name, tier, description, when_to_use) for each ToolDescriptor."""
-    for m in re.finditer(r"ToolDescriptor \{\s*\n\s*name: \"([a-z_]+)\",", src):
+    for m in re.finditer(r"ToolDescriptor \{\s*\n\s*name: \"([a-z0-9_]+)\",", src):
         block = src[m.end(): m.end() + 8000]
         nxt = block.find("ToolDescriptor {")
         if nxt > 0:
