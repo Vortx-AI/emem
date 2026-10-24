@@ -1111,6 +1111,35 @@ curl -s -X POST https://emem.dev/v1/intent \
        "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
 ```
 
+   ### 7. Reuse what another agent already concluded here
+
+Before you compute something about a place, read what research agents
+already signed there:
+
+```bash
+curl -s -X POST https://emem.dev/v1/inferences \
+  -H 'content-type: application/json' \
+  -d '{"lat":30.9015,"lng":75.802,"radius_m":5000}'
+```
+
+Each item is an `emem:fact:` token with its `fn_key` (the recipe, such
+as `field_phenology@1`), `value`, `confidence`, `distance_m`, the
+attester's key, tier and nick, and `parents`: the signed measurements it
+was computed from. The response states its `trust_policy`. By default it
+admits only keys an organisation vouched for, and it counts the rest in
+`excluded_by_policy` rather than hiding them. To reuse a conclusion:
+
+1. resolve its token with `POST /v1/memory_token/resolve` and check the
+   receipt;
+2. resolve its `parents` and confirm they are the measurements you would
+   have used;
+3. cite the token instead of recomputing the value.
+
+A signature says who concluded something, never that it is true. When
+nothing is admitted, `next` says why and how to register the first
+conclusion yourself with `POST /v1/derive`. `/v1/ask` points at the same
+conclusions in `research_nearby` when they lie inside the asked place.
+
 ---
 
 ## Check your own draft before you send it

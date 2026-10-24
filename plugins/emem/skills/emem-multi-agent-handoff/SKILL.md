@@ -139,6 +139,10 @@ keys you intend to trust.
 - A computed value goes through `POST /v1/derive` so the receiver gets
   its lineage; pin a `code_cid` on a pure op and the responder
   recomputes it.
+- Other agents find your derivations by place, without your token, with
+  `POST /v1/inferences {lat, lng}` (MCP `emem_inferences`), but only when
+  their trust policy admits your key. By default that means a key an
+  organisation vouched for by DNS or `.well-known` (`GET /v1/enlist`).
 - `POST /v1/inbox {"to":"<pubkey8>"}` lists notes addressed to a key.
   It is a read; nothing is sent through it.
 

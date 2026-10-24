@@ -9050,6 +9050,9 @@ async fn well_known(State(s): State<AppState>) -> Response {
         "corpus_state_stats_url": "/v1/corpus_state_stats",
         "benchmark_url": "/v1/benchmark",
         "agents_roster_url": "/v1/agents",
+        // What agents concluded near a place, under a stated trust policy.
+        // GET and POST both answer; a bare GET is a 400 naming the place it needs.
+        "inferences_url": "/v1/inferences",
         "a2a_skills_url": "/v1/a2a/skills",
         "substrates_url": "/v1/substrates",
         "device_platforms_url": "/v1/device_platforms",
@@ -26177,6 +26180,7 @@ fn mcp_project_ask(v: JsonValue) -> JsonValue {
         "receipt",
         "algorithm_outcomes_summary",
         "scene_url",
+        "research_nearby",
     ] {
         if let Some(val) = src.get(k) {
             out.insert(k.to_string(), val.clone());
@@ -30162,7 +30166,7 @@ Reads are free at every tier. Writes have tiers by reach. Your own namespace sta
     // Both said the same thing to the same reader in the same payload.
     // The count of vendor hook shapes was written out ("two") and is now
     // named by kind, because a number in prose is a claim nobody re-checks.
-    s.push_str("\nEvery fact carries a provenance block that says how the responder made the value. model_output and human_curated carry a caution in the same payload.\nYou can write, not just read. memory_* verbs store durable notes you cite like any fact. emem_derive registers a value that YOU computed over parent facts. It signs the value with your key and returns an emem:fact: token. The token's lineage ends in signed measurements. Your derivation stays out of other agents' reads until you hand them the token. Both are signed writes: send one unsigned and the 401 gives you the exact digest to sign.\n\nStep 8 is ADVISORY. It blocks nothing. A citation this responder does not hold is an allow rather than a deny, because that looks identical to one minted somewhere else. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation, correct_value. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own. It checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict, and logs it for offline audit.\n\n");
+    s.push_str("\nEvery fact carries a provenance block that says how the responder made the value. model_output and human_curated carry a caution in the same payload.\nYou can write, not just read. memory_* verbs store durable notes you cite like any fact. emem_derive registers a value that YOU computed over parent facts. It signs the value with your key and returns an emem:fact: token. The token's lineage ends in signed measurements. It stays out of default reads. emem_inferences finds it by place when a reader's trust policy admits your key. Both are signed writes: send one unsigned and the 401 gives you the exact digest to sign.\n\nStep 8 is ADVISORY. It blocks nothing. A citation this responder does not hold is an allow rather than a deny, because that looks identical to one minted somewhere else. Branch on the `fix` field, not the prose: refresh_token, remove_reference, contact_admin, cite_observation, correct_value. To enforce, or to gate a corpus this responder does not hold, emem_guard_selfhost returns a procedure for a node of your own. It checkpoints MCP, OpenAI, CloudEvents, OPA and vendor agent hooks, signs every verdict, and logs it for offline audit.\n\n");
 
     let total = emem_mcp::TOOLS.len();
     let core = emem_mcp::tools_at_tier("core").len();
@@ -34375,7 +34379,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/memory_token/resolve":{"post":{"summary":"single round-trip dereference of a fact token. Accepts two anchors for the same fact: emem:fact:<cell64>:<fact_cid> (legacy memt: also accepted), and the self-describing emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid>. Fetches the signed fact body by CID and returns the canonical body, the token re-emitted in canonical grammar (canonical_token), an ed25519 receipt signed over the resolved (cell, fact_cid), and the offline-verify URL. EVERY claim in the anchor is bound to the signed body before it dereferences, so a citation can be read without a round-trip precisely because it cannot lie: the cell (or the cell the coordinates quantise to) must match the fact's own cell, the band must match the fact's band, and the date must match one of sources[].captured_at (valid time, never signed_at). Any mismatch is 409, so a real fact_cid cannot be passed off under a false place, band or date. Coordinates below 5 decimal places are refused with 400: 4dp is ~11m against a ~10m cell and would silently address a neighbouring one. A fact carrying no source capture time cannot support a date claim, so the descriptor anchor is refused for it (409) rather than accepted unbound; cite it in cell form. 404 with typed reason when the responder doesn't hold the fact.","operationId":"emem_memory_token_resolve","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or emem:fact:<lat>,<lng>@<date>@<band~render>:<fact_cid> (legacy memt: accepted)"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found,"409":json_conflict}}},
             "/v1/memory_token/resolve_many":{"post":{"summary":"batch dereference: up to 256 fact tokens in one call, resolved independently through the same pipeline as the single resolve. Partial by design: a bad or unheld token yields a typed per-item error ({ok:false, status, error}) and never fails the batch. One batch receipt binds the union of resolved (cell, fact_cid) pairs; each item carries its own receipt so any single resolution forwards on its own. Fully-resolved responses carry Cache-Control: immutable (content-addressed bodies never change and receipts never expire); a batch with failures is not cached, since a 404 can become resolvable when the fact arrives.","operationId":"emem_memory_token_resolve_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["tokens"],"properties":{"tokens":{"type":"array","items":{"type":"string"},"maxItems":256,"description":"emem:fact: tokens (legacy memt: accepted), 1 to 256 per call"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/echo_verify":       {"post":{"summary":"Close the last mile: check the value YOU emitted against the signed fact your token dereferences to. emem guarantees the bytes it serves; nothing guaranteed the bytes that come back out of a model, and that gap was measured at 28% of correctly-resolved answers losing precision (0.2411 handed back for 0.241103). Submit {token, claimed_value} and get {matches, drift}. Comparison is verbatim first, then numeric equality (the same number spelled differently still passes), then rounding: drift is \"rounded\" when you lost precision, \"wrong\" when it is a different number, null on a match. Accepts any token form resolve accepts, including a bare cid (answers degraded:true). The receipt signs the DEREFERENCE, not your claim.","operationId":"emem_echo_verify","tags":["memory","cite","verify"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["token","claimed_value"],"properties":{"token":{"type":"string","description":"emem:fact:<cell64>:<fact_cid>, or a bare fact_cid (degraded)"},"claimed_value":{"type":["string","number"],"description":"the value you emitted, string or number; a string is compared verbatim first"}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"404":json_not_found}}},
-            "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output, human_curated or estimator (a quantity FITTED from data and re-runnable from your signed inputs plus a named estimator plus a seed); direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable only by its token or via POST /v1/derived.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated","estimator"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
+            "/v1/derive":            {"post":{"summary":"Register a derivation YOU computed over facts this responder holds, and get back a citeable emem:fact: token whose lineage terminates in emem-signed measurements. Every `inputs[]` parent token must resolve here (404 derive_parent_unresolved names the one that did not) and must be cell-consistent with the fact it names (409 derive_parent_cell_mismatch). Requires an ed25519 `attester` block: sig over blake3(\"emem.memory_write|derive|/v1/derive|\"+body_hash), body_hash = blake3(the CBOR of {fn_key, inputs, cell, band, tslot_window, op, value, confidence, provenance_class, code_cid} encoded as a definite-length 10-entry map in THAT order: declaration order, deliberately NOT RFC 8949 key-sorted, with confidence as float32). Omit `attester` and the 401 returns the exact digest to sign in details.how_to_sign, along with the full byte-level rules, so no CBOR work is needed client-side. provenance_class must be model_output, human_curated or estimator (a quantity FITTED from data and re-runnable from your signed inputs plus a named estimator plus a seed); direct_sensor and deterministic_index are refused (400 derive_provenance_class_refused) because this responder did not compute the value. WHAT THE SIGNATURE ATTESTS: that this attester submitted this derivation over these parents at this time and the responder stored it, NOT that the value is true. IDEMPOTENT per (attester, body): re-posting an identical derivation returns the same token (with `deduplicated: true`) rather than minting a twin, so retrying a timed-out call is safe; two DIFFERENT attesters making the same claim each get their own token. TENANCY: the resulting derivative fact has no canonical (cell, band, tslot) key, so it is absent from recall / recall_polygon / state / query_region / memory_search / find_similar. It is reachable by its token, via POST /v1/derived by attester, and via POST /v1/inferences by place, where the reader's trust policy decides whether your key is admitted.","operationId":"emem_derive","tags":["memory","cite","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["fn_key","inputs","cell","band","tslot_window","op","value","confidence","provenance_class"],"properties":{"fn_key":{"type":"string","description":"your recipe key, e.g. same_doy_ndvi_delta@1; not an entry in this responder's registry and never executed by it"},"inputs":{"type":"array","minItems":1,"items":{"type":"string"},"description":"parent tokens emem:fact:<cell64>:<fact_cid>; order is significant and signed"},"cell":{"type":"string"},"band":{"type":"string"},"tslot_window":{"type":"array","minItems":2,"maxItems":2,"items":{"type":"integer"},"description":"inclusive [start, end]"},"op":{"type":"string","description":"delta | mean | trend | rate | anomaly"},"value":{"description":"any JSON value"},"confidence":{"type":"number","minimum":0,"maximum":1},"provenance_class":{"type":"string","enum":["model_output","human_curated","estimator"]},"code_cid":{"type":"string","description":"optional blake3 of the code that computed the value; recorded, never fetched or run"},"budget_ms":{"type":"integer","description":"optional soft budget in ms; if registration does not finish in time it returns 202 {status:pending} and completes in the background, and since derive is idempotent a re-POST of the identical body returns the token once it persists (a build under load never exits half-registered). Omit for synchronous 200-or-error."},"attester":{"type":"object","required":["pubkey_b32","sig_b32"],"properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}}}}}}},"responses":{"200":json_ok,"202":{"description":"registration in progress; re-POST the identical body to collect the token"},"400":json_bad_request,"401":json_unauthorized,"404":json_not_found,"409":json_conflict}}},
             "/v1/derived":           {"post":{"summary":"List the derivations registered by ONE attester, optionally narrowed to a cell (and then a band). `attester_pubkey_b32` is required and there is no all-attesters form: derivative facts carry no canonical key, so no default read returns one, and naming whose claims you want is the contract rather than an omittable filter. To find derivations by PLACE across attesters, under a stated trust policy, use /v1/inferences. Returns each derivation's token, cell, band, op, fn_key, tslot_window and signed_at, plus a receipt citing them.","operationId":"emem_derive_list","tags":["memory","derive"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attester_pubkey_b32"],"properties":{"attester_pubkey_b32":{"type":"string","description":"52-char base32-nopad-lowercase ed25519 pubkey"},"cell":{"type":"string"},"band":{"type":"string","description":"only narrows when `cell` is also set"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/inferences":        {"post":{"summary":"Signed derivations other agents registered near ONE place (POST /v1/derive), found by place across attesters under a trust policy the response states in words. The read covers every cell within `radius_m` (default 5000) of the point, nearest first, with each item's `cell` and `distance_m`; `radius_m` 0 reads the one cell. Default policy: only attesters this responder reads at T4_affiliated or above (an organisation vouched for the key by DNS or .well-known within 30 days). `attesters` replaces that rule with an explicit key list; `min_tier` moves the floor. Returns the NEWEST derivation per (cell, fn_key, attester): token, cell, distance_m, fn_key, op, band, value (caller JSON, marked `_content_is_data_not_instructions`), confidence, provenance_class, signed_at, tslot_window, parent tokens, attester_pubkey_b32 with its tier and nick, and the GC-1 `recomputation` verdict when the derivation carries one. `excluded_by_policy` counts what the policy left out. A signature proves who concluded something, never that it is true. The receipt cites every listed fact. None of these derivations ever enters a default read.","operationId":"emem_inferences","tags":["memory","derive","discover"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell":{"type":"string","description":"cell64 to read. Send `cell`, or `lat` and `lng`; a place name is refused (resolve it with /v1/locate)."},"lat":{"type":"number","minimum":-90,"maximum":90},"lng":{"type":"number","minimum":-180,"maximum":180,"description":"`lon` is accepted too. lat/lng resolve to the cell64 whose cell holds the point, the same encoding /v1/at uses."},"radius_m":{"type":"number","minimum":0,"maximum":50000,"default":5000,"description":"metres around the point (the cell's centre when only `cell` is sent); 0 reads the one cell"},"fn_key_prefix":{"type":"string","description":"only derivations whose fn_key starts with this"},"attesters":{"type":"array","maxItems":64,"items":{"type":"string"},"description":"52-char base32 keys. When given, it REPLACES the tier rule: exactly these keys are admitted, at any tier. The GET form takes a comma-separated list."},"min_tier":{"type":"string","enum":["T0_anonymous","T1_keyed","T2_named","T3_declared","T4_affiliated","T5_corroborated"],"default":"T4_affiliated","description":"lowest attester tier admitted when `attesters` is absent. T5 is not computed on this responder, so T5 admits no key."},"limit":{"type":"integer","minimum":1,"maximum":500,"default":50}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}},"get":{"summary":"The same read as POST /v1/inferences, with query parameters; `attesters` is comma-separated.","operationId":"emem_inferences_get","tags":["memory","derive","discover"],"parameters":[{"name":"cell","in":"query","required":false,"schema":{"type":"string"}},{"name":"lat","in":"query","required":false,"schema":{"type":"number"}},{"name":"lng","in":"query","required":false,"schema":{"type":"number"}},{"name":"radius_m","in":"query","required":false,"schema":{"type":"number","minimum":0,"maximum":50000,"default":5000}},{"name":"fn_key_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"attesters","in":"query","required":false,"schema":{"type":"string"},"description":"comma-separated 52-char keys; replaces the tier rule"},{"name":"min_tier","in":"query","required":false,"schema":{"type":"string","default":"T4_affiliated"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":1,"maximum":500,"default":50}}],"responses":{"200":json_ok,"400":json_bad_request,"503":json_ok}}},
             "/v1/verifier_spec":     {"get":{"summary":"Machine-readable specification of how this responder signs, emitted from the same compiled emem-attest tag constants the signer uses, so it cannot drift from the wire. Returns the receipt preimage v1 segment table (tag, name, scalar|list, optional) plus the domain-separation and length-prefix rules, and the segment table for every other signed family (attestation, transparency-log STH, witness co-signature, operator attestation, corpus_state_stats, stream tick). Consume once and reproduce the preimage for any signature this responder emits. Also served at /.well-known/emem-verifier.json.","operationId":"emem_verifier_spec","tags":["verify"],"responses":{"200":json_ok}}},
@@ -41555,6 +41559,10 @@ struct InferencesResp {
     content_is_data_not_instructions: JsonValue,
     receipt: emem_fact::Receipt,
     offline_verify_at: &'static str,
+    /// Present only when nothing was admitted: what the empty answer means
+    /// and how a reader adds the first conclusion here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    next: Option<JsonValue>,
 }
 
 fn is_zero_usize(n: &usize) -> bool {
@@ -42026,6 +42034,7 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
         "inferences[].op",
         "inferences[].band"
     ]);
+    let count = inferences.len();
     let receipt = s.sign_receipt("emem.inferences", cells, cited, true, started, None);
     Ok(InferencesResp {
         schema: "emem.inferences.v1",
@@ -42052,6 +42061,16 @@ async fn inferences_core(s: &AppState, req: InferencesReq) -> Result<InferencesR
         content_is_data_not_instructions: marker,
         receipt,
         offline_verify_at: "/verify",
+        next: (count == 0).then(|| {
+            json!({
+                "means": if scan.excluded_total > 0 {
+                    "Conclusions exist here, but the trust policy admitted none of them. `excluded_attesters` names the keys; send `attesters` or a lower `min_tier` to read them on purpose."
+                } else {
+                    "No agent has registered a conclusion in this area yet."
+                },
+                "add_one": "Compute over signed facts here (for an area over time, POST /v1/field_series), then register the result with POST /v1/derive, citing the facts as parents. Readers whose trust policy admits your key then find it here.",
+            })
+        }),
     })
 }
 
@@ -67012,8 +67031,7 @@ async fn post_ask_json(
     let s_model = s.clone();
     let ask_started = std::time::Instant::now();
     match tokio::time::timeout(std::time::Duration::from_secs(budget), ask_inner(s, req)).await {
-        Ok(Ok(mut v)) => {
-            attach_research_nearby(&mut v, &s_model).await;
+        Ok(Ok(v)) => {
             // A NAMED MODEL WRITES BESIDE THE DETERMINISTIC ANSWER, NEVER OVER IT.
             //
             // `answer` is a projection of the structured fields and calls no
@@ -67030,6 +67048,7 @@ async fn post_ask_json(
             let Some(want) = want_model else {
                 return Ok(Json(v));
             };
+            let mut v = v;
             // What is genuinely left before the transport layer returns 504,
             // less a margin for serialising an envelope that can run to tens
             // of kilobytes.
@@ -75084,16 +75103,16 @@ fn ask_streamed(s: AppState, req: AskReq) -> Response {
     let state = s.clone();
     tokio::spawn(async move {
         let q = req.q.clone();
-        let out = match ask_inner_traced(state, req, trace).await.map(|mut v| {
-            attach_signal_next_steps(&mut v, &q);
-            v
-        }) {
-            Ok(v) => json!({
+        let out = match ask_inner_traced(state.clone(), req, trace).await {
+            Ok(mut v) => {
+                finish_ask(&mut v, &q, &state).await;
+                json!({
                 "schema": "emem.ask_stage.v1",
                 "stage": "answer",
                 "detail": v,
                 "_means": "the complete envelope, byte-identical to what POST /v1/ask returns for this request.",
-            }),
+                })
+            }
             // A failure is a terminal EVENT, not a dropped connection. A
             // stream that simply stops is indistinguishable from a network
             // fault, and a consumer cannot tell a refused question from a lost
@@ -75855,9 +75874,16 @@ fn spatial_trace(
 
 async fn ask_inner(s: AppState, req: AskReq) -> Result<JsonValue, ApiError> {
     let q = req.q.clone();
-    let mut r = ask_inner_traced(s, req, AskTrace::silent()).await?;
-    attach_signal_next_steps(&mut r, &q);
+    let mut r = ask_inner_traced(s.clone(), req, AskTrace::silent()).await?;
+    finish_ask(&mut r, &q, &s).await;
     Ok(r)
+}
+
+/// The last step every form of ask shares (REST, streamed, MCP, intent), so
+/// that each returns the same envelope for the same question.
+async fn finish_ask(r: &mut JsonValue, q: &str, s: &AppState) {
+    attach_signal_next_steps(r, q);
+    attach_research_nearby(r, s).await;
 }
 
 /// Questions a field-level signed signal answers better than a recall:
@@ -101882,6 +101908,11 @@ mod tests {
             far.inferences.is_empty(),
             "11 km is outside the default 5 km"
         );
+        assert!(
+            far.next.is_some(),
+            "an empty answer says how to add the first one"
+        );
+        assert!(near.next.is_none(), "a non-empty answer carries no `next`");
 
         inferences_core(&s, by(Some(cell.clone()), Some(lat), Some(lng), None))
             .await
@@ -102073,6 +102104,28 @@ mod tests {
         ] {
             assert_eq!(humanise_place_label(done), done);
         }
+    }
+
+    /// MCP agents read ask through a projection that keeps a fixed list of
+    /// keys, so the research pointers have to be on that list or an MCP
+    /// caller never sees them. The control is a key the projection drops.
+    #[test]
+    fn the_mcp_ask_projection_keeps_the_research_pointers() {
+        let v = json!({
+            "routed_to": "answer",
+            "answer": "x",
+            "research_nearby": {"nearest": [{"token": "emem:fact:a:b"}]},
+            "materialize_notes": ["dropped"],
+        });
+        let out = mcp_project_ask(v);
+        assert_eq!(
+            out["research_nearby"]["nearest"][0]["token"],
+            json!("emem:fact:a:b")
+        );
+        assert!(
+            out.get("materialize_notes").is_none(),
+            "control: the projection drops other keys"
+        );
     }
 
     /// A derivation registered before the place index existed is in

@@ -170,6 +170,7 @@ The operations behind those steps, and the rest of what agents do with them:
 | **Read what is known, at a place or across an area** | `emem_recall`, `emem_recall_polygon` and `emem_grid` fetch and sign on a miss; `emem_ask` takes plain language. [168 published recipes](https://emem.dev/v1/algorithms) combine readings into scores for flood risk, heat, crop condition and more. |
 | **Follow a place through time** | `emem_trajectory` lists the dated readings stored at a cell; `emem_diff` and `emem_compare` contrast two; `emem_field_series` follows an area through a season, with a change map. |
 | **Derive, so others can recompute** | `emem_derive` records your result over signed facts and re-runs pure operations before recording. |
+| **Reuse what others concluded** | `emem_inferences` lists the conclusions agents signed near a place, nearest first, under a trust policy it states; `emem_ask` points at the ones inside the place it answers about. |
 | **Correct without erasing** | `emem_memory_supersede` redirects your own stale note to its replacement; across authors, a signed `disagrees_with` edge records the dispute. |
 | **Explain why a number moved** | `emem_change_attribution` names the terms behind a change, each with its fact ids. |
 | **Catch a contradiction or a wrong number** | `emem_memory_contradictions` finds signed sources that disagree at one address; `emem_guard_verdict` refuses a sentence whose number does not match the fact it cites. |
@@ -383,12 +384,12 @@ Issues and pull requests welcome: [CONTRIBUTING.md](CONTRIBUTING.md), [SECURITY.
 
 ## Content address
 
-Every section above this one is a unit of one signed tree: `emem:tree:3yznaqotlewagdyxiajghhgzbq`, root `qm4r55yrf6fy7xkvsylr3pk77e4rkspecsfkikc2qhmsg3ve372a`, published under the key `k572x7go`. A single section is `emem:tree:3yznaqotlewagdyxiajghhgzbq#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
+Every section above this one is a unit of one signed tree: `emem:tree:nfwhfcsv5ugiiuudghrswtucr4`, root `hixsddncpkn5cy6sw5ptoa3okowapgce4ntqy4q5cjgnulqlw4uq`, published under the key `k572x7go`. A single section is `emem:tree:nfwhfcsv5ugiiuudghrswtucr4#row=<i>`, so another agent can cite one part of this file and anyone can prove it was in the file as published:
 
 ```bash
-curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261023a.md" > index.md
-curl -s "https://emem.dev/v1/tree/3yznaqotlewagdyxiajghhgzbq?row=3" > row.json
+curl -s "https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261024a.md" > index.md
+curl -s "https://emem.dev/v1/tree/nfwhfcsv5ugiiuudghrswtucr4?row=3" > row.json
 python3 plugins/emem/skills/emem-tokenise-files/scripts/tree_proof.py check row.json index.md README.md
 ```
 
-`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261023a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261023a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.
+`index.md` is the signed note at [`/memories/by_attester/k572x7go/readme/tree-20261024a.md`](https://emem.dev/memories/by_attester/k572x7go/readme/tree-20261024a.md). `python3 scripts/readme_tree_check.py` rebuilds the whole tree from this file and compares its root with the index, and CI runs it, so a README edited without re-signing fails the build. The tree changes whenever the README does, and this section is left out of it because it names the tree.

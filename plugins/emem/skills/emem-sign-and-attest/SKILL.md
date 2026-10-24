@@ -115,6 +115,11 @@ inputs, your named estimator and your seed gets the same value).
 `direct_sensor` and `deterministic_index` are refused as declarations
 (400 `derive_provenance_class_refused`).
 
+No default read returns a derivation: `recall` at its cell does not show
+it. `POST /v1/inferences` finds it by place, within a radius, for a
+reader whose trust policy admits your key. The default policy admits
+keys at `T4_affiliated`, which an organisation vouched for.
+
 ## Earning `deterministic_index`: let the responder recompute
 
 Pin a `code_cid` and use a pure scalar op the responder can reproduce
