@@ -253,7 +253,17 @@ jobs:
           export http_proxy=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9
           export all_proxy=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
           export no_proxy=127.0.0.1,localhost,::1 NO_PROXY=127.0.0.1,localhost,::1
-          cargo test --workspace --release
+          # The job log needs a login to read and annotations do not, so the
+          # failures are restated as annotations: which test, which panic,
+          # which binary died. --no-fail-fast reports every failing binary.
+          status=0
+          cargo test --workspace --release --no-fail-fast > test.log 2>&1 || status=$?
+          cat test.log
+          if [ "$status" != 0 ]; then
+            grep -E -A1 '^test .+ \.\.\. FAILED$|panicked at|^error: |process didn.t exit successfully|^failures:$' test.log \
+              | grep -v '^--$' | head -40 | sed 's/^/::error::/' || true
+          fi
+          exit "$status"
         # No CARGO_NET_OFFLINE: ort-sys's build script tracks it, so setting it
         # here and not in the build step reran that script and rebuilt every
         # crate linking ONNX Runtime, offline, and the run failed in the build.
