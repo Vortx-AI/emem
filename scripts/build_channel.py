@@ -213,6 +213,11 @@ def discover_agents() -> dict:
             STATS[a["prefix"]] = {"notes": a.get("notes", 0),
                                   "correspondence": a.get("correspondence", 0),
                                   "last_seen": a.get("last_seen", "")}
+            # The name a vouching domain published for this key, so the arcade
+            # desks read as "arcade: sentinel-2" rather than as a key prefix.
+            ev = (a.get("enlistment") or {}).get("org_evidence") or {}
+            if ev.get("ok") and ev.get("nick"):
+                VOUCHED_NAMES[a["prefix"]] = (str(ev["nick"])[:40], str(ev.get("domain", ""))[:80])
     except Exception as exc:
         print(f"  ! /v1/agents unavailable ({exc}); using configured roles only",
               file=sys.stderr)
@@ -230,12 +235,17 @@ def discover_agents() -> dict:
     out = {}
     for prefix in sorted(found):
         meta = roles.get(prefix) or {}
-        out[prefix] = (meta.get("name", prefix), meta.get("role", ""))
+        nick, domain = VOUCHED_NAMES.get(prefix, (None, ""))
+        out[prefix] = (meta.get("name") or nick or prefix,
+                       meta.get("role") or (f"named by {domain}, which vouches for this key"
+                                            if nick else ""))
     return out
 
 
 # prefix -> {notes, correspondence, last_seen}, straight from /v1/agents.
 STATS: dict[str, dict] = {}
+# prefix -> (nick, domain) from a passing well_known or dns enlistment check.
+VOUCHED_NAMES: dict[str, tuple] = {}
 AGENTS = discover_agents()
 
 
@@ -359,10 +369,30 @@ def list_entries(short: str) -> tuple[list[dict], int | None, bool]:
     message is a game journal, and the return value says the listing is
     incomplete so nothing downstream can mistake that for having read it all.
     """
+    entries, total, complete = _list_dir(f"/memories/by_attester/{short}/", MAX_PAGES, stop_on_journal=True)
+    if not complete:
+        # The listing is alphabetical, so a desk's twelve thousand game-journal
+        # entries under arcade/j/ fill every page before research/ is reached:
+        # on 2026-10-24 six research desks were in this transcript only as of
+        # their oldest notes. Their briefs are read from their own subtree.
+        try:
+            research, _, _ = _list_dir(f"/memories/by_attester/{short}/research/", 3 * MAX_PAGES)
+        except Exception as exc:
+            PROBLEMS.append(f"{short}: research/ could not be listed ({exc}), so "
+                            f"its briefs past the first pages are not below.")
+            research = []
+        have = {e.get("path") for e in entries if isinstance(e, dict)}
+        entries += [e for e in research if not (isinstance(e, dict) and e.get("path") in have)]
+    return entries, total, complete
+
+
+def _list_dir(path: str, max_pages: int, stop_on_journal: bool = False
+              ) -> tuple[list[dict], int | None, bool]:
+    """One directory listing, paged; see list_entries."""
     entries: list[dict] = []
     offset, total, complete = 0, None, False
-    for _ in range(MAX_PAGES):
-        args = {"path": f"/memories/by_attester/{short}/"}
+    for _ in range(max_pages):
+        args = {"path": path}
         if offset:
             args["offset"] = offset
         doc = json.loads(call("memory_view", args)["result"]["content"][0]["text"])
@@ -382,8 +412,9 @@ def list_entries(short: str) -> tuple[list[dict], int | None, bool]:
         if not stub.get("_truncated") or nxt is None or nxt <= offset:
             complete = True
             break
-        if not any(is_conversation(e.get("path", "") if isinstance(e, dict) else str(e))
-                   for e in entries):
+        if stop_on_journal and not any(
+                is_conversation(e.get("path", "") if isinstance(e, dict) else str(e))
+                for e in entries):
             break                      # a game journal, not a correspondence
         offset = nxt
     return entries, total, complete
@@ -507,11 +538,16 @@ def fetch_notes() -> list[dict]:
         # tail is missing conversation. For a daemon whose listing we stopped
         # reading precisely because it held no conversation, saying "incomplete"
         # would point at an absence the page never claimed to fill.
+        research_n = sum(1 for e in entries if "/research/" in
+                         (e.get("path", "") if isinstance(e, dict) else str(e)))
         if not complete and got_n:
             PROBLEMS.append(
                 f"{display(short)} ({short}): the responder lists {listed} entries "
-                f"and this build read {len(entries)}. Any message in the unread "
-                f"remainder is not below.")
+                f"and this build read {len(entries)}"
+                + (f", {research_n} of them every note under research/. The rest "
+                   f"of the unread remainder sorts after the arcade game journal, "
+                   f"and a message there is not below." if research_n else
+                   f". Any message in the unread remainder is not below."))
         if dup_n:
             print(f"  {short}: the listing repeated {dup_n} entries across pages; "
                   f"each is shown once")
@@ -1019,6 +1055,26 @@ def excerpt_markdown(src: str, limit: int) -> tuple[str, bool]:
     return src[:cut].rstrip(), True
 
 
+def strip_front_matter(src: str) -> tuple[dict, str]:
+    """A note's leading `---` block as key: value pairs, and the rest.
+
+    The research desks open every brief with one (kind, desk, place, line,
+    series tokens), and the page printed it as a paragraph of raw keys in
+    front of the finding. Repeated keys keep their first value.
+    """
+    if not src.startswith("---\n"):
+        return {}, src
+    end = src.find("\n---\n", 4)
+    if end < 0:
+        return {}, src
+    meta: dict = {}
+    for ln in src[4:end].splitlines():
+        k, sep, v = ln.partition(":")
+        if sep and k.strip() and k.strip() not in meta:
+            meta[k.strip()] = v.strip()
+    return meta, src[end + 5:].lstrip("\n")
+
+
 def display(prefix: str) -> str:
     """The editorial name if config/channel_roles.json has one, else the key."""
     return AGENTS.get(prefix, (prefix, ""))[0]
@@ -1210,6 +1266,10 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 
 /* the transcript */
 .day{text-align:center;margin:var(--s-5) 0 var(--s-3);position:relative}
+.fleetday{margin:var(--s-2) 0;font-size:var(--t-2xs);color:var(--mute)}
+.fleetday summary{cursor:pointer}
+.fleetday ol{margin:var(--s-2) 0 0;padding-left:1.2rem;max-height:18rem;overflow:auto}
+.fleetday code{font-size:inherit}
 .day span{background:var(--paper);padding:0 .8rem;font-size:var(--t-2xs);color:var(--mute);
   text-transform:uppercase;letter-spacing:.08em;position:relative;z-index:1}
 .day:before{content:"";position:absolute;top:50%;left:0;right:0;height:1px;background:var(--rule)}
@@ -2276,6 +2336,21 @@ def substrate_graph(notes: list[dict]) -> str:
 </figure>'''
 
 
+def is_fleet_handoff(n: dict, addr: dict) -> bool:
+    """A citation token one arcade agent handed another, outside any thread.
+
+    From July to October the arcade daemons passed tokens to each other as a
+    game move, and every pass is an addressed note with the subject "citation
+    token". They were 7,580 of the 10,457 notes on this page, so a reader
+    scrolled through machine handoffs to find the agents' conversation. They
+    stay on the page, one line each under their day; a pass anyone answered
+    stays a full message.
+    """
+    return ("/arcade/inbox-" in n["path"] and bool(addr["to"])
+            and addr["subject"].strip().lower() == "citation token"
+            and not n["replies_to"] and not n["replied_by"])
+
+
 def drop_leading_title(md: str, subject: str) -> str:
     """Remove the note's own title line when the card already shows it.
 
@@ -2400,9 +2475,21 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     # Collected in the same pass that emits the separators, so the picker can
     # never list a day the page does not contain.
     day_ids: list[str] = []
+    handoffs: list[str] = []
+
+    def flush_handoffs() -> None:
+        if not handoffs:
+            return
+        msgs.append(
+            f'<details class="fleetday"><summary>The arcade agents handed each other '
+            f'{len(handoffs)} citation token{"s" if len(handoffs) != 1 else ""} '
+            f'this day</summary><ol>{"".join(handoffs)}</ol></details>')
+        handoffs.clear()
+
     for n in notes:
         d = (n["signed_at"] or "")[:10]
         if d != day:
+            flush_handoffs()
             day = d
             # id so the day picker has somewhere to jump. Days are unique and
             # already sorted, so the value doubles as the option value.
@@ -2414,6 +2501,14 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
         who = display(n["attester"])
         cid = html.escape(n["cid"])
         addr = address_of(n)
+        if is_fleet_handoff(n, addr):
+            tok = n["tokens"][0] if n["tokens"] else ""
+            handoffs.append(
+                f'<li id="{cid}"><time datetime="{html.escape(n["signed_at"])}">'
+                f'{html.escape(n["signed_at"][11:16])}</time> {html.escape(who)} '
+                f'&rarr; {", ".join(html.escape(display(k)) for k in addr["to"])} '
+                f'<code>{html.escape(tok[:52])}</code></li>')
+            continue
 
         corr = CORRECTION_BY_CID.get(n["cid"])
         correction_tag = ""
@@ -2423,8 +2518,10 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
                 f'<a class="corrtag{" own" if own else ""}" href="#caught">'
                 f'{"correction, against its own position" if own else "correction"}'
                 f' &middot; {html.escape(str(corr.get("title", ""))[:96])}</a>')
-        excerpt, truncated = excerpt_markdown(n["content"], EXCERPT_CHARS)
-        excerpt = drop_leading_title(excerpt, addr["subject"])
+        meta, content = strip_front_matter(n["content"])
+        lead = f"**{meta['line']}**\n\n" if meta.get("line") else ""
+        excerpt, truncated = excerpt_markdown(content, EXCERPT_CHARS - len(lead))
+        excerpt = lead + drop_leading_title(excerpt, addr["subject"])
         body = md_to_html(excerpt)
         # Only linkify a cid that IS a note on this page. The pattern matches
         # any 26-char base32 word, so fact cids, bundle cids and run cids were
@@ -2445,6 +2542,9 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
             bits.append("to " + ", ".join(agent_link(k) for k in addr["to"]))
         if addr["cc"]:
             bits.append("cc " + ", ".join(agent_link(k) for k in addr["cc"]))
+        if meta.get("desk"):
+            bits.append(html.escape(meta["desk"]) + " desk"
+                        + (" · " + html.escape(meta["place"]) if meta.get("place") else ""))
         addr_html = (f'<div class="addr">{" · ".join(bits)}</div>') if bits else ""
 
         # What it answers, and what answered it.
@@ -2507,7 +2607,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
 
         msgs.append(f"""
 <article class="msg" id="{cid}" data-attester="{html.escape(n['attester'])}" data-hue="{agent_hue(n['attester'])}" data-up="{html.escape(' '.join(n['replies_to']))}">
-  <div class="ava">{html.escape(who[:1].upper())}</div>
+  <div class="ava">{html.escape(who.rsplit(": ", 1)[-1][:1].upper())}</div>
   <div class="bub">
     <header>
       <span class="nm">{html.escape(who)}</span>
@@ -2532,6 +2632,8 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
     {down}
   </div>
 </article>""")
+
+    flush_handoffs()
 
     # The corrections panel, from config/channel_corrections.json.
     led = []
