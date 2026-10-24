@@ -224,9 +224,35 @@ jobs:
           done
           echo "::error::ort-sys prebuilt could not be fetched after 5 attempts; cdn.pyke.io unreachable from this runner"
           exit 1
-      - run: cargo test --workspace --release
+      # Build with the network, then run without it. EMEM_NO_NETWORK only
+      # gated the tests that read it, and seven api-rest tests reached
+      # upstreams anyway: a topic-router model from HuggingFace, Sentinel-2
+      # catalogues, and the EUDR forest layers. Each passes with no network
+      # and with a clean one, and they failed CI on Linux and macOS together
+      # in four runs of five from 2026-10-24, when the same upstreams answered
+      # GitHub's runners with refusals no other network sees. The run step
+      # points every HTTP client at a closed port, so a test that reaches out
+      # fails fast exactly as it does offline, on every runner; localhost
+      # stays direct for the tests that start their own server. The
+      # profile overrides must match the build step's or the run rebuilds.
+      - name: build the test binaries (network)
+        run: cargo test --workspace --release --no-run
+        env:
+          CARGO_PROFILE_RELEASE_LTO: "false"
+          CARGO_PROFILE_RELEASE_DEBUG: "0"
+          CARGO_BUILD_JOBS: "2"
+      - name: run the tests (no network)
+        run: cargo test --workspace --release
         env:
           EMEM_NO_NETWORK: "1"
+          CARGO_NET_OFFLINE: "true"
+          HTTPS_PROXY: "http://127.0.0.1:9"
+          HTTP_PROXY: "http://127.0.0.1:9"
+          https_proxy: "http://127.0.0.1:9"
+          http_proxy: "http://127.0.0.1:9"
+          ALL_PROXY: "http://127.0.0.1:9"
+          NO_PROXY: "127.0.0.1,localhost,::1"
+          no_proxy: "127.0.0.1,localhost,::1"
           # THE TEST HARNESS FOR ONE CRATE TAKES 14 GB TO BUILD, AND A RUNNER
           # HAS 16.
           #
