@@ -96,6 +96,9 @@ struct Index {
     /// dozens of countries), so a query like "Western" hits multiple
     /// records — caller can disambiguate by `country` field.
     by_name: HashMap<String, Vec<usize>>,
+    /// `(country ISO2, admin1 code)` → record index, for naming the region a
+    /// cities1000 row carries only as a code.
+    by_code: HashMap<(String, String), usize>,
     records: Vec<Admin1Record>,
 }
 
@@ -227,8 +230,22 @@ fn index() -> &'static Index {
             }
             records.push(rec);
         }
-        Index { by_name, records }
+        // Records were pushed in `raws` order, so the parse-time key map
+        // already indexes them.
+        Index {
+            by_name,
+            by_code: by_admin_key,
+            records,
+        }
     })
+}
+
+/// The region's name for a GeoNames `(country, admin1 code)` pair:
+/// `("IN", "23")` is `Punjab`. A cities1000 row carries only the code.
+pub fn name_for_code(country_iso2: &str, admin1_code: &str) -> Option<&'static str> {
+    let idx = index();
+    let key = (country_iso2.to_ascii_uppercase(), admin1_code.to_string());
+    idx.by_code.get(&key).map(|&i| idx.records[i].name.as_str())
 }
 
 /// Look up an admin1 by name. Returns the best matching record:

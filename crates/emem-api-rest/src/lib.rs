@@ -15652,6 +15652,20 @@ fn humanise_place_label(label: &str) -> String {
     };
     let head = label[..comma_idx].trim();
     let trailing = label[comma_idx + 1..].trim();
+    // Only the raw GeoNames tail, `<admin code> <CC>` or a bare `<CC>`, is
+    // rewritten. The gazetteer now spells labels out ("Fresno, California,
+    // United States"), and splitting that tail at its space would print
+    // "United, States".
+    let is_code = |t: &str| t.len() == 2 && t.chars().all(|c| c.is_ascii_uppercase());
+    let raw_tail = match trailing.split_once(' ') {
+        Some((admin, cc)) => {
+            is_code(cc) && admin.len() <= 3 && admin.chars().all(|c| c.is_ascii_alphanumeric())
+        }
+        None => is_code(trailing),
+    };
+    if !raw_tail {
+        return label.to_string();
+    }
     // Trailing segment is "<admin> <country>" with one space.
     let mut admin: Option<&str> = None;
     let country = if let Some(sp) = trailing.find(' ') {
@@ -102042,6 +102056,23 @@ mod tests {
         let mut placeless = json!({"answer": "x"});
         attach_research_nearby(&mut placeless, &s).await;
         assert_eq!(placeless, json!({"answer": "x"}));
+    }
+
+    /// The raw GeoNames tail is rewritten; a label the gazetteer already
+    /// spelled out passes through, and its two-word country stays whole.
+    #[test]
+    fn a_readable_place_label_is_left_alone() {
+        assert_eq!(humanise_place_label("Mumbai, 16 IN"), "Mumbai, India");
+        assert_eq!(
+            humanise_place_label("New York City, NY US"),
+            "New York City, NY, United States"
+        );
+        for done in [
+            "Fresno, California, United States",
+            "Ludhiana, Punjab, India",
+        ] {
+            assert_eq!(humanise_place_label(done), done);
+        }
     }
 
     /// A derivation registered before the place index existed is in

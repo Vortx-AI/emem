@@ -124,15 +124,24 @@ pub struct GeonameRecord {
 }
 
 impl GeonameRecord {
-    /// Human-friendly label of the form
-    /// `"<Name>, <Admin1?> <Country>"` — what `/v1/locate` returns in
-    /// `place_label`. Empty admin1 collapses cleanly so the label
-    /// stays readable for country-level features like `"Singapore, SG"`.
+    /// Human-friendly label, `"<Name>, <Region>, <Country>"`, such as
+    /// `"Ludhiana, Punjab, India"`: what `/v1/locate` and `/v1/ask` show.
+    /// A row carries its region and country as codes (`23`, `IN`), and
+    /// `"Ludhiana, 23 IN"` reads as noise to a person or a model, so both are
+    /// spelled out from the embedded tables. A region code with no table
+    /// entry is left out rather than shown raw, and a region named like
+    /// the place itself (Singapore) is not repeated.
     pub fn label(&self) -> String {
-        if self.admin1.is_empty() {
-            format!("{}, {}", self.name, self.country)
-        } else {
-            format!("{}, {} {}", self.name, self.admin1, self.country)
+        let country = crate::countries::lookup(&self.country)
+            .filter(|c| c.iso2.eq_ignore_ascii_case(&self.country))
+            .map_or(self.country.as_str(), |c| c.name.as_str());
+        let region = Some(self.admin1.as_str())
+            .filter(|a| !a.is_empty())
+            .and_then(|a| crate::admin1::name_for_code(&self.country, a))
+            .filter(|r| *r != self.name);
+        match region {
+            Some(r) => format!("{}, {r}, {country}", self.name),
+            None => format!("{}, {country}", self.name),
         }
     }
 }
@@ -556,9 +565,13 @@ mod tests {
     #[test]
     fn label_format_is_stable() {
         let r = lookup("Mumbai").unwrap();
-        let lab = r.label();
-        assert!(lab.starts_with("Mumbai"));
-        assert!(lab.ends_with(" IN"), "label was {lab}");
+        assert_eq!(r.label(), "Mumbai, Maharashtra, India");
+        assert_eq!(
+            lookup("Ludhiana").unwrap().label(),
+            "Ludhiana, Punjab, India"
+        );
+        let fresno = lookup("Fresno").unwrap();
+        assert_eq!(fresno.label(), "Fresno, California, United States");
     }
 
     #[test]
