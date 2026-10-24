@@ -871,8 +871,14 @@ impl MaterializingStorage {
 }
 
 fn tempdir_for_log() -> std::io::Result<std::path::PathBuf> {
+    // One directory per log. Every ephemeral store in a process shared
+    // `emem-log-<pid>`, so stores open at once (one per test) appended to the
+    // same segment files through separate in-memory counters, and a test that
+    // read the log back found its own entry missing depending on timing.
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let mut p = std::env::temp_dir();
-    p.push(format!("emem-log-{}", std::process::id()));
+    p.push(format!("emem-log-{}-{n}", std::process::id()));
     std::fs::create_dir_all(&p)?;
     Ok(p)
 }

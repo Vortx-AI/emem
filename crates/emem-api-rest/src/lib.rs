@@ -96866,8 +96866,8 @@ mod tests {
             Some(entry_hash.as_str())
         );
 
-        // The log is shared by every test in the process, so look for this
-        // entry by its path rather than counting entries.
+        // Look the entry up by its path rather than counting entries: the
+        // store's own writes are in this log too.
         let log = s.storage.transparency_log().expect("log");
         let total = log.record_count().await;
         let rows = log.entries(0, total).expect("entries");
