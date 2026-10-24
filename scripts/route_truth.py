@@ -291,7 +291,7 @@ def main():
                 continue
             advertised.setdefault(u, set()).add(rel)
 
-    dead = []
+    dead, pending = [], []
     for u in sorted(advertised):
         path = u[len("https://emem.dev"):].split("?")[0] or "/"
         verb = methods.get(path, "GET")
@@ -319,6 +319,18 @@ def main():
         # A route that answers 404 or 405 is a real overclaim: we connected,
         # and the thing we advertise is not there. A route we could not reach
         # tells us nothing about the route. Only the first is a finding.
+        if code in (404, 405) and origin != DEFAULT_ORIGIN:
+            # The contract job runs against this commit's own server, and a
+            # commit that adds a route and documents it in the same push would
+            # otherwise fail here until the very deploy this gate blocks. So
+            # ask the server under test too: if it serves the path, the link
+            # is ahead of production, not dead. A path dead on both is still a
+            # failure, and the hourly run against emem.dev still reports it.
+            here = origin + u[len("https://emem.dev"):]
+            here_code, _ = fetch(here, verb, {} if verb == "POST" else None, timeout=12)
+            if here_code not in (0, 404, 405):
+                pending.append((u, code, sorted(advertised[u])))
+                continue
         if code in (404, 405):
             dead.append((u, code, sorted(advertised[u])))
         elif code == 0:
@@ -328,6 +340,9 @@ def main():
               f"could not be reached at all; route truth NOT asserted this run")
     print(f"\n  {'ok  ' if not dead else 'FAIL'} {len(advertised)} emem.dev URLs "
           f"advertised in {len(surfaces)} machine surfaces, {len(dead)} dead")
+    for u, c, where in pending:
+        print(f"  ---- ahead of production: {u} answers {c} on emem.dev and is "
+              f"served by {origin}  (in {', '.join(where)})")
     for u, c, where in dead:
         fails.append(f"advertised but {c}: {u}  (in {', '.join(where)})")
 
