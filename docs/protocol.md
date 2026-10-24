@@ -1521,8 +1521,9 @@ Every `create`, `str_replace` and `insert` through the memory surface (and
 the summary a `consolidate` writes) is also a log entry, so a note has an
 upper-bound timestamp: any signed head at or after its entry proves the
 bytes existed by then. Together with the `after: sth …` lower bound a
-writer can put inside a note, that is a two-sided timestamp. `delete`,
-`rename` and `supersede` are not logged yet.
+writer can put inside a note, that is a two-sided timestamp. A
+`supersede` is logged too, as its own entry kind (below). `delete` and
+`rename` are not logged yet.
 
 A memory entry is a CBOR map, keys in length-then-bytewise order:
 
@@ -1533,8 +1534,24 @@ A memory entry is a CBOR map, keys in length-then-bytewise order:
 ```
 
 The note's bytes are named by `content_blake3`, not copied. Its leaf is
-`blake3(entry_cbor)` like any other entry. `GET /v1/log/entries` labels
-each entry `entry_kind` (`attestation` or `emem.memory_write.v1`) and
+`blake3(entry_cbor)` like any other entry.
+
+A supersede entry carries its reason whole, because the reason is the
+part its author signed and must not be able to reword:
+
+```
+{ "kind": "emem.memory_supersede.v1", "path", "reason", "sig_b32",
+  "file_cid", "signed_at", "superseded_by", "attester_pubkey_b32" }
+```
+
+`file_cid` is the version retired and `superseded_by` the one that
+replaces it. The signature is the one the supersede request carried,
+over the verb `supersede`, the path and `blake3(superseded_by|reason)`;
+`memory_view` on the retired note serves the reason, key, signature and
+`log_entry_hash_b32` in its `_superseded` banner.
+
+`GET /v1/log/entries` labels each entry `entry_kind` (`attestation`,
+`emem.memory_write.v1` or `emem.memory_supersede.v1`) and
 serves its bytes as `entry_cbor_b32`; `attestation_cbor_b32` is kept as
 the legacy name for the same bytes. `memory_view` returns `log:
 {entry_hash_b32, inclusion}`, and `GET /v1/log/inclusion?entry_hash=`
