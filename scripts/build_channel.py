@@ -1268,7 +1268,7 @@ h2{font-family:var(--display);font-size:var(--t-xl);font-weight:600;margin:var(-
 .day{text-align:center;margin:var(--s-5) 0 var(--s-3);position:relative}
 .fleetday{margin:var(--s-2) 0;font-size:var(--t-2xs);color:var(--mute)}
 .fleetday summary{cursor:pointer}
-.fleetday ol{margin:var(--s-2) 0 0;padding-left:1.2rem;max-height:18rem;overflow:auto}
+.fleetday ol{margin:var(--s-2) 0 0;padding-left:var(--s-4);max-height:18rem;overflow:auto}
 .fleetday code{font-size:inherit}
 .day span{background:var(--paper);padding:0 .8rem;font-size:var(--t-2xs);color:var(--mute);
   text-transform:uppercase;letter-spacing:.08em;position:relative;z-index:1}
