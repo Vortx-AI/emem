@@ -233,8 +233,10 @@ jobs:
       # GitHub's runners with refusals no other network sees. The run step
       # points every HTTP client at a closed port, so a test that reaches out
       # fails fast exactly as it does offline, on every runner; localhost
-      # stays direct for the tests that start their own server. The
-      # profile overrides must match the build step's or the run rebuilds.
+      # stays direct for the tests that start their own server. Every
+      # variable a build script tracks must match the build step's, or the
+      # run rebuilds: the profile overrides do, and CARGO_NET_OFFLINE is
+      # deliberately absent.
       - name: build the test binaries (network)
         run: cargo test --workspace --release --no-run
         env:
@@ -252,9 +254,11 @@ jobs:
           export all_proxy=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
           export no_proxy=127.0.0.1,localhost,::1 NO_PROXY=127.0.0.1,localhost,::1
           cargo test --workspace --release
+        # No CARGO_NET_OFFLINE: ort-sys's build script tracks it, so setting it
+        # here and not in the build step reran that script and rebuilt every
+        # crate linking ONNX Runtime, offline, and the run failed in the build.
         env:
           EMEM_NO_NETWORK: "1"
-          CARGO_NET_OFFLINE: "true"
           # THE TEST HARNESS FOR ONE CRATE TAKES 14 GB TO BUILD, AND A RUNNER
           # HAS 16.
           #
