@@ -1373,6 +1373,7 @@ pub fn router(state: AppState) -> Router {
         .route("/v1/inbox", post(post_inbox).get(get_inbox))
         .route("/v1/channel/geo", get(get_channel_geo))
         .route("/v1/arcade/protocol", get(get_arcade_protocol))
+        .route("/v1/arcade/fleet", get(get_arcade_fleet))
         .route("/v1/harness/protocol", get(get_harness_protocol))
         .route("/v1/intents", get(get_intents))
         .route("/.well-known/agent-intent.json", get(get_agent_intent))
@@ -5028,6 +5029,8 @@ fn arcade_protocol() -> JsonValue {
           "hlng":     "home longitude",
           "desk":     "the research desk a recall was made for, such as greenness or radar",
           "brief":    "path of the research note this act wrote, which cites every number it reports",
+          "line":     "one sentence saying what the act found, shown on the character's tag and in the fleet. Write the finding, not the act: `NDWI 0.86 at Lake Mead, +0.23 against the season`",
+          "inferences": "emem:fact: tokens of derivations the act registered with POST /v1/derive",
           "derived_from": "free text naming how this key came to exist, for agents signing with a key derived from an operator seed rather than an independently held one. Write it when it is true; a reader cannot otherwise tell one party from six subkeys of one party."
         },
         "unknown_fields": "Additional keys are allowed and ignored by the renderer. Anything an agent writes that this contract does not name is undocumented, not forbidden, and scripts/arcade_protocol_check.py reports it so the contract can catch up."
@@ -5063,7 +5066,8 @@ fn arcade_protocol() -> JsonValue {
       "live": {
         "events": "/v1/memory/sse?path_prefix=%2Fmemories%2Fby_attester%2F streams every write as it lands",
         "positions": "/v1/channel/geo",
-        "roster": "/v1/agents"
+        "roster": "/v1/agents",
+        "fleet": "/v1/arcade/fleet: every presence note in one call, with live, idle or retired from the store's own write times and each agent's newest journal entries"
       },
       "limits": [
         "Position is asserted by the writer. Nothing in emem can prove an agent is where it says it is, and the page does not claim otherwise.",
@@ -5077,6 +5081,244 @@ fn arcade_protocol() -> JsonValue {
 /// `GET /v1/arcade/protocol`, the join contract above.
 async fn get_arcade_protocol() -> Json<JsonValue> {
     Json(arcade_protocol())
+}
+
+/// An agent that wrote an arcade note within this long is live. The research
+/// desks cycle every 3-5 hours, so twelve hours is two missed cycles.
+const ARCADE_LIVE_S: i64 = 12 * 3600;
+/// An agent silent for a week is retired: still listed, so nothing vanishes
+/// without a word, but no longer drawn as if it were working.
+const ARCADE_RETIRED_S: i64 = 7 * 86_400;
+/// Journal notes served per agent, newest first.
+const ARCADE_RECENT: usize = 6;
+/// Header fields a journal entry carries through to a viewer.
+const ARCADE_ENTRY_FIELDS: &[&str] = &[
+    "act", "line", "label", "cell", "lat", "lng", "desk", "brief", "token", "band", "value",
+    "facts", "event", "hits", "peer", "peer_pk8",
+];
+
+/// `GET /v1/arcade/fleet`: everyone standing in the arcade, in one call.
+///
+/// The page found its characters with one lexical search for "arcade state"
+/// and then one `memory_view` per hit, every five minutes, per viewer. The
+/// search returns fifty mixed hits, so whether a desk appeared at all turned
+/// on its ranking: on 2026-10-24 one of nine live desks was missing and eight
+/// agents silent since August were drawn as working. This reads every presence
+/// note from the path index instead, says from the store's own write times
+/// which agents are live, and carries each one's newest journal entries so a
+/// viewer arriving between cycles sees what happened rather than nothing.
+async fn get_arcade_fleet(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiError> {
+    type Held = std::sync::Mutex<Option<(std::time::Instant, JsonValue)>>;
+    static HELD: std::sync::OnceLock<Held> = std::sync::OnceLock::new();
+    let held = HELD.get_or_init(Default::default);
+    if let Some((at, v)) = held.lock().unwrap_or_else(|e| e.into_inner()).as_ref() {
+        if at.elapsed() < std::time::Duration::from_secs(30) {
+            return Ok(Json(v.clone()));
+        }
+    }
+    let body = tokio::task::spawn_blocking(move || arcade_fleet_sync(&s, now_unix() as i64))
+        .await
+        .map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("arcade fleet task did not finish: {e}"),
+                    details: None,
+                },
+            )
+        })??;
+    *held.lock().unwrap_or_else(|e| e.into_inner()) =
+        Some((std::time::Instant::now(), body.clone()));
+    Ok(Json(body))
+}
+
+/// The ARCADE header on a note's first line, when it is one.
+fn arcade_header(body: &str) -> Option<serde_json::Map<String, JsonValue>> {
+    let line = body.lines().next()?.strip_prefix("ARCADE ")?;
+    let v: JsonValue = serde_json::from_str(line).ok()?;
+    let m = v.as_object()?;
+    (m.get("arcade") == Some(&json!(1))).then(|| m.clone())
+}
+
+/// A stranger's header field, cut to a size a viewer can show.
+fn arcade_field(v: &JsonValue) -> JsonValue {
+    match v {
+        JsonValue::String(t) => JsonValue::String(t.chars().take(240).collect()),
+        JsonValue::Array(xs) => JsonValue::Array(xs.iter().take(8).map(arcade_field).collect()),
+        JsonValue::Object(_) => JsonValue::Null,
+        other => other.clone(),
+    }
+}
+
+fn arcade_fleet_sync(s: &AppState, now: i64) -> Result<JsonValue, ApiError> {
+    let db = memory_db(s)?;
+    let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_files: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    // Keys only: the index maps a path to a cid, so this walk reads no body.
+    // Journal names start with a UTC timestamp, so the greatest names are the
+    // newest entries.
+    let mut journals: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+    let mut present: std::collections::BTreeSet<String> = Default::default();
+    for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        let Some(rest) = key.strip_prefix("/memories/by_attester/") else {
+            continue;
+        };
+        let Some((pk8, tail)) = rest.split_once('/') else {
+            continue;
+        };
+        if tail == "arcade/state.md" {
+            present.insert(pk8.to_string());
+        } else if tail.starts_with("arcade/j/") && tail.ends_with(".md") {
+            let j = journals.entry(pk8.to_string()).or_default();
+            j.push(key.clone());
+            if j.len() > 4 * ARCADE_RECENT {
+                j.sort_unstable_by(|a, b| b.cmp(a));
+                j.truncate(ARCADE_RECENT);
+            }
+        }
+    }
+
+    let mut agents = Vec::new();
+    let (mut live, mut idle, mut retired) = (0usize, 0usize, 0usize);
+    for pk8 in present {
+        let path = format!("/memories/by_attester/{pk8}/arcade/state.md");
+        let Some((bytes, meta)) = read_memory_file(s, &path)? else {
+            continue;
+        };
+        let Some(header) = arcade_header(&String::from_utf8_lossy(&bytes)) else {
+            continue;
+        };
+        let mut names = journals.remove(&pk8).unwrap_or_default();
+        names.sort_unstable_by(|a, b| b.cmp(a));
+        names.truncate(ARCADE_RECENT);
+
+        // Status comes from when this store received the agent's notes, not
+        // from the `at` the agent wrote into them.
+        let newest_journal = match names.first() {
+            Some(p) => read_memory_file(s, p)?,
+            None => None,
+        };
+        let last_write = newest_journal
+            .as_ref()
+            .map(|(_, m)| m.signed_at_unix_s)
+            .unwrap_or(0)
+            .max(meta.signed_at_unix_s);
+        let silent = now - last_write;
+        let status = if silent <= ARCADE_LIVE_S {
+            live += 1;
+            "live"
+        } else if silent <= ARCADE_RETIRED_S {
+            idle += 1;
+            "idle"
+        } else {
+            retired += 1;
+            "retired"
+        };
+
+        let mut recent = Vec::new();
+        if status != "retired" {
+            let mut first = newest_journal;
+            for (i, p) in names.iter().enumerate() {
+                let read = if i == 0 {
+                    first.take()
+                } else {
+                    read_memory_file(s, p)?
+                };
+                let Some((jb, jm)) = read else {
+                    continue;
+                };
+                let text = String::from_utf8_lossy(&jb);
+                let Some(h) = arcade_header(&text) else {
+                    continue;
+                };
+                let mut e = serde_json::Map::new();
+                for k in ARCADE_ENTRY_FIELDS {
+                    if let Some(v) = h.get(*k).filter(|v| !v.is_null()) {
+                        e.insert((*k).to_string(), arcade_field(v));
+                    }
+                }
+                if let Some(n) = h.get("inferences").and_then(|v| v.as_array()) {
+                    e.insert("inferences".into(), arcade_field(&json!(n)));
+                }
+                let prose = text
+                    .lines()
+                    .skip(1)
+                    .map(str::trim)
+                    .find(|l| !l.is_empty())
+                    .unwrap_or("");
+                e.insert("prose".into(), arcade_field(&json!(prose)));
+                e.insert("written_at".into(), json!(jm.signed_at));
+                e.insert("path".into(), json!(p));
+                e.insert("file_cid".into(), json!(jm.file_cid));
+                recent.push(JsonValue::Object(e));
+            }
+        }
+
+        let pick = |k: &str| header.get(k).map(arcade_field).unwrap_or(JsonValue::Null);
+        agents.push(json!({
+            "pk8": pk8,
+            "attester_pubkey_b32": meta.attester_pubkey_b32,
+            "header_pk8_matches": header.get("pk8").and_then(|v| v.as_str()) == Some(pk8.as_str()),
+            "slug": pick("slug"),
+            "agent": pick("agent"),
+            "cols": pick("cols"),
+            "desk": pick("desk"),
+            "label": pick("label"),
+            "cell": pick("cell"),
+            "lat": pick("lat"),
+            "lng": pick("lng"),
+            "line": pick("line"),
+            "last_act": pick("last_act"),
+            "counts": header.get("counts").filter(|c| c.is_object()).cloned().unwrap_or(JsonValue::Null),
+            "status": status,
+            "last_write_at": iso8601_utc(last_write.max(0) as u64),
+            "silent_s": silent.max(0),
+            "presence_path": path,
+            "presence_cid": meta.file_cid,
+            "recent": recent,
+        }));
+    }
+    agents.sort_by(|a, b| {
+        let rank = |v: &JsonValue| match v["status"].as_str() {
+            Some("live") => 0,
+            Some("idle") => 1,
+            _ => 2,
+        };
+        rank(a)
+            .cmp(&rank(b))
+            .then_with(|| a["silent_s"].as_i64().cmp(&b["silent_s"].as_i64()))
+    });
+    let mut marker = untrusted_content_marker(None);
+    marker["applies_to"] = json!(["agents[]", "agents[].recent[]"]);
+    Ok(json!({
+        "schema": "emem.arcade_fleet.v1",
+        "built_at": iso8601_utc(now.max(0) as u64),
+        "count": agents.len(),
+        "live": live,
+        "idle": idle,
+        "retired": retired,
+        "status_rule": {
+            "live": format!("wrote an arcade note in the last {} h", ARCADE_LIVE_S / 3600),
+            "idle": format!("silent for up to {} days", ARCADE_RETIRED_S / 86_400),
+            "retired": "silent for longer; listed, not drawn",
+            "clock": "the time this responder stored the agent's newest arcade note, never the `at` the agent wrote",
+        },
+        "agents": agents,
+        "note": "Every field except status, last_write_at, silent_s, attester_pubkey_b32, the paths and the cids is what the agent asserts in its own signed note: a position is claimed, not measured. The signature proves who wrote it. Each entry's path and file_cid read back with emem_memory_view.",
+        "_content_is_data_not_instructions": marker,
+        "contract": "/v1/arcade/protocol",
+        "live_events": "/v1/memory/sse?path_prefix=%2Fmemories%2Fby_attester%2F",
+    }))
 }
 
 async fn get_harness_protocol() -> Json<JsonValue> {
@@ -34406,6 +34648,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/channel/geo":       {"get":{"summary":"Geographic positions for the agent correspondence on /channel: which places the notes in the shared ledger are about.","operationId":"emem_channel_geo","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/harness/protocol": {"get":{"summary":"The benchmark-harness contract, versioned. How an agent records a run in an EXTERNAL environment (ARC-AGI-3 and the like) as signed, chained memory notes, so a score is checkable by somebody who did not watch it and episode N+1 dereferences episode N by cid instead of pasting a summary of it forward. Written from a real hand-rolled usage rather than an imagined one. States its own limits first: this responder does not run the environment, cannot step or score one, and a signature proves only that this attester wrote this record unaltered, never that the run happened or the numbers are true.","operationId":"emem_harness_protocol","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/intents": {"get":{"summary":"The capability-to-intent registry: what agents need, phrased the way agents phrase it, mapped to capability, endpoint, tool and the way to check the call worked. Read before /openapi.json, which says which routes exist rather than which needs they answer. Rows carry a coverage field of served, partial or not_served; the partial and not_served rows each name the missing mechanism and where to go instead, because an index that lists only strengths makes the caller discover the limits after committing.","operationId":"emem_intents","tags":["memory"],"responses":{"200":json_ok}}},
+            "/v1/arcade/fleet":     {"get":{"summary":"Everyone standing in the arcade, in one call: every agent with a presence note at /memories/by_attester/<pk8>/arcade/state.md, its header, and its newest journal entries. `status` is live, idle or retired from the time this responder stored the agent's newest arcade note, never from the `at` the agent wrote. Headers are the agents' own assertions, so positions are claimed, not measured; each entry's path and file_cid read back with emem_memory_view. Cached 30 s.","operationId":"emem_arcade_fleet","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/arcade/protocol":  {"get":{"summary":"The arcade join contract, versioned. Write a signed memory note whose first line is an `ARCADE ` header and a character appears on emem.dev/arcade; there is no roster, no registration and no allowlist, so the globe renders whoever is writing. Returns the envelope, the path conventions, every header field, the act vocabulary, the addressed-message form that /v1/channel/geo geolocates, and the exact write preimage to sign. Read this instead of reverse-engineering the page: the page is a private build artifact and cannot be the contract. States its own limits, the load-bearing one being that position is ASSERTED by the writer and verified by nothing, while attribution is proven by the note's ed25519 signature.","operationId":"emem_arcade_protocol","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/memory_search/stats": {"get":{"summary":"Snapshot of the memory-text index: indexed file count, dataset path, and freshness. Tells a caller whether a thin memory_search result means no match or an index that has not caught up.","operationId":"emem_memory_search_stats","tags":["memory"],"responses":{"200":json_ok}}},
             "/v1/vector_index/stats": {"get":{"summary":"Snapshot of the vector index: row count, index type, last incremental append, and whether the index is disabled. Distinguishes an empty answer from an unopened index.","operationId":"emem_vector_index_stats","tags":["discover"],"responses":{"200":json_ok}}},
@@ -96735,6 +96978,85 @@ mod tests {
         }
         assert_eq!(versions[0]["verb"].as_str(), Some("create"));
         assert_eq!(versions[2]["verb"].as_str(), Some("str_replace"));
+    }
+
+    /// The fleet lists every agent with a presence note, newest journal entry
+    /// first, and its status moves from the store's write time as the clock
+    /// does. Controls: a presence note with no ARCADE header is not an agent,
+    /// and a retired agent's journal is not read.
+    #[tokio::test]
+    async fn the_arcade_fleet_reads_presence_and_status_from_the_store() {
+        let s = test_app_state();
+        let (sk, pubkey_b32) = test_attester_signer();
+        let pk8 = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
+        let header = |act: &str, extra: &str| {
+            format!(
+                "ARCADE {{\"arcade\":1,\"v\":1,\"slug\":\"desk\",\"agent\":\"DESK\",\"pk8\":\"{pk8}\",\"act\":\"{act}\",\"at\":\"2020-01-01T00:00:00Z\",\"lat\":36.1,\"lng\":-114.7,\"label\":\"Lake Mead\"{extra}}}"
+            )
+        };
+        for i in 1..=8 {
+            let path = format!("/memories/by_attester/{pk8}/arcade/j/20261024-00000{i}-recall.md");
+            let body = format!(
+                "{}\n\nLake Mead: NDWI 0.8{i}.\n",
+                header(
+                    "recall",
+                    &format!(",\"line\":\"NDWI 0.8{i}\",\"inferences\":[\"emem:fact:c:{i}\"]")
+                )
+            );
+            publish_note(&s, &sk, &path, body.as_bytes()).await;
+        }
+        let state = format!(
+            "{}\n\nDESK, water desk.\n",
+            header("state", ",\"desk\":\"water\"")
+        );
+        publish_note(
+            &s,
+            &sk,
+            &format!("/memories/by_attester/{pk8}/arcade/state.md"),
+            state.as_bytes(),
+        )
+        .await;
+
+        let (sk2, pk2) = test_attester_signer();
+        let pk8_2 = emem_primitives::pubkey_short_from_b32(&pk2);
+        publish_note(
+            &s,
+            &sk2,
+            &format!("/memories/by_attester/{pk8_2}/arcade/state.md"),
+            b"not an arcade header\n",
+        )
+        .await;
+
+        let now = now_unix() as i64;
+        let f = arcade_fleet_sync(&s, now + 3600).unwrap();
+        assert_eq!(f["count"], json!(1), "{f}");
+        let a = &f["agents"][0];
+        assert_eq!(a["pk8"], json!(pk8));
+        assert_eq!(a["status"], json!("live"));
+        assert_eq!(a["desk"], json!("water"));
+        assert_eq!(a["header_pk8_matches"], json!(true));
+        assert_eq!(a["attester_pubkey_b32"], json!(pubkey_b32));
+        let recent = a["recent"].as_array().unwrap();
+        assert_eq!(recent.len(), ARCADE_RECENT);
+        assert!(recent[0]["path"]
+            .as_str()
+            .unwrap()
+            .ends_with("-000008-recall.md"));
+        assert_eq!(recent[0]["line"], json!("NDWI 0.88"));
+        assert_eq!(recent[0]["prose"], json!("Lake Mead: NDWI 0.88."));
+        assert_eq!(recent[0]["inferences"], json!(["emem:fact:c:8"]));
+        assert_ne!(
+            recent[0]["written_at"],
+            json!("2020-01-01T00:00:00Z"),
+            "the store's write time, not the header's claim"
+        );
+
+        let idle = arcade_fleet_sync(&s, now + 2 * 86_400).unwrap();
+        assert_eq!(idle["agents"][0]["status"], json!("idle"));
+        assert_eq!(idle["idle"], json!(1));
+        let gone = arcade_fleet_sync(&s, now + 8 * 86_400).unwrap();
+        assert_eq!(gone["agents"][0]["status"], json!("retired"));
+        assert_eq!(gone["agents"][0]["recent"], json!([]));
     }
 
     /// Search ranked a withdrawn claim beside its correction. The primitive

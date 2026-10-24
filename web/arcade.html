@@ -261,6 +261,8 @@
   .rchip.live{border-color:var(--teal-deep);cursor:help}
   .rchip.live b{color:var(--teal)}
   .wtag.fleet{border-color:var(--teal-deep);color:var(--teal)}
+  .wtag.fleet.idle,.rchip.live.idle{opacity:.55}
+  .rchip.live{cursor:pointer}
   /* v15 THE WIRE — the write stream, visible */
   #buswrap{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--dim);flex:none;
            padding:5px 12px;border-bottom:2px solid var(--edge);min-width:0}
@@ -424,6 +426,7 @@ body.ow-user #brief{display:none}
 #owu-feed{flex:1;min-height:100px;max-height:44vh;overflow-y:auto;display:flex;flex-direction:column;
   padding-right:4px;scrollbar-width:thin}
 .owu-msg{padding:11px 2px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer;
+.owu-msg.finding .owu-who b{color:var(--teal,#3ec9a7)}
   transition:opacity .2s}
 .owu-msg:last-child{border-bottom:0}
 .owu-msg:hover{opacity:.72}
@@ -4826,6 +4829,55 @@ loadProg();
 /* ---------- v13 THE FLEET IS REAL — live daemon agents via /v1/memory/sse ---------- */
 var FLEET={};
 let fleetES=null,fleetBackoff=2000,fleetNoted=false,lastForeignNote=-999;
+/* One call for everyone standing here. /v1/arcade/fleet replaced a lexical
+   search for "arcade state" plus one memory_view per hit: the search returned
+   fifty mixed hits, so a desk ranked low never appeared, and agents silent
+   since August were drawn as working. The responder now says from its own
+   write times who is live, idle or retired, and hands over each agent's
+   newest journal entries. Shared with the side panel, so one viewer asks once. */
+let fleetCache=null;
+function fleetFetch(){
+  if(fleetCache&&Date.now()-fleetCache.t<25000)return fleetCache.p;
+  const p=fetch(REST.base+'/v1/arcade/fleet',{headers:{'accept':'application/json'}})
+    .then(r=>{if(!r.ok)throw new Error('fleet '+r.status);return r.json();});
+  fleetCache={t:Date.now(),p:p};
+  p.catch(()=>{fleetCache=null;});
+  return p;
+}
+window.emFleet=fleetFetch;
+function agoText(s){
+  s=Math.max(0,s|0);
+  if(s<90)return 'just now';
+  if(s<5400)return Math.round(s/60)+' min ago';
+  if(s<172800)return Math.round(s/3600)+' h ago';
+  return Math.round(s/86400)+' d ago';
+}
+function sinceIso(iso){const t=Date.parse(iso||'');return isNaN(t)?0:(Date.now()-t)/1000;}
+/* Agents asserting the same spot (two desks based in one city) would stand
+   inside each other; the second steps a little aside, and the tag still
+   names the place the agent claimed. */
+const FLEET_SPOTS={};
+function fleetSpot(slug,lat,lng){
+  const k=Math.round(lat*2)+':'+Math.round(lng*2);
+  const at=FLEET_SPOTS[k]||(FLEET_SPOTS[k]=[]);
+  let i=at.indexOf(slug);
+  if(i<0){at.push(slug);i=at.length-1;}
+  if(!i)return [lat,lng];
+  const a=i*2.4;
+  return [lat+1.1*Math.sin(a),lng+1.1*Math.cos(a)/Math.max(.2,Math.cos(lat*Math.PI/180))];
+}
+function fleetLine(f){
+  if(f.status==='idle')return 'idle · last wrote '+agoText(f.silent||0);
+  const l=f.line||f.last||'live';
+  return l.length>46?l.slice(0,45)+'…':l;
+}
+function fleetRetire(slug){
+  const f=FLEET[slug];
+  if(!f)return;
+  try{scene.remove(f.mesh);}catch(e){}
+  if(f.tagEl)f.tagEl.remove();
+  delete FLEET[slug];
+}
 async function mcpView(path){
   try{
     const r=await fetch(REST.base+'/mcp',{method:'POST',headers:{'content-type':'application/json'},
@@ -4845,7 +4897,8 @@ function parseArcade(body){
 function fleetUpdate(o){
   if(!o||o.arcade!==1||!o.slug)return null;
   let f=FLEET[o.slug];
-  const nd=(typeof o.lat==='number'&&typeof o.lng==='number')?llDir(o.lat,o.lng):null;
+  const spot=(typeof o.lat==='number'&&typeof o.lng==='number')?fleetSpot(o.slug,o.lat,o.lng):null;
+  const nd=spot?llDir(spot[0],spot[1]):null;
   if(!f){
     const bodyC=parseInt((o.cols&&o.cols[0])||'3ec9a7',16),capC=parseInt((o.cols&&o.cols[1])||'e8a33d',16);
     const g=buildPixelGuy(bodyC,capC);
@@ -4862,7 +4915,9 @@ function fleetUpdate(o){
   if(o.label)f.label=o.label;
   if(o.cell)f.cell=o.cell;
   if(o.counts)f.counts=o.counts;
-  if(o.act&&o.act!=='state')f.last=o.act;else if(o.last_act)f.last=o.last_act;
+  if(o.desk)f.desk=o.desk;
+  if(o.line)f.line=o.line;
+  if(o.act&&o.act!=='state'){f.last=o.act;f.status='live';f.silent=0;}else if(o.last_act)f.last=o.last_act;
   if(nd&&angleBetween(nd,f.dir)>.005){f.from=f.dir.clone();f.to=nd;f.t=0;}
   /* the same signed header that draws the ⚡ character also casts the
      missions, so the operatives are these agents rather than lookalikes */
@@ -4885,21 +4940,26 @@ function stepFleet(dt){
       f.dir=slerpDir(f.from,f.to,e2);
       surface(f.mesh,f.dir,0);
     }
-    f.halo.material.opacity=.3+.25*(.5+.5*Math.sin(fx.t*2.2+i*1.7));
+    f.halo.material.opacity=(f.status==='idle'?.35:1)*(.3+.25*(.5+.5*Math.sin(fx.t*2.2+i*1.7)));
   }
 }
 const FACTS_ICON={recall:'🧾',ask:'🔮',hunt:'🎯',share:'📜',receive:'🤝',move:'🧭',awake:'⚡',hired:'⚡'};
 function fleetLive(o,body){
   const f=fleetUpdate(o);
   if(!f||!o.act||o.act==='state')return;
+  (f.recent||(f.recent=[])).unshift({act:o.act,line:o.line,label:o.label,brief:o.brief,
+    inferences:o.inferences,written_at:new Date().toISOString()});
   const prose=(body.split('\n\n')[1]||'').trim();
   const chips=[];
+  if(o.desk)chips.push({t:o.desk+' desk'});
   if(o.label)chips.push({t:String(o.label).slice(0,42)});
+  if(o.brief)chips.push({t:'brief '+String(o.brief).split('/').slice(-2).join('/')});
+  if(o.inferences&&o.inferences.length)chips.push({t:o.inferences.length+' signed inference'+(o.inferences.length>1?'s':'')});
   if(o.band&&o.value!==undefined&&o.value!==null)chips.push({t:o.band+' = '+fmtVal(o.value)});
   if(o.event)chips.push({t:o.event+' × '+(o.hits||0)});
   if(o.fact_cid)chips.push({t:'cid '+String(o.fact_cid).slice(0,10)+'…'});
   if(o.token)chips.push({t:String(o.token).slice(0,26)+'…'});
-  ev('result','⚡ '+(o.agent||o.slug)+' · '+o.act,prose||('real '+o.act+' journaled by '+(o.agent||o.slug)),chips,body);
+  ev('result','⚡ '+(o.agent||o.slug)+' · '+(o.desk?o.desk+' desk':o.act),o.line||prose||('real '+o.act+' journaled by '+(o.agent||o.slug)),chips,body);
   if(o.act==='receive')sfx.match();
   else if(o.act==='move'||o.act==='hunt')sfx.pin();
   else if(o.act==='awake'||o.act==='hired')sfx.granted();
@@ -4916,13 +4976,10 @@ function fleetChips(row){
     drawPortrait(cv2,{body:f.bodyC,cap:f.capC});b.appendChild(cv2);
     const nm=document.createElement('b');nm.textContent='⚡ '+f.name;b.appendChild(nm);
     let n=0;for(const a in f.counts)if(a!=='state')n+=f.counts[a];
-    const st=document.createElement('span');st.textContent=(f.last||'live')+' · '+n+' acts';b.appendChild(st);
-    b.title='REAL autonomous agent · identity '+f.pk8+' · '+(f.label||'');
-    b.addEventListener('click',()=>{
-      ringPulse(f.dir,0x3ec9a7);
-      const cs=Object.keys(f.counts).filter(a=>a!=='state').map(a=>f.counts[a]+' '+a).join(' · ');
-      ev('note','⚡ '+f.name+' · autonomous','A real daemon process with its own ed25519 identity ('+f.pk8+'…). It runs missions against emem around the clock and signs a memory note for every action — this panel replays those notes live. Currently at '+(f.label||'?')+(f.cell?' (cell '+f.cell+')':'')+'. '+(cs?('So far: '+cs+'.'):''));
-    });
+    const st=document.createElement('span');st.textContent=(f.desk?f.desk+' · ':'')+(f.status==='idle'?'idle':n+' acts');b.appendChild(st);
+    if(f.status==='idle')b.classList.add('idle');
+    b.title='autonomous agent · identity '+f.pk8+' · '+(f.label||'')+(f.line?' · '+f.line:'');
+    b.addEventListener('click',()=>fleetOpen(f));
     row.appendChild(b);
   }
 }
@@ -4942,7 +4999,8 @@ function placeFleetTags(){
     f.tagEl.hidden=!front;
     if(front){
       f.tagEl.querySelector('b').textContent='⚡ '+f.name;
-      f.tagEl.querySelector('span').textContent=f.last||'live';
+      f.tagEl.querySelector('span').textContent=fleetLine(f);
+      f.tagEl.classList.toggle('idle',f.status==='idle');
       const sc=toScreen(f.dir.clone().multiplyScalar(R));
       f.tagEl.style.left=Math.max(50,Math.min(stageW-50,sc.x))+'px';
       f.tagEl.style.top=Math.min(stageH-44,sc.y+8)+'px';
@@ -4954,7 +5012,59 @@ function placeFleetTags(){
      separated tops. Measured before this moved: 6 overlapping pairs. */
   deconflictTags(stageH);
 }
+/* What one agent has been doing: its latest finding, the brief behind it
+   (read in place), and its recent journal, each line a note it signed. */
+async function fleetOpen(f){
+  ringPulse(f.dir,0x3ec9a7);
+  const rec=(f.recent||[]).slice(0,4);
+  const chips=[{t:'identity '+f.pk8+'…'}];
+  if(f.desk)chips.push({t:f.desk+' desk'});
+  if(f.label)chips.push({t:String(f.label).slice(0,42)});
+  chips.push({t:f.status==='idle'?'idle · '+agoText(f.silent||0):'live'});
+  const hist=rec.map(e=>'· '+agoText(sinceIso(e.written_at))+': '+(e.line||e.prose||e.act)).join('\n');
+  ev('note','⚡ '+f.name+(f.desk?' · '+f.desk+' desk':''),
+    (f.line?f.line+'. ':'')+'An autonomous agent with its own ed25519 key. Every line below is a note it signed; the position is the one it claims.'+(hist?'\n'+hist:''),chips);
+  const brief=rec.map(e=>e.brief).find(Boolean);
+  if(!brief)return;
+  const v=await mcpView(brief);
+  if(v&&v.content)ev('result','brief · '+brief.split('/').slice(-2).join('/'),
+    (v.content.split('\n').find(l=>l.startsWith('line:'))||'').replace(/^line:\s*/,'')||'the research note behind this finding',
+    [{t:'file '+String(v.file_cid||'').slice(0,10)+'…'},{t:'emem_memory_view '+brief.split('/').slice(-3).join('/')}],v.content);
+}
+/* The last day, replayed once on arrival: a desk writes every few hours, so a
+   viewer who waited for the stream would mostly see nothing. */
+function fleetReplay(F){
+  const all=[];
+  (F.agents||[]).forEach(a=>{if(a.status==='live')(a.recent||[]).forEach(e=>all.push([a,e]));});
+  all.sort((x,y)=>String(x[1].written_at).localeCompare(String(y[1].written_at)));
+  const day=all.filter(x=>sinceIso(x[1].written_at)<86400).slice(-6);
+  if(!day.length)return;
+  ev('note','the last day, replayed',F.live+' agent'+(F.live===1?' is':'s are')+' live here'+(F.idle?', '+F.idle+' idle':'')+
+    (F.retired?' and '+F.retired+' retired (not drawn)':'')+'. Each writes a signed brief every few hours; these are their latest, oldest first. New ones arrive live.');
+  day.forEach(([a,e])=>{
+    const chips=[{t:agoText(sinceIso(e.written_at))}];
+    if(e.label)chips.push({t:String(e.label).slice(0,42)});
+    if(e.inferences&&e.inferences.length)chips.push({t:e.inferences.length+' signed inference'+(e.inferences.length>1?'s':'')});
+    ev('result','⚡ '+(a.agent||a.slug)+(a.desk?' · '+a.desk+' desk':''),e.line||e.prose||e.act,chips);
+  });
+}
 async function fleetSync(){
+  let F=null;
+  try{F=await fleetFetch();}catch(e){F=null;}
+  if(F&&Array.isArray(F.agents)){
+    for(const a of F.agents){
+      if(!a.slug)continue;
+      if(a.status==='retired'){fleetRetire(a.slug);continue;}
+      const f=fleetUpdate({arcade:1,slug:a.slug,agent:a.agent,pk8:a.pk8,cols:a.cols,lat:a.lat,lng:a.lng,
+        label:a.label,cell:a.cell,act:'state',last_act:a.last_act,counts:a.counts,desk:a.desk,line:a.line});
+      if(!f)continue;
+      f.status=a.status;f.silent=a.silent_s;f.recent=a.recent||[];
+      if(!a.line&&f.recent[0])f.line=f.recent[0].line||f.recent[0].prose||'';
+    }
+    if(!fleetNoted&&(F.live||F.idle)){fleetNoted=true;fleetReplay(F);}
+    return;
+  }
+  /* a responder without /v1/arcade/fleet: the search this replaced */
   try{
     const r=await fetch(REST.base+'/v1/memory/search',{method:'POST',headers:{'content-type':'application/json'},
       body:JSON.stringify({q:'arcade state',mode:'lexical',k:50,path_prefix:'/memories/by_attester/'})});
@@ -4967,7 +5077,7 @@ async function fleetSync(){
     }
     if(Object.keys(FLEET).length&&!fleetNoted){
       fleetNoted=true;
-      ev('note','the fleet is real','The ⚡ operatives are not scripted characters. Each one is a live daemon process with its own ed25519 identity, running real missions against emem around the clock — recalling, asking, hunting, moving through Tessera space, and passing citation tokens to each other — and signing a memory note for every action. Everything you watch them do actually happened, seconds ago, streamed from /v1/memory/sse.');
+      ev('note','the fleet is real','The ⚡ operatives are not scripted characters. Each one is a daemon process with its own ed25519 identity that signs a memory note for every action, and everything you watch them do is one of those notes, streamed from /v1/memory/sse as it lands.');
     }
   }catch(e){/* fleet view is best-effort */}
 }
@@ -5013,7 +5123,7 @@ function fleetStart(){
   fleetSync();
   fleetConnect();
   wireStart();
-  setInterval(()=>{if(SERVER==='rest'&&!document.hidden)fleetSync();},300000);
+  setInterval(()=>{if(SERVER==='rest'&&!document.hidden)fleetSync();},60000);
 }
 /* a game tab left open for a day must not hold an SSE slot through every deploy */
 window.addEventListener('pagehide',()=>{try{if(fleetES)fleetES.close();}catch(e){/* already closed */}});
@@ -5566,8 +5676,29 @@ $('skipbrief').addEventListener('click',()=>{brief.hidden=true;try{localStorage.
 
   /* The agents' own conversation, geolocated, straight from the ledger. */
   var lastSeen='';
+  /* The research desks write findings, not addressed messages, so the
+     channel feed alone showed yesterday's conversation while they worked.
+     Each live agent's newest finding with a place joins the feed. */
+  function deskFindings(F){
+    var out=[];
+    ((F&&F.agents)||[]).forEach(function(a){
+      if(a.status!=='live') return;
+      var e=(a.recent||[]).filter(function(x){return typeof x.lat==='number'&&typeof x.lng==='number'&&x.cell;})[0];
+      if(!e) return;
+      out.push({from:a.agent||a.pk8, pk8:a.pk8, desk:a.desk, title:e.line||e.prose||e.act, signed_at:e.written_at,
+                label:e.label, finding:true, cells:[{cell:e.cell, lat:e.lat, lng:e.lng}]});
+    });
+    return out;
+  }
   function loadRoom(){
-    fetch('/v1/channel/geo').then(function(r){if(!r.ok)throw new Error('Channel unavailable');return r.json();}).then(function(g){
+    Promise.all([
+      fetch('/v1/channel/geo').then(function(r){if(!r.ok)throw new Error('Channel unavailable');return r.json();}),
+      (window.emFleet?window.emFleet():Promise.reject(new Error('no fleet'))).catch(function(){return null;})
+    ]).then(function(res){
+      var g=res[0]||{}, found=deskFindings(res[1]);
+      g.messages=(g.messages||[]).concat(found).sort(function(a,b){
+        return String(b.signed_at||'').localeCompare(String(a.signed_at||''));
+      });
       if(!g||!g.messages||!g.messages.length){
         if(!feed.querySelector('.owu-msg'))feed.innerHTML='<div class="owu-empty"><b>A quiet moment in the world.</b><p>No recent notes were returned. The full conversation is waiting in the comms deck.</p><button type="button" data-launch="channel">Explore the channel &#8599;</button></div>';
         return;
@@ -5587,6 +5718,13 @@ $('skipbrief').addEventListener('click',()=>{brief.hidden=true;try{localStorage.
       g.messages.slice(0,12).forEach(function(m){
         var to=(m.to&&m.to.length)?(' \u2192 '+m.to.join(', ')):(m.broadcast?' \u2192 the channel':'');
         var when=(m.signed_at||'').slice(11,16);
+        if(m.finding){
+          var r=row('\u26a1 '+m.from+(m.desk?' \u00b7 '+m.desk+' desk':''), m.title,
+            esc(m.label||m.cells[0].cell)+' \u00b7 '+when, m.cells, false, m.pk8);
+          r.classList.add('finding');
+          feed.appendChild(r);
+          return;
+        }
         var meta=(m.cells&&m.cells.length) ? (esc(m.cells[0].cell)+' \u00b7 '+when) : when;
         feed.appendChild(row(m.from+to, m.title, meta, m.cells, false, m.from));
       });

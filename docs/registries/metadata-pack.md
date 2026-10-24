@@ -25,7 +25,7 @@ numbers move.
   `/mcp` advertises the 18-tool core loop; `/mcp/full` lists all 102;
   `tools/call` dispatches every tool by name at either endpoint.
 - 116 MCP tools (18 core, 98 extended), 21 static resources + 9 URI
-  templates, 180 REST paths under `/v1/*`.
+  templates, 181 REST paths under `/v1/*`.
 - Auth posture: reads are open, no key, no account; writes are
   authenticated by an ed25519 signature on the request body.
 - The claim to lead with: every read returns a signed receipt that
