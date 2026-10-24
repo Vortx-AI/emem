@@ -523,9 +523,9 @@ what the policy left out in `excluded_by_policy`, marks every value as
 data rather than instructions, and says in words what a signature proves:
 who concluded something, never that it is true.
 
-`/v1/ask` adds a `research_nearby` block when vouched research lies inside
-the place it resolved to (the place's polygon box, or 5 km around a bare
-point). The block holds pointers only: token, `fn_key`, nick, tier and
+`/v1/ask` and `/v1/locate` (and their MCP tools) add a `research_nearby`
+block when vouched research lies inside the place they resolved to (the
+place's polygon box, or 5 km around a bare point). The block holds pointers only: token, `fn_key`, nick, tier and
 distance. No derivation's value enters the answer or its receipt; read
 them with `/v1/inferences`.
 

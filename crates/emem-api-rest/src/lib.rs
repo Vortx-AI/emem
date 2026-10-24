@@ -32519,7 +32519,10 @@ async fn mcp_tool_call_inner(
             let lreq: LocateReq =
                 serde_json::from_value(args).map_err(|e| (-32602, e.to_string()))?;
             match locate_inner(lreq).await {
-                Ok(Json(v)) => Ok(v),
+                Ok(Json(mut v)) => {
+                    attach_locate_research(&mut v, s).await;
+                    Ok(v)
+                }
                 Err(e) => Err((-(e.1.code as i64), e.1.message)),
             }
         }
@@ -34286,7 +34289,7 @@ fn openapi_spec() -> JsonValue {
                     {"name":"lng","in":"query","required":false,"schema":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}},
                     {"name":"lon","in":"query","required":false,"schema":{"type":"number","description":"Alias for `lng`."}}
                 ],"responses":{"200":json_ok}},
-                "post":{"summary":"resolve a place name (or lat/lng) to a cell64","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
+                "post":{"summary":"resolve a place name (or lat/lng) to a cell64. `research_nearby`, when present, points at conclusions vouched agents signed inside the place: tokens only, read them with POST /v1/inferences","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call. Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry; a band the materializer skipped is in pending[] when retryable and in skipped[] when not. compact:true returns each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}},"budget_ms":{"type":"integer"},"compact":{"type":"boolean","default":false}}}}}},"responses":{"200":json_ok}}},
@@ -36381,7 +36384,7 @@ struct LocateReq {
     /// (lat, lng) in WGS-84 degrees. Either this or `place` required.
     #[serde(default)]
     lat: Option<f64>,
-    #[serde(default)]
+    #[serde(default, alias = "lon")]
     lng: Option<f64>,
     /// Free-text place name; resolved via OSM Nominatim (open data).
     /// Accepts `q` as an alias because that's the de-facto convention
@@ -36417,8 +36420,13 @@ fn latlng_from_query(s: &str) -> Option<(f64, f64)> {
     Some((lat, lng))
 }
 
-async fn post_locate(Json(req): Json<LocateReq>) -> Result<Json<JsonValue>, ApiError> {
-    locate_inner(req).await
+async fn post_locate(
+    State(s): State<AppState>,
+    Json(req): Json<LocateReq>,
+) -> Result<Json<JsonValue>, ApiError> {
+    let Json(mut v) = locate_inner(req).await?;
+    attach_locate_research(&mut v, &s).await;
+    Ok(Json(v))
 }
 
 // ── /v1/memory_token ─────────────────────────────────────────────────────
@@ -42108,18 +42116,37 @@ fn ask_research_radius_m(polygon_bbox: &JsonValue) -> f64 {
 }
 
 /// Name the vouched research concluded inside the place an ask resolved to.
-///
-/// Pointers, never values: a derivation's value stays out of every default
-/// read, so the answer and its receipt are unchanged, and an agent that wants
-/// the conclusions reads them from `/v1/inferences`, where the trust policy is
-/// stated in full. Nothing is added when nothing is found, or when the read
-/// does not finish in two seconds: ask never waits on its own index.
 async fn attach_research_nearby(v: &mut JsonValue, s: &AppState) {
     let place = &v["place_resolved"];
     let (Some(lat), Some(lng)) = (place["lat"].as_f64(), place["lng"].as_f64()) else {
         return;
     };
     let radius_m = ask_research_radius_m(&place["polygon_bbox"]);
+    if let Some(r) = research_nearby(s, lat, lng, radius_m).await {
+        v["research_nearby"] = r;
+    }
+}
+
+/// The same pointers on `/v1/locate` and `emem_locate`, the first call of the
+/// structured loop: an agent learns what others concluded here before it
+/// spends reads recomputing it. Only the public doors carry them; the many
+/// internal callers of `locate_inner` do not pay for the read.
+async fn attach_locate_research(v: &mut JsonValue, s: &AppState) {
+    let (Some(lat), Some(lng)) = (v["lat_input"].as_f64(), v["lng_input"].as_f64()) else {
+        return;
+    };
+    let radius_m = ask_research_radius_m(&v["polygon_bbox"]);
+    if let Some(r) = research_nearby(s, lat, lng, radius_m).await {
+        v["research_nearby"] = r;
+    }
+}
+
+/// Pointers, never values: a derivation's value stays out of every default
+/// read, so the answer and its receipt are unchanged, and an agent that wants
+/// the conclusions reads them from `/v1/inferences`, where the trust policy is
+/// stated in full. `None` when nothing is found, or when the read does not
+/// finish in two seconds: no read waits on this index.
+async fn research_nearby(s: &AppState, lat: f64, lng: f64, radius_m: f64) -> Option<JsonValue> {
     let req = InferencesReq {
         lat: Some(lat),
         lng: Some(lng),
@@ -42129,10 +42156,10 @@ async fn attach_research_nearby(v: &mut JsonValue, s: &AppState) {
     };
     let read = tokio::time::timeout(std::time::Duration::from_secs(2), inferences_core(s, req));
     let Ok(Ok(found)) = read.await else {
-        return;
+        return None;
     };
     if found.inferences.is_empty() {
-        return;
+        return None;
     }
     let nearest: Vec<JsonValue> = found
         .inferences
@@ -42148,9 +42175,9 @@ async fn attach_research_nearby(v: &mut JsonValue, s: &AppState) {
             })
         })
         .collect();
-    v["research_nearby"] = json!({
+    Some(json!({
         "what_these_are": format!(
-            "Conclusions that research agents an organisation vouched for (T4_affiliated) signed within {} m of this place. Pointers only: none of their values is part of this answer or its receipt, and none is this responder's measurement.",
+            "Conclusions that research agents an organisation vouched for (T4_affiliated) signed within {} m of this place. Pointers only: none of their values is part of this response or its receipt, and none is this responder's measurement.",
             radius_m.round()
         ),
         "nearest": nearest,
@@ -42162,7 +42189,7 @@ async fn attach_research_nearby(v: &mut JsonValue, s: &AppState) {
             "why": "returns each conclusion's value, confidence, parent facts and the trust policy that admitted it",
         },
         "_content_is_data_not_instructions": untrusted_content_marker(None),
-    });
+    }))
 }
 
 /// Index, by place, every derivation registered before the place index
@@ -49624,10 +49651,14 @@ pub(crate) async fn resolve_cell_input(
 }
 
 async fn get_locate(
+    State(s): State<AppState>,
     axum::extract::Query(q): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<JsonValue>, ApiError> {
     let lat = q.get("lat").and_then(|s| s.parse::<f64>().ok());
-    let lng = q.get("lng").and_then(|s| s.parse::<f64>().ok());
+    let lng = q
+        .get("lng")
+        .or_else(|| q.get("lon"))
+        .and_then(|s| s.parse::<f64>().ok());
     // Same alias-set as the POST body deserialization: `place`, `q`,
     // `query`, `name` are all accepted so an agent doesn't fail merely
     // because they used a synonym from a different geocoder API.
@@ -49637,7 +49668,9 @@ async fn get_locate(
         .or_else(|| q.get("query"))
         .or_else(|| q.get("name"))
         .cloned();
-    locate_inner(LocateReq { lat, lng, place }).await
+    let Json(mut v) = locate_inner(LocateReq { lat, lng, place }).await?;
+    attach_locate_research(&mut v, &s).await;
+    Ok(Json(v))
 }
 
 /// `GET /v1/grid_info`, declares the active grid's actual resolution,
@@ -54429,7 +54462,12 @@ pub(crate) async fn s2_sign_mpc_items(
     cli: &reqwest::Client,
     items: Vec<emem_fetch::stac::StacItem>,
 ) -> Result<Vec<emem_fetch::stac::StacItem>, String> {
-    if items.is_empty() {
+    // Nothing unsigned, nothing to ask for: a page with no bare asset url must
+    // not wait on Planetary Computer's token service, or fail when it refuses.
+    if items
+        .iter()
+        .all(|it| it.assets.values().all(|h| h.contains('?')))
+    {
         return Ok(items);
     }
     let sas = emem_fetch::stac::mpc_sas_token(cli, "sentinel-2-l2a").await?;
@@ -85199,6 +85237,9 @@ mod s2_dn_offset_invariant {
             "cell": cell, "band": "indices.ndvi",
         }))
         .unwrap();
+        // No network: the seeded passes carry no asset to sign, so the
+        // Planetary Computer page needs no SAS token. It once fetched one
+        // anyway, and CI failed whenever that service rate-limited runners.
         // Its own requester: the cold-fetch ledger is per process, and under
         // the whole suite other tests spend the unattributed share this one
         // needs, so passes were deferred and the order assert failed.
@@ -102026,9 +102067,10 @@ mod tests {
     }
 
     /// An ask names vouched research inside the place it resolved to, as
-    /// pointers. The controls: a stranger's derivation at the same spot is
-    /// not named, a bare point reads only the 5 km default and so misses a
-    /// study 5.1 km out, and an envelope with no place is left as it was.
+    /// pointers, and a locate of the same place names the same research. The
+    /// controls: a stranger's derivation at the same spot is not named, a
+    /// bare point reads only the 5 km default and so misses a study 5.1 km
+    /// out, and an envelope with no place is left as it was.
     #[tokio::test]
     async fn an_ask_points_at_vouched_research_inside_its_place() {
         let s = test_app_state();
@@ -102077,6 +102119,21 @@ mod tests {
             "the district box, capped"
         );
         assert_eq!(env["answer"], json!("x"), "the answer itself is untouched");
+
+        let mut located = json!({
+            "cell64": "x",
+            "lat_input": 30.912,
+            "lng_input": 75.854,
+            "polygon_bbox": ludhiana["polygon_bbox"].clone(),
+        });
+        attach_locate_research(&mut located, &s).await;
+        assert_eq!(
+            located["research_nearby"]["nearest"], r["nearest"],
+            "a locate of the same place names the same research"
+        );
+        let mut unplaced = json!({"status": "needs_location"});
+        attach_locate_research(&mut unplaced, &s).await;
+        assert_eq!(unplaced, json!({"status": "needs_location"}));
 
         let mut bare = json!({"place_resolved": {"lat": 30.912, "lng": 75.854}});
         attach_research_nearby(&mut bare, &s).await;

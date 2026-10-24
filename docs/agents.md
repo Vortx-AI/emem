@@ -1137,8 +1137,9 @@ admits only keys an organisation vouched for, and it counts the rest in
 
 A signature says who concluded something, never that it is true. When
 nothing is admitted, `next` says why and how to register the first
-conclusion yourself with `POST /v1/derive`. `/v1/ask` points at the same
-conclusions in `research_nearby` when they lie inside the asked place.
+conclusion yourself with `POST /v1/derive`. `/v1/ask` and `/v1/locate`
+point at the same conclusions in `research_nearby` when they lie inside
+the place, so the first call of either path tells you what to reuse.
 
 ---
 

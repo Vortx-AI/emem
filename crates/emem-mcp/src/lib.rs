@@ -548,6 +548,7 @@ const OUT_LOCATE: &str = r#"{"type":"object","required":["next"],"anyOf":[{"requ
 "selected":{"type":"object","properties":{"is_high_confidence":{"type":"boolean"},"confidence_reason":{"type":"string"}}},
 "data_at_this_cell":{"type":"object"},
 "status":{"type":"string","description":"needs_location: no place named."},
+"research_nearby":{"type":"object","description":"Present when vouched research agents signed conclusions inside the place. Tokens only; read them with emem_inferences."},
 "next":{"type":"array"}}}"#;
 
 /// What `emem_memory_token_resolve` promises as `structuredContent`: the
@@ -1374,7 +1375,7 @@ pub const TOOLS: &[ToolDescriptor] = &[
         name: "emem_locate",
         title: "Resolve place to cell64 + band inventory",
         description: "Get the canonical address (cell64) of a real-world place. Every agent resolves a place to the same cell64, so two models refer to the same ground. The answer also lists, by topic, the bands and algorithms that you can recall there. For an OBJECT identity (a bridge, a plot) instead of a cell, use emem_entity. Send `lat`+`lng` as numbers, or a free-text place. When both arrive, the coordinates win. `q`, `query` and `name` are other names for `place`. The answer lists keys that this schema does not declare in `_unrecognised_arguments`, so a typo is visible.",
-        when_to_use: "Call this when the next step needs the cell64 of a named place, or the bands that exist there. `data_at_this_cell` lists every band you can recall, by topic (`live_bands_by_topic`), the recipes that use them (`algorithms_for_topic`), and the bands with no materializer here. For one packaged answer in one call, use `emem_ask`.",
+        when_to_use: "Call this when the next step needs the cell64 of a named place, or the bands that exist there. `data_at_this_cell` lists every band you can recall, by topic (`live_bands_by_topic`), the recipes that use them (`algorithms_for_topic`), and the bands with no materializer here. It has `research_nearby` when vouched research agents signed conclusions inside the place. Read those with emem_inferences before you recompute them. For one packaged answer in one call, use `emem_ask`.",
         input_schema: SCHEMA_LOCATE,
         output_schema: Some(OUT_LOCATE),
         example_args: r#"{"place":"Mount Everest"}"#,
