@@ -61,11 +61,14 @@ def publish(agent, tasks: list, verified_by_task: dict) -> list:
 
 
 class EmemStore:
-    def __init__(self, prefix: str, k: int = 3):
-        self.prefix, self.k = prefix, k
+    def __init__(self, prefix: str, k: int = 3, mode: str | None = None):
+        self.prefix, self.k, self.mode = prefix, k, mode
 
     def retrieve(self, query: str) -> list:
-        R = _post("/v1/memory/search", {"q": query, "k": self.k, "path_prefix": self.prefix})
+        body = {"q": query, "k": self.k, "path_prefix": self.prefix}
+        if self.mode:
+            body["mode"] = self.mode
+        R = _post("/v1/memory/search", body)
         out = []
         for h in (R.get("hits") or [])[: self.k]:
             p = h.get("path") or ""
@@ -88,10 +91,10 @@ class EmemProcedures(BaselineFresh):
     name = "emem_procedures"
 
     def __init__(self, adapter, store: EmemStore, versions: dict, max_turns: int = 8,
-                 compact: bool = False, card_chars: int = 1500):
+                 compact: bool = False, card_chars: int = 1500, framed: bool = False):
         super().__init__(adapter, max_turns)
         self.store, self.versions = store, versions
-        self.compact, self.card_chars = compact, card_chars
+        self.compact, self.card_chars, self.framed = compact, card_chars, framed
         self.retrieved_log: list = []
         if compact:
             self.name = "emem_cards"
@@ -112,13 +115,26 @@ class EmemProcedures(BaselineFresh):
                                   f"{version}. Do not copy it.")
                     continue
                 code = re.search(r"## Code\n\n```python\n(.*?)```", p["content"], re.S)
-                blocks.append(f"### {name} (verified under {version})\n```python\n"
-                              f"{(code.group(1) if code else '')[: self.card_chars]}```")
+                # Framed: say which task the card solved, so the model can see it
+                # is not this one (config-05 copied a card's class shape and lost
+                # the module-level function its own task asked for).
+                solved = re.search(r"## What it solves\n\n(.*?)\n\n## ", p["content"], re.S)
+                head = (f"### {name} (verified under {version}); it solved: "
+                        f"{' '.join(solved.group(1).split())[:300]}\n" if self.framed and solved
+                        else f"### {name} (verified under {version})\n")
+                blocks.append(f"{head}```python\n{(code.group(1) if code else '')[: self.card_chars]}```")
                 continue
             body = re.sub(r"^---.*?---\n", "", p["content"], flags=re.S)
             blocks.append(f"### {name} — under your release ({version}): {status}\n\n{body[:6000]}")
         system = SYSTEM
-        if blocks:
+        if blocks and self.framed:
+            system += ("\n\nProcedures retrieved from shared memory. Each solved a DIFFERENT task and "
+                       "was verified by running its own tests under the release named in its heading. "
+                       "Take from them only the library calls that your task also needs. Follow YOUR "
+                       "task's statement exactly for every name, signature and module-level function "
+                       "it asks for. A procedure marked FAILS is stale under your release.\n\n"
+                       + "\n\n".join(blocks))
+        elif blocks:
             system += ("\n\nVerified procedures retrieved from shared memory. Each was signed by a "
                        "verifier that ran its tests; its status under YOUR installed release is in "
                        "its heading. A procedure marked FAIL is stale under your release: reuse what "
