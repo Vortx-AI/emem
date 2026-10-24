@@ -3033,7 +3033,10 @@ mod tests {
             late.contains("2026-02-24") && late.contains("183 days"),
             "{late}"
         );
-        assert!(late.contains("1000-item cap"), "{late}");
+        assert!(
+            late.contains(&format!("{CANDIDATE_LIMIT}-item cap")),
+            "{late}"
+        );
         let no_cap = coverage_caution("2025-08-25", Some("2026-02-24"), false).expect("caution");
         assert!(!no_cap.contains("cap"), "{no_cap}");
         assert_eq!(
