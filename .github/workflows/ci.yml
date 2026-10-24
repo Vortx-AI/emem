@@ -241,18 +241,20 @@ jobs:
           CARGO_PROFILE_RELEASE_LTO: "false"
           CARGO_PROFILE_RELEASE_DEBUG: "0"
           CARGO_BUILD_JOBS: "2"
+      # Both spellings of each proxy variable, since clients disagree on which
+      # they read; they are exported here because a workflow's env keys are
+      # case-insensitive and two spellings in one map reject the whole file.
       - name: run the tests (no network)
-        run: cargo test --workspace --release
+        shell: bash
+        run: |
+          export https_proxy=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9
+          export http_proxy=http://127.0.0.1:9 HTTP_PROXY=http://127.0.0.1:9
+          export all_proxy=http://127.0.0.1:9 ALL_PROXY=http://127.0.0.1:9
+          export no_proxy=127.0.0.1,localhost,::1 NO_PROXY=127.0.0.1,localhost,::1
+          cargo test --workspace --release
         env:
           EMEM_NO_NETWORK: "1"
           CARGO_NET_OFFLINE: "true"
-          HTTPS_PROXY: "http://127.0.0.1:9"
-          HTTP_PROXY: "http://127.0.0.1:9"
-          https_proxy: "http://127.0.0.1:9"
-          http_proxy: "http://127.0.0.1:9"
-          ALL_PROXY: "http://127.0.0.1:9"
-          NO_PROXY: "127.0.0.1,localhost,::1"
-          no_proxy: "127.0.0.1,localhost,::1"
           # THE TEST HARNESS FOR ONE CRATE TAKES 14 GB TO BUILD, AND A RUNNER
           # HAS 16.
           #
