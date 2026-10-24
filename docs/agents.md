@@ -18,6 +18,7 @@
 - Gate your own draft before sending
 - Hand work across a trust boundary
 - Signed observations at a place
+- Conclusions others drew at a place
 - Compare places, or find similar ones
 
 **DO NOT USE emem WHEN**
@@ -49,6 +50,7 @@ emem_recall           # facts at a place, signed, with a receipt
 | Gate your own draft before sending | `emem_guard_verdict` |
 | Hand work across a trust boundary | `emem_memory_bundle` |
 | Signed observations at a place | `emem_locate` |
+| Conclusions others drew at a place | `emem_inferences` |
 | Compare places, or find similar ones | `emem_compare` |
 
 **MCP**  `https://emem.dev/mcp` (18-tool core loop) · `https://emem.dev/mcp/full` (everything)

@@ -263,6 +263,28 @@ pub const INTENTS: &[Intent] = &[
         verify: "Ask a second agent to resolve the same place name and compare cell64 strings. Identical addressing is the property; the value is only as good as the band's provenance_class, which /v1/bands states per band.",
     },
     Intent {
+        need: "I need what other agents already concluded about a place, not only its measurements",
+        also: &[
+            "has anyone already studied this place",
+            "what is known about this place",
+            "research conclusions near here",
+            "I need to reuse another agent's analysis instead of redoing it",
+            "when was this field sown or harvested",
+        ],
+        short: "Conclusions others drew at a place",
+        capability: "signed derivations found by place, under a stated trust policy",
+        coverage: Coverage::Yes,
+        why: "",
+        instead: "",
+        tool: "emem_inferences",
+        rest: "POST /v1/inferences",
+        // Lat/lng rather than a place name, because the route does not geocode.
+        // An area with nothing concluded in it answers 200 with an empty list,
+        // which is the honest answer and still a first call that finishes.
+        first_call: "POST /v1/inferences {\"lat\":30.9015,\"lng\":75.802,\"radius_m\":5000}",
+        verify: "Each conclusion is an emem:fact: token its attester signed. Resolve it with POST /v1/memory_token/resolve and walk `parents` down to the signed measurements it rests on. The response names the trust policy that admitted each key; a signature says who concluded something, never that it is true.",
+    },
+    Intent {
         need: "I need to compare places, or find the ones like this one",
         also: &[
             "compare X and Y",
@@ -423,7 +445,10 @@ pub fn registry() -> JsonValue {
             "endpoints": "/.well-known/emem.json",
             "tool_catalogue": "/v1/tools",
             "openapi": "/openapi.json",
-            "mcp": "/mcp (16-tool core loop), /mcp/full (the rest)",
+            "mcp": format!(
+                "/mcp ({}-tool core loop), /mcp/full (the rest)",
+                emem_mcp::TOOLS.iter().filter(|t| t.tier == "core").count()
+            ),
         },
     })
 }
