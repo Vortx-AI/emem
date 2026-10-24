@@ -78,6 +78,9 @@ def main() -> int:
     ap.add_argument("--cards", action="store_true", help="compact verified cards, k=2, stale as a warning")
     ap.add_argument("--k", type=int, default=3)
     ap.add_argument("--phase", choices=["transfer", "post_change"], help="evaluate one phase only")
+    ap.add_argument("--mode", choices=["lexical"], help="memory_search mode; default semantic")
+    ap.add_argument("--framed", action="store_true",
+                    help="cards say which task they solved; the model keeps its own task's interface")
     args = ap.parse_args()
 
     tasks = taskset.load_tasks()
@@ -108,10 +111,13 @@ def main() -> int:
             time.sleep(15)
 
     adapter = ShimAdapter()
-    store = EmemStore(prefix, k=args.k)
-    arms = [BaselineFresh(adapter), EmemProcedures(adapter, store, versions, compact=args.cards)]
+    store = EmemStore(prefix, k=args.k, mode=args.mode)
+    arms = [BaselineFresh(adapter), EmemProcedures(adapter, store, versions, compact=args.cards,
+                                                   framed=args.framed)]
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
-    out = HERE / "runs" / f"pilot-{stamp}{'-cards' if args.cards else ''}.jsonl"
+    tag = ("-cards" if args.cards else "") + (f"-{args.mode}" if args.mode else "") + \
+        ("-framed" if args.framed else "")
+    out = HERE / "runs" / f"pilot-{stamp}{tag}.jsonl"
     out.parent.mkdir(exist_ok=True)
     records = []
     for t in evals:
@@ -122,6 +128,7 @@ def main() -> int:
             for k in range(1, args.attempts + 1):
                 ctx = {"task_id": t.id, "phase": t.phase, "version_spec": t.version_spec,
                        "docs": PydocDocs(env["python"])}
+                source = ""
                 try:
                     source, usage = arm.solve(t.spec_text, ctx)
                     r = runner.run_candidate(t.dir, source, rel, cache=CACHE)
@@ -130,7 +137,8 @@ def main() -> int:
                     from arms import Usage
                     usage, ok = Usage(model_id=adapter.model_id), False
                     print(f"  {t.id} {arm.name} attempt {k} error: {e!r}"[:200], flush=True)
-                attempts.append({"ok": ok, **usage.as_dict(), "cost_usd": cost(usage)})
+                attempts.append({"ok": ok, **usage.as_dict(), "cost_usd": cost(usage),
+                                 "code": source[:4000]})
                 if ok:
                     solved_at = k
                     break
