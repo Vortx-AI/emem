@@ -42,9 +42,17 @@ use crate::{ApiError, AppState, EmemJson};
 
 const FN_KEY: &str = "s2_index_series@1";
 /// Scenes read per series. Each is four COG window reads (two bands, and the
-/// scene classification under each), so 24 is about a hundred range reads.
-const MAX_SCENES: usize = 24;
-const DEFAULT_SCENES: usize = 16;
+/// scene classification under each). A 14-month window at Ludhiana held 94
+/// capture dates, so the old cap of 24 kept about one in four: too few to
+/// date a season to within a week. 24 scenes over a small plot answered in
+/// 4.7 s on emem.dev (2026-10-24), so 96 is about 20 s, and a call that
+/// outlives a host's timeout still fills the cache for the retry.
+const MAX_SCENES: usize = 96;
+const DEFAULT_SCENES: usize = 24;
+/// Field-scenes one `fields` call reads and signs: 500 fields over 24
+/// scenes, the largest record before the scene cap rose. A call with more
+/// fields reads fewer scenes, and its `selection` says so.
+const MAX_FIELD_SCENES: usize = 12_000;
 /// A window longer than this is a climatology, which this is not.
 const MAX_WINDOW_DAYS: i64 = 4 * 366;
 /// Fewer clear pixels than this and a scene's quantiles describe noise.
@@ -56,7 +64,10 @@ const CANDIDATE_MAX_CLOUD: f64 = 80.0;
 /// date returns several items, and a 200-item cap reached back only about 8
 /// months at Lake Manasarovar: a 14-month window silently lost its first half,
 /// and with it the earlier year a same-season comparison needs (2026-10-23).
-const CANDIDATE_LIMIT: usize = 1000;
+/// That is 25 items a month; over the longest window (four years) and with a
+/// third Sentinel-2 satellite in orbit since 2025, up to about 1,800. The
+/// catalogue pages 250 at a time, so a full read is 8 requests.
+const CANDIDATE_LIMIT: usize = 2000;
 const SCENE_READ_CONCURRENCY: usize = 6;
 /// Same-season baseline half-width, in days of year.
 const SEASON_HALF_WIDTH_DAYS: i64 = 30;
@@ -985,6 +996,15 @@ fn round6(x: f64) -> JsonValue {
     }
 }
 
+/// The scenes a call reads: what it asked for, less where its fields would
+/// take it past [`MAX_FIELD_SCENES`]. Never below the 3 a series needs.
+fn scenes_within_field_budget(asked: usize, fields: usize) -> usize {
+    match fields {
+        0 => asked,
+        n => asked.min((MAX_FIELD_SCENES / n).max(3)),
+    }
+}
+
 pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let zones = match &req.fields {
@@ -1050,10 +1070,11 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "the window is {window_days} days; the cap is {MAX_WINDOW_DAYS}. Split it, or use emem_compare_same_doy for a multi-year same-season comparison."
         )));
     }
-    let max_scenes = req
+    let asked_scenes = req
         .max_scenes
         .unwrap_or(DEFAULT_SCENES)
         .clamp(3, MAX_SCENES);
+    let max_scenes = scenes_within_field_budget(asked_scenes, zones.len());
     let min_clear = req.min_clear_fraction.unwrap_or(0.4).clamp(0.05, 1.0);
     let buffer_m = req.inner_buffer_m.unwrap_or(0.0).clamp(0.0, 60.0);
     let min_support = req
@@ -1736,6 +1757,11 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "covered_from": covered_from,
             "search_capped": search_capped,
             "max_scenes": max_scenes,
+            "max_scenes_asked": asked_scenes,
+            "scenes_capped_by_fields": (max_scenes < asked_scenes).then(|| format!(
+                "{} fields over {asked_scenes} scenes is more than the {MAX_FIELD_SCENES} field-scenes one call signs, so {max_scenes} scenes were read; send fewer fields for more scenes",
+                zones.len()
+            )),
             "scene_max_cloud_pct": CANDIDATE_MAX_CLOUD,
             "epsg": epsg,
             "min_clear_fraction": min_clear,
@@ -2751,6 +2777,26 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bare area reads what it asks for; fields share one budget, so the
+    /// largest field call signs no more than it did under the old cap of 24.
+    #[test]
+    fn fields_share_one_scene_budget() {
+        assert_eq!(scenes_within_field_budget(96, 0), 96);
+        assert_eq!(scenes_within_field_budget(96, 80), 96);
+        assert_eq!(scenes_within_field_budget(96, 125), 96);
+        assert_eq!(scenes_within_field_budget(96, 200), 60);
+        assert_eq!(scenes_within_field_budget(96, MAX_FIELDS), 24);
+        assert_eq!(scenes_within_field_budget(16, MAX_FIELDS), 16);
+        assert!(
+            scenes_within_field_budget(MAX_SCENES, MAX_FIELDS) * MAX_FIELDS <= MAX_FIELD_SCENES
+        );
+        assert_eq!(
+            scenes_within_field_budget(3, 10_000),
+            3,
+            "a series never drops below 3"
+        );
+    }
 
     /// The refusals happen before any scene is read, so they cost nothing
     /// and say exactly what was wrong.
