@@ -21,8 +21,9 @@
 //!
 //! Honest bounds, stated in refusals rather than discovered in
 //! timeouts: the AOI is a bbox, the band allowlist is the raw
-//! Sentinel-2 reflectance set below, and the window caps at
-//! `MAX_SIDE_PX` per side.
+//! Sentinel-2 reflectance set below plus the DEM, the encoder fields and
+//! the static forest layers, and the window caps at `MAX_SIDE_PX` per
+//! side (`FOREST_MAX_SIDE_PX` for a forest layer).
 
 use std::sync::LazyLock;
 use std::time::Instant;
@@ -209,8 +210,17 @@ pub async fn band_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, 
     if is_embedding_band(&req.band) {
         return embedding_raster(req, s).await;
     }
+    if FOREST_BANDS.iter().any(|f| f.band == req.band) {
+        return forest_raster(req, s).await;
+    }
     let Some((band_key, aliases)) = S2_BANDS.iter().find(|(k, _)| *k == req.band) else {
-        let names: Vec<&str> = S2_BANDS.iter().map(|(k, _)| *k).collect();
+        let names: Vec<&str> = S2_BANDS
+            .iter()
+            .map(|(k, _)| *k)
+            .chain(DEM_BAND_ALIASES.iter().take(1).copied())
+            .chain(EMBEDDING_BANDS.iter().copied())
+            .chain(FOREST_BANDS.iter().map(|f| f.band))
+            .collect();
         return Err(bad_request(format!(
             "band `{}` is not rasterizable; this executor serves {}",
             req.band,
@@ -736,6 +746,364 @@ async fn dem_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiEr
     }))
 }
 
+/// A static forest layer this executor rasterises straight out of its
+/// publisher's tile, with the terms the publisher states for it.
+struct ForestBand {
+    band: &'static str,
+    scheme: &'static str,
+    unit: &'static str,
+    licence: &'static str,
+    attribution: &'static str,
+}
+
+const HANSEN_LICENCE: &str = "CC BY 4.0, as the publisher states on its download page";
+const HANSEN_ATTRIBUTION: &str = "Hansen, M. C. et al. 2013, High-Resolution Global Maps of 21st-Century Forest Cover Change, Science 342: 850-853. Data: Global Forest Change 2000-2025 v1.13, University of Maryland";
+const JRC_LICENCE: &str = "free of charge, without restriction of use, under the Copernicus Regulation of the European Commission, as the publisher states; uses must cite the dataset";
+
+const FOREST_BANDS: [ForestBand; 5] = [
+    ForestBand {
+        band: "forest_change.lossyear",
+        scheme: "hansen.gfc.v1_13.2025",
+        unit: "year_of_loss (0 = no loss)",
+        licence: HANSEN_LICENCE,
+        attribution: HANSEN_ATTRIBUTION,
+    },
+    ForestBand {
+        band: "forest_change.treecover2000",
+        scheme: "hansen.gfc.v1_13.2025",
+        unit: "percent_canopy_cover",
+        licence: HANSEN_LICENCE,
+        attribution: HANSEN_ATTRIBUTION,
+    },
+    ForestBand {
+        band: "forest_change.gain",
+        scheme: "hansen.gfc.v1_13.2025",
+        unit: "boolean_forest_gain_2000_2012",
+        licence: HANSEN_LICENCE,
+        attribution: HANSEN_ATTRIBUTION,
+    },
+    ForestBand {
+        band: "jrc_gfc2020.forest_2020",
+        scheme: "jrc.gfc2020",
+        unit: "boolean_eudr_forest_2020",
+        licence: JRC_LICENCE,
+        attribution: "European Commission, Joint Research Centre: Global map of Forest Cover 2020 (GFC2020)",
+    },
+    ForestBand {
+        band: "jrc_tmf.deforestation_year",
+        scheme: "jrc.tmf.v2025",
+        unit: "year_of_deforestation (0 = none)",
+        licence: JRC_LICENCE,
+        attribution: "European Commission, Joint Research Centre: Tropical Moist Forest dataset, 2025 release (Vancutsem et al. 2021, Science Advances 7), read from its Source Cooperative mirror",
+    },
+];
+
+/// Per side. At 30 m a page is a ~30 km square, at JRC GFC2020's 10 m a
+/// ~10 km one, so a district is read as several pages. Twice the S2 cap:
+/// the read is one window of a static tile, from the local copy once the
+/// tile store holds it.
+const FOREST_MAX_SIDE_PX: u32 = 1024;
+
+/// The tile of `band` that covers `(lat, lng)`, and JRC GFC2020's version.
+async fn forest_tile_url(
+    band: &str,
+    lat: f64,
+    lng: f64,
+    cli: &reqwest::Client,
+) -> Result<(String, Option<u32>), String> {
+    if band == "jrc_gfc2020.forest_2020" {
+        return emem_fetch::jrc_gfc2020::tile_url(cli, lat, lng)
+            .await
+            .map(|(u, v)| (u, Some(v)))
+            .map_err(|e| format!("JRC GFC2020 tile listing: {e}"));
+    }
+    crate::static_cog_url_for_band(band, lat, lng)
+        .map(|u| (u, None))
+        .ok_or_else(|| format!("{band} publishes no tile at ({lat}, {lng})"))
+}
+
+/// A forest layer as a FIELD token: one window of the publisher's tile over
+/// the bbox, signed as a derivation, where callers had to read the layer
+/// cell by cell. Values are the per-cell facts' values (the lossyear byte is
+/// decoded to its calendar year), so an anchor checks exactly against the
+/// fact for its cell.
+async fn forest_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiError> {
+    let started = Instant::now();
+    let b = &req.bbox;
+    let Some(fb) = FOREST_BANDS.iter().find(|f| f.band == req.band) else {
+        return Err(bad_request(format!(
+            "band `{}` is not a forest layer",
+            req.band
+        )));
+    };
+    let band_key = fb.band;
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let cli = crate::s2_http_client();
+    let (url, jrc_version) = forest_tile_url(band_key, centre_lat, centre_lng, &cli)
+        .await
+        .map_err(upstream_error)?;
+    // One tile per read, as on the DEM path: every corner must name it.
+    let top = (b.max_lat - 1e-9).max(b.min_lat);
+    let right = (b.max_lng - 1e-9).max(b.min_lng);
+    for (lat, lng) in [
+        (b.min_lat, b.min_lng),
+        (b.min_lat, right),
+        (top, b.min_lng),
+        (top, right),
+    ] {
+        let corner = forest_tile_url(band_key, lat, lng, &cli).await.ok();
+        if corner.as_ref().map(|c| c.0.as_str()) != Some(url.as_str()) {
+            return Err(bad_request(format!(
+                "bbox crosses an edge of the {band_key} tiles (10° squares); this executor reads one tile per raster. Page the bbox along the tile lines."
+            )));
+        }
+    }
+    forest_raster_from(&req, s, fb, &url, jrc_version, started).await
+}
+
+/// [`forest_raster`] once the tile is chosen.
+async fn forest_raster_from(
+    req: &BandRasterReq,
+    s: &AppState,
+    fb: &ForestBand,
+    url: &str,
+    jrc_version: Option<u32>,
+    started: Instant,
+) -> Result<JsonValue, ApiError> {
+    let b = &req.bbox;
+    let band_key = fb.band;
+    let centre_lat = (b.min_lat + b.max_lat) / 2.0;
+    let centre_lng = (b.min_lng + b.max_lng) / 2.0;
+    let cli = crate::s2_http_client();
+    let url = url.to_string();
+    let prof = emem_fetch::cog::open_profile(&cli, &url)
+        .await
+        .map_err(|e| upstream_error(format!("open {url}: {e}")))?;
+    let epsg: u32 = 4326;
+    let (sx, sy) = prof.pixel_scale;
+    let native_deg = sx.abs();
+    if !(native_deg > 0.0 && native_deg.is_finite() && sy.abs() > 0.0) {
+        return Err(upstream_error(format!(
+            "{url} has an implausible pixel scale {:?}",
+            prof.pixel_scale
+        )));
+    }
+    let width_px = (((b.max_lng - b.min_lng) / native_deg).ceil() as u32).max(1);
+    let height_px = (((b.max_lat - b.min_lat) / sy.abs()).ceil() as u32).max(1);
+    if width_px > FOREST_MAX_SIDE_PX || height_px > FOREST_MAX_SIDE_PX {
+        return Err(bad_request(format!(
+            "window is {width_px}x{height_px} px at {band_key}'s native {native_deg}°; the cap is {FOREST_MAX_SIDE_PX} per side. Page the bbox."
+        )));
+    }
+    let raw = emem_fetch::cog::sample_window(
+        &cli, &url, &prof, centre_lng, centre_lat, width_px, height_px,
+    )
+    .await
+    .map_err(|e| upstream_error(format!("sample_window {url}: {e}")))?;
+    let values: Vec<f32> = raw
+        .iter()
+        .map(|v| {
+            if band_key == "forest_change.lossyear" {
+                let byte = if (0.0..=255.0).contains(v) {
+                    v.round() as u8
+                } else {
+                    0
+                };
+                emem_fetch::hansen_gfc::lossyear_byte_to_calendar_year(byte).unwrap_or(0) as f32
+            } else {
+                *v as f32
+            }
+        })
+        .collect();
+
+    let (centre_col, centre_row) = prof.world_to_pixel(centre_lng, centre_lat);
+    let col0 = centre_col - (width_px as i64) / 2;
+    let row0 = centre_row - (height_px as i64) / 2;
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let x0 = tx + (col0 as f64 - ti + half) * sx;
+    let y0 = ty - (row0 as f64 - tj + half) * sy.abs();
+    let header = GridHeader {
+        width: width_px,
+        height: height_px,
+        epsg,
+        nodata: f32::NAN,
+        lat0: y0,
+        lng0: x0,
+        dlat: -sy.abs(),
+        dlng: sx,
+        channels: 1,
+    };
+    let artifact_bytes =
+        encode_grid(&header, &values).map_err(|e| upstream_error(format!("grid encode: {e:?}")))?;
+    let byte_len = artifact_bytes.len();
+    let artifact_cid = ARTIFACTS
+        .put(&artifact_bytes)
+        .map_err(|e| upstream_error(format!("artifact store: {e}")))?;
+
+    // Anchors at the centres of five cells, the point each cell's own fact
+    // was read at, so an anchor and its fact name the same pixel.
+    let tslot: u64 = 0;
+    let inset_lat = (b.max_lat - b.min_lat) * 0.02;
+    let inset_lng = (b.max_lng - b.min_lng) * 0.02;
+    let cells: Vec<String> = [
+        (b.min_lat + inset_lat, b.min_lng + inset_lng),
+        (b.min_lat + inset_lat, b.max_lng - inset_lng),
+        (b.max_lat - inset_lat, b.min_lng + inset_lng),
+        (b.max_lat - inset_lat, b.max_lng - inset_lng),
+        (centre_lat, centre_lng),
+    ]
+    .iter()
+    .map(|(lat, lng)| emem_codec::geo::cell64_from_latlng(*lat, *lng))
+    .collect();
+    let keys: Vec<CanonicalKey> = cells
+        .iter()
+        .map(|cell| CanonicalKey {
+            cell: cell.clone(),
+            band: band_key.to_string(),
+            tslot,
+        })
+        .collect();
+    let looked_up = s
+        .storage
+        .lookup_canonical_many(&keys)
+        .await
+        .unwrap_or_else(|_| vec![None; keys.len()]);
+    let mut anchors: Vec<JsonValue> = Vec::with_capacity(cells.len());
+    let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
+    for (cell, existing) in cells.iter().zip(&looked_up) {
+        let Ok(at) = emem_codec::latlng_from_cell64(cell) else {
+            continue;
+        };
+        let (col, row) = prof.world_to_pixel(at.lng_deg, at.lat_deg);
+        let r = ((row - row0).max(0) as u32).min(header.height.saturating_sub(1));
+        let c = ((col - col0).max(0) as u32).min(header.width.saturating_sub(1));
+        if let Some(cid) = existing {
+            anchor_fact_cids.push(cid.clone());
+        }
+        anchors.push(json!({
+            "cell": cell,
+            "row": r,
+            "col": c,
+            "value": grid_value_at(&header, &values, r, c),
+            "fact_cid": existing.as_ref().map(|c| c.as_str()),
+        }));
+    }
+
+    let scheme = match jrc_version {
+        Some(v) => format!("{}.v{v}", fb.scheme),
+        None => fb.scheme.to_string(),
+    };
+    let licence = json!({ "terms": fb.licence, "attribution": fb.attribution });
+    let aoi = aoi_cid(b)?;
+    let record_body = json!({
+        "schema": "emem.field_derivation.v1",
+        "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
+        "aoi_cid": aoi,
+        "band": band_key,
+        "tslot": tslot,
+        "fn_key": "forest_raster@1",
+        "unit": fb.unit,
+        "sources": [{
+            "scheme": scheme,
+            "id": url,
+            "asset": url,
+            "licence": licence,
+        }],
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "grid": {
+                "width": width_px, "height": height_px, "epsg": epsg,
+                "x0": x0, "y0": y0, "dx": sx, "dy": -sy.abs(),
+                "native_deg": native_deg,
+                "crs_note": "header origin and steps are in EPSG:4326 degrees, the tile's own CRS; the request bbox is WGS-84, same datum, so no reprojection",
+            },
+        },
+        "anchors": anchors,
+        "anchor_policy": "best_effort: an anchor cites the per-cell fact of the same band for its cell when the store holds one, and never materialises one",
+    });
+    let signed_at = emem_storage::server::iso8601_now();
+    let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
+    let derivation_fact = DerivativeFact {
+        cell: centre_cell.clone(),
+        band: "field.derivation".to_string(),
+        tslot_window: [tslot, tslot],
+        op: "forest_raster".to_string(),
+        parents: anchor_fact_cids.clone(),
+        value: json_to_cbor(&record_body),
+        confidence: 1.0,
+        derivation: Derivation {
+            fn_key: "forest_raster@1".to_string(),
+            args: None,
+        },
+        schema_cid: s.manifests.schema_cid.clone(),
+        signer: s.identity.pubkey,
+        signed_at: signed_at.clone(),
+    };
+    let att = emem_fact::Attestation::build_and_sign_v1(
+        vec![Fact::Derivative(derivation_fact)],
+        vec![],
+        s.manifests.registry_cid.clone(),
+        s.manifests.schema_cid.clone(),
+        &s.identity.signing,
+        s.identity.epoch,
+        signed_at,
+        None,
+    )
+    .map_err(|e| upstream_error(format!("derivation attestation: {e}")))?;
+    let cids = s
+        .storage
+        .put_attestation(&att)
+        .await
+        .map_err(ApiError::from)?;
+    let derivation_cid = cids
+        .first()
+        .map(|c| c.as_str().to_string())
+        .ok_or_else(|| upstream_error("store returned no cid for the derivation".into()))?;
+    let binding = FieldBinding {
+        aoi_cid: aoi.clone(),
+        derivation_cid: derivation_cid.clone(),
+    };
+    let mut receipt_cids = anchor_fact_cids;
+    receipt_cids.push(FactCid::new(derivation_cid.clone()));
+    let receipt = s.sign_receipt_field(
+        "emem.band_raster",
+        vec![centre_cell.clone()],
+        receipt_cids,
+        false,
+        started,
+        binding,
+    );
+    Ok(json!({
+        "schema": "emem.band_raster.v1",
+        "algorithm_key": "forest_raster@1",
+        "aoi_cid": aoi,
+        "band": band_key,
+        "unit": fb.unit,
+        "tslot": tslot,
+        "grid": { "width": width_px, "height": height_px, "epsg": epsg, "native_deg": native_deg },
+        "licence": licence,
+        "artifact": {
+            "artifact_cid": artifact_cid,
+            "byte_len": byte_len,
+            "media_type": GRID_MEDIA_TYPE,
+            "url": format!("/v1/artifacts/{artifact_cid}"),
+            "eviction_note": "the artifact is evictable; the derivation record persists and pins the tile, recipe, and geometry needed to rebuild the identical bytes",
+        },
+        "derivation": record_body,
+        "derivation_cid": derivation_cid,
+        "tokens": {
+            "raster": format!("emem:raster:{aoi}:{band_key}:{tslot}:{derivation_cid}"),
+            "derivation_fact": format!("emem:fact:{centre_cell}:{derivation_cid}"),
+        },
+        "docs": "https://emem.dev/reference#token-raster",
+        "receipt": receipt,
+    }))
+}
+
 /// WB-5: an encoder embedding as a FIELD token. The worlds agent's
 /// `embedding.json` is a client-side joint-PCA over ~1,024 per-cell
 /// geotessera reads; this replaces that with one signed artifact. It samples
@@ -1007,7 +1375,11 @@ async fn resolve_raster_member(
         .unwrap_or("");
     let is_raster_shaped = matches!(
         fn_key,
-        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1" | "embedding_raster@1"
+        "band_raster@1"
+            | "s2_median_composite@1"
+            | "dem_raster@1"
+            | "embedding_raster@1"
+            | "forest_raster@1"
     );
     if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
         return Err(conflict(format!(
@@ -1445,7 +1817,11 @@ pub async fn raster_resolve(req: RasterResolveReq, s: &AppState) -> Result<JsonV
         .unwrap_or("");
     let is_raster_shaped = matches!(
         fn_key,
-        "band_raster@1" | "s2_median_composite@1" | "dem_raster@1" | "embedding_raster@1"
+        "band_raster@1"
+            | "s2_median_composite@1"
+            | "dem_raster@1"
+            | "embedding_raster@1"
+            | "forest_raster@1"
     );
     if fact_json.get("kind").and_then(|k| k.as_str()) != Some("derivative") || !is_raster_shaped {
         return Err(conflict(format!(
@@ -2749,6 +3125,142 @@ pub async fn post_band_composite(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A 40x40 one-strip-per-row deflate TIFF placed like Hansen's 00N_070W
+    /// tile at a coarse 0.25° a pixel, valued `(col + row) % 25` as the
+    /// lossyear bytes are.
+    fn hansen_like_tiff() -> Vec<u8> {
+        use std::io::Write as _;
+        let (w, h) = (40u32, 40u32);
+        let mut strips = Vec::new();
+        for r in 0..h {
+            let row: Vec<u8> = (0..w).map(|c| ((c + r) % 25) as u8).collect();
+            let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+            z.write_all(&row).unwrap();
+            strips.push(z.finish().unwrap());
+        }
+        let mut entries: Vec<(u16, u16, u32, u32)> = vec![
+            (256, 4, 1, w),
+            (257, 4, 1, h),
+            (258, 3, 1, 8),
+            (259, 3, 1, 8),
+            (277, 3, 1, 1),
+            (278, 4, 1, 1),
+            (284, 3, 1, 1),
+            (317, 3, 1, 1),
+            (339, 3, 1, 1),
+        ];
+        let ifd_len = 2 + 12 * (entries.len() as u32 + 4) + 4;
+        let scale_off = 8 + ifd_len;
+        let tie_off = scale_off + 24;
+        let offs_off = tie_off + 48;
+        let cnts_off = offs_off + 4 * h;
+        let data_off = cnts_off + 4 * h;
+        entries.extend([
+            (273, 4, h, offs_off),
+            (279, 4, h, cnts_off),
+            (33550, 12, 3, scale_off),
+            (33922, 12, 6, tie_off),
+        ]);
+        entries.sort_by_key(|e| e.0);
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"II");
+        buf.extend_from_slice(&42_u16.to_le_bytes());
+        buf.extend_from_slice(&8_u32.to_le_bytes());
+        buf.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, typ, cnt, val) in &entries {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&typ.to_le_bytes());
+            buf.extend_from_slice(&cnt.to_le_bytes());
+            buf.extend_from_slice(&val.to_le_bytes());
+        }
+        buf.extend_from_slice(&0_u32.to_le_bytes());
+        for v in [0.25_f64, 0.25, 0.0, 0.0, 0.0, 0.0, -70.0, 0.0, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut at = data_off;
+        for st in &strips {
+            buf.extend_from_slice(&at.to_le_bytes());
+            at += st.len() as u32;
+        }
+        for st in &strips {
+            buf.extend_from_slice(&(st.len() as u32).to_le_bytes());
+        }
+        for st in &strips {
+            buf.extend_from_slice(st);
+        }
+        buf.resize(buf.len().max(128 * 1024), 0);
+        buf
+    }
+
+    /// One window of the tile becomes one signed field whose values are the
+    /// per-cell facts' values: a lossyear byte reads as its calendar year.
+    #[tokio::test]
+    async fn a_forest_layer_rasterises_as_one_window_of_its_tile() {
+        let path = std::env::temp_dir().join(format!(
+            "emem_forest_raster_{}_{}.tif",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, hansen_like_tiff()).unwrap();
+        let url = format!("file://{}", path.display());
+        let req = BandRasterReq {
+            bbox: BBox {
+                min_lat: -2.0,
+                min_lng: -69.0,
+                max_lat: -1.0,
+                max_lng: -68.0,
+            },
+            band: "forest_change.lossyear".into(),
+            observed_on: None,
+        };
+        let fb = FOREST_BANDS
+            .iter()
+            .find(|f| f.band == "forest_change.lossyear")
+            .unwrap();
+        let s = crate::tests::test_app_state();
+        let out = forest_raster_from(&req, &s, fb, &url, None, Instant::now())
+            .await
+            .unwrap();
+        assert_eq!(out["algorithm_key"], "forest_raster@1");
+        assert_eq!(out["grid"]["width"], 4);
+        assert_eq!(out["grid"]["height"], 4);
+        assert!(out["licence"]["terms"]
+            .as_str()
+            .unwrap()
+            .contains("CC BY 4.0"));
+        let cid = out["artifact"]["artifact_cid"].as_str().unwrap();
+        let bytes = ARTIFACTS.get(cid).unwrap().expect("the artifact is stored");
+        let (header, values) = emem_codec::grid::decode_grid(&bytes).unwrap();
+        // The bbox is columns 4..8 and rows 4..8 of the tile.
+        for r in 0..4u32 {
+            for c in 0..4u32 {
+                let byte = ((4 + c) + (4 + r)) % 25;
+                let want = if byte == 0 { 0.0 } else { 2000.0 + byte as f32 };
+                assert_eq!(
+                    grid_value_at(&header, &values, r, c),
+                    Some(want),
+                    "row {r} col {c}"
+                );
+            }
+        }
+        assert!(
+            (header.lng0 - (-69.0 + 0.125)).abs() < 1e-9,
+            "{}",
+            header.lng0
+        );
+        assert!(
+            (header.lat0 - (-1.0 - 0.125)).abs() < 1e-9,
+            "{}",
+            header.lat0
+        );
+        let token = out["tokens"]["raster"].as_str().unwrap();
+        assert!(token.starts_with("emem:raster:") && token.contains(":forest_change.lossyear:0:"));
+        let _ = std::fs::remove_file(&path);
+    }
 
     /// Both catalogues land on one pixel scale: an ESA DN from Planetary
     /// Computer plus its offset equals Element84's harmonised DN, and no-data

@@ -102,3 +102,6 @@ rand = { workspace = true }
 # write real files so the truncation / trailing-byte / wrong-key paths
 # are exercised against the filesystem rather than a mock.
 tempfile = "3"
+# Deflate-compressed TIFF fixtures for the forest_raster test, which reads a
+# real tile layout through the COG sampler rather than a mock.
+flate2 = { workspace = true }
