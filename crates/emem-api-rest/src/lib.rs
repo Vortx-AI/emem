@@ -70272,7 +70272,18 @@ fn eudr_rows_cid(per_cell: &[EudrCellVerdict]) -> String {
     h.finalize().to_hex().to_string()
 }
 
-const EUDR_ROWS_MEANS: &str = "per_cell_verdicts holds the rows this response carries, not the sampling. Over the inline cap without per_cell_offset it is a sample: failing cells first, then the first of the rest. Coverage is sampled_polygon_fraction (sampled_area_ha over the polygon's area), never a count of these rows. With per_cell_offset the rows are a page in canonical order: request each per_cell_next_offset until it is null, join the pages, and the joined rows recompute per_cell_rows_cid.";
+/// Why a statement is not offered for signature, each cause that applies;
+/// empty when it is signable.
+fn signable_held_because(overall_label: &str, held: &[&str]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    if overall_label != "pass" {
+        out.push(format!("verdict_{overall_label}"));
+    }
+    out.extend(held.iter().map(|s| s.to_string()));
+    out
+}
+
+const EUDR_ROWS_MEANS: &str = "per_cell_verdicts holds the rows this response carries, not the sampling. Over the inline cap without per_cell_offset it is a sample: failing cells first, then the first of the rest. Coverage is sampled_polygon_fraction (sampled_area_ha over the polygon's area), never a count of these rows. With per_cell_offset the rows are a page in canonical order: request each per_cell_next_offset until it is null, join the pages, and the joined rows recompute per_cell_rows_cid. A sample's per_cell_next_offset is 0, the first page.";
 
 const EUDR_ROWS_CID_MEANS: &str = "blake3 (hex) over one line per sampled cell, `<cell>|<verdict>|<fact_cid>,<fact_cid>...` and a newline, in the order per_cell_verdicts lists them, over every cell, not only the inlined ones. When per_cell_verdicts_truncated is false the inlined rows recompute it. The same request repeated returns the same rows while the cited facts stand, so per_cell_detail `anchor` can be expanded later by asking again with `rows`. It is not part of the signed receipt; the fact cids inside it are signed.";
 
@@ -73890,9 +73901,13 @@ async fn post_eudr_dds_inner(
                 .unwrap_or(256);
             let page = per_cell_offset.map(|o| o.min(per_cell.len()));
             let per_cell_truncated = per_cell.len() > per_cell_cap || page.is_some_and(|o| o > 0);
-            let per_cell_next_offset = page
-                .map(|o| o + per_cell_cap)
-                .filter(|n| *n < per_cell.len());
+            // A truncated sample is not page 0, so its next page is the first
+            // one: 0. It was null, which a caller reads as "nothing more" with
+            // thousands of rows behind the cap.
+            let per_cell_next_offset = match page {
+                Some(o) => Some(o + per_cell_cap).filter(|n| *n < per_cell.len()),
+                None => per_cell_truncated.then_some(0),
+            };
             let per_cell_for_response: Vec<EudrCellVerdict> = if let Some(o) = page {
                 per_cell
                     .iter()
@@ -74139,6 +74154,20 @@ async fn post_eudr_dds_inner(
     // statement to offer for signature unread, any more than a weak one is.
     let held_for_review =
         review_required || weak_support || computed_baseline == "hansen_only_jrc_unavailable";
+    // Every cause that keeps the statement back, not one of them: a reader
+    // that sees only the flag has to guess, and a reader told one reason
+    // repeats it as the reason when another also applied.
+    let held_because: Vec<&str> = [
+        (review_required, "tmf_cross_check_review_required"),
+        (weak_support, "verdict_support_weak"),
+        (
+            computed_baseline == "hansen_only_jrc_unavailable",
+            "jrc_baseline_unavailable_hansen_only",
+        ),
+    ]
+    .into_iter()
+    .filter_map(|(on, why)| on.then_some(why))
+    .collect();
     let baseline_datasets = forest_baseline_dataset(&baseline_versions);
     // A JRC override, by either version's name, reports the version that ran.
     let baseline = match req.forest_baseline_override.as_deref() {
@@ -74269,6 +74298,7 @@ async fn post_eudr_dds_inner(
         // the three reasons let a pass that ran without the JRC baseline read
         // signable beside `statementOfComplianceReviewRequired: true`.
         "statementOfComplianceSignable": overall_label == "pass" && !held_for_review,
+        "statementOfComplianceHeldBecause": signable_held_because(overall_label, &held_because),
         "statementOfComplianceReviewRequired": held_for_review,
     });
 
@@ -74308,6 +74338,7 @@ async fn post_eudr_dds_inner(
         },
         "statement_of_compliance":     statement_of_compliance(overall_label, held_for_review),
         "statement_of_compliance_signable": overall_label == "pass" && !held_for_review,
+        "statement_of_compliance_held_because": signable_held_because(overall_label, &held_because),
         "traces_nt_envelope": traces_nt_envelope,
         "per_plot_results": per_plot_results,
         "responder_pubkey_b32": data_encoding::BASE32_NOPAD.encode(&s.identity.pubkey.0).to_lowercase(),
