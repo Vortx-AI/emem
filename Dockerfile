@@ -34,13 +34,15 @@ WORKDIR /usr/src/emem
 #     .proto definitions in `libprotobuf-dev` (under
 #     /usr/include/google/protobuf/). Both are needed; protoc alone
 #     dies with "File not found" at lance-encoding-*/build-script-build.
+# `make` is for tikv-jemalloc-sys, which runs jemalloc's own configure and
+# make: the server's allocator on Linux.
 # The runtime stage is a fresh debian:trixie-slim so it does not
 # inherit g++ / protoc — this only adds ~50 MB to the build stage.
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-        pkg-config ca-certificates g++ \
+        pkg-config ca-certificates g++ make \
         protobuf-compiler libprotobuf-dev && \
     rm -rf /var/lib/apt/lists/*
 
@@ -173,7 +175,11 @@ USER emem
 # blocking pool runs hundreds of threads over a day, and the responder's
 # anonymous memory climbed to 58 GB over four days on a 61 GB host, most of
 # it in 64 MB arena heaps, starving the page cache the stores read through.
-# Four arenas bound that. Override with -e MALLOC_ARENA_MAX=... per node.
+# Four arenas did not bound it: three days after the 2026-10-24 deploy RSS was
+# 41.7 GB again, 19.3 GB in 322 arena heaps. The server's Rust allocations
+# now go to jemalloc (see crates/emem-cli/Cargo.toml); this cap still applies
+# to what the C libraries it links allocate through glibc.
+# Override with -e MALLOC_ARENA_MAX=... per node.
 ENV EMEM_DATA=/var/emem \
     RUST_LOG=info \
     MALLOC_ARENA_MAX=4

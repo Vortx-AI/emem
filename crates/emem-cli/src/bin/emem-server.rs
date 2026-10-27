@@ -32,6 +32,38 @@ use emem_fact::{RegistryCid, SchemaCid};
 use emem_storage::server::ManifestCids;
 use emem_storage::{server::ResponderIdentity, MaterializingStorage, Server};
 
+// See the dependency's note in Cargo.toml: glibc kept freed arena heaps
+// resident, and the responder's RSS climbed until the page cache starved.
+#[cfg(target_os = "linux")]
+#[global_allocator]
+static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
+/// One line every ten minutes: what the program holds live (`allocated`)
+/// against what the kernel is charging for it (`resident`). A gap that grows
+/// is fragmentation; an `allocated` that grows is a leak.
+#[cfg(target_os = "linux")]
+fn log_allocator_stats() {
+    tokio::spawn(async {
+        let mut tick = tokio::time::interval(std::time::Duration::from_secs(600));
+        loop {
+            tick.tick().await;
+            use tikv_jemalloc_ctl::{epoch, stats};
+            if epoch::advance().is_err() {
+                continue;
+            }
+            let mib = |r: Result<usize, tikv_jemalloc_ctl::Error>| r.map(|b| b >> 20).unwrap_or(0);
+            tracing::info!(
+                target: "emem::alloc",
+                allocated_mib = mib(stats::allocated::read()),
+                active_mib = mib(stats::active::read()),
+                resident_mib = mib(stats::resident::read()),
+                retained_mib = mib(stats::retained::read()),
+                "allocator"
+            );
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -40,6 +72,8 @@ async fn main() -> anyhow::Result<()> {
                 .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
         )
         .init();
+    #[cfg(target_os = "linux")]
+    log_allocator_stats();
 
     // Wall clock from the top of `main`. Every step below reports its own
     // duration against it, because "startup is slow" is not actionable and

@@ -81,3 +81,13 @@ ciborium        = { workspace = true }
 blake3          = { workspace = true }
 serde           = { workspace = true }
 sled            = { workspace = true }
+
+# The responder's allocator, on Linux where it runs in production. Three days
+# after the 2026-10-24 deploy glibc's malloc held 41.7 GB anonymous, 19.3 GB of
+# it in 322 64 MB arena heaps, with MALLOC_ARENA_MAX=4 already set; jemalloc's
+# background threads give decayed pages back to the kernel. The stats feature
+# is what lets the server report allocated against resident, which is the
+# difference between fragmentation and a leak.
+[target.'cfg(target_os = "linux")'.dependencies]
+tikv-jemallocator = { version = "0.7", features = ["background_threads", "stats"] }
+tikv-jemalloc-ctl = { version = "0.7", features = ["stats"] }
