@@ -1,0 +1,40 @@
+# zstd 0.13's name over zstd 0.14.3.
+#
+# RUSTSEC-2026-0391, -0398 and -0403 are fixed only in zstd 0.14.3 /
+# zstd-safe 8.2, and arrow-ipc 58, parquet 55 and lance-encoding 6 (the
+# newest lance, 13, included) require zstd ^0.13. zstd-sys declares
+# `links = "zstd"`, so one build links one libzstd: a fixed copy beside the
+# old one is not possible. The root manifest patches every zstd ^0.13
+# requirement to this crate, which re-exports 0.14.3, so the whole build
+# decodes through the fixed library. Remove it, and the patch, once those
+# crates release on zstd 0.14.
+[package]
+name = "zstd"
+version = "0.13.4"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+description = "Compatibility shim: answers to zstd ^0.13, is zstd 0.14.3"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+upstream = { package = "zstd", version = "0.14.3", default-features = false }
+
+[features]
+default = ["legacy", "arrays", "zdict_builder"]
+arrays = ["upstream/arrays"]
+bindgen = ["upstream/bindgen"]
+debug = ["upstream/debug"]
+doc-cfg = ["upstream/doc-cfg"]
+experimental = ["upstream/experimental"]
+fat-lto = ["upstream/fat-lto"]
+legacy = ["upstream/legacy"]
+no_asm = ["upstream/no_asm"]
+pkg-config = ["upstream/pkg-config"]
+thin = ["upstream/thin"]
+thin-lto = ["upstream/thin-lto"]
+wasm = ["upstream/wasm"]
+zdict_builder = ["upstream/zdict_builder"]
+zstdmt = ["upstream/zstdmt"]

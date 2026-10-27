@@ -21,6 +21,8 @@ members = [
     "crates/emem-scorecard",
     "crates/emem-sleep-agent",
 ]
+# The zstd shim is a patch target, not a member: see crates/zstd-0.13-compat.
+exclude = ["crates/zstd-0.13-compat"]
 
 [workspace.package]
 version = "2.4.4"
@@ -115,3 +117,9 @@ debug = "line-tables-only"
 
 [profile.bench]
 debug = true
+
+# Every zstd ^0.13 requirement (arrow-ipc, parquet, lance-encoding) resolves to
+# a shim that is zstd 0.14.3, the release that fixes RUSTSEC-2026-0391, -0398
+# and -0403. Drop it when those crates move to zstd 0.14.
+[patch.crates-io]
+zstd = { path = "crates/zstd-0.13-compat" }

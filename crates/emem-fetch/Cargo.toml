@@ -24,7 +24,7 @@ flate2        = { workspace = true }
 weezl         = "0.1"
 # ZSTD (TIFF compression=50000) for re-encoded COG mirrors; already linked
 # into the server through parquet/lance.
-zstd          = "0.13"
+zstd          = "0.14.3"
 # Overture Maps materializer: anonymous S3 + parquet row-group pruning + WKB decode.
 # parquet's `async` and `object_store` features bring in
 # parquet::arrow::async_reader::ParquetObjectReader which streams row groups
