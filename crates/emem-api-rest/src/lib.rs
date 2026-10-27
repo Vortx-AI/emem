@@ -13096,6 +13096,10 @@ async fn recall_with_auto_materialize_capped(
         materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
         if materialized_any {
             resp = recall(req, s).await?;
+            // The re-read hits the cache the fetch just filled, so the
+            // primitive signs it as cached; this call was not. `cost` is
+            // outside the signed preimage, so correcting it breaks nothing.
+            resp.receipt.cost.was_cached = false;
         }
     }
     for b in &deferred_cold {
