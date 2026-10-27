@@ -9,6 +9,7 @@
 //! Endpoint: <https://earth-search.aws.element84.com/v1/search> — anonymous,
 //! no API key, public AWS Open Data backed.
 
+use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -237,7 +238,56 @@ pub async fn search_one(
 /// can route between Element84 (anonymous AWS Open Data) and Microsoft
 /// Planetary Computer (anonymous, asset URLs need SAS — see
 /// [`mpc_sas_token`]).
+///
+/// Identical searches in flight at once share one request. Every band of
+/// one materializer family searches for the same scene: one `/v1/ask` about
+/// Trafalgar Square sent 24 identical Sentinel-1 searches inside 30 ms,
+/// 2,304 a day from the perception probe alone. Nothing is kept once the
+/// search answers, so a later search still sees a newer scene.
 pub async fn search_one_at(
+    client: &Client,
+    search_url: &str,
+    collection: &str,
+    lng: f64,
+    lat: f64,
+    datetime: &str,
+    max_cloud: Option<f64>,
+) -> Result<Option<StacItem>, String> {
+    type Shared = std::sync::Arc<tokio::sync::OnceCell<Result<Option<StacItem>, String>>>;
+    static IN_FLIGHT: std::sync::LazyLock<Mutex<HashMap<String, Shared>>> =
+        std::sync::LazyLock::new(Default::default);
+    let key = format!(
+        "{search_url}|{collection}|{}|{}|{datetime}|{:?}",
+        lng.to_bits(),
+        lat.to_bits(),
+        max_cloud.map(f64::to_bits)
+    );
+    let cell: Shared = IN_FLIGHT
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .entry(key.clone())
+        .or_default()
+        .clone();
+    let out = cell
+        .get_or_init(|| {
+            search_one_uncached(
+                client, search_url, collection, lng, lat, datetime, max_cloud,
+            )
+        })
+        .await
+        .clone();
+    // No await between the answer and this removal, so a caller dropped
+    // here cannot leave the answer behind for later searches.
+    let mut m = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+    if m.get(&key)
+        .is_some_and(|c| std::sync::Arc::ptr_eq(c, &cell))
+    {
+        m.remove(&key);
+    }
+    out
+}
+
+async fn search_one_uncached(
     client: &Client,
     search_url: &str,
     collection: &str,
@@ -827,6 +877,59 @@ mod tests {
         let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
         assert_eq!(ids, ["a", "b", "c"]);
         assert!(whole);
+    }
+
+    /// Eight identical searches at once reach the catalogue once and all get
+    /// its answer; the next search after they finish asks again.
+    #[tokio::test]
+    async fn identical_searches_in_flight_share_one_request() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}/search", listener.local_addr().unwrap());
+        let hits = std::sync::Arc::new(AtomicUsize::new(0));
+        let seen = hits.clone();
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                let seen = seen.clone();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 8192];
+                    let _ = sock.read(&mut buf).await;
+                    seen.fetch_add(1, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    let text = json!({"features": [{"id": "s1", "properties": {"datetime": "2026-10-20T06:00:00Z"}}]}).to_string();
+                    let resp = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{text}",
+                        text.len()
+                    );
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+        let cli = Client::new();
+        let window = "2026-10-12T00:00:00Z/2026-10-27T00:00:00Z";
+        let all =
+            futures_util::future::join_all((0..8).map(|_| {
+                search_one_at(&cli, &base, "sentinel-1-rtc", -0.128, 51.508, window, None)
+            }))
+            .await;
+        for got in &all {
+            assert_eq!(got.as_ref().unwrap().as_ref().unwrap().id, "s1");
+        }
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "one request for eight searches"
+        );
+        search_one_at(&cli, &base, "sentinel-1-rtc", -0.128, 51.508, window, None)
+            .await
+            .unwrap();
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            2,
+            "a finished search is not kept"
+        );
     }
 
     #[test]
