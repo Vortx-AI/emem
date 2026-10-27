@@ -20,7 +20,7 @@ the facts it cites.
 ```bash
 curl -sX POST https://emem.dev/v1/state \
   -H 'content-type: application/json' \
-  -d '{"cell":"South Mumbai","view":"cube"}'
+  -d '{"cell":"Colaba, Mumbai","view":"cube"}'
 ```
 
 Response shape:

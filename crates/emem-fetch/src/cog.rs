@@ -1904,6 +1904,62 @@ pub async fn release_alive(client: &Client, canary_url: &str) -> bool {
     alive
 }
 
+/// How long a host that just failed badly is left alone.
+const HOST_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(300);
+/// A failure that took this long is a host in trouble, not a dropped packet.
+const SLOW_FAILURE: std::time::Duration = std::time::Duration::from_secs(15);
+
+/// Hosts cooling down after a server error or a slow failure, and why.
+///
+/// JRC's tile host answered HTTP 500 after 47 to 113 s on 2026-10-27, and
+/// every EUDR statement waited out the whole failure again: nothing remembered
+/// the last one, so a single-plot statement took 75-90 s on facts that were
+/// otherwise cached. A fast failure (a refused connection) is cheap to retry
+/// and is not remembered; a success clears the host.
+static HOST_TROUBLE: LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, String)>>> =
+    LazyLock::new(Default::default);
+
+fn url_host(url: &str) -> &str {
+    let rest = url.split_once("://").map_or(url, |(_, r)| r);
+    rest.split('/').next().unwrap_or(rest)
+}
+
+fn host_cooling(host: &str) -> Option<(u64, String)> {
+    let mut m = HOST_TROUBLE.lock().unwrap_or_else(|e| e.into_inner());
+    match m.get(host) {
+        Some((until, why)) if *until > std::time::Instant::now() => Some((
+            until
+                .duration_since(std::time::Instant::now())
+                .as_secs()
+                .max(1),
+            why.clone(),
+        )),
+        Some(_) => {
+            m.remove(host);
+            None
+        }
+        None => None,
+    }
+}
+
+fn host_troubled(host: &str, why: String) {
+    let mut m = HOST_TROUBLE.lock().unwrap_or_else(|e| e.into_inner());
+    if m.len() > 1024 {
+        m.clear();
+    }
+    m.insert(
+        host.to_string(),
+        (std::time::Instant::now() + HOST_COOLDOWN, why),
+    );
+}
+
+fn host_answered(host: &str) {
+    HOST_TROUBLE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(host);
+}
+
 async fn http_range(
     client: &Client,
     url: &str,
@@ -1932,20 +1988,42 @@ async fn http_range(
             .map_err(|e| CogError::Transport(format!("file read {path}: {e}")))?;
         return Ok(Bytes::from(buf));
     }
-    let resp = client
+    let host = url_host(url);
+    if let Some((left, why)) = host_cooling(host) {
+        return Err(CogError::Transport(format!(
+            "{host} is left alone for {left}s more after it failed: {why}"
+        )));
+    }
+    let asked = std::time::Instant::now();
+    let resp = match client
         .get(url)
         .header("range", format!("bytes={}-{}", start, end_inclusive))
         .header("user-agent", emem_core::outbound::user_agent())
         .send()
         .await
-        .map_err(|e| CogError::Transport(e.to_string()))?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            if asked.elapsed() >= SLOW_FAILURE {
+                host_troubled(host, format!("{e} after {}s", asked.elapsed().as_secs()));
+            }
+            return Err(CogError::Transport(e.to_string()));
+        }
+    };
     let status = resp.status();
+    if status.is_server_error() {
+        host_troubled(
+            host,
+            format!("HTTP {status} after {}s", asked.elapsed().as_secs()),
+        );
+    }
     if !(status == reqwest::StatusCode::PARTIAL_CONTENT || status == reqwest::StatusCode::OK) {
         return Err(CogError::Transport(format!(
             "status {} for range {}-{} on {}",
             status, start, end_inclusive, url
         )));
     }
+    host_answered(host);
     // A whole-file answer is paid on every tile read of that file: fine for
     // a small one, not for a multi-gigabyte raster behind a host that
     // ignores Range.
@@ -1992,6 +2070,61 @@ fn whole_body_range(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A host that answers a server error is not asked again for a while,
+    /// and the error says why; a refused connection is retried every time.
+    #[tokio::test]
+    async fn a_host_that_fails_is_left_alone() {
+        use std::io::{Read as _, Write as _};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let seen = hits.clone();
+        std::thread::spawn(move || {
+            for conn in listener.incoming().flatten() {
+                let mut conn = conn;
+                let mut buf = [0u8; 1024];
+                let _ = conn.read(&mut buf);
+                seen.fetch_add(1, Ordering::SeqCst);
+                let _ = conn.write_all(
+                    b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                );
+            }
+        });
+        let client = Client::new();
+        let url = format!("http://127.0.0.1:{port}/tile.tif");
+        let first = http_range(&client, &url, 0, 99)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(first.contains("500"), "{first}");
+        let second = http_range(&client, &url, 0, 99)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(second.contains("left alone"), "{second}");
+        assert!(second.contains("HTTP 500"), "the reason travels: {second}");
+        assert_eq!(
+            hits.load(Ordering::SeqCst),
+            1,
+            "the second read never reached the host"
+        );
+
+        let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let dead = format!(
+            "http://127.0.0.1:{}/t.tif",
+            closed.local_addr().unwrap().port()
+        );
+        drop(closed);
+        for _ in 0..2 {
+            let e = http_range(&client, &dead, 0, 9)
+                .await
+                .unwrap_err()
+                .to_string();
+            assert!(!e.contains("left alone"), "a fast refusal is retried: {e}");
+        }
+    }
 
     /// A host that ignores Range sends the whole file with a 200: the
     /// range must still be the bytes at the offset asked for.
