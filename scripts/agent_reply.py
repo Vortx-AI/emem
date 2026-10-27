@@ -59,6 +59,8 @@ ISSUES = Path(os.path.expanduser("~/.config/emem/agent_proposed_issues.jsonl"))
 # Enough turns to locate, recall and verify, and few enough that a model going
 # in circles stops rather than burning the hour.
 MAX_STEPS = 6
+# Runs a note may fail before it is held for a person.
+MAX_ATTEMPTS = 3
 
 # The core loop, not all 108. A 12B model does not need the catalogue in
 # context; it needs the loop and a way to look the rest up, which is what the
@@ -529,7 +531,15 @@ def main() -> int:
 
     print(f"replying as {pub[:8]} against {ORIGIN}"
           f"{'' if a.post else '  (dry run)'}\n")
-    done = json.loads(STATE.read_text()).get("replied", []) if STATE.exists() else []
+    state = json.loads(STATE.read_text()) if STATE.exists() else {}
+    done = state.get("replied", [])
+    # Attempts per note that ended with no usable reply. Without a cap the
+    # same three notes from July failed every ten minutes from 2026-10-20 on,
+    # 1,098 runs and no reply, and nothing newer was ever tried.
+    failed: dict = state.get("failed", {})
+
+    def save_state():
+        STATE.write_text(json.dumps({"replied": done, "failed": failed}))
     waiting = [n for n in notes if (n.get("path") or "") not in done]
     print(f"  {len(notes)} in the inbox, {len(waiting)} not yet answered\n")
     posted = 0
@@ -544,7 +554,19 @@ def main() -> int:
             continue
         reply, why, cids, tool_out, proposed = run_note(n, body, not a.quiet)
         if reply is None:
-            print(f"      no reply: {why}\n")
+            failed[src] = failed.get(src, 0) + 1
+            print(f"      no reply: {why} (attempt {failed[src]} of {MAX_ATTEMPTS})\n")
+            if a.post:
+                if failed[src] >= MAX_ATTEMPTS:
+                    # Held for a person, like an ungrounded draft: recorded
+                    # where the held drafts' issues go, and not drafted again.
+                    done.append(src)
+                    ISSUES.parent.mkdir(parents=True, exist_ok=True)
+                    with ISSUES.open("a") as fh:
+                        fh.write(json.dumps({"from": sender, "note": src, "issue": {
+                            "title": "needs a person: no usable reply after "
+                                     f"{MAX_ATTEMPTS} attempts", "why": why}}) + "\n")
+                save_state()
             continue
         score, good, bad = citation_score(reply, cids, body, tool_out)
         print(f"      citation score {score}/100"
@@ -568,7 +590,7 @@ def main() -> int:
             print(f"      held, not published: cited={len(quoted)} unsupported={len(bad)}\n")
             if a.post:
                 done.append(src)
-                STATE.write_text(json.dumps({"replied": done}))
+                save_state()
             continue
         if a.post:
             import time
@@ -576,7 +598,7 @@ def main() -> int:
             cid = publish(sk, pub, name, note_body)
             print(f"      published {cid}\n")
             done.append(src)
-            STATE.write_text(json.dumps({"replied": done}))
+            save_state()
         else:
             print("      --- draft ---")
             for line in note_body.splitlines():
