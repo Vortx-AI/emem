@@ -17768,28 +17768,7 @@ async fn post_recall_many(
         collected_cells.insert(cell.clone());
         match r {
             Ok((resp, notes)) => {
-                // A band the materializer skipped (deferred at the cold-fetch
-                // ceiling, timed out, upstream refused) is not an answer: it
-                // goes to `pending` with its reason, so `converged` means
-                // every requested band came back as a fact or an Absence.
-                let skipped: Vec<&JsonValue> = notes
-                    .iter()
-                    .filter(|n| n.get("status").and_then(|v| v.as_str()) == Some("skipped"))
-                    .collect();
-                let (retry, stuck): (Vec<&JsonValue>, Vec<&JsonValue>) = skipped
-                    .into_iter()
-                    .partition(|n| n.get("retryable").and_then(|v| v.as_bool()) == Some(true));
-                for (group, into) in [(retry, &mut pending), (stuck, &mut not_retryable)] {
-                    if let Some(first) = group.first() {
-                        into.push(json!({
-                            "cell": cell,
-                            "bands": group.iter().filter_map(|n| n.get("band")).collect::<Vec<_>>(),
-                            "state": "skipped",
-                            "reason": first.get("reason"),
-                            "reason_class": first.get("reason_class"),
-                        }));
-                    }
-                }
+                skipped_bands_to_pending(&cell, &notes, &mut pending, &mut not_retryable);
                 total_facts += resp.facts.len();
                 let mut cell_json = serde_json::to_value(&resp).unwrap_or(json!({}));
                 enrich_facts_with_metadata(&mut cell_json);
@@ -17878,6 +17857,35 @@ async fn post_recall_many(
         }
     }
     Ok(Json(out))
+}
+
+/// A band the materializer skipped for `cell` (deferred at the cold-fetch
+/// ceiling, timed out, upstream refused) is not an answer. A retryable skip
+/// goes to `pending`, so `converged` means every requested band came back as a
+/// fact or an Absence; the rest go to `stuck`. recall_polygon used to leave
+/// them out and report converged with bands still deferred.
+fn skipped_bands_to_pending(
+    cell: &str,
+    notes: &[JsonValue],
+    pending: &mut Vec<JsonValue>,
+    stuck: &mut Vec<JsonValue>,
+) {
+    let skipped = notes
+        .iter()
+        .filter(|n| n.get("status").and_then(|v| v.as_str()) == Some("skipped"));
+    let (retry, rest): (Vec<&JsonValue>, Vec<&JsonValue>) =
+        skipped.partition(|n| n.get("retryable").and_then(|v| v.as_bool()) == Some(true));
+    for (group, into) in [(retry, pending), (rest, stuck)] {
+        if let Some(first) = group.first() {
+            into.push(json!({
+                "cell": cell,
+                "bands": group.iter().filter_map(|n| n.get("band")).collect::<Vec<_>>(),
+                "state": "skipped",
+                "reason": first.get("reason"),
+                "reason_class": first.get("reason_class"),
+            }));
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -19039,10 +19047,12 @@ async fn post_recall_polygon(
     let mut collected_cells: std::collections::HashSet<String> =
         std::collections::HashSet::with_capacity(cells.len());
     let mut pending: Vec<JsonValue> = Vec::new();
+    let mut not_retryable: Vec<JsonValue> = Vec::new();
     for (_, cell, r) in indexed_recall {
         collected_cells.insert(cell.clone());
         match r {
             Ok((resp, notes)) => {
+                skipped_bands_to_pending(&cell, &notes, &mut pending, &mut not_retryable);
                 total_facts += resp.facts.len();
                 materialize_notes_all.extend(notes);
                 if let Ok(mut j) = serde_json::to_value(&resp) {
@@ -19171,6 +19181,7 @@ async fn post_recall_polygon(
             };
             match recall_with_auto_materialize(&r, &s).await {
                 Ok((resp, notes)) => {
+                    skipped_bands_to_pending(cell, &notes, &mut pending, &mut not_retryable);
                     total_facts += resp.facts.len();
                     materialize_notes_all.extend(notes);
                     if let Ok(mut j) = serde_json::to_value(&resp) {
@@ -19273,6 +19284,11 @@ async fn post_recall_polygon(
                     "suggested_after_ms": 4000,
                 }),
             );
+        }
+    }
+    if !not_retryable.is_empty() {
+        if let Some(m) = out.as_object_mut() {
+            m.insert("skipped".into(), json!(not_retryable));
         }
     }
     if !materialize_notes_all.is_empty() {
@@ -98494,6 +98510,52 @@ mod tests {
             let g = r.polygon_geojson.expect("the polygon is kept");
             assert_eq!(geojson_bbox(&g), Some((6.8501, 6.8524, -5.3012, -5.2988)));
         }
+    }
+
+    #[tokio::test]
+    async fn recall_polygon_reports_the_bands_it_could_not_answer() {
+        let req: RecallPolygonReq = serde_json::from_value(json!({
+            "polygon_bbox": {"min_lat": 6.8501, "max_lat": 6.8524, "min_lng": -5.3012, "max_lng": -5.2988},
+            "bands": ["no_such.band"],
+            "max_cells": 4,
+        }))
+        .unwrap();
+        let Json(out) = post_recall_polygon(State(test_app_state()), EmemJson(req))
+            .await
+            .unwrap();
+        // Skipped as unknown, or pending when the process-wide cold-fetch
+        // ceiling (which every test in this binary shares) deferred it first.
+        let reported: Vec<&JsonValue> = ["skipped", "pending"]
+            .iter()
+            .filter_map(|k| out[*k].as_array())
+            .flatten()
+            .collect();
+        assert_eq!(
+            reported.len() as u64,
+            out["cells_sampled"].as_u64().unwrap(),
+            "every cell's unanswered band is reported, not dropped: {out}"
+        );
+        assert!(reported
+            .iter()
+            .all(|e| e["bands"] == json!(["no_such.band"])));
+        if out["pending"].as_array().is_some_and(|p| !p.is_empty()) {
+            assert_eq!(out["converged"], json!(false));
+        }
+    }
+
+    #[test]
+    fn a_retryable_skip_is_pending_and_the_rest_are_not() {
+        let notes = vec![
+            json!({"band": "a", "status": "skipped", "retryable": true, "reason": "deferred"}),
+            json!({"band": "b", "status": "skipped", "retryable": false, "reason": "unknown"}),
+            json!({"band": "c", "status": "materialized", "fact_cid": "x"}),
+        ];
+        let (mut pending, mut stuck) = (Vec::new(), Vec::new());
+        skipped_bands_to_pending("c1", &notes, &mut pending, &mut stuck);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["bands"], json!(["a"]));
+        assert_eq!(stuck.len(), 1);
+        assert_eq!(stuck[0]["bands"], json!(["b"]));
     }
 
     #[tokio::test]
