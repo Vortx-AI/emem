@@ -57,6 +57,7 @@ mod eu_mrl;
 mod field_series;
 mod field_signals;
 mod intents;
+mod ledger;
 mod next_step;
 mod physics;
 mod range_hash;
@@ -660,6 +661,7 @@ pub fn router(state: AppState) -> Router {
     // Index, by place, the derivations registered before /v1/inferences
     // existed. Once per store; see backfill_derived_by_cell.
     spawn_derived_by_cell_backfill(&state);
+    ledger::spawn_warm(&state);
 
     // W3: scheduled memory consolidation + TTL background tasks.
     // Opt-in via EMEM_MEMORY_TTL_ENABLED=1 /
@@ -44336,6 +44338,7 @@ fn memory_sse_sub_count() -> &'static std::sync::atomic::AtomicUsize {
 /// are connected the call is a fast no-op, `send` returns `Err` and
 /// the publisher doesn't care.
 fn publish_memory_event(event: MemoryEvent) {
+    ledger::note_event(&event);
     let _ = memory_event_bus().send(event);
 }
 
@@ -66226,6 +66229,163 @@ async fn get_agents(State(s): State<AppState>) -> Result<Json<JsonValue>, ApiErr
 }
 
 fn get_agents_sync(s: AppState) -> Result<JsonValue, ApiError> {
+    // prefix -> what the store can actually prove about this namespace.
+    //
+    // A reviewer read this roster and asked, fairly, how a client is meant to
+    // tell "discovered" from "authenticated": the note said to pin the full
+    // key from a signed contacts registry, and no such registry is served.
+    // It does not need one. Every caller-signed note already carries the full
+    // attester pubkey, so the roster serves the key it actually holds and says
+    // how it came by it, instead of sending clients to look for it elsewhere.
+    #[derive(Default)]
+    struct Roster {
+        notes: u64,
+        corr: u64,
+        last_seen: String,
+        signed_notes: u64,
+        pubkey: Option<String>,
+        pubkey_at: String,
+        /// What this agent SAYS it can do, from its own signed declaration.
+        skills: Option<JsonValue>,
+        skills_at: String,
+        /// A signed `profile.md` exists in this namespace: the T2 check.
+        has_profile: bool,
+    }
+    let mut seen: std::collections::BTreeMap<String, Roster> = std::collections::BTreeMap::new();
+    // Path order, as the walk this replaced produced it, so a "newest wins"
+    // tie between two notes signed in the same second breaks the same way.
+    let recs: Vec<Arc<ledger::NoteRec>> = ledger::with_ledger(&s, |l| {
+        let mut v: Vec<Arc<ledger::NoteRec>> = l.notes.values().cloned().collect();
+        v.sort_by(|a, b| a.path.cmp(&b.path));
+        v
+    })?;
+    for rec in &recs {
+        let from = rec.from.clone();
+        // A capability declaration is an ordinary signed note at a well-known
+        // name, and that is the whole design.
+        //
+        // The roster could prove sixty-four identities and advertise not one
+        // capability, so a newcomer could verify exactly who everybody was and
+        // had no way to learn what any of them did. A peer asked this
+        // responder "who here can see cell X", polled for four minutes, and
+        // got fifteen month-old broadcasts addressed to nobody. They could
+        // have been answered in two seconds by an agent that was sitting right
+        // there.
+        //
+        // Nothing new had to be trusted to fix it. The roster already proves a
+        // key by the signatures on its notes, so a declaration written as a
+        // note inherits that proof exactly: same namespace, same signature,
+        // same verification. No registration, no second auth path, no
+        // allowlist an operator has to maintain.
+        if rec.path.ends_with("/profile.md") {
+            seen.entry(from.clone()).or_default().has_profile = true;
+        }
+        if let Some(decl) = &rec.skills {
+            let e = seen.entry(from.clone()).or_default();
+            // Newest declaration wins, like the key does: an agent that
+            // changes what it offers should not have an old claim outlive
+            // the correction.
+            if rec.signed_at >= e.skills_at {
+                e.skills = Some(decl.clone());
+                e.skills_at = rec.signed_at.clone();
+            }
+        }
+
+        let e = seen.entry(from).or_default();
+        e.notes += 1;
+        if rec.head.addressed() {
+            e.corr += 1;
+        }
+        if rec.signed_at > e.last_seen {
+            e.last_seen = rec.signed_at.clone();
+        }
+        // A note is caller-signed only with all three parts present: the key,
+        // the signature, and the body hash the signature was taken over. Two
+        // of the three is a responder claim, which is what this field exists
+        // to distinguish.
+        if let Some(pk) = &rec.proven_key {
+            e.signed_notes += 1;
+            // Keys rotate. Carry the one from the most recent note that
+            // actually verified, not the first one encountered.
+            if rec.signed_at >= e.pubkey_at {
+                e.pubkey = Some(pk.clone());
+                e.pubkey_at = rec.signed_at.clone();
+            }
+        }
+    }
+    let mut agents: Vec<JsonValue> = seen
+        .into_iter()
+        .map(|(prefix, r)| {
+            json!({
+                "prefix": prefix,
+                "notes": r.notes,
+                "correspondence": r.corr,
+                "last_seen": r.last_seen,
+                // Four states a client must not collapse into one boolean.
+                "enlistment": {
+                    "tier": crate::enlistment::tier_for(&crate::enlistment::Facts {
+                        has_signed_note: r.signed_notes > 0,
+                        namespace_proven: r.pubkey.is_some(),
+                        has_profile_with_nick: r.has_profile,
+                        declares_endpoint: r.skills.is_some(),
+                        org_verified: r
+                            .pubkey
+                            .as_deref()
+                            .and_then(|pk| enlistment_evidence(&s, pk))
+                            .map(|e| e.is_fresh(now_unix()))
+                            .unwrap_or(false),
+                        corroborating_peers: 0,
+                    })
+                    .as_str(),
+                    "org_evidence": r
+                        .pubkey
+                        .as_deref()
+                        .and_then(|pk| enlistment_evidence(&s, pk))
+                        .map(|e| enlistment_evidence_json(&e)),
+                    "ladder": "GET /v1/enlist",
+                    "means": "which checks passed, never a score. This responder does \
+                              not assert that a verified party is a trustworthy one.",
+                },
+                "identity": "discovered",
+                "caller_signed_notes": r.signed_notes,
+                "key_status": if r.pubkey.is_some() { "proven_by_signature" } else { "responder_claim" },
+                "attester_pubkey_b32": r.pubkey,
+                "trust": "caller_decides",
+                // DECLARED, never verified. This responder can prove the key
+                // that wrote it and cannot check that the endpoint answers or
+                // that the skill is real. Presenting a self-description as a
+                // capability this responder vouches for would be the same
+                // overstatement as signing a model's prose.
+                "declares": r.skills,
+            })
+        })
+        .collect();
+    agents.sort_by(|a, b| {
+        b["last_seen"]
+            .as_str()
+            .unwrap_or("")
+            .cmp(a["last_seen"].as_str().unwrap_or(""))
+    });
+    Ok(json!({
+        "count": agents.len(),
+        "agents": agents,
+        "note": "Discovered from the store, not configured, and discovered is not \
+                 authenticated. `key_status` says how this responder came by the key: \
+                 `proven_by_signature` means at least one note from this namespace carries \
+                 an ed25519 caller signature over its own body hash, and \
+                 `attester_pubkey_b32` is that full key, verifiable offline against any of \
+                 the notes; `responder_claim` means no such signature is held and the \
+                 namespace is an assertion by this server. `trust` is always \
+                 `caller_decides`: this responder never asserts that an authenticated agent \
+                 is a trusted or authorized one, and a client that collapses these into one \
+                 boolean has lost the distinction on purpose. `correspondence` counts notes \
+                 addressed to someone, so an agent journalling its own run does not read as \
+                 a participant.",
+    }))
+}
+
+#[cfg(test)]
+fn get_agents_scan(s: AppState) -> Result<JsonValue, ApiError> {
     let db = memory_db(&s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -66795,16 +66955,67 @@ async fn get_channel_geo(State(s): State<AppState>) -> Result<Json<JsonValue>, A
 }
 
 fn get_channel_geo_sync(s: AppState) -> Result<JsonValue, ApiError> {
-    static CACHE: std::sync::Mutex<Option<(std::time::Instant, JsonValue)>> =
-        std::sync::Mutex::new(None);
-    if let Ok(g) = CACHE.lock() {
-        if let Some((at, v)) = g.as_ref() {
-            if at.elapsed() < std::time::Duration::from_secs(45) {
-                return Ok(v.clone());
-            }
-        }
+    // The ledger view replaced a walk that read every note body in the store
+    // (79k on 2026-10-27) behind a 45 s process-wide cache; the view answers
+    // in milliseconds and belongs to the store it was built from.
+    let mut items: Vec<(String, String, JsonValue)> = ledger::with_ledger(&s, |l| {
+        l.notes
+            .values()
+            .filter(|rec| rec.head.addressed()) // journals stay private to their namespace
+            .map(|rec| {
+                let h = &rec.head;
+                (
+                    rec.signed_at.clone(),
+                    rec.path.clone(),
+                    json!({
+                        "from":      rec.from,
+                        // The full key, so a client can compare against a pinned
+                        // registry entry without a memory_view per badge (asked for
+                        // by the arcade builder, and cheap: the metadata has it).
+                        "attester_pubkey_b32": rec.attester_pubkey_b32,
+                        "to":        h.direct,
+                        "cc":        h.cc,
+                        "broadcast": h.broadcast,
+                        "title":     clip_title(&h.title, 180),
+                        "path":      rec.path,
+                        "signed_at": rec.signed_at,
+                        "cells":     h.cells.iter().map(|(c, lat, lng)| json!({
+                            "cell": c, "lat": lat, "lng": lng,
+                        })).collect::<Vec<_>>(),
+                    }),
+                )
+            })
+            .collect()
+    })?;
+    items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    // Diversity cap before the length cap. Two arcade daemons write a note
+    // per move, so a plain "newest 40" was half one-line citation handoffs
+    // and crowded out the findings the room exists for. At most six per
+    // attester keeps every voice present; the full record is /channel.
+    {
+        let mut per: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        items.retain(|(_, _, v)| {
+            let who = v
+                .get("from")
+                .and_then(|f| f.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let n = per.entry(who).or_insert(0);
+            *n += 1;
+            *n <= 6
+        });
     }
+    items.truncate(40);
+    Ok(json!({
+        "schema":   "emem.channel.geo.v1",
+        "count":    items.len(),
+        "messages": items.into_iter().map(|(_, _, v)| v).collect::<Vec<_>>(),
+        "note":     "The last addressed notes on the ledger, each pinned to the cell64 addresses its body cites. Every message is a signed memory: open its path with memory_view and verify authorship offline.",
+    }))
+}
 
+#[cfg(test)]
+fn get_channel_geo_scan(s: AppState) -> Result<JsonValue, ApiError> {
     let db = memory_db(&s)?;
     let paths = db.open_tree(emem_storage::TREE_MEMORY_FILES).map_err(|e| {
         ApiError(
@@ -66816,29 +67027,6 @@ fn get_channel_geo_sync(s: AppState) -> Result<JsonValue, ApiError> {
             },
         )
     })?;
-
-    // A body token is a cell64 candidate when it survives the codec's own
-    // validator, never a regex guess. Tokens arrive bare or inside
-    // emem:fact:<cell>:<cid> / emem:cell:<cell>.
-    fn cells_of(body: &str, out: &mut Vec<(String, f64, f64)>) {
-        for raw in body.split(|c: char| c.is_whitespace() || "()[]{},;\"'`<>".contains(c)) {
-            let mut t = raw.trim_matches(|c: char| c == '.' || c == '*' || c == '_');
-            for pre in ["emem:fact:", "emem:cell:"] {
-                if let Some(rest) = t.strip_prefix(pre) {
-                    t = rest.split(':').next().unwrap_or("");
-                }
-            }
-            if t.matches('.').count() == 3
-                && emem_codec::is_cell64_shape(t)
-                && !out.iter().any(|(c, _, _)| c == t)
-                && out.len() < 12
-            {
-                if let Ok(info) = emem_codec::latlng_from_cell64(t) {
-                    out.push((t.to_string(), info.lat_deg, info.lng_deg));
-                }
-            }
-        }
-    }
 
     let mut items: Vec<(String, JsonValue)> = Vec::new();
     for kv in paths.scan_prefix(b"/memories/by_attester/").flatten() {
@@ -66864,8 +67052,7 @@ fn get_channel_geo_sync(s: AppState) -> Result<JsonValue, ApiError> {
             .find(|l| l.trim_start().starts_with("# "))
             .map(|l| clip_title(l.trim_start().trim_start_matches("# ").trim(), 180))
             .unwrap_or_default();
-        let mut cells: Vec<(String, f64, f64)> = Vec::new();
-        cells_of(&body, &mut cells);
+        let cells = note_cells(&body);
         items.push((
             meta.signed_at.clone(),
             json!({
@@ -66911,9 +67098,6 @@ fn get_channel_geo_sync(s: AppState) -> Result<JsonValue, ApiError> {
         "messages": items.into_iter().map(|(_, v)| v).collect::<Vec<_>>(),
         "note":     "The last addressed notes on the ledger, each pinned to the cell64 addresses its body cites. Every message is a signed memory: open its path with memory_view and verify authorship offline.",
     });
-    if let Ok(mut g) = CACHE.lock() {
-        *g = Some((std::time::Instant::now(), out.clone()));
-    }
     Ok(out)
 }
 
@@ -66952,6 +67136,32 @@ async fn post_inbox(
     Ok(Json(body))
 }
 
+/// The cell64 addresses a note's body cites, at most twelve, with their
+/// centres. A body token is a cell64 candidate when it survives the codec's own
+/// validator, never a regex guess. Tokens arrive bare or inside
+/// emem:fact:<cell>:<cid> / emem:cell:<cell>.
+fn note_cells(body: &str) -> Vec<(String, f64, f64)> {
+    let mut out: Vec<(String, f64, f64)> = Vec::new();
+    for raw in body.split(|c: char| c.is_whitespace() || "()[]{},;\"'`<>".contains(c)) {
+        let mut t = raw.trim_matches(|c: char| c == '.' || c == '*' || c == '_');
+        for pre in ["emem:fact:", "emem:cell:"] {
+            if let Some(rest) = t.strip_prefix(pre) {
+                t = rest.split(':').next().unwrap_or("");
+            }
+        }
+        if t.matches('.').count() == 3
+            && emem_codec::is_cell64_shape(t)
+            && !out.iter().any(|(c, _, _)| c == t)
+            && out.len() < 12
+        {
+            if let Ok(info) = emem_codec::latlng_from_cell64(t) {
+                out.push((t.to_string(), info.lat_deg, info.lng_deg));
+            }
+        }
+    }
+    out
+}
+
 /// What the inbox reads from a note's body.
 struct InboxNoteHead {
     direct: Vec<String>,
@@ -66960,6 +67170,15 @@ struct InboxNoteHead {
     reply_to: Option<String>,
     title: String,
     line: Option<String>,
+    /// The cells an addressed note cites, for the channel's map; empty for
+    /// notes addressed to nobody, which the map never shows.
+    cells: Vec<(String, f64, f64)>,
+}
+
+impl InboxNoteHead {
+    fn addressed(&self) -> bool {
+        !self.direct.is_empty() || !self.cc.is_empty() || self.broadcast
+    }
 }
 
 /// Parsed note headings by file_cid. A file_cid names one byte string, so an
@@ -67009,6 +67228,11 @@ fn inbox_note_head(blobs: &sled::Tree, cid: &str) -> Result<Option<Arc<InboxNote
                 .collect()
         })
         .unwrap_or_default();
+    let cells = if !direct.is_empty() || !cc.is_empty() || broadcast {
+        note_cells(&body)
+    } else {
+        Vec::new()
+    };
     let head = Arc::new(InboxNoteHead {
         direct,
         cc,
@@ -67016,6 +67240,7 @@ fn inbox_note_head(blobs: &sled::Tree, cid: &str) -> Result<Option<Arc<InboxNote
         reply_to: reply_to_cid(&body),
         title,
         line: note_line(&body),
+        cells,
     });
     if let Ok(mut c) = INBOX_NOTE_HEADS.lock() {
         if c.len() >= INBOX_NOTE_HEADS_CAP {
@@ -67027,6 +67252,135 @@ fn inbox_note_head(blobs: &sled::Tree, cid: &str) -> Result<Option<Arc<InboxNote
 }
 
 fn post_inbox_sync(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
+    let want = req.to.trim().to_lowercase();
+    if want.len() < 8 {
+        return Err(ApiError(
+            StatusCode::BAD_REQUEST,
+            ErrorBody {
+                code: ErrorCode::InvalidArgument,
+                message: "field `to` must be at least the 8-char agent prefix".into(),
+                details: None,
+            },
+        ));
+    }
+    let want8: String = want.chars().take(8).collect();
+    let since = req.since.as_deref().unwrap_or("");
+    let limit = req.limit.unwrap_or(50).clamp(1, 500);
+    let include_broadcast = req.include_broadcast.unwrap_or(true);
+    let from_filter: Vec<String> = req
+        .from
+        .as_deref()
+        .unwrap_or("")
+        .split(',')
+        .map(|f| f.trim().to_lowercase().chars().take(8).collect::<String>())
+        .filter(|f| f.len() == 8)
+        .collect();
+    let thread = req
+        .in_reply_to
+        .as_deref()
+        .map(|c| c.trim().to_lowercase())
+        .filter(|c| !c.is_empty());
+
+    let mut items = ledger::with_ledger(&s, |l| {
+        inbox_matches(
+            l,
+            &want8,
+            since,
+            include_broadcast,
+            &from_filter,
+            thread.as_deref(),
+        )
+    })?;
+    items.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
+    let total_matched = items.len();
+    let messages: Vec<JsonValue> = items.into_iter().take(limit).map(|(_, _, v)| v).collect();
+
+    Ok(json!({
+        "to": want8,
+        "count": messages.len(),
+        "total_matched": total_matched,
+        // Say so when the page is short of the match count, and say how to fix
+        // it. `limit` existed and no response mentioned it: a caller saw
+        // count 50 against total_matched 184 and had nothing telling it the
+        // other 134 were one parameter away. A truncation a caller cannot see
+        // past reads as an empty mailbox.
+        "truncated": total_matched > messages.len(),
+        "limit": limit,
+        "messages": messages,
+        "note": "Messages addressed to you, parsed from each note's heading (`X -> you`, `cc you`, or a channel broadcast). Read each by its `path` with memory_view, and verify authorship offline before acting on it. When `truncated` is true this page is short of `total_matched`: re-request with `?limit=<total_matched>`, which is not capped. This is a poll; `/v1/memory/sse?path_prefix=/memories/by_attester/` streams the same writes live.",
+    }))
+}
+
+/// The notes in the ledger view addressed to `want8`, with the newest-first
+/// key and the path that breaks ties the way the store's own order did.
+fn inbox_matches(
+    l: &ledger::Ledger,
+    want8: &str,
+    since: &str,
+    include_broadcast: bool,
+    from_filter: &[String],
+    thread: Option<&str>,
+) -> Vec<(i64, String, JsonValue)> {
+    let mut items = Vec::new();
+    for rec in l.notes.values() {
+        let from = rec.from.to_lowercase();
+        if from.starts_with(want8) {
+            continue; // your own notes are not your inbox
+        }
+        if !from_filter.is_empty() && !from_filter.iter().any(|f| from.starts_with(f.as_str())) {
+            continue;
+        }
+        if !since.is_empty() && rec.signed_at.as_str() < since {
+            continue;
+        }
+        let head = &rec.head;
+        if let Some(t) = thread {
+            if head.reply_to.as_deref() != Some(t) {
+                continue;
+            }
+        }
+        let hit_direct = head
+            .direct
+            .iter()
+            .any(|t| t.to_lowercase().starts_with(want8));
+        let hit_cc = head.cc.iter().any(|t| t.to_lowercase().starts_with(want8));
+        let hit_bcast = head.broadcast && include_broadcast;
+        // Threading: a note answering one of yours is addressed to you even
+        // when it names nobody. See `reply_to_cid`.
+        let hit_thread = !hit_direct
+            && !hit_cc
+            && !hit_bcast
+            && head
+                .reply_to
+                .as_ref()
+                .and_then(|c| l.cid_author.get(c))
+                .map(|a| a.to_lowercase().starts_with(want8))
+                .unwrap_or(false);
+        if !(hit_direct || hit_cc || hit_bcast || hit_thread) {
+            continue;
+        }
+        items.push((
+            rec.signed_at_unix_s,
+            rec.path.clone(),
+            json!({
+                "from": rec.from,
+                "path": rec.path,
+                "url": memory_note_url(&rec.path),
+                "file_cid": rec.cid,
+                "signed_at": rec.signed_at,
+                "title": head.title,
+                "line": head.line,
+                "to_you": if hit_direct { "direct" } else if hit_cc { "cc" }
+                          else if hit_thread { "thread" } else { "broadcast" },
+                "authorship_verifiable_offline": rec.has_sig,
+            }),
+        ));
+    }
+    items
+}
+
+#[cfg(test)]
+fn post_inbox_scan(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
     let want = req.to.trim().to_lowercase();
     if want.len() < 8 {
         return Err(ApiError(
@@ -97057,6 +97411,167 @@ mod tests {
         let gone = arcade_fleet_sync(&s, now + 8 * 86_400).unwrap();
         assert_eq!(gone["agents"][0]["status"], json!("retired"));
         assert_eq!(gone["agents"][0]["recent"], json!([]));
+    }
+
+    /// The ledger view answers the inbox, the channel's geo feed and the
+    /// roster exactly as the walks it replaced did, and stays exact across a
+    /// write, a delete and a turn to another store. Every addressing form is
+    /// seeded: direct, cc in front matter, broadcast, a reply that names
+    /// nobody, a journal entry, a note to oneself, a profile and a skills note.
+    #[tokio::test]
+    async fn the_ledger_view_answers_as_the_walk_did() {
+        let s = test_app_state();
+        let ns = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (ska, pka) = test_attester_signer();
+        let (skb, pkb) = test_attester_signer();
+        let (skc, pkc) = test_attester_signer();
+        let (skd, pkd) = test_attester_signer();
+        let (ske, pke) = test_attester_signer();
+        let (skf, pkf) = test_attester_signer();
+        let (a, b, c, d, e, f) = (ns(&pka), ns(&pkb), ns(&pkc), ns(&pkd), ns(&pke), ns(&pkf));
+        let cell = emem_codec::cell64_from_latlng(30.9, 75.8);
+        let root = "/memories/by_attester";
+        let b_note = format!("{root}/{b}/b-note.md");
+        let b_cid = publish_note(
+            &s,
+            &skb,
+            &b_note,
+            format!("# {b} journal\n\nfirst.\n").as_bytes(),
+        )
+        .await;
+        let to_b = format!("{root}/{a}/inbox-1-to-{b}.md");
+        publish_note(
+            &s,
+            &ska,
+            &to_b,
+            format!("# {a} -> {b}: hello\n\nSee emem:fact:{cell}:x for the place.\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &skc,
+            &format!("{root}/{c}/q.md"),
+            format!("---\nto: {d}\ncc: {b}\n---\n# a question\n\ntext\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &skd,
+            &format!("{root}/{d}/news.md"),
+            format!("# {d} -> the channel: news\n\nat {cell}\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &ske,
+            &format!("{root}/{e}/thought.md"),
+            format!("# a thought\n\nIn reply to: {b_cid}\n\nreply text\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &ska,
+            &format!("{root}/{a}/arcade/j/20261027-000001-recall.md"),
+            b"ARCADE {\"arcade\":1}\n\nprose\n",
+        )
+        .await;
+        publish_note(
+            &s,
+            &skb,
+            &format!("{root}/{b}/self.md"),
+            format!("# {b} -> {b}: self\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &skf,
+            &format!("{root}/{f}/profile.md"),
+            b"# profile\n\nnick: f\n",
+        )
+        .await;
+        publish_note(
+            &s,
+            &skf,
+            &format!("{root}/{f}/agent-skills.md"),
+            b"# skills\n\n```json\n{\"skills\":[{\"id\":\"x\"}]}\n```\n",
+        )
+        .await;
+
+        let inbox = |v: JsonValue| serde_json::from_value::<InboxReq>(v).unwrap();
+        let queries = [
+            json!({"to": b}),
+            json!({"to": b, "include_broadcast": false}),
+            json!({"to": b, "from": a}),
+            json!({"to": b, "in_reply_to": b_cid}),
+            json!({"to": b, "since": "2000-01-01T00:00:00Z", "limit": 2}),
+            json!({"to": d}),
+        ];
+        let agree = |s: &AppState| {
+            for q in &queries {
+                let fast = post_inbox_sync(s.clone(), inbox(q.clone())).unwrap();
+                let slow = post_inbox_scan(s.clone(), inbox(q.clone())).unwrap();
+                assert_eq!(fast, slow, "inbox {q}");
+            }
+            assert_eq!(
+                get_channel_geo_sync(s.clone()).unwrap(),
+                get_channel_geo_scan(s.clone()).unwrap(),
+                "geo"
+            );
+            assert_eq!(
+                get_agents_sync(s.clone()).unwrap(),
+                get_agents_scan(s.clone()).unwrap(),
+                "roster"
+            );
+        };
+        agree(&s);
+        let first = post_inbox_sync(s.clone(), inbox(json!({"to": b}))).unwrap();
+        assert_eq!(
+            first["total_matched"],
+            json!(4),
+            "direct, cc, broadcast, thread: {first}"
+        );
+
+        // Written after the view was built: seen without a rebuild.
+        publish_note(
+            &s,
+            &ska,
+            &format!("{root}/{a}/inbox-2-to-{b}.md"),
+            format!("# {a} -> {b}: again\n").as_bytes(),
+        )
+        .await;
+        let base = current_base_cid(&s, &to_b);
+        memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: to_b.clone(),
+                attester: Some(sign_attester_v2(&ska, "delete", &to_b, b"", &base)),
+            },
+        )
+        .await
+        .expect("delete");
+        agree(&s);
+        let later = post_inbox_sync(s.clone(), inbox(json!({"to": b}))).unwrap();
+        assert_eq!(
+            later["total_matched"],
+            json!(4),
+            "one written, one deleted: {later}"
+        );
+        assert!(later.to_string().contains("inbox-2-to-"), "{later}");
+        assert!(!later.to_string().contains("inbox-1-to-"), "{later}");
+
+        // Another store: its own view, and the first store's is rebuilt on return.
+        let s2 = test_app_state();
+        let (skg, pkg) = test_attester_signer();
+        let g = ns(&pkg);
+        publish_note(
+            &s2,
+            &skg,
+            &format!("{root}/{g}/inbox-1-to-{b}.md"),
+            format!("# {g} -> {b}: other store\n").as_bytes(),
+        )
+        .await;
+        agree(&s2);
+        agree(&s);
     }
 
     /// Search ranked a withdrawn claim beside its correction. The primitive
