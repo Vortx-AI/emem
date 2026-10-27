@@ -2659,6 +2659,7 @@ dependencies = [
  "emem-codec",
  "emem-core",
  "flate2",
+ "fs2",
  "futures-util",
  "geo",
  "geo-types",

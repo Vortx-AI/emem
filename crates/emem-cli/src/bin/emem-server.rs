@@ -64,6 +64,28 @@ fn log_allocator_stats() {
     });
 }
 
+/// Keep whole local copies of the static forest rasters under
+/// `<EMEM_DATA>/tile_store`, up to `EMEM_TILE_STORE_GB` (default 40; 0 turns
+/// the store off). See `emem_fetch::tile_store`.
+fn enable_tile_store(data: &str) {
+    let gb: u64 = std::env::var("EMEM_TILE_STORE_GB")
+        .ok()
+        .and_then(|v| v.trim().parse().ok())
+        .unwrap_or(40);
+    if gb == 0 {
+        return;
+    }
+    let dir = std::path::Path::new(data).join("tile_store");
+    match emem_fetch::tile_store::enable(dir.clone(), gb << 30) {
+        Ok(n) => {
+            tracing::info!(target: "emem::tile_store", dir = %dir.display(), budget_gb = gb, copies = n, "tile store on")
+        }
+        Err(e) => {
+            tracing::warn!(target: "emem::tile_store", dir = %dir.display(), error = %e, "tile store off: its directory is not usable")
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -99,6 +121,9 @@ async fn main() -> anyhow::Result<()> {
     let data = emem_core::data_dir::data_dir()
         .to_string_lossy()
         .into_owned();
+    if data != ":memory:" {
+        enable_tile_store(&data);
+    }
 
     // The topic router is started FIRST and awaited last.
     //

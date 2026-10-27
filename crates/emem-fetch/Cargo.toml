@@ -25,6 +25,9 @@ weezl         = "0.1"
 # ZSTD (TIFF compression=50000) for re-encoded COG mirrors; already linked
 # into the server through parquet/lance.
 zstd          = "0.14.3"
+# Free space under the tile store before a whole-raster copy (tile_store.rs);
+# already in the build through sled.
+fs2           = "0.4"
 # Overture Maps materializer: anonymous S3 + parquet row-group pruning + WKB decode.
 # parquet's `async` and `object_store` features bring in
 # parquet::arrow::async_reader::ParquetObjectReader which streams row groups

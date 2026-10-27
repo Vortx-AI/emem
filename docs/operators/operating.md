@@ -185,7 +185,8 @@ when the variable is unset.
 | `EMEM_ABSENCE_RECHECK_SECS` | `21600` | how long this responder's own Absence stands as the answer before a recall asks upstream again; `0` re-asks every time |
 | `EMEM_MEMORY_SEARCH_POLL_SECS` | `60` | memory-search indexer pass; the indexed set and vectors stay resident, so a pass reads no index rows |
 | `EMEM_TIMEOUT_SECS` | 180 | per-request gateway timeout (clamped 1..=600) |
-| `EMEM_MATERIALIZER_TIMEOUT_SECS` | 30 | per-upstream timeout (clamped 2..=240) |
+| `EMEM_MATERIALIZER_TIMEOUT_SECS` | 14 | per-upstream timeout (clamped 2..=240) |
+| `EMEM_TILE_STORE_GB` | `40` | disk the tile store may use for whole local copies of the static forest rasters (Hansen GFC, JRC GFC2020 tiles, the JRC TMF mirror, ESA WorldCover), kept under `<EMEM_DATA>/tile_store/`. The first range read of such a tile starts a background download; once the copy is on disk at its published length, reads of that url are served from it. The least recently used copies go first, and a copy is refused if it would leave the disk under 30 GB free. `0` turns the store off |
 | `EMEM_MATERIALIZER_RETRIES` | 2 | per-upstream retries (clamped 1..=5) |
 | `EMEM_BODY_LIMIT_MB` | 8 | request body cap (clamped 1..=256) |
 | `EMEM_RATE_LIMIT_RPS` | 50 | global token-bucket fill (clamped 0.01..=1000) |
@@ -231,6 +232,7 @@ when the variable is unset.
 ├── hf_cache/                    HuggingFace model snapshots
 ├── models/
 │   └── bge-base-en-v1.5/        topic-router ONNX (~435 MB) + tokenizer.json
+├── tile_store/                  whole copies of static forest tiles, each with a .json naming its url (EMEM_TILE_STORE_GB)
 ├── acme.cache/                  Let's Encrypt cert cache
 └── demos/                       livedemo / realdemo output (override with EMEM_DEMOS_DIR)
 ```

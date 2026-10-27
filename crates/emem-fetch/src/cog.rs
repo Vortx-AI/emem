@@ -49,6 +49,11 @@ use tokio::sync::{Mutex, OnceCell};
 /// process, which no unwind guard can intercept.
 const MAX_WINDOW_PX: u64 = 4096 * 4096;
 
+/// Tiles one window reads at once.
+const WINDOW_READS_AT_ONCE: usize = 8;
+/// A window over at most this many tiles shares decoded tiles with other reads.
+const WINDOW_CACHED_TILES: usize = 16;
+
 /// Errors specific to the COG sampler. Bubbled up through `FetchError::Transport`
 /// at the dispatcher boundary so callers don't have to thread two error types.
 #[derive(Debug, thiserror::Error)]
@@ -1668,6 +1673,7 @@ pub async fn sample_window(
         0
     };
 
+    let mut wanted: Vec<(u32, u32, usize, u64, u64)> = Vec::new();
     for tr in tile_row_a..=tile_row_b {
         for tc in tile_col_a..=tile_col_b {
             let tile_idx = (tr * profile.tile_cols + tc) as usize;
@@ -1676,100 +1682,107 @@ pub async fn sample_window(
             }
             let off = profile.tile_offsets[tile_idx];
             let len = profile.tile_byte_counts[tile_idx];
-            if len == 0 {
-                continue;
+            if len > 0 {
+                wanted.push((tr, tc, tile_idx, off, len));
             }
-            // Use coalesced buffer when available (strip-encoded),
-            // else fall back to per-tile http_range (tiled COGs).
-            //
-            // 2026-05-29 audit: when a tile's `off` falls below the
-            // coalesced base offset (race between prewarm picking a
-            // wider window and the per-tile resolver picking a tile
-            // outside that window), `off - coalesced_base_offset`
-            // wrapped to ~`2^64`, then `buf.slice(huge..end)` panicked
-            // inside the bytes crate at `range start <= end` check. The
-            // explicit `off >= coalesced_base_offset` guard prevents
-            // the wrap and falls back to a fresh `http_range` call,
-            // matching the byte semantics of the tile-COG path.
-            let tile_compressed: Bytes = if let Some(ref buf) = coalesced_buf {
-                if off >= coalesced_base_offset {
-                    let start = (off - coalesced_base_offset) as usize;
-                    let end = start.saturating_add(len as usize);
-                    if end <= buf.len() {
-                        buf.slice(start..end)
-                    } else {
-                        http_range(client, url, off, off + len - 1).await?
-                    }
-                } else {
-                    http_range(client, url, off, off + len - 1).await?
+        }
+    }
+    // Tiles are read at once and through the shared caches. A window over a
+    // dozen tiles used to read them one after another and outside the caches,
+    // so neither a prewarm nor a neighbouring window ever saved it a read. A
+    // window over many tiles skips the decoded cache, which holds 64 and
+    // would be emptied by it.
+    use futures_util::StreamExt;
+    let codec = TileCodec::from_profile(profile);
+    let few = wanted.len() <= WINDOW_CACHED_TILES;
+    let coalesced = coalesced_buf.as_ref();
+    let mut tiles = futures_util::stream::iter(wanted.into_iter().map(
+        |(tr, tc, tile_idx, off, len)| async move {
+            let strip = coalesced.and_then(|b| strip_slice(b, coalesced_base_offset, off, len));
+            let decoded: Arc<Vec<u8>> = match strip {
+                Some(strip) => {
+                    Arc::new(run_tile_decode(strip, codec, decode_tile_singleband).await?)
                 }
-            } else {
-                http_range(client, url, off, off + len - 1).await?
+                None if few => get_or_decode_tile(client, url, tile_idx, off, len, codec).await?,
+                None => {
+                    let c = get_or_fetch_tile(client, url, tile_idx, off, len).await?;
+                    Arc::new(run_tile_decode(c, codec, decode_tile_singleband).await?)
+                }
             };
-            let codec = TileCodec::from_profile(profile);
-            let tile_bytes =
-                run_tile_decode(tile_compressed, codec, decode_tile_singleband).await?;
-
-            // Memcpy the intersection of [tile bbox] ∩ [window bbox]
-            // into the output buffer. Output is row-major, indexed
-            // off `want_col0` / `want_row0` (so pixels clipped at the
-            // image edge land in the correct cell of the output).
-            let tile_col0 = tc * profile.tile_w;
-            let tile_row0 = tr * profile.tile_h;
-            let inter_col_a = col0.max(tile_col0);
-            let inter_col_b = col1.min(tile_col0 + profile.tile_w);
-            let inter_row_a = row0.max(tile_row0);
-            let inter_row_b = row1.min(tile_row0 + profile.tile_h);
-            for r in inter_row_a..inter_row_b {
-                for c in inter_col_a..inter_col_b {
-                    let intra_col = (c - tile_col0) as usize;
-                    let intra_row = (r - tile_row0) as usize;
-                    let p = (intra_row * profile.tile_w as usize + intra_col) * bps;
-                    let v = if packed {
-                        match packed_uint(
-                            &tile_bytes,
-                            profile.tile_w,
-                            intra_col,
-                            intra_row,
-                            profile.bits_per_sample,
-                        ) {
-                            Some(v) => v,
-                            None => continue,
-                        }
-                    } else if p + bps > tile_bytes.len() {
-                        continue;
-                    } else {
-                        match (profile.bits_per_sample, profile.sample_format) {
-                            (16, 1) => {
-                                u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
-                            }
-                            (16, 2) => {
-                                i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
-                            }
-                            (8, 1) => tile_bytes[p] as f64,
-                            (8, 2) => (tile_bytes[p] as i8) as f64,
-                            (32, 3) => {
-                                f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                            }
-                            (32, 1) => {
-                                u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                            }
-                            (32, 2) => {
-                                i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
-                            }
-                            _ => 0.0,
-                        }
-                    };
-                    let out_col = (c as i64 - want_col0) as usize;
-                    let out_row = (r as i64 - want_row0) as usize;
-                    if out_col < w as usize && out_row < h as usize {
-                        out[out_row * w as usize + out_col] = v;
+            Ok::<_, CogError>((tr, tc, decoded))
+        },
+    ))
+    .buffer_unordered(WINDOW_READS_AT_ONCE);
+    while let Some(next) = tiles.next().await {
+        let (tr, tc, tile_bytes) = next?;
+        // Memcpy the intersection of [tile bbox] ∩ [window bbox]
+        // into the output buffer. Output is row-major, indexed
+        // off `want_col0` / `want_row0` (so pixels clipped at the
+        // image edge land in the correct cell of the output).
+        let tile_col0 = tc * profile.tile_w;
+        let tile_row0 = tr * profile.tile_h;
+        let inter_col_a = col0.max(tile_col0);
+        let inter_col_b = col1.min(tile_col0 + profile.tile_w);
+        let inter_row_a = row0.max(tile_row0);
+        let inter_row_b = row1.min(tile_row0 + profile.tile_h);
+        for r in inter_row_a..inter_row_b {
+            for c in inter_col_a..inter_col_b {
+                let intra_col = (c - tile_col0) as usize;
+                let intra_row = (r - tile_row0) as usize;
+                let p = (intra_row * profile.tile_w as usize + intra_col) * bps;
+                let v = if packed {
+                    match packed_uint(
+                        &tile_bytes,
+                        profile.tile_w,
+                        intra_col,
+                        intra_row,
+                        profile.bits_per_sample,
+                    ) {
+                        Some(v) => v,
+                        None => continue,
                     }
+                } else if p + bps > tile_bytes.len() {
+                    continue;
+                } else {
+                    match (profile.bits_per_sample, profile.sample_format) {
+                        (16, 1) => {
+                            u16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                        }
+                        (16, 2) => {
+                            i16::from_le_bytes(tile_bytes[p..p + 2].try_into().unwrap()) as f64
+                        }
+                        (8, 1) => tile_bytes[p] as f64,
+                        (8, 2) => (tile_bytes[p] as i8) as f64,
+                        (32, 3) => {
+                            f32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
+                        (32, 1) => {
+                            u32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
+                        (32, 2) => {
+                            i32::from_le_bytes(tile_bytes[p..p + 4].try_into().unwrap()) as f64
+                        }
+                        _ => 0.0,
+                    }
+                };
+                let out_col = (c as i64 - want_col0) as usize;
+                let out_row = (r as i64 - want_row0) as usize;
+                if out_col < w as usize && out_row < h as usize {
+                    out[out_row * w as usize + out_col] = v;
                 }
             }
         }
     }
     Ok(out)
+}
+
+/// Strip `off..off + len` out of a coalesced read that starts at file offset
+/// `base`, or `None` when it lies outside that read. A strip below `base` used
+/// to wrap `off - base` to about 2^64 and panic in `Bytes::slice` (2026-05-29).
+fn strip_slice(buf: &Bytes, base: u64, off: u64, len: u64) -> Option<Bytes> {
+    let start = usize::try_from(off.checked_sub(base)?).ok()?;
+    let end = start.checked_add(usize::try_from(len).ok()?)?;
+    (end <= buf.len()).then(|| buf.slice(start..end))
 }
 
 /// Sample all `samples_per_pixel` channels at one pixel. Returns a Vec of
@@ -1919,7 +1932,7 @@ const SLOW_FAILURE: std::time::Duration = std::time::Duration::from_secs(15);
 static HOST_TROUBLE: LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, String)>>> =
     LazyLock::new(Default::default);
 
-fn url_host(url: &str) -> &str {
+pub(crate) fn url_host(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
     rest.split('/').next().unwrap_or(rest)
 }
@@ -1942,7 +1955,52 @@ fn host_cooling(host: &str) -> Option<(u64, String)> {
     }
 }
 
-fn host_troubled(host: &str, why: String) {
+/// A caller that times out drops its read at the `.await`, so the read never
+/// reaches its error arm and a host that hangs past every caller's timeout
+/// was never cooled: on 2026-10-27 JRC's host hung every read past the 14 s
+/// materializer timeout and each EUDR statement waited it out again.
+const ABANDONED: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Cools the host if dropped before [`Unanswered::answered`], after
+/// [`ABANDONED`] of waiting.
+pub(crate) struct Unanswered {
+    host: String,
+    since: std::time::Instant,
+    armed: bool,
+}
+
+impl Unanswered {
+    pub(crate) fn new(host: &str) -> Self {
+        Self {
+            host: host.to_string(),
+            since: std::time::Instant::now(),
+            armed: true,
+        }
+    }
+
+    pub(crate) fn answered(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for Unanswered {
+    fn drop(&mut self) {
+        let waited = self.since.elapsed();
+        if self.armed && waited >= ABANDONED {
+            host_troubled(
+                &self.host,
+                format!("no answer in {}s; the caller gave up", waited.as_secs()),
+            );
+        }
+    }
+}
+
+/// [`host_cooling`] for the host of `url`.
+pub(crate) fn host_cooling_for(url: &str) -> Option<(u64, String)> {
+    host_cooling(url_host(url))
+}
+
+pub(crate) fn host_troubled(host: &str, why: String) {
     let mut m = HOST_TROUBLE.lock().unwrap_or_else(|e| e.into_inner());
     if m.len() > 1024 {
         m.clear();
@@ -1953,14 +2011,14 @@ fn host_troubled(host: &str, why: String) {
     );
 }
 
-fn host_answered(host: &str) {
+pub(crate) fn host_answered(host: &str) {
     HOST_TROUBLE
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .remove(host);
 }
 
-async fn http_range(
+pub(crate) async fn http_range(
     client: &Client,
     url: &str,
     start: u64,
@@ -1977,17 +2035,18 @@ async fn http_range(
     // shared sampler infrastructure. Keeps every COG-decoding code
     // path (IFD parse, tile sampling, multi-band sampler) unchanged.
     if let Some(path) = url.strip_prefix("file://") {
-        use std::io::{Read, Seek, SeekFrom};
-        let mut f = std::fs::File::open(path)
-            .map_err(|e| CogError::Transport(format!("file open {path}: {e}")))?;
-        f.seek(SeekFrom::Start(start))
-            .map_err(|e| CogError::Transport(format!("file seek {path}: {e}")))?;
-        let n = (end_inclusive - start + 1) as usize;
-        let mut buf = vec![0u8; n];
-        f.read_exact(&mut buf)
-            .map_err(|e| CogError::Transport(format!("file read {path}: {e}")))?;
-        return Ok(Bytes::from(buf));
+        return read_local(std::path::PathBuf::from(path), start, end_inclusive).await;
     }
+    if let Some(copy) = crate::tile_store::local_copy(url) {
+        match read_local(copy, start, end_inclusive).await {
+            Ok(b) => return Ok(b),
+            Err(e) => {
+                tracing::warn!(target: "emem::tile_store", url, error = %e, "local copy unreadable; dropped");
+                crate::tile_store::forget(url);
+            }
+        }
+    }
+    crate::tile_store::want(url);
     let host = url_host(url);
     if let Some((left, why)) = host_cooling(host) {
         return Err(CogError::Transport(format!(
@@ -1995,15 +2054,17 @@ async fn http_range(
         )));
     }
     let asked = std::time::Instant::now();
-    let resp = match client
+    let mut waiting = Unanswered::new(host);
+    let sent = client
         .get(url)
         .header("range", format!("bytes={}-{}", start, end_inclusive))
         .header("user-agent", emem_core::outbound::user_agent())
         .send()
-        .await
-    {
+        .await;
+    let resp = match sent {
         Ok(r) => r,
         Err(e) => {
+            waiting.answered();
             if asked.elapsed() >= SLOW_FAILURE {
                 host_troubled(host, format!("{e} after {}s", asked.elapsed().as_secs()));
             }
@@ -2011,19 +2072,24 @@ async fn http_range(
         }
     };
     let status = resp.status();
+    // A body this large may outlast its caller on a host that is merely slow.
+    if resp.content_length().is_none_or(|n| n > 8 << 20) {
+        waiting.answered();
+    }
     if status.is_server_error() {
+        waiting.answered();
         host_troubled(
             host,
             format!("HTTP {status} after {}s", asked.elapsed().as_secs()),
         );
     }
     if !(status == reqwest::StatusCode::PARTIAL_CONTENT || status == reqwest::StatusCode::OK) {
+        waiting.answered();
         return Err(CogError::Transport(format!(
             "status {} for range {}-{} on {}",
             status, start, end_inclusive, url
         )));
     }
-    host_answered(host);
     // A whole-file answer is paid on every tile read of that file: fine for
     // a small one, not for a multi-gigabyte raster behind a host that
     // ignores Range.
@@ -2032,22 +2098,60 @@ async fn http_range(
         && start > 0
         && resp.content_length().is_some_and(|n| n > WHOLE_BODY_MAX)
     {
+        waiting.answered();
         return Err(CogError::Transport(format!(
             "{url} ignores HTTP Range and would send {} MB for {} bytes",
             resp.content_length().unwrap_or(0) >> 20,
             end_inclusive - start + 1
         )));
     }
-    let body = resp
-        .bytes()
-        .await
-        .map_err(|e| CogError::Transport(e.to_string()))?;
+    // Healthy only once the body is in: a host that sends headers and then
+    // stalls is the slow failure the cooldown is for.
+    let body = resp.bytes().await;
+    waiting.answered();
+    let body = match body {
+        Ok(b) => b,
+        Err(e) => {
+            if asked.elapsed() >= SLOW_FAILURE {
+                host_troubled(
+                    host,
+                    format!("body: {e} after {}s", asked.elapsed().as_secs()),
+                );
+            }
+            return Err(CogError::Transport(e.to_string()));
+        }
+    };
+    host_answered(host);
     if status == reqwest::StatusCode::OK {
         // A host that ignores Range sends the whole file. Its first bytes
         // are not the range asked for, except when the range starts at 0.
         return whole_body_range(body, start, end_inclusive, url);
     }
     Ok(body)
+}
+
+/// Bytes `start..=end_inclusive` of a local file, read on the blocking pool:
+/// a cold read of a multi-megabyte window must not hold a reactor thread.
+async fn read_local(
+    path: std::path::PathBuf,
+    start: u64,
+    end_inclusive: u64,
+) -> Result<Bytes, CogError> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::{Read, Seek, SeekFrom};
+        let shown = path.display();
+        let mut f = std::fs::File::open(&path)
+            .map_err(|e| CogError::Transport(format!("file open {shown}: {e}")))?;
+        f.seek(SeekFrom::Start(start))
+            .map_err(|e| CogError::Transport(format!("file seek {shown}: {e}")))?;
+        let n = (end_inclusive - start + 1) as usize;
+        let mut buf = vec![0u8; n];
+        f.read_exact(&mut buf)
+            .map_err(|e| CogError::Transport(format!("file read {shown}: {e}")))?;
+        Ok(Bytes::from(buf))
+    })
+    .await
+    .map_err(|e| CogError::Transport(format!("local read task: {e}")))?
 }
 
 /// The requested range out of a whole-file 200 body.
@@ -2124,6 +2228,34 @@ mod tests {
                 .to_string();
             assert!(!e.contains("left alone"), "a fast refusal is retried: {e}");
         }
+    }
+
+    /// A read dropped by its caller's timeout still cools a host that never
+    /// answered it.
+    #[tokio::test]
+    async fn a_host_that_hangs_past_its_caller_is_left_alone() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for conn in listener.incoming().flatten() {
+                held.push(conn);
+            }
+        });
+        let client = Client::new();
+        let url = format!("http://127.0.0.1:{port}/hangs.tif");
+        let gave_up = tokio::time::timeout(
+            ABANDONED + std::time::Duration::from_millis(500),
+            http_range(&client, &url, 0, 99),
+        )
+        .await;
+        assert!(gave_up.is_err(), "the host never answers");
+        let next = http_range(&client, &url, 0, 99)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(next.contains("left alone"), "{next}");
+        assert!(next.contains("caller gave up"), "{next}");
     }
 
     /// A host that ignores Range sends the whole file with a 200: the
@@ -2381,6 +2513,144 @@ mod tests {
         let path = std::env::temp_dir().join(format!("emem_cog_cache_test_{pid}_{nanos}.tif"));
         std::fs::write(&path, &buf).expect("write temp tiff");
         format!("file://{}", path.display())
+    }
+
+    /// A classic little-endian TIFF of `w`x`h` 8-bit pixels valued
+    /// `(col * 7 + row * 13) % 251`, deflate-compressed, cut into `tw`x`th`
+    /// tiles, or into one-row strips (as Hansen GFC is) when `strips` is set.
+    /// One world unit per pixel, pixel (0, 0) at (100, 200).
+    fn build_deflate_tiff(w: u32, h: u32, tw: u32, th: u32, strips: bool) -> Vec<u8> {
+        use std::io::Write as _;
+        let (uw, uh) = if strips { (w, 1) } else { (tw, th) };
+        let mut blobs = Vec::new();
+        for ur in 0..h.div_ceil(uh) {
+            for uc in 0..w.div_ceil(uw) {
+                let mut raw = Vec::with_capacity((uw * uh) as usize);
+                for y in 0..uh {
+                    for x in 0..uw {
+                        let (c, r) = (uc * uw + x, ur * uh + y);
+                        raw.push(if c < w && r < h {
+                            ((c * 7 + r * 13) % 251) as u8
+                        } else {
+                            0
+                        });
+                    }
+                }
+                let mut z =
+                    flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+                z.write_all(&raw).unwrap();
+                blobs.push(z.finish().unwrap());
+            }
+        }
+        let units = blobs.len() as u32;
+        let (offsets_tag, counts_tag) = if strips { (273, 279) } else { (324, 325) };
+        let mut entries: Vec<(u16, u16, u32, u32)> = vec![
+            (256, 4, 1, w),
+            (257, 4, 1, h),
+            (258, 3, 1, 8),
+            (259, 3, 1, 8),
+            (277, 3, 1, 1),
+            (284, 3, 1, 1),
+            (317, 3, 1, 1),
+            (339, 3, 1, 1),
+        ];
+        if strips {
+            entries.push((278, 4, 1, 1));
+        } else {
+            entries.push((322, 3, 1, tw));
+            entries.push((323, 3, 1, th));
+        }
+        let ifd_len = 2 + 12 * (entries.len() as u32 + 4) + 4;
+        let scale_off = 8 + ifd_len;
+        let tie_off = scale_off + 24;
+        let offs_off = tie_off + 48;
+        let cnts_off = offs_off + 4 * units;
+        let data_off = cnts_off + 4 * units;
+        entries.push((offsets_tag, 4, units, offs_off));
+        entries.push((counts_tag, 4, units, cnts_off));
+        entries.push((33550, 12, 3, scale_off));
+        entries.push((33922, 12, 6, tie_off));
+        entries.sort_by_key(|e| e.0);
+
+        let mut buf = Vec::new();
+        buf.extend_from_slice(b"II");
+        buf.extend_from_slice(&42_u16.to_le_bytes());
+        buf.extend_from_slice(&8_u32.to_le_bytes());
+        buf.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        for (tag, typ, cnt, val) in &entries {
+            buf.extend_from_slice(&tag.to_le_bytes());
+            buf.extend_from_slice(&typ.to_le_bytes());
+            buf.extend_from_slice(&cnt.to_le_bytes());
+            buf.extend_from_slice(&val.to_le_bytes());
+        }
+        buf.extend_from_slice(&0_u32.to_le_bytes());
+        for v in [1.0_f64, 1.0, 0.0, 0.0, 0.0, 0.0, 100.0, 200.0, 0.0] {
+            buf.extend_from_slice(&v.to_le_bytes());
+        }
+        let mut at = data_off;
+        for b in &blobs {
+            buf.extend_from_slice(&at.to_le_bytes());
+            at += b.len() as u32;
+        }
+        for b in &blobs {
+            buf.extend_from_slice(&(b.len() as u32).to_le_bytes());
+        }
+        assert_eq!(buf.len() as u32, data_off);
+        for b in &blobs {
+            buf.extend_from_slice(b);
+        }
+        buf.resize(buf.len().max(128 * 1024), 0);
+        buf
+    }
+
+    /// Every pixel of a window, across tile edges and clipped at the image's
+    /// corners, read from tiles fetched at once and from coalesced strips.
+    #[tokio::test]
+    async fn a_window_reads_every_pixel_it_covers() {
+        let client = Client::new();
+        // 16x16 tiles: four per window, shared through the decoded cache.
+        // 8x8 tiles: the whole image is 25, past WINDOW_CACHED_TILES.
+        for (t, strips) in [(16, false), (8, false), (16, true)] {
+            let buf = build_deflate_tiff(40, 40, t, t, strips);
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0);
+            let path = std::env::temp_dir().join(format!(
+                "emem_cog_window_{}_{nanos}_{t}_{strips}.tif",
+                std::process::id()
+            ));
+            std::fs::write(&path, &buf).unwrap();
+            let url = format!("file://{}", path.display());
+            let p = open_profile(&client, &url).await.unwrap();
+            assert_eq!(p.tile_h == 1, strips);
+            for (cc, cr, w, h) in [
+                (16_i64, 16_i64, 24_u32, 20_u32),
+                (2, 3, 10, 9),
+                (38, 39, 6, 6),
+                (20, 20, 40, 40),
+            ] {
+                let (x, y) = (100.0 + cc as f64 + 0.5, 200.0 - cr as f64 - 0.5);
+                let got = sample_window(&client, &url, &p, x, y, w, h).await.unwrap();
+                let (c0, r0) = (cc - w as i64 / 2, cr - h as i64 / 2);
+                for r in 0..h as i64 {
+                    for c in 0..w as i64 {
+                        let (ic, ir) = (c0 + c, r0 + r);
+                        let want = if (0..40).contains(&ic) && (0..40).contains(&ir) {
+                            ((ic * 7 + ir * 13) % 251) as f64
+                        } else {
+                            0.0
+                        };
+                        assert_eq!(
+                            got[(r * w as i64 + c) as usize],
+                            want,
+                            "tile {t} strips={strips} window at ({cc},{cr}) pixel ({ic},{ir})"
+                        );
+                    }
+                }
+            }
+            let _ = std::fs::remove_file(&path);
+        }
     }
 
     /// Second `open_profile` call for the same URL must return the same

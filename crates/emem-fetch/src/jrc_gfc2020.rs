@@ -300,31 +300,106 @@ pub fn parse_tile_index(listing: &str) -> Option<TileIndex> {
 }
 
 /// The published tile index, read once a day.
+///
+/// When the listing cannot be read, the last one read stands, from memory or
+/// from the copy the tile store keeps, and is asked for again in half an
+/// hour: what the publisher published does not change because its host is
+/// down, and on 2026-10-27 a fresh boot spent every EUDR statement waiting on
+/// a listing from a host that answered nothing.
 async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc2020Error> {
+    const FRESH: std::time::Duration = std::time::Duration::from_secs(86_400);
+    const STALE_RETRY: std::time::Duration = std::time::Duration::from_secs(1_800);
+    const KEPT: &str = "jrc_gfc2020_tiles.html";
     type Slot = tokio::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<TileIndex>)>>;
     static SLOT: std::sync::OnceLock<Slot> = std::sync::OnceLock::new();
     let mut g = SLOT.get_or_init(Default::default).lock().await;
-    if let Some((at, idx)) = g.as_ref() {
-        if at.elapsed() < std::time::Duration::from_secs(86_400) {
+    if let Some((fresh_until, idx)) = g.as_ref() {
+        if std::time::Instant::now() < *fresh_until {
             return Ok(idx.clone());
         }
     }
     let url = format!("{JRC_GFC2020_TILES_BASE_URL}/");
-    let body = client
-        .get(&url)
-        .send()
-        .await
-        .and_then(|r| r.error_for_status())
-        .map_err(|e| JrcGfc2020Error::Transport(format!("tile listing {url}: {e}")))?
-        .text()
-        .await
-        .map_err(|e| JrcGfc2020Error::Transport(format!("tile listing {url}: {e}")))?;
-    let idx = std::sync::Arc::new(parse_tile_index(&body).ok_or_else(|| {
-        JrcGfc2020Error::Transport(format!("tile listing {url} names no GFC2020 tiles"))
-    })?);
+    let read = match read_listing(client, &url).await {
+        Ok(body) => match parse_tile_index(&body) {
+            Some(idx) => {
+                crate::tile_store::keep(KEPT, body.into_bytes()).await;
+                Ok((std::time::Instant::now() + FRESH, idx))
+            }
+            None => Err(JrcGfc2020Error::Transport(format!(
+                "tile listing {url} names no GFC2020 tiles"
+            ))),
+        },
+        Err(e) => Err(e),
+    };
+    let (fresh_until, idx) = match read {
+        Ok((until, idx)) => (until, std::sync::Arc::new(idx)),
+        Err(e) => {
+            let last = match g.as_ref() {
+                Some((_, idx)) => Some(idx.clone()),
+                None => crate::tile_store::kept(KEPT)
+                    .await
+                    .and_then(|b| parse_tile_index(&String::from_utf8_lossy(&b)))
+                    .map(std::sync::Arc::new),
+            };
+            let Some(idx) = last else {
+                return Err(e);
+            };
+            tracing::warn!(
+                target: "emem::jrc_gfc2020",
+                error = %e,
+                version = idx.version,
+                "tile listing unreadable; the last listing read stands"
+            );
+            (std::time::Instant::now() + STALE_RETRY, idx)
+        }
+    };
     LAST_VERSION.store(idx.version, std::sync::atomic::Ordering::Relaxed);
-    *g = Some((std::time::Instant::now(), idx.clone()));
+    *g = Some((fresh_until, idx.clone()));
     Ok(idx)
+}
+
+/// The listing's body, through the same host cooldown as the tile reads: a
+/// listing is a few hundred tile names and answers in a second when the host
+/// is well.
+async fn read_listing(client: &Client, url: &str) -> Result<String, JrcGfc2020Error> {
+    let fail = |e: String| JrcGfc2020Error::Transport(format!("tile listing {url}: {e}"));
+    if let Some((left, why)) = crate::cog::host_cooling_for(url) {
+        return Err(fail(format!(
+            "the host is left alone for {left}s more after it failed: {why}"
+        )));
+    }
+    let host = crate::cog::url_host(url);
+    let mut waiting = crate::cog::Unanswered::new(host);
+    let asked = std::time::Instant::now();
+    let r = async {
+        let resp = client
+            .get(url)
+            .timeout(std::time::Duration::from_secs(20))
+            .header("user-agent", emem_core::outbound::user_agent())
+            .send()
+            .await?;
+        let status = resp.status();
+        let resp = resp.error_for_status()?;
+        Ok::<_, reqwest::Error>((status, resp.text().await?))
+    }
+    .await;
+    waiting.answered();
+    match r {
+        Ok((_, body)) => {
+            crate::cog::host_answered(host);
+            Ok(body)
+        }
+        Err(e) => {
+            let server = e.status().is_some_and(|s| s.is_server_error());
+            if server || asked.elapsed() >= std::time::Duration::from_secs(15) {
+                crate::cog::host_troubled(
+                    host,
+                    format!("listing: {e} after {}s", asked.elapsed().as_secs()),
+                );
+            }
+            Err(fail(e.to_string()))
+        }
+    }
 }
 
 /// One pixel read, with the file it came from: provenance names the

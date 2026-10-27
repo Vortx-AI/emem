@@ -53,6 +53,7 @@ pub mod radd_alerts;
 pub mod stac;
 pub mod template;
 pub mod terraclimate;
+pub mod tile_store;
 pub mod wdpa;
 pub mod wikidata;
 pub mod worldpop;
