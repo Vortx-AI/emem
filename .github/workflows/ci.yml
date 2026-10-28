@@ -56,8 +56,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: rustfmt
       - run: cargo fmt --all --check
@@ -71,14 +71,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: install protoc (lance build scripts)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - uses: peaceiris/actions-mdbook@v2
+      - uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
@@ -123,9 +123,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # The macOS release target/ is multi-GB (lance/arrow, ort/ONNX);
           # its post-job cache save could stall for a very long time on the
@@ -137,7 +137,7 @@ jobs:
       # The ort prebuilt's extract directory, pinned by ORT_CACHE_DIR and kept across runs.
       # Keyed on the lockfile because the hash in dfbin/<target>/<hash> changes exactly when
       # ort-sys does. A hit means the ort fetch step touches no network at all.
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .ort-cache
           key: ort-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
@@ -166,7 +166,7 @@ jobs:
           else
             echo "libclang_rt.osx.a not found under the active toolchain"
           fi
-      - uses: peaceiris/actions-mdbook@v2
+      - uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
@@ -311,12 +311,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@1.91
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@8632757d5a758c452f724e9d837848c694a7bb48 # 1.91
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: install protoc (lance build scripts)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - uses: peaceiris/actions-mdbook@v2
+      - uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
@@ -335,9 +335,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: install cargo-audit
         run: cargo install --locked cargo-audit --version 0.22.2
       - name: cargo audit
@@ -360,8 +360,8 @@ jobs:
         # bracket the supported range.
         python: ['3.9', '3.12']
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: ${{ matrix.python }}
       - name: install test deps
@@ -423,8 +423,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
       # web/whitepaper-v2.html is generated from docs/whitepaper-v2.md and
@@ -445,8 +445,8 @@ jobs:
     # them; it stays as a backstop rather than being re-measured here.
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
       # The convention CONTRIBUTING.md states, enforced instead of
@@ -489,9 +489,14 @@ jobs:
       # written against the consumer.
       - name: actionlint
         run: |
+          set -euo pipefail
+          # The sum is from actionlint_1.7.7_checksums.txt in that release.
           ver=1.7.7
-          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${ver}/actionlint_${ver}_linux_amd64.tar.gz" \
-            | tar xz actionlint
+          sha=023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+          tgz="actionlint_${ver}_linux_amd64.tar.gz"
+          curl -fsSL -o "$tgz" "https://github.com/rhysd/actionlint/releases/download/v${ver}/${tgz}"
+          echo "${sha}  ${tgz}" | sha256sum -c -
+          tar xzf "$tgz" actionlint
           ./actionlint -shellcheck= -pyflakes= .github/workflows/*.yml
       # A route is either described in the OpenAPI document or excluded with a
       # written reason. Five live routes that llms.txt told agents to call sat
@@ -631,9 +636,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       - name: build the guard
         run: cargo build --release -p emem-guard
       # Against a real socket, because that is where the failures live. The
@@ -714,19 +719,19 @@ jobs:
       EMEM_RESPONDER: http://127.0.0.1:5097
       EMEM_BASE: http://127.0.0.1:5097
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .ort-cache
           key: ort-${{ runner.os }}-${{ hashFiles('Cargo.lock') }}
           restore-keys: ort-${{ runner.os }}-
       - name: install protoc (lance build scripts)
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-      - uses: peaceiris/actions-mdbook@v2
+      - uses: peaceiris/actions-mdbook@ee69d230fe19748b7abf22df32acaa93833fad08 # v2.0.0
         with:
           mdbook-version: '0.5.2'
       - run: mdbook build docs && rm -f docs/book/book.toml
@@ -741,7 +746,7 @@ jobs:
       # not depend on the optimiser, and a debug build is minutes shorter.
       - name: build this commit's server
         run: cargo build --locked -p emem-cli --bin emem-server
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
       # Installed up front so a missing validator exits 3 nowhere below:
@@ -952,7 +957,7 @@ jobs:
       # Pinned rather than relying on whatever the runner image happens to
       # ship: this step is a cryptography check, and "it worked on the old
       # default node" is not a property to leave to the image.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
 
@@ -976,8 +981,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
       - name: install deps

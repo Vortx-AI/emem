@@ -33,7 +33,7 @@ jobs:
     name: publish to MCP registry
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: confirm server.json is present and version-tagged
         run: |
@@ -52,7 +52,7 @@ jobs:
       # runner's system python is externally managed (PEP 668), so a bare
       # `pip install` there fails, and `python` is not guaranteed on PATH
       # without this step at all.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: '3.12'
 

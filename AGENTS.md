@@ -98,7 +98,16 @@ Both gates run in `.github/workflows/ci.yml` on Linux. Only the
 job. Don't ship a commit that fails either: the CI
 will reject it and the next agent will have to figure out why.
 
-Two hard-won specifics. CI pins `dtolnay/rust-toolchain@stable`, so the
+Every action in `.github/workflows/` is pinned to a full commit SHA with
+its tag in a trailing comment (`@<sha> # v4.4.0`). A tag can be moved to
+other code; a SHA cannot. To bump one, resolve the new tag with
+`git ls-remote --tags https://github.com/<owner>/<action>` (take the
+peeled `^{}` line for an annotated tag) and change the SHA and the comment
+together.
+
+Two hard-won specifics. CI installs Rust from the `stable` branch of
+`dtolnay/rust-toolchain` (pinned to a commit like every other action;
+that commit installs whatever stable is current when the job runs), so the
 clippy gate tracks CURRENT stable, not the MSRV: run `rustup update
 stable` first (never while a build is running; it deletes the old
 toolchain's rlibs out from under an in-flight compile) or new-in-stable

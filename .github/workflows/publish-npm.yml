@@ -47,6 +47,9 @@ on:
   release:
     types: [published]
 
+permissions:
+  contents: read
+
 jobs:
   publish:
     name: build + publish ememdev to npm
@@ -58,14 +61,14 @@ jobs:
       contents: read
       id-token: write   # REQUIRED for OIDC trusted publishing and provenance
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       # Node 22.14.0 is the floor npm documents for trusted publishing, but
       # it ships npm 10.9.2, and trusted publishing needs npm >= 11.5.1. The
       # setup-node action pins Node only, so npm is upgraded separately
       # below. registry-url writes the .npmrc that maps the registry and
       # wires NODE_AUTH_TOKEN for the token path.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'

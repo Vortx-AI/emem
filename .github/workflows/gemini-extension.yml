@@ -16,22 +16,26 @@ on:
         required: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   asset:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           ref: ${{ github.event.release.tag_name || inputs.tag }}
 
       # A tag cut before the manifest existed has no root gemini-extension.json;
       # take both files from the default branch rather than ship an empty asset.
       - name: fall back to the default branch for the manifest
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           if [ ! -f gemini-extension.json ] || [ ! -f GEMINI.md ]; then
-            git fetch --depth=1 origin "${{ github.event.repository.default_branch }}"
+            git fetch --depth=1 origin "$DEFAULT_BRANCH"
             git checkout FETCH_HEAD -- gemini-extension.json GEMINI.md
           fi
 
