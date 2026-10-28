@@ -3,4 +3,4 @@ Description=emem — record a research-desk failure where someone will find it
 
 [Service]
 Type=oneshot
-ExecStart=/bin/bash -c '{ echo "== $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) emem-fleet-lag FAILED =="; systemctl show emem-fleet-lag -p ExecMainStatus --value | sed "s/^/exit=/"; echo "2=a vouched desk is retired 3=fewer desks live than the floor (check emem-agents.service) 4=endpoint unreadable"; journalctl -u emem-fleet-lag -n 14 --no-pager -o cat; echo; } >> /var/log/emem-fleet-lag-alarm.log'
+ExecStart=/bin/bash -c '{ echo "== $(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ) emem-fleet-lag FAILED =="; systemctl show emem-fleet-lag -p ExecMainStatus --value | sed "s/^/exit=/"; echo "2=a vouched desk is retired 3=fewer desks live than the floor (check emem-agents.service) 4=endpoint unreadable or vouching document not loaded (check config/emem-agents.json)"; journalctl -u emem-fleet-lag -n 14 --no-pager -o cat; echo; } >> /var/log/emem-fleet-lag-alarm.log'

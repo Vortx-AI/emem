@@ -175,11 +175,16 @@ USER emem
 # blocking pool runs hundreds of threads over a day, and the responder's
 # anonymous memory climbed to 58 GB over four days on a 61 GB host, most of
 # it in 64 MB arena heaps, starving the page cache the stores read through.
-# Four arenas did not bound it: three days after the 2026-10-24 deploy RSS was
-# 41.7 GB again, 19.3 GB in 322 arena heaps. The server's Rust allocations
-# now go to jemalloc (see crates/emem-cli/Cargo.toml); this cap still applies
-# to what the C libraries it links allocate through glibc.
-# Override with -e MALLOC_ARENA_MAX=... per node.
+# The cap below has never reached the responder: the binary carries a file
+# capability (the setcap above, for port 443), so glibc runs it in secure
+# mode and ignores malloc tunables from the environment, MALLOC_ARENA_MAX
+# included; jemalloc likewise ignores MALLOC_CONF there. The 322 arena heaps
+# of 2026-10-27 were an uncapped arena count, not four arenas failing. The
+# server's Rust allocations now go to jemalloc (crates/emem-cli/Cargo.toml).
+# The cap still applies to processes without the capability, such as the
+# tesseract the server starts. Applying it to the server itself takes either
+# an in-process mallopt or dropping the file capability for the host sysctl
+# net.ipv4.ip_unprivileged_port_start=443.
 ENV EMEM_DATA=/var/emem \
     RUST_LOG=info \
     MALLOC_ARENA_MAX=4

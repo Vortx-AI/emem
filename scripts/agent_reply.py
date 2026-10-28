@@ -168,6 +168,15 @@ def mcp(name: str, args: dict, timeout: int = 180) -> dict:
         return {"_raw": text[:2000]}
 
 
+class ModelUnavailable(Exception):
+    """The model did not answer, or the shim answered from its fallback.
+
+    Not the note's failure: the same outage meets every note in the run, and
+    counting it as an attempt held every waiting note for a person by the
+    third run of an afternoon's outage.
+    """
+
+
 def llm(messages: list[dict], max_tokens: int = 700) -> str | None:
     payload = {"base_model": LLM_MODEL, "family": LLM_FAMILY, "temperature": 0,
                "max_tokens": max_tokens, "messages": messages}
@@ -179,11 +188,13 @@ def llm(messages: list[dict], max_tokens: int = 700) -> str | None:
             detail = e.read().decode()[:160]
         except Exception:
             pass
-        print(f"      model HTTP {e.code}: {detail}")
-        return None
+        raise ModelUnavailable(f"model HTTP {e.code}: {detail}")
     except Exception as e:
-        print(f"      model {type(e).__name__}: {str(e)[:120]}")
-        return None
+        raise ModelUnavailable(f"model {type(e).__name__}: {str(e)[:120]}")
+    # The shim marks an answer from its small local fallback, which its own
+    # unit says cannot hold citation-scored reasoning.
+    if out.get("x_budget"):
+        raise ModelUnavailable(f"fallback model: {str(out['x_budget'])[:120]}")
     try:
         return out["choices"][0]["message"]["content"]
     except Exception:
@@ -552,7 +563,11 @@ def main() -> int:
         if not body:
             print("      could not read the note; skipping\n")
             continue
-        reply, why, cids, tool_out, proposed = run_note(n, body, not a.quiet)
+        try:
+            reply, why, cids, tool_out, proposed = run_note(n, body, not a.quiet)
+        except ModelUnavailable as e:
+            print(f"      {e}; stopping this run, no note charged\n")
+            break
         if reply is None:
             failed[src] = failed.get(src, 0) + 1
             print(f"      no reply: {why} (attempt {failed[src]} of {MAX_ATTEMPTS})\n")
@@ -594,8 +609,22 @@ def main() -> int:
             continue
         if a.post:
             import time
-            name = f"reply-{sender}-{int(time.time())}.md"
+            # Nanoseconds: two replies to one sender in the same second took
+            # one path, and the second create was refused.
+            name = f"reply-{sender}-{time.time_ns()}.md"
             cid = publish(sk, pub, name, note_body)
+            if not cid:
+                failed[src] = failed.get(src, 0) + 1
+                print(f"      publish failed (attempt {failed[src]} of {MAX_ATTEMPTS})\n")
+                if failed[src] >= MAX_ATTEMPTS:
+                    done.append(src)
+                    ISSUES.parent.mkdir(parents=True, exist_ok=True)
+                    with ISSUES.open("a") as fh:
+                        fh.write(json.dumps({"from": sender, "note": src, "issue": {
+                            "title": "needs a person: the reply could not be published "
+                                     f"after {MAX_ATTEMPTS} attempts", "why": "memory_create returned no file_cid"}}) + "\n")
+                save_state()
+                continue
             print(f"      published {cid}\n")
             done.append(src)
             save_state()

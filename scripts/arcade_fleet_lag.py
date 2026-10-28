@@ -21,7 +21,8 @@ Exit codes, distinct because the repairs differ:
   0  every vouched desk is live or idle, and at least --min-live are live
   2  a vouched desk is retired: look at that desk's journal
   3  fewer than --min-live desks are live: look at emem-agents.service
-  4  an endpoint could not be read
+  4  an endpoint could not be read, or the server could not load its
+     vouching document (the fault is the node's config, not a desk)
 """
 import argparse
 import json
@@ -40,11 +41,18 @@ def main() -> int:
     ap.add_argument("--min-live", type=int, default=6)
     a = ap.parse_args()
     try:
-        vouched = {x.get("key", "")[:8] for x in get(a.origin, "/.well-known/emem-agents.json").get("agents") or []}
+        doc = get(a.origin, "/.well-known/emem-agents.json")
         fleet = get(a.origin, "/v1/arcade/fleet")
     except Exception as e:  # the repair is the endpoint, not a desk
         print(f"endpoint unreadable: {e}")
         return 4
+    # A vouching list the server could not load names nobody, which would
+    # read as "no desk live" and send the repair to the desks.
+    if doc.get("source") != "config" or not doc.get("agents"):
+        print(f"vouching document not loaded: source={doc.get('source')} "
+              f"path={doc.get('source_path')}")
+        return 4
+    vouched = {x.get("key", "")[:8] for x in doc.get("agents") or []}
     desks = [x for x in fleet.get("agents") or [] if x.get("pk8") in vouched]
     for d in desks:
         print(f"  {d.get('pk8')}  {str(d.get('agent'))[:14]:14}  {d.get('status'):8}  "
