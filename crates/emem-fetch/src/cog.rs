@@ -1954,9 +1954,18 @@ fn hosts() -> std::sync::MutexGuard<'static, HashMap<String, HostHealth>> {
     HOSTS.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// What a cooldown covers: the host and the first segment of the path, the
+/// bucket or container on an object store. One dataset failing on a shared
+/// host (storage.googleapis.com serves Hansen beside others) must not leave
+/// the unrelated datasets beside it alone too.
 pub(crate) fn url_host(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
-    rest.split('/').next().unwrap_or(rest)
+    let rest = rest.split(['?', '#']).next().unwrap_or(rest);
+    let end = rest
+        .match_indices('/')
+        .nth(1)
+        .map_or(rest.len(), |(i, _)| i);
+    &rest[..end]
 }
 
 fn host_cooling(host: &str) -> Option<(u64, String)> {
@@ -2305,6 +2314,26 @@ mod tests {
         }
     }
 
+    #[test]
+    fn a_cooldown_covers_one_bucket_of_a_shared_host() {
+        assert_eq!(
+            url_host(
+                "https://storage.googleapis.com/earthenginepartners-hansen/GFC-2025-v1.13/t.tif"
+            ),
+            "storage.googleapis.com/earthenginepartners-hansen"
+        );
+        assert_eq!(
+            url_host("https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/"),
+            url_host("https://jeodpp.jrc.ec.europa.eu/ftp/jrc-opendata/FOREST/GFC2020/LATEST/tiles/JRC_GFC2020_V4_N10_W10.tif"),
+            "the JRC listing and its tiles share one cooldown"
+        );
+        assert_eq!(
+            url_host("http://127.0.0.1:9/x.tif?sig=1"),
+            "127.0.0.1:9/x.tif"
+        );
+        assert_eq!(url_host("https://h.example"), "h.example");
+    }
+
     /// A host that accepts connections and never answers, as JRC's did.
     fn silent_host() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -2371,7 +2400,7 @@ mod tests {
                     let mut buf = vec![0u8; 4096];
                     let n = sock.read(&mut buf).await.unwrap_or(0);
                     let req = String::from_utf8_lossy(&buf[..n]).to_string();
-                    let resp = if req.starts_with("GET /slow") {
+                    let resp = if req.starts_with("GET /d/slow") {
                         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
                         "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()
                     } else {
@@ -2382,7 +2411,7 @@ mod tests {
             }
         });
         let client = Client::new();
-        let (slow, ok) = (format!("{base}/slow.tif"), format!("{base}/ok.tif"));
+        let (slow, ok) = (format!("{base}/d/slow.tif"), format!("{base}/d/ok.tif"));
         let failing = {
             let (client, slow) = (client.clone(), slow.clone());
             tokio::spawn(async move { http_range(&client, &slow, 0, 9).await })
