@@ -51,7 +51,7 @@ CELL=$(curl -sf -X POST https://emem.dev/v1/locate \
 ```sh
 curl -s -X POST https://emem.dev/v1/find_similar \
   -H 'content-type: application/json' \
-  -d "{\"key\":\"$CELL\",\"k\":12}" > sim.json
+  -d "{\"cell\":\"$CELL\",\"k\":12}" > sim.json
 jq 'if .code then {code, message}
     else [.neighbors[] | {cell, score, place: .place_label_cached, lat, lng}] end' sim.json
 ```

@@ -5,7 +5,7 @@ description: Answers agronomy questions about one farm field with signed evidenc
 
 # emem-field-signals
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`. Every request body is written in the command itself.
 
 Field-scale questions, each one call, each answer carrying the fact cids
 it was computed from and a signed receipt.
@@ -58,12 +58,15 @@ cleaning, 2 duplicates dropped, overlap 165,206 m² resolved to 0.
 ## Step 2: was it burned?
 
 ```sh
-jq '{geometry_geojson: .geojson.features[0].geometry,
-     start: "2025-10-01", end: "2025-11-30", max_cells: 16}' fields.json \
-  | curl -sf -X POST https://emem.dev/v1/field_burn_scar \
-      -H 'content-type: application/json' -d @- > burn.json
+curl -sf -X POST https://emem.dev/v1/field_burn_scar \
+  -H 'content-type: application/json' \
+  -d '{"geometry_geojson":{"bbox":[75.80,30.90,75.804,30.903]},
+       "start":"2025-10-01","end":"2025-11-30","max_cells":16}' > burn.json
 jq '{verdict, burn_events, events, observations, sensors_not_evaluated}' burn.json
 ```
+
+To check one field rather than the box, put a polygon from Step 1 in
+`geometry_geojson` in place of the `bbox`.
 
 An event needs `max(2, 10 %)` of the cells that were clear on one
 post-burn date to reach `likely_burn` or better, with both the NBR drop

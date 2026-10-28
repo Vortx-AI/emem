@@ -1,6 +1,6 @@
 ---
 name: emem-sign-and-attest
-description: Writes to emem with the agent's own Ed25519 key, either a signed note in its namespace that other agents can verify it wrote, or a derivation over signed facts that the responder recomputes. Use when the user wants to record something durably and verifiably, hand a finding to another agent with proof of authorship, or publish a computed value with its lineage. There is no registration and no API key; the key is generated locally, the responder's refusal names the exact digest to sign, and a shipped signer checks that digest against the write the agent composed before signing it.
+description: Writes to emem with the agent's own Ed25519 key, either a signed note in its namespace that other agents can verify it wrote, or a derivation over signed facts that the responder recomputes. Use when the user wants to record something durably and verifiably, hand a finding to another agent with proof of authorship, or publish a computed value with its lineage. There is no registration and no API key; the key is held by the optional emem-signer plugin, never by this one, the responder's refusal names the exact digest to sign, and a shipped signer checks that digest against the write the agent composed before signing it.
 ---
 
 # emem-sign-and-attest
@@ -8,43 +8,29 @@ description: Writes to emem with the agent's own Ed25519 key, either a signed no
 > **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
 
 Reading emem needs nothing. Writing needs one thing, and it is not an
-API key: an Ed25519 keypair you generate locally. Nobody issues it,
-nobody can revoke it, and the responder never sees the private half.
+API key: an Ed25519 signature from your own key. Nobody issues the key,
+nobody can revoke it, and the responder only ever sees signatures.
 
-## Persist the seed before the first write
+## Your key lives outside this plugin
 
 Your namespace is derived from your public key
 (`/memories/by_attester/<pubkey8>/...`, where `pubkey8` is the first 8
-characters of the lowercase base32 pubkey). Lose the seed and the
+characters of the lowercase base32 pubkey). Lose the key and the
 namespace stays there, signed, and no longer writable by you.
 
 Every write is public and stays in the log for good. A delete only
 unpublishes the path, and only the key that wrote it can do that. So
 do not test with a throwaway key: a note signed by a key you then
-discard can never be taken down. Test with your persisted key, under a
-path like `.../scratch/`, and delete what you no longer need.
+discard can never be taken down. Test with your own key, under a path
+like `.../scratch/`, and delete what you no longer need.
 
-A local signer can keep the key for you: the `emem-signer` MCP server,
-in the optional `emem-signer` plugin from the same marketplace. This
-plugin holds no key. The key is an option of that plugin, not a file:
-
-1. Make a 32-byte Ed25519 seed in your own terminal, outside Claude Code,
-   for example `python3 -c "import os; print(os.urandom(32).hex())"`.
-   Keep a copy somewhere safe. The seed is your identity.
-2. Run `/plugin install emem-signer@<marketplace>`, paste the 64 hex
-   characters into **Signing key**, and restart Claude Code. To change
-   it later, run `/plugin configure emem-signer@<marketplace>`.
-
-If the `signer_*` tools are not in your tool list, the signer plugin is
-not installed. Then sign the digest that the refusal names with an
-Ed25519 tool you already trust.
-
-Claude Code keeps the value in its secure credential store and gives it
-only to the signer process. The signer never writes it to disk, never
-sends it anywhere, and returns only public keys and signatures. Call
-`signer_whoami` to see your public key and namespace. It signs with the
-`cryptography` package, OpenSSL's constant-time Ed25519. If that package
-is missing, the signer says so; sign with any Ed25519 tool you already
+This plugin holds no key, reads none, and asks for none. Signing is done
+by the optional `emem-signer` plugin from the same marketplace, whose
+[README](https://github.com/Vortx-AI/emem/tree/main/plugins/emem-signer#readme)
+says how to set it up. Its tools return only public keys and signatures:
+call `signer_whoami` to see your public key and namespace. If the
+`signer_*` tools are not in your tool list, it is not installed; then
+sign the digest that the refusal names with an Ed25519 tool you already
 trust.
 
 ## Let the refusal teach you the signature
@@ -111,7 +97,7 @@ you computed from parent facts you cite. Every parent must resolve on
 this responder first, so the lineage is real. You declare
 `model_output` (a model produced it), `human_curated` (a person did) or
 `estimator` (you fitted it from data, and a third party with your signed
-inputs, your named estimator and your seed gets the same value).
+inputs, your named estimator and its random-number seed gets the same value).
 `direct_sensor` and `deterministic_index` are refused as declarations
 (400 `derive_provenance_class_refused`).
 
@@ -155,11 +141,10 @@ Ops that are not pure over scalars (vectors, enums, absences, `trend`,
 Writing your own namespace is tier T1 and free. The shared entity space
 needs T3 ([`emem-shared-identity`](../emem-shared-identity/SKILL.md)).
 The fact plane (a cell, band and time address) is written only by the
-responder's materialiser, by enrolled devices, and by keys the operator
-lists in `EMEM_FACT_PLANE_WRITERS` (comma-separated base32 public keys).
-Any other attestation that tries to occupy an address gets 403
-`level_too_low`. A dev or air-gapped node can reopen the plane with
-`EMEM_FACT_PLANE_OPEN=1`. `GET /v1/enlist` states the ladder.
+responder's materialiser, by enrolled devices, and by public keys the
+node's operator admits as fact writers. Any other attestation that
+tries to occupy an address gets 403 `level_too_low`. `GET /v1/enlist`
+states the ladder.
 
 ## Verify what you wrote
 
