@@ -41,6 +41,43 @@ static ALLOCATOR: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 /// One line every ten minutes: what the program holds live (`allocated`)
 /// against what the kernel is charging for it (`resident`). A gap that grows
 /// is fragmentation; an `allocated` that grows is a leak.
+/// glibc's arena heaps in this process, and the MiB mapped writable in
+/// them: anonymous mappings on a 64 MiB boundary, which is how glibc lays a
+/// heap out. What jemalloc does not serve (the C and C++ libraries) still
+/// goes through glibc, and MALLOC_ARENA_MAX cannot cap it here: the file
+/// capability puts glibc in secure mode (see the Dockerfile). Logged so the
+/// growth is measured rather than assumed.
+#[cfg(target_os = "linux")]
+fn glibc_heaps() -> (usize, u64) {
+    let Ok(maps) = std::fs::read_to_string("/proc/self/maps") else {
+        return (0, 0);
+    };
+    let (mut heaps, mut bytes) = (0usize, 0u64);
+    for line in maps.lines() {
+        let mut parts = line.split_whitespace();
+        let (Some(range), Some(perms)) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        // An anonymous mapping names no file: offset, device, inode only.
+        if parts.nth(3).is_some() {
+            continue;
+        }
+        let Some((a, b)) = range.split_once('-') else {
+            continue;
+        };
+        let (Ok(a), Ok(b)) = (u64::from_str_radix(a, 16), u64::from_str_radix(b, 16)) else {
+            continue;
+        };
+        if a % (64 << 20) == 0 && b - a <= 64 << 20 {
+            heaps += 1;
+            if perms.starts_with("rw") {
+                bytes += b - a;
+            }
+        }
+    }
+    (heaps, bytes >> 20)
+}
+
 #[cfg(target_os = "linux")]
 fn log_allocator_stats() {
     tokio::spawn(async {
@@ -52,12 +89,15 @@ fn log_allocator_stats() {
                 continue;
             }
             let mib = |r: Result<usize, tikv_jemalloc_ctl::Error>| r.map(|b| b >> 20).unwrap_or(0);
+            let (heaps, heap_mib) = glibc_heaps();
             tracing::info!(
                 target: "emem::alloc",
                 allocated_mib = mib(stats::allocated::read()),
                 active_mib = mib(stats::active::read()),
                 resident_mib = mib(stats::resident::read()),
                 retained_mib = mib(stats::retained::read()),
+                glibc_heaps = heaps,
+                glibc_heap_mib = heap_mib,
                 "allocator"
             );
         }
