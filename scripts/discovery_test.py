@@ -52,6 +52,7 @@ import json
 import os
 import re
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -349,6 +350,13 @@ def main():
             method, path, body = call
             before = p.bytes
             resp, code = p.get(path, method=method, body=body)
+            if code in (503, 504):
+                # A cold call that waits on an upstream (the geocoder behind
+                # /v1/compare, 2026-10-28) can time out once and answer on the
+                # retry its own error asks for, which is what an agent does.
+                # One retry; a route that times out twice still fails.
+                time.sleep(20)
+                resp, code = p.get(path, method=method, body=body)
             executed += 1
             ok = isinstance(code, int) and 200 <= code < 300
             print(f"    {'ok ' if ok else 'FAIL'} {method:<4} {path:<28} "
