@@ -60948,8 +60948,24 @@ async fn sign_and_persist_many(
 pub(crate) fn s2_http_client() -> reqwest::Client {
     static C: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
     C.get_or_init(|| {
+        // Every Sentinel-2 search, token and pixel read shares this client,
+        // and its callers give up at 14 s or 40 s, long before the 90 s request
+        // timeout, so a connection that stops answering is timed out by no one
+        // and stays in the pool. That is the likeliest reading of 2026-10-28: from
+        // 20:51 to 21:17 UTC no Sentinel-2 search or read finished, while the same
+        // catalogue answered this host's curl in under a second, and it cleared
+        // on its own after about the time Linux takes to give up retransmitting
+        // on a dead TCP connection (not confirmed; nothing else in the process
+        // explained it). These bound the connect and ping each HTTP/2
+        // connection, so a dead one is closed within half a minute instead of
+        // taking every request with it.
         reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(90))
+            .connect_timeout(std::time::Duration::from_secs(10))
+            .pool_idle_timeout(std::time::Duration::from_secs(90))
+            .http2_keep_alive_interval(std::time::Duration::from_secs(20))
+            .http2_keep_alive_timeout(std::time::Duration::from_secs(10))
+            .http2_keep_alive_while_idle(true)
             .build()
             .unwrap_or_default()
     })

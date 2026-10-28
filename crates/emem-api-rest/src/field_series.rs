@@ -38,7 +38,7 @@ use crate::band_raster::{
     DEFAULT_SCL_REJECT, MAX_SIDE_PX, S2_BANDS,
 };
 use crate::change_attribution::json_to_cbor;
-use crate::{ApiError, AppState, EmemJson};
+use crate::{ApiError, AppState, EmemJson, ErrorBody, ErrorCode};
 
 const FN_KEY: &str = "s2_index_series@1";
 /// Scenes read per series. Each is four COG window reads (two bands, and the
@@ -2661,10 +2661,30 @@ pub async fn post_field_series(
     State(s): State<AppState>,
     EmemJson(req): EmemJson<FieldSeriesReq>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    if req.areas.is_some() {
-        return Ok(Json(field_series_areas(req, &s).await?));
+    // The router's 40 s timeout drops this handler's future, and a cold series
+    // over a new area takes longer. Run inline, every retry was cancelled at 40 s
+    // and started over, so the answer the cache keeps for a retry never existed
+    // (2026-10-28: three retries of a new 1.4 km grid, all 504). As its own task
+    // the read finishes after the 504; the retry waits at the in-flight gate and
+    // reads the cache.
+    let work = tokio::spawn(async move {
+        if req.areas.is_some() {
+            field_series_areas(req, &s).await
+        } else {
+            field_series(req, &s).await
+        }
+    });
+    match work.await {
+        Ok(out) => Ok(Json(out?)),
+        Err(e) => Err(ApiError(
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::Internal,
+                message: format!("the series read ended without an answer: {e}"),
+                details: None,
+            },
+        )),
     }
-    Ok(Json(field_series(req, &s).await?))
 }
 
 /// The same series for several areas, for a chart that compares them.
