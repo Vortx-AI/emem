@@ -5,7 +5,7 @@ description: Makes two agents refer to the same object. Finds an existing canoni
 
 # emem-shared-identity
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
 
 This is the words half of referential drift. The values half, where a
 number is paraphrased until nobody can trace it, is

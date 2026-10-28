@@ -5,7 +5,7 @@ description: Answers urban-analysis questions with signed emem facts and says wh
 
 # emem-urban
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
 
 emem answers per cell. A cell is about 10 m across, much smaller than
 most urban sources, so the first question for every urban number is

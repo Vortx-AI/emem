@@ -22,6 +22,10 @@ Each rule is a finding a review made, or a mistake made while fixing one:
                   SECRET, AUTH, PASS, CRED), or a header dump (-D); the
                   review read an emem:trace token in $TOKEN as a
                   credential (review, 2026-10-20)
+  inventory       a skill's text names files under scripts/ that the skill
+                  does not ship; eleven skills told a reviewer their scripts
+                  read local files when they had no scripts (the review held
+                  field-signals as reading a credential, 2026-10-28)
 
 Exit 1 on any finding, with file and line.
 """
@@ -73,6 +77,9 @@ for f in sorted(glob.glob(os.path.join(ROOT, "skills", "*", "SKILL.md"))):
     for n, line in enumerate(text.splitlines(), 1):
         if LOCAL_READ.search(line):
             findings.append((rel(f), n, "local-read", line.strip()[:100]))
+    if "`scripts/`" in text and not os.path.isdir(os.path.join(os.path.dirname(f), "scripts")):
+        n = text[: text.index("`scripts/`")].count("\n") + 1
+        findings.append((rel(f), n, "inventory", "names files under scripts/ that this skill does not ship"))
 
 manifest = os.path.join(ROOT, ".claude-plugin", "plugin.json")
 if "userConfig" in json.load(open(manifest, encoding="utf-8")):
@@ -81,6 +88,8 @@ mcp = os.path.join(ROOT, ".mcp.json")
 for name, srv in json.load(open(mcp, encoding="utf-8")).get("mcpServers", {}).items():
     if srv.get("type", "stdio") == "stdio" or "env" in srv:
         findings.append((rel(mcp), 1, "credential", f"{name} is a local server; it belongs in the emem-signer plugin"))
+    if "headers" in srv:
+        findings.append((rel(mcp), 1, "credential", f"{name} sends headers; emem.dev takes no credential"))
 
 for f in sorted(glob.glob(os.path.join(PLUGINS, "*", "**", "*.py"), recursive=True)):
     for n, line in enumerate(open(f, encoding="utf-8"), 1):
@@ -91,4 +100,4 @@ for f, n, rule, what in findings:
     print(f"{f}:{n}: {rule}: {what}")
 if findings:
     sys.exit(1)
-print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names or credentials in the emem plugin")
+print("plugin skills: no undefined shell variables, sibling scripts, local reads, foreign hosts, piped execution, secret-shaped names, credentials or unshipped files in the emem plugin")

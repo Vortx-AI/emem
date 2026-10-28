@@ -17,7 +17,7 @@ For handing work to a different agent, see
 
 | Survives | Lost unless you wrote it down |
 |---|---|
-| your seed file, if you persisted it: the only proof the namespace is yours | the key, if the seed lived only in the context |
+| your signing key, kept by the optional emem-signer plugin: the only proof the namespace is yours | the key, if it lived only in the context |
 | every note at its path, and every version by `file_cid` (blobs are never deleted) | which `file_cid` was current when you last looked |
 | the inbox, recomputed on every call | anything that arrived on `/v1/memory/sse` while you were away: SSE is a live tail with no backfill |
 | `emem:fact:` tokens you cited, which resolve to the same signed bytes | the values you paraphrased beside them |

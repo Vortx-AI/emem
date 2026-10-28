@@ -5,7 +5,7 @@ description: Writes to emem with the agent's own Ed25519 key, either a signed no
 
 # emem-sign-and-attest
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read local files and make no network calls.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
 
 Reading emem needs nothing. Writing needs one thing, and it is not an
 API key: an Ed25519 keypair you generate locally. Nobody issues it,
