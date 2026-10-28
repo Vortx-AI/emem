@@ -2489,6 +2489,7 @@ dependencies = [
  "emem-primitives",
  "emem-storage",
  "emem-trace",
+ "flate2",
  "futures-util",
  "hkdf",
  "include_dir",

@@ -1054,8 +1054,8 @@ const SCHEMA_CHANGE_ATTRIBUTION: &str = r#"{"type":"object","required":["cell"],
 
 const SCHEMA_BAND_RASTER: &str = r#"{"type":"object","required":["bbox","band"],"properties":{
 "bbox":{"type":"object","required":["min_lat","min_lng","max_lat","max_lng"],"properties":{"min_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lat":{"type":"number"},"max_lng":{"type":"number"}},"description":"WGS-84 bounding box of the area of interest."},
-"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12 (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; OR an encoder band (geotessera, geotessera.multi_year) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step)."},
-"observed_on":{"type":"string","description":"Optional target capture date YYYY-MM-DD (Sentinel-2 only; ignored for the static DEM band); the scene actually chosen is pinned in the derivation record either way."}
+"band":{"type":"string","description":"One of s2.B02, s2.B03, s2.B04, s2.B08, s2.B11, s2.B12 (Sentinel-2 scalar field); copdem30m.elevation (also elevation / dem) for a static GLO-30 DEM field via dem_raster@1; an encoder band (geotessera, geotessera.multi_year) for a MULTI-CHANNEL embedding field via embedding_raster@1 (a signed N-D vector per cell over the bbox; grid capped at 256 cells at the encoder's native 0.1-degree step); OR a forest layer (forest_change.lossyear, forest_change.treecover2000, forest_change.gain, jrc_gfc2020.forest_2020, jrc_tmf.deforestation_year) via forest_raster@1 (one window of the publisher's 10-degree tile, up to 1024 px per side)."},
+"observed_on":{"type":"string","description":"Optional target capture date YYYY-MM-DD (Sentinel-2 only; ignored for the static DEM and forest bands); the scene actually chosen is pinned in the derivation record either way."}
 }}"#;
 
 const SCHEMA_RASTER_RESOLVE: &str = r#"{"type":"object","required":["token"],"properties":{

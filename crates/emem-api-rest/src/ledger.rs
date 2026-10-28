@@ -46,12 +46,19 @@ pub(crate) struct NoteRec {
 }
 
 pub(crate) struct Ledger {
-    /// The store this view describes: `Arc::as_ptr` of its `AppState`.
-    owner: usize,
+    /// The store this view describes. A `Weak`, not the address: a test
+    /// binary drops one store and allocates the next, and an allocator that
+    /// hands the next store the freed address (macOS does, readily) made a
+    /// view of the dropped store pass for the new one's, broadcasts and all.
+    /// A live `Weak` keeps the allocation, so no other store can share it.
+    owner: std::sync::Weak<emem_storage::Server>,
     built_at: Instant,
     pub(crate) notes: HashMap<String, Arc<NoteRec>>,
-    /// file_cid -> author, for threading.
-    pub(crate) cid_author: HashMap<String, String>,
+    /// Every path under the prefix, `.md` or not, and the file_cid it holds:
+    /// a reply threads to any note it names, as the walk's map did.
+    cids: HashMap<String, String>,
+    /// file_cid -> the paths that hold it.
+    by_cid: HashMap<String, std::collections::BTreeSet<String>>,
 }
 
 static LEDGER: Mutex<Option<Ledger>> = Mutex::new(None);
@@ -61,10 +68,6 @@ static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
 /// Set when the queue overflowed: the view cannot know what it dropped.
 static STALE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-fn owner_of(s: &AppState) -> usize {
-    Arc::as_ptr(s) as usize
-}
 
 fn internal(what: &str, e: impl std::fmt::Display) -> ApiError {
     ApiError(
@@ -91,9 +94,14 @@ pub(crate) fn note_event(ev: &MemoryEvent) {
         } => vec![old_path.as_str(), new_path.as_str()],
         MemoryEvent::Consolidated { paths, .. } => paths.iter().map(String::as_str).collect(),
     };
+    note_paths(touched);
+}
+
+/// Queue `paths` for the next reader to re-read.
+pub(crate) fn note_paths<'a>(paths: impl IntoIterator<Item = &'a str>) {
     let mut p = PENDING.lock().unwrap_or_else(|e| e.into_inner());
     p.extend(
-        touched
+        paths
             .into_iter()
             .filter(|t| t.starts_with(PREFIX))
             .map(str::to_string),
@@ -103,6 +111,19 @@ pub(crate) fn note_event(ev: &MemoryEvent) {
     if p.len() > PENDING_CAP {
         p.clear();
         STALE.store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
+/// Queues its paths when dropped. A write publishes its event after its last
+/// await, so a write cancelled at an await, or returning early with `?`,
+/// after it changed the path index left the view without it until a
+/// rebuild. Made right after the index changes, this reaches the view
+/// either way; on a normal finish it only repeats a path the event queued.
+pub(crate) struct Requeue(pub(crate) Vec<String>);
+
+impl Drop for Requeue {
+    fn drop(&mut self) {
+        note_paths(self.0.iter().map(String::as_str));
     }
 }
 
@@ -192,18 +213,67 @@ fn read_rec(
 }
 
 impl Ledger {
-    fn insert(&mut self, rec: NoteRec) {
-        self.remove(&rec.path.clone());
-        self.cid_author.insert(rec.cid.clone(), rec.from.clone());
-        self.notes.insert(rec.path.clone(), Arc::new(rec));
+    fn empty(owner: &AppState) -> Self {
+        Ledger {
+            owner: Arc::downgrade(owner),
+            built_at: Instant::now(),
+            notes: HashMap::new(),
+            cids: HashMap::new(),
+            by_cid: HashMap::new(),
+        }
     }
 
-    fn remove(&mut self, path: &str) {
-        if let Some(old) = self.notes.remove(path) {
-            if self.cid_author.get(&old.cid) == Some(&old.from) {
-                self.cid_author.remove(&old.cid);
+    /// Who wrote the note with this file_cid: the namespace owner of the
+    /// last path in key order that holds it, as the walk's map answered when
+    /// two paths hold the same bytes. One delete no longer forgets a cid
+    /// another path still holds.
+    pub(crate) fn author_of_cid(&self, cid: &str) -> Option<&str> {
+        let path = self.by_cid.get(cid)?.iter().next_back()?;
+        path.strip_prefix(PREFIX)?.split('/').next()
+    }
+
+    /// Record which file_cid `path` holds now, `None` when it is gone.
+    fn index_path(&mut self, path: &str, cid: Option<String>) {
+        if let Some(old) = self.cids.remove(path) {
+            if let Some(set) = self.by_cid.get_mut(&old) {
+                set.remove(path);
+                if set.is_empty() {
+                    self.by_cid.remove(&old);
+                }
             }
         }
+        if let Some(cid) = cid {
+            self.by_cid
+                .entry(cid.clone())
+                .or_default()
+                .insert(path.to_string());
+            self.cids.insert(path.to_string(), cid);
+        }
+    }
+
+    /// Bring `path` up to what the store holds now.
+    fn refresh(
+        &mut self,
+        paths: &sled::Tree,
+        blobs: &sled::Tree,
+        metas: &sled::Tree,
+        path: &str,
+    ) -> Result<(), ApiError> {
+        match read_rec(paths, blobs, metas, path)? {
+            Some(rec) => {
+                self.index_path(path, Some(rec.cid.clone()));
+                self.notes.insert(rec.path.clone(), Arc::new(rec));
+            }
+            None => {
+                self.notes.remove(path);
+                let cid = paths
+                    .get(path.as_bytes())
+                    .map_err(|e| internal("read memory_files", e))?
+                    .map(|c| String::from_utf8_lossy(&c).into_owned());
+                self.index_path(path, cid);
+            }
+        }
+        Ok(())
     }
 }
 
@@ -224,11 +294,10 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
         .map_err(|e| internal("open memory_file_meta", e))?;
 
     let mut guard = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
-    let owner = owner_of(s);
     let rebuild = match guard.as_ref() {
         None => true,
         Some(l) => {
-            l.owner != owner
+            !std::ptr::eq(l.owner.as_ptr(), Arc::as_ptr(s))
                 || l.built_at.elapsed() > MAX_AGE
                 || STALE.load(std::sync::atomic::Ordering::SeqCst)
         }
@@ -239,16 +308,16 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
         // a path only ever yields its current state.
         STALE.store(false, std::sync::atomic::Ordering::SeqCst);
         PENDING.lock().unwrap_or_else(|e| e.into_inner()).clear();
-        let mut l = Ledger {
-            owner,
-            built_at: Instant::now(),
-            notes: HashMap::new(),
-            cid_author: HashMap::new(),
-        };
+        // The old view goes first: a walk that fails part way must leave no
+        // view to serve, or the next reader would take the old one as current
+        // with the queue it was owed already cleared.
+        *guard = None;
+        let mut l = Ledger::empty(s);
         for kv in paths.scan_prefix(PREFIX.as_bytes()).flatten() {
             let key = String::from_utf8_lossy(&kv.0).into_owned();
+            l.index_path(&key, Some(String::from_utf8_lossy(&kv.1).into_owned()));
             if let Some(rec) = read_rec(&paths, &blobs, &metas, &key)? {
-                l.insert(rec);
+                l.notes.insert(rec.path.clone(), Arc::new(rec));
             }
         }
         *guard = Some(l);
@@ -263,9 +332,11 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
         if !seen.insert(path.clone()) {
             continue;
         }
-        match read_rec(&paths, &blobs, &metas, &path)? {
-            Some(rec) => l.insert(rec),
-            None => l.remove(&path),
+        if let Err(e) = l.refresh(&paths, &blobs, &metas, &path) {
+            // The rest of the drained queue is lost with this read: the next
+            // reader rebuilds rather than trust a view that missed it.
+            STALE.store(true, std::sync::atomic::Ordering::SeqCst);
+            return Err(e);
         }
     }
     Ok(f(l))

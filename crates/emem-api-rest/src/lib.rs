@@ -13030,6 +13030,8 @@ async fn recall_with_auto_materialize_capped(
             materialize_notes.push(json!({
                 "status": "skipped",
                 "reason": "band_retired_at_this_responder",
+                "reason_class": "retired",
+                "retryable": false,
                 "bands": retired,
                 "note": "These bands are withdrawn on this deployment and will not be materialized here. This is a deployment decision, not an outage and not a missing GPU: retrying will not change it and neither would adding hardware. GET /v1/bands lists what this responder serves; the registry still declares the band, so a different responder may answer it.",
             }));
@@ -13076,6 +13078,7 @@ async fn recall_with_auto_materialize_capped(
             materialize_notes.push(json!({
                 "status": "skipped",
                 "reason": "as_of_signed_at_in_the_past",
+                "retryable": false,
                 "as_of_signed_at": bound,
                 "responder_now": now,
                 "bands": candidates,
@@ -13096,11 +13099,14 @@ async fn recall_with_auto_materialize_capped(
         materialize_notes.extend(outcomes.iter().filter_map(MaterializeOutcome::to_note));
         if materialized_any {
             resp = recall(req, s).await?;
-            // The re-read hits the cache the fetch just filled, so the
-            // primitive signs it as cached; this call was not. `cost` is
-            // outside the signed preimage, so correcting it breaks nothing.
-            resp.receipt.cost.was_cached = false;
         }
+    }
+    // A requested band missed the cache, so the cache did not serve this
+    // call, whether the fetch landed, failed or was put off. The primitive
+    // signs every read as cached. `cost` is outside the signed preimage, so
+    // correcting it breaks nothing.
+    if !candidates.is_empty() || !deferred_cold.is_empty() {
+        resp.receipt.cost.was_cached = false;
     }
     for b in &deferred_cold {
         materialize_notes.push(json!({
@@ -17864,26 +17870,56 @@ async fn post_recall_many(
 /// goes to `pending`, so `converged` means every requested band came back as a
 /// fact or an Absence; the rest go to `stuck`. recall_polygon used to leave
 /// them out and report converged with bands still deferred.
+///
+/// One entry per reason, each with the bands that share it. A materializer
+/// outcome names one `band`; a retirement or a past `as_of_signed_at` names
+/// several under `bands`, and grouped by retryability alone those were listed
+/// with no bands, or under another note's reason.
 fn skipped_bands_to_pending(
     cell: &str,
     notes: &[JsonValue],
     pending: &mut Vec<JsonValue>,
     stuck: &mut Vec<JsonValue>,
 ) {
-    let skipped = notes
-        .iter()
-        .filter(|n| n.get("status").and_then(|v| v.as_str()) == Some("skipped"));
-    let (retry, rest): (Vec<&JsonValue>, Vec<&JsonValue>) =
-        skipped.partition(|n| n.get("retryable").and_then(|v| v.as_bool()) == Some(true));
-    for (group, into) in [(retry, pending), (rest, stuck)] {
-        if let Some(first) = group.first() {
-            into.push(json!({
-                "cell": cell,
-                "bands": group.iter().filter_map(|n| n.get("band")).collect::<Vec<_>>(),
-                "state": "skipped",
-                "reason": first.get("reason"),
-                "reason_class": first.get("reason_class"),
-            }));
+    let mut groups: Vec<(bool, &str, JsonValue, JsonValue, Vec<JsonValue>)> = Vec::new();
+    for n in notes {
+        let (retry, state) = match n.get("status").and_then(|v| v.as_str()) {
+            Some("skipped") => (
+                n.get("retryable").and_then(|v| v.as_bool()) == Some(true),
+                "skipped",
+            ),
+            // Held back by the cold-band cap: fetched on the next call.
+            Some("deferred") => (true, "deferred"),
+            _ => continue,
+        };
+        let bands: Vec<JsonValue> = match (n.get("band"), n.get("bands").and_then(|b| b.as_array()))
+        {
+            (Some(b), _) => vec![b.clone()],
+            (None, Some(bs)) => bs.clone(),
+            (None, None) => Vec::new(),
+        };
+        let reason = n.get("reason").cloned().unwrap_or(JsonValue::Null);
+        let class = n.get("reason_class").cloned().unwrap_or(JsonValue::Null);
+        match groups
+            .iter_mut()
+            .find(|g| g.0 == retry && g.1 == state && g.2 == reason && g.3 == class)
+        {
+            Some(g) => g.4.extend(bands),
+            None => groups.push((retry, state, reason, class, bands)),
+        }
+    }
+    for (retry, state, reason, class, bands) in groups {
+        let entry = json!({
+            "cell": cell,
+            "bands": bands,
+            "state": state,
+            "reason": reason,
+            "reason_class": class,
+        });
+        if retry {
+            pending.push(entry);
+        } else {
+            stuck.push(entry);
         }
     }
 }
@@ -19193,6 +19229,12 @@ async fn post_recall_polygon(
                     }
                 }
                 Err(e) => {
+                    pending.push(json!({
+                        "cell": cell,
+                        "bands": req.bands,
+                        "state": "upstream_failed",
+                        "reason": e.1.message,
+                    }));
                     by_cell.insert(
                         cell.clone(),
                         json!({
@@ -19460,6 +19502,26 @@ async fn post_recall_polygon(
             if let Some(count) = pending_count {
                 o.insert("pending_count".into(), json!(count));
                 o.remove("pending");
+            }
+            // `skipped` is per cell too: one row per bands and reason, with
+            // the number of cells, keeps the reason without the repetition.
+            if let Some(JsonValue::Array(sk)) = o.remove("skipped") {
+                o.insert("skipped_count".into(), json!(sk.len()));
+                let mut rows: Vec<JsonValue> = Vec::new();
+                for e in &sk {
+                    match rows.iter_mut().find(|r| {
+                        r["bands"] == e["bands"] && r["reason_class"] == e["reason_class"]
+                    }) {
+                        Some(r) => r["cells"] = json!(r["cells"].as_u64().unwrap_or(0) + 1),
+                        None => rows.push(json!({
+                            "bands": e["bands"],
+                            "reason": e["reason"],
+                            "reason_class": e["reason_class"],
+                            "cells": 1,
+                        })),
+                    }
+                }
+                o.insert("skipped".into(), json!(rows));
             }
             o.insert("projection".into(), json!("compact"));
             o.insert("cells_compact".into(), json!(page));
@@ -34557,7 +34619,7 @@ fn openapi_spec() -> JsonValue {
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/recall_many":       {"post":{"summary":"bulk recall over up to 256 cells per call. Accepts budget_ms: the partial-results contract (docs/plans/partial-results.md), converged/pending[]/retry, monotone identical-request retry; a band the materializer skipped is in pending[] when retryable and in skipped[] when not. compact:true returns each fact as band, value, unit, tslot, observed_at, kind, confidence, fact_cid, memory_token.","operationId":"emem_recall_many","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["cells"],"properties":{"cells":{"type":"array","items":{"type":"string"}},"bands":{"type":"array","items":{"type":"string"}},"budget_ms":{"type":"integer"},"compact":{"type":"boolean","default":false}}}}}},"responses":{"200":json_ok}}},
-            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget; on expiry the response is a first-class partial 200 with converged:false, a typed pending[] (materializing | upstream_failed, each entry stating its remedy), and a retry hint. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/recall_polygon":    {"post":{"summary":"recall facts inside a GeoJSON polygon. Accepts budget_ms (docs/plans/partial-results.md): a soft materialization budget. converged is false whenever pending[] is non-empty, with or without budget expiry; the response is then a first-class partial 200 with a typed pending[] (materializing: the budget expired while the cell's fetch was in flight; upstream_failed: the cell's recall failed; skipped or deferred: the materializer skipped or held back these bands for a retryable reason; each entry stating its reason) and a retry hint. skipped[] lists, per cell, bands skipped for a reason a retry does not change (unknown band, retired, no materializer); in projection:compact it is one row per bands and reason with a cell count. Detached fetches persist, so the identical request retried returns strictly more from cache. Pending is unsigned and is NOT a signed absence; the receipt semantics are unchanged","operationId":"emem_recall_polygon","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"free-text region; one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only. An array is refused: bbox array orders disagree between conventions ([west,south,east,north] in GeoJSON/OGC, [south,north,west,east] from Nominatim), so naming the corners is the only unambiguous form.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"bands":{"type":"array","items":{"type":"string"}},"max_cells":{"type":"integer","minimum":1,"maximum":1024,"default":64,"description":"Cap on cells sampled from the polygon. Out-of-range is a 400, not a silent clamp."},"budget_ms":{"type":"integer"},"tslot":{"type":"integer"},"as_of_tslot":{"type":"integer"},"as_of_signed_at":{"type":"string"},"include":{"type":"array","items":{"type":"string"},"description":"opt-in supplements; currently ftw_fields"},"polygon_geojson":{"type":"object"}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/field_boundaries":  {"post":{"summary":"per-field agricultural-boundary polygons (Fields of The World, CC-BY-4.0)","operationId":"emem_field_boundaries","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; see /v1/recall_polygon for why an array is refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"zoom":{"type":"integer","description":"web-Mercator zoom; default min(14, archive max)"},"max_features":{"type":"integer","description":"cap on returned polygons; default 10000"},"clean":{"type":"boolean","default":false,"description":"resolve overlaps and drop nested duplicate rings before returning; the response then carries a `synthesis` record (operator overlap_resolution@1, the vintage and source cid it ran on, overlap before and after in m2, what was dropped) on the envelope and on every feature. Gaps between parcels are left alone on purpose: on farmland they are bunds and tracks, not defects. Not a regularisation and not an infill of unmapped ground."}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             "/v1/building_footprints": {"post":{"summary":"Overture building footprints over a bbox, as GeoJSON polygons with height where the source carries one. The per-cell `overture.buildings.count` band answers how many; this answers where and how tall, which is what a renderer needs. `height_m` is null for most buildings and null is NOT zero: use `num_floors` times your own storey height as the fallback and say which you used.","operationId":"emem_building_footprints","tags":["render","vector"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"place":{"type":"string","description":"one of place or polygon_bbox is required"},"polygon_bbox":{"type":"object","required":["min_lat","max_lat","min_lng","max_lng"],"description":"OBJECT form only; array corner orders disagree between conventions and are refused.","properties":{"min_lat":{"type":"number","minimum":-90,"maximum":90},"max_lat":{"type":"number","minimum":-90,"maximum":90},"min_lng":{"type":"number","minimum":-180,"maximum":180},"max_lng":{"type":"number","minimum":-180,"maximum":180}}},"max_features":{"type":"integer","description":"cap on returned footprints; default 10000. `count` still reports the true total, so a truncated answer is distinguishable from a complete one."}}}}}},"responses":{"200":json_ok,"400":json_bad_request,"502":json_bad_request}}},
             "/v1/grid_info":         {"get":{"summary":"declare the active spatial grid (cell64 / Hilbert / future H3)","operationId":"emem_grid_info","responses":{"200":json_ok}}},
@@ -46062,6 +46124,7 @@ async fn persist_memory_write(
                 },
             )
         })?;
+    let _requeue = ledger::Requeue(vec![path.to_string()]);
 
     // Typed index `kind|path` → file_cid.
     let by_kind = db
@@ -48074,6 +48137,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         let _ = by_kind.remove(format!("{kind_str}|{path}").as_bytes());
         removed.push((path.clone(), kind_str, prior));
     }
+    let _requeue = ledger::Requeue(removed.iter().map(|(p, _, _)| p.clone()).collect());
     // One fsync covers every tree: the pagecache is shared by the Db.
     if let Err(e) = flush_off_runtime(&paths).await {
         tracing::error!(target: "emem::durability", error = %e, "flush failed");
@@ -48261,6 +48325,7 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
                 },
             )
         })?;
+    let _requeue = ledger::Requeue(vec![old_path.to_string(), new_path.to_string()]);
     // Also move the typed kind index entry.
     let cid_str = String::from_utf8_lossy(&cid).into_owned();
     let metas = db
@@ -67373,7 +67438,7 @@ fn inbox_matches(
             && head
                 .reply_to
                 .as_ref()
-                .and_then(|c| l.cid_author.get(c))
+                .and_then(|c| l.author_of_cid(c))
                 .map(|a| a.to_lowercase().starts_with(want8))
                 .unwrap_or(false);
         if !(hit_direct || hit_cc || hit_bcast || hit_thread) {
@@ -97625,6 +97690,143 @@ mod tests {
         agree(&s);
     }
 
+    /// A reply threads to the note it names however that note is held: by a
+    /// second path after the first is deleted, or by a path that is not
+    /// `.md`. The walk's map saw every path; the view must too.
+    #[tokio::test]
+    async fn a_reply_threads_to_every_path_that_holds_its_cid() {
+        let s = test_app_state();
+        let ns = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (skb, pkb) = test_attester_signer();
+        let (ske, pke) = test_attester_signer();
+        let (b, e) = (ns(&pkb), ns(&pke));
+        let root = "/memories/by_attester";
+        let same = format!("# {b} note\n\nsame bytes twice\n");
+        let first = format!("{root}/{b}/x.md");
+        let cid = publish_note(&s, &skb, &first, same.as_bytes()).await;
+        publish_note(&s, &skb, &format!("{root}/{b}/y.md"), same.as_bytes()).await;
+        let data_cid = publish_note(&s, &skb, &format!("{root}/{b}/data.json"), b"{\"k\":1}").await;
+        publish_note(
+            &s,
+            &ske,
+            &format!("{root}/{e}/re-1.md"),
+            format!("# a reply\n\nIn reply to: {cid}\n").as_bytes(),
+        )
+        .await;
+        publish_note(
+            &s,
+            &ske,
+            &format!("{root}/{e}/re-2.md"),
+            format!("# a reply\n\nIn reply to: {data_cid}\n").as_bytes(),
+        )
+        .await;
+        let q = || serde_json::from_value::<InboxReq>(json!({"to": b})).unwrap();
+        assert_eq!(
+            post_inbox_sync(s.clone(), q()).unwrap(),
+            post_inbox_scan(s.clone(), q()).unwrap()
+        );
+        let base = current_base_cid(&s, &first);
+        memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: first.clone(),
+                attester: Some(sign_attester_v2(&skb, "delete", &first, b"", &base)),
+            },
+        )
+        .await
+        .expect("delete");
+        let fast = post_inbox_sync(s.clone(), q()).unwrap();
+        assert_eq!(fast, post_inbox_scan(s.clone(), q()).unwrap());
+        assert_eq!(
+            fast["total_matched"],
+            json!(2),
+            "both replies thread to {b}: {fast}"
+        );
+    }
+
+    /// A delete dropped at its first await, after it removed the path, still
+    /// reaches the view: a timeout layer, a cancelled task or a client that
+    /// left drops a handler there, and the event it would have published
+    /// never is.
+    #[tokio::test]
+    async fn a_delete_dropped_after_its_removal_does_not_stay_in_the_view() {
+        use std::future::Future;
+        let s = test_app_state();
+        let ns = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (ska, pka) = test_attester_signer();
+        let (_skb, pkb) = test_attester_signer();
+        let (a, b) = (ns(&pka), ns(&pkb));
+        let to_b = format!("/memories/by_attester/{a}/inbox-1-to-{b}.md");
+        publish_note(&s, &ska, &to_b, format!("# {a} -> {b}: hello\n").as_bytes()).await;
+        let inbox = || serde_json::from_value::<InboxReq>(json!({"to": b})).unwrap();
+        assert_eq!(
+            post_inbox_sync(s.clone(), inbox()).unwrap()["total_matched"],
+            json!(1)
+        );
+        let base = current_base_cid(&s, &to_b);
+        let req = MemoryDeleteReq {
+            path: to_b.clone(),
+            attester: Some(sign_attester_v2(&ska, "delete", &to_b, b"", &base)),
+        };
+        let mut fut = Box::pin(memory_delete_inner(&s, req));
+        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+        let first = fut.as_mut().poll(&mut cx);
+        drop(fut);
+        assert!(
+            first.is_pending(),
+            "the delete finished in one poll; nothing was dropped"
+        );
+        assert_eq!(current_base_cid(&s, &to_b), emem_primitives::BASE_ABSENT);
+        let fast = post_inbox_sync(s.clone(), inbox()).unwrap();
+        assert_eq!(fast, post_inbox_scan(s.clone(), inbox()).unwrap());
+        assert_eq!(
+            fast["total_matched"],
+            json!(0),
+            "a deleted note is still listed: {fast}"
+        );
+    }
+
+    /// A view is served only to the store it was built for. Each store here
+    /// lives and dies in its own runtime, as each test's store does, so a
+    /// dropped store is freed and its address can go to the next one: an
+    /// allocator that did that made the old view pass for the new store's
+    /// (CI, macos-latest, 2026-10-28). Each store must see its own broadcast
+    /// and no other.
+    #[test]
+    fn a_new_store_never_sees_the_view_of_a_dropped_one() {
+        let root = "/memories/by_attester";
+        let (_, pk_reader) = test_attester_signer();
+        let reader = emem_primitives::pubkey_short_from_b32(&pk_reader);
+        let q = || serde_json::from_value::<InboxReq>(json!({ "to": reader })).unwrap();
+        for i in 0..24 {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(1)
+                .enable_all()
+                .build()
+                .unwrap();
+            rt.block_on(async {
+                let s = test_app_state();
+                let (sk, pk) = test_attester_signer();
+                let me = emem_primitives::pubkey_short_from_b32(&pk);
+                publish_note(
+                    &s,
+                    &sk,
+                    &format!("{root}/{me}/news-{i}.md"),
+                    format!("# {me} -> the channel: news {i}\n").as_bytes(),
+                )
+                .await;
+                let fast = post_inbox_sync(s.clone(), q()).unwrap();
+                assert_eq!(fast, post_inbox_scan(s.clone(), q()).unwrap(), "store {i}");
+                assert_eq!(
+                    fast["total_matched"],
+                    json!(1),
+                    "store {i} sees its own broadcast only: {fast}"
+                );
+            });
+            drop(rt);
+        }
+    }
+
     /// Search ranked a withdrawn claim beside its correction. The primitive
     /// cannot see metadata, so this asserts the layer that can.
     #[tokio::test]
@@ -98556,6 +98758,23 @@ mod tests {
         assert_eq!(pending[0]["bands"], json!(["a"]));
         assert_eq!(stuck.len(), 1);
         assert_eq!(stuck[0]["bands"], json!(["b"]));
+
+        // A retirement names several bands under `bands`, and each reason
+        // keeps its own bands; a band the cold cap held back is pending.
+        let notes = vec![
+            json!({"status": "skipped", "reason": "band_retired_at_this_responder", "reason_class": "retired", "retryable": false, "bands": ["x", "y"]}),
+            json!({"band": "b", "status": "skipped", "retryable": false, "reason": "unknown", "reason_class": "unknown_band"}),
+            json!({"band": "z", "status": "deferred", "reason": "cold_band_cap reached"}),
+        ];
+        let (mut pending, mut stuck) = (Vec::new(), Vec::new());
+        skipped_bands_to_pending("c1", &notes, &mut pending, &mut stuck);
+        assert_eq!(stuck.len(), 2, "{stuck:?}");
+        assert_eq!(stuck[0]["bands"], json!(["x", "y"]));
+        assert_eq!(stuck[0]["reason_class"], json!("retired"));
+        assert_eq!(stuck[1]["bands"], json!(["b"]));
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0]["bands"], json!(["z"]));
+        assert_eq!(pending[0]["state"], json!("deferred"));
     }
 
     #[tokio::test]

@@ -805,22 +805,32 @@ const FOREST_BANDS: [ForestBand; 5] = [
 const FOREST_MAX_SIDE_PX: u32 = 1024;
 
 /// The tile of `band` that covers `(lat, lng)`, and JRC GFC2020's version.
+/// A point the layer does not cover is the caller's to know about (a 400:
+/// TMF is published inside the tropics only), not an upstream failure.
 async fn forest_tile_url(
     band: &str,
     lat: f64,
     lng: f64,
     cli: &reqwest::Client,
-) -> Result<(String, Option<u32>), String> {
+) -> Result<(String, Option<u32>), ApiError> {
     if band == "jrc_gfc2020.forest_2020" {
         return emem_fetch::jrc_gfc2020::tile_url(cli, lat, lng)
             .await
             .map(|(u, v)| (u, Some(v)))
-            .map_err(|e| format!("JRC GFC2020 tile listing: {e}"));
+            .map_err(|e| upstream_error(format!("JRC GFC2020 tile listing: {e}")));
     }
     crate::static_cog_url_for_band(band, lat, lng)
         .map(|u| (u, None))
-        .ok_or_else(|| format!("{band} publishes no tile at ({lat}, {lng})"))
+        .ok_or_else(|| {
+            bad_request(format!(
+                "{band} publishes no tile at ({lat}, {lng}); the point is outside the layer's coverage"
+            ))
+        })
 }
+
+/// The year the per-cell builders sign these layers at (`build_fact_hansen`,
+/// `jrc_tmf_fact`), so an anchor finds the fact recall signed for its cell.
+pub(crate) const FOREST_RELEASE_YEAR: i32 = 2025;
 
 /// A forest layer as a FIELD token: one window of the publisher's tile over
 /// the bbox, signed as a derivation, where callers had to read the layer
@@ -840,18 +850,15 @@ async fn forest_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, Ap
     let centre_lat = (b.min_lat + b.max_lat) / 2.0;
     let centre_lng = (b.min_lng + b.max_lng) / 2.0;
     let cli = crate::s2_http_client();
-    let (url, jrc_version) = forest_tile_url(band_key, centre_lat, centre_lng, &cli)
-        .await
-        .map_err(upstream_error)?;
-    // One tile per read, as on the DEM path: every corner must name it.
+    let (url, jrc_version) = forest_tile_url(band_key, centre_lat, centre_lng, &cli).await?;
+    // One tile per read, as on the DEM path: every corner must name it. Each
+    // corner is nudged inward, so a bbox that ends on a tile line, on any of
+    // its four sides, is read from the tile it lies in.
     let top = (b.max_lat - 1e-9).max(b.min_lat);
+    let bottom = (b.min_lat + 1e-9).min(b.max_lat);
+    let left = (b.min_lng + 1e-9).min(b.max_lng);
     let right = (b.max_lng - 1e-9).max(b.min_lng);
-    for (lat, lng) in [
-        (b.min_lat, b.min_lng),
-        (b.min_lat, right),
-        (top, b.min_lng),
-        (top, right),
-    ] {
+    for (lat, lng) in [(bottom, left), (bottom, right), (top, left), (top, right)] {
         let corner = forest_tile_url(band_key, lat, lng, &cli).await.ok();
         if corner.as_ref().map(|c| c.0.as_str()) != Some(url.as_str()) {
             return Err(bad_request(format!(
@@ -889,22 +896,52 @@ async fn forest_raster_from(
             prof.pixel_scale
         )));
     }
-    let width_px = (((b.max_lng - b.min_lng) / native_deg).ceil() as u32).max(1);
-    let height_px = (((b.max_lat - b.min_lat) / sy.abs()).ceil() as u32).max(1);
-    if width_px > FOREST_MAX_SIDE_PX || height_px > FOREST_MAX_SIDE_PX {
+    // The window is every pixel the bbox touches, fitted to its edges with
+    // the snapping `pixel_index` uses. Placed by the bbox centre and a
+    // rounded-up size, it missed a row or column of up to half the pixels of
+    // a plot two to four pixels wide.
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let shift = 0.5 - half;
+    const EPS: f64 = 1e-6;
+    let col_a = ti + (b.min_lng - tx) / sx + shift;
+    let col_b = ti + (b.max_lng - tx) / sx + shift;
+    let row_a = tj + (ty - b.max_lat) / sy.abs() + shift;
+    let row_b = tj + (ty - b.min_lat) / sy.abs() + shift;
+    let col0 = (col_a + EPS).floor() as i64;
+    let row0 = (row_a + EPS).floor() as i64;
+    let col1 = ((col_b - EPS).ceil() as i64).max(col0 + 1);
+    let row1 = ((row_b - EPS).ceil() as i64).max(row0 + 1);
+    let (span_w, span_h) = (col1 - col0, row1 - row0);
+    if span_w > FOREST_MAX_SIDE_PX as i64 || span_h > FOREST_MAX_SIDE_PX as i64 {
         return Err(bad_request(format!(
-            "window is {width_px}x{height_px} px at {band_key}'s native {native_deg}°; the cap is {FOREST_MAX_SIDE_PX} per side. Page the bbox."
+            "window is {span_w}x{span_h} px at {band_key}'s native {native_deg}°; the cap is {FOREST_MAX_SIDE_PX} per side. Page the bbox."
         )));
     }
-    let raw = emem_fetch::cog::sample_window(
-        &cli, &url, &prof, centre_lng, centre_lat, width_px, height_px,
-    )
-    .await
-    .map_err(|e| upstream_error(format!("sample_window {url}: {e}")))?;
+    let (width_px, height_px) = (span_w as u32, span_h as u32);
+    // sample_window places its window at the pixel under the point it is
+    // given, less half the size: hand it the centre of the middle pixel.
+    let cx = tx + ((col0 + span_w / 2) as f64 - ti + half) * sx;
+    let cy = ty - ((row0 + span_h / 2) as f64 - tj + half) * sy.abs();
+    let raw = emem_fetch::cog::sample_window(&cli, &url, &prof, cx, cy, width_px, height_px)
+        .await
+        .map_err(|e| upstream_error(format!("sample_window {url}: {e}")))?;
+    let in_tile = |k: usize| {
+        let (r, c) = (
+            row0 + (k / width_px as usize) as i64,
+            col0 + (k % width_px as usize) as i64,
+        );
+        (0..prof.height as i64).contains(&r) && (0..prof.width as i64).contains(&c)
+    };
     let values: Vec<f32> = raw
         .iter()
-        .map(|v| {
-            if band_key == "forest_change.lossyear" {
+        .enumerate()
+        .map(|(k, v)| {
+            // sample_window fills a pixel outside the image with 0, and 0 is
+            // a real value of every forest layer.
+            if !in_tile(k) {
+                f32::NAN
+            } else if band_key == "forest_change.lossyear" {
                 let byte = if (0.0..=255.0).contains(v) {
                     v.round() as u8
                 } else {
@@ -917,11 +954,6 @@ async fn forest_raster_from(
         })
         .collect();
 
-    let (centre_col, centre_row) = prof.world_to_pixel(centre_lng, centre_lat);
-    let col0 = centre_col - (width_px as i64) / 2;
-    let row0 = centre_row - (height_px as i64) / 2;
-    let (ti, tj, tx, ty) = prof.tiepoint;
-    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
     let x0 = tx + (col0 as f64 - ti + half) * sx;
     let y0 = ty - (row0 as f64 - tj + half) * sy.abs();
     let header = GridHeader {
@@ -957,19 +989,28 @@ async fn forest_raster_from(
     .iter()
     .map(|(lat, lng)| emem_codec::geo::cell64_from_latlng(*lat, *lng))
     .collect();
+    // Recall signs Hansen and TMF cells at the release's slot; GFC2020 and
+    // the windowed EUDR read sign at 0. The record keeps 0, as the band's
+    // one vintage, and an anchor cites whichever its cell has.
+    let release_tslot = crate::tslot_for_year(FOREST_RELEASE_YEAR, band_key);
     let keys: Vec<CanonicalKey> = cells
         .iter()
-        .map(|cell| CanonicalKey {
-            cell: cell.clone(),
-            band: band_key.to_string(),
-            tslot,
+        .flat_map(|cell| {
+            [release_tslot, tslot].map(|t| CanonicalKey {
+                cell: cell.clone(),
+                band: band_key.to_string(),
+                tslot: t,
+            })
         })
         .collect();
-    let looked_up = s
+    let looked_up: Vec<Option<FactCid>> = s
         .storage
         .lookup_canonical_many(&keys)
         .await
-        .unwrap_or_else(|_| vec![None; keys.len()]);
+        .unwrap_or_else(|_| vec![None; keys.len()])
+        .chunks(2)
+        .map(|pair| pair.iter().flatten().next().cloned())
+        .collect();
     let mut anchors: Vec<JsonValue> = Vec::with_capacity(cells.len());
     let mut anchor_fact_cids: Vec<FactCid> = Vec::new();
     for (cell, existing) in cells.iter().zip(&looked_up) {
@@ -977,8 +1018,13 @@ async fn forest_raster_from(
             continue;
         };
         let (col, row) = prof.world_to_pixel(at.lng_deg, at.lat_deg);
-        let r = ((row - row0).max(0) as u32).min(header.height.saturating_sub(1));
-        let c = ((col - col0).max(0) as u32).min(header.width.saturating_sub(1));
+        let (r, c) = (row - row0, col - col0);
+        // An anchor cites the pixel its cell is in, or nothing: clamped to
+        // the edge, it named a pixel its fact was never read at.
+        if !((0..height_px as i64).contains(&r) && (0..width_px as i64).contains(&c)) {
+            continue;
+        }
+        let (r, c) = (r as u32, c as u32);
         if let Some(cid) = existing {
             anchor_fact_cids.push(cid.clone());
         }
@@ -1947,6 +1993,9 @@ async fn spot_check_anchors(
     // a related aggregate (context), not an exact-quantity bridge.
     let raster_band = body.get("band").and_then(|v| v.as_str());
     let eps = 1e-3_f64;
+    // A forest field holds classes and calendar years: 1% of 2020 is twenty
+    // years, so its anchors must match their facts exactly.
+    let exact = body.get("fn_key").and_then(|v| v.as_str()) == Some("forest_raster@1");
     let mut results: Vec<JsonValue> = Vec::with_capacity(anchors.len());
     let mut checked = 0usize;
     let mut grid_ok = 0usize;
@@ -2014,7 +2063,7 @@ async fn spot_check_anchors(
                 let same_band = fb.as_deref() == raster_band;
                 if same_band {
                     fact_checked += 1;
-                    let tol = eps.max(0.01 * g.abs());
+                    let tol = if exact { eps } else { eps.max(0.01 * g.abs()) };
                     let m = fv.map(|f| (g - f).abs() <= tol).unwrap_or(false);
                     if m {
                         fact_ok += 1;
@@ -3191,6 +3240,150 @@ mod tests {
         }
         buf.resize(buf.len().max(128 * 1024), 0);
         buf
+    }
+
+    fn hansen_like_url(tag: &str) -> (std::path::PathBuf, String) {
+        let path = std::env::temp_dir().join(format!(
+            "emem_forest_{tag}_{}_{}.tif",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::write(&path, hansen_like_tiff()).unwrap();
+        let url = format!("file://{}", path.display());
+        (path, url)
+    }
+
+    fn lossyear_req(min_lat: f64, min_lng: f64, max_lat: f64, max_lng: f64) -> BandRasterReq {
+        BandRasterReq {
+            bbox: BBox {
+                min_lat,
+                min_lng,
+                max_lat,
+                max_lng,
+            },
+            band: "forest_change.lossyear".into(),
+            observed_on: None,
+        }
+    }
+
+    fn lossyear_band() -> &'static ForestBand {
+        FOREST_BANDS
+            .iter()
+            .find(|f| f.band == "forest_change.lossyear")
+            .unwrap()
+    }
+
+    /// The window is every pixel the bbox touches: a bbox off the pixel
+    /// lines reads all three columns it touches, not the two its width
+    /// rounds to, and a bbox on the tile's north edge reads no row from
+    /// outside the tile.
+    #[tokio::test]
+    async fn a_forest_window_is_fitted_to_the_bbox() {
+        let (path, url) = hansen_like_url("fitted");
+        let s = crate::tests::test_app_state();
+        let year = |byte: i64| if byte == 0 { 0.0 } else { 2000.0 + byte as f32 };
+        // Columns 4.4..6.4 and rows 4.4..6.4 of the 0.25-degree fixture.
+        let req = lossyear_req(-1.6, -68.9, -1.1, -68.4);
+        let out = forest_raster_from(&req, &s, lossyear_band(), &url, None, Instant::now())
+            .await
+            .unwrap();
+        assert_eq!(
+            (out["grid"]["width"].clone(), out["grid"]["height"].clone()),
+            (json!(3), json!(3))
+        );
+        let bytes = ARTIFACTS
+            .get(out["artifact"]["artifact_cid"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        let (h, v) = emem_codec::grid::decode_grid(&bytes).unwrap();
+        for r in 0..3i64 {
+            for c in 0..3i64 {
+                let want = year(((4 + c) + (4 + r)) % 25);
+                assert_eq!(
+                    grid_value_at(&h, &v, r as u32, c as u32),
+                    Some(want),
+                    "row {r} col {c}"
+                );
+            }
+        }
+        // On the north edge: rows 0 and 1, both inside the tile.
+        let req = lossyear_req(-0.3, -69.0, 0.0, -68.6);
+        let out = forest_raster_from(&req, &s, lossyear_band(), &url, None, Instant::now())
+            .await
+            .unwrap();
+        let bytes = ARTIFACTS
+            .get(out["artifact"]["artifact_cid"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        let (h, v) = emem_codec::grid::decode_grid(&bytes).unwrap();
+        assert_eq!(h.height, 2);
+        assert!(
+            (h.lat0 - (-0.125)).abs() < 1e-9,
+            "the first row is the tile's first: {}",
+            h.lat0
+        );
+        assert_eq!(grid_value_at(&h, &v, 0, 0), Some(year(4)));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Recall signs a forest cell at the release's slot, not 0: the anchor
+    /// over that cell cites it.
+    #[tokio::test]
+    async fn a_forest_anchor_cites_the_fact_recall_signed_for_its_cell() {
+        let (path, url) = hansen_like_url("anchor");
+        let s = crate::tests::test_app_state();
+        let req = lossyear_req(-2.0, -69.0, -1.0, -68.0);
+        let centre = emem_codec::geo::cell64_from_latlng(-1.5, -68.5);
+        let band = "forest_change.lossyear";
+        let fact = Fact::Primary(emem_fact::PrimaryFact {
+            cell: centre.clone(),
+            band: band.into(),
+            tslot: crate::tslot_for_year(FOREST_RELEASE_YEAR, band),
+            value: ciborium::Value::Integer(2012.into()),
+            unit: Some("year_of_loss".into()),
+            confidence: 0.93,
+            uncertainty: None,
+            sources: vec![emem_fact::Source {
+                scheme: "hansen.gfc.v1_13.2025".into(),
+                id: url.clone(),
+                cid: None,
+                hash: None,
+                captured_at: None,
+                url: Some(url.clone()),
+            }],
+            derivation: emem_fact::Derivation {
+                fn_key: "hansen_gfc_v1_13_pixel@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: s.manifests.schema_cid.clone(),
+            signer: s.identity.pubkey,
+            signed_at: "2026-10-28T00:00:00Z".into(),
+            served_via: None,
+        });
+        let cid = crate::sign_and_persist_many(&s, vec![fact], "2026-10-28T00:00:00Z")
+            .await
+            .unwrap()
+            .remove(0);
+        let out = forest_raster_from(&req, &s, lossyear_band(), &url, None, Instant::now())
+            .await
+            .unwrap();
+        let cited = out["derivation"]["anchors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|a| a["cell"] == json!(centre))
+            .map(|a| a["fact_cid"].clone());
+        assert_eq!(
+            cited,
+            Some(json!(cid.as_str())),
+            "{}",
+            out["derivation"]["anchors"]
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// One window of the tile becomes one signed field whose values are the

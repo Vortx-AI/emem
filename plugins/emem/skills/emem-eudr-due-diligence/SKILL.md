@@ -92,11 +92,15 @@ A statement is held for review when any plot has
 `tmf_cross_check.review_required`, when any plot has
 `verdict_support.level` `weak`, or when the verdict ran without the JRC
 baseline (`forest_baseline_computed` is `hansen_only_jrc_unavailable`).
-The top-level `statement_of_compliance_signable` is true only for an
-overall `pass` that is not held for review. Read that flag. The
-envelope's `statementOfComplianceSignable` does not check the JRC
-baseline, so it can be true while `statementOfComplianceReviewRequired`
-is also true.
+The top-level `statement_of_compliance_signable` and the envelope's
+`statementOfComplianceSignable` use one rule, so they always agree: each
+is true only for an overall `pass` that is not held for review.
+`statement_of_compliance_held_because` (envelope:
+`statementOfComplianceHeldBecause`) lists every cause that applies:
+`verdict_<label>` when the overall verdict is not `pass`,
+`tmf_cross_check_review_required`, `verdict_support_weak` and
+`jrc_baseline_unavailable_hansen_only`. It is empty when the statement
+is signable.
 
 ## Recorded on 2026-09-28
 
