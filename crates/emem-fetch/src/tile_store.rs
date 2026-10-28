@@ -46,6 +46,11 @@ const RETRY_AFTER: Duration = Duration::from_secs(1800);
 /// How often a copy in use has its mtime moved forward, which is the
 /// last-use time eviction reads.
 const TOUCH_EVERY: Duration = Duration::from_secs(6 * 3600);
+/// How long a copy is served before its publisher is asked whether the file
+/// changed under its name. The names carry versions, but `LATEST/` is a
+/// directory a publisher can rewrite, and a copy is a promise that its bytes
+/// are the publisher's.
+const REVALIDATE_EVERY: Duration = Duration::from_secs(7 * 86_400);
 
 struct Store {
     dir: PathBuf,
@@ -68,6 +73,9 @@ static SLOTS: LazyLock<tokio::sync::Semaphore> =
     LazyLock::new(|| tokio::sync::Semaphore::new(CONCURRENT));
 
 static TOUCHED: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(Default::default);
+
+/// When this process last considered a copy for a check.
+static CHECKED: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(Default::default);
 
 /// Bytes the copies in flight will add to the disk. Each copy checks the
 /// budget and the free floor against the others' too: two copies checked
@@ -193,7 +201,90 @@ pub(crate) fn local_copy(url: &str) -> Option<PathBuf> {
     }
     let file = file_for(&st.dir, key);
     touch(key, &file);
+    revalidate_if_due(key, &file);
     Some(file)
+}
+
+/// Ask the publisher, in the background, whether a copy served for
+/// [`REVALIDATE_EVERY`] still matches its file; drop it when it does not, so
+/// the next read fetches the file again. A check that fails says nothing
+/// and keeps the copy, and so does a 404: the copy is still the version that
+/// was published.
+fn revalidate_if_due(key: &str, file: &Path) {
+    {
+        let mut c = lock(&CHECKED);
+        if c.get(key)
+            .is_some_and(|at| at.elapsed() < Duration::from_secs(86_400))
+        {
+            return;
+        }
+        c.insert(key.to_string(), Instant::now());
+    }
+    if tokio::runtime::Handle::try_current().is_err() {
+        return;
+    }
+    let (key, side) = (key.to_string(), sidecar_for(file));
+    tokio::spawn(async move {
+        let Some(mut meta) = tokio::fs::read(&side)
+            .await
+            .ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+        else {
+            return;
+        };
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let last = meta["checked_at_unix_s"]
+            .as_u64()
+            .or_else(|| meta["copied_at_unix_s"].as_u64())
+            .unwrap_or(0);
+        if now.saturating_sub(last) < REVALIDATE_EVERY.as_secs()
+            || crate::cog::host_cooling_for(&key).is_some()
+        {
+            return;
+        }
+        let head = download_client()
+            .head(&key)
+            .header("user-agent", emem_core::outbound::user_agent())
+            .send();
+        let Ok(Ok(resp)) = tokio::time::timeout(Duration::from_secs(30), head).await else {
+            return;
+        };
+        if !resp.status().is_success() {
+            return;
+        }
+        let len = header(&resp, "content-length").and_then(|v| v.parse::<u64>().ok());
+        if copy_changed(
+            &meta,
+            len,
+            header(&resp, "etag").as_deref(),
+            header(&resp, "last-modified").as_deref(),
+        ) {
+            tracing::warn!(target: "emem::tile_store", url = %key, "the publisher's file changed; the copy is dropped and fetched again");
+            forget(&key);
+            return;
+        }
+        meta["checked_at_unix_s"] = serde_json::json!(now);
+        let _ = tokio::fs::write(&side, meta.to_string()).await;
+    });
+}
+
+/// Whether a publisher's answer describes a different file than the copy
+/// recorded: a length, or an ETag or Last-Modified that both sides state,
+/// that differs.
+fn copy_changed(
+    recorded: &serde_json::Value,
+    len: Option<u64>,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> bool {
+    let differs =
+        |now: Option<&str>, then: Option<&str>| matches!((now, then), (Some(a), Some(b)) if a != b);
+    len.is_some_and(|n| recorded["bytes"].as_u64().is_some_and(|b| b != n))
+        || differs(etag, recorded["etag"].as_str())
+        || differs(last_modified, recorded["last_modified"].as_str())
 }
 
 /// Whether the copy of `url` is gone or no longer its recorded length. A
@@ -519,6 +610,24 @@ fn make_room(dir: &Path, incoming: u64, budget: u64, reserved: u64) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_copy_is_dropped_only_when_the_publisher_says_its_file_changed() {
+        let rec = serde_json::json!({"bytes": 100, "etag": "\"a\"", "last_modified": "Mon"});
+        assert!(!copy_changed(&rec, Some(100), Some("\"a\""), Some("Mon")));
+        assert!(
+            !copy_changed(&rec, None, None, None),
+            "an answer that states nothing"
+        );
+        assert!(copy_changed(&rec, Some(101), Some("\"a\""), Some("Mon")));
+        assert!(copy_changed(&rec, Some(100), Some("\"b\""), None));
+        assert!(copy_changed(&rec, None, None, Some("Tue")));
+        let bare = serde_json::json!({"bytes": 100});
+        assert!(
+            !copy_changed(&bare, Some(100), Some("\"z\""), Some("Wed")),
+            "nothing recorded to differ from"
+        );
+    }
 
     #[test]
     fn only_versioned_tiles_are_kept() {
