@@ -307,23 +307,58 @@ pub fn parse_tile_index(listing: &str) -> Option<TileIndex> {
 /// down, and on 2026-10-27 a fresh boot spent every EUDR statement waiting on
 /// a listing from a host that answered nothing.
 async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc2020Error> {
+    type Slot = tokio::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<TileIndex>)>>;
+    static SLOT: std::sync::OnceLock<Slot> = std::sync::OnceLock::new();
+    static REFRESHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    struct Refreshing;
+    impl Drop for Refreshing {
+        fn drop(&mut self) {
+            REFRESHING.store(false, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+    let slot = SLOT.get_or_init(Default::default);
+    let mut g = slot.lock().await;
+    let stale = match g.as_ref() {
+        Some((fresh_until, idx)) if std::time::Instant::now() < *fresh_until => {
+            return Ok(idx.clone())
+        }
+        Some((_, idx)) => Some(idx.clone()),
+        None => None,
+    };
+    if let Some(stale) = stale {
+        // One caller refreshes a stale index; the rest are answered with it
+        // rather than waiting out the listing's timeout behind the lock.
+        if REFRESHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            return Ok(stale);
+        }
+        let _refreshing = Refreshing;
+        drop(g);
+        let (fresh_until, idx) = refresh_index(client, Some(stale)).await?;
+        *slot.lock().await = Some((fresh_until, idx.clone()));
+        return Ok(idx);
+    }
+    // Nothing read yet: every caller needs this first read, so they wait on it.
+    let (fresh_until, idx) = refresh_index(client, None).await?;
+    *g = Some((fresh_until, idx.clone()));
+    Ok(idx)
+}
+
+/// Read the listing, keep it, and say how long it stands. When it cannot be
+/// read, the last listing read stands for half an hour: `last` from memory,
+/// or the copy the tile store keeps.
+async fn refresh_index(
+    client: &Client,
+    last: Option<std::sync::Arc<TileIndex>>,
+) -> Result<(std::time::Instant, std::sync::Arc<TileIndex>), JrcGfc2020Error> {
     const FRESH: std::time::Duration = std::time::Duration::from_secs(86_400);
     const STALE_RETRY: std::time::Duration = std::time::Duration::from_secs(1_800);
     const KEPT: &str = "jrc_gfc2020_tiles.html";
-    type Slot = tokio::sync::Mutex<Option<(std::time::Instant, std::sync::Arc<TileIndex>)>>;
-    static SLOT: std::sync::OnceLock<Slot> = std::sync::OnceLock::new();
-    let mut g = SLOT.get_or_init(Default::default).lock().await;
-    if let Some((fresh_until, idx)) = g.as_ref() {
-        if std::time::Instant::now() < *fresh_until {
-            return Ok(idx.clone());
-        }
-    }
     let url = format!("{JRC_GFC2020_TILES_BASE_URL}/");
     let read = match read_listing(client, &url).await {
         Ok(body) => match parse_tile_index(&body) {
             Some(idx) => {
                 crate::tile_store::keep(KEPT, body.into_bytes()).await;
-                Ok((std::time::Instant::now() + FRESH, idx))
+                Ok(idx)
             }
             None => Err(JrcGfc2020Error::Transport(format!(
                 "tile listing {url} names no GFC2020 tiles"
@@ -332,10 +367,10 @@ async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc
         Err(e) => Err(e),
     };
     let (fresh_until, idx) = match read {
-        Ok((until, idx)) => (until, std::sync::Arc::new(idx)),
+        Ok(idx) => (std::time::Instant::now() + FRESH, std::sync::Arc::new(idx)),
         Err(e) => {
-            let last = match g.as_ref() {
-                Some((_, idx)) => Some(idx.clone()),
+            let last = match last {
+                Some(idx) => Some(idx),
                 None => crate::tile_store::kept(KEPT)
                     .await
                     .and_then(|b| parse_tile_index(&String::from_utf8_lossy(&b)))
@@ -354,8 +389,7 @@ async fn tile_index(client: &Client) -> Result<std::sync::Arc<TileIndex>, JrcGfc
         }
     };
     LAST_VERSION.store(idx.version, std::sync::atomic::Ordering::Relaxed);
-    *g = Some((fresh_until, idx.clone()));
-    Ok(idx)
+    Ok((fresh_until, idx))
 }
 
 /// The listing's body, through the same host cooldown as the tile reads: a
@@ -394,6 +428,7 @@ async fn read_listing(client: &Client, url: &str) -> Result<String, JrcGfc2020Er
             if server || asked.elapsed() >= std::time::Duration::from_secs(15) {
                 crate::cog::host_troubled(
                     host,
+                    asked,
                     format!("listing: {e} after {}s", asked.elapsed().as_secs()),
                 );
             }

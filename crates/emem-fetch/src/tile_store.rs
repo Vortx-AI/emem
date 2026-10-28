@@ -14,7 +14,7 @@
 //! Off until the server calls [`enable`]: a library user or a test run never
 //! downloads a raster it did not ask for.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime};
@@ -54,8 +54,8 @@ struct Store {
 
 static STORE: OnceLock<Store> = OnceLock::new();
 
-/// Urls with a complete copy on disk.
-static PRESENT: LazyLock<Mutex<HashSet<String>>> = LazyLock::new(Default::default);
+/// Urls with a complete copy on disk, and the copy's length.
+static PRESENT: LazyLock<Mutex<HashMap<String, u64>>> = LazyLock::new(Default::default);
 
 enum Job {
     Running,
@@ -68,6 +68,21 @@ static SLOTS: LazyLock<tokio::sync::Semaphore> =
     LazyLock::new(|| tokio::sync::Semaphore::new(CONCURRENT));
 
 static TOUCHED: LazyLock<Mutex<HashMap<String, Instant>>> = LazyLock::new(Default::default);
+
+/// Bytes the copies in flight will add to the disk. Each copy checks the
+/// budget and the free floor against the others' too: two copies checked
+/// alone could each fit and together not.
+static RESERVED: Mutex<u64> = Mutex::new(0);
+
+/// Gives back a copy's reservation however the copy ends.
+struct Reservation(u64);
+
+impl Drop for Reservation {
+    fn drop(&mut self) {
+        let mut r = lock(&RESERVED);
+        *r = r.saturating_sub(self.0);
+    }
+}
 
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
@@ -134,7 +149,7 @@ pub fn enable(dir: PathBuf, budget_bytes: u64) -> std::io::Result<usize> {
                 };
                 let tif = p.with_extension("tif");
                 if std::fs::metadata(&tif).is_ok_and(|m| m.len() == bytes) {
-                    lock(&PRESENT).insert(url.to_string());
+                    lock(&PRESENT).insert(url.to_string(), bytes);
                     found += 1;
                 }
             }
@@ -173,7 +188,7 @@ pub async fn kept(name: &str) -> Option<Vec<u8>> {
 pub(crate) fn local_copy(url: &str) -> Option<PathBuf> {
     let st = STORE.get()?;
     let key = key_of(url);
-    if !lock(&PRESENT).contains(key) {
+    if !lock(&PRESENT).contains_key(key) {
         return None;
     }
     let file = file_for(&st.dir, key);
@@ -181,12 +196,34 @@ pub(crate) fn local_copy(url: &str) -> Option<PathBuf> {
     Some(file)
 }
 
-/// A copy that failed to read: stop serving it, and let the next read
-/// fetch it again.
+/// Whether the copy of `url` is gone or no longer its recorded length. A
+/// read can fail for reasons that are not the copy's (too many open files, a
+/// range that starts past the end), and a verified copy must not be thrown
+/// away and downloaded again for them.
+pub(crate) fn copy_is_broken(url: &str) -> bool {
+    let Some(st) = STORE.get() else {
+        return false;
+    };
+    let key = key_of(url);
+    let Some(bytes) = lock(&PRESENT).get(key).copied() else {
+        return false;
+    };
+    match std::fs::metadata(file_for(&st.dir, key)) {
+        Ok(m) => m.len() != bytes,
+        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
+    }
+}
+
+/// A broken copy: stop serving it, and let the next read fetch it again.
 pub(crate) fn forget(url: &str) {
     let key = key_of(url);
     lock(&PRESENT).remove(key);
-    lock(&JOBS).remove(key);
+    {
+        let mut jobs = lock(&JOBS);
+        if !matches!(jobs.get(key), Some(Job::Running)) {
+            jobs.remove(key);
+        }
+    }
     if let Some(st) = STORE.get() {
         let file = file_for(&st.dir, key);
         let _ = std::fs::remove_file(sidecar_for(&file));
@@ -220,7 +257,12 @@ pub(crate) fn want(url: &str) {
         return;
     };
     let key = key_of(url);
-    if !eligible(key) || lock(&PRESENT).contains(key) {
+    if !eligible(key) || lock(&PRESENT).contains_key(key) {
+        return;
+    }
+    // A host left alone after failing cannot serve a copy either; asking it
+    // would only mark the copy failed for half an hour past its recovery.
+    if crate::cog::host_cooling_for(key).is_some() {
         return;
     }
     if tokio::runtime::Handle::try_current().is_err() {
@@ -248,7 +290,7 @@ pub(crate) fn want(url: &str) {
         let t0 = Instant::now();
         match copy(&key, &dir, budget).await {
             Ok(bytes) => {
-                lock(&PRESENT).insert(key.clone());
+                lock(&PRESENT).insert(key.clone(), bytes);
                 lock(&JOBS).remove(&key);
                 tracing::info!(
                     target: "emem::tile_store",
@@ -258,7 +300,11 @@ pub(crate) fn want(url: &str) {
                     "local copy ready; reads of this url are now served from disk"
                 );
             }
-            Err(why) => {
+            Err(CopyFailed::Later(why)) => {
+                lock(&JOBS).remove(&key);
+                tracing::info!(target: "emem::tile_store", url = %key, why = %why, "local copy put off");
+            }
+            Err(CopyFailed::Now(why)) => {
                 lock(&JOBS).insert(key.clone(), Job::Failed(Instant::now()));
                 tracing::warn!(
                     target: "emem::tile_store",
@@ -282,18 +328,46 @@ fn download_client() -> &'static Client {
     })
 }
 
-async fn copy(key: &str, dir: &Path, budget: u64) -> Result<u64, String> {
-    if let Some((left, why)) = crate::cog::host_cooling_for(key) {
-        return Err(format!("host is cooling for {left}s more: {why}"));
+/// Why a copy did not land: `Later` is worth asking again on the next read
+/// (the host is cooling), `Now` waits [`RETRY_AFTER`].
+enum CopyFailed {
+    Later(String),
+    Now(String),
+}
+
+impl From<String> for CopyFailed {
+    fn from(s: String) -> Self {
+        CopyFailed::Now(s)
     }
-    let mut resp = download_client()
-        .get(key)
-        .header("user-agent", emem_core::outbound::user_agent())
-        .send()
-        .await
-        .map_err(|e| e.to_string())?;
+}
+
+impl From<&str> for CopyFailed {
+    fn from(s: &str) -> Self {
+        CopyFailed::Now(s.to_string())
+    }
+}
+
+async fn copy(key: &str, dir: &Path, budget: u64) -> Result<u64, CopyFailed> {
+    if let Some((left, why)) = crate::cog::host_cooling_for(key) {
+        return Err(CopyFailed::Later(format!(
+            "host is cooling for {left}s more: {why}"
+        )));
+    }
+    // The connect timeout does not cover a host that accepts and never
+    // answers, which is what JRC's did on 2026-10-27; without this a copy
+    // slot waited on it for good.
+    let mut resp = tokio::time::timeout(
+        STALL,
+        download_client()
+            .get(key)
+            .header("user-agent", emem_core::outbound::user_agent())
+            .send(),
+    )
+    .await
+    .map_err(|_| format!("no answer in {}s", STALL.as_secs()))?
+    .map_err(|e| e.to_string())?;
     if resp.status() != reqwest::StatusCode::OK {
-        return Err(format!("HTTP {}", resp.status()));
+        return Err(format!("HTTP {}", resp.status()).into());
     }
     let len = resp
         .content_length()
@@ -303,18 +377,33 @@ async fn copy(key: &str, dir: &Path, budget: u64) -> Result<u64, String> {
             "{} MB is over the {} MB a copy may take",
             len >> 20,
             MAX_FILE.min(budget) >> 20
-        ));
+        )
+        .into());
     }
     let etag = header(&resp, "etag");
     let last_modified = header(&resp, "last-modified");
 
     let dir_c = dir.to_path_buf();
-    tokio::task::spawn_blocking(move || make_room(&dir_c, len, budget))
-        .await
-        .map_err(|e| e.to_string())??;
+    let _reservation = tokio::task::spawn_blocking(move || {
+        // Checked and reserved under one lock, so two copies cannot both
+        // see room only one of them has.
+        let mut reserved = lock(&RESERVED);
+        make_room(&dir_c, len, budget, *reserved)?;
+        *reserved += len;
+        Ok::<_, String>(Reservation(len))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
 
+    // A part file of its own: two copies of one url (one started after a
+    // broken copy was forgotten) must not write into the same file.
+    static PARTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let file = file_for(dir, key);
-    let part = file.with_extension("part");
+    let part = file.with_extension(format!(
+        "{}-{}.part",
+        std::process::id(),
+        PARTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
     let mut out = tokio::fs::File::create(&part)
         .await
         .map_err(|e| format!("create {}: {e}", part.display()))?;
@@ -352,7 +441,7 @@ async fn copy(key: &str, dir: &Path, budget: u64) -> Result<u64, String> {
     .await;
     if let Err(e) = result {
         let _ = tokio::fs::remove_file(&part).await;
-        return Err(e);
+        return Err(e.into());
     }
     let meta = serde_json::json!({
         "url": key,
@@ -381,8 +470,9 @@ fn header(resp: &reqwest::Response, name: &str) -> Option<String> {
 }
 
 /// Evict the least recently used copies until `incoming` more bytes fit the
-/// budget, then refuse unless the disk keeps [`FREE_FLOOR`] free after it.
-fn make_room(dir: &Path, incoming: u64, budget: u64) -> Result<(), String> {
+/// budget beside the `reserved` bytes of the copies in flight, then refuse
+/// unless the disk keeps [`FREE_FLOOR`] free after all of them land.
+fn make_room(dir: &Path, incoming: u64, budget: u64, reserved: u64) -> Result<(), String> {
     let mut copies: Vec<(SystemTime, u64, PathBuf)> = std::fs::read_dir(dir)
         .map_err(|e| e.to_string())?
         .flatten()
@@ -393,7 +483,7 @@ fn make_room(dir: &Path, incoming: u64, budget: u64) -> Result<(), String> {
             Some((m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len(), p))
         })
         .collect();
-    let mut held: u64 = copies.iter().map(|c| c.1).sum();
+    let mut held: u64 = copies.iter().map(|c| c.1).sum::<u64>() + reserved;
     copies.sort_by_key(|c| c.0);
     let mut oldest = copies.into_iter();
     while held + incoming > budget {
@@ -416,7 +506,7 @@ fn make_room(dir: &Path, incoming: u64, budget: u64) -> Result<(), String> {
         return Err("does not fit the store's budget".into());
     }
     let free = fs2::available_space(dir).map_err(|e| e.to_string())?;
-    if free < incoming + FREE_FLOOR {
+    if free < incoming + reserved + FREE_FLOOR {
         return Err(format!(
             "{} GB free; a copy must leave {} GB",
             free >> 30,
@@ -492,6 +582,16 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(&got[..], &body[4..12]);
+        // A range past the end is cut there, as HTTP answers it, and the
+        // copy stays.
+        let tail = crate::cog::http_range(&Client::new(), url, 4000, 4999)
+            .await
+            .unwrap();
+        assert_eq!(&tail[..], &body[4000..]);
+        assert!(local_copy(url).is_some() && !copy_is_broken(url));
+        // Cut short on disk, it is broken.
+        std::fs::write(&file, &body[..100]).unwrap();
+        assert!(copy_is_broken(url));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -511,7 +611,7 @@ mod tests {
             .set_modified(SystemTime::now() - Duration::from_secs(3600))
             .unwrap();
         // Room for 1500 more with a 2500-byte budget: one of the two must go.
-        let r = make_room(&dir, 1500, 2500);
+        let r = make_room(&dir, 1500, 2500, 0);
         assert!(!old.exists(), "the older copy is evicted");
         assert!(new.exists(), "the newer copy stays");
         // Whether the floor passes depends on this disk; the eviction is what

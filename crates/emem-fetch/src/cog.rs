@@ -1922,15 +1922,37 @@ const HOST_COOLDOWN: std::time::Duration = std::time::Duration::from_secs(300);
 /// A failure that took this long is a host in trouble, not a dropped packet.
 const SLOW_FAILURE: std::time::Duration = std::time::Duration::from_secs(15);
 
+/// Reads that callers gave up on, with no answer, before a host is left
+/// alone. One impatient caller must not cool a host that answers everyone
+/// else: a single dropped read used to cool a slow-but-working Sentinel-2
+/// host for five minutes for every caller.
+const ABANDONED_STRIKES: u32 = 3;
+
+/// What this process has seen of one host.
+#[derive(Default)]
+struct HostHealth {
+    cool_until: Option<std::time::Instant>,
+    why: String,
+    /// When a read from this host last completed.
+    last_ok: Option<std::time::Instant>,
+    /// Reads abandoned since `last_ok`.
+    abandoned: u32,
+}
+
 /// Hosts cooling down after a server error or a slow failure, and why.
 ///
 /// JRC's tile host answered HTTP 500 after 47 to 113 s on 2026-10-27, and
 /// every EUDR statement waited out the whole failure again: nothing remembered
 /// the last one, so a single-plot statement took 75-90 s on facts that were
 /// otherwise cached. A fast failure (a refused connection) is cheap to retry
-/// and is not remembered; a success clears the host.
-static HOST_TROUBLE: LazyLock<std::sync::Mutex<HashMap<String, (std::time::Instant, String)>>> =
+/// and is not remembered; a success clears the host, and a failure of a read
+/// sent before the host last answered says nothing about the host now.
+static HOSTS: LazyLock<std::sync::Mutex<HashMap<String, HostHealth>>> =
     LazyLock::new(Default::default);
+
+fn hosts() -> std::sync::MutexGuard<'static, HashMap<String, HostHealth>> {
+    HOSTS.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 pub(crate) fn url_host(url: &str) -> &str {
     let rest = url.split_once("://").map_or(url, |(_, r)| r);
@@ -1938,21 +1960,67 @@ pub(crate) fn url_host(url: &str) -> &str {
 }
 
 fn host_cooling(host: &str) -> Option<(u64, String)> {
-    let mut m = HOST_TROUBLE.lock().unwrap_or_else(|e| e.into_inner());
-    match m.get(host) {
-        Some((until, why)) if *until > std::time::Instant::now() => Some((
-            until
-                .duration_since(std::time::Instant::now())
-                .as_secs()
-                .max(1),
-            why.clone(),
-        )),
-        Some(_) => {
-            m.remove(host);
-            None
-        }
-        None => None,
+    let mut m = hosts();
+    let h = m.get_mut(host)?;
+    let until = h.cool_until?;
+    let now = std::time::Instant::now();
+    if until > now {
+        return Some((until.duration_since(now).as_secs().max(1), h.why.clone()));
     }
+    h.cool_until = None;
+    h.abandoned = 0;
+    None
+}
+
+/// The host's entry, unless a read from it completed after `asked`: then the
+/// failure is older than the host's last answer and says nothing about it.
+fn host_entry<'a>(
+    m: &'a mut HashMap<String, HostHealth>,
+    host: &str,
+    asked: std::time::Instant,
+) -> Option<&'a mut HostHealth> {
+    if m.len() > 1024 && !m.contains_key(host) {
+        m.clear();
+    }
+    let h = m.entry(host.to_string()).or_default();
+    if h.last_ok.is_some_and(|ok| ok > asked) {
+        return None;
+    }
+    Some(h)
+}
+
+/// A server error or a slow failure of a read sent at `asked`: leave the host
+/// alone for [`HOST_COOLDOWN`].
+pub(crate) fn host_troubled(host: &str, asked: std::time::Instant, why: String) {
+    let mut m = hosts();
+    if let Some(h) = host_entry(&mut m, host, asked) {
+        h.cool_until = Some(std::time::Instant::now() + HOST_COOLDOWN);
+        h.why = why;
+    }
+}
+
+/// A read sent at `asked` that its caller gave up on: a strike, and the
+/// host is left alone at [`ABANDONED_STRIKES`].
+fn host_abandoned(host: &str, asked: std::time::Instant, why: String) {
+    let mut m = hosts();
+    if let Some(h) = host_entry(&mut m, host, asked) {
+        h.abandoned += 1;
+        if h.abandoned >= ABANDONED_STRIKES {
+            h.cool_until = Some(std::time::Instant::now() + HOST_COOLDOWN);
+            h.why = format!("{why}, {} times in a row", h.abandoned);
+        }
+    }
+}
+
+pub(crate) fn host_answered(host: &str) {
+    let mut m = hosts();
+    if m.len() > 1024 && !m.contains_key(host) {
+        m.clear();
+    }
+    let h = m.entry(host.to_string()).or_default();
+    h.last_ok = Some(std::time::Instant::now());
+    h.abandoned = 0;
+    h.cool_until = None;
 }
 
 /// A caller that times out drops its read at the `.await`, so the read never
@@ -1961,8 +2029,8 @@ fn host_cooling(host: &str) -> Option<(u64, String)> {
 /// materializer timeout and each EUDR statement waited it out again.
 const ABANDONED: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// Cools the host if dropped before [`Unanswered::answered`], after
-/// [`ABANDONED`] of waiting.
+/// Counts a strike against the host if dropped before
+/// [`Unanswered::answered`], after [`ABANDONED`] of waiting.
 pub(crate) struct Unanswered {
     host: String,
     since: std::time::Instant,
@@ -1987,8 +2055,9 @@ impl Drop for Unanswered {
     fn drop(&mut self) {
         let waited = self.since.elapsed();
         if self.armed && waited >= ABANDONED {
-            host_troubled(
+            host_abandoned(
                 &self.host,
+                self.since,
                 format!("no answer in {}s; the caller gave up", waited.as_secs()),
             );
         }
@@ -1998,24 +2067,6 @@ impl Drop for Unanswered {
 /// [`host_cooling`] for the host of `url`.
 pub(crate) fn host_cooling_for(url: &str) -> Option<(u64, String)> {
     host_cooling(url_host(url))
-}
-
-pub(crate) fn host_troubled(host: &str, why: String) {
-    let mut m = HOST_TROUBLE.lock().unwrap_or_else(|e| e.into_inner());
-    if m.len() > 1024 {
-        m.clear();
-    }
-    m.insert(
-        host.to_string(),
-        (std::time::Instant::now() + HOST_COOLDOWN, why),
-    );
-}
-
-pub(crate) fn host_answered(host: &str) {
-    HOST_TROUBLE
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .remove(host);
 }
 
 pub(crate) async fn http_range(
@@ -2040,9 +2091,15 @@ pub(crate) async fn http_range(
     if let Some(copy) = crate::tile_store::local_copy(url) {
         match read_local(copy, start, end_inclusive).await {
             Ok(b) => return Ok(b),
-            Err(e) => {
-                tracing::warn!(target: "emem::tile_store", url, error = %e, "local copy unreadable; dropped");
+            // A copy that is gone or cut short is dropped and fetched again.
+            // Any other error is this read's, not the copy's: it goes to the
+            // network and the copy stays.
+            Err(e) if crate::tile_store::copy_is_broken(url) => {
+                tracing::warn!(target: "emem::tile_store", url, error = %e, "local copy broken; dropped");
                 crate::tile_store::forget(url);
+            }
+            Err(e) => {
+                tracing::warn!(target: "emem::tile_store", url, error = %e, "local copy read failed; this read goes to the network");
             }
         }
     }
@@ -2066,7 +2123,11 @@ pub(crate) async fn http_range(
         Err(e) => {
             waiting.answered();
             if asked.elapsed() >= SLOW_FAILURE {
-                host_troubled(host, format!("{e} after {}s", asked.elapsed().as_secs()));
+                host_troubled(
+                    host,
+                    asked,
+                    format!("{e} after {}s", asked.elapsed().as_secs()),
+                );
             }
             return Err(CogError::Transport(e.to_string()));
         }
@@ -2080,6 +2141,7 @@ pub(crate) async fn http_range(
         waiting.answered();
         host_troubled(
             host,
+            asked,
             format!("HTTP {status} after {}s", asked.elapsed().as_secs()),
         );
     }
@@ -2115,6 +2177,7 @@ pub(crate) async fn http_range(
             if asked.elapsed() >= SLOW_FAILURE {
                 host_troubled(
                     host,
+                    asked,
                     format!("body: {e} after {}s", asked.elapsed().as_secs()),
                 );
             }
@@ -2131,7 +2194,9 @@ pub(crate) async fn http_range(
 }
 
 /// Bytes `start..=end_inclusive` of a local file, read on the blocking pool:
-/// a cold read of a multi-megabyte window must not hold a reactor thread.
+/// a cold read of a multi-megabyte window must not hold a reactor thread. A
+/// range that runs past the end is cut there, as an HTTP server answers it;
+/// one that starts past the end is an error.
 async fn read_local(
     path: std::path::PathBuf,
     start: u64,
@@ -2142,6 +2207,16 @@ async fn read_local(
         let shown = path.display();
         let mut f = std::fs::File::open(&path)
             .map_err(|e| CogError::Transport(format!("file open {shown}: {e}")))?;
+        let len = f
+            .metadata()
+            .map_err(|e| CogError::Transport(format!("file stat {shown}: {e}")))?
+            .len();
+        if start >= len || end_inclusive < start {
+            return Err(CogError::Transport(format!(
+                "file read {shown}: range {start}-{end_inclusive} is outside its {len} bytes"
+            )));
+        }
+        let end_inclusive = end_inclusive.min(len - 1);
         f.seek(SeekFrom::Start(start))
             .map_err(|e| CogError::Transport(format!("file seek {shown}: {e}")))?;
         let n = (end_inclusive - start + 1) as usize;
@@ -2230,10 +2305,8 @@ mod tests {
         }
     }
 
-    /// A read dropped by its caller's timeout still cools a host that never
-    /// answered it.
-    #[tokio::test]
-    async fn a_host_that_hangs_past_its_caller_is_left_alone() {
+    /// A host that accepts connections and never answers, as JRC's did.
+    fn silent_host() -> String {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         std::thread::spawn(move || {
@@ -2242,20 +2315,90 @@ mod tests {
                 held.push(conn);
             }
         });
+        format!("http://127.0.0.1:{port}/hangs.tif")
+    }
+
+    /// Reads given up on by their callers cool a host that never answers
+    /// them, at the third; one impatient caller does not.
+    #[tokio::test]
+    async fn a_host_that_hangs_past_its_callers_is_left_alone() {
         let client = Client::new();
-        let url = format!("http://127.0.0.1:{port}/hangs.tif");
-        let gave_up = tokio::time::timeout(
-            ABANDONED + std::time::Duration::from_millis(500),
+        let give_up = ABANDONED + std::time::Duration::from_millis(500);
+        let url = silent_host();
+        let once = tokio::time::timeout(give_up, http_range(&client, &url, 0, 99)).await;
+        assert!(once.is_err(), "the host never answers");
+        let after_one = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
             http_range(&client, &url, 0, 99),
         )
         .await;
-        assert!(gave_up.is_err(), "the host never answers");
-        let next = http_range(&client, &url, 0, 99)
-            .await
-            .unwrap_err()
-            .to_string();
+        assert!(
+            after_one.is_err(),
+            "one caller giving up does not cool the host"
+        );
+
+        let url = silent_host();
+        let reads = (0..ABANDONED_STRIKES).map(|_| {
+            let (client, url) = (client.clone(), url.clone());
+            async move { tokio::time::timeout(give_up, http_range(&client, &url, 0, 99)).await }
+        });
+        for r in futures_util::future::join_all(reads).await {
+            assert!(r.is_err(), "the host never answers");
+        }
+        let next = tokio::time::timeout(
+            std::time::Duration::from_secs(2),
+            http_range(&client, &url, 0, 99),
+        )
+        .await
+        .expect("a cooled host is refused at once, not waited on")
+        .unwrap_err()
+        .to_string();
         assert!(next.contains("left alone"), "{next}");
         assert!(next.contains("caller gave up"), "{next}");
+    }
+
+    /// A failure of a read sent before the host last answered says nothing
+    /// about the host now, and does not cool it.
+    #[tokio::test]
+    async fn a_failure_older_than_a_success_does_not_cool_the_host() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            loop {
+                let (mut sock, _) = listener.accept().await.unwrap();
+                tokio::spawn(async move {
+                    let mut buf = vec![0u8; 4096];
+                    let n = sock.read(&mut buf).await.unwrap_or(0);
+                    let req = String::from_utf8_lossy(&buf[..n]).to_string();
+                    let resp = if req.starts_with("GET /slow") {
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_string()
+                    } else {
+                        "HTTP/1.1 206 Partial Content\r\ncontent-range: bytes 0-9/100\r\ncontent-length: 10\r\nconnection: close\r\n\r\n0123456789".to_string()
+                    };
+                    let _ = sock.write_all(resp.as_bytes()).await;
+                });
+            }
+        });
+        let client = Client::new();
+        let (slow, ok) = (format!("{base}/slow.tif"), format!("{base}/ok.tif"));
+        let failing = {
+            let (client, slow) = (client.clone(), slow.clone());
+            tokio::spawn(async move { http_range(&client, &slow, 0, 9).await })
+        };
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(
+            &http_range(&client, &ok, 0, 9).await.unwrap()[..],
+            b"0123456789"
+        );
+        let e = failing.await.unwrap().unwrap_err().to_string();
+        assert!(e.contains("500"), "{e}");
+        let after = http_range(&client, &ok, 0, 9).await;
+        assert!(
+            after.is_ok(),
+            "the host answered after the failed read was sent: {after:?}"
+        );
     }
 
     /// A host that ignores Range sends the whole file with a 200: the

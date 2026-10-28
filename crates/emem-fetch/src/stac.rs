@@ -253,38 +253,56 @@ pub async fn search_one_at(
     datetime: &str,
     max_cloud: Option<f64>,
 ) -> Result<Option<StacItem>, String> {
-    type Shared = std::sync::Arc<tokio::sync::OnceCell<Result<Option<StacItem>, String>>>;
-    static IN_FLIGHT: std::sync::LazyLock<Mutex<HashMap<String, Shared>>> =
-        std::sync::LazyLock::new(Default::default);
     let key = format!(
         "{search_url}|{collection}|{}|{}|{datetime}|{:?}",
         lng.to_bits(),
         lat.to_bits(),
         max_cloud.map(f64::to_bits)
     );
-    let cell: Shared = IN_FLIGHT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .entry(key.clone())
-        .or_default()
-        .clone();
-    let out = cell
-        .get_or_init(|| {
-            search_one_uncached(
-                client, search_url, collection, lng, lat, datetime, max_cloud,
-            )
-        })
-        .await
-        .clone();
-    // No await between the answer and this removal, so a caller dropped
-    // here cannot leave the answer behind for later searches.
-    let mut m = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
-    if m.get(&key)
-        .is_some_and(|c| std::sync::Arc::ptr_eq(c, &cell))
-    {
-        m.remove(&key);
+    let cell: SharedSearch = {
+        let mut m = SEARCHES_IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        let e = m.entry(key.clone()).or_default();
+        e.1 += 1;
+        e.0.clone()
+    };
+    // Leaves the entry on every exit, a dropped caller included; the last
+    // waiter out, or the first after the answer, removes it.
+    let _leave = LeaveSearch {
+        key,
+        cell: cell.clone(),
+    };
+    cell.get_or_init(|| {
+        search_one_uncached(
+            client, search_url, collection, lng, lat, datetime, max_cloud,
+        )
+    })
+    .await
+    .clone()
+}
+
+type SharedSearch = std::sync::Arc<tokio::sync::OnceCell<Result<Option<StacItem>, String>>>;
+
+/// Searches in flight, by key, with how many callers wait on each.
+static SEARCHES_IN_FLIGHT: std::sync::LazyLock<Mutex<HashMap<String, (SharedSearch, usize)>>> =
+    std::sync::LazyLock::new(Default::default);
+
+struct LeaveSearch {
+    key: String,
+    cell: SharedSearch,
+}
+
+impl Drop for LeaveSearch {
+    fn drop(&mut self) {
+        let mut m = SEARCHES_IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(e) = m.get_mut(&self.key) {
+            if std::sync::Arc::ptr_eq(&e.0, &self.cell) {
+                e.1 = e.1.saturating_sub(1);
+                if e.1 == 0 || e.0.initialized() {
+                    m.remove(&self.key);
+                }
+            }
+        }
     }
-    out
 }
 
 async fn search_one_uncached(
@@ -930,6 +948,35 @@ mod tests {
             2,
             "a finished search is not kept"
         );
+    }
+
+    /// A caller dropped before the answer leaves no entry behind: the key
+    /// carries a window built from now, so nothing would ever reuse it.
+    #[tokio::test]
+    async fn a_dropped_search_leaves_nothing_in_flight() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}/search", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            let mut held = Vec::new();
+            for conn in listener.incoming().flatten() {
+                held.push(conn);
+            }
+        });
+        let cli = Client::new();
+        let window = "2026-10-12T00:00:00Z/2026-10-27T00:00:00Z";
+        let gave_up = tokio::time::timeout(
+            Duration::from_millis(300),
+            search_one_at(&cli, &base, "sentinel-1-rtc", -0.128, 51.508, window, None),
+        )
+        .await;
+        assert!(gave_up.is_err(), "the catalogue never answers");
+        let left = SEARCHES_IN_FLIGHT
+            .lock()
+            .unwrap()
+            .keys()
+            .filter(|k| k.starts_with(&base))
+            .count();
+        assert_eq!(left, 0, "the dropped search's entry is gone");
     }
 
     #[test]
