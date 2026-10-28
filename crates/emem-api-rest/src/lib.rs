@@ -45357,6 +45357,142 @@ fn enforce_open_namespace_owner(
     ))
 }
 
+/// Each write's record, by the path it was written at.
+///
+/// `TREE_MEMORY_FILE_META` is keyed by file_cid, so every path holding the
+/// same bytes shared one record, and the last write of those bytes anywhere
+/// rewrote the author, time, owner and supersede state of every other path
+/// holding them: on 2026-10-28, 37 of the 253 agents in the roster were
+/// served a key that was not their own. The record keyed by cid stays for
+/// readers that hold only a cid, and keeps the first live writer's.
+const TREE_MEMORY_FILE_META_BY_PATH: &str = "emem.memory_file_meta_by_path";
+
+fn decode_meta(b: &[u8]) -> Option<MemoryFileMeta> {
+    ciborium::de::from_reader::<MemoryFileMeta, _>(b).ok()
+}
+
+/// The record of the write at `path`, which holds `cid`, and whether it is
+/// borrowed: written for another path holding the same bytes, so nothing in
+/// it about the writer is this path's, and those fields come back empty.
+///
+/// A path written before records were kept per path has only the record
+/// keyed by cid. That record is this path's when it names this path; when the
+/// path it names no longer holds these bytes (a rename moves the path and not
+/// the record), it is this path's if its key owns this path's namespace.
+pub(crate) fn meta_at_path(
+    by_path: &sled::Tree,
+    metas: &sled::Tree,
+    paths: &sled::Tree,
+    path: &str,
+    cid: &str,
+) -> Option<(MemoryFileMeta, bool)> {
+    if let Some(m) = by_path
+        .get(path.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| decode_meta(&b))
+    {
+        if m.file_cid == cid {
+            return Some((m, false));
+        }
+    }
+    let mut m = metas
+        .get(cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| decode_meta(&b))?;
+    if m.path == path {
+        return Some((m, false));
+    }
+    let another_holds_it = paths
+        .get(m.path.as_bytes())
+        .ok()
+        .flatten()
+        .is_some_and(|c| c.as_ref() == cid.as_bytes());
+    let key_owns_path = m
+        .attester_pubkey_b32
+        .as_deref()
+        .is_none_or(|pk| emem_primitives::namespace_ownership_ok(path, pk));
+    m.path = path.to_string();
+    if !another_holds_it && key_owns_path {
+        return Some((m, false));
+    }
+    m.attester_pubkey_b32 = None;
+    m.attester_sig_b32 = None;
+    m.attester_body_hash_hex = None;
+    m.attester_preimage_version = None;
+    m.attester_base = None;
+    m.log_entry_hash_b32 = None;
+    m.superseded_by = None;
+    m.supersede = None;
+    Some((m, true))
+}
+
+/// Record the write at `meta.path`: its own record always, and the record
+/// keyed by its cid only when that one is free, already this path's, or names
+/// a path that no longer holds these bytes.
+pub(crate) fn record_meta(
+    by_path: &sled::Tree,
+    metas: &sled::Tree,
+    paths: &sled::Tree,
+    meta: &MemoryFileMeta,
+) -> Result<(), String> {
+    let mut buf = Vec::new();
+    ciborium::ser::into_writer(meta, &mut buf).map_err(|e| format!("encode meta: {e}"))?;
+    by_path
+        .insert(meta.path.as_bytes(), buf.clone())
+        .map_err(|e| format!("insert memory_file_meta_by_path: {e}"))?;
+    let theirs = metas
+        .get(meta.file_cid.as_bytes())
+        .ok()
+        .flatten()
+        .and_then(|b| decode_meta(&b))
+        .is_some_and(|m| {
+            m.path != meta.path
+                && paths
+                    .get(m.path.as_bytes())
+                    .ok()
+                    .flatten()
+                    .is_some_and(|c| c.as_ref() == meta.file_cid.as_bytes())
+        });
+    if !theirs {
+        metas
+            .insert(meta.file_cid.as_bytes(), buf)
+            .map_err(|e| format!("insert memory_file_meta: {e}"))?;
+    }
+    Ok(())
+}
+
+/// Move the per-path record with its path, and the cid record too when it
+/// named the old path.
+fn move_meta(by_path: &sled::Tree, metas: &sled::Tree, old_path: &str, new_path: &str, cid: &str) {
+    let reword = |b: &[u8]| {
+        let mut m = decode_meta(b)?;
+        m.path = new_path.to_string();
+        let mut out = Vec::new();
+        ciborium::ser::into_writer(&m, &mut out).ok()?;
+        Some(out)
+    };
+    if let Some(b) = by_path.remove(old_path.as_bytes()).ok().flatten() {
+        if let Some(out) = reword(&b) {
+            let _ = by_path.insert(new_path.as_bytes(), out);
+        }
+    }
+    if let Some(b) = metas.get(cid.as_bytes()).ok().flatten() {
+        if decode_meta(&b).is_some_and(|m| m.path == old_path) {
+            if let Some(out) = reword(&b) {
+                let _ = metas.insert(cid.as_bytes(), out);
+            }
+        }
+    }
+}
+
+/// Drop the per-path record of a path that no longer exists. The record keyed
+/// by cid stays: the bytes stay readable by their content address.
+fn drop_meta(by_path: &sled::Tree, path: &str) {
+    let _ = by_path.remove(path.as_bytes());
+}
+
 fn read_memory_file(
     s: &AppState,
     path: &str,
@@ -45437,13 +45573,24 @@ fn read_memory_file(
                 },
             )
         })?;
-    let meta = metas
-        .get(cid.as_bytes())
-        .ok()
-        .flatten()
-        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
-    let meta = match meta {
-        Some(m) => m,
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta_by_path: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let meta = match meta_at_path(&by_path, &metas, &paths, path, &cid) {
+        // Another path's write of these bytes: its receipt is not this path's.
+        Some((mut m, true)) => {
+            m.receipt =
+                synth_memory_receipt(s, path, &cid, "create", None, std::time::Instant::now());
+            m
+        }
+        Some((m, false)) => m,
         None => MemoryFileMeta {
             file_cid: cid.clone(),
             path: path.to_string(),
@@ -46103,12 +46250,17 @@ async fn persist_memory_write(
                     },
                 )
             })?;
-        metas_prev
-            .get(pcid.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-            .map(|m| m.kind)
+        let by_path_prev = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+            ApiError(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                ErrorBody {
+                    code: ErrorCode::CacheError,
+                    message: format!("open memory_file_meta_by_path: {e}"),
+                    details: None,
+                },
+            )
+        })?;
+        meta_at_path(&by_path_prev, &metas_prev, &paths, path, pcid).map(|(m, _)| m.kind)
     } else {
         None
     };
@@ -46208,9 +46360,14 @@ async fn persist_memory_write(
             Err(e) => tracing::warn!(path, error = %e, "memory write not logged"),
         }
     }
-    let mut mbuf = Vec::new();
-    let _ = ciborium::ser::into_writer(&meta, &mut mbuf);
-    let _ = metas.insert(file_cid.as_bytes(), mbuf);
+    match db.open_tree(TREE_MEMORY_FILE_META_BY_PATH) {
+        Ok(by_path) => {
+            if let Err(e) = record_meta(&by_path, &metas, &paths, &meta) {
+                tracing::warn!(path, error = %e, "memory meta not recorded");
+            }
+        }
+        Err(e) => tracing::warn!(path, error = %e, "memory meta not recorded"),
+    }
 
     // One flush, not five, and never on the async worker.
     //
@@ -46706,6 +46863,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         // meta: seconds of CPU at tens of thousands of notes, which on a worker
         // thread stalls every other request with it. The blocking pool is for
         // exactly that.
+        let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).ok();
         let scan_path = path.clone();
         let mut typed: Vec<(MemoryKind, String, JsonValue)> =
             tokio::task::spawn_blocking(move || {
@@ -46715,12 +46873,10 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
                     let cid = String::from_utf8_lossy(&kv.1).into_owned();
                     // Resolve typed kind from meta; defaults to Resource for
                     // legacy records (their on-disk meta predates the kind tag).
-                    let entry_kind: MemoryKind = metas
-                        .get(cid.as_bytes())
-                        .ok()
-                        .flatten()
-                        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-                        .and_then(|m| MemoryKind::from_wire(&m.kind))
+                    let entry_kind: MemoryKind = by_path
+                        .as_ref()
+                        .and_then(|bp| meta_at_path(bp, &metas, &paths, &key, &cid))
+                        .and_then(|(m, _)| MemoryKind::from_wire(&m.kind))
                         .unwrap_or(MemoryKind::Resource);
                     if let Some(want) = kind_filter {
                         if entry_kind != want {
@@ -47116,15 +47272,27 @@ fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError>
                 },
             )
         })?;
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).ok();
     let mut prev: Option<&String> = None;
     let versions: Vec<JsonValue> = cids
         .iter()
         .map(|cid| {
-            let meta = metas
-                .get(cid.as_bytes())
-                .ok()
-                .flatten()
-                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+            // A version's record is the path's own (the latest) or the one
+            // keyed by its cid when that names this path; another path's
+            // write of the same bytes says nothing about this version.
+            let meta = by_path
+                .as_ref()
+                .and_then(|bp| bp.get(path.as_bytes()).ok().flatten())
+                .and_then(|b| decode_meta(&b))
+                .filter(|m| &m.file_cid == cid)
+                .or_else(|| {
+                    metas
+                        .get(cid.as_bytes())
+                        .ok()
+                        .flatten()
+                        .and_then(|b| decode_meta(&b))
+                        .filter(|m| m.path == path)
+                });
             let v = json!({
                 "file_cid": cid,
                 "base": prev,
@@ -47795,11 +47963,20 @@ async fn memory_supersede_inner(
         ));
     }
 
-    let mut meta: MemoryFileMeta = metas
-        .get(cid.as_bytes())
-        .ok()
-        .flatten()
-        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta_by_path: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    // This path's own record: a supersession is a statement about the note
+    // at this path, not about every path that holds the same bytes.
+    let mut meta: MemoryFileMeta = meta_at_path(&by_path, &metas, &paths, &path, &cid)
+        .map(|(m, _)| m)
         .ok_or_else(|| {
             ApiError(
                 StatusCode::NOT_FOUND,
@@ -47859,18 +48036,7 @@ async fn memory_supersede_inner(
         sig_b32: req.attester.as_ref().map(|a| a.sig_b32.clone()),
         log_entry_hash_b32: log_entry_hash.clone(),
     });
-    let mut buf = Vec::new();
-    ciborium::ser::into_writer(&meta, &mut buf).map_err(|e| {
-        ApiError(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            ErrorBody {
-                code: ErrorCode::CacheError,
-                message: format!("encode meta: {e}"),
-                details: None,
-            },
-        )
-    })?;
-    metas.insert(cid.as_bytes(), buf).map_err(|e| {
+    record_meta(&by_path, &metas, &paths, &meta).map_err(|e| {
         ApiError(
             StatusCode::INTERNAL_SERVER_ERROR,
             ErrorBody {
@@ -48022,6 +48188,16 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
                 },
             )
         })?;
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta_by_path: {e}"),
+                details: None,
+            },
+        )
+    })?;
     let by_kind = db
         .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
         .map_err(|e| {
@@ -48094,9 +48270,8 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             let key_str = String::from_utf8_lossy(&k).into_owned();
             let kind_str = String::from_utf8(v.to_vec())
                 .ok()
-                .and_then(|cid| metas.get(cid.as_bytes()).ok().flatten())
-                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-                .map(|m| m.kind)
+                .and_then(|cid| meta_at_path(&by_path, &metas, &paths, &key_str, &cid))
+                .map(|(m, _)| m.kind)
                 .unwrap_or_else(default_kind_str);
             let prior = String::from_utf8_lossy(&v).into_owned();
             let _ = paths.remove(&k);
@@ -48128,14 +48303,16 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
             })?;
         let kind_str = String::from_utf8(cur.to_vec())
             .ok()
-            .and_then(|cid| metas.get(cid.as_bytes()).ok().flatten())
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-            .map(|m| m.kind)
+            .and_then(|cid| meta_at_path(&by_path, &metas, &paths, &path, &cid))
+            .map(|(m, _)| m.kind)
             .unwrap_or_else(default_kind_str);
         let prior = String::from_utf8_lossy(&cur).into_owned();
         let _ = paths.remove(path.as_bytes());
         let _ = by_kind.remove(format!("{kind_str}|{path}").as_bytes());
         removed.push((path.clone(), kind_str, prior));
+    }
+    for (p, _, _) in &removed {
+        drop_meta(&by_path, p);
     }
     let _requeue = ledger::Requeue(removed.iter().map(|(p, _, _)| p.clone()).collect());
     // One fsync covers every tree: the pagecache is shared by the Db.
@@ -48340,13 +48517,21 @@ async fn memory_rename_inner(s: &AppState, req: MemoryRenameReq) -> Result<JsonV
                 },
             )
         })?;
-    let kind_str = metas
-        .get(cid_str.as_bytes())
-        .ok()
-        .flatten()
-        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-        .map(|m| m.kind)
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+        ApiError(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            ErrorBody {
+                code: ErrorCode::CacheError,
+                message: format!("open memory_file_meta_by_path: {e}"),
+                details: None,
+            },
+        )
+    })?;
+    let kind_str = meta_at_path(&by_path, &metas, &paths, &old_path, &cid_str)
+        .map(|(m, _)| m.kind)
         .unwrap_or_else(default_kind_str);
+    // The record goes with the path: the rename is the same write, moved.
+    move_meta(&by_path, &metas, &old_path, &new_path, &cid_str);
     let by_kind = db
         .open_tree(emem_storage::TREE_MEMORY_FILES_BY_KIND)
         .map_err(|e| {
@@ -48446,6 +48631,10 @@ async fn memory_list_by_kind_inner(
                 },
             )
         })?;
+    let trees = db
+        .open_tree(TREE_MEMORY_FILE_META_BY_PATH)
+        .ok()
+        .zip(db.open_tree(emem_storage::TREE_MEMORY_FILES).ok());
     let prefix = format!("{}|{}", kind.as_str(), req.prefix.unwrap_or_default());
     let limit = req.limit.unwrap_or(256).min(2048);
     let mut files: Vec<(MemoryFileMeta, String)> = Vec::new();
@@ -48455,11 +48644,10 @@ async fn memory_list_by_kind_inner(
         let Some((_k, path)) = key.split_once('|') else {
             continue;
         };
-        let meta = metas
-            .get(cid.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+        let meta = trees
+            .as_ref()
+            .and_then(|(bp, pt)| meta_at_path(bp, &metas, pt, path, &cid))
+            .map(|(m, _)| m);
         let m = match meta {
             Some(m) => m,
             None => MemoryFileMeta {
@@ -48807,6 +48995,9 @@ pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), 
     let now = now_unix_s_local();
     let mut scanned = 0usize;
     let mut expired = 0usize;
+    // A path's own record decides its expiry: a copy's newer time must not
+    // keep another path's note alive.
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).ok();
     let mut to_expire: Vec<(Vec<u8>, String, String, String)> = Vec::new(); // (path_bytes, cid, kind, iso_now)
     for kv in paths.iter().flatten() {
         scanned += 1;
@@ -48815,13 +49006,12 @@ pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), 
             Ok(s) => s,
             Err(_) => continue,
         };
-        let meta = match metas
-            .get(cid.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        let path_str = String::from_utf8_lossy(&path_bytes).into_owned();
+        let meta = match by_path
+            .as_ref()
+            .and_then(|bp| meta_at_path(bp, &metas, &paths, &path_str, &cid))
         {
-            Some(m) => m,
+            Some((m, _)) => m,
             None => continue,
         };
         let Some(kind) = MemoryKind::from_wire(&meta.kind) else {
@@ -48859,6 +49049,9 @@ pub(crate) async fn run_memory_ttl_pass(s: &AppState) -> Result<(usize, usize), 
         let _ = expired_tree.insert(&pbytes, cid.as_bytes());
         let _ = paths.remove(&pbytes);
         let _ = by_kind.remove(format!("{kind_str}|{path_str}").as_bytes());
+        if let Some(bp) = by_path.as_ref() {
+            drop_meta(bp, &path_str);
+        }
         // Append `"expired"` to the history.
         let mut hist: Vec<String> = match history.get(&pbytes) {
             Ok(Some(v)) => ciborium::de::from_reader(&v[..]).unwrap_or_default(),
@@ -48934,6 +49127,7 @@ pub(crate) async fn run_memory_consolidation_pass(
                 },
             )
         })?;
+    let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).ok();
     let now = now_unix_s_local();
     let min_files = emem_primitives::memory_consolidation::consolidation_min_files();
     let min_age_secs =
@@ -48960,13 +49154,11 @@ pub(crate) async fn run_memory_consolidation_pass(
         if !path.starts_with(emem_primitives::BY_ATTESTER_PREFIX) {
             continue;
         }
-        let meta = match metas
-            .get(cid.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
+        let meta = match by_path
+            .as_ref()
+            .and_then(|bp| meta_at_path(bp, &metas, &paths, &path, &cid))
         {
-            Some(m) => m,
+            Some((m, _)) => m,
             None => continue,
         };
         if meta.kind != "episodic" {
@@ -49035,9 +49227,8 @@ pub(crate) async fn run_memory_consolidation_pass(
         // Mark each source as superseded.
         for (_p, _cid, mut m) in entries.iter().cloned() {
             m.superseded_by = Some(summary_meta.file_cid.clone());
-            let mut buf = Vec::new();
-            if ciborium::ser::into_writer(&m, &mut buf).is_ok() {
-                let _ = metas.insert(m.file_cid.as_bytes(), buf);
+            if let Some(bp) = by_path.as_ref() {
+                let _ = record_meta(bp, &metas, &paths, &m);
             }
             total_files_consolidated += 1;
         }
@@ -49309,15 +49500,13 @@ struct SledMemoryFileSource {
 /// every hit named emem.dev as its author and the attester_pubkey_b32 filter
 /// matched all notes or none. A note with no caller signature has no author.
 fn memory_file_summary(
-    metas: &sled::Tree,
+    trees: (&sled::Tree, &sled::Tree, &sled::Tree),
     path: &str,
     cid: &str,
 ) -> emem_primitives::memory_search::MemoryFileSummary {
-    let meta: Option<MemoryFileMeta> = metas
-        .get(cid.as_bytes())
-        .ok()
-        .flatten()
-        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+    let (by_path, metas, paths) = trees;
+    let meta: Option<MemoryFileMeta> =
+        meta_at_path(by_path, metas, paths, path, cid).map(|(m, _)| m);
     let (signed_at, attester_pubkey_b32, size_bytes, kind) = match meta {
         Some(m) => (
             m.signed_at,
@@ -49364,6 +49553,11 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
         // one's meta CBOR, seconds of CPU at 54k notes. Run on an async worker
         // it pinned that worker every pass, and at boot, with several passes
         // and the tree rebuild in flight, even static routes stopped answering.
+        let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).map_err(|e| {
+            emem_primitives::memory_search::IndexerError::Storage(format!(
+                "open memory_file_meta_by_path: {e}"
+            ))
+        })?;
         tokio::task::spawn_blocking(move || {
             let mut out = Vec::new();
             for kv in paths.iter().flatten() {
@@ -49373,7 +49567,7 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
                 let Ok(cid) = std::str::from_utf8(&kv.1) else {
                     continue;
                 };
-                out.push(memory_file_summary(&metas, path, cid));
+                out.push(memory_file_summary((&by_path, &metas, &paths), path, cid));
             }
             Ok(out)
         })
@@ -49424,9 +49618,10 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
         let Some(db) = self.state.storage.hot_sled_db() else {
             return Ok(None);
         };
-        let (Ok(paths), Ok(metas)) = (
+        let (Ok(paths), Ok(metas), Ok(by_path)) = (
             db.open_tree(emem_storage::TREE_MEMORY_FILES),
             db.open_tree(emem_storage::TREE_MEMORY_FILE_META),
+            db.open_tree(TREE_MEMORY_FILE_META_BY_PATH),
         ) else {
             return Ok(None);
         };
@@ -49438,7 +49633,11 @@ impl emem_primitives::memory_search::MemoryFileSource for SledMemoryFileSource {
         else {
             return Ok(None);
         };
-        Ok(Some(memory_file_summary(&metas, path, &cid)))
+        Ok(Some(memory_file_summary(
+            (&by_path, &metas, &paths),
+            path,
+            &cid,
+        )))
     }
 }
 
@@ -49464,18 +49663,20 @@ fn superseded_marks(
     s: &AppState,
     hits: &[emem_primitives::memory_search::MemorySearchHit],
 ) -> Vec<Option<String>> {
-    let metas = memory_db(s)
-        .ok()
-        .and_then(|db| db.open_tree(emem_storage::TREE_MEMORY_FILE_META).ok());
+    // The hit's own path's record: a supersession of one path is not a
+    // supersession of every path holding the same bytes.
+    let trees = memory_db(s).ok().and_then(|db| {
+        Some((
+            db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).ok()?,
+            db.open_tree(emem_storage::TREE_MEMORY_FILE_META).ok()?,
+            db.open_tree(emem_storage::TREE_MEMORY_FILES).ok()?,
+        ))
+    });
     hits.iter()
         .map(|h| {
-            metas
-                .as_ref()?
-                .get(h.file_cid.as_bytes())
-                .ok()
-                .flatten()
-                .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok())
-                .and_then(|m| m.superseded_by)
+            let (by_path, metas, paths) = trees.as_ref()?;
+            meta_at_path(by_path, metas, paths, &h.path, &h.file_cid)
+                .and_then(|(m, _)| m.superseded_by)
         })
         .collect()
 }
@@ -67521,6 +67722,7 @@ fn post_inbox_scan(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
     };
     let blobs = open(emem_storage::TREE_MEMORY_FILE_BLOBS)?;
     let metas = open(emem_storage::TREE_MEMORY_FILE_META)?;
+    let by_path = open(TREE_MEMORY_FILE_META_BY_PATH)?;
 
     // cid -> author, for threading. One scan of path->file_cid with no file
     // reads: the path already names the namespace owner, which the store
@@ -67564,11 +67766,7 @@ fn post_inbox_scan(s: AppState, req: InboxReq) -> Result<JsonValue, ApiError> {
         // skips old notes without reading their bodies. The body is read only
         // for a file_cid this process has not parsed before.
         let cid = String::from_utf8_lossy(&kv.1).into_owned();
-        let meta = metas
-            .get(cid.as_bytes())
-            .ok()
-            .flatten()
-            .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+        let meta = meta_at_path(&by_path, &metas, &paths, &key, &cid).map(|(m, _)| m);
         let (file_cid, signed_at, signed_at_unix_s, signed) = match meta {
             Some(m) => (
                 m.file_cid,
@@ -97786,6 +97984,133 @@ mod tests {
         );
     }
 
+    /// A write of the same bytes at another path is that path's write and no
+    /// other's: it does not re-sign, re-date or re-own the note that held the
+    /// bytes first, in a closed namespace or in the open one.
+    #[tokio::test]
+    async fn a_copy_elsewhere_leaves_the_original_its_own_record() {
+        let s = test_app_state();
+        let ns = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (ska, pka) = test_attester_signer();
+        let (skb, pkb) = test_attester_signer();
+        let (_, pkc) = test_attester_signer();
+        let (a, b, c) = (ns(&pka), ns(&pkb), ns(&pkc));
+        let body = format!("# {a} -> the channel: hello\n\ntext\n");
+        let a_path = format!("/memories/by_attester/{a}/hello.md");
+        let b_path = format!("/memories/by_attester/{b}/copy.md");
+        let cid = publish_note(&s, &ska, &a_path, body.as_bytes()).await;
+        let _ = get_agents_sync(s.clone()).unwrap();
+        let t1 = read_memory_file(&s, &a_path).unwrap().unwrap().1.signed_at;
+        // signed_at has one-second resolution.
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        assert_eq!(publish_note(&s, &skb, &b_path, body.as_bytes()).await, cid);
+        let t2 = read_memory_file(&s, &b_path).unwrap().unwrap().1.signed_at;
+        assert!(t2 > t1);
+        let (_, m) = read_memory_file(&s, &a_path).unwrap().unwrap();
+        assert_eq!(m.attester_pubkey_b32.as_deref(), Some(pka.as_str()));
+        assert_eq!(m.signed_at, t1);
+        // A turn to another store rebuilds the view on return.
+        let _ = get_agents_sync(test_app_state());
+        for roster in [
+            get_agents_sync(s.clone()).unwrap(),
+            get_agents_scan(s.clone()).unwrap(),
+        ] {
+            let ra = roster["agents"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|r| r["prefix"] == json!(a))
+                .unwrap()
+                .clone();
+            assert_eq!(ra["attester_pubkey_b32"], json!(pka), "{ra}");
+            assert_eq!(ra["last_seen"], json!(t1), "{ra}");
+        }
+        let inbox = post_inbox_sync(
+            s.clone(),
+            serde_json::from_value::<InboxReq>(json!({"to": c, "since": t2})).unwrap(),
+        )
+        .unwrap();
+        assert!(
+            inbox["messages"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|m| m["from"] != json!(a)),
+            "an old note is not delivered again as new: {inbox}"
+        );
+        let base = current_base_cid(&s, &a_path);
+        memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: a_path.clone(),
+                attester: Some(sign_attester_v2(&ska, "delete", &a_path, b"", &base)),
+            },
+        )
+        .await
+        .expect("the author deletes its own note");
+
+        // The open namespace: its first writer stays its owner.
+        let shared = format!("/memories/shared/{a}-note.md");
+        let body2 = format!("shared by {a}\n");
+        publish_note(&s, &ska, &shared, body2.as_bytes()).await;
+        publish_note(
+            &s,
+            &skb,
+            &format!("/memories/by_attester/{b}/copy2.md"),
+            body2.as_bytes(),
+        )
+        .await;
+        let base = current_base_cid(&s, &shared);
+        let taken = memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: shared.clone(),
+                attester: Some(sign_attester_v2(&skb, "delete", &shared, b"", &base)),
+            },
+        )
+        .await;
+        assert!(taken.is_err(), "a copier does not own the original");
+        let mine = read_memory_file(&s, &shared).unwrap().unwrap().1;
+        assert_eq!(mine.attester_pubkey_b32.as_deref(), Some(pka.as_str()));
+    }
+
+    /// A note renamed keeps its record: its author, time and owner move
+    /// with it.
+    #[tokio::test]
+    async fn a_rename_moves_the_record_with_the_path() {
+        let s = test_app_state();
+        let (ska, pka) = test_attester_signer();
+        let a = emem_primitives::pubkey_short_from_b32(&pka);
+        let from = format!("/memories/by_attester/{a}/draft.md");
+        let to = format!("/memories/by_attester/{a}/final.md");
+        publish_note(&s, &ska, &from, b"# draft\n").await;
+        let before = read_memory_file(&s, &from).unwrap().unwrap().1;
+        // Signed over the destination, with the source as its body, bound to
+        // the destination's version: absent.
+        let att = sign_attester_v2(
+            &ska,
+            "rename",
+            &to,
+            from.as_bytes(),
+            emem_primitives::BASE_ABSENT,
+        );
+        memory_rename_inner(
+            &s,
+            MemoryRenameReq {
+                old_path: from.clone(),
+                new_path: to.clone(),
+                attester: Some(att),
+            },
+        )
+        .await
+        .expect("rename");
+        let after = read_memory_file(&s, &to).unwrap().unwrap().1;
+        assert_eq!(after.attester_pubkey_b32, before.attester_pubkey_b32);
+        assert_eq!(after.signed_at, before.signed_at);
+        assert_eq!(after.path, to);
+        assert!(read_memory_file(&s, &from).unwrap().is_none());
+    }
+
     /// A view is served only to the store it was built for. Each store here
     /// lives and dies in its own runtime, as each test's store does, so a
     /// dropped store is freed and its address can go to the next one: an
@@ -98098,9 +98423,8 @@ mod tests {
         let mut meta: MemoryFileMeta = ciborium::de::from_reader(&raw[..]).unwrap();
         // Episodic default TTL = 30 days; backdate by 60 days.
         meta.signed_at_unix_s = now_unix_s_local() - 60 * 86_400;
-        let mut buf = Vec::new();
-        ciborium::ser::into_writer(&meta, &mut buf).unwrap();
-        metas.insert(cid.as_bytes(), buf).unwrap();
+        let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).unwrap();
+        record_meta(&by_path, &metas, &paths, &meta).unwrap();
         metas.flush().unwrap();
 
         // Subscribe before the pass so we can see the Expired event.
@@ -98179,9 +98503,8 @@ mod tests {
             let raw = metas.get(cid.as_bytes()).unwrap().unwrap();
             let mut meta: MemoryFileMeta = ciborium::de::from_reader(&raw[..]).unwrap();
             meta.signed_at_unix_s = now_unix_s_local() - 10 * 86_400; // 10 days old
-            let mut buf = Vec::new();
-            ciborium::ser::into_writer(&meta, &mut buf).unwrap();
-            metas.insert(cid.as_bytes(), buf).unwrap();
+            let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).unwrap();
+            record_meta(&by_path, &metas, &paths, &meta).unwrap();
             metas.flush().unwrap();
         }
 

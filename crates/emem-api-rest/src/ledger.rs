@@ -14,8 +14,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use super::{
-    inbox_note_head, memory_db, now_unix_s_local, parse_skill_declaration, ApiError, AppState,
-    ErrorBody, ErrorCode, InboxNoteHead, MemoryFileMeta, StatusCode,
+    inbox_note_head, memory_db, meta_at_path, now_unix_s_local, parse_skill_declaration, ApiError,
+    AppState, ErrorBody, ErrorCode, InboxNoteHead, MemoryFileMeta, StatusCode,
 };
 use emem_primitives::memory_events::MemoryEvent;
 
@@ -133,6 +133,7 @@ fn read_rec(
     paths: &sled::Tree,
     blobs: &sled::Tree,
     metas: &sled::Tree,
+    by_path: &sled::Tree,
     path: &str,
 ) -> Result<Option<NoteRec>, ApiError> {
     if !path.ends_with(".md") {
@@ -158,11 +159,10 @@ fn read_rec(
         let _ = paths.remove(path.as_bytes());
         return Ok(None);
     };
-    let meta = metas
-        .get(cid.as_bytes())
-        .ok()
-        .flatten()
-        .and_then(|b| ciborium::de::from_reader::<MemoryFileMeta, _>(&b[..]).ok());
+    // This path's own record: the record keyed by cid is shared with every
+    // other path holding the same bytes.
+    let meta: Option<MemoryFileMeta> =
+        meta_at_path(by_path, metas, paths, path, &cid).map(|(m, _)| m);
     let (signed_at, signed_at_unix_s, has_sig, proven_key, attester_pubkey_b32) = match meta {
         Some(m) => {
             let proven = match (
@@ -257,9 +257,10 @@ impl Ledger {
         paths: &sled::Tree,
         blobs: &sled::Tree,
         metas: &sled::Tree,
+        by_path: &sled::Tree,
         path: &str,
     ) -> Result<(), ApiError> {
-        match read_rec(paths, blobs, metas, path)? {
+        match read_rec(paths, blobs, metas, by_path, path)? {
             Some(rec) => {
                 self.index_path(path, Some(rec.cid.clone()));
                 self.notes.insert(rec.path.clone(), Arc::new(rec));
@@ -292,6 +293,9 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
     let metas = db
         .open_tree(emem_storage::TREE_MEMORY_FILE_META)
         .map_err(|e| internal("open memory_file_meta", e))?;
+    let by_path = db
+        .open_tree(super::TREE_MEMORY_FILE_META_BY_PATH)
+        .map_err(|e| internal("open memory_file_meta_by_path", e))?;
 
     let mut guard = LEDGER.lock().unwrap_or_else(|e| e.into_inner());
     let rebuild = match guard.as_ref() {
@@ -316,7 +320,7 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
         for kv in paths.scan_prefix(PREFIX.as_bytes()).flatten() {
             let key = String::from_utf8_lossy(&kv.0).into_owned();
             l.index_path(&key, Some(String::from_utf8_lossy(&kv.1).into_owned()));
-            if let Some(rec) = read_rec(&paths, &blobs, &metas, &key)? {
+            if let Some(rec) = read_rec(&paths, &blobs, &metas, &by_path, &key)? {
                 l.notes.insert(rec.path.clone(), Arc::new(rec));
             }
         }
@@ -332,7 +336,7 @@ pub(crate) fn with_ledger<T>(s: &AppState, f: impl FnOnce(&Ledger) -> T) -> Resu
         if !seen.insert(path.clone()) {
             continue;
         }
-        if let Err(e) = l.refresh(&paths, &blobs, &metas, &path) {
+        if let Err(e) = l.refresh(&paths, &blobs, &metas, &by_path, &path) {
             // The rest of the drained queue is lost with this read: the next
             // reader rebuilds rather than trust a view that missed it.
             STALE.store(true, std::sync::atomic::Ordering::SeqCst);
