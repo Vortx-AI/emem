@@ -113,7 +113,7 @@ impl Index {
     }
 }
 
-const INDICES: [Index; 4] = [
+const INDICES: [Index; 6] = [
     Index {
         key: "ndvi",
         a: "s2.B08",
@@ -151,6 +151,28 @@ const INDICES: [Index; 4] = [
         c: Some("s2.B02"),
         formula: "2.5 * (B08 - B04) / (B08 + 6 * B04 - 7.5 * B02 + 1), on reflectance (DN / 10000)",
         reference: "Huete et al. 2002",
+    },
+    // Burned ground loses near-infrared and gains shortwave infrared, so NBR
+    // falls sharply after a fire, and the drop between two passes (dNBR) is
+    // the usual burn-severity measure. B8A, not B08, so both bands are 20 m.
+    Index {
+        key: "nbr",
+        a: "s2.B8A",
+        b: "s2.B12",
+        c: None,
+        formula: "(B8A - B12) / (B8A + B12)",
+        reference: "Key & Benson 2006",
+    },
+    // Crop residue left on a field reads higher than bare tilled soil: the
+    // index that tells a burned or ploughed stubble field from one left
+    // standing. Both bands are 20 m.
+    Index {
+        key: "ndti",
+        a: "s2.B11",
+        b: "s2.B12",
+        c: None,
+        formula: "(B11 - B12) / (B11 + B12)",
+        reference: "Van Deventer et al. 1997",
     },
 ];
 
@@ -231,7 +253,7 @@ pub struct FieldSeriesReq {
     /// when their centre is inside the outer ring and outside every hole.
     #[serde(default)]
     pub geometry: Option<JsonValue>,
-    /// `ndvi` (default) or `ndwi`.
+    /// `ndvi` (default), `ndwi`, `ndmi`, `evi`, `nbr` or `ndti`; or radar `vv`, `vh`, `vh_vv`.
     #[serde(default)]
     pub index: Option<String>,
     pub start_date: String,
