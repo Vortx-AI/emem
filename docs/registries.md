@@ -41,7 +41,7 @@ startup.
 | Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
 |-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
 | `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 43 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 168         | composition recipes (solo / combined / embedding)           |
+| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 169         | composition recipes (solo / combined / embedding)           |
 | `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
 | `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
 | `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
@@ -147,13 +147,13 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-168 composition recipes split across three kinds:
+169 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
-| `solo`      | 24    | single band -> derived classification or scalar                        |
-| `combined`  | 113   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
-| `embedding` | 25    | operations on a foundation embedding (cosine, novelty, change)         |
+| `solo`      | 29    | single band -> derived classification or scalar                        |
+| `combined`  | 114   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
+| `embedding` | 26    | operations on a foundation embedding (cosine, novelty, change)         |
 
 ### Per-algorithm fields
 

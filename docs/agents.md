@@ -289,7 +289,7 @@ The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface documents 181 paths under
 `/v1/*` (192 total in `/openapi.json`), 116 MCP tools (18 core, 98 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 116), 21 static MCP
-resources + 9 URI templates, 168 algorithms in the content-addressed
+resources + 9 URI templates, 169 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), 113 entries in `/v1/materializers` (115 materializer-wired band names), and 27 data
 connectors + 8 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
@@ -313,7 +313,7 @@ Four discovery URLs for agent onboarding:
 |---|---|
 | REST paths (OpenAPI) | 192 documented, 181 under `/v1/*` |
 | MCP tools | 116 (18 core / 98 extended) |
-| Algorithms (composition recipes) | 168 |
+| Algorithms (composition recipes) | 169 |
 | Band-cube slots | 43 |
 | MCP resources | 21 static + 9 URI templates |
 | Materializers (`/v1/materializers` `pagination.total`) | 113 |
@@ -578,7 +578,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
-| `/v1/algorithms` | 168 composition recipes (paginated) |
+| `/v1/algorithms` | 169 composition recipes (paginated) |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |

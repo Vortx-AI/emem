@@ -13758,6 +13758,36 @@
    "honest_runtime_note": "Shares the /v1/band_raster surface; the band spelling routes to the DEM path, which skips scene selection because GLO-30 is a static global COG in EPSG:4326. Bounds are refusals, not timeouts: 512 px per side, and a bbox that crosses a 1\u00b0 tile edge is refused (single-tile only; no stitching yet). Over open ocean the archive publishes no tile \u2014 a clear 'no elevation field here', not a crash."
   },
   {
+   "key": "forest_raster@1",
+   "kind": "solo",
+   "domain": "forest",
+   "inputs": [
+    {
+     "band": "forest_change.lossyear",
+     "role": "static_forest_layer",
+     "explanation": "One of forest_change.lossyear, forest_change.treecover2000, forest_change.gain (Hansen GFC v1.13), jrc_gfc2020.forest_2020 (JRC GFC2020) or jrc_tmf.deforestation_year (JRC TMF), read at native resolution from the one 10\u00b0 publisher tile the bbox sits in."
+    }
+   ],
+   "formula": "window = every pixel the bbox touches (snapped as pixel_index does), read from the layer's 10\u00b0 tile; lossyear bytes decode to calendar years, pixels outside the tile are NaN; artifact = canonical_grid_f32(window); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, band, tslot=0, tile url and JRC version, EPSG:4326 grid georeferencing, the publisher's licence, best-effort anchors to the per-cell facts of the same band}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
+   "output": {
+    "kind": "scalar",
+    "unit": "artifact",
+    "range": [
+     0,
+     1
+    ],
+    "explanation": "Not a scalar: a content-addressed grid of the layer's own values (years, percent canopy or classes, EPSG:4326) plus a persisted derivation record (emem.field_derivation.v1). The range is a registry formality. Verification: re-hash the artifact and read anchors back out of the grid against their facts, which match exactly, or reread the pinned tile over the same bbox."
+   },
+   "when_to_use": "When an agent needs a forest layer over an area rather than cell by cell: Hansen loss year or tree cover, the JRC 2020 forest map or TMF deforestation year over a plot or a district page, citeable as one emem:raster: token. For per-cell values use recall; for an EUDR statement use eudr_dds.",
+   "primitive": "POST /v1/band_raster {bbox, band: \"forest_change.lossyear\"} -> canonical grid artifact + persisted derivation record + FIELD-bound receipt; GET /v1/artifacts/{cid} serves the bytes, immutable",
+   "deterministic": true,
+   "citation": "Hansen et al. 2013, Science 342: 850-853 (GFC 2000-2025 v1.13, CC BY 4.0); JRC GFC2020 and JRC TMF (European Commission, free of charge under the Copernicus Regulation)",
+   "documentation_only": true,
+   "runtime_path": "/v1/band_raster",
+   "partial_runtime": true,
+   "honest_runtime_note": "Shares the /v1/band_raster surface; a forest band spelling routes here. Bounds are refusals: 1024 px per side, one tile per raster (a bbox across a 10\u00b0 tile edge is refused with the remedy), and a bbox outside a layer's coverage (TMF covers the tropics) is a 400. Reads come from the tile store's local copy once it holds the tile."
+  },
+  {
    "key": "embedding_raster@1",
    "kind": "embedding",
    "domain": "foundation",
