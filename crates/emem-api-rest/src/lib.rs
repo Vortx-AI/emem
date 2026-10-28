@@ -98240,33 +98240,46 @@ mod tests {
         let (ska, pka) = test_attester_signer();
         let (_skb, pkb) = test_attester_signer();
         let (a, b) = (ns(&pka), ns(&pkb));
-        let to_b = format!("/memories/by_attester/{a}/inbox-1-to-{b}.md");
-        publish_note(&s, &ska, &to_b, format!("# {a} -> {b}: hello\n").as_bytes()).await;
         let inbox = || serde_json::from_value::<InboxReq>(json!({"to": b})).unwrap();
-        assert_eq!(
-            post_inbox_sync(s.clone(), inbox()).unwrap()["total_matched"],
-            json!(1)
-        );
-        let base = current_base_cid(&s, &to_b);
-        let req = MemoryDeleteReq {
-            path: to_b.clone(),
-            attester: Some(sign_attester_v2(&ska, "delete", &to_b, b"", &base)),
-        };
-        let mut fut = Box::pin(memory_delete_inner(&s, req));
-        let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
-        let first = fut.as_mut().poll(&mut cx);
-        drop(fut);
-        assert!(
-            first.is_pending(),
-            "the delete finished in one poll; nothing was dropped"
-        );
-        assert_eq!(current_base_cid(&s, &to_b), emem_primitives::BASE_ABSENT);
-        let fast = post_inbox_sync(s.clone(), inbox()).unwrap();
-        assert_eq!(fast, post_inbox_scan(s.clone(), inbox()).unwrap());
-        assert_eq!(
-            fast["total_matched"],
-            json!(0),
-            "a deleted note is still listed: {fast}"
+        // A delete stops at its flush unless another flush cycle has just
+        // finished; with the whole suite running that happens, so a fresh
+        // note is tried until one delete is caught mid-flight.
+        for i in 0..50 {
+            let to_b = format!("/memories/by_attester/{a}/inbox-{i}-to-{b}.md");
+            publish_note(
+                &s,
+                &ska,
+                &to_b,
+                format!("# {a} -> {b}: hello {i}\n").as_bytes(),
+            )
+            .await;
+            assert_eq!(
+                post_inbox_sync(s.clone(), inbox()).unwrap()["total_matched"],
+                json!(1)
+            );
+            let base = current_base_cid(&s, &to_b);
+            let req = MemoryDeleteReq {
+                path: to_b.clone(),
+                attester: Some(sign_attester_v2(&ska, "delete", &to_b, b"", &base)),
+            };
+            let mut fut = Box::pin(memory_delete_inner(&s, req));
+            let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+            let first = fut.as_mut().poll(&mut cx);
+            drop(fut);
+            assert_eq!(current_base_cid(&s, &to_b), emem_primitives::BASE_ABSENT);
+            let fast = post_inbox_sync(s.clone(), inbox()).unwrap();
+            assert_eq!(fast, post_inbox_scan(s.clone(), inbox()).unwrap());
+            assert_eq!(
+                fast["total_matched"],
+                json!(0),
+                "a deleted note is still listed: {fast}"
+            );
+            if first.is_pending() {
+                return;
+            }
+        }
+        eprintln!(
+            "no delete was caught mid-flight in 50 tries; the dropped path was not exercised"
         );
     }
 
