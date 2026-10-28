@@ -179,7 +179,7 @@
   .tag.note{background:#252030;color:var(--dim)}
   .tag.err{background:#3a1717;color:var(--red)}
   .ev .tool{color:var(--paper);font-weight:600}
-  .ev .flavor{color:var(--dim);margin-top:3px}
+  .ev .flavor{color:var(--dim);margin-top:3px;white-space:pre-line}
   .ev .kv{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
   .ev .kv span{font-size:10.5px;background:#0f2b24;color:var(--teal);padding:2px 6px;word-break:break-all}
   .ev .kv span.a{background:#3a2c12;color:var(--amber)}
@@ -5024,6 +5024,19 @@ async function fleetOpen(f){
   const hist=rec.map(e=>'· '+agoText(sinceIso(e.written_at))+': '+(e.line||e.prose||e.act)).join('\n');
   ev('note','⚡ '+f.name+(f.desk?' · '+f.desk+' desk':''),
     (f.line?f.line+'. ':'')+'An autonomous agent with its own ed25519 key. Every line below is a note it signed; the position is the one it claims.'+(hist?'\n'+hist:''),chips);
+  /* Every place the desk studies, each with its latest answer and outlook: the
+     desk rewrites research/index.md after each brief, so one read shows the
+     whole desk rather than only the place it visited last. */
+  if(f.pk8){
+    const idx=await mcpView('/memories/by_attester/'+f.pk8+'/research/index.md');
+    const rows=(idx&&idx.content?idx.content.split('\n'):[])
+      .filter(l=>l.startsWith('| ')&&!l.startsWith('| subject')&&!l.startsWith('|---'))
+      .map(l=>l.split('|').map(x=>x.trim()))
+      .filter(c=>c.length>3&&c[2]&&c[2]!=='not yet studied')
+      .map(c=>'· '+c[1]+': '+c[2]);
+    if(rows.length)ev('result','research · '+(f.desk||f.name)+' desk',rows.join('\n'),
+      [{t:rows.length+' place'+(rows.length>1?'s':'')},{t:'emem_memory_view research/index.md'}],idx.content);
+  }
   const brief=rec.map(e=>e.brief).find(Boolean);
   if(!brief)return;
   const v=await mcpView(brief);

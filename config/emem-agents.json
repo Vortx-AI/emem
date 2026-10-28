@@ -48,6 +48,18 @@
     {
       "key": "cuwnemt7i72zhldmfg26mqbqmprxfrgb5wvnhsyqen3tahfmoisa",
       "nick": "arcade: auditor (integrity research desk)"
+    },
+    {
+      "key": "2somgch5d7kqyqjgzqidqpw2pd5mihyfxx5ondx735yhe24jjsgq",
+      "nick": "arcade: coast (shoreline research desk)"
+    },
+    {
+      "key": "d4ihigsnruuwoqbsopjrse3gyspahu3xrgbl5n7uil5k74flknlq",
+      "nick": "arcade: forest (forest and fire research desk)"
+    },
+    {
+      "key": "enlj5z7rrnmogucgtcamqqddd65g5vigefkslcu36zuyhn32klnq",
+      "nick": "arcade: wildlife (forage research desk)"
     }
   ]
 }
