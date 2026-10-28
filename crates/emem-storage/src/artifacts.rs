@@ -74,9 +74,16 @@ impl ArtifactStore {
         }
         let dir = path.parent().expect("blob path always has a parent");
         fs::create_dir_all(dir)?;
-        let tmp = dir.join(format!(".tmp-{cid}"));
+        // A temp file of its own: two writers of the same bytes shared
+        // `.tmp-<cid>`, and the one that renamed second found it gone.
+        static WRITES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = WRITES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let tmp = dir.join(format!(".tmp-{cid}-{}-{n}", std::process::id()));
         fs::write(&tmp, bytes)?;
-        fs::rename(&tmp, &path)?;
+        if let Err(e) = fs::rename(&tmp, &path) {
+            let _ = fs::remove_file(&tmp);
+            return Err(e);
+        }
         self.evict_to_cap()?;
         Ok(cid)
     }
@@ -118,7 +125,14 @@ impl ArtifactStore {
             }
             for blob in fs::read_dir(fan.path())? {
                 let blob = blob?;
-                let meta = blob.metadata()?;
+                // Another writer's file in flight, or one renamed or evicted
+                // since the listing: neither is a blob to count.
+                if blob.file_name().to_string_lossy().starts_with(".tmp-") {
+                    continue;
+                }
+                let Ok(meta) = blob.metadata() else {
+                    continue;
+                };
                 if meta.is_file() {
                     let mtime = meta.modified().unwrap_or(SystemTime::UNIX_EPOCH);
                     out.push((blob.path(), meta.len(), mtime));
@@ -174,6 +188,35 @@ mod tests {
         ));
         let _ = fs::remove_dir_all(&dir);
         (ArtifactStore::open(&dir, max).unwrap(), dir)
+    }
+
+    /// Writers at once, of the same bytes and of others under a cap small
+    /// enough to evict: every put succeeds. Two writers of one cid shared a
+    /// temp file, and an eviction walk failed on a file renamed under it.
+    #[test]
+    fn concurrent_puts_all_land() {
+        let (s, dir) = store(4096);
+        let s = std::sync::Arc::new(s);
+        let handles: Vec<_> = (0..16)
+            .map(|i| {
+                let s = s.clone();
+                std::thread::spawn(move || {
+                    let same = s.put(b"the same field").map_err(|e| e.to_string());
+                    let other = s
+                        .put(format!("field {i} {}", "x".repeat(1000)).as_bytes())
+                        .map_err(|e| e.to_string());
+                    (same, other)
+                })
+            })
+            .collect();
+        let mut cids = std::collections::HashSet::new();
+        for h in handles {
+            let (same, other) = h.join().unwrap();
+            cids.insert(same.expect("same bytes"));
+            other.expect("other bytes");
+        }
+        assert_eq!(cids.len(), 1, "one cid for one content");
+        let _ = fs::remove_dir_all(dir);
     }
 
     #[test]
