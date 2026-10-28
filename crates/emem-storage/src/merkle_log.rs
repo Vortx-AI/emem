@@ -520,6 +520,48 @@ impl AttestationLog {
         Ok(out)
     }
 
+    /// Every record in log order, one at a time, without holding a segment
+    /// in memory: `entries` reads a whole segment (about 1 GiB) per call,
+    /// which a pass over a 23 GB log cannot afford. `f` gets each record's
+    /// global index and CBOR and returns false to stop. A partial record at
+    /// the tail of the open segment ends the walk there.
+    pub fn scan(&self, mut f: impl FnMut(u64, &[u8]) -> bool) -> std::io::Result<()> {
+        let mut indices: Vec<u64> = Vec::new();
+        for entry in std::fs::read_dir(&self.root)? {
+            if let Some(n) = entry?
+                .file_name()
+                .to_str()
+                .and_then(|n| n.strip_prefix("merkle.log."))
+                .and_then(|r| r.parse::<u64>().ok())
+            {
+                indices.push(n);
+            }
+        }
+        indices.sort_unstable();
+        let mut global = 0u64;
+        let mut buf = Vec::new();
+        for idx in indices {
+            let file = std::fs::File::open(self.root.join(format!("merkle.log.{idx}")))?;
+            let mut r = std::io::BufReader::with_capacity(1 << 20, file);
+            loop {
+                let mut len = [0u8; 4];
+                if r.read_exact(&mut len).is_err() {
+                    break;
+                }
+                let len = u32::from_le_bytes(len) as usize;
+                buf.resize(len + 32, 0);
+                if r.read_exact(&mut buf).is_err() {
+                    break;
+                }
+                if !f(global, &buf[..len]) {
+                    return Ok(());
+                }
+                global += 1;
+            }
+        }
+        Ok(())
+    }
+
     /// Verify the on-disk integrity of every sealed segment. Open
     /// (current) segment is not verified because it has no trailing
     /// hash yet.
@@ -1128,6 +1170,37 @@ mod tests {
         let tail = log.entries(n, n + 1).unwrap();
         assert_eq!(tail.len(), 1);
         assert_eq!(tail[0].0, n);
+    }
+
+    /// A scan visits every record of every segment in the order `entries`
+    /// numbers them, and stops when told to.
+    #[tokio::test]
+    async fn a_scan_walks_every_segment_in_log_order() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut n = 0u64;
+        for _ in 0..3 {
+            let log = AttestationLog::open(tmp.path()).unwrap();
+            for _ in 0..4 {
+                log.append(&distinct_attestation(n)).await.unwrap();
+                n += 1;
+            }
+        }
+        let log = AttestationLog::open(tmp.path()).unwrap();
+        let all = log.entries(0, n).unwrap();
+        let mut seen = Vec::new();
+        log.scan(|i, rec| {
+            seen.push((i, rec.to_vec()));
+            true
+        })
+        .unwrap();
+        assert_eq!(seen, all);
+        let mut first_five = 0;
+        log.scan(|_, _| {
+            first_five += 1;
+            first_five < 5
+        })
+        .unwrap();
+        assert_eq!(first_five, 5);
     }
 
     #[tokio::test]

@@ -661,6 +661,7 @@ pub fn router(state: AppState) -> Router {
     // Index, by place, the derivations registered before /v1/inferences
     // existed. Once per store; see backfill_derived_by_cell.
     spawn_derived_by_cell_backfill(&state);
+    spawn_memory_meta_repair(&state);
     ledger::spawn_warm(&state);
 
     // W3: scheduled memory consolidation + TTL background tasks.
@@ -45487,6 +45488,247 @@ fn move_meta(by_path: &sled::Tree, metas: &sled::Tree, old_path: &str, new_path:
     }
 }
 
+/// What the record repair did.
+#[derive(Debug, Default, serde::Serialize)]
+pub(crate) struct MetaRepair {
+    /// Paths whose only record was another path's write of the same bytes.
+    borrowed: usize,
+    /// Of those, given their own record back from the log.
+    restored: usize,
+    /// Log records read.
+    scanned: u64,
+}
+
+const MEMORY_META_REPAIR_TREE: &str = "emem.memory_meta_repair";
+
+/// Give each path whose record was another path's write of the same bytes
+/// its own record back, from the transparency log, which recorded every
+/// memory write with its path, key, signature and time. Written before
+/// records were kept per path, those paths read as unsigned, and 14 agents
+/// lost the proof of their key that way. A record is restored only when its
+/// signature verifies over the write it names. Runs once per store: done is
+/// recorded in `emem.memory_meta_repair`. Reads the log at `bytes_per_sec`,
+/// because production shares its disk with the log.
+pub(crate) fn repair_memory_meta(s: &AppState, bytes_per_sec: u64) -> Result<MetaRepair, String> {
+    let db = memory_db(s).map_err(|e| e.1.message)?;
+    let open = |n: &str| db.open_tree(n).map_err(|e| format!("open {n}: {e}"));
+    let paths = open(emem_storage::TREE_MEMORY_FILES)?;
+    let metas = open(emem_storage::TREE_MEMORY_FILE_META)?;
+    let by_path = open(TREE_MEMORY_FILE_META_BY_PATH)?;
+    let by_kind = open(emem_storage::TREE_MEMORY_FILES_BY_KIND)?;
+    let done = open(MEMORY_META_REPAIR_TREE)?;
+    if done.contains_key(b"v1").unwrap_or(false) {
+        return Ok(MetaRepair::default());
+    }
+    let mut borrowed: std::collections::HashSet<(String, String)> =
+        std::collections::HashSet::new();
+    for kv in paths.iter().flatten() {
+        let path = String::from_utf8_lossy(&kv.0).into_owned();
+        let cid = String::from_utf8_lossy(&kv.1).into_owned();
+        if matches!(
+            meta_at_path(&by_path, &metas, &paths, &path, &cid),
+            Some((_, true))
+        ) {
+            borrowed.insert((path, cid));
+        }
+    }
+    let mut report = MetaRepair {
+        borrowed: borrowed.len(),
+        ..Default::default()
+    };
+    let mut found: std::collections::HashMap<(String, String), Vec<u8>> =
+        std::collections::HashMap::new();
+    if !borrowed.is_empty() {
+        let log = s
+            .storage
+            .transparency_log()
+            .ok_or("this store keeps no transparency log")?;
+        let needle = MEMORY_LOG_KIND.as_bytes();
+        let (mut window, mut since) = (0u64, std::time::Instant::now());
+        log.scan(|_, rec| {
+            report.scanned += 1;
+            window += rec.len() as u64 + 36;
+            if window >= bytes_per_sec {
+                if let Some(rest) = std::time::Duration::from_secs(1).checked_sub(since.elapsed()) {
+                    std::thread::sleep(rest);
+                }
+                (window, since) = (0, std::time::Instant::now());
+            }
+            if rec.windows(needle.len()).any(|w| w == needle) {
+                if let Some(key) = memory_log_path_cid(rec).filter(|k| borrowed.contains(k)) {
+                    // The latest record for the write wins: the log is in order.
+                    found.insert(key, rec.to_vec());
+                }
+            }
+            true
+        })
+        .map_err(|e| format!("scan the transparency log: {e}"))?;
+    }
+    // A path's kind is its own index entry's: `kind|path`.
+    let mut kinds: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for kv in by_kind.iter().flatten() {
+        let key = String::from_utf8_lossy(&kv.0).into_owned();
+        if let Some((kind, path)) = key.split_once('|') {
+            if found.keys().any(|(p, _)| p == path) {
+                kinds.insert(path.to_string(), kind.to_string());
+            }
+        }
+    }
+    for ((path, cid), rec) in &found {
+        // Only a path still in that state: a write since has its own record.
+        if !matches!(
+            meta_at_path(&by_path, &metas, &paths, path, cid),
+            Some((_, true))
+        ) {
+            continue;
+        }
+        let kind = kinds.get(path).cloned().unwrap_or_else(default_kind_str);
+        let Some(own) = memory_meta_from_log(s, rec, kind) else {
+            continue;
+        };
+        record_meta(&by_path, &metas, &paths, &own)?;
+        report.restored += 1;
+    }
+    ledger::note_paths(found.keys().map(|(p, _)| p.as_str()));
+    let _ = done.insert(
+        b"v1",
+        serde_json::to_vec(&json!({ "report": report, "at": emem_storage::server::iso8601_now() }))
+            .unwrap_or_default(),
+    );
+    flush_off_runtime_blocking(&done);
+    Ok(report)
+}
+
+/// The path and file_cid of a memory-write log record.
+fn memory_log_path_cid(rec: &[u8]) -> Option<(String, String)> {
+    let v: ciborium::Value = ciborium::de::from_reader(rec).ok()?;
+    let text = |k: &str| {
+        v.as_map()?
+            .iter()
+            .find(|(kk, _)| kk.as_text() == Some(k))
+            .and_then(|(_, vv)| vv.as_text())
+            .map(str::to_string)
+    };
+    (text("kind")? == MEMORY_LOG_KIND).then_some(())?;
+    Some((text("path")?, text("file_cid")?))
+}
+
+/// The record a memory write had, rebuilt from its log record. The writer's
+/// key and signature are kept only when the signature verifies over the
+/// write the record names.
+fn memory_meta_from_log(s: &AppState, rec: &[u8], kind: String) -> Option<MemoryFileMeta> {
+    let v: ciborium::Value = ciborium::de::from_reader(rec).ok()?;
+    let map = v.as_map()?;
+    let field = |k: &str| {
+        map.iter()
+            .find(|(kk, _)| kk.as_text() == Some(k))
+            .map(|(_, vv)| vv)
+    };
+    let text = |k: &str| field(k).and_then(|x| x.as_text()).map(str::to_string);
+    let path = text("path")?;
+    let file_cid = text("file_cid")?;
+    let signed_at = text("signed_at")?;
+    let verb = text("verb").unwrap_or_else(|| "create".into());
+    let size_bytes = field("size_bytes")
+        .and_then(|x| x.as_integer())
+        .and_then(|i| u64::try_from(i).ok())
+        .unwrap_or(0);
+    let version = field("preimage_version")
+        .and_then(|x| x.as_integer())
+        .and_then(|i| u8::try_from(i).ok());
+    let (pk, sig, body_hex, base) = (
+        text("attester_pubkey_b32"),
+        text("sig_b32"),
+        text("body_hash_hex"),
+        text("base"),
+    );
+    let verified = match (&pk, &sig, &body_hex) {
+        (Some(pk), Some(sig), Some(h)) => {
+            let body_hash: Option<[u8; 32]> = data_encoding::HEXLOWER_PERMISSIVE
+                .decode(h.as_bytes())
+                .ok()
+                .and_then(|b| b.try_into().ok());
+            body_hash.is_some_and(|bh| {
+                let attester = MemoryAttester {
+                    pubkey_b32: pk.clone(),
+                    sig_b32: sig.clone(),
+                };
+                let (verdict, _) = emem_primitives::verify_attester_versioned(
+                    &verb,
+                    &path,
+                    &bh,
+                    base.as_deref().unwrap_or(emem_primitives::BASE_ABSENT),
+                    &attester,
+                );
+                verdict == AttestationVerdict::Ok
+            })
+        }
+        _ => false,
+    };
+    let keep = |x: Option<String>| if verified { x } else { None };
+    Some(MemoryFileMeta {
+        receipt: synth_memory_receipt(
+            s,
+            &path,
+            &file_cid,
+            &verb,
+            keep(pk.clone()).as_deref(),
+            std::time::Instant::now(),
+        ),
+        file_cid,
+        signed_at_unix_s: parse_iso8601_unix(&signed_at).unwrap_or(0),
+        signed_at,
+        path,
+        size_bytes,
+        verb,
+        kind,
+        attester_pubkey_b32: keep(pk),
+        attester_sig_b32: keep(sig),
+        attester_body_hash_hex: keep(body_hex),
+        attester_preimage_version: if verified { version } else { None },
+        attester_base: keep(base),
+        log_entry_hash_b32: Some(b32_lower(blake3::hash(rec).as_bytes())),
+        superseded_by: None,
+        supersede: None,
+    })
+}
+
+/// Run [`repair_memory_meta`] once, some minutes after boot, so its log read
+/// does not land on a cold store's first requests.
+fn spawn_memory_meta_repair(state: &AppState) {
+    if cfg!(test)
+        || state.storage.hot_sled_db().is_none()
+        || tokio::runtime::Handle::try_current().is_err()
+    {
+        return;
+    }
+    let delay = std::env::var("EMEM_META_REPAIR_DELAY_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(600);
+    let s = state.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_secs(delay)).await;
+        let t0 = std::time::Instant::now();
+        match tokio::task::spawn_blocking(move || repair_memory_meta(&s, 48 << 20)).await {
+            Ok(Ok(r)) => tracing::info!(
+                target: "emem::memory",
+                borrowed = r.borrowed,
+                restored = r.restored,
+                scanned = r.scanned,
+                elapsed_s = t0.elapsed().as_secs(),
+                "memory record repair"
+            ),
+            Ok(Err(e)) => {
+                tracing::warn!(target: "emem::memory", error = %e, "memory record repair failed; it runs again at the next boot")
+            }
+            Err(e) => {
+                tracing::warn!(target: "emem::memory", error = %e, "memory record repair panicked")
+            }
+        }
+    });
+}
+
 /// Drop the per-path record of a path that no longer exists. The record keyed
 /// by cid stays: the bytes stay readable by their content address.
 fn drop_meta(by_path: &sled::Tree, path: &str) {
@@ -72300,9 +72542,39 @@ async fn batch_build_facts_via_window(
 /// same canonical key, same kind, same value (or absence reason) and the same
 /// upstream files. `None` means it must be signed. A lookup error reuses
 /// nothing, so it can only cost a duplicate, never a wrong answer.
-const EUDR_REUSE_BUDGET_SECS: u64 = 3;
+///
+/// Looked up in chunks against `deadline`, keeping every chunk that finished:
+/// on a store whose pages had gone cold, one all-or-nothing lookup of 13,491
+/// cells ran past its budget, reused none of them, and the statement spent
+/// 48 s signing copies of facts it already held (2026-10-28). The second
+/// value says whether every chunk was looked up.
+async fn eudr_reuse_stored(
+    s: &AppState,
+    facts: &[Fact],
+    deadline: tokio::time::Instant,
+) -> (Vec<Option<emem_fact::FactCid>>, bool) {
+    let mut out = vec![None; facts.len()];
+    for start in (0..facts.len()).step_by(EUDR_REUSE_CHUNK) {
+        let end = (start + EUDR_REUSE_CHUNK).min(facts.len());
+        match tokio::time::timeout_at(deadline, eudr_reuse_chunk(s, &facts[start..end])).await {
+            Ok(got) => out[start..end].clone_from_slice(&got),
+            Err(_) => return (out, false),
+        }
+    }
+    (out, true)
+}
 
-async fn eudr_reuse_stored(s: &AppState, facts: &[Fact]) -> Vec<Option<emem_fact::FactCid>> {
+/// Facts looked up per chunk by [`eudr_reuse_stored`].
+const EUDR_REUSE_CHUNK: usize = 1024;
+
+/// The reuse budget for `n` facts: signing a fact costs about 4 ms on this
+/// store and looking one up well under one, so a lookup that takes a
+/// millisecond a fact is still the cheaper path.
+fn eudr_reuse_budget(n: usize) -> std::time::Duration {
+    std::time::Duration::from_millis((3_000 + n as u64).min(20_000))
+}
+
+async fn eudr_reuse_chunk(s: &AppState, facts: &[Fact]) -> Vec<Option<emem_fact::FactCid>> {
     fn key_of(f: &Fact) -> Option<emem_cache::CanonicalKey> {
         let (cell, band, tslot) = match f {
             Fact::Primary(p) => (&p.cell, &p.band, p.tslot),
@@ -72502,22 +72774,19 @@ async fn batch_materialize_eudr_band(
     // Bounded: reuse is an optimisation, and a slow store must cost a
     // duplicate write at worst, never the request.
     let reuse_started = std::time::Instant::now();
-    let reused = match tokio::time::timeout(
-        std::time::Duration::from_secs(EUDR_REUSE_BUDGET_SECS),
-        eudr_reuse_stored(&s, &facts_to_persist),
+    let (reused, complete) = eudr_reuse_stored(
+        &s,
+        &facts_to_persist,
+        tokio::time::Instant::now() + eudr_reuse_budget(facts_to_persist.len()),
     )
-    .await
-    {
-        Ok(r) => r,
-        Err(_) => vec![None; facts_to_persist.len()],
-    };
+    .await;
     tracing::info!(
         target: "emem::eudr",
         band,
         facts = facts_to_persist.len(),
         reused = reused.iter().filter(|r| r.is_some()).count(),
         elapsed_ms = reuse_started.elapsed().as_millis() as u64,
-        timed_out = reuse_started.elapsed().as_secs() >= EUDR_REUSE_BUDGET_SECS,
+        timed_out = !complete,
         "eudr fact reuse"
     );
     let (fresh, fresh_pos): (Vec<Fact>, Vec<usize>) = facts_to_persist
@@ -96921,12 +97190,12 @@ mod tests {
         .await
         .expect("persist");
         // Same value from the same file, read again a day later: reused.
-        let again = eudr_reuse_stored(&s, &[mk(1, v4, "2026-09-29T00:00:00Z")]).await;
+        let again = eudr_reuse_chunk(&s, &[mk(1, v4, "2026-09-29T00:00:00Z")]).await;
         assert_eq!(again[0].as_ref().map(|c| c.as_str()), Some(stored.as_str()));
         // A different value, or the same value from another file, is signed.
-        let changed = eudr_reuse_stored(&s, &[mk(0, v4, "2026-09-29T00:00:00Z")]).await;
+        let changed = eudr_reuse_chunk(&s, &[mk(0, v4, "2026-09-29T00:00:00Z")]).await;
         assert!(changed[0].is_none(), "a changed reading must be signed");
-        let other_file = eudr_reuse_stored(
+        let other_file = eudr_reuse_chunk(
             &s,
             &[mk(1, "https://example.org/V3.tif", "2026-09-29T00:00:00Z")],
         )
@@ -96935,6 +97204,23 @@ mod tests {
             other_file[0].is_none(),
             "a reading from another upstream file must be signed"
         );
+
+        // In chunks: the stored reading at the far side of a chunk edge is
+        // found at its own index, and a deadline already passed keeps what
+        // was looked up (nothing) rather than failing.
+        let mut many: Vec<Fact> = (0..EUDR_REUSE_CHUNK)
+            .map(|_| mk(0, "https://example.org/none.tif", "2026-09-29T00:00:00Z"))
+            .collect();
+        many.push(mk(1, v4, "2026-09-29T00:00:00Z"));
+        let far = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+        let (got, complete) = eudr_reuse_stored(&s, &many, far).await;
+        assert!(complete);
+        assert_eq!(
+            got[EUDR_REUSE_CHUNK].as_ref().map(|c| c.as_str()),
+            Some(stored.as_str())
+        );
+        let (none, complete) = eudr_reuse_stored(&s, &many, tokio::time::Instant::now()).await;
+        assert!(!complete && none.iter().all(Option::is_none));
     }
 
     #[tokio::test]
@@ -98072,6 +98358,47 @@ mod tests {
         assert!(taken.is_err(), "a copier does not own the original");
         let mine = read_memory_file(&s, &shared).unwrap().unwrap().1;
         assert_eq!(mine.attester_pubkey_b32.as_deref(), Some(pka.as_str()));
+    }
+
+    /// A path whose only record is another path's write of the same bytes,
+    /// as a store written before records were kept per path has it, gets its
+    /// own record back from the transparency log, once.
+    #[tokio::test]
+    async fn the_log_gives_a_borrowed_path_its_own_record_back() {
+        let s = test_app_state();
+        let ns = |pk: &str| emem_primitives::pubkey_short_from_b32(pk);
+        let (ska, pka) = test_attester_signer();
+        let (skb, pkb) = test_attester_signer();
+        let (a, b) = (ns(&pka), ns(&pkb));
+        let body = format!("# {a} note\n\nthe same bytes\n");
+        let a_path = format!("/memories/by_attester/{a}/n.md");
+        let b_path = format!("/memories/by_attester/{b}/n.md");
+        let cid = publish_note(&s, &ska, &a_path, body.as_bytes()).await;
+        let t_a = read_memory_file(&s, &a_path).unwrap().unwrap().1.signed_at;
+        tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+        publish_note(&s, &skb, &b_path, body.as_bytes()).await;
+        // The old layout: no per-path records, one record per cid, the
+        // last writer's.
+        let db = memory_db(&s).unwrap();
+        let by_path = db.open_tree(TREE_MEMORY_FILE_META_BY_PATH).unwrap();
+        let metas = db.open_tree(emem_storage::TREE_MEMORY_FILE_META).unwrap();
+        let b_rec = by_path.get(b_path.as_bytes()).unwrap().unwrap();
+        by_path.remove(a_path.as_bytes()).unwrap();
+        by_path.remove(b_path.as_bytes()).unwrap();
+        metas.insert(cid.as_bytes(), b_rec).unwrap();
+        let before = read_memory_file(&s, &a_path).unwrap().unwrap().1;
+        assert_eq!(before.attester_pubkey_b32, None, "borrowed, so unsigned");
+
+        let r = repair_memory_meta(&s, u64::MAX).unwrap();
+        assert_eq!((r.borrowed, r.restored), (1, 1), "{r:?}");
+        let after = read_memory_file(&s, &a_path).unwrap().unwrap().1;
+        assert_eq!(after.attester_pubkey_b32.as_deref(), Some(pka.as_str()));
+        assert_eq!(after.signed_at, t_a);
+        assert!(after.log_entry_hash_b32.is_some());
+        let theirs = read_memory_file(&s, &b_path).unwrap().unwrap().1;
+        assert_eq!(theirs.attester_pubkey_b32.as_deref(), Some(pkb.as_str()));
+        let again = repair_memory_meta(&s, u64::MAX).unwrap();
+        assert_eq!((again.borrowed, again.restored), (0, 0), "runs once");
     }
 
     /// A note renamed keeps its record: its author, time and owner move
