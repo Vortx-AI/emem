@@ -42,6 +42,8 @@
      claim, the statistics section carries the threats to validity, and the
      collaboration log is the raw signed argument the other two are drawn from. -->
 
+- [The research program: algorithms for agents, settled by experiment](./research/program.md)
+  - [Finding sudden canopy loss from Sentinel-2 cell series](./research/canopy-loss-2026-10.md)
 - [How emem compares, and what we have not measured](./how-emem-compares.md)
 - [Benchmarks and methods](./benchmarks.md)
 - [Statistics, cost, and threats to validity](./paper-section-statistics-and-threats.md)
