@@ -956,6 +956,14 @@ fn doy_gap(a: i64, b: i64) -> i64 {
     d.min(365 - d)
 }
 
+/// Whether `day` is an earlier year's same season for `newest`: at least a year
+/// back, less the half-width, and within the half-width of its day of year. A
+/// calendar-year test took 20 December as last year's season for 15 January.
+fn earlier_same_season(day: i64, newest: i64) -> bool {
+    newest - day >= 365 - SEASON_HALF_WIDTH_DAYS
+        && doy_gap(day_of_year(day).1, day_of_year(newest).1) <= SEASON_HALF_WIDTH_DAYS
+}
+
 /// Pick up to `k` of `n` ascending items, evenly spaced in rank, keeping both
 /// ends: the series covers the window instead of its most recent month.
 fn spread(n: usize, k: usize) -> Vec<usize> {
@@ -994,18 +1002,18 @@ fn same_season_partners(
     let Some(newest_day) = item_day(candidates[newest]) else {
         return Vec::new();
     };
-    let (newest_year, newest_doy) = day_of_year(newest_day);
-    let mut best: std::collections::BTreeMap<i32, (usize, f64)> = Default::default();
+    let newest_doy = day_of_year(newest_day).1;
+    let mut best: std::collections::BTreeMap<i64, (usize, f64)> = Default::default();
     for (i, it) in candidates.iter().enumerate() {
         let Some(day) = item_day(it) else { continue };
-        let (y, doy) = day_of_year(day);
-        let gap = doy_gap(doy, newest_doy);
-        if y >= newest_year || y < newest_year - 3 || gap > SEASON_HALF_WIDTH_DAYS {
+        let years_back = ((newest_day - day) as f64 / 365.25).round() as i64;
+        if !(1..=3).contains(&years_back) || !earlier_same_season(day, newest_day) {
             continue;
         }
+        let gap = doy_gap(day_of_year(day).1, newest_doy);
         let score = rank(it, gap);
-        if best.get(&y).is_none_or(|(_, c)| score < *c) {
-            best.insert(y, (i, score));
+        if best.get(&years_back).is_none_or(|(_, c)| score < *c) {
+            best.insert(years_back, (i, score));
         }
     }
     best.into_values().map(|(i, _)| i).collect()
@@ -1057,14 +1065,11 @@ fn block_quads(g: &Lattice, blocks: u32) -> Vec<JsonValue> {
 /// [`SEASON_HALF_WIDTH_DAYS`] of its day of year: `(latest, baseline,
 /// baseline_n)`, or `None` when no earlier year has one.
 fn same_season_anomaly(days: &[i64], values: &[f64]) -> Option<(f64, f64, usize)> {
-    let (last_year, last_doy) = day_of_year(*days.last()?);
+    let last = *days.last()?;
     let mut baseline: Vec<f64> = days
         .iter()
         .zip(values)
-        .filter(|(d, _)| {
-            let (y, doy) = day_of_year(**d);
-            y < last_year && doy_gap(doy, last_doy) <= SEASON_HALF_WIDTH_DAYS
-        })
+        .filter(|(d, _)| earlier_same_season(**d, last))
         .map(|(_, m)| *m)
         .collect();
     if baseline.is_empty() {
@@ -1094,13 +1099,12 @@ fn block_change_map(
     cautions: &mut Vec<String>,
 ) -> Option<JsonValue> {
     let from_idx = days.last().and_then(|last| {
-        let (ly, ld) = day_of_year(*last);
+        let ld = day_of_year(*last).1;
         days.iter()
             .enumerate()
-            .filter(|(_, d)| day_of_year(**d).0 < ly)
+            .filter(|(_, d)| earlier_same_season(**d, *last))
             .min_by_key(|(_, d)| doy_gap(day_of_year(**d).1, ld))
             .map(|(i, _)| i)
-            .filter(|i| doy_gap(day_of_year(days[*i]).1, ld) <= SEASON_HALF_WIDTH_DAYS)
     });
     let pairing = if from_idx.is_some() {
         "same_season"
@@ -3397,6 +3401,23 @@ mod tests {
         );
         assert_eq!(cache_get("k-test").unwrap()["rows"], json!([1]));
         assert!(cache_get("k-absent").is_none());
+    }
+
+    #[test]
+    fn a_december_scene_is_not_last_years_january() {
+        let jan15 = crate::days_from_civil(2026, 1, 15);
+        assert!(!earlier_same_season(crate::days_from_civil(2025, 12, 20), jan15));
+        assert!(earlier_same_season(crate::days_from_civil(2025, 1, 10), jan15));
+        assert!(earlier_same_season(crate::days_from_civil(2024, 12, 28), jan15));
+        assert!(!earlier_same_season(crate::days_from_civil(2025, 7, 15), jan15));
+        let days = [
+            crate::days_from_civil(2025, 1, 12),
+            crate::days_from_civil(2025, 12, 20),
+            jan15,
+        ];
+        let (_, base, n) = same_season_anomaly(&days, &[0.5, 0.9, 0.6]).unwrap();
+        assert_eq!(n, 1);
+        assert!((base - 0.5).abs() < 1e-12);
     }
 
     #[test]
