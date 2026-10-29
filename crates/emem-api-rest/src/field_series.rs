@@ -902,10 +902,18 @@ fn hamed_rao_inflation(t: &[f64], y: &[f64], slope: f64) -> f64 {
         return 1.0;
     }
     let mut by_time: Vec<usize> = (0..n).collect();
-    by_time.sort_by(|a, b| t[*a].partial_cmp(&t[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    by_time.sort_by(|a, b| {
+        t[*a]
+            .partial_cmp(&t[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let r: Vec<f64> = by_time.iter().map(|&i| y[i] - slope * t[i]).collect();
     let mut order: Vec<usize> = (0..n).collect();
-    order.sort_by(|a, b| r[*a].partial_cmp(&r[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    order.sort_by(|a, b| {
+        r[*a]
+            .partial_cmp(&r[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     // Ties take their mid-rank: an exact line's residuals are all tied, and
     // ranking them by sort order would invent an autocorrelation.
     let mut rank = vec![0.0; n];
@@ -1131,7 +1139,9 @@ fn same_season_partners(
             best.insert(years_back, (i, score));
         }
     }
-    best.into_values().map(|(i, _)| i).collect()
+    let mut picked: Vec<usize> = best.into_values().map(|(i, _)| i).collect();
+    picked.sort_unstable();
+    picked
 }
 
 /// Map blocks per side: 2..=8, default 6.
@@ -3372,7 +3382,9 @@ mod tests {
         // a slow wave with no trend: neighbouring scenes agree, as they do
         let y: Vec<f64> = (0..60).map(|i| (i as f64 / 6.0).sin()).collect();
         assert!(hamed_rao_inflation(&t, &y, 0.0) > 2.0);
-        let white: Vec<f64> = (0..60).map(|i| ((i * 7919 % 61) as f64 / 61.0) - 0.5).collect();
+        let white: Vec<f64> = (0..60)
+            .map(|i| ((i * 7919 % 61) as f64 / 61.0) - 0.5)
+            .collect();
         assert!(hamed_rao_inflation(&t, &white, 0.0) < 1.5);
     }
 
@@ -3560,10 +3572,22 @@ mod tests {
     #[test]
     fn a_december_scene_is_not_last_years_january() {
         let jan15 = crate::days_from_civil(2026, 1, 15);
-        assert!(!earlier_same_season(crate::days_from_civil(2025, 12, 20), jan15));
-        assert!(earlier_same_season(crate::days_from_civil(2025, 1, 10), jan15));
-        assert!(earlier_same_season(crate::days_from_civil(2024, 12, 28), jan15));
-        assert!(!earlier_same_season(crate::days_from_civil(2025, 7, 15), jan15));
+        assert!(!earlier_same_season(
+            crate::days_from_civil(2025, 12, 20),
+            jan15
+        ));
+        assert!(earlier_same_season(
+            crate::days_from_civil(2025, 1, 10),
+            jan15
+        ));
+        assert!(earlier_same_season(
+            crate::days_from_civil(2024, 12, 28),
+            jan15
+        ));
+        assert!(!earlier_same_season(
+            crate::days_from_civil(2025, 7, 15),
+            jan15
+        ));
         let days = [
             crate::days_from_civil(2025, 1, 12),
             crate::days_from_civil(2025, 12, 20),
