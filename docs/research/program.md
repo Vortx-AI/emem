@@ -235,8 +235,13 @@ memory like everything else. Claims of near-perfect accuracy will be stated agai
 
 **Next, in order.** Each step is a registered experiment, not a release:
 
-1. Write each cell's forks, confirmations and collapses into emem memory as signed facts with `supersedes` edges, so
-   an alert carries its own history and another agent can audit it.
+1. Write each alert into emem memory as a signed fact whose lineage carries its history. Running for the forest desk
+   since 29 October: the desk reads the methods lab's signed catalogue, runs the method its evidence supports for the
+   place's kind of watch, and writes each new or changed alert as a `canopy_alert@1` fact whose parents are the series
+   it was read from and the cell's previous alert, with the method's source hash, status and pooled evidence in its
+   value, and a per-place index note. Research and operations meet in memory: the lab's records choose the desk's
+   method, and the desk's alerts are evidence the next experiment can read. Forks that are open but not yet confirmed
+   are the next to be written.
 2. Let the memory learn: update a cell's normal from observations its timeline has confirmed as undisturbed, so slow
    change is remembered and a confirmed change resets the normal.
 3. Let neighbours speak: a fork confirmed next door raises the prior of a fork here, because clearings spread.
@@ -291,8 +296,8 @@ reachable as signed emem data. Several are:
 
 | task | independent reference in emem |
 |---|---|
-| canopy loss and clearing | Hansen GFC loss year and JRC TMF deforestation year, both as rasters (`band_raster`); RADD alerts as a point band only |
-| fire | MODIS burned area (MCD64A1) through the field burn-scar route; OPERA DIST-ALERT as a point band only |
+| canopy loss and clearing | Hansen GFC loss year and JRC TMF deforestation year (to 2023), both as rasters (`band_raster`); RADD alerts registered but unreadable (Requester-Pays) |
+| fire | MODIS burned area (MCD64A1) through the field burn-scar route; OPERA DIST-ALERT registered but needs an Earthdata token |
 | surface water and flood extent | JRC Global Surface Water occurrence and seasonality |
 | forecasts | the later signed observation itself, checked by the outlook ledger |
 

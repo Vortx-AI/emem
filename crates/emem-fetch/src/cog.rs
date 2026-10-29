@@ -1237,6 +1237,43 @@ const COMPRESSION_ZSTD: u16 = 50000;
 /// Decompress + undo the predictor for a SINGLE-band tile (Sentinel-2 / -1
 /// grayscale rasters, `samples_per_pixel = 1`). Pure CPU; byte-identical to
 /// the logic that previously ran inline in [`sample_pixel`] / [`sample_window`].
+/// LZW as libtiff reads it. A block whose pixels are all there but whose stream
+/// ends without the end-of-information code, or with stray bits after the last
+/// code, decodes: libtiff accepts such streams and some producers write them.
+/// weezl's one-shot decode refused them, and with them every window that
+/// touched one (Hansen GFC v1.13 treecover2000_00N_060W, row 30326, 2026-10-29).
+/// A stream that ends before `expected` bytes is still an error, unless it ends
+/// with its own end-of-information code, as a short last strip does.
+fn decode_lzw(compressed: &[u8], expected: usize) -> Result<Vec<u8>, CogError> {
+    let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
+    let mut out = vec![0u8; expected];
+    let (mut filled, mut input) = (0usize, compressed);
+    loop {
+        let r = dec.decode_bytes(input, &mut out[filled..]);
+        filled += r.consumed_out;
+        input = &input[r.consumed_in..];
+        match r.status {
+            Ok(weezl::LzwStatus::Done) => {
+                out.truncate(filled);
+                return Ok(out);
+            }
+            Ok(_) if filled == expected => return Ok(out),
+            Ok(weezl::LzwStatus::Ok) if r.consumed_in > 0 || r.consumed_out > 0 => continue,
+            Ok(_) => {
+                return Err(CogError::Inflate(format!(
+                    "lzw: the stream ended after {filled} of {expected} bytes without an end code"
+                )))
+            }
+            Err(_) if filled == expected => return Ok(out),
+            Err(e) => {
+                return Err(CogError::Inflate(format!(
+                    "lzw: {e} after {filled} of {expected} bytes"
+                )))
+            }
+        }
+    }
+}
+
 fn decode_tile_singleband(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>, CogError> {
     let bps = (codec.bits_per_sample / 8) as usize;
     let mut tile_bytes = Vec::with_capacity(
@@ -1253,10 +1290,13 @@ fn decode_tile_singleband(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8>
                 .map_err(|e| CogError::Inflate(e.to_string()))?;
         }
         5 => {
-            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-            tile_bytes = dec
-                .decode(compressed)
-                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+            tile_bytes = decode_lzw(
+                compressed,
+                (codec.tile_w as usize)
+                    * (codec.tile_h as usize)
+                    * (codec.samples_per_pixel as usize)
+                    * bps,
+            )?;
         }
         COMPRESSION_ZSTD => {
             tile_bytes = zstd::stream::decode_all(compressed)
@@ -1369,10 +1409,10 @@ fn decode_tile_multisample(compressed: &[u8], codec: TileCodec) -> Result<Vec<u8
                 .map_err(|e| CogError::Inflate(e.to_string()))?;
         }
         5 => {
-            let mut dec = weezl::decode::Decoder::with_tiff_size_switch(weezl::BitOrder::Msb, 8);
-            tile_bytes = dec
-                .decode(compressed)
-                .map_err(|e| CogError::Inflate(format!("lzw: {e}")))?;
+            tile_bytes = decode_lzw(
+                compressed,
+                (codec.tile_w as usize) * (codec.tile_h as usize) * stride,
+            )?;
         }
         COMPRESSION_ZSTD => {
             tile_bytes = zstd::stream::decode_all(compressed)
@@ -2257,6 +2297,51 @@ fn whole_body_range(
 
 #[cfg(test)]
 mod tests {
+    /// An LZW stream of 9-bit literal codes after a Clear, MSB first, with or
+    /// without the end-of-information code, padded with zero bits.
+    fn literal_lzw(data: &[u8], end_code: bool) -> Vec<u8> {
+        let mut codes: Vec<u16> = vec![256];
+        codes.extend(data.iter().map(|b| *b as u16));
+        if end_code {
+            codes.push(257);
+        }
+        let (mut out, mut acc, mut n) = (Vec::new(), 0u32, 0u32);
+        for c in codes {
+            acc = (acc << 9) | c as u32;
+            n += 9;
+            while n >= 8 {
+                out.push((acc >> (n - 8)) as u8);
+                n -= 8;
+                acc &= (1 << n) - 1;
+            }
+        }
+        if n > 0 {
+            out.push((acc << (8 - n)) as u8);
+        }
+        out
+    }
+
+    #[test]
+    fn lzw_without_an_end_code_decodes_when_every_byte_is_there() {
+        let data: Vec<u8> = (0..100u8).collect();
+        assert_eq!(decode_lzw(&literal_lzw(&data, true), 100).unwrap(), data);
+        assert_eq!(decode_lzw(&literal_lzw(&data, false), 100).unwrap(), data);
+    }
+
+    #[test]
+    fn lzw_that_stops_short_without_an_end_code_is_an_error() {
+        let data: Vec<u8> = (0..100u8).collect();
+        let mut cut = literal_lzw(&data, false);
+        cut.truncate(cut.len() - 3);
+        assert!(decode_lzw(&cut, 100).is_err());
+    }
+
+    #[test]
+    fn a_short_last_strip_with_its_end_code_keeps_its_length() {
+        let data: Vec<u8> = (0..40u8).collect();
+        assert_eq!(decode_lzw(&literal_lzw(&data, true), 100).unwrap(), data);
+    }
+
     use super::*;
 
     /// A host that answers a server error is not asked again for a while,

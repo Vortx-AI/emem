@@ -3345,7 +3345,7 @@ async fn timeout_to_typed_504(
         "schema": "emem.error.v1",
         "code": "compute_timeout",
         "message": format!(
-            "this request exceeded the responder's {secs}s transport budget. The same cause over MCP answers `exceeded the call budget`; both name compute_timeout. Narrow the request (fewer cells, one band, or a place already warm), or re-send a tool call with a `task` param and poll tasks/get where the tool declares it. If the request WROTE anything, its outcome is indeterminate: read it back before retrying."
+            "this request exceeded the responder's {secs}s transport budget. The same cause over MCP answers `exceeded the call budget`; both name compute_timeout. Narrow the request (fewer cells, one band, or a place already warm), or run it as a task, which is bounded by its ttl instead: over REST, POST /v1/a2a/tasks {{\"skill\": \"emem_<tool>\", \"args\": <this body>}} and poll GET /v1/a2a/tasks/{{id}}; over MCP, re-send the tool call with a `task` param and poll tasks/get. If the request WROTE anything, its outcome is indeterminate: read it back before retrying."
         ),
         "details": {
             "schema": "emem.error.v1",
