@@ -12,12 +12,13 @@ the method, a deciding score fixed in advance, a signed result, and a proposal w
 experiment updates. The readers are agents, not people, so every part is machine-readable and citeable by path,
 content id or token, and an agent can decide whether to trust a method from its record alone. The same discipline
 covers the raw-data work underneath the algorithms (sub-pixel measurement, cloud and haze correction) and the
-forecasts the research desks publish. The first programme, sudden canopy loss, ran six experiments on 28 forests in
-one day and shows both halves of the discipline. A rule that won its first experiment failed to replicate, and the
+forecasts the research desks publish. The first programme, sudden canopy loss, ran eight experiments on 38 forests
+in one day and shows both halves of the discipline. A rule that won its first experiment failed to replicate, and the
 score fixed in advance rewarded a detector that flagged most of the stable forest. Under a better score registered in
-advance, two rules then beat the registry's canopy rule on 21 forests and again on seven new ones, so the registry
-now has two candidates with a replicated record and a stated limit: they win pooled across many forests and often say
-nothing at one.
+advance, two rules then beat the registry's canopy rule on three disjoint sets of forests, and a rule found by search
+beat it on forests it had never seen. The registry now has three candidates with a replicated record and stated
+limits: they win pooled across many forests, often say nothing at one, and find nine in ten large clearings but one in
+five small ones.
 
 ## 1. Why the registry needs evidence
 
@@ -42,7 +43,8 @@ leaves an agent to trust names. The research program exists to replace that trus
 Each experiment is a small set of signed notes and one signed derivation, written by the methods-lab research desk
 under its own key (`mujzmxes`), in this order:
 
-1. **The plan.** `research/experiments/<id>/plan.md`, written before any data is read. It states the question, the
+1. **The plan.** `research/experiments/<id>/plan.md`, written before any data is read. (The code that runs the experiments is in the emem-world
+   repository, private until peer review; every note and record it writes is public.) It states the question, the
    reference, the labelling rule, every method under test with the blake3 of its own source, and the deciding score
    with its rule (a paired bootstrap of 2,000 resamples of cells, fixed seed). The transparency log orders the plan
    before the result, so a plan cannot be edited to fit what was found.
@@ -60,16 +62,23 @@ under its own key (`mujzmxes`), in this order:
    as a registry-shaped entry citing the experiment. Every later experiment that scores the method appends a row to
    its evidence table and recomputes its status.
 
-A proposal moves through four states, and only the operator moves it into the registry:
+A proposal moves through these states, and only the operator moves it into the registry:
 
 | status | meaning |
 |---|---|
 | proposed, awaiting replication | won one pre-registered experiment |
-| replicated | won again on sites no earlier experiment scored, and lost none since its first win |
-| not replicated | won, then lost a later experiment |
+| replicated | won again on sites no earlier experiment scored, and never failed to win under the same score |
+| mixed | won, but failed to win an earlier experiment under the same score |
+| not replicated | won, then failed to win a later experiment |
 | registered | an operator added it to the registry, citing its record |
 
 ## 3. What an agent reads, and how it decides
+
+The entry point is one signed note per task, the catalogue: for canopy loss,
+`research/algorithms/index.md` under the lab's key. It lists every proposal with its status, its latest score and
+interval against the baseline, the experiments it won and lost, the notes that qualify its status, and the measured
+accuracy of the registry's own rules for the same task, with the same content in a JSON block. The lab rewrites it
+after every experiment, so it is the current state, and every number in it resolves to a signed record.
 
 Every step above is addressed for a machine. An agent that meets a method name can:
 
@@ -106,17 +115,21 @@ above a line, so a change a tenth of a cell wide shows before it moves the media
 a shoreline from 10 m pixels: at Marina Beach in Chennai it reads the shore advancing 4.8 m a year, with a 95%
 interval of 1.8 to 8.6 m (Sen's rank-based interval on the Theil-Sen slope), over 52 clear passes since November
 2023. The canopy programme tested the same reading as a detector, the share of a cell's pixels that stay green, and
-the darkest tenth of a cell's pixels as another. Neither beat the registry rule at scale or on new forests: a 400 m
-cell's percentiles do not see a clearing a twentieth of its area. The next test reads finer cells or the raster.
+the darkest tenth of a cell's pixels as another. Neither beat the registry rule at scale or on the seven forests of
+the MCC replication; after the cloud screen, both beat it on the ten of the third replication, where their best
+sites were managed forests with partial harvests. Their record is mixed. Over all three MCC experiments the quiet
+rules found 91% of cells where half the forest was cleared and 20% where a twentieth was, so the cell-size experiment
+reads the same detectors at 200 m, scored on the same pixels.
 
 **Cloud and haze correction.** Sen2Cor's scene classification misses thin cloud and haze, which pull NDVI and NBR
 down and almost never up. The program tests corrections in time rather than trusting the mask: a temporal screen
 that drops a pass reading more than 0.1 below both its neighbours (Chen et al. 2004), and, for condition, each cell's
 median over 20 days instead of its newest pass. The second came from evidence: one hazy October pass over Rondonia
 read 94% of the forest browner than usual. Whether the screen helps each detector was registered in two canopy
-experiments and scored on the same cells with and without it. Which detector it helped did not replicate: the dNBR
-rule at scale, the NDVI-drop rule on the new forests. What held is that it helps only rules that compare single
-passes, and never helped the rule that waits for a drop to hold, for which a low pass is evidence.
+experiments and scored on the same cells with and without it. Across the three MCC experiments it helped a detector
+that compares single passes or reads percentiles in 7 of 12 tests and never hurt one, and it never helped the rule
+that waits for a drop to hold, for which a low pass is evidence. Snow is the next correction: at a boreal site every
+rule flagged much of the stable forest, and the screen keeps a low pass whose neighbours are low too.
 
 **Novel readings.** The program keeps a place for logic that is not a threshold on one index: comparing a cell with
 the same weeks a year earlier so that a dry season is not mistaken for loss, reading the darkest tenth of a cell
@@ -139,6 +152,88 @@ last 30 years (a nonparametric standardized precipitation index over 90 days). A
 and vegetation disagree: at Maradi in Niger the last 90 days of ERA5 rain are the driest of those weeks since 1996
 while 44% of the land is greener than usual. One of the two is wrong there, and the record says so rather than
 choosing. Disagreements are listed by the integrity desk as leads for the next experiment.
+
+### 4.5 Memory-driven detection: one timeline per place, every sensor as evidence
+
+The rules in sections 4.1 and 4.2 are simple upgrades of one idea: compare one sensor's reading with a fixed
+threshold. They know nothing about the place they are reading, and each sensor is read alone. emem already holds the
+two things that idea lacks: the signed history of every place it has read, and machinery for a timeline that changes
+its mind (`supersedes` and `disagrees_with` edges, contradictions, consolidation). The memory-driven methods use both.
+
+**Memory.** A place's normal is its own past, not a global threshold. For each sensor, the method fits the cell's
+observations from before the window with an annual harmonic and a robust spread, so a dry season the cell always has
+is remembered as normal and an equally large drop out of season is not.
+
+**One timeline, every sensor.** Each observation, from any sensor, is evidence about the same question: is this
+place still what it was? An optical pass adds the log likelihood ratio of "disturbed" against "as remembered" for its
+reading, and a radar pass does the same for backscatter, in date order on one timeline. A pass lost to cloud is
+replaced by a radar pass; a hazy pass is one capped piece of evidence, not a verdict.
+
+**Temporal bifurcation.** When evidence of change starts to build, the place's timeline forks into "still as
+remembered" and "disturbed since t0". Later observations move weight between the branches until one is confirmed (at
+odds of 39 to 1) or the fork collapses. This is Wald's sequential test run as Page's CUSUM, the form the published
+optical-radar fusion detectors take (Reiche et al. 2015, 2018). In emem terms, a fork is a provisional fact, its
+confirmation supersedes it, and its collapse is recorded rather than erased, so a reader can see when a change was
+first suspected and how it was settled.
+
+**Version 1** (`lab:memory_optical@1`, `lab:memory_radar@1`, `lab:memory_fusion@1`) remembers one index per sensor
+from the year before the window and confirms a fork at fixed odds of 39 to 1.
+
+**Version 2** is the same idea with the mathematics it needs:
+
+- *Memory across bands and years.* For each cell and sensor group (Sentinel-2 NDVI, NBR and NDMI; Sentinel-1 VH),
+  each band's normal is a least-squares annual harmonic fit over five years (2019 to 2023; two harmonics when the
+  memory spans two years), with a robust scale (1.4826 times the median absolute residual). The bands' joint noise
+  is a rank correlation, 2 sin(πρ/6) of Spearman's ρ, shrunk 20% toward the identity so that a few dozen passes
+  give a usable matrix R.
+- *A matched filter.* Canopy loss lowers the bands together, in the ratio s = (0.15, 0.20, 0.15) for NDVI, NBR and
+  NDMI, and lowers VH. In the cell's own units, a pass's standardised drop z is projected on the whitened direction:
+  y = sᵀR⁻¹z / √(sᵀR⁻¹s), which is N(0, 1) under the memory. Correlated bands then count as the evidence they are,
+  not three times over, and s fixes only the direction of a loss, not its size.
+- *Losses of any size.* Three CUSUM charts run in parallel for shifts of μ = 1.5, 3 and 6 standard deviations
+  along that direction, each pass adding μy − μ²/2, capped at ±3 so no pass decides alone.
+- *A false-alarm rate each cell states in advance.* The cell's p-value compares its largest CUSUM value over the
+  window with 99 replays of the window's own pass schedule built from its memory. The cell is flagged when p ≤ 0.05
+  and dated when its strongest fork opened. A variant applies Benjamini-Hochberg across a forest's cells at q = 0.10.
+  Another weights each cell by its neighbours' evidence (Genovese, Roeder and Wasserman 2006), because clearings
+  spread.
+- *Memory as an emem fact.* Each forest's per-cell memory (seasonal values, scales, correlations) is minted as a
+  signed `cell_memory@1` derivation whose parents are the series it was learned from. It is the problem-specific
+  counterpart of a learned embedding such as AlphaEarth or GeoTessera: every coordinate has a meaning and a source,
+  and any agent can recompute it.
+
+**Calibration had to be earned.** On synthetic stable cells, three versions of the null failed before one held, and
+each failure is a general lesson for memory-driven detectors:
+
+| null | stable cells flagged | why it failed |
+|---|---|---|
+| residuals resampled in blocks of three passes | 30% with year-to-year offsets | a drier or wetter year shifts every band for months; short blocks do not carry it, and a CUSUM adds it up |
+| whole remembered years replayed | 31% with no offsets at all | in-sample residuals lack the fit's own error, which the window sees as a steady offset (the estimated-parameter problem; Jones, Champ and Rigdon 2001) |
+| leave-one-year-out residuals replayed | 19% | five remembered years cannot reach the tail of a new year's offset |
+| leave-one-year-out within-year noise plus a new year's offset from its predictive distribution | 2 to 5% across four noise conditions | holds |
+
+The predictive draw is normal with the remembered years' offset covariance, scaled by (n − 1)/χ²ₙ₋₁ so that it
+carries the uncertainty of estimating that covariance from n years.
+
+**Under test.** All seven memory methods are registered in one experiment on ten tropical forests. Ten comparisons
+separate what each upgrade adds: radar, memory against a fixed threshold, version 2 against version 1, relations,
+and false-discovery control against per-cell calibration. The experiment also checks each calibrated method's
+stated false-alarm rate against the one it shows. Every setting was fixed before any of those forests was read.
+
+**How high can accuracy go?** The score is bounded by the reference. Hansen's labels are themselves wrong
+sometimes, and the 5% loss line puts some cells on the wrong side of it, so no method can be verified above the
+reference's own agreement with the truth. The next experiment measures that ceiling: Hansen against JRC TMF on the
+same cells. A claim of near-perfect accuracy will be stated against that ceiling, or not at all.
+
+**Next, in order.** Each step is a registered experiment, not a release:
+
+1. Write each cell's forks, confirmations and collapses into emem memory as signed facts with `supersedes` edges, so
+   an alert carries its own history and another agent can audit it.
+2. Let the memory learn: update a cell's normal from observations its timeline has confirmed as undisturbed, so slow
+   change is remembered and a confirmed change resets the normal.
+3. Let neighbours speak: a fork confirmed next door raises the prior of a fork here, because clearings spread.
+4. Add sensors as emem serves them: Landsat or HLS for memory before 2017 and a third optical reading, and per-pixel
+   stacks from `band_cube` instead of cell medians (the cell-size experiment says finer reading finds more).
 
 ## 5. Rules of evidence
 
@@ -166,8 +261,14 @@ These are the rules the program holds itself to, each learned or confirmed on th
    the score they won on, on one earlier site set. Analyses like these are post hoc and decide nothing, and they are
    written on the proposal beside its status.
 8. **A search's score is the search's.** When a search wins out of sample, its pick is fixed as a method of its own
-   and tested on new sites, because the pick was chosen on every site the search saw.
-9. **The operator registers.** The lab proposes; the registry changes only when its operator adds an entry and cites
+   and tested on new sites, because the pick was chosen on every site the search saw. On 29 October the fixed pick
+   won its own test on ten new forests, while that run's search did not win out of sample: the procedure was unstable
+   and the rule it had picked held.
+9. **A failure under the deciding score stands.** Losses before a method's first win are excused only when another
+   score judged them. The rule was first written to excuse every earlier loss, which was meant for the F1 experiments,
+   and it was tightened when three sub-pixel and screened rules won after losing under MCC. Changes to the status rule
+   are made in the open, apply to every record, and so far have only demoted.
+10. **The operator registers.** The lab proposes; the registry changes only when its operator adds an entry and cites
    the record.
 
 ## 6. Scaling the program
@@ -177,8 +278,8 @@ reachable as signed emem data. Several are:
 
 | task | independent reference in emem |
 |---|---|
-| canopy loss and clearing | Hansen GFC loss year, JRC TMF deforestation year, RADD alerts |
-| fire | MODIS burned area (MCD64A1), OPERA DIST-ALERT |
+| canopy loss and clearing | Hansen GFC loss year and JRC TMF deforestation year, both as rasters (`band_raster`); RADD alerts as a point band only |
+| fire | MODIS burned area (MCD64A1) through the field burn-scar route; OPERA DIST-ALERT as a point band only |
 | surface water and flood extent | JRC Global Surface Water occurrence and seasonality |
 | forecasts | the later signed observation itself, checked by the outlook ledger |
 
@@ -189,12 +290,12 @@ disagreements between sources; that list is the program's agenda.
 
 ## 7. What is not shown yet
 
-- Two canopy rules have replicated by the program's rule (`lab:seasonal_loss_nbr@1` and the forest desk's
-  `vegetation_loss@1`), and neither is registered yet. Both are weak at single sites with few, small clearings.
-- The searched rule (`lab:seasonal_canopy_loss@1`) has only the search's score. Its own test, a third replication on
-  ten new forests, is registered and has not run yet.
-- Cells are 400 m. Clearings that cover a few percent of a cell are left out of scoring, and no rule tested so far
-  finds them reliably.
+- Three canopy rules have replicated by the program's rule (`lab:seasonal_loss_nbr@1`, the forest desk's
+  `vegetation_loss@1` and the searched `lab:seasonal_canopy_loss@1`), and none is registered yet. All are weak at
+  single sites with few, small clearings, and none is screened for snow.
+- At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
+  experiment's question.
+- Clearings that cover under 5% of a 400 m cell are left out of scoring.
 - The reference is annual and Landsat-based; a loss Sentinel-2 sees in January can belong to the previous year in
   it, which the labels handle by leaving those cells out.
 - The rules under test were written by people or searched over settings people chose. The lab does not yet propose
@@ -204,8 +305,20 @@ disagreements between sources; that list is the program's agenda.
 
 ## References
 
+- Page, E. S. 1954. Continuous inspection schemes. Biometrika 41:100-115.
+- Reiche, J. et al. 2015. A Bayesian approach to combine Landsat and ALOS PALSAR time series for near real-time
+  deforestation detection. Remote Sensing 7:4973-4996.
+- Reiche, J. et al. 2018. Improving near-real time deforestation monitoring in tropical dry forests by combining
+  dense Sentinel-1 time series with Landsat and ALOS-2 PALSAR-2. Remote Sensing of Environment 204:147-161.
+- Wald, A. 1945. Sequential tests of statistical hypotheses. Annals of Mathematical Statistics 16:117-186.
 - Chen, J. et al. 2004. A simple method for reconstructing a high-quality NDVI time-series data set based on the
   Savitzky-Golay filter. Remote Sensing of Environment 91:332-344.
+- Benjamini, Y. & Hochberg, Y. 1995. Controlling the false discovery rate. Journal of the Royal Statistical
+  Society B 57:289-300.
+- Genovese, C. R., Roeder, K. & Wasserman, L. 2006. False discovery control with p-value weighting. Biometrika
+  93:509-524.
+- Jones, L. A., Champ, C. W. & Rigdon, S. E. 2001. The performance of exponentially weighted moving average charts
+  with estimated parameters. Technometrics 43:156-167.
 - Farahmand, A. & AghaKouchak, A. 2015. A generalized framework for deriving nonparametric standardized drought
   indicators. Advances in Water Resources 76:140-145.
 - Hansen, M. C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853.
