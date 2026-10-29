@@ -519,7 +519,11 @@ it; the default is the orbit with the most scenes. Never join two orbits
 in one line. A radar row has no `clear_fraction`. It carries `mean` (10
 log10 of the mean linear power), `se_db`, `pixel_enl`,
 `below_nesz_share`, `bright_rejected`, `n_valid` and `valid_fraction`,
-and the trend is on `median`.
+and the trend is on `median`. Over an area, a radar answer also has
+`blocks`, `change_map` and `anomaly`, in dB. A block's value is the
+median of per-pixel dB, the change map pairs scenes on the one orbit,
+and `blocks.n_px` gives each block's pixel count. Speckle makes a small
+block noisy, so read `cautions` before you colour a map by it.
 
 **Pixel rules.** `inner_buffer_m` (0 to 60, default 0) counts a pixel
 only when its centre is that far inside the edge. `min_support_px` (4 to

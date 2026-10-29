@@ -630,6 +630,12 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 - Radar rows have no `clear_fraction`. `mean` is the dB of the mean
   linear power. Rows also carry `se_db`, `pixel_enl`, `below_nesz_share`
   and `bright_rejected`.
+- A radar area answer carries `blocks`, `change_map` and `anomaly` like
+  an optical one, in dB and on its one orbit. A block's value is the
+  median of per-pixel dB over its valid pixels, and `blocks.n_px` gives
+  each block's pixel count. Speckle makes a small block noisy, and
+  `cautions` says how large a block change is noise at the smallest
+  block. A radar `fields` answer has none of the three.
 
    #### Geocoding and dispatch
 

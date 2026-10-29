@@ -977,13 +977,16 @@ fn item_day(it: &emem_fetch::stac::StacItem) -> Option<i64> {
     Some(crate::days_from_civil(y, m, d))
 }
 
-/// For the newest candidate, the least cloudy candidate in each earlier year
-/// within `SEASON_HALF_WIDTH_DAYS` of its day of year (at most three years
-/// back). Even spacing alone almost never lands on the same season twice, and
-/// without a same-season pair there is no anomaly and no honest change map.
+/// For the newest candidate, the best candidate in each earlier year within
+/// `SEASON_HALF_WIDTH_DAYS` of its day of year (at most three years back),
+/// lowest `rank` first; `rank` sees the item and its day-of-year gap to the
+/// newest. Even spacing alone almost never lands on the same season twice,
+/// and without a same-season pair there is no anomaly and no honest change
+/// map.
 fn same_season_partners(
     candidates: &[&emem_fetch::stac::StacItem],
     chosen: &[usize],
+    rank: impl Fn(&emem_fetch::stac::StacItem, i64) -> f64,
 ) -> Vec<usize> {
     let Some(&newest) = chosen.iter().max() else {
         return Vec::new();
@@ -996,18 +999,154 @@ fn same_season_partners(
     for (i, it) in candidates.iter().enumerate() {
         let Some(day) = item_day(it) else { continue };
         let (y, doy) = day_of_year(day);
-        if y >= newest_year
-            || y < newest_year - 3
-            || doy_gap(doy, newest_doy) > SEASON_HALF_WIDTH_DAYS
-        {
+        let gap = doy_gap(doy, newest_doy);
+        if y >= newest_year || y < newest_year - 3 || gap > SEASON_HALF_WIDTH_DAYS {
             continue;
         }
-        let cloud = it.cloud_cover.unwrap_or(100.0);
-        if best.get(&y).is_none_or(|(_, c)| cloud < *c) {
-            best.insert(y, (i, cloud));
+        let score = rank(it, gap);
+        if best.get(&y).is_none_or(|(_, c)| score < *c) {
+            best.insert(y, (i, score));
         }
     }
     best.into_values().map(|(i, _)| i).collect()
+}
+
+/// Map blocks per side: 2..=8, default 6.
+fn blocks_per_side(asked: Option<u32>) -> u32 {
+    asked.unwrap_or(6).clamp(2, 8)
+}
+
+/// The map block a lattice pixel falls in: the window cut into
+/// `blocks x blocks`, numbered row-major from the north-west.
+fn block_index(r: u32, c: u32, w: u32, h: u32, blocks: u32) -> usize {
+    let bi = (r * blocks / h).min(blocks - 1);
+    let bj = (c * blocks / w).min(blocks - 1);
+    (bi * blocks + bj) as usize
+}
+
+/// Each block's WGS-84 quad, in [`block_index`] order, from the inverse
+/// projection of its corners on the lattice.
+fn block_quads(g: &Lattice, blocks: u32) -> Vec<JsonValue> {
+    let corner = |r: u32, c: u32| {
+        let x = g.x0 + c as f64 * g.step;
+        let y = g.y0 - r as f64 * g.step;
+        emem_fetch::proj::utm_to_latlng_with_epsg(x, y, g.epsg)
+            .map(|(la, lo)| json!([round6(lo), round6(la)]))
+            .unwrap_or(JsonValue::Null)
+    };
+    let mut quads = Vec::with_capacity((blocks * blocks) as usize);
+    for bi in 0..blocks {
+        for bj in 0..blocks {
+            let r0 = (bi * g.h).div_ceil(blocks);
+            let r1 = ((bi + 1) * g.h).div_ceil(blocks);
+            let c0 = (bj * g.w).div_ceil(blocks);
+            let c1 = ((bj + 1) * g.w).div_ceil(blocks);
+            quads.push(json!([[
+                corner(r0, c0),
+                corner(r0, c1),
+                corner(r1, c1),
+                corner(r1, c0),
+                corner(r0, c0)
+            ]]));
+        }
+    }
+    quads
+}
+
+/// The newest value against the median of earlier years' values within
+/// [`SEASON_HALF_WIDTH_DAYS`] of its day of year: `(latest, baseline,
+/// baseline_n)`, or `None` when no earlier year has one.
+fn same_season_anomaly(days: &[i64], values: &[f64]) -> Option<(f64, f64, usize)> {
+    let (last_year, last_doy) = day_of_year(*days.last()?);
+    let mut baseline: Vec<f64> = days
+        .iter()
+        .zip(values)
+        .filter(|(d, _)| {
+            let (y, doy) = day_of_year(**d);
+            y < last_year && doy_gap(doy, last_doy) <= SEASON_HALF_WIDTH_DAYS
+        })
+        .map(|(_, m)| *m)
+        .collect();
+    if baseline.is_empty() {
+        return None;
+    }
+    baseline.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let n = baseline.len();
+    let base = if n % 2 == 1 {
+        baseline[n / 2]
+    } else {
+        (baseline[n / 2 - 1] + baseline[n / 2]) / 2.0
+    };
+    Some((*values.last()?, base, n))
+}
+
+/// The block change map as GeoJSON: the newest kept scene against the
+/// earlier-year kept scene nearest its day of year, within
+/// [`SEASON_HALF_WIDTH_DAYS`]; without one, against the first kept scene,
+/// and `pairing` says which. `days`, `block_values` and `dates` are the kept
+/// scenes, oldest first; `quads` is [`block_quads`]. A pair further apart in
+/// day of year than the half-width adds a caution.
+fn block_change_map(
+    days: &[i64],
+    block_values: &[Vec<Option<f64>>],
+    dates: &[JsonValue],
+    quads: &[JsonValue],
+    cautions: &mut Vec<String>,
+) -> Option<JsonValue> {
+    let from_idx = days.last().and_then(|last| {
+        let (ly, ld) = day_of_year(*last);
+        days.iter()
+            .enumerate()
+            .filter(|(_, d)| day_of_year(**d).0 < ly)
+            .min_by_key(|(_, d)| doy_gap(day_of_year(**d).1, ld))
+            .map(|(i, _)| i)
+            .filter(|i| doy_gap(day_of_year(days[*i]).1, ld) <= SEASON_HALF_WIDTH_DAYS)
+    });
+    let pairing = if from_idx.is_some() {
+        "same_season"
+    } else {
+        "first_to_last"
+    };
+    let from = from_idx.unwrap_or(0);
+    if block_values.len() < 2 {
+        return None;
+    }
+    let (first, last) = (block_values.get(from)?, block_values.last()?);
+    let gap = doy_gap(
+        day_of_year(*days.get(from)?).1,
+        day_of_year(*days.last()?).1,
+    );
+    if gap > SEASON_HALF_WIDTH_DAYS {
+        cautions.push(format!(
+            "the change map compares scenes {gap} days of year apart: part of every block's change is the season."
+        ));
+    }
+    let features: Vec<JsonValue> = first
+        .iter()
+        .zip(last)
+        .zip(quads)
+        .enumerate()
+        .map(|(k, ((f, l), quad))| {
+            json!({
+                "type": "Feature",
+                "geometry": {"type": "Polygon", "coordinates": quad},
+                "properties": {
+                    "block": k,
+                    "first": f.map(round6),
+                    "last": l.map(round6),
+                    "change": match (f, l) { (Some(f), Some(l)) => round6(l - f), _ => JsonValue::Null },
+                },
+            })
+        })
+        .collect();
+    Some(json!({
+        "type": "FeatureCollection",
+        "from": dates.get(from).cloned(),
+        "to": dates.last().cloned(),
+        "pairing": pairing,
+        "day_of_year_gap": gap,
+        "features": features,
+    }))
 }
 
 fn round6(x: f64) -> JsonValue {
@@ -1103,7 +1242,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .min_support_px
         .unwrap_or(MIN_SUPPORT_PX)
         .clamp(4, MIN_SUPPORT_PX);
-    let blocks = req.blocks.unwrap_or(6).clamp(2, 8);
+    let blocks = blocks_per_side(req.blocks);
     let mut reject_vec = req
         .mask_policy
         .clone()
@@ -1224,7 +1363,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .and_then(|it| it.datetime.get(..10))
         .map(str::to_string);
     let mut chosen: Vec<usize> = spread(candidates.len(), max_scenes);
-    let same_season = same_season_partners(&candidates, &chosen);
+    let same_season = same_season_partners(&candidates, &chosen, |it, _| {
+        it.cloud_cover.unwrap_or(100.0)
+    });
     for i in &same_season {
         if !chosen.contains(i) {
             chosen.push(*i);
@@ -1338,38 +1479,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     };
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
-
-    // Block lattice: the window cut into blocks x blocks, each with its WGS-84
-    // quad from the inverse projection of its corners.
-    let block_of = |r: u32, c: u32| {
-        (
-            (r * blocks / h).min(blocks - 1),
-            (c * blocks / w).min(blocks - 1),
-        )
-    };
-    let mut block_quads: Vec<JsonValue> = Vec::new();
-    for bi in 0..blocks {
-        for bj in 0..blocks {
-            let r0 = (bi * h).div_ceil(blocks);
-            let r1 = ((bi + 1) * h).div_ceil(blocks);
-            let c0 = (bj * w).div_ceil(blocks);
-            let c1 = ((bj + 1) * w).div_ceil(blocks);
-            let corner = |r: u32, c: u32| {
-                let x = wx0 + c as f64 * native_m;
-                let y = wy0 - r as f64 * native_m;
-                emem_fetch::proj::utm_to_latlng_with_epsg(x, y, epsg)
-                    .map(|(la, lo)| json!([round6(lo), round6(la)]))
-                    .unwrap_or(JsonValue::Null)
-            };
-            block_quads.push(json!([[
-                corner(r0, c0),
-                corner(r0, c1),
-                corner(r1, c1),
-                corner(r1, c0),
-                corner(r0, c0)
-            ]]));
-        }
-    }
+    let quads = block_quads(&lattice, blocks);
 
     // ── read every picked scene: two bands, each masked by its SCL. ───────
     // Bounded in chunks rather than a buffered stream: a stream of async
@@ -1460,8 +1570,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
                 if !inside[p] {
                     continue;
                 }
-                let (bi, bj) = block_of(r, c);
-                let k = (bi * blocks + bj) as usize;
+                let k = block_index(r, c, w, h, blocks);
                 inside_per_block[k] += 1;
                 let Some(v) = index.at(ga[p], gb[p], gc.as_ref().map(|g| g[p])) else {
                     continue;
@@ -1630,35 +1739,14 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             rows.len()
         ));
     }
-    let anomaly = kept_days.last().and_then(|last_day| {
-        let (last_year, last_doy) = day_of_year(*last_day);
-        let baseline: Vec<f64> = kept_days
-            .iter()
-            .zip(&kept_medians)
-            .filter(|(d, _)| {
-                let (y, doy) = day_of_year(**d);
-                y < last_year && doy_gap(doy, last_doy) <= SEASON_HALF_WIDTH_DAYS
-            })
-            .map(|(_, m)| *m)
-            .collect();
-        if baseline.is_empty() {
-            return None;
-        }
-        let mut sorted = baseline.clone();
-        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let base = if sorted.len() % 2 == 1 {
-            sorted[sorted.len() / 2]
-        } else {
-            (sorted[sorted.len() / 2 - 1] + sorted[sorted.len() / 2]) / 2.0
-        };
-        let latest = *kept_medians.last()?;
-        Some(json!({
+    let anomaly = same_season_anomaly(&kept_days, &kept_medians).map(|(latest, base, n)| {
+        json!({
             "method": format!("latest scene's median minus the median of earlier years' scene medians within {SEASON_HALF_WIDTH_DAYS} days of its day of year"),
             "latest": round6(latest),
             "same_season_baseline": round6(base),
             "anomaly": round6(latest - base),
-            "baseline_n": baseline.len(),
-        }))
+            "baseline_n": n,
+        })
     });
     if anomaly.is_none() && !rows.is_empty() {
         cautions.push(if window_days >= 365 {
@@ -1667,62 +1755,17 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             format!("no same-season anomaly: the window is {window_days} days, so it holds no earlier year. Start it at least a year before the end to get one.")
         });
     }
-    // Pair the latest kept scene with the earlier-year kept scene nearest its
-    // day of year; only without one fall back to the first, and say so.
-    let from_idx = kept_days.last().and_then(|last| {
-        let (ly, ld) = day_of_year(*last);
-        kept_days
-            .iter()
-            .enumerate()
-            .filter(|(_, d)| day_of_year(**d).0 < ly)
-            .min_by_key(|(_, d)| doy_gap(day_of_year(**d).1, ld))
-            .map(|(i, _)| i)
-            .filter(|i| doy_gap(day_of_year(kept_days[*i]).1, ld) <= SEASON_HALF_WIDTH_DAYS)
-    });
-    let pairing = if from_idx.is_some() {
-        "same_season"
-    } else {
-        "first_to_last"
-    };
-    let change_map = match (
-        kept_block_medians.get(from_idx.unwrap_or(0)),
-        kept_block_medians.last(),
-    ) {
-        (Some(first), Some(last)) if kept_block_medians.len() >= 2 => {
-            let from = from_idx.unwrap_or(0);
-            let (first_day, last_day) = (kept_days[from], kept_days[kept_days.len() - 1]);
-            let gap = doy_gap(day_of_year(first_day).1, day_of_year(last_day).1);
-            if gap > SEASON_HALF_WIDTH_DAYS {
-                cautions.push(format!(
-                    "the change map compares scenes {gap} days of year apart: part of every block's change is the season."
-                ));
-            }
-            let features: Vec<JsonValue> = (0..nblocks)
-                .map(|k| {
-                    let (f, l) = (first[k], last[k]);
-                    json!({
-                        "type": "Feature",
-                        "geometry": {"type": "Polygon", "coordinates": block_quads[k]},
-                        "properties": {
-                            "block": k,
-                            "first": f.map(round6),
-                            "last": l.map(round6),
-                            "change": match (f, l) { (Some(f), Some(l)) => round6(l - f), _ => JsonValue::Null },
-                        },
-                    })
-                })
-                .collect();
-            Some(json!({
-                "type": "FeatureCollection",
-                "from": rows.get(from).and_then(|r| r.get("date")).cloned(),
-                "to": rows.last().and_then(|r| r.get("date")).cloned(),
-                "pairing": pairing,
-                "day_of_year_gap": gap,
-                "features": features,
-            }))
-        }
-        _ => None,
-    };
+    let dates: Vec<JsonValue> = rows
+        .iter()
+        .map(|r| r.get("date").cloned().unwrap_or(JsonValue::Null))
+        .collect();
+    let change_map = block_change_map(
+        &kept_days,
+        &kept_block_medians,
+        &dates,
+        &quads,
+        &mut cautions,
+    );
 
     let fields_block = fields_acc.block(
         &zones,
@@ -1868,7 +1911,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "blocks": {
             "per_side": blocks,
             "order": "row-major from the north-west block; each row's block_medians follows this order",
-            "quads": block_quads,
+            "quads": quads,
             "rule": "a block's median counts when at least half of its in-area pixels are clear",
         },
         "selection": record["selection"],
@@ -1917,6 +1960,83 @@ fn bright_cut(v: &[f64], px: impl Iterator<Item = usize>) -> f64 {
 /// better. Below it a pixel is mostly instrument noise: "dark", not a level.
 const NESZ_DB: f64 = -22.0;
 
+/// Sentinel-1 catalogue items fetched per series, newest first.
+const RADAR_CANDIDATE_LIMIT: usize = 400;
+
+/// Between-scene scatter of a median of per-pixel dB over `n` pixels of a
+/// uniform area, in dB: about 1 dB at 30 pixels. Per-pixel dB under 4.4-look
+/// speckle has a std of 2.19 dB (10 / ln 10 times the root of the trigamma
+/// function at 4.4); neighbouring pixels share speckle (20 m resolution on
+/// 10 m spacing), so `n` pixels are about `n / 4` independent looks; and a
+/// median's std is sqrt(pi / 2) times a mean's.
+fn speckle_scatter_db(n: usize) -> f64 {
+    (std::f64::consts::PI / 2.0).sqrt() * 2.19 / (n.max(1) as f64 / 4.0).sqrt()
+}
+
+/// One Sentinel-1 scene on the series lattice: both channels in linear
+/// gamma-naught, and the index read from them.
+struct RadarScene<'a> {
+    index: &'a str,
+    vv: &'a [f64],
+    vh: &'a [f64],
+}
+
+impl RadarScene<'_> {
+    /// A pixel's linear reading of the channels the index uses, and whether
+    /// it is a point target: brighter than `cut` in a channel the index
+    /// reads.
+    fn pixel(&self, p: usize, cut: (f64, f64)) -> Option<(f64, f64, bool)> {
+        let (uses_vv, uses_vh) = (self.index != "vh", self.index != "vv");
+        let lin = |v: &[f64]| v.get(p).copied().filter(|x| x.is_finite() && *x > 0.0);
+        let a = if uses_vv { lin(self.vv)? } else { 0.0 };
+        let c = if uses_vh { lin(self.vh)? } else { 0.0 };
+        Some((a, c, (uses_vv && a > cut.0) || (uses_vh && c > cut.1)))
+    }
+
+    /// The index at a pixel, in dB, from its linear VV and VH.
+    fn db(&self, a: f64, c: f64) -> f32 {
+        (10.0
+            * match self.index {
+                "vv" => a.log10(),
+                "vh" => c.log10(),
+                _ => (c / a).log10(),
+            }) as f32
+    }
+
+    /// Both channels' point-target cuts against these pixels' median.
+    fn cut(&self, px: impl Iterator<Item = usize> + Clone) -> (f64, f64) {
+        (bright_cut(self.vv, px.clone()), bright_cut(self.vh, px))
+    }
+
+    /// Each map block's value: the median of per-pixel dB over the block's
+    /// valid pixels, the same statistic as the scene's `median`. Point
+    /// targets are cut against the block's own median power, as a field's
+    /// are, so a block of roofs reads as roofs rather than as what is left
+    /// between them. A block counts when at least half of its pixels hold a
+    /// reading; a point target counts as read, as in `valid_fraction`.
+    fn block_medians(&self, block_px: &[Vec<usize>]) -> Vec<Option<f64>> {
+        block_px
+            .iter()
+            .map(|px| {
+                let cut = self.cut(px.iter().copied());
+                let mut read = 0usize;
+                let mut v: Vec<f32> = Vec::with_capacity(px.len());
+                for (a, c, bright) in px.iter().filter_map(|p| self.pixel(*p, cut)) {
+                    read += 1;
+                    if !bright {
+                        v.push(self.db(a, c));
+                    }
+                }
+                if v.is_empty() || read * 2 < px.len() {
+                    return None;
+                }
+                v.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                Some(quantile(&v, 0.5))
+            })
+            .collect()
+    }
+}
+
 /// A Sentinel-1 series over the area: one relative orbit, each scene's
 /// gamma-naught backscatter (RTC, Planetary Computer) in dB, summarised over
 /// the area's pixels like the optical series. One orbit because two tracks
@@ -1956,10 +2076,15 @@ async fn radar_series(
         .unwrap_or(MIN_SUPPORT_PX)
         .clamp(4, MIN_SUPPORT_PX);
     let min_valid = req.min_clear_fraction.unwrap_or(0.4).clamp(0.05, 1.0);
+    // The map, the change map and the anomaly are for an area answer. A
+    // `fields` answer keeps the shape its readers parse, and its window is
+    // the fields' joint box, which nobody asked to map.
+    let map = zones.is_empty();
+    let blocks = blocks_per_side(req.blocks);
     let cache_key = serde_json::to_string(&json!({
         "radar": index_key, "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng], "rings": aoi.rings,
         "start": req.start_date, "end": req.end_date, "max_scenes": max_scenes, "orbit": req.orbit,
-        "buffer_m": buffer_m, "min_support": min_support, "min_valid": min_valid,
+        "buffer_m": buffer_m, "min_support": min_support, "min_valid": min_valid, "blocks": blocks,
         "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
     }))
     .unwrap_or_default();
@@ -1973,14 +2098,14 @@ async fn radar_series(
     }
 
     let cli = crate::s2_http_client();
-    let (found, _more) = emem_fetch::stac::search_bbox_at(
+    let (found, search_capped) = emem_fetch::stac::search_bbox_at(
         &cli,
         emem_fetch::stac::STAC_MPC_V1,
         "sentinel-1-rtc",
         [b.min_lng, b.min_lat, b.max_lng, b.max_lat],
         &format!("{}T00:00:00Z/{}T23:59:59Z", req.start_date, req.end_date),
         None,
-        400,
+        RADAR_CANDIDATE_LIMIT,
     )
     .await
     .map_err(|e| upstream_error(format!("sentinel-1 search: {e}")))?;
@@ -2017,10 +2142,21 @@ async fn radar_series(
             "relative orbit {orbit} has no scene over this area in the window; orbits seen: {by_orbit:?}"
         )));
     }
-    let picked: Vec<&emem_fetch::stac::StacItem> = spread(on_orbit.len(), max_scenes)
-        .into_iter()
-        .map(|i| on_orbit[i])
-        .collect();
+    let mut chosen = spread(on_orbit.len(), max_scenes);
+    // On one orbit every pass has the same geometry, so the partner is the
+    // pass nearest in season, where the optical series takes the clearest.
+    let same_season = if map {
+        same_season_partners(&on_orbit, &chosen, |_, gap| gap as f64)
+    } else {
+        Vec::new()
+    };
+    for i in &same_season {
+        if !chosen.contains(i) {
+            chosen.push(*i);
+        }
+    }
+    chosen.sort_unstable();
+    let picked: Vec<&emem_fetch::stac::StacItem> = chosen.iter().map(|i| on_orbit[*i]).collect();
     let sas = emem_fetch::stac::mpc_sas_token(&cli, "sentinel-1-rtc")
         .await
         .map_err(|e| upstream_error(format!("planetary computer sas: {e}")))?;
@@ -2118,11 +2254,23 @@ async fn radar_series(
     };
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
+    let (quads, block_px) = if map {
+        let mut px: Vec<Vec<usize>> = vec![Vec::new(); (blocks * blocks) as usize];
+        for (p, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
+            let (r, c) = ((p / w as usize) as u32, (p % w as usize) as u32);
+            px[block_index(r, c, w, h, blocks)].push(p);
+        }
+        (block_quads(&lattice, blocks), px)
+    } else {
+        (Vec::new(), Vec::new())
+    };
 
     let mut rows: Vec<JsonValue> = Vec::new();
     let mut excluded: Vec<JsonValue> = Vec::new();
     let mut sources: Vec<JsonValue> = Vec::new();
     let (mut kept_days, mut kept_medians) = (Vec::new(), Vec::new());
+    let (mut kept_blocks, mut kept_dates): (Vec<Vec<Option<f64>>>, Vec<JsonValue>) =
+        (Vec::new(), Vec::new());
     let mut platforms: std::collections::BTreeSet<String> = Default::default();
     let mut dark_scenes = 0usize;
     for it in &picked {
@@ -2147,23 +2295,10 @@ async fn radar_series(
             excluded.push(json!({"date": date, "scene": it.id, "reason": "unreadable: a polarisation could not be read on this lattice"}));
             continue;
         };
-        let lin = |v: &[f64], p: usize| v.get(p).copied().filter(|x| x.is_finite() && *x > 0.0);
-        let (uses_vv, uses_vh) = (index_key != "vh", index_key != "vv");
-        // A pixel's linear reading of the channels the index uses, and whether
-        // it is a point target: brighter than speckle can make it against the
-        // area's median, in a channel the index reads.
-        let pix = |p: usize, cut: (f64, f64)| -> Option<(f64, f64, bool)> {
-            let a = if uses_vv { lin(&vv, p)? } else { 0.0 };
-            let c = if uses_vh { lin(&vh, p)? } else { 0.0 };
-            Some((a, c, (uses_vv && a > cut.0) || (uses_vh && c > cut.1)))
-        };
-        let value_db = |a: f64, c: f64| -> f32 {
-            (10.0
-                * match index_key.as_str() {
-                    "vv" => a.log10(),
-                    "vh" => c.log10(),
-                    _ => (c / a).log10(),
-                }) as f32
+        let scene = RadarScene {
+            index: &index_key,
+            vv: &vv,
+            vh: &vh,
         };
         let inside_px = || {
             inside
@@ -2172,21 +2307,18 @@ async fn radar_series(
                 .filter(|(_, v)| **v)
                 .map(|(p, _)| p)
         };
-        let cut_w = (bright_cut(&vv, inside_px()), bright_cut(&vh, inside_px()));
+        let cut_w = scene.cut(inside_px());
         if let Some((y, m, d)) = parse_ymd(&date) {
             let day = crate::days_from_civil(y, m, d);
             for (zi, px) in zone_px.iter().enumerate().filter(|(_, px)| !px.is_empty()) {
                 // Each field against its own median: a bright field is not a
                 // point target because its neighbours are darker.
-                let cut = (
-                    bright_cut(&vv, px.iter().copied()),
-                    bright_cut(&vh, px.iter().copied()),
-                );
+                let cut = scene.cut(px.iter().copied());
                 let mut zv: Vec<f32> = px
                     .iter()
-                    .filter_map(|p| pix(*p, cut))
+                    .filter_map(|p| scene.pixel(*p, cut))
                     .filter(|(_, _, bright)| !bright)
-                    .map(|(a, c, _)| value_db(a, c))
+                    .map(|(a, c, _)| scene.db(a, c))
                     .collect();
                 fields_acc.add(
                     zi,
@@ -2209,14 +2341,14 @@ async fn radar_series(
         let (mut sa, mut sa2, mut sc, mut sc2, mut dark, mut bright) =
             (0.0f64, 0.0f64, 0.0f64, 0.0f64, 0usize, 0usize);
         for p in inside_px() {
-            let Some((a, c, is_bright)) = pix(p, cut_w) else {
+            let Some((a, c, is_bright)) = scene.pixel(p, cut_w) else {
                 continue;
             };
             if is_bright {
                 bright += 1;
                 continue;
             }
-            vals.push(value_db(a, c));
+            vals.push(scene.db(a, c));
             sa += a;
             sa2 += a * a;
             sc += c;
@@ -2284,7 +2416,7 @@ async fn radar_series(
         if below_nesz >= 0.5 {
             dark_scenes += 1;
         }
-        rows.push(json!({
+        let mut row = json!({
             "date": date, "scene": it.id, "platform": it.platform.as_deref().map(str::to_ascii_lowercase), "orbit": orbit, "orbit_state": it.orbit_state,
             "median": round6(median), "p10": round6(quantile(&vals, 0.1)), "p25": round6(quantile(&vals, 0.25)),
             "p75": round6(quantile(&vals, 0.75)), "p90": round6(quantile(&vals, 0.9)),
@@ -2292,10 +2424,27 @@ async fn radar_series(
             "pixel_enl": pixel_enl.map(round6), "below_nesz_share": round6(below_nesz),
             "bright_rejected": bright,
             "n_valid": vals.len(), "valid_fraction": round6(valid_fraction),
-        }));
+        });
+        let block_medians = if map {
+            scene.block_medians(&block_px)
+        } else {
+            Vec::new()
+        };
+        if let (true, Some(o)) = (map, row.as_object_mut()) {
+            o.insert(
+                "block_medians".into(),
+                json!(block_medians
+                    .iter()
+                    .map(|m| m.map(round6).unwrap_or(JsonValue::Null))
+                    .collect::<Vec<_>>()),
+            );
+        }
+        rows.push(row);
         if let Some((y, m, d)) = parse_ymd(&date) {
             kept_days.push(crate::days_from_civil(y, m, d));
             kept_medians.push(median);
+            kept_blocks.push(block_medians);
+            kept_dates.push(json!(date));
         }
         sources.push(
             json!({"scene": it.id, "date": date, "vv": asset(it, "vv"), "vh": asset(it, "vh")}),
@@ -2328,7 +2477,7 @@ async fn radar_series(
             .map(JsonValue::String)
             .unwrap_or(JsonValue::Null)
     };
-    let estimand = json!({
+    let mut estimand = json!({
         "quantity": format!("{quantity}, per Sentinel-1 overpass on one relative orbit"),
         "operator": operator,
         "source": "Sentinel-1 RTC (radiometrically terrain corrected gamma-naught), Microsoft Planetary Computer sentinel-1-rtc",
@@ -2339,14 +2488,35 @@ async fn radar_series(
         "unit": unit,
         "known_bias": "speckle: `se_db` understates the scatter by up to about 2x, because neighbouring pixels share speckle; values under the -22 dB noise floor (open water, smooth bare soil) read as dark, not as a level; the product carries no layover or shadow mask, so on a slope facing toward or away from the sensor a field can read bright (layover) or empty (shadow); rain or dew at the overpass raises VV over bare soil and canopy, and wind roughens open water; wet soil and standing water lower VV, and a closing canopy raises VH",
     });
-    let record = json!({
+    let block_rule = "per scene, a block's value is the median of per-pixel dB over its valid pixels, the statistic of `median`. Point targets are cut against the block's own median power, as a field's are in `fields`. A block counts when at least half of its in-area pixels hold a reading, a cut point target counting as read";
+    let selection_rule = "scenes with VV and VH on one relative orbit (the caller's, or the one with the most scenes), one per date, then up to max_scenes evenly spaced in time keeping both ends";
+    let window_days = end_day - start_day;
+    let anomaly = if map {
+        same_season_anomaly(&kept_days, &kept_medians).map(|(latest, base, n)| {
+            json!({
+                "method": format!("latest scene's median (of per-pixel dB) minus the median of earlier years' scene medians on the same relative orbit within {SEASON_HALF_WIDTH_DAYS} days of its day of year"),
+                "unit": "dB",
+                "orbit": orbit,
+                "latest": round6(latest),
+                "same_season_baseline": round6(base),
+                "anomaly": round6(latest - base),
+                "baseline_n": n,
+            })
+        })
+    } else {
+        None
+    };
+    if map {
+        estimand["block_statistic"] = json!(block_rule);
+    }
+    let mut record = json!({
         "schema": "emem.field_series.v1", "fn_key": RADAR_FN_KEY,
         "aoi": {"bbox": {"min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng},
                 "polygon": if aoi.rings.is_empty() { JsonValue::Null } else { json!(aoi.rings) }},
         "aoi_cid": aoi_id, "polygon_cid": polygon_cid_v, "index": index_key, "estimand": estimand,
-        "window": {"start": req.start_date, "end": req.end_date, "days": end_day - start_day},
+        "window": {"start": req.start_date, "end": req.end_date, "days": window_days},
         "selection": {
-            "rule": "scenes with VV and VH on one relative orbit (the caller's, or the one with the most scenes), one per date, then up to max_scenes evenly spaced in time keeping both ends",
+            "rule": selection_rule,
             "orbit": orbit, "orbits_seen": by_orbit, "max_scenes": max_scenes, "epsg": epsg,
             "min_valid_share": min_valid, "min_support_px": min_support, "inner_buffer_m": buffer_m,
         },
@@ -2361,6 +2531,14 @@ async fn radar_series(
             false,
         ),
     });
+    if map {
+        record["anomaly"] = json!(anomaly);
+        record["grid"]["blocks_per_side"] = json!(blocks);
+        record["selection"]["rule"] = json!(format!(
+            "{selection_rule}, plus for the newest the scene on that orbit nearest its day of year, within {SEASON_HALF_WIDTH_DAYS} days, in each of up to three earlier years"
+        ));
+        record["selection"]["same_season_added"] = json!(same_season.len());
+    }
     let signed_at = emem_storage::server::iso8601_now();
     let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
     let fact = DerivativeFact {
@@ -2426,7 +2604,41 @@ async fn radar_series(
     if dark_scenes > 0 {
         cautions.push(format!("{dark_scenes} scene(s) have half or more of the area under the -22 dB noise floor (`below_nesz_share`). There the value says the surface is dark (water, or smooth bare soil), not how dark."));
     }
-    let out = json!({
+    if map && anomaly.is_none() && !rows.is_empty() {
+        cautions.push(if window_days >= 365 {
+            format!(
+                "no same-season anomaly: no scene on orbit {orbit} from an earlier year within {SEASON_HALF_WIDTH_DAYS} days of the latest one's day of year was read and kept{}. The latest value has no like-for-like baseline.",
+                if search_capped {
+                    format!(", and the scene search stopped at its {RADAR_CANDIDATE_LIMIT}-item cap, newest first, so the window's earlier part may be unread")
+                } else {
+                    String::new()
+                }
+            )
+        } else {
+            format!("no same-season anomaly: the window is {window_days} days, so it holds no earlier year. Start it at least a year before the end to get one.")
+        });
+    }
+    let change_map = if map {
+        block_change_map(&kept_days, &kept_blocks, &kept_dates, &quads, &mut cautions).map(
+            |mut cm| {
+                cm["orbit"] = json!(orbit);
+                cm["unit"] = json!("dB");
+                cm
+            },
+        )
+    } else {
+        None
+    };
+    if let Some(n) = block_px.iter().map(Vec::len).filter(|n| *n > 0).min() {
+        let scatter = speckle_scatter_db(n);
+        if 2.0 * scatter >= 1.0 {
+            cautions.push(format!(
+                "the smallest map block holds {n} pixels: speckle alone moves a block's median by about {scatter:.1} dB between scenes at that size, so read a block change under {:.1} dB as noise. `blocks.n_px` gives every block's count, and fewer `blocks` per side make larger blocks.",
+                2.0 * scatter
+            ));
+        }
+    }
+    let mut out = json!({
         "schema": "emem.field_series.v1", "algorithm_key": RADAR_FN_KEY, "index": index_key,
         "estimand": record["estimand"], "window": record["window"],
         "columns": ["date", "platform", "orbit", "mean", "se_db", "median", "p10", "p25", "p75", "p90", "std", "pixel_enl", "below_nesz_share", "n_valid", "valid_fraction"],
@@ -2437,6 +2649,17 @@ async fn radar_series(
         "receipt": receipt,
         "cache": {"hit": false, "computed_at": emem_storage::server::iso8601_now(), "ttl_s": cache_ttl_secs()},
     });
+    if map {
+        out["anomaly"] = record["anomaly"].clone();
+        out["change_map"] = json!(change_map);
+        out["blocks"] = json!({
+            "per_side": blocks,
+            "order": "row-major from the north-west block; each row's block_medians follows this order",
+            "quads": quads,
+            "n_px": block_px.iter().map(Vec::len).collect::<Vec<_>>(),
+            "rule": block_rule,
+        });
+    }
     cache_put(cache_key, out.clone());
     Ok(out)
 }
@@ -2656,17 +2879,22 @@ pub(crate) fn mcp_projection(mut v: JsonValue) -> JsonValue {
                 "from": props("first"), "to": props("last"), "change": props("change"),
             }),
         );
-        obj.insert(
-            "change_summary".into(),
-            json!({
-                "from": cm["from"], "to": cm["to"], "pairing": cm["pairing"],
-                "day_of_year_gap": cm["day_of_year_gap"],
-                "blocks_compared": n,
-                "median_change": if n > 0 { round6(sorted[n / 2]) } else { JsonValue::Null },
-                "min_change": sorted.first().map(|x| round6(*x)),
-                "max_change": sorted.last().map(|x| round6(*x)),
-            }),
-        );
+        let mut summary = json!({
+            "from": cm["from"], "to": cm["to"], "pairing": cm["pairing"],
+            "day_of_year_gap": cm["day_of_year_gap"],
+            "blocks_compared": n,
+            "median_change": if n > 0 { round6(sorted[n / 2]) } else { JsonValue::Null },
+            "min_change": sorted.first().map(|x| round6(*x)),
+            "max_change": sorted.last().map(|x| round6(*x)),
+        });
+        // A radar map is in dB on one orbit; the several-areas answer keeps
+        // this summary and drops the estimand that would say so.
+        for key in ["unit", "orbit"] {
+            if let (Some(v), Some(o)) = (cm.get(key), summary.as_object_mut()) {
+                o.insert(key.into(), v.clone());
+            }
+        }
+        obj.insert("change_summary".into(), summary);
         omitted.push("change_map (summarised as change_summary)");
     }
     obj.insert(
@@ -3136,6 +3364,7 @@ mod tests {
         assert_eq!(p["change_summary"]["blocks_compared"], json!(2));
         assert_eq!(p["change_summary"]["min_change"], json!(-0.3));
         assert_eq!(p["change_summary"]["pairing"], json!("same_season"));
+        assert!(p["change_summary"].get("unit").is_none());
         assert_eq!(p["change_grid"]["change"], json!([0.1, -0.3, null]));
         assert_eq!(p["token"], json!("emem:fact:c:d"));
         assert_eq!(p["_projection"]["omitted"].as_array().unwrap().len(), 3);
@@ -3174,5 +3403,210 @@ mod tests {
     fn day_of_year_distance_wraps_the_new_year() {
         assert_eq!(doy_gap(360, 5), 10);
         assert_eq!(doy_gap(100, 130), 30);
+    }
+
+    fn day(ymd: &str) -> i64 {
+        let (y, m, d) = parse_ymd(ymd).unwrap();
+        crate::days_from_civil(y, m, d)
+    }
+
+    #[test]
+    fn a_radar_block_is_the_median_db_of_its_own_valid_pixels() {
+        let n = f64::NAN;
+        let mut vv: Vec<f64> = Vec::new();
+        // Block 0: nine fields at -20 dB and a roof.
+        vv.extend([0.01; 9]);
+        vv.push(1.0);
+        // Block 1: all bright, so against its own median nothing is a roof.
+        vv.extend([1.0; 10]);
+        // Block 2: four readings of ten pixels, under half.
+        vv.extend([n, n, n, n, n, n, 0.01, 0.01, 0.01, 0.01]);
+        // Block 3: half read only because the cut roof counts as read.
+        vv.extend([n, n, n, 0.01, 0.01, 1.0]);
+        let block_px: Vec<Vec<usize>> = vec![
+            (0..10).collect(),
+            (10..20).collect(),
+            (20..30).collect(),
+            (30..36).collect(),
+            vec![],
+        ];
+        let vh = vec![0.001; vv.len()];
+        let scene = RadarScene {
+            index: "vv",
+            vv: &vv,
+            vh: &vh,
+        };
+        let b = scene.block_medians(&block_px);
+        let near = |x: Option<f64>, want: f64| x.is_some_and(|x| (x - want).abs() < 1e-5);
+        assert!(near(b[0], -20.0), "{b:?}");
+        assert!(near(b[1], 0.0), "{b:?}");
+        assert_eq!(b[2], None);
+        assert!(near(b[3], -20.0), "{b:?}");
+        assert_eq!(b[4], None, "an empty block has no value");
+        let ratio = RadarScene {
+            index: "vh_vv",
+            vv: &[0.1; 5],
+            vh: &[0.01; 5],
+        };
+        assert!(near(
+            ratio.block_medians(&[(0..5).collect::<Vec<usize>>()])[0],
+            -10.0
+        ));
+    }
+
+    #[test]
+    fn speckle_scatter_is_about_one_db_at_thirty_pixels_and_halves_at_four_times() {
+        assert!((speckle_scatter_db(30) - 1.0).abs() < 0.05);
+        assert!((2.0 * speckle_scatter_db(120) - speckle_scatter_db(30)).abs() < 1e-12);
+        assert!(speckle_scatter_db(0).is_finite());
+    }
+
+    #[test]
+    fn blocks_cover_the_lattice_in_row_major_order() {
+        let (w, h, blocks) = (10u32, 7u32, 3u32);
+        let mut count = vec![0usize; 9];
+        for r in 0..h {
+            for c in 0..w {
+                count[block_index(r, c, w, h, blocks)] += 1;
+            }
+        }
+        assert!(count.iter().all(|n| *n > 0), "{count:?}");
+        assert_eq!(count.iter().sum::<usize>(), 70);
+        assert_eq!(block_index(0, w - 1, w, h, blocks), 2);
+        assert_eq!(block_index(h - 1, 0, w, h, blocks), 6);
+        assert_eq!(blocks_per_side(None), 6);
+        assert_eq!(blocks_per_side(Some(20)), 8);
+        let g = Lattice {
+            epsg: 32643,
+            x0: 500_000.0,
+            y0: 3_400_000.0,
+            step: 10.0,
+            w,
+            h,
+        };
+        let quads = block_quads(&g, blocks);
+        assert_eq!(quads.len(), 9);
+        let ring = quads[0][0].as_array().unwrap();
+        assert_eq!(ring.len(), 5);
+        assert_eq!(ring[0], ring[4], "each quad is a closed ring");
+        let (la, lo) =
+            emem_fetch::proj::utm_to_latlng_with_epsg(500_000.0, 3_400_000.0, 32643).unwrap();
+        assert_eq!(
+            ring[0],
+            json!([round6(lo), round6(la)]),
+            "block 0 starts at the north-west corner"
+        );
+    }
+
+    #[test]
+    fn the_same_season_anomaly_reads_earlier_years_only() {
+        let days = [
+            day("2024-07-10"),
+            day("2024-12-01"),
+            day("2025-07-20"),
+            day("2026-06-30"),
+            day("2026-07-15"),
+        ];
+        let vals = [-12.0, -5.0, -11.0, -9.0, -15.0];
+        let (latest, base, n) = same_season_anomaly(&days, &vals).unwrap();
+        assert_eq!(
+            (latest, base, n),
+            (-15.0, -11.5, 2),
+            "December and the same year stay out"
+        );
+        assert_eq!(same_season_anomaly(&days[3..], &vals[3..]), None);
+        assert_eq!(same_season_anomaly(&[], &[]), None);
+    }
+
+    #[test]
+    fn the_change_map_pairs_the_same_season_or_says_it_could_not() {
+        let quads = vec![json!([[[0, 0]]]), json!([[[1, 1]]])];
+        let days = [day("2025-07-20"), day("2026-01-10"), day("2026-07-15")];
+        let dates: Vec<JsonValue> = ["2025-07-20", "2026-01-10", "2026-07-15"]
+            .iter()
+            .map(|d| json!(d))
+            .collect();
+        let blocks = vec![
+            vec![Some(-12.0), None],
+            vec![Some(0.0), Some(0.0)],
+            vec![Some(-15.0), Some(-8.0)],
+        ];
+        let mut cautions = Vec::new();
+        let cm = block_change_map(&days, &blocks, &dates, &quads, &mut cautions).unwrap();
+        assert_eq!(cm["pairing"], json!("same_season"));
+        assert_eq!(
+            (cm["from"].clone(), cm["to"].clone()),
+            (json!("2025-07-20"), json!("2026-07-15"))
+        );
+        assert_eq!(cm["features"][0]["properties"]["change"], json!(-3.0));
+        assert_eq!(cm["features"][1]["properties"]["change"], JsonValue::Null);
+        assert_eq!(cm["features"][1]["geometry"]["coordinates"], quads[1]);
+        assert!(cautions.is_empty(), "{cautions:?}");
+        let fallback =
+            block_change_map(&days[1..], &blocks[1..], &dates[1..], &quads, &mut cautions).unwrap();
+        assert_eq!(fallback["pairing"], json!("first_to_last"));
+        assert!(
+            cautions.len() == 1 && cautions[0].contains("days of year apart"),
+            "{cautions:?}"
+        );
+        assert!(
+            block_change_map(&days[2..], &blocks[2..], &dates[2..], &quads, &mut cautions)
+                .is_none()
+        );
+    }
+
+    /// Every pass on one orbit has the same geometry, so the radar partner is
+    /// the one nearest in season; ranked by cloud, which radar does not
+    /// have, the first pass in each year would win instead.
+    #[test]
+    fn a_radar_partner_is_the_pass_nearest_in_season() {
+        let item = |d: &str| -> emem_fetch::stac::StacItem {
+            serde_json::from_value(
+                json!({"id": format!("S1A_{d}"), "datetime": format!("{d}T00:40:00Z"),
+                "assets": {}, "collection": "sentinel-1-rtc"}),
+            )
+            .unwrap()
+        };
+        let items: Vec<emem_fetch::stac::StacItem> = [
+            "2022-07-15",
+            "2024-06-18",
+            "2024-07-20",
+            "2025-06-20",
+            "2025-07-10",
+            "2025-08-30",
+            "2026-06-01",
+            "2026-07-15",
+        ]
+        .iter()
+        .map(|d| item(d))
+        .collect();
+        let refs: Vec<&emem_fetch::stac::StacItem> = items.iter().collect();
+        let nearest = same_season_partners(&refs, &[0, 7], |_, gap| gap as f64);
+        assert_eq!(nearest, vec![2, 4]);
+        let by_cloud =
+            same_season_partners(&refs, &[0, 7], |it, _| it.cloud_cover.unwrap_or(100.0));
+        assert_eq!(by_cloud, vec![1, 3]);
+    }
+
+    #[test]
+    fn the_mcp_answer_for_radar_keeps_the_unit_and_orbit_of_its_change() {
+        let radar = json!({
+            "index": "vv",
+            "rows": [{"date": "2026-07-15", "median": -12.345678, "block_medians": [-12.0, null], "scene": "S1A_x"}],
+            "blocks": {"per_side": 2, "quads": [], "n_px": [40, 0]},
+            "change_map": {"from": "2025-07-20", "to": "2026-07-15", "pairing": "same_season",
+                "day_of_year_gap": 5, "orbit": 63, "unit": "dB",
+                "features": [{"properties": {"first": -10.0, "last": -12.5, "change": -2.5}}]},
+            "anomaly": {"anomaly": -3.5, "unit": "dB"},
+        });
+        let p = mcp_projection(radar);
+        assert!(p.get("blocks").is_none() && p.get("change_map").is_none());
+        assert!(p["rows"][0].get("block_medians").is_none());
+        assert_eq!(p["rows"][0]["median"], json!(-12.3457));
+        assert_eq!(p["change_summary"]["unit"], json!("dB"));
+        assert_eq!(p["change_summary"]["orbit"], json!(63));
+        assert_eq!(p["change_summary"]["median_change"], json!(-2.5));
+        assert_eq!(p["change_grid"]["change"], json!([-2.5]));
+        assert_eq!(p["anomaly"]["anomaly"], json!(-3.5));
     }
 }
