@@ -544,38 +544,38 @@ failure to win after a first win means not replicated, so all three now read not
 
 ### 5.14 Status of every proposal
 
-The status rule was tightened after the third replication, before this table was written: a loss under the deciding
-score now counts whenever it happened. Before, losses ahead of a method's first win were all excused, which was meant
-for the F1 experiments; it also excused the sub-pixel and screened rules' losses under MCC. A method that won after
-such a loss reads **mixed**. The change only demotes, and it is applied to every record.
+**The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
+experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
+of its ten forests demoted three methods, two of them after four wins in a row. Given enough experiments a rule like
+that reads *not replicated* for any method, however good. From 29 October a method's status is decided by all of its
+evidence (rule v2, signed in emem memory at `research/rules/status-v2.md`). Over three or more disjoint MCC site sets
+it is **replicated** when the random-effects pooled MCC difference from the registry rule (DerSimonian and Laird 1986)
+has its 95% lower bound above zero and no experiment was significantly worse, and **forest-dependent** when I² is 75%
+or more. The rule was adopted after the strict rule demoted those methods, and every proposal note prints both
+verdicts.
 
-| method | status | MCC experiments won | not won | pooled difference, 95% interval (I²) |
-|---|---|---|---|---|
-| `lab:seasonal_loss_nbr@1` | not replicated | scaled, MCC replication, third, managed | fusion (a tie) | +0.173, +0.076 to +0.270 (85%) |
-| `lab:seasonal_canopy_loss@1` | not replicated | search (5.6), third, managed | fusion (a tie) | +0.165, +0.073 to +0.257 (66%), as a fixed rule |
-| `desk:vegetation_loss@1` | not replicated | scaled, MCC replication, third, managed | fusion | +0.095, +0.003 to +0.186 (83%) |
-| `lab:memory_mv_fusion@2` | proposed, awaiting replication | fusion | none | one experiment |
-| `registry:deforestation_alert_ndvi_drop@1+screen` | not replicated | MCC replication, third | scaled, managed, fusion | +0.052, +0.011 to +0.093 (49%) |
-| `desk:vegetation_loss@1+screen` | not replicated | MCC replication, third, managed | scaled, fusion | +0.049, -0.031 to +0.129 (77%) |
-| `lab:green_fraction_loss@1+screen` | not replicated | third, managed | scaled, MCC replication, fusion | +0.077, -0.063 to +0.217 (93%) |
-| `lab:subcell_loss_p10@1+screen` | not replicated | third, managed | scaled, MCC replication, fusion | +0.012, -0.170 to +0.195 (96%) |
-| `desk:vegetation_loss_nbr@1` | not replicated | MCC replication, managed | scaled, third, fusion | +0.057, -0.040 to +0.154 (84%) |
-| `registry:burn_severity_from_dnbr@1+screen` | not replicated | scaled, managed | MCC replication, third, fusion | +0.043, -0.016 to +0.101 (58%) |
-| `lab:seasonal_loss_ndvi@1` and `either@1` | not replicated | managed | the other four | about 0 |
+| method | status (rule v2) | strict rule | pooled MCC difference, 95% interval | I² | MCC site sets |
+|---|---|---|---|---|---|
+| `lab:seasonal_loss_nbr@1` | replicated, forest-dependent | not replicated | +0.173, +0.076 to +0.270 | 85% | 5 |
+| `lab:seasonal_canopy_loss@1` | replicated | not replicated | +0.165, +0.073 to +0.257 | 66% | 3 |
+| `registry:deforestation_alert_ndvi_drop@1+screen` | replicated | not replicated | +0.052, +0.011 to +0.093 | 49% | 5 |
+| `desk:vegetation_loss@1` | replicated, forest-dependent | not replicated | +0.095, +0.003 to +0.186 | 83% | 5 |
+| `lab:memory_mv_fusion@2` | proposed, awaiting replication | proposed | one site set | | 1 |
+| `lab:green_fraction_loss@1+screen` | not shown better | not replicated | +0.077, -0.063 to +0.217 | 93% | 5 |
+| `desk:vegetation_loss@1+screen` | not shown better | not replicated | +0.049, -0.031 to +0.129 | 77% | 5 |
+| `registry:burn_severity_from_dnbr@1+screen` | not shown better | not replicated | +0.043, -0.016 to +0.101 | 58% | 5 |
+| `lab:subcell_loss_p10@1+screen` | not shown better | not replicated | +0.012, -0.170 to +0.195 | 96% | 5 |
+| the other five lab and desk rules | not shown better | not replicated | between -0.053 and +0.057 | | 5 |
 
-**The status rule has a defect this experiment exposed.** It asks every later experiment to win. A method that is
-better on average will sooner or later tie in a small or unlucky experiment, so the more experiments the program
-runs, the surer every good method is to read not replicated. The fusion experiment, with four of ten forests lost,
-was that experiment for three rules. The status column keeps the registered rule's verdict, because changing a rule
-just after it demoted the leaders is what pre-registration exists to prevent.
+Four methods are replicated. The seasonal NBR rule and the searched rule beat the registry rule by about 0.17 MCC over
+all the forests tested; the screened registry rule by a small, steady 0.05; the desk's rule only just. The sub-pixel
+rules' I² of 93 to 96% is the managed-forest finding in one number: right for one kind of forest, wrong for another.
 
-The last column is the standard alternative from evidence synthesis, computed over the five disjoint MCC site sets:
-a random-effects meta-analysis (DerSimonian and Laird 1986) of each method's MCC difference from the registry rule,
-with I² for the share of variation that is real difference between forests. By it, the seasonal NBR rule (+0.173,
-+0.076 to +0.270) and the searched rule as a fixed rule (+0.165, +0.073 to +0.257) are better than the registry rule
-over all the forests tested, and by amounts that vary a great deal from one set of forests to the next; the sub-pixel
-rules' I² of 93 to 96% is the managed-forest finding in one number. Whether the program adopts this as its status
-rule is the operator's decision, to be made for experiments not yet run.
+**A replication that was stopped.** A replication of section 5.13 on the four unread forests and six new ones
+(`canopy-loss-memory-fusion-replication-2024-2025-2026-10-29`, plan content id `u24aifkusddf2zyyhoyhvygwtm`) was
+stopped after its first forest, because that forest's reads failed on a fault in emem's own COG reader (gap ledger):
+the LZW decoder refused a Hansen block whose pixels were all there. Its plan stays in memory with no result. It is
+rerun, with the same methods, once the fix is deployed.
 
 ## 6. Discussion
 
