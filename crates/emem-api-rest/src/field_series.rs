@@ -951,18 +951,20 @@ fn hamed_rao_inflation(t: &[f64], y: &[f64], slope: f64) -> f64 {
     (1.0 + 2.0 * sum / (nf * (nf - 1.0) * (nf - 2.0))).max(1.0)
 }
 
-/// How much of the window is a partial year, as a share of the window. Past
+/// How much of the span of the scenes kept is a partial year, as a share of
+/// that span, and the span in years. It is the scenes, not the window asked
+/// for, that the line is fitted through. Past
 /// [`MAX_PARTIAL_YEAR_SHARE`] the season itself tilts a straight line through
 /// the scenes, so a trend's p-value is withheld rather than read as a trend.
-fn partial_year_share(t: &[f64]) -> f64 {
+fn partial_year_share(t: &[f64]) -> (f64, f64) {
     let lo = t.iter().copied().fold(f64::INFINITY, f64::min);
     let hi = t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let span = hi - lo;
     if !span.is_finite() || span <= 0.0 {
-        return 1.0;
+        return (1.0, 0.0);
     }
     let frac = span - span.floor();
-    frac.min(1.0 - frac).min(span) / span
+    (frac.min(1.0 - frac).min(span) / span, span)
 }
 
 const MAX_PARTIAL_YEAR_SHARE: f64 = 0.1;
@@ -990,10 +992,10 @@ fn bh_q_values(p: &[Option<f64>]) -> Vec<Option<f64>> {
 /// A trend's JSON tail: the p-value corrected for autocorrelation, or withheld
 /// when a partial year is too large a share of the window.
 fn trend_p_fields(t: &[f64], p: f64, inflation: f64) -> JsonValue {
-    let share = partial_year_share(t);
+    let (share, span) = partial_year_share(t);
     if share > MAX_PARTIAL_YEAR_SHARE {
         json!({"p_value": JsonValue::Null, "variance_inflation": round6(inflation),
-               "p_value_withheld": format!("{:.0}% of the window is a partial year, so the season tilts the line; send a window of whole years for a p-value", 100.0 * share)})
+               "p_value_withheld": format!("the scenes kept span {span:.2} years and {:.0}% of that is a partial year, so the season tilts the line; a window whose clear scenes span whole years gives a p-value", 100.0 * share)})
     } else {
         json!({"p_value": round6(p), "variance_inflation": round6(inflation)})
     }
@@ -3391,7 +3393,7 @@ mod tests {
     #[test]
     fn a_partial_year_withholds_the_p_value() {
         let sixteen_months: Vec<f64> = (0..40).map(|i| i as f64 * 1.333 / 39.0).collect();
-        assert!(partial_year_share(&sixteen_months) > MAX_PARTIAL_YEAR_SHARE);
+        assert!(partial_year_share(&sixteen_months).0 > MAX_PARTIAL_YEAR_SHARE);
         assert!(trend_p_fields(&sixteen_months, 0.01, 1.0)["p_value"].is_null());
         let three_years: Vec<f64> = (0..90).map(|i| i as f64 * 3.0 / 89.0).collect();
         assert!(trend_p_fields(&three_years, 0.01, 1.0)["p_value"].is_number());
