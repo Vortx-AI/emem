@@ -147,8 +147,8 @@
   "algorithm_count": 169,
   "band_cube_slot_count": 43,
   "materializer_wired_band_names": 115,
-  "rest_paths_in_openapi": 192,
-  "rest_paths_v1_in_openapi": 181,
+  "rest_paths_in_openapi": 193,
+  "rest_paths_v1_in_openapi": 182,
   "source_scheme_count": 46,
   "topic_count_declared": 27,
   "address_algebra": {

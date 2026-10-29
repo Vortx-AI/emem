@@ -10,7 +10,7 @@ deploy, `whitepaper-v2.md` for the math.
 ## The shape of the system
 
 A single Rust binary `emem-server` listens on one port (default
-`0.0.0.0:5051`) and serves both HTTP/REST (**191 route declarations**, **181 unique paths under
+`0.0.0.0:5051`) and serves both HTTP/REST (**191 route declarations**, **182 unique paths under
 `/v1/*`** in `openapi.json`) and an MCP JSON-RPC endpoint at `POST /mcp`
 (**116 tools**: 18 core / 98 extended, with `tools/list` advertising the core
 tier and `POST /mcp/full` advertising all 116). No GPU or model sidecar runs; earlier versions
