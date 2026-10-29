@@ -32,12 +32,19 @@ use crate::band_raster::{bad_request, upstream_error};
 use crate::change_attribution::json_to_cbor;
 use crate::{ApiError, AppState, EmemJson};
 
-const FN_KEY: &str = "rain_series@1";
+const FN_KEY: &str = "rain_series@2";
 const PAST_WINDOWS: [u32; 6] = [1, 3, 7, 14, 30, 90];
 const AHEAD_WINDOWS: [u32; 4] = [1, 3, 7, 14];
 /// Days either side of the day of year whose totals join the climatology:
 /// 15 totals a year instead of one, so 30 years give 450 to rank against.
 const SEASON_HALF_WIDTH_DAYS: i64 = 7;
+/// A total under this is a trace and counts as no rain. Otherwise, in a season
+/// whose sample is almost all zeros, 0.1 mm outranks every zero and reads as
+/// extremely wet.
+const TRACE_MM: f64 = 1.0;
+/// Above this share of rainless totals a standardized score says little, so no
+/// class is given (Stagge et al. 2015 on zero-inflated SPI).
+const MAX_RAINLESS_SHARE: f64 = 0.5;
 const MAX_PAST_DAYS: u32 = 92;
 const MAX_FORECAST_DAYS: u32 = 16;
 const MAX_CLIMATOLOGY_YEARS: u32 = 40;
@@ -105,19 +112,23 @@ fn total(by_day: &std::collections::HashMap<i64, f64>, first: i64, len: u32) -> 
 /// Every climatology year's totals of `len` days whose anchor day falls within
 /// a week of `anchor`'s day of year, the anchor being the window's last day
 /// (`ending`) or first day (ahead).
+/// The sample, and how many years it came from: its totals overlap, fifteen
+/// a year, so the years and not the totals say how far its tails reach.
 fn season_totals(
     clim: &std::collections::HashMap<i64, f64>,
     years: (i32, i32),
     anchor: i64,
     len: u32,
     ending: bool,
-) -> Vec<f64> {
+) -> (Vec<f64>, usize) {
     let (_, m, d) = crate::civil_from_days(anchor);
     // 29 February anchors to the 28th in years without it.
     let d = if m == 2 && d == 29 { 28 } else { d };
     let mut out = Vec::new();
+    let mut with_data = 0;
     for y in years.0..=years.1 {
         let centre = crate::days_from_civil(y, m, d);
+        let before = out.len();
         for k in -SEASON_HALF_WIDTH_DAYS..=SEASON_HALF_WIDTH_DAYS {
             let a = centre + k;
             let first = if ending { a - len as i64 + 1 } else { a };
@@ -125,8 +136,11 @@ fn season_totals(
                 out.push(t);
             }
         }
+        if out.len() > before {
+            with_data += 1;
+        }
     }
-    out
+    (out, with_data)
 }
 
 /// Non-exceedance probability of `x` among `sample`, with ties split and the
@@ -202,15 +216,29 @@ fn class_of(z: f64) -> &'static str {
     }
 }
 
-fn ranked(x: f64, sample: &[f64]) -> JsonValue {
-    match rank_probability(x, sample) {
-        Some(p) => {
-            let z = probit(p);
-            json!({"compared_with": sample.len(), "non_exceedance": (p * 1e4).round() / 1e4,
-                   "z": (z * 1e3).round() / 1e3, "class": class_of(z)})
-        }
-        None => JsonValue::Null,
+fn ranked(x: f64, sample: &[f64], years: usize) -> JsonValue {
+    let trace = |v: f64| if v < TRACE_MM { 0.0 } else { v };
+    let sample: Vec<f64> = sample.iter().map(|v| trace(*v)).collect();
+    let Some(p) = rank_probability(trace(x), &sample) else {
+        return JsonValue::Null;
+    };
+    // Weibull's offset for the years of record: a total beyond all of them is
+    // about one in years + 1, not one in the count of overlapping totals.
+    let bound = 0.5 / (years.max(1) as f64 + 1.0);
+    let p = p.clamp(bound, 1.0 - bound);
+    let rainless = sample.iter().filter(|v| **v == 0.0).count() as f64 / sample.len() as f64;
+    let mut out = json!({"compared_with": sample.len(), "years": years,
+                         "non_exceedance": (p * 1e4).round() / 1e4,
+                         "rainless_share": (rainless * 1e3).round() / 1e3});
+    if rainless > MAX_RAINLESS_SHARE {
+        out["z"] = JsonValue::Null;
+        out["class"] = json!("not classed: most windows like this one get no rain in this season");
+    } else {
+        let z = probit(p);
+        out["z"] = json!((z * 1e3).round() / 1e3);
+        out["class"] = json!(class_of(z));
     }
+    out
 }
 
 /// Past days in order: ERA5 where it has a value, the forecast model's
@@ -338,13 +366,13 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
     for w in PAST_WINDOWS.into_iter().filter(|w| *w <= past_days) {
         let first = yesterday - w as i64 + 1;
         if let Some(t) = total(&all_past, first, w) {
-            let sample = if years > 0 {
+            let (sample, n_years) = if years > 0 {
                 season_totals(&clim, clim_years, yesterday, w, true)
             } else {
-                vec![]
+                (vec![], 0)
             };
             past_totals.push(json!({"days": w, "from": iso(first), "to": iso(yesterday),
-                                    "mm": round(t), "climatology": ranked(t, &sample)}));
+                                    "mm": round(t), "climatology": ranked(t, &sample, n_years)}));
         }
     }
     let ahead_map: std::collections::HashMap<i64, f64> = ahead
@@ -354,14 +382,14 @@ pub(crate) async fn rain_series(req: RainSeriesReq, s: &AppState) -> Result<Json
     let mut ahead_totals = Vec::new();
     for w in AHEAD_WINDOWS.into_iter().filter(|w| *w <= forecast_days) {
         if let Some(t) = total(&ahead_map, today, w) {
-            let sample = if years > 0 {
+            let (sample, n_years) = if years > 0 {
                 season_totals(&clim, clim_years, today, w, false)
             } else {
-                vec![]
+                (vec![], 0)
             };
             ahead_totals.push(
                 json!({"days": w, "from": iso(today), "to": iso(today + w as i64 - 1),
-                                     "mm": round(t), "climatology": ranked(t, &sample)}),
+                                     "mm": round(t), "climatology": ranked(t, &sample, n_years)}),
             );
         }
     }
@@ -535,8 +563,37 @@ mod tests {
         let end = crate::days_from_civil(2002, 12, 31);
         let clim: HashMap<i64, f64> = (start..=end).map(|d| (d, 1.0)).collect();
         let anchor = crate::days_from_civil(2026, 6, 15);
-        let ending = season_totals(&clim, (2000, 2002), anchor, 7, true);
+        let (ending, years) = season_totals(&clim, (2000, 2002), anchor, 7, true);
         assert_eq!(ending.len(), 45);
+        assert_eq!(years, 3);
         assert!(ending.iter().all(|t| (*t - 7.0).abs() < 1e-9));
+    }
+
+    #[test]
+    fn a_trace_of_rain_in_a_dry_season_is_not_wet() {
+        let mut sample = vec![0.0; 445];
+        sample.extend([2.0, 3.0, 5.0, 8.0, 13.0]);
+        let r = ranked(0.1, &sample, 30);
+        assert!(r["z"].is_null(), "{r}");
+        assert!(r["class"].as_str().unwrap().starts_with("not classed"), "{r}");
+    }
+
+    #[test]
+    fn the_tails_reach_as_far_as_the_years_of_record() {
+        let sample: Vec<f64> = (1..=450).map(f64::from).collect();
+        let r = ranked(10_000.0, &sample, 30);
+        let z = r["z"].as_f64().unwrap();
+        assert!((z - probit(1.0 - 0.5 / 31.0)).abs() < 1e-3, "{r}");
+        assert_eq!(r["class"], "extremely wet");
+        let low = ranked(-1.0, &sample, 30);
+        assert!(low["z"].as_f64().unwrap() > -2.2, "{low}");
+    }
+
+    #[test]
+    fn an_ordinary_total_ranks_as_before() {
+        let sample: Vec<f64> = (1..=99).map(f64::from).collect();
+        let r = ranked(50.0, &sample, 30);
+        assert!(r["z"].as_f64().unwrap().abs() < 1e-3, "{r}");
+        assert_eq!(r["class"], "near normal");
     }
 }
