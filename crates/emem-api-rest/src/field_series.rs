@@ -566,10 +566,25 @@ impl FieldsAcc {
                         theil_sen_kendall(&t, medians)
                     })
                     .flatten()
-                    .map(|(slope, _i, _s, _z, p)| json!({"slope_per_year": round6(slope), "p_value": round6(p)}));
+                    .map(|(slope, _i, _s, _z, p)| {
+                        let t: Vec<f64> = days.iter().map(|d| *d as f64 / 365.25).collect();
+                        let mut tr = trend_p_fields(&t, p, hamed_rao_inflation(&t, medians, slope));
+                        tr["slope_per_year"] = round6(slope);
+                        tr
+                    });
                 json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
             })
             .collect();
+        let ps: Vec<Option<f64>> = summary
+            .iter()
+            .map(|f| f["trend"]["p_value"].as_f64())
+            .collect();
+        let mut summary = summary;
+        for (f, q) in summary.iter_mut().zip(bh_q_values(&ps)) {
+            if let Some(q) = q {
+                f["trend"]["q_value"] = round6(q);
+            }
+        }
         let mut columns = vec![
             "id",
             "date",
@@ -876,6 +891,106 @@ fn scene_dips(days: &[i64], vals: &[f64]) -> Vec<Option<(f64, f64)>> {
     out
 }
 
+/// Kendall's S variance inflation for autocorrelated data (Hamed and Rao 1998):
+/// from the rank autocorrelations of the detrended series, at the lags where
+/// they pass their 95% bound. Consecutive scene medians are correlated, and
+/// without it the p-value of a seasonal series is far too small. Never below 1,
+/// so the correction cannot make a trend look surer.
+fn hamed_rao_inflation(t: &[f64], y: &[f64], slope: f64) -> f64 {
+    let n = y.len();
+    if n < 4 {
+        return 1.0;
+    }
+    let mut by_time: Vec<usize> = (0..n).collect();
+    by_time.sort_by(|a, b| t[*a].partial_cmp(&t[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    let r: Vec<f64> = by_time.iter().map(|&i| y[i] - slope * t[i]).collect();
+    let mut order: Vec<usize> = (0..n).collect();
+    order.sort_by(|a, b| r[*a].partial_cmp(&r[*b]).unwrap_or(std::cmp::Ordering::Equal));
+    // Ties take their mid-rank: an exact line's residuals are all tied, and
+    // ranking them by sort order would invent an autocorrelation.
+    let mut rank = vec![0.0; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j + 1 < n && (r[order[j + 1]] - r[order[i]]).abs() <= 1e-12 {
+            j += 1;
+        }
+        let mid = (i + j) as f64 / 2.0 + 1.0;
+        for &k in &order[i..=j] {
+            rank[k] = mid;
+        }
+        i = j + 1;
+    }
+    let nf = n as f64;
+    let mean = (nf + 1.0) / 2.0;
+    let den: f64 = rank.iter().map(|x| (x - mean).powi(2)).sum();
+    if den <= 0.0 {
+        return 1.0;
+    }
+    let mut sum = 0.0;
+    for k in 1..n - 2 {
+        let num: f64 = (0..n - k)
+            .map(|i| (rank[i] - mean) * (rank[i + k] - mean))
+            .sum();
+        let rho = num / den;
+        let kf = k as f64;
+        let half = 1.96 * (nf - kf - 1.0).sqrt();
+        if rho > (-1.0 - half) / (nf - kf) && rho < (-1.0 + half) / (nf - kf) {
+            continue;
+        }
+        sum += (nf - kf) * (nf - kf - 1.0) * (nf - kf - 2.0) * rho;
+    }
+    (1.0 + 2.0 * sum / (nf * (nf - 1.0) * (nf - 2.0))).max(1.0)
+}
+
+/// How much of the window is a partial year, as a share of the window. Past
+/// [`MAX_PARTIAL_YEAR_SHARE`] the season itself tilts a straight line through
+/// the scenes, so a trend's p-value is withheld rather than read as a trend.
+fn partial_year_share(t: &[f64]) -> f64 {
+    let lo = t.iter().copied().fold(f64::INFINITY, f64::min);
+    let hi = t.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+    let span = hi - lo;
+    if !span.is_finite() || span <= 0.0 {
+        return 1.0;
+    }
+    let frac = span - span.floor();
+    frac.min(1.0 - frac).min(span) / span
+}
+
+const MAX_PARTIAL_YEAR_SHARE: f64 = 0.1;
+
+/// Benjamini-Hochberg adjusted p-values, in the input's order: with one trend
+/// per field, about one field in twenty reads as trending at p < 0.05 by chance.
+fn bh_q_values(p: &[Option<f64>]) -> Vec<Option<f64>> {
+    let mut idx: Vec<usize> = (0..p.len()).filter(|i| p[*i].is_some()).collect();
+    idx.sort_by(|a, b| {
+        p[*a]
+            .partial_cmp(&p[*b])
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    let m = idx.len() as f64;
+    let mut out = vec![None; p.len()];
+    let mut running = 1.0_f64;
+    for (pos, &i) in idx.iter().enumerate().rev() {
+        let q = (p[i].unwrap_or(1.0) * m / (pos as f64 + 1.0)).min(1.0);
+        running = running.min(q);
+        out[i] = Some(running);
+    }
+    out
+}
+
+/// A trend's JSON tail: the p-value corrected for autocorrelation, or withheld
+/// when a partial year is too large a share of the window.
+fn trend_p_fields(t: &[f64], p: f64, inflation: f64) -> JsonValue {
+    let share = partial_year_share(t);
+    if share > MAX_PARTIAL_YEAR_SHARE {
+        json!({"p_value": JsonValue::Null, "variance_inflation": round6(inflation),
+               "p_value_withheld": format!("{:.0}% of the window is a partial year, so the season tilts the line; send a window of whole years for a p-value", 100.0 * share)})
+    } else {
+        json!({"p_value": round6(p), "variance_inflation": round6(inflation)})
+    }
+}
+
 fn theil_sen_kendall(t: &[f64], y: &[f64]) -> Option<(f64, f64, i64, f64, f64)> {
     let n = t.len();
     if n < 2 || n != y.len() {
@@ -914,7 +1029,7 @@ fn theil_sen_kendall(t: &[f64], y: &[f64]) -> Option<(f64, f64, i64, f64, f64)> 
         (resid[n / 2 - 1] + resid[n / 2]) / 2.0
     };
     let nf = n as f64;
-    let var = nf * (nf - 1.0) * (2.0 * nf + 5.0) / 18.0;
+    let var = nf * (nf - 1.0) * (2.0 * nf + 5.0) / 18.0 * hamed_rao_inflation(t, y, slope);
     let z = if s > 0 {
         (s as f64 - 1.0) / var.sqrt()
     } else if s < 0 {
@@ -1698,15 +1813,19 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let trend = if trend_days.len() >= MIN_TREND_SCENES {
         let t: Vec<f64> = trend_days.iter().map(|d| *d as f64 / 365.25).collect();
         theil_sen_kendall(&t, &trend_medians).map(|(slope, _icpt, s, z, p)| {
-            json!({
-                "method": "Theil-Sen slope of the per-scene median; Kendall S with the no-ties normal approximation, two-sided; scenes marked suspect are left out",
+            let mut tr = json!({
+                "method": "Theil-Sen slope of the per-scene median; Kendall S with the no-ties normal approximation, two-sided, its variance corrected for autocorrelation (Hamed and Rao 1998); scenes marked suspect are left out",
                 "slope_per_year": round6(slope),
                 "kendall_s": s,
                 "z": round6(z),
-                "p_value": round6(p),
                 "n": trend_days.len(),
                 "seasonal_cycle_removed": false,
-            })
+            });
+            let tail = trend_p_fields(&t, p, hamed_rao_inflation(&t, &trend_medians, slope));
+            for (k, v) in tail.as_object().into_iter().flatten() {
+                tr[k] = v.clone();
+            }
+            tr
         })
     } else {
         None
@@ -2457,9 +2576,14 @@ async fn radar_series(
     let trend = if rows.len() >= MIN_TREND_SCENES {
         let t: Vec<f64> = kept_days.iter().map(|d| *d as f64 / 365.25).collect();
         theil_sen_kendall(&t, &kept_medians).map(|(slope, _i, s_, z, p)| {
-            json!({"method": "Theil-Sen slope of the per-scene median (dB per year); Kendall S, two-sided",
-                   "slope_per_year": round6(slope), "kendall_s": s_, "z": round6(z), "p_value": round6(p),
-                   "n": rows.len(), "seasonal_cycle_removed": false})
+            let mut tr = json!({"method": "Theil-Sen slope of the per-scene median (dB per year); Kendall S, two-sided, its variance corrected for autocorrelation (Hamed and Rao 1998)",
+                   "slope_per_year": round6(slope), "kendall_s": s_, "z": round6(z),
+                   "n": rows.len(), "seasonal_cycle_removed": false});
+            let tail = trend_p_fields(&t, p, hamed_rao_inflation(&t, &kept_medians, slope));
+            for (k, v) in tail.as_object().into_iter().flatten() {
+                tr[k] = v.clone();
+            }
+            tr
         })
     } else {
         None
@@ -3240,6 +3364,36 @@ mod tests {
         assert_eq!(quantile(&v, 0.9), v[8] as f64);
         assert_eq!(quantile(&v, 1.0), v[9] as f64);
         assert!(quantile(&[], 0.5).is_nan());
+    }
+
+    #[test]
+    fn autocorrelated_noise_widens_the_trend_test() {
+        let t: Vec<f64> = (0..60).map(|i| i as f64 / 24.0).collect();
+        // a slow wave with no trend: neighbouring scenes agree, as they do
+        let y: Vec<f64> = (0..60).map(|i| (i as f64 / 6.0).sin()).collect();
+        assert!(hamed_rao_inflation(&t, &y, 0.0) > 2.0);
+        let white: Vec<f64> = (0..60).map(|i| ((i * 7919 % 61) as f64 / 61.0) - 0.5).collect();
+        assert!(hamed_rao_inflation(&t, &white, 0.0) < 1.5);
+    }
+
+    #[test]
+    fn a_partial_year_withholds_the_p_value() {
+        let sixteen_months: Vec<f64> = (0..40).map(|i| i as f64 * 1.333 / 39.0).collect();
+        assert!(partial_year_share(&sixteen_months) > MAX_PARTIAL_YEAR_SHARE);
+        assert!(trend_p_fields(&sixteen_months, 0.01, 1.0)["p_value"].is_null());
+        let three_years: Vec<f64> = (0..90).map(|i| i as f64 * 3.0 / 89.0).collect();
+        assert!(trend_p_fields(&three_years, 0.01, 1.0)["p_value"].is_number());
+    }
+
+    #[test]
+    fn q_values_follow_benjamini_hochberg() {
+        let q = bh_q_values(&[Some(0.01), None, Some(0.04), Some(0.03), Some(0.5)]);
+        assert_eq!(q[1], None);
+        assert!((q[0].unwrap() - 0.04).abs() < 1e-12);
+        // 0.03 and 0.04 both step up to 0.04 x 4 / 3
+        assert!((q[2].unwrap() - 0.16 / 3.0).abs() < 1e-12);
+        assert!((q[3].unwrap() - 0.16 / 3.0).abs() < 1e-12);
+        assert!((q[4].unwrap() - 0.5).abs() < 1e-12);
     }
 
     #[test]
