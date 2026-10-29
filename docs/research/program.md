@@ -203,6 +203,23 @@ from the year before the window and confirms a fork at fixed odds of 39 to 1.
   counterpart of a learned embedding such as AlphaEarth or GeoTessera: every coordinate has a meaning and a source,
   and any agent can recompute it.
 
+**Version 3: the forest calibrates the null.** A cell's memory cannot see a departure every cell shares: a drought
+year browns a whole forest a little, and each cell, judged against its own past, reads that as loss. On real forests
+version 2 flagged 9.2% of stable cells against a stated 5%. Version 3 (`lab:memory_mv_fusion_emp@3`) scores each cell
+continuously against its own null replays, then decides across the forest under an empirical null (Efron 2004):
+most cells are unchanged, so together they say what "no change" looks like this year. The null's location and scale
+are read from the lower tail of the cells' scores, which loss never reaches, so up to three quarters of the cells may
+have changed; the scale is never below 1, so the forest cannot make a cell more sensitive than its own null. On a
+synthetic forest of 60 stable and 10 cleared cells:
+
+| | version 2 false alarms | version 3 false alarms | clearings found by each |
+|---|---|---|---|
+| no shared departure | 4 of 60 | 3 of 60 (its null is the identity) | 10 of 10 |
+| a drought year, every band 1.25 noise sd lower | 60 of 60 | 5 of 60 | 10 of 10 |
+
+This is memory and relations together: the cell's own past says what is normal for it, and its forest says what is
+normal this year. Version 3 is registered in the two-reference experiment, against version 2.
+
 **Calibration had to be earned.** On synthetic stable cells, three versions of the null failed before one held, and
 each failure is a general lesson for memory-driven detectors:
 
@@ -341,6 +358,8 @@ disagreements between sources; that list is the program's agenda.
 - Jones, L. A., Champ, C. W. & Rigdon, S. E. 2001. The performance of exponentially weighted moving average charts
   with estimated parameters. Technometrics 43:156-167.
 - DerSimonian, R. & Laird, N. 1986. Meta-analysis in clinical trials. Controlled Clinical Trials 7:177-188.
+- Efron, B. 2004. Large-scale simultaneous hypothesis testing: the choice of a null hypothesis. Journal of the
+  American Statistical Association 99:96-104.
 - Farahmand, A. & AghaKouchak, A. 2015. A generalized framework for deriving nonparametric standardized drought
   indicators. Advances in Water Resources 76:140-145.
 - Hansen, M. C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853.
