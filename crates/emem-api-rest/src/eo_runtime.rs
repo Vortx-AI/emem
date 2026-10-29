@@ -481,6 +481,10 @@ pub(crate) fn compute_spi_body(history: &[f64], current: f64, window_days: u64) 
     }
 }
 
+/// Complete stored windows a standardized index needs before the stored path
+/// answers at all (WMO-1090 asks for 30 years of the same window).
+const SPI_MIN_STORED_WINDOWS: usize = 30;
+
 pub async fn spi(req: SpiReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let (cell, resolved) = crate::resolve_cell_field(&req.cell).await?;
@@ -522,18 +526,57 @@ pub async fn spi(req: SpiReq, s: &AppState) -> Result<JsonValue, ApiError> {
             .filter(|s| *s > 0)
             .unwrap_or(3600);
         let span = (window_days.saturating_mul(TSLOT_DAY) / slot_s).max(1);
-        // Bucket points into consecutive `span`-wide windows by tslot.
-        let mut buckets: std::collections::BTreeMap<u64, f64> = Default::default();
+        // Bucket points into consecutive `span`-wide windows by tslot, and
+        // count the slots each holds: the band stores the hours that were
+        // read, not a record, so a window's sum means something only when
+        // nearly all its hours are there.
+        let mut buckets: std::collections::BTreeMap<u64, (f64, u64)> = Default::default();
         for p in &tr.series {
             if let Some(v) = as_f64(&p.value) {
                 if v.is_finite() {
-                    *buckets.entry(p.tslot / span).or_insert(0.0) += v.max(0.0);
+                    let b = buckets.entry(p.tslot / span).or_insert((0.0, 0));
+                    b.0 += v.max(0.0);
+                    b.1 += 1;
                 }
             }
         }
-        let sums: Vec<f64> = buckets.values().copied().collect();
-        let cur = sums.last().copied();
-        (sums, cur)
+        let newest = buckets.keys().next_back().copied();
+        let full: Vec<f64> = buckets
+            .iter()
+            .filter(|(k, (_, n))| Some(**k) != newest && (*n as f64) >= 0.95 * span as f64)
+            .map(|(_, (sum, _))| *sum)
+            .collect();
+        if full.len() < SPI_MIN_STORED_WINDOWS {
+            return Ok(json!({
+                "schema": "emem.spi.v1",
+                "algorithm_key": "spi_meteorological_drought@1",
+                "cell": cell,
+                "verdict": "inconclusive",
+                "available": false,
+                "spi": JsonValue::Null,
+                "complete_windows": full.len(),
+                "honest_note": format!(
+                    "The stored weather.precipitation_mm holds the hours that were read here, not a record: {} complete {window_days}-day windows, and a standardized index needs at least {SPI_MIN_STORED_WINDOWS} of the same season. POST /v1/rain_series ranks this window against 30 years of ERA5 by day of year, or send precip_history_mm.",
+                    full.len()
+                ),
+                "see": "/v1/rain_series",
+                "source": "stored weather.precipitation_mm trajectory",
+                "resolved_from": crate::resolved_envelope(vec![("cell".into(), resolved)]),
+                "responder_pubkey_b32": pubkey_b32(s),
+                "receipt": s.sign_receipt(
+                    "emem.spi",
+                    vec![cell.clone()],
+                    cids.iter().cloned().map(FactCid::new).collect(),
+                    false,
+                    started,
+                    None,
+                ),
+            }));
+        }
+        // A complete record is still bucketed by the epoch, not by season,
+        // so this path is kept for long stored records and says so below.
+        let cur = full.last().copied();
+        (full, cur)
     };
 
     let resolved_env = crate::resolved_envelope(vec![("cell".into(), resolved)]);
