@@ -631,7 +631,10 @@ PROSE_CLAIMS = (
     # responder serving 155 and 161. The tool and algorithm numbers in the same
     # sentences were current, which is the tell: whoever updated them updated
     # only what a pattern here was watching.
-    ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?/v1\s+paths"),
+    # The detector reads text with backticks removed, the corrector reads it as
+    # written: "181 documented `/v1` paths" in whitepaper-v3 was flagged and
+    # never fixed (2026-10-29), so the backticks are optional here too.
+    ("rest_paths_v1", r"(\d{2,4})\s+(?:documented\s+)?`?/v1`?\s+paths"),
     # The SECOND number in a two-number phrasing. The detector reads both and
     # the corrector only ever had a pattern for the first, so "172 documented,
     # 161 under /v1/*" would have its total corrected and its /v1 count left
