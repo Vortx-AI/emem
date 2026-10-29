@@ -575,7 +575,10 @@ mod tests {
         sample.extend([2.0, 3.0, 5.0, 8.0, 13.0]);
         let r = ranked(0.1, &sample, 30);
         assert!(r["z"].is_null(), "{r}");
-        assert!(r["class"].as_str().unwrap().starts_with("not classed"), "{r}");
+        assert!(
+            r["class"].as_str().unwrap().starts_with("not classed"),
+            "{r}"
+        );
     }
 
     #[test]
