@@ -11,8 +11,8 @@ agent, and the state of the fix. A gap closes when the fix ships and an experime
 
 | gap | evidence | cost to an agent | state |
 |---|---|---|---|
-| `field_series` keeps pixels Sen2Cor classes as snow (SCL 11) unless the caller sends a `mask_policy` | At Västerbotten every detector flagged much of the stable forest: the registry rule 80%, the seasonal NBR rule 28% (paper, section 5.9) | A snowy canopy reads as canopy loss to every rule that reads NDVI or NBR | Snow-mask experiment registered (`w54isezafoxudzsqffpcbazcbu`), running. If the mask helps, the default or a named preset is the operator's change, since it alters every caller's series |
-| Radar area responses lack what optical ones carry: no `blocks` map, `change_map` or `anomaly` for VV, VH or VH−VV | Read from `field_series.rs`; radar per-cell series do exist and serve the fusion detector | An agent can read radar over an area as one series, not as a map of where it changed | In progress on a branch |
+| `field_series` keeps pixels Sen2Cor classes as snow (SCL 11) unless the caller sends a `mask_policy` | At Västerbotten every detector flagged much of the stable forest. The snow-mask experiment (`w54isezafoxudzsqffpcbazcbu`) found rejecting SCL 11 cuts every detector's false alarms in snowy forest by a fifth to a half, but finds no more loss: MCC moved for three of 15 detectors | A snowy canopy reads as loss; no rule tested has skill in snowy boreal forest at 400 m | Tested; the default stays. The open gap is a detector that works in snow: radar, or a snow-aware memory |
+| Radar area responses lacked what optical ones carry: no `blocks` map, `change_map` or `anomaly` for VV, VH or VH−VV | Read from `field_series.rs`; radar per-cell series did exist and serve the fusion detector | An agent could read radar over an area as one series, not as a map of where it changed | Fixed on main (`bb0d2e4`), awaiting deploy: block medians in dB with pixel counts, a same-season change map and an anomaly on one orbit |
 | No radar raster: `band_raster` serves Sentinel-2 bands and forest references, not Sentinel-1 | `band_raster.rs` has no Sentinel-1 path | No signed `emem:raster` of backscatter for a world model or a change picture | Open |
 | No snow index among `field_series` indices (NDVI, NDWI, NDMI, EVI, NBR, NDTI) | NDSI needs B03 (10 m) and B11 (20 m) on one pixel grid, which the index table does not mix today | A snow screen must rely on Sen2Cor's class | Open |
 | No Landsat, HLS or MODIS per-cell series | `field_series` reads Sentinel-2 L2A and Sentinel-1 RTC only | A cell's memory starts in 2017 at best, and fusion has two sensors, not three or four | Open |
@@ -34,6 +34,31 @@ agent, and the state of the fix. A gap closes when the fix ships and an experime
 | `spi_meteorological_drought@1` cannot run: `weather.precipitation_mm` holds the current hour | Registry audit | The drought index in the registry returns nothing | Partly closed: `/v1/rain_series` computes the standardized index from 30 years of ERA5; the registry entry still points at the band |
 | 41 entries rest on retired encoders or bands | Registry audit | Recipes that cannot run are listed beside ones that can | Open |
 | The registry's canopy rules are weak where they are offered | `deforestation_alert_ndvi_drop@1` flagged 43 to 74% of stable forest in six experiments; MCC 0.051 to 0.338 | An agent using it raises alarms on most of the forest it watches | Three replicated replacements are proposed; registering one is the operator's change |
+
+## Bugs and weak maths in the server
+
+A read-only audit of the server's statistical code on 29 October, prompted by what the experiments found. "Checked"
+means the finding was traced in the code again before it was written here; the others are as the audit reported
+them, with file and line, and are confirmed before they are fixed.
+
+| finding | where | an agent is misled when | state |
+|---|---|---|---|
+| A trace of rain in a dry season was classed extremely wet, and the tails counted fifteen overlapping totals a year as independent | `rain_series.rs` | 0.1 mm forecast against a sample of 445 zero totals in 450 read p = 0.988, "extremely wet"; a total beyond the record read as one in 900 rather than one in 31 | Checked. Fixed in `rain_series@2` (trace under 1 mm, no class when most totals are rainless, tails bounded by years of record); awaiting deploy |
+| `emem_spi` buckets its history by epoch-aligned slots: the current bucket is partial and every season shares one gamma fit | `eo_runtime.rs` | ten days of rain ranked against full 90-day sums; a dry season reads as extreme drought against monsoon sums | Checked. Fixed on a branch, awaiting build and deploy: only complete windows count, never the partial current one, and under 30 of them the route answers inconclusive and points to `/v1/rain_series` |
+| The anomaly and the same-season pairing take "an earlier year" to be an earlier calendar year | `field_series.rs` | a scene from 20 December is "last year's same season" for one of 15 January | Checked. Fixed on a branch, awaiting build and deploy: at least 335 days back and within 30 days of the day of year |
+| Trend p-values come from a Kendall test that assumes independent, non-seasonal data, on autocorrelated seasonal medians, with no multiplicity control across fields | `field_series.rs` | a 16-month window from trough to peak reads as a significant trend; 500 fields give about 25 false trends at 5% | Fixed on a branch, awaiting build and deploy: Hamed-Rao variance correction, the p-value withheld when a partial year is over a tenth of the window, and Benjamini-Hochberg q-values across fields. A seasonal Kendall test is still open |
+| The radar point-target cut assumes one speckle class, so on a field of two covers the brighter one is cut | `field_series.rs` | 55% water and 45% rice reads about -19 dB instead of -11 dB, and jumps as the water share crosses half | Open |
+| The radar catalogue search stops at 400 items newest first and drops the completeness flag | `field_series.rs` | a long multi-orbit window silently loses its oldest years | Open (the radar parity change names the limit in its caution but does not raise it) |
+| EUDR visual evidence: single-pixel NDVI anywhere from April to September and the largest drop over all years; single-pixel VV on any orbit against 3 dB | `lib.rs` | a seasonal shift alone can mark a plot suspected; speckle alone gives about 1.4 dB per difference | Open |
+| The deforestation-alert "baseline" is the latest MODIS composite and "now" the latest Sentinel-2 pixel | `deforestation_alert.rs` | a difference across sensors, scales and dates reads as a change | Open |
+| `jepa_predict` trims history before its seasonal lag lookup, so the seasonal term never applies by default | `physics.rs` | a forecast called seasonal is not | Open |
+| The scene-dip check runs on water indices, where a one-pass flood is the signal | `field_series.rs` | a flood date is removed as "fog" | Open |
+| `compare_same_doy` interpolates across any gap; `compare` mixes dates per band | `lib.rs`, `compare.rs` | a monsoon gap is interpolated through the crop peak; Tokyo 2026 is compared with Mumbai 2024 | Open |
+| Smaller: change-map blocks can rest on one or two pixels with no count; p10 to p90 described as "uncertainty bands"; scenes are spread by rank, not evenly in time as the record says; every derivative signs confidence 1.0; REST failures are not logged | various | each misstates a little | Open |
+
+Found sound in the same audit: the gamma and probit implementations, the Theil-Sen estimator, the quantile rule, the
+radar statistics (mean on linear power, the standard-error and look formulas, the 4.12 point-target threshold), the
+Sentinel-2 processing-baseline offset handling, one CRS and one orbit per series, and the cache keys.
 
 ## The lab's own record
 

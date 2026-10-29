@@ -12,13 +12,14 @@ the method, a deciding score fixed in advance, a signed result, and a proposal w
 experiment updates. The readers are agents, not people, so every part is machine-readable and citeable by path,
 content id or token, and an agent can decide whether to trust a method from its record alone. The same discipline
 covers the raw-data work underneath the algorithms (sub-pixel measurement, cloud and haze correction) and the
-forecasts the research desks publish. The first programme, sudden canopy loss, ran eight experiments on 38 forests
+forecasts the research desks publish. The first programme, sudden canopy loss, ran eleven experiments on 57 forests
 in one day and shows both halves of the discipline. A rule that won its first experiment failed to replicate, and the
 score fixed in advance rewarded a detector that flagged most of the stable forest. Under a better score registered in
-advance, two rules then beat the registry's canopy rule on three disjoint sets of forests, and a rule found by search
-beat it on forests it had never seen. The registry now has three candidates with a replicated record and stated
-limits: they win pooled across many forests, often say nothing at one, and find nine in ten large clearings but one in
-five small ones.
+advance, two rules then beat the registry's canopy rule on four disjoint sets of forests, until a fifth, smaller
+experiment where they tied; by meta-analysis across all five they are better by about 0.17 MCC, with limits stated:
+they often say nothing at a single forest, and find nine in ten large clearings but one in five small ones. A
+memory-driven detector that fuses radar and optical readings over each cell's own five-year past won the one
+experiment it entered. The record also shows the program's own rules being corrected as the evidence came in.
 
 ## 1. Why the registry needs evidence
 
@@ -215,10 +216,15 @@ each failure is a general lesson for memory-driven detectors:
 The predictive draw is normal with the remembered years' offset covariance, scaled by (n − 1)/χ²ₙ₋₁ so that it
 carries the uncertainty of estimating that covariance from n years.
 
-**Under test.** All seven memory methods are registered in one experiment on ten tropical forests. Ten comparisons
-separate what each upgrade adds: radar, memory against a fixed threshold, version 2 against version 1, relations,
-and false-discovery control against per-cell calibration. The experiment also checks each calibrated method's
-stated false-alarm rate against the one it shows. Every setting was fixed before any of those forests was read.
+**First result.** All seven memory methods were registered in one experiment on ten tropical forests, of which six
+could be read. The fused version-2 detector was the only method to beat the registry rule (MCC 0.366 against 0.225;
++0.029 to +0.257) and the best of every method by point score. The comparisons that separate what each upgrade adds
+all point the right way (version 2 over version 1, radar over optical alone, memory over the fixed seasonal rule)
+and none is decisive at six forests. False-discovery control across a forest's cells was too strict. And the stated
+5% false-alarm rate did not hold on real forests: 9.2% for the fused detector, 13.3% for optical alone. Real forests
+change in ways five remembered years do not hold, and some cells Hansen calls stable did lose canopy; until a second
+reference separates the two, the stated rate is a floor. The next experiment needs more forests read, which needs the
+server to finish heavy reads (gap ledger).
 
 **How high can accuracy go?** The score is bounded by the reference. Hansen's labels are themselves wrong
 sometimes, and the 5% loss line puts some cells on the wrong side of it, so no method can be verified above the
@@ -268,7 +274,12 @@ These are the rules the program holds itself to, each learned or confirmed on th
    score judged them. The rule was first written to excuse every earlier loss, which was meant for the F1 experiments,
    and it was tightened when three sub-pixel and screened rules won after losing under MCC. Changes to the status rule
    are made in the open, apply to every record, and so far have only demoted.
-10. **The operator registers.** The lab proposes; the registry changes only when its operator adds an entry and cites
+10. **A status rule must not punish running more experiments.** The rule in force asks every later experiment to
+   win, so a method that is better on average will in time tie in a small experiment and read not replicated; with
+   enough experiments, every good method does. The record keeps that rule's verdicts as registered and reports a
+   random-effects meta-analysis across disjoint site sets beside them (DerSimonian and Laird 1986). Adopting the
+   meta-analysis as the status rule is the operator's decision, for experiments not yet run.
+11. **The operator registers.** The lab proposes; the registry changes only when its operator adds an entry and cites
    the record.
 
 ## 6. Scaling the program
@@ -290,9 +301,10 @@ disagreements between sources; that list is the program's agenda.
 
 ## 7. What is not shown yet
 
-- Three canopy rules have replicated by the program's rule (`lab:seasonal_loss_nbr@1`, the forest desk's
-  `vegetation_loss@1` and the searched `lab:seasonal_canopy_loss@1`), and none is registered yet. All are weak at
-  single sites with few, small clearings, and none is screened for snow.
+- No canopy rule holds a replicated status now. Three won four or three experiments in a row and then tied or lost
+  in the memory-fusion experiment, and the strict rule reads them not replicated. By a meta-analysis over five
+  disjoint sets of forests, `lab:seasonal_loss_nbr@1` and `lab:seasonal_canopy_loss@1` are still better than the
+  registry rule (about +0.17 MCC, lower bounds near +0.08). Which of the two views decides is open (rule 10).
 - At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
   experiment's question.
 - Clearings that cover under 5% of a 400 m cell are left out of scoring.
@@ -319,6 +331,7 @@ disagreements between sources; that list is the program's agenda.
   93:509-524.
 - Jones, L. A., Champ, C. W. & Rigdon, S. E. 2001. The performance of exponentially weighted moving average charts
   with estimated parameters. Technometrics 43:156-167.
+- DerSimonian, R. & Laird, N. 1986. Meta-analysis in clinical trials. Controlled Clinical Trials 7:177-188.
 - Farahmand, A. & AghaKouchak, A. 2015. A generalized framework for deriving nonparametric standardized drought
   indicators. Advances in Water Resources 76:140-145.
 - Hansen, M. C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853.

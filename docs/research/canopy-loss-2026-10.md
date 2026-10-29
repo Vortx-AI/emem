@@ -6,20 +6,25 @@ of evidence: [The emem research program](program.md).*
 ## Abstract
 
 We ask which rule best finds forest that lost tree cover in 2024 or 2025, at cells about 400 m across, from
-Sentinel-2 NDVI and NBR series alone, without flagging forest that did not change. Over seven pre-registered
-experiments on 38 forests we compare the two canopy rules in emem's algorithm registry, the forest desk's own rules,
-rules the lab proposes, a search over a family of rules scored on held-out sites, each detector with and without a
-temporal cloud screen, and, in an eighth experiment, the same detectors read at 200 m cells. Every plan was signed
+Sentinel-2 NDVI and NBR series alone, without flagging forest that did not change. Over eleven pre-registered
+experiments on 57 forests we compare the two canopy rules in emem's algorithm registry, the forest desk's own rules,
+rules the lab proposes, a search over a family of rules scored on held-out sites, and each detector with and without a
+temporal cloud screen; two of the experiments test the reading itself, at 200 m cells and with snow masked. Every plan was signed
 before its data was read, every input is a signed emem token, and every method is scored against Hansen Global
 Forest Change, an independent Landsat product.
 
 The first win, the lab's seasonal NDVI rule under F1, did not replicate, and F1 itself misled: it rewarded the
 registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. Under the Matthews correlation
-(MCC), registered in advance from the fifth experiment on, two rules beat the registry rule in all three experiments
-on three disjoint sets of 19, 7 and 10 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457 and 0.262, against
-0.295, 0.145 and 0.098) and the forest desk's held NDVI drop (0.356, 0.284 and 0.202). A rule found by a search and
-then fixed, `lab:seasonal_canopy_loss@1`, beat it on the ten forests it had never seen (0.276). The seasonal NBR rule
-flags 1.2 to 4.6% of stable forest; the registry rule flags 53 to 62%.
+(MCC), registered in advance from the fifth experiment on, two rules beat the registry rule in all four experiments,
+on four disjoint sets of 19, 7, 10 and 8 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457, 0.262 and 0.262,
+against 0.295, 0.145, 0.098 and 0.013) and the forest desk's held NDVI drop (0.356, 0.284, 0.202 and 0.301). A rule
+found by a search and then fixed, `lab:seasonal_canopy_loss@1`, beat it on the 18 forests it had never seen. The
+seasonal NBR rule flags 1.2 to 4.6% of stable forest; the registry rule flags 46 to 62%. In managed forests a
+registered hypothesis held: the sub-pixel rules after a cloud screen scored best of all (MCC 0.389 for the
+10th-percentile rule). In the last experiment, a memory-driven detector that fuses Sentinel-1 and Sentinel-2 over each cell's five-year
+memory was the only method to beat the registry rule; there the three leading rules tied with it or lost, so the
+program's strict rule now reads them not replicated, while a meta-analysis over five disjoint site sets still puts
+the seasonal NBR rule at +0.173 MCC (+0.076 to +0.270).
 
 The record also bounds these rules. Their wins are pooled: site by site, each beats the registry rule at 38% to 80%
 of the sites with both loss and stable forest, depending on the rule and the site set. They find 91% of the 400 m cells where half the forest or more was cleared, as the
@@ -438,39 +443,139 @@ group A's loss pixels, so the intervals may be narrower than the truth. The rule
 cell has a quarter of the pixels and noisier medians, so these are the rules' scores at a size they were not built
 for. A full experiment at 200 m cells, scored per cell against each method's baseline, is the next test.
 
-### 5.11 Status of every proposal
+### 5.11 Snow: rejecting Sen2Cor's snow class (a reading experiment)
+
+`field_series` keeps pixels that Sen2Cor's scene classification calls snow (SCL 11) unless the caller rejects them,
+and at Västerbotten every rule flagged much of the stable forest. This experiment (plan `w54isezafoxudzsqffpcbazcbu`)
+read each forest twice from the same scenes, with the default mask and also rejecting SCL 11, and scored every
+detector on both readings of the same cells. Group A, which decides, is seven snowy managed forests no experiment had
+scored (Kainuu, Dalarna, Arkhangelsk, Abitibi, Hearst, Prince George and Tokachi; North Woods in Maine could not be
+read, `band_raster` answering 502 four times). Group B, reported only, is Jasper, Flin Flon and Västerbotten.
+
+In group A (50 loss and 710 stable cells), every detector was near useless at 400 m with either mask: MCC between
+-0.11 and +0.12. The default reading flagged 81% of stable forest by the registry rule and 98% by the desk's held
+drop. Rejecting snow lowered the false-alarm rate of all 15 detectors, by a fifth to a half (the registry rule 81% to
+66%, the desk rule 98% to 59%, the seasonal NBR rule 12% to 6%), while dropping only one to four of about 72 passes a
+site. But the loss found fell with the false alarms, so MCC changed for three detectors only: the mask helped the
+screened dNBR rule (+0.045 to +0.172) and hurt both versions of the desk's held drop (-0.192 to -0.045 and -0.229 to
+-0.072).
+
+So the default mask stays. The finding an agent needs is the other one: none of these rules finds canopy loss in
+snowy boreal forest at 400 m, with or without the snow mask, and their flags there are mostly false.
+
+### 5.12 Managed forests: the sub-pixel rules where harvests take part of a cell (MCC decides)
+
+The sub-pixel rules lost by MCC at scale and on the seven forests of section 5.6, and won on the ten of section 5.8,
+where they scored best at managed forests. This experiment (plan `2qi3f5hui526dvsoiz7ryv5voy`) registered that as a
+hypothesis and tested every method on eight plantation and managed forests no experiment had scored: Kaingaroa (New
+Zealand), Biobío (Chile), Três Lagoas (Mato Grosso do Sul), Águeda (Portugal), Guangxi (China), the Landes (France),
+Mpumalanga (South Africa) and north-east Tasmania. 119 loss and 464 stable cells.
+
+| method | MCC | F1 | precision | recall | false alarm rate | MCC minus baseline, 95% interval |
+|---|---|---|---|---|---|---|
+| `lab:subcell_loss_p10@1+screen` | 0.389 | 0.477 | 0.603 | 0.395 | 0.067 | +0.265 to +0.484 |
+| `lab:green_fraction_loss@1+screen` | 0.322 | 0.438 | 0.505 | 0.387 | 0.097 | +0.205 to +0.414 |
+| `desk:vegetation_loss@1` | 0.301 | 0.402 | 0.520 | 0.328 | 0.078 | +0.163 to +0.410 |
+| `lab:seasonal_loss_nbr@1` | 0.262 | 0.248 | 0.692 | 0.151 | 0.017 | +0.138 to +0.355 |
+| `lab:seasonal_canopy_loss@1` | 0.258 | 0.339 | 0.517 | 0.252 | 0.060 | +0.143 to +0.343 |
+| `lab:green_fraction_loss@1` | 0.237 | 0.409 | 0.367 | 0.462 | 0.205 | +0.136 to +0.313 |
+| `lab:subcell_loss_p10@1` | 0.234 | 0.400 | 0.375 | 0.429 | 0.183 | +0.108 to +0.328 |
+| `registry:deforestation_alert_ndvi_drop@1+screen` | 0.096 | 0.260 | 0.292 | 0.235 | 0.147 | -0.000 to +0.163 |
+| `registry:deforestation_alert_ndvi_drop@1` | 0.013 | 0.292 | 0.210 | 0.479 | 0.463 | baseline |
+| `registry:burn_severity_from_dnbr@1` | -0.079 | 0.227 | 0.167 | 0.353 | 0.450 | -0.174 to -0.004 |
+
+Five more methods are in the result note; all beat the baseline, by less. The hypothesis held: in managed forest the
+10th-percentile rule after the cloud screen had the best MCC of any method in any experiment, and the share-of-green
+rule after the screen was second. The registry rule scored 0.013, barely above chance, while flagging 46% of stable
+forest. The three replicated rules won again: for the fourth time for the seasonal NBR rule and the desk's NDVI rule,
+and for the second time as a fixed rule for the searched one. The search itself, scored out of sample, also beat the
+baseline (MCC 0.225, +0.099 to +0.322), picking a 0.30 NBR drop at six of eight sites.
+
+The loss cells were concentrated: Águeda and Guangxi held 88 of the 119, Mpumalanga none and Biobío one. The screen
+helped the 10th-percentile (+0.100 to +0.207), share-of-green and dNBR rules and hurt the desk's held drop again
+(-0.231 to -0.044).
+
+**What an agent should take from it.** The rule to use depends on the forest. Where harvests take part of a cell, the
+sub-pixel rules after the screen are the best tested; on tropical clearing frontiers (sections 5.5 and 5.6) they were
+among the weakest. Their status reads mixed, which is the record saying exactly that.
+
+### 5.13 Memory and fusion: detectors built on each cell's own past (MCC decides)
+
+Every rule above compares one or two optical indices with a fixed threshold. This experiment (plan
+`s6ld3nyqfaeekcoaotbxl2geny`) registered two generations of memory-driven detector (program, section 4.5) on ten
+tropical forests no experiment had scored. Version 1 remembers one index per sensor from the year before the window.
+Version 2 remembers five years across NDVI, NBR, NDMI and Sentinel-1 VH, scores each pass with a matched filter
+under the cell's own covariance, and calibrates its alarm on the cell's remembered noise, stating a 5% false-alarm
+chance per stable cell.
+
+Four of the ten forests could not be read: Apuí, Ogooué-Ivindo and Kachin returned 502 after retries, and Équateur a
+400. Heavy multi-year, multi-index reads met the server's own timeouts and upstream errors (the gap ledger records
+it). The experiment scored the other six: 104 loss and 391 stable cells, so its intervals are wide.
+
+| method | MCC | precision | recall | false alarm rate | MCC minus baseline, 95% interval |
+|---|---|---|---|---|---|
+| `lab:memory_mv_fusion@2` | 0.366 | 0.550 | 0.423 | 0.092 | **+0.029 to +0.257** |
+| `lab:memory_fusion@1` | 0.298 | 0.329 | 0.798 | 0.432 | -0.013 to +0.151 |
+| `lab:seasonal_canopy_loss@1` | 0.290 | 0.438 | 0.442 | 0.151 | -0.038 to +0.176 |
+| `lab:memory_mv_optical@2` | 0.290 | 0.453 | 0.413 | 0.133 | -0.035 to +0.170 |
+| `lab:seasonal_loss_nbr@1` | 0.273 | 0.655 | 0.183 | 0.026 | -0.077 to +0.175 |
+| `lab:memory_optical@1` | 0.254 | 0.351 | 0.587 | 0.289 | -0.067 to +0.125 |
+| `lab:memory_radar@1` | 0.237 | 0.355 | 0.519 | 0.251 | -0.095 to +0.119 |
+| `registry:deforestation_alert_ndvi_drop@1` | 0.225 | 0.268 | 0.913 | 0.665 | baseline |
+| `lab:memory_mv_fusion_fdr@2` | 0.181 | 0.452 | 0.183 | 0.059 | -0.167 to +0.077 |
+| `lab:memory_mv_fusion_rel@2` | 0.156 | 0.425 | 0.163 | 0.059 | -0.194 to +0.049 |
+| `desk:vegetation_loss@1` | 0.112 | 0.333 | 0.192 | 0.102 | -0.230 to +0.004 |
+
+The fused version-2 detector was the only method to beat the registry rule, and the best by point score. The
+registered comparisons were all inconclusive at this size except one: false-discovery control across a forest's
+cells was worse than per-cell calibration (-0.276 to -0.091), because at q = 0.10 it flagged a fifth of the loss.
+The point estimates favour version 2 over version 1 (+0.068), radar over optical alone within version 2 (+0.076)
+and memory over the fixed seasonal rule (+0.093), but every one of those intervals crosses zero.
+
+**The stated false-alarm rate did not hold on real forests.** The fused detector flagged 9.2% of stable cells (Wilson
+interval 6.7 to 12.5%) and the optical one 13.3% (10.3 to 17.0%), against a stated 5%. On synthetic stable cells the
+same calibration held at 2 to 5%. Two causes are possible and the record cannot yet separate them: real forests
+change in ways five remembered years do not contain, and some cells Hansen calls stable did lose canopy. Until a
+second reference separates them, read the stated rate as a floor.
+
+**The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
+(intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.14).
+
+### 5.14 Status of every proposal
 
 The status rule was tightened after the third replication, before this table was written: a loss under the deciding
 score now counts whenever it happened. Before, losses ahead of a method's first win were all excused, which was meant
-for the F1 experiments; it also excused the sub-pixel and screened rules' losses under MCC, and would have shown three
-of them as proposed or replicated. A method that won after such a loss now reads **mixed**. The change only demotes,
-and it is applied to every record.
+for the F1 experiments; it also excused the sub-pixel and screened rules' losses under MCC. A method that won after
+such a loss reads **mixed**. The change only demotes, and it is applied to every record.
 
-| method | status | MCC experiments won | MCC experiments not won |
-|---|---|---|---|
-| `lab:seasonal_loss_nbr@1` | replicated | scaled (5.5), MCC replication (5.6), third (5.8) | none |
-| `desk:vegetation_loss@1` | replicated | scaled, MCC replication, third | none |
-| `lab:seasonal_canopy_loss@1` | replicated | the search out of sample (5.6), third | none |
-| `registry:deforestation_alert_ndvi_drop@1+screen` | mixed | MCC replication, third | scaled |
-| `desk:vegetation_loss@1+screen` | mixed | MCC replication, third | scaled |
-| `lab:green_fraction_loss@1+screen` | mixed | third | scaled, MCC replication |
-| `lab:green_fraction_loss@1` | mixed | third | scaled, MCC replication |
-| `lab:subcell_loss_p10@1+screen` | mixed | third | scaled, MCC replication |
-| `desk:vegetation_loss_nbr@1` | not replicated | MCC replication | scaled, third |
-| `registry:burn_severity_from_dnbr@1+screen` | not replicated | scaled | MCC replication, third |
-| `lab:seasonal_loss_ndvi@1` | not replicated | none (won the first, F1 experiment) | scaled, MCC replication, third |
-| `lab:seasonal_loss_either@1` | not replicated | none (won the first, F1 experiment) | scaled, MCC replication, third |
+| method | status | MCC experiments won | not won | pooled difference, 95% interval (I²) |
+|---|---|---|---|---|
+| `lab:seasonal_loss_nbr@1` | not replicated | scaled, MCC replication, third, managed | fusion (a tie) | +0.173, +0.076 to +0.270 (85%) |
+| `lab:seasonal_canopy_loss@1` | not replicated | search (5.6), third, managed | fusion (a tie) | +0.165, +0.073 to +0.257 (66%), as a fixed rule |
+| `desk:vegetation_loss@1` | not replicated | scaled, MCC replication, third, managed | fusion | +0.095, +0.003 to +0.186 (83%) |
+| `lab:memory_mv_fusion@2` | proposed, awaiting replication | fusion | none | one experiment |
+| `registry:deforestation_alert_ndvi_drop@1+screen` | not replicated | MCC replication, third | scaled, managed, fusion | +0.052, +0.011 to +0.093 (49%) |
+| `desk:vegetation_loss@1+screen` | not replicated | MCC replication, third, managed | scaled, fusion | +0.049, -0.031 to +0.129 (77%) |
+| `lab:green_fraction_loss@1+screen` | not replicated | third, managed | scaled, MCC replication, fusion | +0.077, -0.063 to +0.217 (93%) |
+| `lab:subcell_loss_p10@1+screen` | not replicated | third, managed | scaled, MCC replication, fusion | +0.012, -0.170 to +0.195 (96%) |
+| `desk:vegetation_loss_nbr@1` | not replicated | MCC replication, managed | scaled, third, fusion | +0.057, -0.040 to +0.154 (84%) |
+| `registry:burn_severity_from_dnbr@1+screen` | not replicated | scaled, managed | MCC replication, third, fusion | +0.043, -0.016 to +0.101 (58%) |
+| `lab:seasonal_loss_ndvi@1` and `either@1` | not replicated | managed | the other four | about 0 |
 
-Three rules beat the registry's canopy rule in every MCC experiment they entered: the lab's seasonal NBR rule and the
-forest desk's held NDVI drop on 36 forests in three disjoint sets, and the searched rule in the two in which it took
-part. For `lab:seasonal_canopy_loss@1`, the first of those two wins is the search's out-of-sample score, which
-measures the procedure that picked it; the third replication is its only test as a fixed rule. "Replicated" is the
-rule applied to the registered scores; section 5.9 says what it does not cover.
+**The status rule has a defect this experiment exposed.** It asks every later experiment to win. A method that is
+better on average will sooner or later tie in a small or unlucky experiment, so the more experiments the program
+runs, the surer every good method is to read not replicated. The fusion experiment, with four of ten forests lost,
+was that experiment for three rules. The status column keeps the registered rule's verdict, because changing a rule
+just after it demoted the leaders is what pre-registration exists to prevent.
 
-The sub-pixel rules lost by MCC at scale and on the seven forests of section 5.6 (the 10th-percentile rule
-significantly so) and won on the ten of section 5.8, where the sites where they scored best were managed forests with
-partial harvests (the Central Highlands, the Oregon Coast Range, south-east Georgia). That is a hypothesis for a
-registered experiment, not a finding.
+The last column is the standard alternative from evidence synthesis, computed over the five disjoint MCC site sets:
+a random-effects meta-analysis (DerSimonian and Laird 1986) of each method's MCC difference from the registry rule,
+with I² for the share of variation that is real difference between forests. By it, the seasonal NBR rule (+0.173,
++0.076 to +0.270) and the searched rule as a fixed rule (+0.165, +0.073 to +0.257) are better than the registry rule
+over all the forests tested, and by amounts that vary a great deal from one set of forests to the next; the sub-pixel
+rules' I² of 93 to 96% is the managed-forest finding in one number. Whether the program adopts this as its status
+rule is the operator's decision, to be made for experiments not yet run.
 
 ## 6. Discussion
 
@@ -515,9 +620,15 @@ does not add up false alarms that way. That is the property the replicated rules
 
 ### 6.5 What an agent should do with this
 
-- To watch many forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1`,
-  `lab:seasonal_canopy_loss@1` or `desk:vegetation_loss@1`, and read a silence as "no large loss seen", not as "no
-  loss": they find nine in ten cells where half the forest went, and one in five where a twentieth did.
+- To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
+  `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
+  though the strict status rule reads them not replicated after one tie (section 5.14). Read a silence as "no large
+  loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
+  twentieth did.
+- Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
+  frontiers.
+- In snowy boreal forest, do not trust any of them (section 5.11).
+- `lab:memory_mv_fusion@2` won the one experiment it has entered; wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.
 - Do not use a rule whose status is mixed on the strength of its best result.
@@ -540,8 +651,12 @@ does not add up false alarms that way. That is the property the replicated rules
 - The desk's two rules were scored in every experiment but entered the proposal ledger only after the sixth. Their
   ledger rows are taken from the five signed records, not recomputed.
 - Sites were chosen by region, not by known loss: two of the third replication's ten boxes held no loss cells.
-- Snow is not screened. At Västerbotten every rule flagged much of the stable forest.
-- The status rule was tightened after the third replication (section 5.11). The change only demotes.
+- Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
+- Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
+  it power.
+- The program's status rule turns a single tie into not replicated (section 5.14); its verdicts are kept as
+  registered, and a meta-analysis is reported beside them.
+- The status rule was tightened after the third replication (section 5.13). The change only demotes.
 
 ## 8. Reproducing this
 
@@ -574,6 +689,7 @@ for each site, by `lab.py` at the same commit, and reproduce every pooled number
 
 - Chen, J. et al. 2004. A simple method for reconstructing a high-quality NDVI time-series data set based on the
   Savitzky-Golay filter. Remote Sensing of Environment 91:332-344.
+- DerSimonian, R. & Laird, N. 1986. Meta-analysis in clinical trials. Controlled Clinical Trials 7:177-188.
 - Hansen, M. C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853.
 - Key, C. H. & Benson, N. C. 2006. Landscape Assessment: sampling and analysis methods. USDA Forest Service
   RMRS-GTR-164-CD.
