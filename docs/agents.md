@@ -289,7 +289,7 @@ The hosted responder is at `https://emem.dev`; local self-host runs on
 port 5051. The live surface documents 182 paths under
 `/v1/*` (193 total in `/openapi.json`), 116 MCP tools (18 core, 98 extended, with
 `/mcp` advertising the core tier from `tools/list` and `/mcp/full` all 116), 21 static MCP
-resources + 9 URI templates, 169 algorithms in the content-addressed
+resources + 9 URI templates, 172 algorithms in the content-addressed
 registry, 43 bands in the manifest, 46 declared source schemes (several
 not yet wired), 113 entries in `/v1/materializers` (115 materializer-wired band names), and 27 data
 connectors + 8 utility modules. `/openapi.json` and `tools/list` are the live source when these drift.
@@ -578,7 +578,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
-| `/v1/algorithms` | 169 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question. `?runnable=true` lists only the ones that run |
+| `/v1/algorithms` | 172 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question. `?runnable=true` lists only the ones that run |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
@@ -607,7 +607,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
 | POST | `/v1/find_similar` | `{key, k?, band?, mode?}` |
 | POST | `/v1/trajectory` | `{cell, band, window:[a,b]}` |
-| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?}` |
+| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?, memory?}` |
 | POST | `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
 
 `query_region` `max_cells` is bbox-area-derived (target ~1 cell per
@@ -631,6 +631,14 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
   Landsat line and a Sentinel-2 line without a cross-calibration.
 - `fields`: up to 500 `{id, geometry}` polygons, read once from one
   window of at most 512 px a side.
+- `memory: true` (with `fields`): each field's summary carries `memory`,
+  its seasonal normal over the window: the mean; a drift per year when the
+  window spans two years; one annual harmonic, or two over two years and
+  20 scenes, each with amplitude and peak day of year; the residuals'
+  robust scale (1.4826 MAD); and the spread of whole years. It is a least
+  squares fit to the rows above it, so anyone can recompute it. The
+  `memory_similarity@1`, `memory_shift@1` and `memory_novelty@1` recipes
+  compare fields, or two windows of one field, by these numbers.
 - `inner_buffer_m` (0 to 60) drops edge pixels. `min_support_px` (4 to
   30, default 30) is the fewest pixels a scene may rest on.
 - `polygon_cid` identifies the outline. `aoi_cid` is the bbox hash the

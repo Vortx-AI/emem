@@ -253,7 +253,7 @@ write path from scratch.
 ## Counts, and what guards them
 
 `scripts/sync_counts.py --check` verifies the canonical counts (116 tools,
-182 /v1 paths, 46 sources, 43 slots, 129 wired bands, 169 algorithms, 27
+182 /v1 paths, 46 sources, 43 slots, 129 wired bands, 172 algorithms, 27
 topics, 19 crates) against the registries and the live responder. CI runs it
 (`.github/workflows/ci.yml`, "prose counts match the responder"); it warns
 rather than fails when the origin is unreachable, so a green run does not

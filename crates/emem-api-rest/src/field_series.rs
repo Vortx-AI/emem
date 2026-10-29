@@ -674,6 +674,11 @@ pub struct FieldSeriesReq {
     /// Map blocks per side, 2..=8. Default 6.
     #[serde(default)]
     pub blocks: Option<u32>,
+    /// `fields` only: when `true`, each field's summary carries `memory`, its
+    /// seasonal normal over the window ([`seasonal_memory`]). Ask for two years
+    /// or more: a shorter window fits one harmonic and no drift.
+    #[serde(default)]
+    pub memory: Option<bool>,
     /// SCL classes rejected per pixel; defaults to the composite's policy.
     #[serde(default)]
     pub mask_policy: Option<Vec<u8>>,
@@ -839,11 +844,150 @@ fn zone_pixels(
     (zone_px, skipped)
 }
 
+/// Scenes and span a field needs before it has a seasonal memory: under 8
+/// scenes or half a year, one harmonic is fitted to noise.
+const MEMORY_MIN_SCENES: usize = 8;
+const MEMORY_MIN_SPAN_DAYS: i64 = 180;
+
+/// The field's seasonal memory over the window: the medians fitted by least
+/// squares to a mean, annual harmonics (two when the record spans two years and
+/// 20 scenes, else one) and, over two years or more, a linear drift. Beside the
+/// fit, the residuals' robust scale (1.4826 MAD) and the spread of the calendar
+/// years' mean residuals, which is how far a whole year departs from the normal.
+/// Every number is named, in the index's units, and recomputable from the rows,
+/// so the block is the field's own embedding: two places or two windows compare
+/// coefficient by coefficient. None when the record is too short to fit.
+fn seasonal_memory(days: &[i64], vals: &[f64]) -> Option<JsonValue> {
+    let pts: Vec<(i64, f64)> = days
+        .iter()
+        .zip(vals)
+        .filter(|(_, v)| v.is_finite())
+        .map(|(d, v)| (*d, *v))
+        .collect();
+    let n = pts.len();
+    let first = pts.iter().map(|p| p.0).min()?;
+    let last = pts.iter().map(|p| p.0).max()?;
+    let span = last - first;
+    if n < MEMORY_MIN_SCENES || span < MEMORY_MIN_SPAN_DAYS {
+        return None;
+    }
+    let k = if n >= 20 && span >= 730 { 2 } else { 1 };
+    let drift = span >= 730;
+    let t0 = pts.iter().map(|p| p.0 as f64).sum::<f64>() / n as f64;
+    let row = |d: i64| -> Vec<f64> {
+        let a = 2.0 * std::f64::consts::PI * (day_of_year(d).1 as f64 - 1.0) / 365.25;
+        let mut x = vec![1.0];
+        if drift {
+            x.push((d as f64 - t0) / 365.25);
+        }
+        for h in 1..=k {
+            x.push((h as f64 * a).cos());
+            x.push((h as f64 * a).sin());
+        }
+        x
+    };
+    let p = row(first).len();
+    let mut ata = vec![vec![0.0; p]; p];
+    let mut atb = vec![0.0; p];
+    for (d, v) in &pts {
+        let x = row(*d);
+        for i in 0..p {
+            atb[i] += x[i] * v;
+            for j in 0..p {
+                ata[i][j] += x[i] * x[j];
+            }
+        }
+    }
+    let beta = solve_small(ata, atb)?;
+    let fit = |d: i64| row(d).iter().zip(&beta).map(|(x, b)| x * b).sum::<f64>();
+    let resid: Vec<(i64, f64)> = pts.iter().map(|(d, v)| (*d, v - fit(*d))).collect();
+    let mut abs: Vec<f64> = resid.iter().map(|r| r.1.abs()).collect();
+    abs.sort_by(|a, b| a.total_cmp(b));
+    let mad = if abs.len() % 2 == 1 {
+        abs[abs.len() / 2]
+    } else {
+        (abs[abs.len() / 2 - 1] + abs[abs.len() / 2]) / 2.0
+    };
+    let mut by_year: std::collections::BTreeMap<i32, (f64, usize)> = Default::default();
+    for (d, r) in &resid {
+        let e = by_year.entry(day_of_year(*d).0).or_default();
+        e.0 += r;
+        e.1 += 1;
+    }
+    let year_means: Vec<f64> = by_year
+        .values()
+        .filter(|(_, c)| *c >= 3)
+        .map(|(s, c)| s / *c as f64)
+        .collect();
+    let year_sd = (year_means.len() >= 2).then(|| {
+        let m = year_means.iter().sum::<f64>() / year_means.len() as f64;
+        (year_means.iter().map(|y| (y - m).powi(2)).sum::<f64>() / (year_means.len() - 1) as f64)
+            .sqrt()
+    });
+    let off = if drift { 2 } else { 1 };
+    let harmonics: Vec<JsonValue> = (0..k)
+        .map(|h| {
+            let (c, s) = (beta[off + 2 * h], beta[off + 2 * h + 1]);
+            let period = 365.25 / (h + 1) as f64;
+            let peak = (s.atan2(c) / (2.0 * std::f64::consts::PI) * period).rem_euclid(period) + 1.0;
+            json!({"cos": round6(c), "sin": round6(s), "amplitude": round6(c.hypot(s)), "peak_day_of_year": peak.round()})
+        })
+        .collect();
+    Some(json!({
+        "n": n,
+        "span_days": span,
+        "mean": round6(beta[0]),
+        "drift_per_year": drift.then(|| round6(beta[1])),
+        "harmonics": harmonics,
+        "resid_scale": round6(1.4826 * mad),
+        "year_sd": year_sd.map(round6),
+        "years": year_means.len(),
+    }))
+}
+
+/// Gaussian elimination with partial pivoting for the few-by-few normal
+/// equations of [`seasonal_memory`]; None when they are singular.
+fn solve_small(mut a: Vec<Vec<f64>>, mut b: Vec<f64>) -> Option<Vec<f64>> {
+    let n = b.len();
+    for c in 0..n {
+        let piv = (c..n).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))?;
+        if a[piv][c].abs() < 1e-12 {
+            return None;
+        }
+        a.swap(c, piv);
+        b.swap(c, piv);
+        let pivot = a[c].clone();
+        for r in c + 1..n {
+            let f = a[r][c] / pivot[c];
+            for (x, p) in a[r][c..].iter_mut().zip(&pivot[c..]) {
+                *x -= f * p;
+            }
+            b[r] -= f * b[c];
+        }
+    }
+    let mut x = vec![0.0; n];
+    for r in (0..n).rev() {
+        x[r] = (b[r] - (r + 1..n).map(|k| a[r][k] * x[k]).sum::<f64>()) / a[r][r];
+    }
+    Some(x)
+}
+
+/// A request that asked for the memory block is a different answer, so its
+/// cache key says so; every other key stays as it was.
+fn with_memory(mut key: JsonValue, memory: Option<bool>) -> JsonValue {
+    if memory == Some(true) {
+        key["memory"] = json!(true);
+    }
+    key
+}
+
 /// What a `fields` request carries per field and scene, as it accumulates.
 struct FieldsAcc {
     /// (field index, day, row)
     rows: Vec<(usize, i64, JsonValue)>,
     series: Vec<(Vec<i64>, Vec<f64>)>,
+    /// Add each field's [`seasonal_memory`] to its summary.
+    memory: bool,
 }
 
 /// A date is a fault across the window when at least this share of the
@@ -855,6 +999,7 @@ impl FieldsAcc {
         FieldsAcc {
             rows: Vec::new(),
             series: vec![(Vec::new(), Vec::new()); n],
+            memory: false,
         }
     }
 
@@ -908,6 +1053,7 @@ impl FieldsAcc {
         rule: &str,
         check_scenes: bool,
     ) -> JsonValue {
+        let memory = self.memory;
         if zones.is_empty() {
             return JsonValue::Null;
         }
@@ -965,7 +1111,11 @@ impl FieldsAcc {
                         tr["slope_per_year"] = round6(slope);
                         tr
                     });
-                json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend})
+                let mut f = json!({"id": z.id, "polygon_cid": z.polygon_cid, "n_px": px.len(), "scenes_kept": days.len(), "trend": trend});
+                if memory {
+                    f["memory"] = seasonal_memory(days, medians).unwrap_or(JsonValue::Null);
+                }
+                f
             })
             .collect();
         let ps: Vec<Option<f64>> = summary
@@ -1814,14 +1964,17 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     // not cancelled) answer on the retry.
     let cache_key = optical_cache_key(
         sensor,
-        json!({
-            "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
-            "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
-            "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks,
-            "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
-            "buffer_m": buffer_m, "min_support": min_support,
-            "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
-        }),
+        with_memory(
+            json!({
+                "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
+                "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
+                "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks,
+                "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
+                "buffer_m": buffer_m, "min_support": min_support,
+                "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
+            }),
+            req.memory,
+        ),
     );
     if let Some(hit) = cache_hit(&cache_key) {
         return Ok(hit);
@@ -2086,6 +2239,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     };
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
+    fields_acc.memory = req.memory == Some(true);
     let quads = block_quads(&lattice, blocks);
 
     // ── read every picked scene: two bands, each masked by its SCL. ───────
@@ -2801,12 +2955,12 @@ async fn radar_series(
     // the fields' joint box, which nobody asked to map.
     let map = zones.is_empty();
     let blocks = blocks_per_side(req.blocks);
-    let cache_key = serde_json::to_string(&json!({
+    let cache_key = serde_json::to_string(&with_memory(json!({
         "radar": index_key, "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng], "rings": aoi.rings,
         "start": req.start_date, "end": req.end_date, "max_scenes": max_scenes, "orbit": req.orbit,
         "buffer_m": buffer_m, "min_support": min_support, "min_valid": min_valid, "blocks": blocks,
         "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
-    }))
+    }), req.memory))
     .unwrap_or_default();
     if let Some(hit) = cache_hit(&cache_key) {
         return Ok(hit);
@@ -2974,6 +3128,7 @@ async fn radar_series(
     };
     let (zone_px, fields_skipped) = zone_pixels(&zones, &lattice, buffer_m, min_support);
     let mut fields_acc = FieldsAcc::new(zones.len());
+    fields_acc.memory = req.memory == Some(true);
     let (quads, block_px) = if map {
         let mut px: Vec<Vec<usize>> = vec![Vec::new(); (blocks * blocks) as usize];
         for (p, _) in inside.iter().enumerate().filter(|(_, v)| **v) {
@@ -3718,6 +3873,7 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     qa_reject_bits: req.qa_reject_bits.clone(),
                     areas: None,
                     fields: None,
+                    memory: None,
                 };
                 async move { (id, Box::pin(field_series(one, s)).await) }
             })
@@ -4043,6 +4199,47 @@ mod tests {
         assert_eq!(pick(Some("modis"), "ndvi"), None);
         let keys = [Sensor::Sentinel2, Sensor::Landsat, Sensor::Sentinel1].map(Sensor::fn_key);
         assert_eq!(keys, [FN_KEY, "landsat_index_series@1", RADAR_FN_KEY]);
+    }
+
+    #[test]
+    fn seasonal_memory_recovers_a_known_season() {
+        let start = crate::days_from_civil(2019, 1, 1);
+        let days: Vec<i64> = (0..150).map(|i| start + i * 12).collect();
+        let tc = days.iter().map(|d| *d as f64).sum::<f64>() / days.len() as f64;
+        let peak = 2.0 * std::f64::consts::PI * 199.0 / 365.25;
+        let vals: Vec<f64> = days
+            .iter()
+            .map(|d| {
+                let a = 2.0 * std::f64::consts::PI * (day_of_year(*d).1 as f64 - 1.0) / 365.25;
+                0.6 + 0.01 * (*d as f64 - tc) / 365.25 + 0.1 * (a - peak).cos()
+            })
+            .collect();
+        let m = seasonal_memory(&days, &vals).expect("a five-year record fits");
+        assert!((m["mean"].as_f64().unwrap() - 0.6).abs() < 1e-3, "{m}");
+        assert!(
+            (m["drift_per_year"].as_f64().unwrap() - 0.01).abs() < 1e-3,
+            "{m}"
+        );
+        let h = &m["harmonics"];
+        assert!(
+            (h[0]["amplitude"].as_f64().unwrap() - 0.1).abs() < 2e-3,
+            "{m}"
+        );
+        assert!(
+            (h[0]["peak_day_of_year"].as_f64().unwrap() - 200.0).abs() <= 2.0,
+            "{m}"
+        );
+        assert!(h[1]["amplitude"].as_f64().unwrap() < 2e-3, "{m}");
+        assert!(m["resid_scale"].as_f64().unwrap() < 2e-3, "{m}");
+    }
+
+    #[test]
+    fn seasonal_memory_needs_eight_scenes_over_half_a_year() {
+        let start = crate::days_from_civil(2024, 1, 1);
+        let short: Vec<i64> = (0..7).map(|i| start + i * 30).collect();
+        assert!(seasonal_memory(&short, &[0.5; 7]).is_none());
+        let narrow: Vec<i64> = (0..12).map(|i| start + i * 10).collect();
+        assert!(seasonal_memory(&narrow, &[0.5; 12]).is_none());
     }
 
     #[test]

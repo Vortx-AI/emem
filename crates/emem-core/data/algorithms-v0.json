@@ -16527,6 +16527,100 @@
      "value": 0.0
     }
    }
+  },
+  {
+   "key": "memory_similarity@1",
+   "kind": "embedding",
+   "domain": "embedding",
+   "inputs": [
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_a",
+     "explanation": "Field A's memory blocks, one per index of the set, over a window of a year or more. Each `memory` block is the field's own least-squares seasonal fit over the window (mean, annual harmonics, drift), its residuals' robust scale (1.4826 MAD) and the spread of whole years, signed with the series it came from."
+    },
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_b",
+     "explanation": "Field B's blocks: the same indices, sensors and window length."
+    }
+   ],
+   "formula": "per index i of the set, x_i = [mean/s, drift_per_year/(s/5), h1.cos/s, h1.sin/s, h2.cos/s, h2.sin/s, resid_scale/(s/5), year_sd/(s/5)], where s = 0.1 for a normalised-difference index and s = 1 for vv or vh in dB, and a component the window could not fit (drift under two years, h2 under two years and 20 scenes, year_sd under two years) is 0 in every vector compared; x = concat over i of x_i; cosine = (x_a . x_b) / (||x_a|| ||x_b||); distance = ||x_a - x_b|| / sqrt(len(x))",
+   "output": {
+    "kind": "scalar",
+    "unit": "cosine_similarity",
+    "range": [
+     -1,
+     1
+    ],
+    "explanation": "The cosine of the two fields' memory vectors, with `distance` beside it in units of the scales s. Near 1 means the same seasonal normal: level, amplitude, timing, drift and noise. The scales are stated choices, not fitted, and no accuracy has been measured."
+   },
+   "when_to_use": "How alike are two places by what their own multi-year records say? The served replacement on a deployment without an encoder for embedding_cosine@1, embedding_l2_distance@1, region_similarity@1, place_archetype_match@1 (an archetype is a field you name) and visual_search_match@1 (rank candidates by the cosine). Compare like with like: the same indices, sensors and window length.",
+   "primitive": "POST /v1/field_series {fields:[...], index:<i>, start_date, end_date, memory:true} once per index of the set (for example ndvi, nbr and ndmi from Sentinel-2, and vh with sensor sentinel-1), then compose in-process from fields.summary[].memory",
+   "deterministic": true,
+   "citation": "Zhu, Z. & Woodcock, C.E. 2014. Continuous change detection and classification of land cover using all available Landsat data. Remote Sensing of Environment 144:152-171 (harmonic coefficients of a pixel's own record as the features it is classified and compared by). Verbesselt, J., Hyndman, R., Newnham, G. & Culvenor, D. 2010. Detecting trend and seasonal changes in satellite image time series. Remote Sensing of Environment 114:106-115.",
+   "documentation_only": true,
+   "runtime_path": "/v1/field_series",
+   "partial_runtime": true
+  },
+  {
+   "key": "memory_shift@1",
+   "kind": "embedding",
+   "domain": "embedding",
+   "inputs": [
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_before",
+     "explanation": "The field's memory blocks over an earlier window of a year or more. Each `memory` block is the field's own least-squares seasonal fit over the window (mean, annual harmonics, drift), its residuals' robust scale (1.4826 MAD) and the spread of whole years, signed with the series it came from."
+    },
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_after",
+     "explanation": "The same field and indices over a later window that does not overlap it."
+    }
+   ],
+   "formula": "per index i and coefficient j in {mean, h1.cos, h1.sin}, from each window: se_mean = sqrt(year_sd^2 / max(years, 1) + resid_scale^2 / n), with year_sd 0 when the block gives none; se_h = resid_scale * sqrt(2 / n); z_ij = (after_ij - before_ij) / sqrt(se_before^2 + se_after^2); shift = sqrt(mean over i, j of z_ij^2); the largest |z_ij| names the index and coefficient that moved",
+   "output": {
+    "kind": "scalar",
+    "unit": "standard_errors",
+    "explanation": "How far the field's seasonal normal moved between the windows, in standard errors of its own coefficients, with the coefficient that moved most. Residuals that are not independent make the standard errors too small, so read a shift against fields that did not change, not against 1. No threshold is calibrated here."
+   },
+   "when_to_use": "Has this place changed between two windows, and in level, amplitude or timing? The served replacement for embedding_change_score@1 (a recent window against a multi-year one), embedding_temporal_change_year@1, prithvi_temporal_change@1 and clay_temporal_change@1 (one year against the year before).",
+   "primitive": "POST /v1/field_series {fields:[...], index:<i>, start_date, end_date, memory:true} once per index of the set (for example ndvi, nbr and ndmi from Sentinel-2, and vh with sensor sentinel-1), then compose in-process from fields.summary[].memory",
+   "deterministic": true,
+   "citation": "Zhu, Z. & Woodcock, C.E. 2014. Continuous change detection and classification of land cover using all available Landsat data. Remote Sensing of Environment 144:152-171 (harmonic coefficients of a pixel's own record as the features it is classified and compared by). Verbesselt, J., Hyndman, R., Newnham, G. & Culvenor, D. 2010. Detecting trend and seasonal changes in satellite image time series. Remote Sensing of Environment 114:106-115.",
+   "documentation_only": true,
+   "runtime_path": "/v1/field_series",
+   "partial_runtime": true
+  },
+  {
+   "key": "memory_novelty@1",
+   "kind": "embedding",
+   "domain": "embedding",
+   "inputs": [
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_self",
+     "explanation": "The field's memory blocks. Each `memory` block is the field's own least-squares seasonal fit over the window (mean, annual harmonics, drift), its residuals' robust scale (1.4826 MAD) and the spread of whole years, signed with the series it came from."
+    },
+    {
+     "band": "<field_series.memory>",
+     "role": "memory_neighbours",
+     "explanation": "Eight or more other fields read in the same request: the same indices, window and scenes."
+    }
+   ],
+   "formula": "per index i of the set, x_i = [mean/s, drift_per_year/(s/5), h1.cos/s, h1.sin/s, h2.cos/s, h2.sin/s, resid_scale/(s/5), year_sd/(s/5)], where s = 0.1 for a normalised-difference index and s = 1 for vv or vh in dB, and a component the window could not fit (drift under two years, h2 under two years and 20 scenes, year_sd under two years) is 0 in every vector compared; x = concat over i of x_i; m = the coordinate-wise median of the neighbours' x; d_f = ||x_f - m|| for the field and for each neighbour; novelty = (d_self - median(d_neighbours)) / (1.4826 * MAD(d_neighbours))",
+   "output": {
+    "kind": "scalar",
+    "unit": "robust_z",
+    "explanation": "How unlike its neighbours the field's seasonal normal is, in robust standard deviations of the neighbours' own spread. A high value says different, not changed: compare two windows of one field with memory_shift@1 for that."
+   },
+   "when_to_use": "Which of these fields is unlike the rest? The served replacement for embedding_novelty@1 (the request's fields as the corpus), region_outlier_score@1 and embedding_neighborhood_consistency@1.",
+   "primitive": "POST /v1/field_series {fields:[...], index:<i>, start_date, end_date, memory:true} once per index of the set (for example ndvi, nbr and ndmi from Sentinel-2, and vh with sensor sentinel-1), then compose in-process from fields.summary[].memory",
+   "deterministic": true,
+   "citation": "Zhu, Z. & Woodcock, C.E. 2014. Continuous change detection and classification of land cover using all available Landsat data. Remote Sensing of Environment 144:152-171 (harmonic coefficients of a pixel's own record as the features it is classified and compared by). Verbesselt, J., Hyndman, R., Newnham, G. & Culvenor, D. 2010. Detecting trend and seasonal changes in satellite image time series. Remote Sensing of Environment 114:106-115. Rousseeuw, P.J. & Croux, C. 1993. Alternatives to the median absolute deviation. Journal of the American Statistical Association 88:1273-1283.",
+   "documentation_only": true,
+   "runtime_path": "/v1/field_series",
+   "partial_runtime": true
   }
  ]
 }

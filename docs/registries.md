@@ -147,13 +147,13 @@ removed when its no-key path closed.
 
 ## emem-algorithms (algorithms-v0.json)
 
-169 composition recipes split across three kinds:
+172 composition recipes split across three kinds:
 
 | Kind        | Count | What it composes                                                       |
 |-------------|-------|------------------------------------------------------------------------|
 | `solo`      | 29    | single band -> derived classification or scalar                        |
 | `combined`  | 114   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
-| `embedding` | 26    | operations on a foundation embedding (cosine, novelty, change)         |
+| `embedding` | 29    | operations on an embedding: a foundation encoder's, or a field's seasonal memory |
 
 ### Per-algorithm fields
 

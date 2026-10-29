@@ -73,7 +73,7 @@ CANON = {
     # canonical. Verified against the submission JSON below, so it cannot
     # silently disagree with the file it describes.
     "chatgpt_declared": 18,
-    "algorithms": 169,
+    "algorithms": 172,
     # 166/177 since 4bdcbe4 added `/v1/state/{cid}`, the route that makes an
     # `emem:state:` address dereference. CANON was last pinned at 285a12e and
     # the route shipped after it, so this was a real addition the pin missed.

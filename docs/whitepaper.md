@@ -1163,7 +1163,7 @@ demand: **46 declared source schemes** and **115 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
 foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
-facts they signed still verify. **169 algorithms** and **27 topics**
+facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)

@@ -11939,10 +11939,26 @@ const MISSING_REFERENCE_DATA: &[(&str, &str)] = &[
 
 /// Recipes to use where one cannot run here, chosen from recipes whose inputs
 /// are all served. A successor answers a nearby question, not the same one:
-/// its own `when_to_use` says which. Recipes left out have no served
-/// counterpart yet; the encoder-similarity ones wait for a served
-/// deterministic embedding (docs/research/gaps.md).
+/// its own `when_to_use` says which. The encoder similarity, change and
+/// novelty recipes map to the `memory_*` recipes, which read each field's
+/// own seasonal fit from `/v1/field_series` (`memory: true`) in place of a
+/// learned vector. Recipes left out have no served counterpart yet.
 const ALGORITHM_INSTEAD: &[(&str, &[&str])] = &[
+    ("embedding_cosine@1", &["memory_similarity@1"]),
+    ("embedding_l2_distance@1", &["memory_similarity@1"]),
+    ("region_similarity@1", &["memory_similarity@1"]),
+    ("place_archetype_match@1", &["memory_similarity@1"]),
+    ("visual_search_match@1", &["memory_similarity@1"]),
+    ("embedding_change_score@1", &["memory_shift@1"]),
+    ("embedding_temporal_change_year@1", &["memory_shift@1"]),
+    ("prithvi_temporal_change@1", &["memory_shift@1"]),
+    ("clay_temporal_change@1", &["memory_shift@1"]),
+    ("embedding_novelty@1", &["memory_novelty@1"]),
+    ("region_outlier_score@1", &["memory_novelty@1"]),
+    (
+        "embedding_neighborhood_consistency@1",
+        &["memory_novelty@1"],
+    ),
     ("jepa_forecast@1", &["jepa_temporal_predictor@1"]),
     (
         "deforestation_triple@1",
@@ -106085,7 +106101,7 @@ mod manifest_covers_tests {
     fn covers_counts_match_the_digested_registries() {
         assert_eq!(
             emem_core::algorithms::DEFAULT.algorithms.len(),
-            169,
+            172,
             "if this moved, `algorithms_cid` covers a different number and any \
              paper citing the old one is now wrong; that is the event this \
              endpoint exists to make visible"

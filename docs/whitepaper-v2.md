@@ -1109,7 +1109,7 @@ Open data from ESA, NASA, USGS, and the EU JRC fills the memory on
 demand: **46 declared source schemes** and **115 materializer-wired
 measurements**, live at `/v1/sources` and `/v1/bands`, spanning elevation
 and NDVI through weather, forest change, surface water, and the Tessera
-foundation embedding. **169 algorithms** and **27 topics** are
+foundation embedding. **172 algorithms** and **27 topics** are
 enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ### 10.1 Bands: the 1792-dimension voxel
