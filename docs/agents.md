@@ -607,7 +607,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 | POST | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
 | POST | `/v1/find_similar` | `{key, k?, band?, mode?}` |
 | POST | `/v1/trajectory` | `{cell, band, window:[a,b]}` |
-| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?}` |
+| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?}` |
 | POST | `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
 
 `query_region` `max_cells` is bbox-area-derived (target ~1 cell per
@@ -618,6 +618,17 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`) or `evi` from
   Sentinel-2. `vv`, `vh` or `vh_vv` from Sentinel-1, on one relative
   orbit (`orbit`; default: the orbit with the most scenes).
+- `sensor: "landsat"` reads the same optical indices from Landsat 8 and
+  9 Collection 2 Level-2 surface reflectance (Planetary Computer, Tier 1
+  only), on 30 m pixels from 2013. The OLI bands stand in for the
+  Sentinel-2 ones: NDVI is SR_B5 against SR_B4, NDMI SR_B5 against SR_B6,
+  NBR SR_B5 against SR_B7. Reflectance is DN x scale + offset, from the
+  item's `raster:bands` (Collection 2: 0.0000275 and -0.2). QA_PIXEL bits
+  0 to 4 (fill, dilated cloud, cirrus, cloud, cloud shadow) are rejected;
+  snow (bit 5) is kept unless `qa_reject_bits` names it. Landsat 7 is left
+  out for its SLC-off stripes. The answer is signed as
+  `landsat_index_series@1` and its rows carry `platform`. Do not join a
+  Landsat line and a Sentinel-2 line without a cross-calibration.
 - `fields`: up to 500 `{id, geometry}` polygons, read once from one
   window of at most 512 px a side.
 - `inner_buffer_m` (0 to 60) drops edge pixels. `min_support_px` (4 to

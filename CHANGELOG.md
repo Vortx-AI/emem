@@ -9,6 +9,7 @@ to verify.
 
 - The Claude Code signer is its own plugin, `emem-signer`, in the same marketplace. The `emem` plugin now holds no credential and runs no local process: one remote MCP server and its skills. Install `emem-signer` beside it to write signed notes; its `signing_seed_hex` option and tools are unchanged. If you set the key on the `emem` plugin in 2.4.4, set it again with `/plugin install emem-signer@emem`.
 - The device-traces skill pipes each JSON answer straight into `jq` instead of saving it, and says what a trace is: a JSON record of OS events that is read and checked, never run.
+- `POST /v1/field_series` takes `sensor: "landsat"`: the same optical indices from Landsat 8 and 9 Collection 2 Level-2 surface reflectance (Planetary Computer `landsat-c2-l2`, Tier 1 only), on 30 m pixels from 2013, signed as `landsat_index_series@1`. NDVI is SR_B5 against SR_B4, NDMI SR_B5 against SR_B6 and NBR SR_B5 against SR_B7. Reflectance is DN x scale + offset from each asset's `raster:bands` (Collection 2: 0.0000275 and -0.2), and QA_PIXEL bits 0 to 4 (fill, dilated cloud, cirrus, cloud, cloud shadow) mask each pixel; `qa_reject_bits` changes them, and snow (bit 5) is kept unless named. Landsat 7 is left out for its SLC-off stripes. A request without `sensor` is unchanged. The agent quickref no longer says Landsat inputs are 10 m.
 
 ## [2.4.4] - 2026-10-18
 

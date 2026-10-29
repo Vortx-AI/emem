@@ -478,7 +478,9 @@ scene the share of the area the sky let through (`clear_fraction`) and the
 distribution over the clear pixels inside it. Chart the `median` with a
 `p10`..`p90` band, draw `quality: partial` points lighter, and list
 `excluded` scenes as gaps with their reason. The scenes, mask, formula and
-quantile rule are pinned in the signed record behind `token`.
+quantile rule are pinned in the signed record behind `token`. For years
+before Sentinel-2, send `"sensor":"landsat"`: the same rows from Landsat 8
+and 9 at 30 m, from 2013, signed as `landsat_index_series@1`.
 
 ```sh
 BASE=https://emem.dev

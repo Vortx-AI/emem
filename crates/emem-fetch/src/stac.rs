@@ -104,6 +104,14 @@ pub struct StacItem {
     /// mission are calibrated to agree, not to be identical.
     #[serde(default)]
     pub platform: Option<String>,
+    /// Per asset, the `raster:bands[0]` scale and offset the catalogue
+    /// states (`value = DN * scale + offset`; the raster extension's
+    /// defaults, 1 and 0, fill a missing one). Only assets that state
+    /// either are present. Landsat Collection 2 Level-2 states them on every
+    /// surface-reflectance asset, and the index must use them: a
+    /// normalised difference is not invariant to an offset.
+    #[serde(default)]
+    pub asset_scale_offset: std::collections::BTreeMap<String, (f64, f64)>,
 }
 
 impl StacItem {
@@ -458,10 +466,17 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         .and_then(|v| v.as_str())
         .map(|s| s.to_string());
     let mut assets = std::collections::BTreeMap::new();
+    let mut asset_scale_offset = std::collections::BTreeMap::new();
     if let Some(a) = f.get("assets").and_then(|a| a.as_object()) {
         for (k, v) in a {
             if let Some(href) = v.get("href").and_then(|h| h.as_str()) {
                 assets.insert(k.clone(), href.to_string());
+            }
+            let band = v.get("raster:bands").and_then(|b| b.get(0));
+            let scale = band.and_then(|b| b.get("scale")).and_then(|x| x.as_f64());
+            let offset = band.and_then(|b| b.get("offset")).and_then(|x| x.as_f64());
+            if scale.is_some() || offset.is_some() {
+                asset_scale_offset.insert(k.clone(), (scale.unwrap_or(1.0), offset.unwrap_or(0.0)));
             }
         }
     }
@@ -481,6 +496,7 @@ fn parse_stac_feature(f: &Value, collection: &str) -> StacItem {
         relative_orbit,
         orbit_state,
         platform,
+        asset_scale_offset,
     }
 }
 
@@ -1086,6 +1102,33 @@ mod tests {
             "shadow at a 64 degree sun: {summer:.1} m"
         );
         assert!(len(24.0, 20.0) > 60.0);
+    }
+
+    /// Planetary Computer's landsat-c2-l2 items, as served on 2026-10-29:
+    /// every surface-reflectance asset states its scale and offset, and the
+    /// QA band states neither.
+    #[test]
+    fn an_asset_keeps_the_scale_and_offset_its_raster_bands_state() {
+        let feat = json!({
+            "id": "LC09_L2SP_148039_20240211_02_T1",
+            "properties": {"datetime": "2024-02-11T05:31:06Z", "platform": "landsat-9", "proj:epsg": 32643},
+            "assets": {
+                "red": {"href": "https://example.invalid/SR_B4.TIF",
+                        "raster:bands": [{"scale": 2.75e-05, "nodata": 0, "offset": -0.2, "data_type": "uint16"}]},
+                "qa_pixel": {"href": "https://example.invalid/QA_PIXEL.TIF",
+                             "raster:bands": [{"unit": "bit index", "nodata": 1, "data_type": "uint16"}]},
+                "only_scale": {"href": "https://example.invalid/x.TIF", "raster:bands": [{"scale": 0.01}]}
+            }
+        });
+        let item = parse_stac_feature(&feat, "landsat-c2-l2");
+        assert_eq!(item.asset_scale_offset.get("red"), Some(&(2.75e-05, -0.2)));
+        assert_eq!(item.asset_scale_offset.get("qa_pixel"), None);
+        assert_eq!(
+            item.asset_scale_offset.get("only_scale"),
+            Some(&(0.01, 0.0))
+        );
+        assert_eq!(item.platform.as_deref(), Some("landsat-9"));
+        assert_eq!(item.epsg, Some(32643));
     }
 
     #[test]

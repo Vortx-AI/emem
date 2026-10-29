@@ -23,6 +23,11 @@
 //! Everything is pinned in the signed record: the scene ids and assets, the
 //! mask policy, the index formula, the quantile rule, the selection rule. A
 //! stranger re-derives every number from the same scenes.
+//!
+//! `sensor: "landsat"` reads Landsat 8 and 9 Collection 2 Level-2 surface
+//! reflectance instead, signed as `landsat_index_series@1`: the same indices
+//! on the corresponding OLI bands, 30 m pixels masked by QA_PIXEL bits, the
+//! same rows and statistics. It reaches back to 2013, before Sentinel-2.
 
 use std::time::Instant;
 
@@ -34,8 +39,8 @@ use serde_json::{json, Value as JsonValue};
 use emem_fact::{Derivation, DerivativeFact, Fact, FactCid, FieldBinding};
 
 use crate::band_raster::{
-    aoi_cid, bad_request, parse_ymd, read_masked_scene, scl_asset, upstream_error, BBox,
-    DEFAULT_SCL_REJECT, MAX_SIDE_PX, S2_BANDS,
+    aoi_cid, bad_request, parse_ymd, read_masked_scene, scene_tslot, scl_asset, upstream_error,
+    BBox, DEFAULT_SCL_REJECT, MAX_SIDE_PX, S2_BANDS,
 };
 use crate::change_attribution::json_to_cbor;
 use crate::{ApiError, AppState, EmemJson, ErrorBody, ErrorCode};
@@ -184,6 +189,385 @@ fn index_alias(key: &str) -> &str {
     }
 }
 
+const LANDSAT_FN_KEY: &str = "landsat_index_series@1";
+const LANDSAT_COLLECTION: &str = "landsat-c2-l2";
+const LANDSAT_QA_ASSET: &str = "qa_pixel";
+
+/// Planetary Computer's asset key for each Landsat 8-9 OLI surface
+/// reflectance band the indices read, and the band's USGS name.
+const LANDSAT_BANDS: [(&str, &str); 6] = [
+    ("blue", "SR_B2"),
+    ("green", "SR_B3"),
+    ("red", "SR_B4"),
+    ("nir08", "SR_B5"),
+    ("swir16", "SR_B6"),
+    ("swir22", "SR_B7"),
+];
+
+/// The Sentinel-2 indices on the corresponding OLI bands, by Planetary
+/// Computer asset key. OLI has one near-infrared band (B5), so it stands in
+/// for both B08 and B8A. Every band is 30 m.
+const LANDSAT_INDICES: [Index; 6] = [
+    Index {
+        key: "ndvi",
+        a: "nir08",
+        b: "red",
+        c: None,
+        formula: "(SR_B5 - SR_B4) / (SR_B5 + SR_B4), on surface reflectance",
+        reference: "Rouse et al. 1974; Tucker 1979",
+    },
+    Index {
+        key: "ndwi",
+        a: "green",
+        b: "nir08",
+        c: None,
+        formula: "(SR_B3 - SR_B5) / (SR_B3 + SR_B5), on surface reflectance",
+        reference: "McFeeters 1996",
+    },
+    Index {
+        key: "ndmi",
+        a: "nir08",
+        b: "swir16",
+        c: None,
+        formula: "(SR_B5 - SR_B6) / (SR_B5 + SR_B6), on surface reflectance",
+        reference: "Gao 1996; Wilson & Sader 2002; as LSWI, Xiao et al. 2002",
+    },
+    Index {
+        key: "evi",
+        a: "nir08",
+        b: "red",
+        c: Some("blue"),
+        formula:
+            "2.5 * (SR_B5 - SR_B4) / (SR_B5 + 6 * SR_B4 - 7.5 * SR_B2 + 1), on surface reflectance",
+        reference: "Huete et al. 2002",
+    },
+    Index {
+        key: "nbr",
+        a: "nir08",
+        b: "swir22",
+        c: None,
+        formula: "(SR_B5 - SR_B7) / (SR_B5 + SR_B7), on surface reflectance",
+        reference: "Key & Benson 2006",
+    },
+    Index {
+        key: "ndti",
+        a: "swir16",
+        b: "swir22",
+        c: None,
+        formula: "(SR_B6 - SR_B7) / (SR_B6 + SR_B7), on surface reflectance",
+        reference: "Van Deventer et al. 1997",
+    },
+];
+
+/// Where a series reads from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Sensor {
+    Sentinel2,
+    Landsat,
+    Sentinel1,
+}
+
+impl Sensor {
+    fn key(self) -> &'static str {
+        match self {
+            Sensor::Sentinel2 => "sentinel-2",
+            Sensor::Landsat => "landsat",
+            Sensor::Sentinel1 => "sentinel-1",
+        }
+    }
+
+    /// The derivation key a series from this source is signed under, so a
+    /// Landsat series never passes as a Sentinel-2 one.
+    fn fn_key(self) -> &'static str {
+        match self {
+            Sensor::Sentinel2 => FN_KEY,
+            Sensor::Landsat => LANDSAT_FN_KEY,
+            Sensor::Sentinel1 => RADAR_FN_KEY,
+        }
+    }
+}
+
+/// The source a request reads. Without `sensor` the index decides, as it
+/// always has: a radar index reads Sentinel-1, every other Sentinel-2. An
+/// empty string is no `sensor`: some hosts send one for an unset argument.
+fn pick_sensor(asked: Option<&str>, index_key: &str) -> Result<Sensor, ApiError> {
+    let radar = RADAR_INDICES.contains(&index_key);
+    let asked = asked
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty());
+    let Some(asked) = asked else {
+        return Ok(if radar {
+            Sensor::Sentinel1
+        } else {
+            Sensor::Sentinel2
+        });
+    };
+    let sensor = match asked.as_str() {
+        "sentinel-2" | "sentinel2" | "s2" | "sentinel-2-l2a" => Sensor::Sentinel2,
+        "landsat" | "landsat-c2-l2" | "landsat-8-9" => Sensor::Landsat,
+        "sentinel-1" | "sentinel1" | "s1" | "sentinel-1-rtc" => Sensor::Sentinel1,
+        other => {
+            return Err(bad_request(format!(
+                "sensor `{other}` is not served; give sentinel-2 (the default), landsat (Landsat 8 and 9 Collection 2 Level-2, 30 m, from 2013) or sentinel-1 (the radar indices {})",
+                RADAR_INDICES.join(", ")
+            )))
+        }
+    };
+    match (sensor, radar) {
+        (Sensor::Sentinel1, false) => Err(bad_request(format!(
+            "index `{index_key}` is optical; Sentinel-1 serves {}",
+            RADAR_INDICES.join(", ")
+        ))),
+        (Sensor::Sentinel2 | Sensor::Landsat, true) => Err(bad_request(format!(
+            "index `{index_key}` is Sentinel-1 radar backscatter; send sensor sentinel-1, or leave sensor out"
+        ))),
+        _ => Ok(sensor),
+    }
+}
+
+/// An optical series' cache key: every argument that changes the answer,
+/// and the source, so a Landsat series and a Sentinel-2 one over the same
+/// area and window are two entries.
+fn optical_cache_key(sensor: Sensor, mut parts: JsonValue) -> String {
+    if let Some(o) = parts.as_object_mut() {
+        o.insert("sensor".into(), json!(sensor.key()));
+    }
+    serde_json::to_string(&parts).unwrap_or_default()
+}
+
+/// The QA_PIXEL bits of Landsat 8-9 Collection 2 a caller may reject, as
+/// the product defines them. Bit 6 is "clear" and bits 8-15 are two-bit
+/// confidence levels, so neither is a thing to reject on its own.
+const LANDSAT_QA_BITS: [(u8, &str); 7] = [
+    (0, "fill"),
+    (1, "dilated cloud"),
+    (2, "cirrus, high confidence"),
+    (3, "cloud, high confidence"),
+    (4, "cloud shadow, high confidence"),
+    (5, "snow or ice, high confidence"),
+    (7, "water"),
+];
+
+/// Fill, dilated cloud, cirrus, cloud and cloud shadow. Snow (bit 5) is
+/// kept, as SCL 11 is on Sentinel-2: it is surface, not occlusion.
+const LANDSAT_QA_REJECT: [u8; 5] = [0, 1, 2, 3, 4];
+
+/// The QA_PIXEL bits a Landsat series rejects, ascending, and their mask.
+/// Fill is always among them.
+fn landsat_reject_bits(asked: Option<&[u8]>) -> Result<(Vec<u8>, u16), ApiError> {
+    let mut bits: Vec<u8> = asked.unwrap_or(&LANDSAT_QA_REJECT).to_vec();
+    if let Some(bad) = bits
+        .iter()
+        .find(|b| !LANDSAT_QA_BITS.iter().any(|(k, _)| k == *b))
+    {
+        return Err(bad_request(format!(
+            "qa_reject_bits: bit {bad} is not one this path rejects on; the QA_PIXEL bits are {}",
+            LANDSAT_QA_BITS
+                .iter()
+                .map(|(k, what)| format!("{k} ({what})"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        )));
+    }
+    bits.push(0);
+    bits.sort_unstable();
+    bits.dedup();
+    let mask = bits.iter().fold(0u16, |m, b| m | (1u16 << *b));
+    Ok((bits, mask))
+}
+
+/// Collection 2 Level-2 surface reflectance is `DN * 0.0000275 - 0.2`
+/// (USGS, Landsat 8-9 Collection 2 Level-2 Science Product Guide). These
+/// stand in only for an item that states no scale or offset of its own.
+const LANDSAT_SR_SCALE: f64 = 2.75e-5;
+const LANDSAT_SR_OFFSET: f64 = -0.2;
+
+/// One asset's `(scale, offset)` and where they came from.
+fn landsat_scaling(item: &emem_fetch::stac::StacItem, asset: &str) -> (f64, f64, &'static str) {
+    match item.asset_scale_offset.get(asset) {
+        Some(&(s, o)) if s.is_finite() && s > 0.0 && o.is_finite() => (s, o, "raster:bands"),
+        _ => (LANDSAT_SR_SCALE, LANDSAT_SR_OFFSET, "collection-2 constant"),
+    }
+}
+
+/// One Landsat pixel as surface reflectance x 10^4, the scale `Index::at`
+/// reads, or NaN: fill (DN 0, which is also what `sample_window` returns
+/// off the image), a rejected or unreadable QA_PIXEL value, or reflectance
+/// outside (0, 1], the range USGS calls valid (DN 7273 to 43636 at the
+/// Collection 2 scale).
+fn landsat_pixel(dn: f64, qa: f64, scale: f64, offset: f64, reject: u16) -> f32 {
+    if !(dn.is_finite() && dn > 0.0 && qa.is_finite()) {
+        return f32::NAN;
+    }
+    let q = qa.round();
+    if !(0.0..=f64::from(u16::MAX)).contains(&q) || ((q as u16) & reject) != 0 {
+        return f32::NAN;
+    }
+    let r = dn * scale + offset;
+    if r > 0.0 && r <= 1.0 {
+        (r * 1e4) as f32
+    } else {
+        f32::NAN
+    }
+}
+
+/// Landsat 8 or 9, from the item's `platform`, or from its product id
+/// when the catalogue gives no platform.
+fn landsat_platform(it: &emem_fetch::stac::StacItem) -> Option<u8> {
+    match it.platform.as_deref() {
+        Some("landsat-8") => Some(8),
+        Some("landsat-9") => Some(9),
+        Some(_) => None,
+        None => match it.id.get(2..4) {
+            Some("08") if it.id.starts_with('L') => Some(8),
+            Some("09") if it.id.starts_with('L') => Some(9),
+            _ => None,
+        },
+    }
+}
+
+/// Candidates a Landsat series may read, and how many of each kind were
+/// left out. Landsat 8 and 9 Tier 1 only: Landsat 7's scan-line corrector
+/// failed in 2003 and every later scene is striped, and Tier 2 misses the
+/// criteria USGS sets Tier 1 by for time-series use. The tier is the
+/// product id's suffix.
+fn landsat_keep(
+    items: Vec<emem_fetch::stac::StacItem>,
+) -> (Vec<emem_fetch::stac::StacItem>, JsonValue) {
+    let (mut l7, mut tier2, mut other) = (0usize, 0usize, 0usize);
+    let mut kept = Vec::with_capacity(items.len());
+    for it in items {
+        if landsat_platform(&it).is_none() {
+            if it.platform.as_deref() == Some("landsat-7") || it.id.starts_with("LE07") {
+                l7 += 1;
+            } else {
+                other += 1;
+            }
+        } else if !it.id.ends_with("_T1") {
+            tier2 += 1;
+        } else {
+            kept.push(it);
+        }
+    }
+    (
+        kept,
+        json!({"landsat_7": l7, "tier_2": tier2, "other_platforms": other}),
+    )
+}
+
+/// The north-west corner of the `w` x `h` window [`emem_fetch::cog::sample_window`]
+/// reads centred on a point. `pixel_to_world` names a pixel's centre on a
+/// PixelIsPoint raster, and Landsat Collection 2 is one, so there the
+/// corner is half a pixel up and left of it.
+fn window_corner(
+    prof: &emem_fetch::cog::CogProfile,
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+) -> (f64, f64) {
+    let (c, r) = prof.world_to_pixel(cx, cy);
+    let (x, y) = prof.pixel_to_world(c - (w as i64) / 2, r - (h as i64) / 2);
+    if prof.pixel_is_point {
+        (
+            x - prof.pixel_scale.0.abs() / 2.0,
+            y + prof.pixel_scale.1.abs() / 2.0,
+        )
+    } else {
+        (x, y)
+    }
+}
+
+/// One band's window on the series lattice, and the window's corner.
+async fn read_landsat_window(
+    cli: &reqwest::Client,
+    url: &str,
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+    native_m: f64,
+) -> Option<(Vec<f64>, (f64, f64))> {
+    let prof = emem_fetch::cog::open_profile(cli, url).await.ok()?;
+    if (prof.pixel_scale.0.abs() - native_m).abs() > 0.01 {
+        return None;
+    }
+    let raw = emem_fetch::cog::sample_window(cli, url, &prof, cx, cy, w, h)
+        .await
+        .ok()?;
+    Some((raw, window_corner(&prof, cx, cy, w, h)))
+}
+
+/// One Landsat scene on the series lattice: per band, the grid as
+/// [`landsat_pixel`] makes it and what the record pins. QA_PIXEL is read
+/// once for every band. `None` when any window cannot be read, or when a
+/// band's window does not start where the QA window does, since then the
+/// mask would not be per pixel.
+#[allow(clippy::too_many_arguments)]
+async fn read_landsat_scene(
+    cli: &reqwest::Client,
+    item: &emem_fetch::stac::StacItem,
+    bands: &[&str],
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+    native_m: f64,
+    reject: u16,
+) -> Option<Vec<(Vec<f32>, JsonValue)>> {
+    let qa_url = item.assets.get(LANDSAT_QA_ASSET)?;
+    let mut urls: Vec<&String> = Vec::with_capacity(bands.len());
+    for band in bands {
+        urls.push(item.assets.get(*band)?);
+    }
+    let (qa, reads) = futures_util::future::join(
+        read_landsat_window(cli, qa_url, cx, cy, w, h, native_m),
+        futures_util::future::join_all(
+            urls.iter()
+                .map(|u| read_landsat_window(cli, u, cx, cy, w, h, native_m)),
+        ),
+    )
+    .await;
+    let (qa, qa_corner) = qa?;
+    let mut out = Vec::with_capacity(bands.len());
+    for ((band, url), read) in bands.iter().zip(&urls).zip(reads) {
+        let (raw, corner) = read?;
+        if (corner.0 - qa_corner.0).abs() > 1e-6 || (corner.1 - qa_corner.1).abs() > 1e-6 {
+            return None;
+        }
+        let (scale, offset, scale_from) = landsat_scaling(item, band);
+        let grid: Vec<f32> = raw
+            .iter()
+            .zip(&qa)
+            .map(|(dn, q)| landsat_pixel(*dn, *q, scale, offset, reject))
+            .collect();
+        let name = LANDSAT_BANDS
+            .iter()
+            .find(|(k, _)| k == band)
+            .map(|(_, n)| *n);
+        out.push((
+            grid,
+            json!({
+                "id": item.id,
+                "band": name,
+                "asset": crate::s2_url_for_record(url),
+                "qa_pixel_asset": crate::s2_url_for_record(qa_url),
+                "catalogue": emem_fetch::stac::STAC_MPC_V1,
+                "scale": scale,
+                "offset": offset,
+                "scale_from": scale_from,
+                "platform": item.platform,
+                "captured_at": item.datetime,
+                "cloud_cover": item.cloud_cover,
+                "sun_azimuth_deg": item.sun_azimuth,
+                "sun_elevation_deg": item.sun_elevation,
+                "tslot": scene_tslot(&item.datetime),
+            }),
+        ));
+    }
+    Some(out)
+}
+
 /// A polygon's identity: blake3 over the canonical CBOR of its type and its
 /// rings, each coordinate rounded to 1e-7 degrees (about 1 cm) and held as
 /// an integer, so the same outline serialised by two float formatters gets
@@ -278,6 +662,15 @@ pub struct FieldSeriesReq {
     /// the orbit with the most scenes over the area in the window.
     #[serde(default)]
     pub orbit: Option<u64>,
+    /// `sentinel-2` (the default for an optical index), `landsat` (Landsat
+    /// 8 and 9 Collection 2 Level-2, 30 m, from 2013) or `sentinel-1` (what
+    /// a radar index reads anyway).
+    #[serde(default)]
+    pub sensor: Option<String>,
+    /// Landsat only: the QA_PIXEL bits rejected per pixel, in place of
+    /// `mask_policy`. Default [0, 1, 2, 3, 4]; fill (0) is always rejected.
+    #[serde(default)]
+    pub qa_reject_bits: Option<Vec<u8>>,
     /// Map blocks per side, 2..=8. Default 6.
     #[serde(default)]
     pub blocks: Option<u32>,
@@ -1321,13 +1714,16 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let b = &aoi.bbox;
     let index_key =
         index_alias(&req.index.as_deref().unwrap_or("ndvi").to_ascii_lowercase()).to_string();
-    if RADAR_INDICES.contains(&index_key.as_str()) {
+    let sensor = pick_sensor(req.sensor.as_deref(), &index_key)?;
+    if sensor == Sensor::Sentinel1 {
         return Box::pin(radar_series(req, aoi, zones, index_key, s, started)).await;
     }
-    let index = INDICES.iter().find(|i| i.key == index_key).ok_or_else(|| {
+    let landsat = sensor == Sensor::Landsat;
+    let table: &[Index] = if landsat { &LANDSAT_INDICES } else { &INDICES };
+    let index = table.iter().find(|i| i.key == index_key).ok_or_else(|| {
         bad_request(format!(
             "index `{index_key}` is not served; this executor computes {}, and from Sentinel-1 {}",
-            INDICES.iter().map(|i| i.key).collect::<Vec<_>>().join(", "),
+            table.iter().map(|i| i.key).collect::<Vec<_>>().join(", "),
             RADAR_INDICES.join(", ")
         ))
     })?;
@@ -1342,8 +1738,20 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             .map(|(_, a)| *a)
             .unwrap_or(&[])
     };
-    let (alias_a, alias_b) = (aliases_of(index.a), aliases_of(index.b));
-    let alias_c: &[&str] = index.c.map(aliases_of).unwrap_or(&[]);
+    // A Landsat index names Planetary Computer's asset keys directly.
+    let (alias_a, alias_b, alias_c): (&[&str], &[&str], &[&str]) = if landsat {
+        (
+            std::slice::from_ref(&index.a),
+            std::slice::from_ref(&index.b),
+            index.c.as_slice(),
+        )
+    } else {
+        (
+            aliases_of(index.a),
+            aliases_of(index.b),
+            index.c.map(aliases_of).unwrap_or(&[]),
+        )
+    };
 
     let (sy, sm, sd) = parse_ymd(&req.start_date)
         .ok_or_else(|| bad_request(format!("start_date `{}` is not YYYY-MM-DD", req.start_date)))?;
@@ -1381,20 +1789,40 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     reject_vec.sort_unstable();
     reject_vec.dedup();
     let reject: std::collections::BTreeSet<u8> = reject_vec.iter().copied().collect();
+    // Each sensor has its own mask vocabulary, and a list meant for one read
+    // as the other would reject the wrong pixels without a word.
+    let (qa_bits, qa_mask) = if landsat {
+        if req.mask_policy.is_some() {
+            return Err(bad_request(
+                "mask_policy names Sentinel-2 SCL classes; a Landsat series is masked by QA_PIXEL bits, set with qa_reject_bits (default [0, 1, 2, 3, 4])".into(),
+            ));
+        }
+        landsat_reject_bits(req.qa_reject_bits.as_deref())?
+    } else {
+        if req.qa_reject_bits.is_some() {
+            return Err(bad_request(
+                "qa_reject_bits names Landsat QA_PIXEL bits; send it with sensor landsat, or give Sentinel-2 SCL classes as mask_policy".into(),
+            ));
+        }
+        (Vec::new(), 0)
+    };
 
     // Same area, index, window and policy: same answer, from memory. A
     // dashboard re-runs its query for every reader, and each run would
     // otherwise re-read every scene and sign a fresh derivation of identical
     // rows. It also lets a call that outlived the host's budget (the work is
     // not cancelled) answer on the retry.
-    let cache_key = serde_json::to_string(&json!({
-        "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
-        "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
-        "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks, "reject": reject_vec,
-        "buffer_m": buffer_m, "min_support": min_support,
-        "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
-    }))
-    .unwrap_or_default();
+    let cache_key = optical_cache_key(
+        sensor,
+        json!({
+            "bbox": [b.min_lat, b.min_lng, b.max_lat, b.max_lng],
+            "rings": aoi.rings, "index": index.key, "start": req.start_date, "end": req.end_date,
+            "max_scenes": max_scenes, "min_clear": min_clear, "blocks": blocks,
+            "reject": if landsat { json!({"qa_pixel_bits": qa_bits}) } else { json!(reject_vec) },
+            "buffer_m": buffer_m, "min_support": min_support,
+            "fields": zones.iter().map(|z| (&z.id, &z.polygon_cid)).collect::<Vec<_>>(),
+        }),
+    );
     if let Some(hit) = cache_hit(&cache_key) {
         return Ok(hit);
     }
@@ -1413,45 +1841,89 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
 
     // ── candidates: every scene in the window, both bands + SCL present. ──
     let datetime = format!("{}T00:00:00Z/{}T23:59:59Z", req.start_date, req.end_date);
-    let mut failures: Vec<String> = Vec::new();
-    let mut found = None;
-    for host in crate::s2_catalogues() {
-        let searched = emem_fetch::stac::search_many_at(
+    let (host, items, searched_n, left_out) = if landsat {
+        // Planetary Computer only: Earth Search lists Landsat too, but its
+        // assets sit in USGS's requester-pays bucket.
+        let host = emem_fetch::stac::STAC_MPC_V1;
+        let found = emem_fetch::stac::search_many_at(
             &cli,
             host,
-            "sentinel-2-l2a",
+            LANDSAT_COLLECTION,
             centre_lng,
             centre_lat,
             &datetime,
             Some(CANDIDATE_MAX_CLOUD),
             CANDIDATE_LIMIT,
         )
-        .await;
-        let signed = match searched {
-            Ok(v) if host == emem_fetch::stac::STAC_MPC_V1 => {
-                crate::s2_sign_mpc_items(&cli, v).await
+        .await
+        .map_err(|e| upstream_error(format!("stac: the Landsat catalogue failed: {host}: {e}")))?;
+        let searched_n = found.len();
+        let (mut kept, left_out) = landsat_keep(found);
+        if kept
+            .iter()
+            .any(|it| it.assets.values().any(|h| !h.contains('?')))
+        {
+            let sas = emem_fetch::stac::mpc_sas_token(&cli, LANDSAT_COLLECTION)
+                .await
+                .map_err(|e| upstream_error(format!("planetary computer sas: {e}")))?;
+            for href in kept.iter_mut().flat_map(|it| it.assets.values_mut()) {
+                if !href.contains('?') {
+                    href.push('?');
+                    href.push_str(&sas);
+                }
             }
-            other => other,
-        };
-        match signed {
-            Ok(v) => {
-                found = Some((host, v));
-                break;
-            }
-            Err(e) => failures.push(format!("{host}: {e}")),
         }
-    }
-    let (host, items) = found.ok_or_else(|| {
-        upstream_error(format!(
-            "stac: every Sentinel-2 catalogue failed: {}",
-            failures.join("; ")
-        ))
-    })?;
+        (host, kept, searched_n, Some(left_out))
+    } else {
+        let mut failures: Vec<String> = Vec::new();
+        let mut found = None;
+        for host in crate::s2_catalogues() {
+            let searched = emem_fetch::stac::search_many_at(
+                &cli,
+                host,
+                "sentinel-2-l2a",
+                centre_lng,
+                centre_lat,
+                &datetime,
+                Some(CANDIDATE_MAX_CLOUD),
+                CANDIDATE_LIMIT,
+            )
+            .await;
+            let signed = match searched {
+                Ok(v) if host == emem_fetch::stac::STAC_MPC_V1 => {
+                    crate::s2_sign_mpc_items(&cli, v).await
+                }
+                other => other,
+            };
+            match signed {
+                Ok(v) => {
+                    found = Some((host, v));
+                    break;
+                }
+                Err(e) => failures.push(format!("{host}: {e}")),
+            }
+        }
+        let (host, items) = found.ok_or_else(|| {
+            upstream_error(format!(
+                "stac: every Sentinel-2 catalogue failed: {}",
+                failures.join("; ")
+            ))
+        })?;
+        let searched_n = items.len();
+        (host, items, searched_n, None)
+    };
+    let has_mask = |it: &emem_fetch::stac::StacItem| {
+        if landsat {
+            it.assets.contains_key(LANDSAT_QA_ASSET)
+        } else {
+            scl_asset(it).is_some()
+        }
+    };
     let usable: Vec<&emem_fetch::stac::StacItem> = items
         .iter()
         .filter(|it| {
             it.epsg.is_some()
-                && scl_asset(it).is_some()
+                && has_mask(it)
                 && alias_a.iter().any(|a| it.assets.contains_key(*a))
                 && alias_b.iter().any(|a| it.assets.contains_key(*a))
                 && (alias_c.is_empty() || alias_c.iter().any(|a| it.assets.contains_key(*a)))
@@ -1469,8 +1941,13 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .max_by_key(|(_, n)| **n)
         .map(|(e, _)| *e)
         .ok_or_else(|| {
+            let (what, mask) = if landsat {
+                ("Landsat 8 or 9 Tier 1", "QA_PIXEL")
+            } else {
+                ("Sentinel-2", "SCL")
+            };
             upstream_error(format!(
-                "no Sentinel-2 scene with {}, {}{} and SCL in {}..{} under {CANDIDATE_MAX_CLOUD}% scene cloud",
+                "no {what} scene with {}, {}{} and {mask} in {}..{} under {CANDIDATE_MAX_CLOUD}% scene cloud",
                 index.a, index.b, index.c.map(|c| format!(", {c}")).unwrap_or_default(), req.start_date, req.end_date
             ))
         })?;
@@ -1488,7 +1965,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         }
     }
     let candidates: Vec<&emem_fetch::stac::StacItem> = per_date.into_values().collect();
-    let search_capped = items.len() >= CANDIDATE_LIMIT;
+    let search_capped = searched_n >= CANDIDATE_LIMIT;
     let covered_from: Option<String> = candidates
         .first()
         .and_then(|it| it.datetime.get(..10))
@@ -1538,8 +2015,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
         )));
     }
-    let (cc, cr) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
-    let (wx0, wy0) = prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2);
+    let (wx0, wy0) = window_corner(&prof, utm_c.easting, utm_c.northing, w, h);
     let centre_of = |r: u32, c: u32| {
         (
             wx0 + (c as f64 + 0.5) * native_m,
@@ -1617,51 +2093,78 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     // blocks borrowing the client is not provably Send to the MCP dispatcher's
     // spawn, and the plain futures `band_composite` joins are.
     let mut reads = Vec::with_capacity(picked.len());
-    for chunk in picked.chunks(SCENE_READ_CONCURRENCY) {
-        let pairs = futures_util::future::join_all(chunk.iter().map(|it| {
-            futures_util::future::join3(
-                read_masked_scene(
+    if landsat {
+        let bands: Vec<&str> = [Some(index.a), Some(index.b), index.c]
+            .into_iter()
+            .flatten()
+            .collect();
+        for chunk in picked.chunks(SCENE_READ_CONCURRENCY) {
+            let scenes = futures_util::future::join_all(chunk.iter().map(|it| {
+                read_landsat_scene(
                     &cli,
-                    host,
                     it,
-                    alias_a,
+                    &bands,
                     utm_c.easting,
                     utm_c.northing,
                     w,
                     h,
                     native_m,
-                    &reject,
-                ),
-                read_masked_scene(
-                    &cli,
-                    host,
-                    it,
-                    alias_b,
-                    utm_c.easting,
-                    utm_c.northing,
-                    w,
-                    h,
-                    native_m,
-                    &reject,
-                ),
-                // No third band: an empty alias list returns at once.
-                read_masked_scene(
-                    &cli,
-                    host,
-                    it,
-                    alias_c,
-                    utm_c.easting,
-                    utm_c.northing,
-                    w,
-                    h,
-                    native_m,
-                    &reject,
-                ),
-            )
-        }))
-        .await;
-        for (it, (a, b, c)) in chunk.iter().zip(pairs) {
-            reads.push((*it, a, b, c));
+                    qa_mask,
+                )
+            }))
+            .await;
+            for (it, scene) in chunk.iter().zip(scenes) {
+                let mut band = scene.unwrap_or_default().into_iter();
+                reads.push((*it, band.next(), band.next(), band.next()));
+            }
+        }
+    } else {
+        for chunk in picked.chunks(SCENE_READ_CONCURRENCY) {
+            let pairs = futures_util::future::join_all(chunk.iter().map(|it| {
+                futures_util::future::join3(
+                    read_masked_scene(
+                        &cli,
+                        host,
+                        it,
+                        alias_a,
+                        utm_c.easting,
+                        utm_c.northing,
+                        w,
+                        h,
+                        native_m,
+                        &reject,
+                    ),
+                    read_masked_scene(
+                        &cli,
+                        host,
+                        it,
+                        alias_b,
+                        utm_c.easting,
+                        utm_c.northing,
+                        w,
+                        h,
+                        native_m,
+                        &reject,
+                    ),
+                    // No third band: an empty alias list returns at once.
+                    read_masked_scene(
+                        &cli,
+                        host,
+                        it,
+                        alias_c,
+                        utm_c.easting,
+                        utm_c.northing,
+                        w,
+                        h,
+                        native_m,
+                        &reject,
+                    ),
+                )
+            }))
+            .await;
+            for (it, (a, b, c)) in chunk.iter().zip(pairs) {
+                reads.push((*it, a, b, c));
+            }
         }
     }
 
@@ -1672,12 +2175,20 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let mut kept_days: Vec<i64> = Vec::new();
     let mut kept_medians: Vec<f64> = Vec::new();
     let mut kept_block_medians: Vec<Vec<Option<f64>>> = Vec::new();
+    let mut kept_platforms: std::collections::BTreeSet<String> = Default::default();
+    let mask_name = if landsat {
+        "QA_PIXEL mask"
+    } else {
+        "scene classification"
+    };
     for (item, ra, rb, rc) in reads {
         let date = item.datetime.get(..10).unwrap_or("").to_string();
-        if index.c.is_some() && rc.is_none() {
+        // A Landsat scene is read whole or not at all, so its missing third
+        // band is the scene's failure and takes the general reason.
+        if index.c.is_some() && rc.is_none() && !(landsat && ra.is_none()) {
             excluded.push(json!({
                 "date": date, "scene": item.id,
-                "reason": "unreadable: the third band or its scene classification could not be read on this lattice",
+                "reason": format!("unreadable: the third band or its {mask_name} could not be read on this lattice"),
             }));
             continue;
         }
@@ -1688,7 +2199,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         let (Some((ga, meta_a)), Some((gb, meta_b))) = (ra, rb) else {
             excluded.push(json!({
                 "date": date, "scene": item.id,
-                "reason": "unreadable: a band or its scene classification could not be read on this lattice",
+                "reason": format!("unreadable: a band or its {mask_name} could not be read on this lattice"),
             }));
             continue;
         };
@@ -1737,6 +2248,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         if let (Some(o), Some(m)) = (source.as_object_mut(), meta_c) {
             o.insert("c".into(), m);
         }
+        if let (true, Some(o)) = (landsat, source.as_object_mut()) {
+            o.insert("platform".into(), json!(item.platform));
+        }
         sources.push(source);
         if clear_fraction < min_clear || st.n_clear < min_support {
             excluded.push(json!({
@@ -1780,6 +2294,12 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "mean": round6(st.mean), "std": round6(st.std),
             "block_medians": block_medians.iter().map(|m| m.map(round6).unwrap_or(JsonValue::Null)).collect::<Vec<_>>(),
         }));
+        if let (true, Some(o)) = (landsat, rows.last_mut().and_then(|r| r.as_object_mut())) {
+            o.insert("platform".into(), json!(item.platform));
+            if let Some(p) = &item.platform {
+                kept_platforms.insert(p.clone());
+            }
+        }
         kept_days.push(day);
         kept_medians.push(st.median);
         kept_block_medians.push(block_medians);
@@ -1795,7 +2315,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             o.insert(
                 "scene_check".into(),
                 json!({"expected": round6(*expected), "residual": round6(*residual),
-                       "reason": "both neighbouring scenes refute it: fog, haze or a bad tile the scene classification passed"}),
+                       "reason": format!("both neighbouring scenes refute it: fog, haze or a bad tile the {mask_name} passed")}),
             );
         }
     }
@@ -1901,6 +2421,24 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         &quads,
         &mut cautions,
     );
+    if landsat {
+        cautions.push("Landsat OLI and Sentinel-2 MSI bands differ in width and placement, and USGS and ESA correct them with different processors (LaSRC, Sen2Cor). So this series and a Sentinel-2 one over the same ground differ by a small offset that depends on the cover: do not join them in one line without a cross-calibration such as HLS (Claverie et al. 2018).".to_string());
+        let l7 = left_out
+            .as_ref()
+            .and_then(|l| l["landsat_7"].as_u64())
+            .unwrap_or(0);
+        if l7 > 0 {
+            cautions.push(format!(
+                "{l7} Landsat 7 catalogue item(s) in the window were left out: its scan-line corrector failed on 2003-05-31, so every later scene has stripes with no data. Landsat 8 and 9 alone begin in 2013."
+            ));
+        }
+        if kept_platforms.len() > 1 {
+            cautions.push(format!(
+                "the series mixes {}, which pass 8 days apart. Their OLI instruments are cross-calibrated to agree, not to be identical, so a small zig-zag between alternate scenes can be the instruments; `platform` names each row's.",
+                kept_platforms.iter().cloned().collect::<Vec<_>>().join(" and ")
+            ));
+        }
+    }
 
     let fields_block = fields_acc.block(
         &zones,
@@ -1921,28 +2459,61 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             .map(JsonValue::String)
             .unwrap_or(JsonValue::Null)
     };
-    let estimand = json!({
-        "quantity": format!("{} of the area, per Sentinel-2 overpass", index.key.to_uppercase()),
-        "operator": index.formula,
-        "reference": index.reference,
-        "support": if buffer_m > 0.0 {
-            format!("{native_m} m Sentinel-2 L2A pixels whose centre lies at least {buffer_m} m inside the area's edge ({n_inside} pixels)")
+    let estimand = if landsat {
+        let missed = if index.c.is_some() {
+            "CFMask, the cloud mask behind QA_PIXEL, misses haze and thin cloud. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low; pixels where EVI leaves -1..1 are dropped as bright targets"
         } else {
-            format!("{native_m} m Sentinel-2 L2A pixels whose centre lies inside the area ({n_inside} pixels)")
-        },
-        "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
-        "mask": {"reject_scl": reject_vec, "keep_snow_11": !reject.contains(&11)},
-        "unit": "dimensionless, -1..1",
-        "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
-        "known_bias": if index.c.is_some() {
-            "the scene classification misses haze and thin cloud edges. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low (a monsoon scene can show EVI above its NDVI); pixels where EVI leaves -1..1 are dropped as bright targets"
-        } else {
-            "the scene classification misses haze and thin cloud edges; what it misses lowers the index, so `partial` scenes can read low"
-        },
-    });
-    let record = json!({
+            "CFMask, the cloud mask behind QA_PIXEL, misses haze and thin cloud; what it misses lowers the index, so `partial` scenes can read low"
+        };
+        json!({
+            "quantity": format!("{} of the area, per Landsat 8 or 9 overpass", index.key.to_uppercase()),
+            "operator": index.formula,
+            "reference": index.reference,
+            "source": "USGS Landsat 8 and 9 OLI Collection 2 Level-2 surface reflectance, Tier 1, as Microsoft Planetary Computer serves it (landsat-c2-l2)",
+            "scaling": format!("surface reflectance = DN x scale + offset, per band. Each `sources` entry gives the scale and offset it used, and whether they came from the item's raster:bands or stand in for them (Collection 2: {LANDSAT_SR_SCALE} and {LANDSAT_SR_OFFSET}). DN 0 is fill, and a band reading counts when its reflectance lies in (0, 1], the range USGS calls valid"),
+            "support": format!("{native_m} m Landsat pixels whose centre lies {}inside the area ({n_inside} pixels); each scene is read on its own grid, centred on the area, so the pixels of two scenes align within one pixel",
+                if buffer_m > 0.0 { format!("at least {buffer_m} m ") } else { String::new() }),
+            "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
+            "mask": {
+                "reject_qa_pixel_bits": qa_bits,
+                "qa_pixel_bits": LANDSAT_QA_BITS.iter().map(|(k, what)| (k.to_string(), json!(what))).collect::<serde_json::Map<String, JsonValue>>(),
+                "keep_snow_bit_5": !qa_bits.contains(&5),
+                "not_read": "QA_RADSAT (saturation) and SR_QA_AEROSOL (aerosol level): neither rejects a pixel here",
+            },
+            "unit": "dimensionless, -1..1",
+            "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
+            "known_bias": format!("{missed}. A 30 m pixel covers nine 10 m ones, so on a small field more of the pixels straddle its edge; an inner_buffer_m of 22 m keeps only pixels whose whole footprint lies inside."),
+        })
+    } else {
+        json!({
+            "quantity": format!("{} of the area, per Sentinel-2 overpass", index.key.to_uppercase()),
+            "operator": index.formula,
+            "reference": index.reference,
+            "support": if buffer_m > 0.0 {
+                format!("{native_m} m Sentinel-2 L2A pixels whose centre lies at least {buffer_m} m inside the area's edge ({n_inside} pixels)")
+            } else {
+                format!("{native_m} m Sentinel-2 L2A pixels whose centre lies inside the area ({n_inside} pixels)")
+            },
+            "statistic": "per scene: median and nearest-rank p10/p25/p75/p90 over clear pixels, plus mean and sample std",
+            "mask": {"reject_scl": reject_vec, "keep_snow_11": !reject.contains(&11)},
+            "unit": "dimensionless, -1..1",
+            "clear_fraction_means": "share of the area's pixels with an unmasked, in-swath reading of every band the index uses",
+            "known_bias": if index.c.is_some() {
+                "the scene classification misses haze and thin cloud edges. Haze raises blue more than red, and blue enters EVI's denominator with a minus sign, so a hazy scene reads EVI HIGH where NDVI would read low (a monsoon scene can show EVI above its NDVI); pixels where EVI leaves -1..1 are dropped as bright targets"
+            } else {
+                "the scene classification misses haze and thin cloud edges; what it misses lowers the index, so `partial` scenes can read low"
+            },
+        })
+    };
+    let selection_rule = if landsat {
+        "Landsat 8 and 9 Collection 2 Level-2 Tier 1 scenes only, then one scene per capture date (least scene cloud; overlapping rows of one path see one overpass), then up to max_scenes evenly spaced in time keeping both ends, plus for the newest the least cloudy scene within 30 days of its day of year in each of up to three earlier years"
+    } else {
+        "one scene per capture date (least scene cloud), then up to max_scenes evenly spaced in time keeping both ends, plus for the newest the least cloudy scene within 30 days of its day of year in each of up to three earlier years"
+    };
+    let fn_key = sensor.fn_key();
+    let mut record = json!({
         "schema": "emem.field_series.v1",
-        "fn_key": FN_KEY,
+        "fn_key": fn_key,
         "aoi": {"bbox": {"min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng},
                 "polygon": if aoi.rings.is_empty() { JsonValue::Null } else { json!(aoi.rings) }},
         "aoi_cid": aoi_id,
@@ -1951,7 +2522,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "estimand": estimand,
         "window": {"start": req.start_date, "end": req.end_date, "days": window_days},
         "selection": {
-            "rule": "one scene per capture date (least scene cloud), then up to max_scenes evenly spaced in time keeping both ends, plus for the newest the least cloudy scene within 30 days of its day of year in each of up to three earlier years",
+            "rule": selection_rule,
             "same_season_added": same_season.len(),
             "candidate_dates": candidates.len(),
             "covered_from": covered_from,
@@ -1980,6 +2551,17 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         "fields": fields_block,
         "sources": sources,
     });
+    if let (Some(o), Some(left_out)) = (record.as_object_mut(), left_out) {
+        o.insert("sensor".into(), json!(sensor.key()));
+        if let Some(sel) = o.get_mut("selection").and_then(|v| v.as_object_mut()) {
+            sel.insert("platforms".into(), json!(["landsat-8", "landsat-9"]));
+            sel.insert("left_out".into(), left_out);
+            sel.insert(
+                "left_out_why".into(),
+                json!("counts are catalogue items in the window under the scene-cloud ceiling, before one scene per date is kept. Landsat 7: its scan-line corrector failed on 2003-05-31, so every later scene has stripes with no data, about 22% of each scene per USGS. Tier 2: short of the criteria USGS sets Tier 1 by for time-series use, among them geometry within 12 m RMSE. Other platforms: Landsat 4 and 5 carry TM, another instrument, not cross-calibrated here"),
+            );
+        }
+    }
     let signed_at = emem_storage::server::iso8601_now();
     let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
     let first_slot = kept_days.first().copied().unwrap_or(start_day).max(0) as u64;
@@ -1993,7 +2575,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         value: json_to_cbor(&record),
         confidence: 1.0,
         derivation: Derivation {
-            fn_key: FN_KEY.to_string(),
+            fn_key: fn_key.to_string(),
             args: None,
         },
         schema_cid: s.manifests.schema_cid.clone(),
@@ -2031,9 +2613,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             derivation_cid: derivation_cid.clone(),
         },
     );
-    let out = json!({
+    let mut out = json!({
         "schema": "emem.field_series.v1",
-        "algorithm_key": FN_KEY,
+        "algorithm_key": fn_key,
         "index": index.key,
         "estimand": record["estimand"],
         "window": record["window"],
@@ -2064,6 +2646,9 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
             "_means": "a repeat of this exact request inside ttl_s returns this same signed series; a scene acquired since computed_at appears after it expires",
         },
     });
+    if let (true, Some(o)) = (landsat, out.as_object_mut()) {
+        o.insert("sensor".into(), json!(sensor.key()));
+    }
     cache_put(cache_key, out.clone());
     Ok(out)
 }
@@ -3109,6 +3694,10 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
         ids.push(id);
     }
     let index = req.index.clone().unwrap_or_else(|| "ndvi".into());
+    let sensor = pick_sensor(
+        req.sensor.as_deref(),
+        index_alias(&index.to_ascii_lowercase()),
+    )?;
     let results: Vec<(String, Result<JsonValue, ApiError>)> =
         futures_util::stream::iter(areas.into_iter().zip(ids))
             .map(|(a, id)| {
@@ -3125,6 +3714,8 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
                     inner_buffer_m: req.inner_buffer_m,
                     min_support_px: req.min_support_px,
                     orbit: req.orbit,
+                    sensor: req.sensor.clone(),
+                    qa_reject_bits: req.qa_reject_bits.clone(),
                     areas: None,
                     fields: None,
                 };
@@ -3172,7 +3763,7 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
         k(a).cmp(&k(b))
     });
     let ok = out.iter().filter(|a| a["ok"] == json!(true)).count();
-    Ok(json!({
+    let mut answer = json!({
         "schema": "emem.field_series_areas.v1",
         "index": index,
         "start_date": req.start_date,
@@ -3181,7 +3772,11 @@ async fn field_series_areas(req: FieldSeriesReq, s: &AppState) -> Result<JsonVal
         "areas": out,
         "chart_rows": chart_rows,
         "_means": "one signed series per area (each with its own token and receipt), and chart_rows: every area's scenes in one long table (date, area, median, p10, p90, clear_fraction, quality), sorted by date. Areas are read on their own scene dates, so a date can have rows for some areas and not others; draw one line per area rather than joining on date.",
-    }))
+    });
+    if let (Some(_), Some(o)) = (&req.sensor, answer.as_object_mut()) {
+        o.insert("sensor".into(), json!(sensor.key()));
+    }
+    Ok(answer)
 }
 
 #[cfg(test)]
@@ -3276,6 +3871,263 @@ mod tests {
         assert_eq!(evi.at(3000.0, 100.0, Some(2200.0)), None);
         let ndvi = INDICES.iter().find(|i| i.key == "ndvi").unwrap();
         assert_eq!(ndvi.at(3000.0, 1000.0, None), Some(0.5));
+    }
+
+    /// The Sentinel-2 band each index reads, and the OLI band in its place.
+    fn landsat_band_for(s2: &str) -> &'static str {
+        match s2 {
+            "s2.B02" => "blue",
+            "s2.B03" => "green",
+            "s2.B04" => "red",
+            "s2.B08" | "s2.B8A" => "nir08",
+            "s2.B11" => "swir16",
+            "s2.B12" => "swir22",
+            other => panic!("no OLI band for {other}"),
+        }
+    }
+
+    #[test]
+    fn landsat_indices_are_the_sentinel2_ones_on_the_corresponding_bands() {
+        assert_eq!(LANDSAT_INDICES.len(), INDICES.len());
+        for s2 in &INDICES {
+            let l = LANDSAT_INDICES.iter().find(|l| l.key == s2.key).unwrap();
+            assert_eq!(l.a, landsat_band_for(s2.a), "{}", s2.key);
+            assert_eq!(l.b, landsat_band_for(s2.b), "{}", s2.key);
+            assert_eq!(l.c, s2.c.map(landsat_band_for), "{}", s2.key);
+            assert_eq!(l.reference, s2.reference);
+            for band in [Some(l.a), Some(l.b), l.c].into_iter().flatten() {
+                let (_, name) = LANDSAT_BANDS.iter().find(|(k, _)| *k == band).unwrap();
+                assert!(l.formula.contains(name), "{} names {name}", l.key);
+            }
+            assert!(l.formula.contains("surface reflectance"), "{}", l.key);
+        }
+        let nbr = LANDSAT_INDICES.iter().find(|i| i.key == "nbr").unwrap();
+        assert_eq!((nbr.a, nbr.b), ("nir08", "swir22"), "NBR is B5 against B7");
+        let ndmi = LANDSAT_INDICES.iter().find(|i| i.key == "ndmi").unwrap();
+        assert_eq!(
+            (ndmi.a, ndmi.b),
+            ("nir08", "swir16"),
+            "NDMI is B5 against B6"
+        );
+        let ndvi = LANDSAT_INDICES.iter().find(|i| i.key == "ndvi").unwrap();
+        assert_eq!((ndvi.a, ndvi.b), ("nir08", "red"), "NDVI is B5 against B4");
+    }
+
+    /// A clear land pixel's QA_PIXEL: bit 6 (clear) and the low-confidence
+    /// level (01) in each two-bit field from bit 8 up.
+    const QA_CLEAR: f64 = ((1 << 6) | (1 << 8) | (1 << 10) | (1 << 12) | (1 << 14)) as f64;
+
+    #[test]
+    fn landsat_reflectance_takes_the_collection_2_scale_and_offset() {
+        let (_, mask) = landsat_reject_bits(None).unwrap();
+        let px = |dn: f64| landsat_pixel(dn, QA_CLEAR, LANDSAT_SR_SCALE, LANDSAT_SR_OFFSET, mask);
+        // 20000 x 0.0000275 - 0.2 = 0.35
+        assert!((px(20_000.0) - 3500.0).abs() < 1e-2, "{}", px(20_000.0));
+        assert!(px(0.0).is_nan(), "DN 0 is fill");
+        // The USGS valid range, DN 7273..=43636, is reflectance (0, 1].
+        assert!(px(7272.0).is_nan() && px(7273.0) > 0.0);
+        assert!(px(43_636.0) <= 1e4 && px(43_637.0).is_nan());
+        assert!(landsat_pixel(20_000.0, f64::NAN, 2.75e-5, -0.2, mask).is_nan());
+
+        // The offset is why the index reads reflectance: on raw DNs this
+        // canopy's NDVI would read 0.41 instead of 0.78.
+        let ndvi = LANDSAT_INDICES.iter().find(|i| i.key == "ndvi").unwrap();
+        let (nir, red) = (21_818.0, 9_091.0);
+        let v = ndvi.at(px(nir), px(red), None).unwrap() as f64;
+        let (rn, rr) = (nir * 2.75e-5 - 0.2, red * 2.75e-5 - 0.2);
+        assert!((v - (rn - rr) / (rn + rr)).abs() < 1e-5, "{v}");
+        assert!((v - (nir - red) / (nir + red)).abs() > 0.3);
+        let nbr = LANDSAT_INDICES.iter().find(|i| i.key == "nbr").unwrap();
+        let burned = nbr.at(px(14_545.0), px(18_182.0), None).unwrap();
+        assert!(burned < 0.0, "SWIR2 above NIR is a burn: {burned}");
+        let evi = LANDSAT_INDICES.iter().find(|i| i.key == "evi").unwrap();
+        let (n, r, b) = (0.40, 0.04, 0.02);
+        let dn = |refl: f64| (refl + 0.2) / 2.75e-5;
+        let e = evi.at(px(dn(n)), px(dn(r)), Some(px(dn(b)))).unwrap() as f64;
+        let want = 2.5 * (n - r) / (n + 6.0 * r - 7.5 * b + 1.0);
+        assert!((e - want).abs() < 1e-4, "{e} vs {want}");
+    }
+
+    #[test]
+    fn an_item_that_states_its_scale_is_read_at_it() {
+        let item = |assets: JsonValue| -> emem_fetch::stac::StacItem {
+            serde_json::from_value(json!({"id": "LC09_L2SP_148039_20240211_02_T1",
+                "datetime": "2024-02-11T05:31:06Z", "collection": "landsat-c2-l2",
+                "assets": {"red": "https://example.invalid/SR_B4.TIF"},
+                "asset_scale_offset": assets}))
+            .unwrap()
+        };
+        assert_eq!(
+            landsat_scaling(&item(json!({"red": [2.75e-5, -0.2]})), "red"),
+            (2.75e-5, -0.2, "raster:bands")
+        );
+        assert_eq!(
+            landsat_scaling(&item(json!({"red": [1e-4, 0.0]})), "red"),
+            (1e-4, 0.0, "raster:bands")
+        );
+        assert_eq!(
+            landsat_scaling(&item(json!({})), "red"),
+            (LANDSAT_SR_SCALE, LANDSAT_SR_OFFSET, "collection-2 constant")
+        );
+        assert_eq!(
+            landsat_scaling(&item(json!({"red": [0.0, -0.2]})), "red").2,
+            "collection-2 constant",
+            "a zero scale is not a scale"
+        );
+    }
+
+    #[test]
+    fn qa_pixel_rejects_fill_cloud_and_shadow_and_keeps_snow_unless_asked() {
+        let (bits, mask) = landsat_reject_bits(None).unwrap();
+        assert_eq!(bits, vec![0, 1, 2, 3, 4]);
+        assert_eq!(mask, 0b1_1111);
+        let with = |bit: u32| QA_CLEAR + f64::from(1u32 << bit);
+        let px = |qa: f64, mask: u16| landsat_pixel(20_000.0, qa, 2.75e-5, -0.2, mask);
+        assert!(!px(QA_CLEAR, mask).is_nan());
+        for bit in 0..=4 {
+            assert!(px(with(bit), mask).is_nan(), "bit {bit} is rejected");
+        }
+        assert!(!px(with(5), mask).is_nan(), "snow is surface by default");
+        assert!(!px(with(7), mask).is_nan(), "water is kept by default");
+        let (snow_bits, snow_mask) = landsat_reject_bits(Some(&[5, 3])).unwrap();
+        assert_eq!(snow_bits, vec![0, 3, 5], "fill is always rejected");
+        assert!(px(with(5), snow_mask).is_nan());
+        assert!(!px(with(4), snow_mask).is_nan(), "only the bits named");
+        assert!(landsat_reject_bits(Some(&[6])).is_err(), "bit 6 is `clear`");
+        assert!(
+            landsat_reject_bits(Some(&[8])).is_err(),
+            "bits 8-15 are levels"
+        );
+    }
+
+    #[test]
+    fn landsat_keeps_8_and_9_tier_1_and_counts_what_it_leaves_out() {
+        let item = |id: &str, platform: Option<&str>| -> emem_fetch::stac::StacItem {
+            serde_json::from_value(json!({"id": id, "datetime": "2020-01-01T05:00:00Z",
+                "collection": "landsat-c2-l2", "assets": {}, "platform": platform}))
+            .unwrap()
+        };
+        let (kept, left_out) = landsat_keep(vec![
+            item("LC09_L2SP_148039_20240211_02_T1", Some("landsat-9")),
+            item("LC08_L2SP_148039_20240203_02_T2", Some("landsat-8")),
+            item("LE07_L2SP_148039_20200105_02_T1", Some("landsat-7")),
+            item("LT05_L2SP_148039_20100105_02_T1", Some("landsat-5")),
+            item("LC08_L2SP_148039_20200113_02_T1", None),
+        ]);
+        let ids: Vec<&str> = kept.iter().map(|i| i.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            [
+                "LC09_L2SP_148039_20240211_02_T1",
+                "LC08_L2SP_148039_20200113_02_T1"
+            ]
+        );
+        assert_eq!(
+            left_out,
+            json!({"landsat_7": 1, "tier_2": 1, "other_platforms": 1})
+        );
+    }
+
+    #[test]
+    fn the_sensor_is_named_or_follows_the_index() {
+        let pick = |s: Option<&str>, i: &str| pick_sensor(s, i).ok();
+        assert_eq!(pick(None, "ndvi"), Some(Sensor::Sentinel2));
+        assert_eq!(pick(None, "vh"), Some(Sensor::Sentinel1));
+        assert_eq!(pick(Some(""), "ndvi"), Some(Sensor::Sentinel2));
+        assert_eq!(pick(Some(" Landsat "), "nbr"), Some(Sensor::Landsat));
+        assert_eq!(pick(Some("landsat-c2-l2"), "ndmi"), Some(Sensor::Landsat));
+        assert_eq!(pick(Some("sentinel-2"), "ndvi"), Some(Sensor::Sentinel2));
+        assert_eq!(pick(Some("sentinel-1"), "vv"), Some(Sensor::Sentinel1));
+        assert_eq!(pick(Some("landsat"), "vv"), None, "radar is not Landsat");
+        assert_eq!(pick(Some("sentinel-1"), "ndvi"), None);
+        assert_eq!(pick(Some("modis"), "ndvi"), None);
+        let keys = [Sensor::Sentinel2, Sensor::Landsat, Sensor::Sentinel1].map(Sensor::fn_key);
+        assert_eq!(keys, [FN_KEY, "landsat_index_series@1", RADAR_FN_KEY]);
+    }
+
+    #[test]
+    fn a_landsat_series_is_cached_apart_from_a_sentinel2_one() {
+        let parts = json!({"bbox": [30.9, 75.7, 30.95, 75.75], "index": "ndvi",
+            "start": "2014-01-01", "end": "2016-12-31"});
+        let s2 = optical_cache_key(Sensor::Sentinel2, parts.clone());
+        let l = optical_cache_key(Sensor::Landsat, parts.clone());
+        assert_ne!(s2, l);
+        assert_eq!(l, optical_cache_key(Sensor::Landsat, parts));
+        assert!(l.contains("\"sensor\":\"landsat\""), "{l}");
+    }
+
+    /// Each sensor's mask list is refused on the other, and a radar index
+    /// on Landsat, before any catalogue is asked.
+    #[tokio::test]
+    async fn a_mask_or_index_meant_for_one_sensor_is_refused_on_another() {
+        let s = crate::tests::test_app_state();
+        let ask = |extra: JsonValue| {
+            let mut body = json!({"bbox": {"min_lat": 30.9, "min_lng": 75.7, "max_lat": 30.91, "max_lng": 75.71},
+                "start_date": "2015-01-01", "end_date": "2015-12-31"});
+            body.as_object_mut()
+                .unwrap()
+                .extend(extra.as_object().unwrap().clone());
+            let req: FieldSeriesReq = serde_json::from_value(body).unwrap();
+            let s = s.clone();
+            async move { field_series(req, &s).await }
+        };
+        let e = ask(json!({"sensor": "landsat", "mask_policy": [0, 3, 8, 9]}))
+            .await
+            .unwrap_err();
+        assert!(e.1.message.contains("qa_reject_bits"), "{}", e.1.message);
+        let e = ask(json!({"qa_reject_bits": [3]})).await.unwrap_err();
+        assert!(e.1.message.contains("sensor landsat"), "{}", e.1.message);
+        let e = ask(json!({"sensor": "landsat", "qa_reject_bits": [9]}))
+            .await
+            .unwrap_err();
+        assert!(e.1.message.contains("bit 9"), "{}", e.1.message);
+        let e = ask(json!({"sensor": "landsat", "index": "vv"}))
+            .await
+            .unwrap_err();
+        assert!(e.1.message.contains("radar"), "{}", e.1.message);
+    }
+
+    /// Landsat Collection 2 is PixelIsPoint: its tiepoint names the centre
+    /// of the corner pixel. The lattice's middle pixel must hold the area's
+    /// centre on either kind of raster.
+    #[test]
+    fn the_window_corner_is_a_corner_on_a_point_raster_too() {
+        let prof = |point: bool| emem_fetch::cog::CogProfile {
+            width: 7651,
+            height: 7781,
+            bits_per_sample: 16,
+            sample_format: 1,
+            compression: 8,
+            predictor: 1,
+            tile_w: 256,
+            tile_h: 256,
+            tile_cols: 30,
+            tile_rows: 31,
+            samples_per_pixel: 1,
+            planar_config: 1,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
+            pixel_scale: (30.0, 30.0),
+            tiepoint: (0.0, 0.0, 399_900.0, 3_468_900.0),
+            epsg: Some(32643),
+            nodata: Some("0".into()),
+            pixel_is_point: point,
+        };
+        // 0.4 of a pixel west and north of a pixel centre: a corner taken as
+        // the centre would put this point in the neighbouring pixel.
+        let (cx, cy) = (399_900.0 + 2988.0, 3_468_900.0 - 5988.0);
+        for point in [true, false] {
+            let (x0, y0) = window_corner(&prof(point), cx, cy, 10, 10);
+            let (px0, py0) = (x0 + 5.0 * 30.0, y0 - 5.0 * 30.0);
+            assert!(
+                (px0..px0 + 30.0).contains(&cx) && (py0 - 30.0..py0).contains(&cy),
+                "point={point}: pixel (5, 5) spans x {px0}.., y ..{py0}, centre ({cx}, {cy})"
+            );
+        }
+        assert_eq!(
+            window_corner(&prof(true), cx, cy, 10, 10),
+            (402_735.0, 3_463_065.0)
+        );
     }
 
     #[test]
