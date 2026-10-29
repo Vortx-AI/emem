@@ -13768,7 +13768,7 @@
      "explanation": "One of forest_change.lossyear, forest_change.treecover2000, forest_change.gain (Hansen GFC v1.13), jrc_gfc2020.forest_2020 (JRC GFC2020) or jrc_tmf.deforestation_year (JRC TMF), read at native resolution from the one 10\u00b0 publisher tile the bbox sits in."
     }
    ],
-   "formula": "window = every pixel the bbox touches (snapped as pixel_index does), read from the layer's 10\u00b0 tile; lossyear bytes decode to calendar years, pixels outside the tile are NaN; artifact = canonical_grid_f32(window); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, band, tslot=0, tile url and JRC version, EPSG:4326 grid georeferencing, the publisher's licence, best-effort anchors to the per-cell facts of the same band}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
+   "formula": "window = every pixel the bbox touches (snapped as pixel_index does), on the pixel lattice of the layer's 10\u00b0 tile under the bbox centre; across a tile line each pixel is read from the tile whose 10\u00b0 square holds its centre, at most 4 tiles, each at a whole-pixel offset on that lattice (tiles on another lattice are refused, never resampled); lossyear bytes decode to calendar years, pixels no tile holds are NaN; artifact = canonical_grid_f32(window); artifact_cid = blake3(artifact); derivation record pins {aoi_cid, band, tslot=0, every tile url read and JRC version (with each tile's window when there are several), EPSG:4326 grid georeferencing, the publisher's licence, best-effort anchors to the per-cell facts of the same band}; receipt binds (aoi_cid, derivation_cid) through the FIELD preimage segment",
    "output": {
     "kind": "scalar",
     "unit": "artifact",
@@ -13785,7 +13785,7 @@
    "documentation_only": true,
    "runtime_path": "/v1/band_raster",
    "partial_runtime": true,
-   "honest_runtime_note": "Shares the /v1/band_raster surface; a forest band spelling routes here. Bounds are refusals: 1024 px per side, one tile per raster (a bbox across a 10\u00b0 tile edge is refused with the remedy), and a bbox outside a layer's coverage (TMF covers the tropics) is a 400. Reads come from the tile store's local copy once it holds the tile."
+   "honest_runtime_note": "Shares the /v1/band_raster surface; a forest band spelling routes here. Bounds are refusals: 1024 px per side, at most 4 tiles (a bbox across a 10\u00b0 tile line is joined from the tiles it touches), and a bbox reaching outside a layer's coverage (TMF covers the tropics) is a 400. Reads come from the tile store's local copy once it holds the tile."
   },
   {
    "key": "embedding_raster@1",

@@ -800,9 +800,265 @@ const FOREST_BANDS: [ForestBand; 5] = [
 
 /// Per side. At 30 m a page is a ~30 km square, at JRC GFC2020's 10 m a
 /// ~10 km one, so a district is read as several pages. Twice the S2 cap:
-/// the read is one window of a static tile, from the local copy once the
-/// tile store holds it.
+/// the read is one window of a static tile (or of up to four, across a tile
+/// line), from the local copy once the tile store holds it.
 const FOREST_MAX_SIDE_PX: u32 = 1024;
+
+/// Every forest layer here is published as 10° tiles named by their
+/// north-west corner: a tile holds latitudes in `(n - 10, n]` and longitudes
+/// in `[w, w + 10)`, as each connector's `tile_corner_tags` names them.
+const FOREST_TILE_DEG: f64 = 10.0;
+
+/// A 2 x 2 block of tiles. A bbox under `FOREST_MAX_SIDE_PX` spans well under
+/// one tile on every layer here, so it never touches more.
+const FOREST_MAX_TILES: usize = 4;
+
+/// How far, in pixels, a tile's grid may sit from the lattice it is joined to.
+/// Float error in a published tiepoint is far below this; half a pixel, the
+/// offset a PixelIsPoint tile taken as PixelIsArea would show, is far above.
+const LATTICE_TOL_PX: f64 = 1e-3;
+
+/// The row of 10° tiles that holds latitude `lat`, numbered by north edge.
+fn tile_row_key(lat: f64) -> i64 {
+    (lat / FOREST_TILE_DEG).ceil() as i64
+}
+
+/// The column of 10° tiles that holds longitude `lng`, numbered by west edge.
+fn tile_col_key(lng: f64) -> i64 {
+    (lng / FOREST_TILE_DEG).floor() as i64
+}
+
+/// Each 10° square the bbox touches, north to south and then west to east,
+/// with a point inside both the square and the bbox to name its tile by.
+/// Each edge is first moved 1e-9° inward, so a bbox that ends on a tile line
+/// does not count the square beyond it.
+fn forest_squares(b: &BBox) -> Vec<((i64, i64), (f64, f64))> {
+    let top = (b.max_lat - 1e-9).max(b.min_lat);
+    let bottom = (b.min_lat + 1e-9).min(b.max_lat);
+    let left = (b.min_lng + 1e-9).min(b.max_lng);
+    let right = (b.max_lng - 1e-9).max(b.min_lng);
+    // On a bbox under 2e-9° the nudged edges cross; either order holds the centre.
+    let (south, north) = (bottom.min(top), bottom.max(top));
+    let (west, east) = (left.min(right), left.max(right));
+    let mut out = Vec::new();
+    for ky in (tile_row_key(south)..=tile_row_key(north)).rev() {
+        let lat_lo = south.max((ky - 1) as f64 * FOREST_TILE_DEG);
+        let lat_hi = north.min(ky as f64 * FOREST_TILE_DEG);
+        for kx in tile_col_key(west)..=tile_col_key(east) {
+            let lng_lo = west.max(kx as f64 * FOREST_TILE_DEG);
+            let lng_hi = east.min((kx + 1) as f64 * FOREST_TILE_DEG);
+            out.push(((ky, kx), ((lat_lo + lat_hi) / 2.0, (lng_lo + lng_hi) / 2.0)));
+        }
+    }
+    out
+}
+
+/// One tile of a forest layer: its 10° square, its URL, and JRC GFC2020's
+/// version.
+struct ForestTile {
+    key: (i64, i64),
+    url: String,
+    jrc_version: Option<u32>,
+}
+
+/// A rectangle of a forest window that one tile supplies, in window pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Piece {
+    /// Index of the tile in the caller's list.
+    tile: usize,
+    row0: u32,
+    col0: u32,
+    height: u32,
+    width: u32,
+}
+
+/// Runs of equal keys over `0..n`, as `(key, start, length)`.
+fn key_runs(n: u32, key: impl Fn(i64) -> i64) -> Vec<(i64, u32, u32)> {
+    let mut out: Vec<(i64, u32, u32)> = Vec::new();
+    for i in 0..n {
+        let k = key(i64::from(i));
+        match out.last_mut() {
+            Some(run) if run.0 == k => run.2 += 1,
+            _ => out.push((k, i, 1)),
+        }
+    }
+    out
+}
+
+/// Splits the `w` x `h` window whose first pixel is (`col0`, `row0`) on
+/// `prof`'s lattice into the rectangle each tile in `keys` supplies. A pixel
+/// goes to the tile whose square holds its centre, clamped to the squares in
+/// `keys`: a pixel past a line the bbox only grazes stays with a tile that is
+/// read, and is NaN there if that tile does not hold it, as on one tile.
+fn plan_pieces(
+    prof: &emem_fetch::cog::CogProfile,
+    col0: i64,
+    row0: i64,
+    w: u32,
+    h: u32,
+    keys: &[(i64, i64)],
+) -> Result<Vec<Piece>, String> {
+    let rows = keys.iter().map(|k| k.0);
+    let cols = keys.iter().map(|k| k.1);
+    let (Some(ky_lo), Some(ky_hi), Some(kx_lo), Some(kx_hi)) = (
+        rows.clone().min(),
+        rows.max(),
+        cols.clone().min(),
+        cols.max(),
+    ) else {
+        return Err("no tile to read the window from".into());
+    };
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let (sx, sy) = prof.pixel_scale;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    let row_runs = key_runs(h, |r| {
+        tile_row_key(ty - ((row0 + r) as f64 - tj + half) * sy.abs()).clamp(ky_lo, ky_hi)
+    });
+    let col_runs = key_runs(w, |c| {
+        tile_col_key(tx + ((col0 + c) as f64 - ti + half) * sx).clamp(kx_lo, kx_hi)
+    });
+    let mut pieces = Vec::with_capacity(row_runs.len() * col_runs.len());
+    for &(ky, r, height) in &row_runs {
+        for &(kx, c, width) in &col_runs {
+            let tile = keys
+                .iter()
+                .position(|k| *k == (ky, kx))
+                .ok_or_else(|| format!("no tile is named for the 10° square ({ky}, {kx})"))?;
+            pieces.push(Piece {
+                tile,
+                row0: r,
+                col0: c,
+                height,
+                width,
+            });
+        }
+    }
+    Ok(pieces)
+}
+
+/// The world position of the north-west corner of pixel (0, 0).
+fn grid_corner(p: &emem_fetch::cog::CogProfile) -> (f64, f64) {
+    let (ti, tj, tx, ty) = p.tiepoint;
+    let (sx, sy) = p.pixel_scale;
+    // On a PixelIsPoint raster the tiepoint names a pixel's centre.
+    let shift = if p.pixel_is_point { 0.5 } else { 0.0 };
+    (tx - (ti + shift) * sx, ty + (tj + shift) * sy.abs())
+}
+
+/// The whole-pixel offset `(dc, dr)` of `piece`'s grid on `reference`'s:
+/// reference pixel `(c, r)` is piece pixel `(c - dc, r - dr)`. Two grids
+/// that are not one lattice (another pixel size, CRS, or a fractional
+/// offset) are refused: joining them would need resampling.
+fn lattice_offset(
+    reference: &emem_fetch::cog::CogProfile,
+    piece: &emem_fetch::cog::CogProfile,
+) -> Result<(i64, i64), String> {
+    let (rsx, rsy) = (reference.pixel_scale.0, reference.pixel_scale.1.abs());
+    let (psx, psy) = (piece.pixel_scale.0, piece.pixel_scale.1.abs());
+    if !(rsx > 0.0 && rsy > 0.0 && psx > 0.0 && psy > 0.0) {
+        return Err(format!(
+            "pixel sizes {psx} x {psy} and {rsx} x {rsy} are not both positive"
+        ));
+    }
+    // A size difference that drifts the grids apart across the piece's tile.
+    let span = f64::from(piece.width.max(piece.height));
+    if (psx - rsx).abs() * span / rsx > LATTICE_TOL_PX
+        || (psy - rsy).abs() * span / rsy > LATTICE_TOL_PX
+    {
+        return Err(format!("pixel size {psx} x {psy} against {rsx} x {rsy}"));
+    }
+    if piece.epsg != reference.epsg {
+        return Err(format!(
+            "EPSG {:?} against {:?}",
+            piece.epsg, reference.epsg
+        ));
+    }
+    let (rx, ry) = grid_corner(reference);
+    let (px, py) = grid_corner(piece);
+    let (dc, dr) = ((px - rx) / rsx, (ry - py) / rsy);
+    if (dc - dc.round()).abs() > LATTICE_TOL_PX || (dr - dr.round()).abs() > LATTICE_TOL_PX {
+        return Err(format!(
+            "the grids are {dc} columns and {dr} rows apart, not a whole number of pixels"
+        ));
+    }
+    Ok((dc.round() as i64, dr.round() as i64))
+}
+
+/// A forest tile's sample as the per-cell fact states it: the lossyear byte
+/// as its calendar year, every other layer as read.
+fn forest_value(band_key: &str, v: f64) -> f32 {
+    if band_key == "forest_change.lossyear" {
+        let byte = if (0.0..=255.0).contains(&v) {
+            v.round() as u8
+        } else {
+            0
+        };
+        emem_fetch::hansen_gfc::lossyear_byte_to_calendar_year(byte).unwrap_or(0) as f32
+    } else {
+        v as f32
+    }
+}
+
+/// The values of `piece`, read from `tile` at the whole-pixel offset its grid
+/// sits at on `reference`'s, and the piece's first (column, row) in that
+/// tile. `origin` is the window's first pixel on the reference lattice.
+async fn read_forest_piece(
+    cli: &reqwest::Client,
+    band_key: &str,
+    reference: &emem_fetch::cog::CogProfile,
+    reference_url: &str,
+    tile: &ForestTile,
+    origin: (i64, i64),
+    piece: &Piece,
+) -> Result<(Vec<f32>, (i64, i64)), ApiError> {
+    let (width, height) = (piece.width, piece.height);
+    let at = (
+        origin.0 + i64::from(piece.col0),
+        origin.1 + i64::from(piece.row0),
+    );
+    let url = tile.url.as_str();
+    let prof = emem_fetch::cog::open_profile(cli, url)
+        .await
+        .map_err(|e| upstream_error(format!("open {url}: {e}")))?;
+    let (dc, dr) = lattice_offset(reference, &prof).map_err(|why| {
+        upstream_error(format!(
+            "{url} is not on the pixel lattice of {reference_url} ({why}). Joining them would need resampling, which this executor does not do. Page the bbox along the tile line."
+        ))
+    })?;
+    let (col0, row0) = (at.0 - dc, at.1 - dr);
+    let (span_w, span_h) = (i64::from(width), i64::from(height));
+    let (ti, tj, tx, ty) = prof.tiepoint;
+    let (sx, sy) = prof.pixel_scale;
+    let half = if prof.pixel_is_point { 0.0 } else { 0.5 };
+    // sample_window places its window at the pixel under the point it is
+    // given, less half the size: hand it the centre of the middle pixel.
+    let cx = tx + ((col0 + span_w / 2) as f64 - ti + half) * sx;
+    let cy = ty - ((row0 + span_h / 2) as f64 - tj + half) * sy.abs();
+    let raw = emem_fetch::cog::sample_window(cli, url, &prof, cx, cy, width, height)
+        .await
+        .map_err(|e| upstream_error(format!("sample_window {url}: {e}")))?;
+    let in_tile = |k: usize| {
+        let (r, c) = (
+            row0 + (k / width as usize) as i64,
+            col0 + (k % width as usize) as i64,
+        );
+        (0..prof.height as i64).contains(&r) && (0..prof.width as i64).contains(&c)
+    };
+    // sample_window fills a pixel outside the image with 0, and 0 is a real
+    // value of every forest layer.
+    let values = raw
+        .iter()
+        .enumerate()
+        .map(|(k, v)| {
+            if in_tile(k) {
+                forest_value(band_key, *v)
+            } else {
+                f32::NAN
+            }
+        })
+        .collect();
+    Ok((values, (col0, row0)))
+}
 
 /// The tile of `band` that covers `(lat, lng)`, and JRC GFC2020's version.
 /// A point the layer does not cover is the caller's to know about (a 400:
@@ -832,11 +1088,12 @@ async fn forest_tile_url(
 /// `jrc_tmf_fact`), so an anchor finds the fact recall signed for its cell.
 pub(crate) const FOREST_RELEASE_YEAR: i32 = 2025;
 
-/// A forest layer as a FIELD token: one window of the publisher's tile over
-/// the bbox, signed as a derivation, where callers had to read the layer
-/// cell by cell. Values are the per-cell facts' values (the lossyear byte is
-/// decoded to its calendar year), so an anchor checks exactly against the
-/// fact for its cell.
+/// A forest layer as a FIELD token: one window of the layer over the bbox,
+/// signed as a derivation, where callers had to read the layer cell by cell.
+/// Values are the per-cell facts' values (the lossyear byte is decoded to its
+/// calendar year), so an anchor checks exactly against the fact for its cell.
+/// A bbox across a tile line is read from every tile it touches, up to
+/// `FOREST_MAX_TILES`, and joined on the layer's own pixel lattice.
 async fn forest_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, ApiError> {
     let started = Instant::now();
     let b = &req.bbox;
@@ -847,29 +1104,43 @@ async fn forest_raster(req: BandRasterReq, s: &AppState) -> Result<JsonValue, Ap
         )));
     };
     let band_key = fb.band;
+    let squares = forest_squares(b);
+    if squares.len() > FOREST_MAX_TILES {
+        return Err(bad_request(format!(
+            "bbox touches {} of the {band_key} tiles (10° squares); one raster joins at most {FOREST_MAX_TILES}, a 2 x 2 block. Page the bbox.",
+            squares.len()
+        )));
+    }
     let centre_lat = (b.min_lat + b.max_lat) / 2.0;
     let centre_lng = (b.min_lng + b.max_lng) / 2.0;
     let cli = crate::s2_http_client();
-    let (url, jrc_version) = forest_tile_url(band_key, centre_lat, centre_lng, &cli).await?;
-    // One tile per read, as on the DEM path: every corner must name it. Each
-    // corner is nudged inward, so a bbox that ends on a tile line, on any of
-    // its four sides, is read from the tile it lies in.
-    let top = (b.max_lat - 1e-9).max(b.min_lat);
-    let bottom = (b.min_lat + 1e-9).min(b.max_lat);
-    let left = (b.min_lng + 1e-9).min(b.max_lng);
-    let right = (b.max_lng - 1e-9).max(b.min_lng);
-    for (lat, lng) in [(bottom, left), (bottom, right), (top, left), (top, right)] {
-        let corner = forest_tile_url(band_key, lat, lng, &cli).await.ok();
-        if corner.as_ref().map(|c| c.0.as_str()) != Some(url.as_str()) {
-            return Err(bad_request(format!(
-                "bbox crosses an edge of the {band_key} tiles (10° squares); this executor reads one tile per raster. Page the bbox along the tile lines."
-            )));
-        }
+    if squares.len() == 1 {
+        let (url, jrc_version) = forest_tile_url(band_key, centre_lat, centre_lng, &cli).await?;
+        return forest_raster_from(&req, s, fb, &url, jrc_version, started).await;
     }
-    forest_raster_from(&req, s, fb, &url, jrc_version, started).await
+    let mut tiles = Vec::with_capacity(squares.len());
+    for (key, (lat, lng)) in squares {
+        let (url, jrc_version) = forest_tile_url(band_key, lat, lng, &cli).await?;
+        tiles.push(ForestTile {
+            key,
+            url,
+            jrc_version,
+        });
+    }
+    // The lattice is the one the bbox centre's tile is on, as on one tile.
+    let centre_key = (tile_row_key(centre_lat), tile_col_key(centre_lng));
+    let reference = tiles
+        .iter()
+        .position(|t| t.key == centre_key)
+        .ok_or_else(|| {
+            upstream_error(format!(
+                "no {band_key} tile is named for the bbox centre ({centre_lat}, {centre_lng})"
+            ))
+        })?;
+    forest_raster_tiles(&req, s, fb, &tiles, reference, started).await
 }
 
-/// [`forest_raster`] once the tile is chosen.
+/// [`forest_raster`] once the tile is chosen, for a bbox inside one tile.
 async fn forest_raster_from(
     req: &BandRasterReq,
     s: &AppState,
@@ -879,11 +1150,39 @@ async fn forest_raster_from(
     started: Instant,
 ) -> Result<JsonValue, ApiError> {
     let b = &req.bbox;
+    let tile = ForestTile {
+        key: (
+            tile_row_key((b.min_lat + b.max_lat) / 2.0),
+            tile_col_key((b.min_lng + b.max_lng) / 2.0),
+        ),
+        url: url.to_string(),
+        jrc_version,
+    };
+    forest_raster_tiles(req, s, fb, std::slice::from_ref(&tile), 0, started).await
+}
+
+/// The forest window over the bbox, on the pixel lattice of
+/// `tiles[reference]`, read from each tile in `tiles` that holds a part of it
+/// and signed once. One tile gives the same bytes and record as a read that
+/// never joins; several give one grid whose record cites each tile and the
+/// rectangle it supplied.
+async fn forest_raster_tiles(
+    req: &BandRasterReq,
+    s: &AppState,
+    fb: &ForestBand,
+    tiles: &[ForestTile],
+    reference: usize,
+    started: Instant,
+) -> Result<JsonValue, ApiError> {
+    let b = &req.bbox;
     let band_key = fb.band;
     let centre_lat = (b.min_lat + b.max_lat) / 2.0;
     let centre_lng = (b.min_lng + b.max_lng) / 2.0;
     let cli = crate::s2_http_client();
-    let url = url.to_string();
+    let lattice_tile = tiles
+        .get(reference)
+        .ok_or_else(|| upstream_error("no tile to read the window from".into()))?;
+    let url = lattice_tile.url.clone();
     let prof = emem_fetch::cog::open_profile(&cli, &url)
         .await
         .map_err(|e| upstream_error(format!("open {url}: {e}")))?;
@@ -919,40 +1218,30 @@ async fn forest_raster_from(
         )));
     }
     let (width_px, height_px) = (span_w as u32, span_h as u32);
-    // sample_window places its window at the pixel under the point it is
-    // given, less half the size: hand it the centre of the middle pixel.
-    let cx = tx + ((col0 + span_w / 2) as f64 - ti + half) * sx;
-    let cy = ty - ((row0 + span_h / 2) as f64 - tj + half) * sy.abs();
-    let raw = emem_fetch::cog::sample_window(&cli, &url, &prof, cx, cy, width_px, height_px)
-        .await
-        .map_err(|e| upstream_error(format!("sample_window {url}: {e}")))?;
-    let in_tile = |k: usize| {
-        let (r, c) = (
-            row0 + (k / width_px as usize) as i64,
-            col0 + (k % width_px as usize) as i64,
-        );
-        (0..prof.height as i64).contains(&r) && (0..prof.width as i64).contains(&c)
-    };
-    let values: Vec<f32> = raw
-        .iter()
-        .enumerate()
-        .map(|(k, v)| {
-            // sample_window fills a pixel outside the image with 0, and 0 is
-            // a real value of every forest layer.
-            if !in_tile(k) {
-                f32::NAN
-            } else if band_key == "forest_change.lossyear" {
-                let byte = if (0.0..=255.0).contains(v) {
-                    v.round() as u8
-                } else {
-                    0
-                };
-                emem_fetch::hansen_gfc::lossyear_byte_to_calendar_year(byte).unwrap_or(0) as f32
-            } else {
-                *v as f32
+    let keys: Vec<(i64, i64)> = tiles.iter().map(|t| t.key).collect();
+    let pieces =
+        plan_pieces(&prof, col0, row0, width_px, height_px, &keys).map_err(upstream_error)?;
+    let reads = pieces.iter().map(|p| {
+        let cli = &cli;
+        let prof = &prof;
+        let url = &url;
+        async move {
+            let tile = tiles
+                .get(p.tile)
+                .ok_or_else(|| upstream_error("a piece names no tile".into()))?;
+            read_forest_piece(cli, band_key, prof, url, tile, (col0, row0), p).await
+        }
+    });
+    let read = futures_util::future::try_join_all(reads).await?;
+    let mut values = vec![f32::NAN; width_px as usize * height_px as usize];
+    for (p, (piece_values, _)) in pieces.iter().zip(&read) {
+        for (i, row) in piece_values.chunks(p.width.max(1) as usize).enumerate() {
+            let at = (p.row0 as usize + i) * width_px as usize + p.col0 as usize;
+            if let Some(dst) = values.get_mut(at..at + row.len()) {
+                dst.copy_from_slice(row);
             }
-        })
-        .collect();
+        }
+    }
 
     let x0 = tx + (col0 as f64 - ti + half) * sx;
     let y0 = ty - (row0 as f64 - tj + half) * sy.abs();
@@ -1037,13 +1326,41 @@ async fn forest_raster_from(
         }));
     }
 
-    let scheme = match jrc_version {
+    let scheme_of = |jrc_version: Option<u32>| match jrc_version {
         Some(v) => format!("{}.v{v}", fb.scheme),
         None => fb.scheme.to_string(),
     };
     let licence = json!({ "terms": fb.licence, "attribution": fb.attribution });
+    let one_tile = matches!(pieces.as_slice(), [p] if p.tile == reference);
+    let sources: Vec<JsonValue> = if one_tile {
+        vec![json!({
+            "scheme": scheme_of(lattice_tile.jrc_version),
+            "id": url,
+            "asset": url,
+            "licence": licence,
+        })]
+    } else {
+        pieces
+            .iter()
+            .zip(&read)
+            .filter_map(|(p, (_, (tile_col0, tile_row0)))| {
+                let t = tiles.get(p.tile)?;
+                Some(json!({
+                    "scheme": scheme_of(t.jrc_version),
+                    "id": t.url,
+                    "asset": t.url,
+                    "licence": licence,
+                    "window": {
+                        "grid_row0": p.row0, "grid_col0": p.col0,
+                        "height": p.height, "width": p.width,
+                        "tile_row0": tile_row0, "tile_col0": tile_col0,
+                    },
+                }))
+            })
+            .collect()
+    };
     let aoi = aoi_cid(b)?;
-    let record_body = json!({
+    let mut record_body = json!({
         "schema": "emem.field_derivation.v1",
         "aoi": { "bbox": { "min_lat": b.min_lat, "min_lng": b.min_lng, "max_lat": b.max_lat, "max_lng": b.max_lng } },
         "aoi_cid": aoi,
@@ -1051,12 +1368,7 @@ async fn forest_raster_from(
         "tslot": tslot,
         "fn_key": "forest_raster@1",
         "unit": fb.unit,
-        "sources": [{
-            "scheme": scheme,
-            "id": url,
-            "asset": url,
-            "licence": licence,
-        }],
+        "sources": sources,
         "artifact": {
             "artifact_cid": artifact_cid,
             "byte_len": byte_len,
@@ -1071,6 +1383,18 @@ async fn forest_raster_from(
         "anchors": anchors,
         "anchor_policy": "best_effort: an anchor cites the per-cell fact of the same band for its cell when the store holds one, and never materialises one",
     });
+    if !one_tile {
+        if let Some(o) = record_body.as_object_mut() {
+            o.insert(
+                "mosaic".into(),
+                json!({
+                    "pieces": pieces.len(),
+                    "lattice_of": url,
+                    "rule": "each pixel is read from the tile of the 10-degree square that holds its centre, among the squares the bbox touches; each source's window says where its rectangle sits in the grid and in its tile. Every tile is on lattice_of's pixel lattice at a whole-pixel offset, so no pixel is resampled",
+                }),
+            );
+        }
+    }
     let signed_at = emem_storage::server::iso8601_now();
     let centre_cell = emem_codec::geo::cell64_from_latlng(centre_lat, centre_lng);
     let derivation_fact = DerivativeFact {
@@ -3179,11 +3503,17 @@ mod tests {
     /// tile at a coarse 0.25° a pixel, valued `(col + row) % 25` as the
     /// lossyear bytes are.
     fn hansen_like_tiff() -> Vec<u8> {
+        tile_tiff((-70.0, 0.0), |c, r| ((c + r) % 25) as u8)
+    }
+
+    /// A 40x40 one-strip-per-row deflate PixelIsArea TIFF at 0.25° a pixel
+    /// whose pixel (0, 0) has its north-west corner at `corner` (lng, lat).
+    fn tile_tiff(corner: (f64, f64), value: impl Fn(u32, u32) -> u8) -> Vec<u8> {
         use std::io::Write as _;
         let (w, h) = (40u32, 40u32);
         let mut strips = Vec::new();
         for r in 0..h {
-            let row: Vec<u8> = (0..w).map(|c| ((c + r) % 25) as u8).collect();
+            let row: Vec<u8> = (0..w).map(|c| value(c, r)).collect();
             let mut z = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::default());
             z.write_all(&row).unwrap();
             strips.push(z.finish().unwrap());
@@ -3224,7 +3554,7 @@ mod tests {
             buf.extend_from_slice(&val.to_le_bytes());
         }
         buf.extend_from_slice(&0_u32.to_le_bytes());
-        for v in [0.25_f64, 0.25, 0.0, 0.0, 0.0, 0.0, -70.0, 0.0, 0.0] {
+        for v in [0.25_f64, 0.25, 0.0, 0.0, 0.0, 0.0, corner.0, corner.1, 0.0] {
             buf.extend_from_slice(&v.to_le_bytes());
         }
         let mut at = data_off;
@@ -3243,6 +3573,10 @@ mod tests {
     }
 
     fn hansen_like_url(tag: &str) -> (std::path::PathBuf, String) {
+        tiff_url(tag, hansen_like_tiff())
+    }
+
+    fn tiff_url(tag: &str, bytes: Vec<u8>) -> (std::path::PathBuf, String) {
         let path = std::env::temp_dir().join(format!(
             "emem_forest_{tag}_{}_{}.tif",
             std::process::id(),
@@ -3251,7 +3585,7 @@ mod tests {
                 .map(|d| d.as_nanos())
                 .unwrap_or(0)
         ));
-        std::fs::write(&path, hansen_like_tiff()).unwrap();
+        std::fs::write(&path, bytes).unwrap();
         let url = format!("file://{}", path.display());
         (path, url)
     }
@@ -3452,6 +3786,416 @@ mod tests {
         );
         let token = out["tokens"]["raster"].as_str().unwrap();
         assert!(token.starts_with("emem:raster:") && token.contains(":forest_change.lossyear:0:"));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// A geographic profile whose tiepoint names pixel (0, 0) at `tie`.
+    fn lattice(
+        tie: (f64, f64),
+        scale: f64,
+        size: (u32, u32),
+        point: bool,
+    ) -> emem_fetch::cog::CogProfile {
+        emem_fetch::cog::CogProfile {
+            width: size.0,
+            height: size.1,
+            bits_per_sample: 8,
+            sample_format: 1,
+            compression: 5,
+            predictor: 1,
+            tile_w: size.0,
+            tile_h: 1,
+            tile_cols: 1,
+            tile_rows: size.1,
+            samples_per_pixel: 1,
+            planar_config: 1,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
+            pixel_scale: (scale, scale),
+            tiepoint: (0.0, 0.0, tie.0, tie.1),
+            epsg: None,
+            nodata: None,
+            pixel_is_point: point,
+        }
+    }
+
+    fn bbox(min_lat: f64, min_lng: f64, max_lat: f64, max_lng: f64) -> BBox {
+        BBox {
+            min_lat,
+            min_lng,
+            max_lat,
+            max_lng,
+        }
+    }
+
+    /// A bbox names each tile square it touches, north first, with a probe
+    /// inside both; one that ends on a tile line names one square.
+    #[test]
+    fn forest_squares_name_each_tile_a_bbox_touches() {
+        let keys = |b: &BBox| -> Vec<(i64, i64)> {
+            let sq = forest_squares(b);
+            for ((ky, kx), (lat, lng)) in &sq {
+                assert!(
+                    (b.min_lat..=b.max_lat).contains(lat) && (b.min_lng..=b.max_lng).contains(lng),
+                    "probe ({lat}, {lng}) outside {b:?}"
+                );
+                assert_eq!((tile_row_key(*lat), tile_col_key(*lng)), (*ky, *kx));
+            }
+            sq.into_iter().map(|(k, _)| k).collect()
+        };
+        assert_eq!(keys(&bbox(-1.6, -68.9, -1.1, -68.4)), vec![(0, -7)]);
+        assert_eq!(keys(&bbox(-0.3, -60.4, 0.0, -60.0)), vec![(0, -7)]);
+        assert_eq!(keys(&bbox(10.0, 30.0, 10.4, 30.5)), vec![(2, 3)]);
+        // 4.8 km a side on the equator at 19.5° E.
+        let d = 0.0216;
+        assert_eq!(keys(&bbox(-d, 19.5 - d, d, 19.5 + d)), vec![(1, 1), (0, 1)]);
+        assert_eq!(keys(&bbox(-1.5, 19.98, -1.45, 20.02)), vec![(0, 1), (0, 2)]);
+        assert_eq!(
+            keys(&bbox(-0.01, 19.99, 0.01, 20.01)),
+            vec![(1, 1), (1, 2), (0, 1), (0, 2)]
+        );
+        assert_eq!(forest_squares(&bbox(-15.0, -5.0, 15.0, 5.0)).len(), 8);
+    }
+
+    /// The 10° keys group points exactly as each layer's own tile names do,
+    /// so one key is one tile URL on every forest layer.
+    #[test]
+    fn tile_keys_agree_with_every_layers_tile_names() {
+        let lats = [
+            -29.99, -20.0, -10.0, -9.999, -0.001, 0.0, 0.001, 9.999, 10.0, 10.001, 29.9,
+        ];
+        let lngs = [
+            -70.0, -69.999, -60.0001, -60.0, -0.001, 0.0, 0.001, 19.999, 20.0, 170.5,
+        ];
+        type Tags = (String, String);
+        type Namer = fn(f64, f64) -> Tags;
+        let namers: [(&str, Namer); 3] = [
+            ("hansen", emem_fetch::hansen_gfc::tile_corner_tags),
+            ("jrc_gfc2020", emem_fetch::jrc_gfc2020::tile_corner_tags),
+            ("jrc_tmf", |lat, lng| {
+                (
+                    emem_fetch::jrc_tmf::tile_lat_tag(lat).unwrap(),
+                    emem_fetch::jrc_tmf::tile_lng_tag(lng).unwrap(),
+                )
+            }),
+        ];
+        for (name, namer) in namers {
+            let mut by_key = std::collections::HashMap::new();
+            let mut by_tag = std::collections::HashMap::new();
+            for lat in lats {
+                for lng in lngs {
+                    let key = (tile_row_key(lat), tile_col_key(lng));
+                    let tag = namer(lat, lng);
+                    assert_eq!(
+                        *by_key.entry(key).or_insert_with(|| tag.clone()),
+                        tag,
+                        "{name} at ({lat}, {lng})"
+                    );
+                    assert_eq!(
+                        *by_tag.entry(tag).or_insert(key),
+                        key,
+                        "{name} at ({lat}, {lng})"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A window across the equator, a 10° meridian or both splits at the
+    /// tile lines into the rectangles each tile supplies, placed by the
+    /// whole-pixel offset of each tile's lattice.
+    #[test]
+    fn a_window_splits_at_the_tile_lines_onto_one_lattice() {
+        let south = lattice((-70.0, 0.0), 0.00025, (40_000, 40_000), false);
+        let north = lattice((-70.0, 10.0), 0.00025, (40_000, 40_000), false);
+        let east = lattice((-60.0, 0.0), 0.00025, (40_000, 40_000), false);
+        let piece = |tile, row0, col0, height, width| Piece {
+            tile,
+            row0,
+            col0,
+            height,
+            width,
+        };
+        // Rows -2..2 of the south tile's lattice: two from the north tile.
+        let keys = [(1, -7), (0, -7)];
+        assert_eq!(
+            plan_pieces(&south, 100, -2, 3, 4, &keys).unwrap(),
+            vec![piece(0, 0, 0, 2, 3), piece(1, 2, 0, 2, 3)]
+        );
+        // The north tile's last rows are the rows just above the equator.
+        let (dc, dr) = lattice_offset(&south, &north).unwrap();
+        assert_eq!((dc, dr), (0, -40_000));
+        assert_eq!((100 - dc, -2 - dr), (100, 39_998));
+        // Columns 39998..40002: the -60° meridian is column 40000.
+        let keys = [(0, -7), (0, -6)];
+        assert_eq!(
+            plan_pieces(&south, 39_998, 10, 4, 2, &keys).unwrap(),
+            vec![piece(0, 0, 0, 2, 2), piece(1, 0, 2, 2, 2)]
+        );
+        assert_eq!(lattice_offset(&south, &east).unwrap(), (40_000, 0));
+        // Both lines: four rectangles, north-west first.
+        let keys = [(1, -7), (1, -6), (0, -7), (0, -6)];
+        assert_eq!(
+            plan_pieces(&south, 39_999, -1, 2, 2, &keys).unwrap(),
+            vec![
+                piece(0, 0, 0, 1, 1),
+                piece(1, 0, 1, 1, 1),
+                piece(2, 1, 0, 1, 1),
+                piece(3, 1, 1, 1, 1),
+            ]
+        );
+        // With one tile every pixel is its, inside its image or not.
+        assert_eq!(
+            plan_pieces(&south, 100, -2, 3, 4, &[(0, -7)]).unwrap(),
+            vec![piece(0, 0, 0, 4, 3)]
+        );
+    }
+
+    /// Tiles on one lattice join at a whole-pixel offset, from the published
+    /// headers of each layer; a half-pixel shift, a raster type read wrongly,
+    /// another pixel size or CRS is refused.
+    #[test]
+    fn lattices_join_whole_or_are_refused() {
+        // JRC TMF (Source Cooperative mirror): N0_W70, N0_E10 and N10_W70,
+        // whose tiles overlap and start a pixel apart.
+        let s = 0.00026949458523585647;
+        let tmf = |x, y, w, h| lattice((x, y), s, (w, h), false);
+        let n0_w70 = tmf(-70.00014053667277, 0.0, 37_108, 37_246);
+        let n0_e10 = tmf(9.99986607976169, s, 37_107, 37_247);
+        let n10_w70 = tmf(-70.00014053667277, 10.03759532169471, 37_108, 37_247);
+        assert_eq!(lattice_offset(&n0_w70, &n0_e10).unwrap(), (296_852, -1));
+        assert_eq!(lattice_offset(&n0_w70, &n10_w70).unwrap(), (0, -37_246));
+        // JRC GFC2020 V4: N0_E20 and N10_E20 at 1/12000°.
+        let g = 8.333333333333333e-5;
+        let n0_e20 = lattice((20.0, 0.0), g, (120_000, 120_000), false);
+        let n10_e20 = lattice((20.0, 10.0), g, (120_000, 120_000), false);
+        assert_eq!(lattice_offset(&n0_e20, &n10_e20).unwrap(), (0, -120_000));
+
+        let hansen = lattice((-70.0, 0.0), 0.00025, (40_000, 40_000), false);
+        // A PixelIsPoint tiepoint names the centre: half a pixel in, same grid.
+        let centred = lattice(
+            (-60.0 + 0.000125, -0.000125),
+            0.00025,
+            (40_000, 40_000),
+            true,
+        );
+        assert_eq!(lattice_offset(&hansen, &centred).unwrap(), (40_000, 0));
+        for (what, piece) in [
+            (
+                "half a pixel east",
+                lattice((-59.999875, 0.0), 0.00025, (40_000, 40_000), false),
+            ),
+            (
+                "a corner read as a centre",
+                lattice((-60.0, 0.0), 0.00025, (40_000, 40_000), true),
+            ),
+            (
+                "another pixel size",
+                lattice((-60.0, 0.0), 0.00025000025, (40_000, 40_000), false),
+            ),
+        ] {
+            assert!(
+                lattice_offset(&hansen, &piece).is_err(),
+                "{what} was joined"
+            );
+        }
+        let mut utm = lattice((-60.0, 0.0), 0.00025, (40_000, 40_000), false);
+        utm.epsg = Some(32_633);
+        assert!(lattice_offset(&hansen, &utm).is_err());
+    }
+
+    fn year_of(byte: u32) -> f32 {
+        2000.0 + byte as f32
+    }
+
+    fn decode(out: &JsonValue) -> (GridHeader, Vec<f32>) {
+        let bytes = ARTIFACTS
+            .get(out["artifact"]["artifact_cid"].as_str().unwrap())
+            .unwrap()
+            .unwrap();
+        emem_codec::grid::decode_grid(&bytes).unwrap()
+    }
+
+    /// A bbox across the equator is one grid on the south tile's lattice:
+    /// its top rows are the north tile's last, the rest the south tile's
+    /// first, and the record cites both tiles and where each one sits.
+    #[tokio::test]
+    async fn a_bbox_across_the_equator_joins_both_tiles() {
+        let north_v = |c: u32, r: u32| (13 + (c + r) % 12) as u8;
+        let south_v = |c: u32, r: u32| (1 + (c + r) % 12) as u8;
+        let (np, north) = tiff_url("eq_north", tile_tiff((-70.0, 10.0), north_v));
+        let (sp, south) = tiff_url("eq_south", tile_tiff((-70.0, 0.0), south_v));
+        let tiles = [
+            ForestTile {
+                key: (1, -7),
+                url: north.clone(),
+                jrc_version: None,
+            },
+            ForestTile {
+                key: (0, -7),
+                url: south.clone(),
+                jrc_version: None,
+            },
+        ];
+        let s = crate::tests::test_app_state();
+        // Rows -1.6..2.4 and columns 4.4..6.4 on the south tile's lattice.
+        let req = lossyear_req(-0.6, -68.9, 0.4, -68.4);
+        let out = forest_raster_tiles(&req, &s, lossyear_band(), &tiles, 1, Instant::now())
+            .await
+            .unwrap();
+        assert_eq!(out["algorithm_key"], "forest_raster@1");
+        let (h, v) = decode(&out);
+        assert_eq!((h.width, h.height), (3, 5));
+        assert!((h.lat0 - 0.375).abs() < 1e-9, "{}", h.lat0);
+        assert!((h.lng0 - (-68.875)).abs() < 1e-9, "{}", h.lng0);
+        for r in 0..5u32 {
+            for c in 0..3u32 {
+                let want = if r < 2 {
+                    year_of(north_v(4 + c, 38 + r).into())
+                } else {
+                    year_of(south_v(4 + c, r - 2).into())
+                };
+                assert_eq!(grid_value_at(&h, &v, r, c), Some(want), "row {r} col {c}");
+            }
+        }
+        let record = &out["derivation"];
+        assert_eq!(record["mosaic"]["pieces"], 2);
+        assert_eq!(record["mosaic"]["lattice_of"], json!(south));
+        let sources = record["sources"].as_array().unwrap();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[0]["id"], json!(north));
+        assert_eq!(
+            sources[0]["window"],
+            json!({"grid_row0": 0, "grid_col0": 0, "height": 2, "width": 3, "tile_row0": 38, "tile_col0": 4})
+        );
+        assert_eq!(sources[1]["id"], json!(south));
+        assert_eq!(
+            sources[1]["window"],
+            json!({"grid_row0": 2, "grid_col0": 0, "height": 3, "width": 3, "tile_row0": 0, "tile_col0": 4})
+        );
+        let token = out["tokens"]["raster"].as_str().unwrap();
+        assert!(token.starts_with("emem:raster:") && token.contains(":forest_change.lossyear:0:"));
+        let _ = std::fs::remove_file(&np);
+        let _ = std::fs::remove_file(&sp);
+    }
+
+    /// A bbox across a 10° meridian: the west tile's last columns, then the
+    /// east tile's first.
+    #[tokio::test]
+    async fn a_bbox_across_a_ten_degree_meridian_joins_both_tiles() {
+        let west_v = |c: u32, r: u32| (1 + (c + r) % 12) as u8;
+        let east_v = |c: u32, r: u32| (13 + (c + 2 * r) % 12) as u8;
+        let (wp, west) = tiff_url("mer_west", tile_tiff((-70.0, 0.0), west_v));
+        let (ep, east) = tiff_url("mer_east", tile_tiff((-60.0, 0.0), east_v));
+        let tiles = [
+            ForestTile {
+                key: (0, -7),
+                url: west.clone(),
+                jrc_version: None,
+            },
+            ForestTile {
+                key: (0, -6),
+                url: east.clone(),
+                jrc_version: None,
+            },
+        ];
+        let s = crate::tests::test_app_state();
+        // Columns 37.6..41.6 and rows 4.4..6.4 of the west tile's lattice.
+        let req = lossyear_req(-1.6, -60.6, -1.1, -59.6);
+        let out = forest_raster_tiles(&req, &s, lossyear_band(), &tiles, 0, Instant::now())
+            .await
+            .unwrap();
+        let (h, v) = decode(&out);
+        assert_eq!((h.width, h.height), (5, 3));
+        assert!((h.lng0 - (-70.0 + 37.5 * 0.25)).abs() < 1e-9, "{}", h.lng0);
+        for r in 0..3u32 {
+            for c in 0..5u32 {
+                let want = if c < 3 {
+                    year_of(west_v(37 + c, 4 + r).into())
+                } else {
+                    year_of(east_v(c - 3, 4 + r).into())
+                };
+                assert_eq!(grid_value_at(&h, &v, r, c), Some(want), "row {r} col {c}");
+            }
+        }
+        let sources = out["derivation"]["sources"].as_array().unwrap();
+        let ids: Vec<&JsonValue> = sources.iter().map(|src| &src["id"]).collect();
+        assert_eq!(ids, vec![&json!(west), &json!(east)]);
+        assert_eq!(sources[1]["window"]["tile_col0"], 0);
+        let _ = std::fs::remove_file(&wp);
+        let _ = std::fs::remove_file(&ep);
+    }
+
+    /// A tile half a pixel off the lattice is refused, never resampled.
+    #[tokio::test]
+    async fn tiles_on_two_lattices_are_refused() {
+        let (wp, west) = tiff_url("off_west", tile_tiff((-70.0, 0.0), |_, _| 3));
+        let (ep, east) = tiff_url("off_east", tile_tiff((-59.875, 0.0), |_, _| 4));
+        let tiles = [
+            ForestTile {
+                key: (0, -7),
+                url: west,
+                jrc_version: None,
+            },
+            ForestTile {
+                key: (0, -6),
+                url: east.clone(),
+                jrc_version: None,
+            },
+        ];
+        let s = crate::tests::test_app_state();
+        let req = lossyear_req(-1.6, -60.6, -1.1, -59.6);
+        let res = forest_raster_tiles(&req, &s, lossyear_band(), &tiles, 0, Instant::now()).await;
+        let Err(ApiError(status, body)) = res else {
+            panic!("two lattices were joined");
+        };
+        assert_eq!(status, StatusCode::BAD_GATEWAY);
+        assert!(
+            body.message.contains(&east) && body.message.contains("not on the pixel lattice"),
+            "{}",
+            body.message
+        );
+        let _ = std::fs::remove_file(&wp);
+        let _ = std::fs::remove_file(&ep);
+    }
+
+    /// More tiles than a 2 x 2 block is a 400 that names the cap, before
+    /// any tile is named or read.
+    #[tokio::test]
+    async fn more_than_four_tiles_is_refused() {
+        let s = crate::tests::test_app_state();
+        let res = forest_raster(lossyear_req(-15.0, -5.0, 15.0, 5.0), &s).await;
+        let Err(ApiError(status, body)) = res else {
+            panic!("eight tiles were read");
+        };
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(
+            body.message.contains("touches 8") && body.message.contains("at most 4"),
+            "{}",
+            body.message
+        );
+    }
+
+    /// A bbox inside one tile keeps the one-source record it always had.
+    #[tokio::test]
+    async fn one_tile_keeps_its_one_source_record() {
+        let (path, url) = hansen_like_url("one_source");
+        let s = crate::tests::test_app_state();
+        let fb = lossyear_band();
+        let req = lossyear_req(-1.6, -68.9, -1.1, -68.4);
+        let out = forest_raster_from(&req, &s, fb, &url, None, Instant::now())
+            .await
+            .unwrap();
+        assert_eq!(
+            out["derivation"]["sources"],
+            json!([{
+                "scheme": fb.scheme,
+                "id": url,
+                "asset": url,
+                "licence": { "terms": fb.licence, "attribution": fb.attribution },
+            }])
+        );
+        assert!(out["derivation"].get("mosaic").is_none());
         let _ = std::fs::remove_file(&path);
     }
 
