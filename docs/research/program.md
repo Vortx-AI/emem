@@ -226,10 +226,12 @@ change in ways five remembered years do not hold, and some cells Hansen calls st
 reference separates the two, the stated rate is a floor. The next experiment needs more forests read, which needs the
 server to finish heavy reads (gap ledger).
 
-**How high can accuracy go?** The score is bounded by the reference. Hansen's labels are themselves wrong
-sometimes, and the 5% loss line puts some cells on the wrong side of it, so no method can be verified above the
-reference's own agreement with the truth. The next experiment measures that ceiling: Hansen against JRC TMF on the
-same cells. A claim of near-perfect accuracy will be stated against that ceiling, or not at all.
+**How high can accuracy go?** The score is bounded by the reference. On 4,391 tropical forest cells, Hansen's loss
+year and JRC TMF's deforestation year agree on which cells lost forest at an MCC of only 0.39 to 0.48 (2021 to 2023;
+paper, section 6.5), partly because they define loss differently. The best detectors score about that against
+Hansen. So the next large gain is not a cleverer detector scored against the same references: it is a better
+reference, a probability sample of cells checked on very-high-resolution imagery (Olofsson et al. 2014), held in emem
+memory like everything else. Claims of near-perfect accuracy will be stated against such a reference, or not at all.
 
 **Next, in order.** Each step is a registered experiment, not a release:
 
@@ -317,6 +319,8 @@ disagreements between sources; that list is the program's agenda.
 
 ## References
 
+- Olofsson, P. et al. 2014. Good practices for estimating area and assessing accuracy of land change. Remote
+  Sensing of Environment 148:42-57.
 - Page, E. S. 1954. Continuous inspection schemes. Biometrika 41:100-115.
 - Reiche, J. et al. 2015. A Bayesian approach to combine Landsat and ALOS PALSAR time series for near real-time
   deforestation detection. Remote Sensing 7:4973-4996.

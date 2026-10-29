@@ -24,7 +24,7 @@ agent, and the state of the fix. A gap closes when the fix ships and an experime
 | gap | evidence | cost to an agent | state |
 |---|---|---|---|
 | Only annual loss references come as rasters (Hansen loss year, JRC TMF deforestation year) | RADD and OPERA DIST-ALERT are point bands; `band_raster` serves neither | Detection dates can only be checked to the year | Open |
-| Hansen is the only reference the experiments used | JRC TMF is reachable as a raster and was not used | Every result so far depends on one product's labels | Open: register a canopy experiment scored against both |
+| Hansen is the only reference the experiments scored against, and it agrees with JRC TMF at an MCC of only 0.39 to 0.48 on the same cells | Reference comparison on 4,391 tropical forest cells, 2021 to 2023 (paper, section 6.5) | No method can be verified above that level against either; claims of near-perfect accuracy are unverifiable | Open, and the largest: a probability-sample reference checked on very-high-resolution imagery (Olofsson et al. 2014), held in emem memory |
 
 ## Algorithms and the registry
 

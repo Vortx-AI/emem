@@ -618,7 +618,29 @@ Part of the registry rule's false-alarm rate comes from the window, not the rule
 scored at scale it flagged every stable cell. A rule that compares medians over weeks, or waits for a drop to hold,
 does not add up false alarms that way. That is the property the replicated rules share.
 
-### 6.5 What an agent should do with this
+### 6.5 How high can accuracy go? The reference sets the ceiling
+
+Every score here is agreement with Hansen, and Hansen is itself a classification with errors. To see how far a
+second expert product agrees with it, Hansen's loss year and JRC TMF's deforestation year were compared on the same
+cells with the experiments' own rule (a forest cell is loss in a year when 5% or more of its pixels lost cover), over
+the 37 cached tropical forests of the MCC experiments that TMF covers and that could be read. TMF ends in 2023, so the
+years are 2021 to 2023. This is descriptive and decides nothing.
+
+| year | forest cells | Hansen loss | TMF loss | agreement, MCC | TMF precision against Hansen | TMF recall against Hansen |
+|---|---|---|---|---|---|---|
+| 2021 | 4,391 | 357 | 112 | 0.385 | 0.73 | 0.23 |
+| 2022 | 4,391 | 318 | 125 | 0.475 | 0.79 | 0.31 |
+| 2023 | 4,391 | 432 | 149 | 0.407 | 0.75 | 0.26 |
+
+Two products built by expert teams from the same Landsat archive agree on which 400 m cells lost forest at an MCC of
+0.39 to 0.48. Part of the gap is definition: Hansen counts any loss of tree cover, fire and plantation harvest
+included, and TMF's deforestation year counts conversion of moist tropical forest. The best detectors in this paper
+score 0.26 to 0.46 against Hansen, which is about where a second expert reference scores. A claim of near-perfect
+accuracy cannot be verified against these references at this scale, by any method. Progress past this point needs
+a better reference before a better method: a probability sample of cells checked by eye on very-high-resolution
+imagery, with the accuracy and area estimates that good practice prescribes (Olofsson et al. 2014).
+
+### 6.6 What an agent should do with this
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
@@ -693,5 +715,7 @@ for each site, by `lab.py` at the same commit, and reproduce every pooled number
 - Hansen, M. C. et al. 2013. High-resolution global maps of 21st-century forest cover change. Science 342:850-853.
 - Key, C. H. & Benson, N. C. 2006. Landscape Assessment: sampling and analysis methods. USDA Forest Service
   RMRS-GTR-164-CD.
+- Olofsson, P. et al. 2014. Good practices for estimating area and assessing accuracy of land change. Remote
+  Sensing of Environment 148:42-57.
 - Matthews, B. W. 1975. Comparison of the predicted and observed secondary structure of T4 phage lysozyme.
   Biochimica et Biophysica Acta 405:442-451.
