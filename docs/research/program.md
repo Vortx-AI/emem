@@ -32,7 +32,7 @@ the algorithm registry (`crates/emem-core/data/algorithms-v0.json`) on 29 Octobe
 |---|---|
 | carry any measured accuracy, skill or validation | none |
 | state the formula as prose only, with no machine-evaluable expression | 95 |
-| rest on encoders or bands this deployment has retired (Clay, Prithvi, Galileo, Tessera, JEPA, DMSP nightlights) | 41 |
+| do not run on this deployment: read an encoder or band it has retired (Clay, Prithvi, Galileo, Tessera, DMSP nightlights), name a route it no longer serves (the learned JEPA-v2 head, the three-encoder consensus), or read a band no materializer serves | 44 |
 | cite their own shaping as "editorial" or heuristic | 14 |
 
 The drought index entry is a sharp example: it needs thirty years of `weather.precipitation_mm`, and that band holds

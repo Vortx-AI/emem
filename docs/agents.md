@@ -578,7 +578,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
-| `/v1/algorithms` | 169 composition recipes (paginated) |
+| `/v1/algorithms` | 169 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question. `?runnable=true` lists only the ones that run |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
@@ -824,8 +824,9 @@ indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE). Each tuned
 threshold carries a `learned_from` citation, and the `parameters` block on
 every `AlgorithmSpec` is typed and accessor-driven
 (`Algorithm::param_f64("consensus_threshold")`). Pass an algorithm key to
-`POST /v1/algorithms/:key` for the formula body, then call `/v1/recall` for
-the input bands and replay the math locally.
+`GET /v1/algorithms/:key` for the formula body, then call `/v1/recall` for
+the input bands and replay the math locally. Read the entry's `here.status`
+first: only `runs` is a recipe this deployment can feed for any cell.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
@@ -833,9 +834,12 @@ versions ran Clay, Prithvi and Galileo on a GPU sidecar; those encoders are
 retired, so none of that family runs here. Facts they signed still recall
 and verify.
 
-Tessera (`geotessera`, 128-D annual) is consumed as an upstream
-foundation fact, not run in-process. Today 2024 is the reliably-served
-vintage; historical backfill is partial. Source: `dl2.geotessera.org`.
+Tessera (`geotessera`, 128-D annual) was consumed as an upstream
+foundation fact from `dl2.geotessera.org`, not run in-process. emem.dev
+retires it too (`EMEM_RETIRED_BANDS`): vectors stored before the
+retirement still recall and verify, and no new one is fetched, so every
+recipe over it reports `here.status: stored_only`. A node that serves it
+again reports `runs`.
 
 ---
 

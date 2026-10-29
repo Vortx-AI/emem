@@ -11859,6 +11859,10 @@ struct PageQuery {
     /// `temporal_recipe` so each entry stays compact.
     #[serde(default)]
     summary: Option<bool>,
+    /// `/v1/algorithms` only: when `true`, list only the recipes whose
+    /// inputs and route this deployment serves (`here.status == "runs"`).
+    #[serde(default)]
+    runnable: Option<bool>,
 }
 
 /// Default page size when the caller omits `?page_size=`. Held in one
@@ -11917,12 +11921,178 @@ fn pagination_envelope(
 /// body. Returns the structured-serde value when the entry can't be
 /// projected (defensive, `Algorithm` always serializes, but we never
 /// panic in a route handler).
+/// Runtime routes the registry still names but this responder no longer
+/// serves: the learned JEPA-v2 head and the three-encoder consensus ran on
+/// the GPU sidecar that was retired.
+const RETIRED_RUNTIME_PATHS: &[&str] = &["/v1/jepa_predict_v2", "/v1/triple_consensus"];
+
+/// Recipes whose formula needs reference vectors that no file on this
+/// responder holds: they score a cell against named crop prototypes or
+/// archetype centroids, and none ship with it.
+const MISSING_REFERENCE_DATA: &[(&str, &str)] = &[
+    ("crop_type_tessera_prototype@1", "crop prototype vectors"),
+    (
+        "crop_archetype_embedding_match@1",
+        "crop archetype centroids",
+    ),
+];
+
+/// Recipes to use where one cannot run here, chosen from recipes whose inputs
+/// are all served. A successor answers a nearby question, not the same one:
+/// its own `when_to_use` says which. Recipes left out have no served
+/// counterpart yet; the encoder-similarity ones wait for a served
+/// deterministic embedding (docs/research/gaps.md).
+const ALGORITHM_INSTEAD: &[(&str, &[&str])] = &[
+    ("jepa_forecast@1", &["jepa_temporal_predictor@1"]),
+    (
+        "deforestation_triple@1",
+        &["deforestation_alert_ndvi_drop@1", "forest_raster@1"],
+    ),
+    (
+        "carbon.deforestation_alert_proxy@1",
+        &["deforestation_alert_ndvi_drop@1"],
+    ),
+    (
+        "wetland_change_triple@1",
+        &[
+            "wetland_binary_s1_s2_dem@1",
+            "water_consensus@1",
+            "carbon.surface_water_extent_anomaly@1",
+        ],
+    ),
+    (
+        "urban_expansion_triple@1",
+        &["built_up_from_ndbi@1", "urban_density_score@1"],
+    ),
+    (
+        "coastal_erosion_triple@1",
+        &["coastal_erosion_ndwi_trend@1"],
+    ),
+    (
+        "prithvi_cafe_flood_segmentation@1",
+        &["flood_extent_sar_threshold@1", "water_likelihood_from_vv@1"],
+    ),
+    (
+        "wildfire_burn_intensity_dnbr_finetune@1",
+        &["burn_severity_from_dnbr@1", "burn_likelihood_from_nbr@1"],
+    ),
+    (
+        "prithvi_canola_yield_frozen_encoder@1",
+        &["crop_yield_proxy@1"],
+    ),
+    (
+        "building_damage_prithvi_pre_post@1",
+        &["sar_coherence_change_proxy@1"],
+    ),
+    (
+        "forest_carbon_biomass_prithvi_regress@1",
+        &["agb_ndvi_powerlaw@1"],
+    ),
+    (
+        "soil_organic_carbon_clay_probe@1",
+        &["soc_estimate_s2_dem@1"],
+    ),
+    (
+        "multimodal_change_score@1",
+        &[
+            "cross_modal_s1_s2_consistency@1",
+            "sar_coherence_change_proxy@1",
+        ],
+    ),
+];
+
+/// Whether a recipe runs on this deployment: `runs` when every input band is
+/// served and its runtime route (if any) is wired; `stored_only` when it reads
+/// a retired band, so it answers only at cells already holding a fact signed
+/// before the band was retired; `cannot_run` when its route is gone, when it
+/// has no route and reads a band no materializer here serves, or when its
+/// formula needs reference vectors this responder does not hold. Whether a
+/// model runs is a property of the host, not of the recipe, so this is
+/// computed per response and stays out of the content-addressed registry.
+fn algorithm_here(
+    a: &emem_core::algorithms::Algorithm,
+    retired: impl Fn(&str) -> bool,
+) -> JsonValue {
+    let retired_inputs: Vec<&str> = a
+        .inputs
+        .iter()
+        .filter_map(|i| i.band.as_deref())
+        .filter(|b| retired(b))
+        .collect();
+    let gone_route = a
+        .runtime_path
+        .as_deref()
+        .filter(|p| RETIRED_RUNTIME_PATHS.contains(p));
+    // A route reads its own inputs; a bare recipe needs each one recallable.
+    // `<...>` names a value the agent supplies or composes, not a band.
+    let unserved: Vec<&str> = if a.runtime_path.is_some() {
+        Vec::new()
+    } else {
+        a.inputs
+            .iter()
+            .filter_map(|i| i.band.as_deref())
+            .filter(|b| !b.starts_with('<') && !retired(b) && !band_is_known(b))
+            .collect()
+    };
+    let instead: &[&str] = ALGORITHM_INSTEAD
+        .iter()
+        .find(|(k, _)| *k == a.key)
+        .map(|(_, v)| *v)
+        .unwrap_or(&[]);
+    let missing = MISSING_REFERENCE_DATA
+        .iter()
+        .find(|(k, _)| *k == a.key)
+        .map(|(_, what)| *what);
+    let (status, why) = match (gone_route, retired_inputs.is_empty()) {
+        (Some(route), _) => (
+            "cannot_run",
+            Some(format!("its runtime route {route} is not served by this deployment")),
+        ),
+        (None, _) if missing.is_some() => (
+            "cannot_run",
+            Some(format!(
+                "its formula scores against {}, which no file on this responder holds",
+                missing.unwrap_or_default()
+            )),
+        ),
+        (None, _) if !unserved.is_empty() => (
+            "cannot_run",
+            Some(format!(
+                "reads {}, which no materializer on this deployment serves",
+                unserved.join(", ")
+            )),
+        ),
+        (None, false) => (
+            "stored_only",
+            Some(format!(
+                "reads {}, which this deployment no longer produces: it answers only at a cell that \
+                 already holds a fact signed before the band was retired",
+                retired_inputs.join(", ")
+            )),
+        ),
+        (None, true) => ("runs", None),
+    };
+    let mut out = json!({"status": status});
+    if let Some(why) = why {
+        out["why"] = json!(why);
+        out["retired_inputs"] = json!(retired_inputs);
+        if !unserved.is_empty() {
+            out["unserved_inputs"] = json!(unserved);
+        }
+        out["use_instead"] = json!(instead);
+    }
+    out
+}
+
 fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) -> JsonValue {
     if !summary {
-        return serde_json::to_value(a).unwrap_or(json!({}));
+        let mut full = serde_json::to_value(a).unwrap_or(json!({}));
+        full["here"] = algorithm_here(a, is_retired);
+        return full;
     }
     let inputs: Vec<&str> = a.inputs.iter().filter_map(|i| i.band.as_deref()).collect();
     json!({
+        "here":          algorithm_here(a, is_retired),
         "key":           a.key,
         "kind":          a.kind,
         "domain":        a.domain,
@@ -11938,7 +12108,8 @@ fn project_algorithm_entry(a: &emem_core::algorithms::Algorithm, summary: bool) 
         // here makes the "agent quotes an algorithm_key whose math
         // never ran" trap impossible to fall into.
         "documentation_only": a.documentation_only,
-        "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only,
+        "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only
+            && algorithm_here(a, is_retired)["status"] != "cannot_run",
         "runtime_path":       a.runtime_path,
         "partial_runtime":    a.partial_runtime,
         "summary":       true,
@@ -11968,6 +12139,7 @@ fn project_algorithm_for_question(
             "citation":         a.citation,
             "fetch_url":        format!("/v1/algorithms/{}", a.key),
             "temporal_recipe":  a.temporal_recipe,
+            "here":             algorithm_here(a, is_retired),
         })
     } else {
         json!({
@@ -11982,6 +12154,7 @@ fn project_algorithm_for_question(
             "runtime_evaluable":  (a.evaluation.is_some() || a.runtime_path.is_some()) && !a.documentation_only,
             "runtime_path":       a.runtime_path,
             "partial_runtime":    a.partial_runtime,
+            "here":               algorithm_here(a, is_retired),
         })
     }
 }
@@ -11991,26 +12164,45 @@ async fn algorithms(axum::extract::Query(q): axum::extract::Query<PageQuery>) ->
     let cid = ALGORITHMS_CID.clone();
     let (page, page_size) = resolve_page_params(&q);
     let summary = q.summary.unwrap_or(false);
+    let runnable = q.runnable.unwrap_or(false);
 
-    let total = reg.algorithms.len();
+    let mut here_counts = std::collections::BTreeMap::<String, usize>::new();
+    let mut listed = Vec::new();
+    for a in &reg.algorithms {
+        let status = algorithm_here(a, is_retired)["status"]
+            .as_str()
+            .unwrap_or("runs")
+            .to_string();
+        if !runnable || status == "runs" {
+            listed.push(a);
+        }
+        *here_counts.entry(status).or_default() += 1;
+    }
+    let total = listed.len();
     let start = (page - 1).saturating_mul(page_size).min(total);
     let end = start.saturating_add(page_size).min(total);
-    let items: Vec<JsonValue> = reg.algorithms[start..end]
+    let items: Vec<JsonValue> = listed[start..end]
         .iter()
         .map(|a| project_algorithm_entry(a, summary))
         .collect();
-    let extra = if summary { "&summary=true" } else { "" };
-    let pagination = pagination_envelope(page, page_size, total, "/v1/algorithms", extra);
+    let extra = format!(
+        "{}{}",
+        if summary { "&summary=true" } else { "" },
+        if runnable { "&runnable=true" } else { "" }
+    );
+    let pagination = pagination_envelope(page, page_size, total, "/v1/algorithms", &extra);
 
     Json(json!({
         "manifest": reg.manifest,
         "version":  reg.version,
         "algorithms_cid": cid,
+        "here_counts": here_counts,
         "_note": reg.note,
         "_explanation": "Paginated list, defaults to page=1, page_size=20 (max 100) so the response fits MCP's 25 KB cap. Pass `?page=N&page_size=K` to walk the registry, `?summary=true` to drop the long `formula` body and `temporal_recipe` per entry, or GET `/v1/algorithms/<key>` for one entry's full detail. `pagination.total` is the full registry size, agents MUST follow `pagination.next_url` to see the rest.",
         "agent_hint": {
             "what_this_is": "A content-addressed dictionary of recipes that combine attested band facts into composite answers (e.g. flood_risk@1, water_consensus@1, embedding_novelty@1). Receipts citing one of these names + the algorithm_cid let any other operator replay the same composition deterministically.",
             "how_to_use":    "1) Pick the entry whose `when_to_use` matches the agent's query. 2) Read its `inputs[].band` list and assemble a single `/v1/recall` (or `/v1/recall_many`) body. 3) Apply the `formula` in-process. 4) Cite the algorithm key + algorithms_cid alongside the fact_cids in the agent's reply.",
+            "here":          "Each entry's `here.status` says whether it runs on this deployment: `runs`; `stored_only` (it reads a retired encoder or band, so it answers only where a fact signed before the retirement is stored); `cannot_run` (its runtime route is gone). A recipe that does not run names `use_instead` when a served one answers a nearby question. Pass `?runnable=true` to list only the recipes that run.",
             "kinds": {
                 "solo":      "single band → derived classification or scalar",
                 "combined":  "multi-band weighted composite",
@@ -12036,7 +12228,11 @@ async fn algorithm_detail(
 ) -> Result<Json<JsonValue>, ApiError> {
     let reg = &*emem_core::algorithms::DEFAULT;
     match reg.lookup(&key) {
-        Some(a) => Ok(Json(serde_json::to_value(a).unwrap_or(json!({})))),
+        Some(a) => {
+            let mut full = serde_json::to_value(a).unwrap_or(json!({}));
+            full["here"] = algorithm_here(a, is_retired);
+            Ok(Json(full))
+        }
         None => {
             let known: Vec<&str> = reg.algorithms.iter().map(|a| a.key.as_str()).collect();
             Err(ApiError(
@@ -92445,6 +92641,7 @@ mod tests {
             page: Some(1),
             page_size: Some(9999),
             summary: None,
+            runnable: None,
         };
         let (page, page_size) = resolve_page_params(&q);
         assert_eq!(page, 1);
@@ -92458,6 +92655,7 @@ mod tests {
             page: None,
             page_size: Some(0),
             summary: None,
+            runnable: None,
         };
         let (_p, ps) = resolve_page_params(&q0);
         assert_eq!(ps, 1, "page_size=0 must clamp to 1, not stay 0");
@@ -92466,6 +92664,7 @@ mod tests {
             page: Some(0),
             page_size: None,
             summary: None,
+            runnable: None,
         };
         let (p, ps) = resolve_page_params(&q_neg);
         assert_eq!(p, 1, "page=0 must floor to 1");
@@ -92498,6 +92697,140 @@ mod tests {
         );
     }
 
+    /// The retirement on emem.dev: the compiled list plus the deployment's
+    /// `EMEM_RETIRED_BANDS` (geotessera).
+    fn retired_on_emem_dev(band: &str) -> bool {
+        [
+            "geotessera",
+            "clay_v1",
+            "prithvi_eo2",
+            "galileo",
+            "nightlights",
+        ]
+        .iter()
+        .any(|r| band == *r || band.strip_prefix(r).is_some_and(|t| t.starts_with('.')))
+    }
+
+    #[test]
+    fn every_successor_exists_and_runs_where_every_encoder_is_retired() {
+        let reg = &*emem_core::algorithms::DEFAULT;
+        for (key, instead) in ALGORITHM_INSTEAD {
+            let a = reg
+                .lookup(key)
+                .unwrap_or_else(|| panic!("{key} is not in the registry"));
+            assert_ne!(
+                algorithm_here(a, retired_on_emem_dev)["status"],
+                "runs",
+                "{key} runs; it needs no successor"
+            );
+            for k in *instead {
+                let b = reg
+                    .lookup(k)
+                    .unwrap_or_else(|| panic!("{key} names {k}, which is not in the registry"));
+                assert_eq!(
+                    algorithm_here(b, retired_on_emem_dev)["status"],
+                    "runs",
+                    "{key} names {k}, which does not run"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_runtime_path_is_wired_or_declared_gone() {
+        let spec = openapi_spec();
+        let paths = spec["paths"].as_object().expect("openapi paths");
+        for a in &emem_core::algorithms::DEFAULT.algorithms {
+            let Some(p) = a.runtime_path.as_deref() else {
+                continue;
+            };
+            let base = p.split('?').next().unwrap_or(p);
+            assert!(
+                paths.contains_key(base) || RETIRED_RUNTIME_PATHS.contains(&base),
+                "{} names {p}, which is neither served nor in RETIRED_RUNTIME_PATHS",
+                a.key
+            );
+        }
+        for p in RETIRED_RUNTIME_PATHS {
+            assert!(
+                !paths.contains_key(*p),
+                "{p} is served again; take it off RETIRED_RUNTIME_PATHS"
+            );
+        }
+    }
+
+    #[test]
+    fn forty_four_recipes_do_not_run_on_emem_dev() {
+        // 41 entries read a retired encoder or name a JEPA route; one of
+        // them, the closed-form NDVI predictor, runs at /v1/jepa_predict.
+        // Four more read a band no materializer serves. Two of the 41
+        // need crop prototypes that no file here holds, so they cannot run
+        // even where a stored vector exists.
+        let mut counts = std::collections::BTreeMap::<String, usize>::new();
+        for a in &emem_core::algorithms::DEFAULT.algorithms {
+            let st = algorithm_here(a, retired_on_emem_dev)["status"]
+                .as_str()
+                .unwrap_or("")
+                .to_string();
+            *counts.entry(st).or_default() += 1;
+        }
+        assert_eq!(counts.get("stored_only"), Some(&36), "{counts:?}");
+        let cannot: Vec<&str> = emem_core::algorithms::DEFAULT
+            .algorithms
+            .iter()
+            .filter(|a| algorithm_here(a, retired_on_emem_dev)["status"] == "cannot_run")
+            .map(|a| a.key.as_str())
+            .collect();
+        assert_eq!(
+            cannot,
+            [
+                "population_ghsl_dasymetric@1",
+                "forest_carbon_loss_co2_flux@1",
+                "soc_change_credit@1",
+                "crop_archetype_embedding_match@1",
+                "clay_prithvi_tessera_triple_consensus@1",
+                "jepa_forecast@1",
+                "rooftop_solar_potential_dem_aspect@1",
+                "crop_type_tessera_prototype@1",
+            ],
+            "{counts:?}"
+        );
+        let jepa = emem_core::algorithms::DEFAULT
+            .lookup("jepa_temporal_predictor@1")
+            .expect("predictor");
+        assert_eq!(algorithm_here(jepa, retired_on_emem_dev)["status"], "runs");
+    }
+
+    #[tokio::test]
+    async fn runnable_true_lists_only_recipes_that_run() {
+        let resp = algorithms(axum::extract::Query(PageQuery {
+            page: None,
+            page_size: Some(100),
+            summary: Some(true),
+            runnable: Some(true),
+        }))
+        .await
+        .0;
+        let items = resp["items"].as_array().expect("items");
+        assert!(!items.is_empty());
+        assert!(items.iter().all(|i| i["here"]["status"] == "runs"));
+        let counts = &resp["here_counts"];
+        let all: u64 = counts
+            .as_object()
+            .expect("counts")
+            .values()
+            .filter_map(|v| v.as_u64())
+            .sum();
+        assert_eq!(
+            all as usize,
+            emem_core::algorithms::DEFAULT.algorithms.len()
+        );
+        assert_eq!(
+            resp["pagination"]["total"].as_u64(),
+            counts["runs"].as_u64()
+        );
+    }
+
     #[tokio::test]
     async fn algorithms_summary_true_drops_formula_bodies() {
         // Pin the contract: `?summary=true` MUST drop `formula` and
@@ -92506,6 +92839,7 @@ mod tests {
             page: None,
             page_size: Some(100),
             summary: Some(true),
+            runnable: None,
         }))
         .await
         .0;
@@ -92565,6 +92899,7 @@ mod tests {
             page: None,
             page_size: Some(5),
             summary: None,
+            runnable: None,
         }))
         .await
         .0;

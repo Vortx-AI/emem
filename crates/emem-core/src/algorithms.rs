@@ -2729,7 +2729,6 @@ mod tests {
         // Weather
         s.insert("weather.temperature_2m".to_string(), 28.0);
         s.insert("weather.relative_humidity_2m".to_string(), 55.0);
-        s.insert("weather.relative_humidity".to_string(), 55.0);
         s.insert("weather.wind_speed_10m".to_string(), 5.0);
         s.insert("weather.precipitation_mm".to_string(), 1.0);
         s.insert("weather.air_pressure_msl".to_string(), 1013.0);

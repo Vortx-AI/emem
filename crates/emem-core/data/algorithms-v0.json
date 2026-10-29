@@ -11490,7 +11490,7 @@
    "citation": "Assran, M. et al. 2023. Self-Supervised Learning from Images with a Joint-Embedding Predictive Architecture (JEPA). CVPR. Pettorelli, N. et al. 2005. Using the satellite-derived NDVI to assess ecological responses to environmental change. Trends Ecol. Evol. 20:503\u2013510. Tucker, C.J. 1979. Red and photographic infrared linear combinations for monitoring vegetation. Remote Sens. Environ. 8:127\u2013150. The \u03b1=0.6, \u03b2=0.3, \u03b3=0.1 weights are editorial v1 \u2014 they reflect the seasonal-dominance, short-term-trend, and long-term-mean structure that the agricultural-NDVI literature consistently reports.",
    "frequency_of_calculation": "Monthly \u2014 there is one new NDVI tslot per calendar month in the active Tempo::Medium grid, so a re-call after the next monthly composite drops gives an updated forecast.",
    "accuracy_band": "Closed-form AR(2) with seasonal lag has been the baseline for NDVI forecasting for two decades; reported skill scores in the literature land in the \u03c1=0.65\u20130.85 range over agricultural cropland with adequate lookback (\u226518 months). Below 6 months of lookback the lag-12 term is unavailable and skill drops to \u03c1\u22480.5 \u2014 surface this honestly via `lag_12_used`.",
-   "runtime_path": "/v1/jepa_predict_v2"
+   "runtime_path": "/v1/jepa_predict"
   },
   {
    "key": "lai_modified_simple_ratio_s2@1",
@@ -11787,13 +11787,13 @@
      "explanation": "Recent 2-m air temperature. CWSI rises with vapour-pressure deficit; T_air > 30 \u00b0C raises the proxy linearly."
     },
     {
-     "band": "weather.relative_humidity",
+     "band": "weather.relative_humidity_2m",
      "role": "rh",
      "unit": "percent",
      "explanation": "Recent 2-m relative humidity. CWSI inversely scales with RH (drier air \u2192 higher transpiration demand)."
     }
    ],
-   "formula": "let g = sigmoid(8 * (indices.ndvi - 0.25)); let m = clamp(indices.ndmi / 0.4, 0, 1); let dry_air_term = (1 - clamp(weather.relative_humidity / 100, 0, 1)); let heat_term = clamp((weather.temperature_2m - 30) / 10, 0, 1); CWSI = g * clamp(1 - m * (1 - 0.5 * heat_term - 0.3 * dry_air_term), 0, 1)",
+   "formula": "let g = sigmoid(8 * (indices.ndvi - 0.25)); let m = clamp(indices.ndmi / 0.4, 0, 1); let dry_air_term = (1 - clamp(weather.relative_humidity_2m / 100, 0, 1)); let heat_term = clamp((weather.temperature_2m - 30) / 10, 0, 1); CWSI = g * clamp(1 - m * (1 - 0.5 * heat_term - 0.3 * dry_air_term), 0, 1)",
    "output": {
     "kind": "scalar",
     "unit": "index",
@@ -11804,7 +11804,7 @@
     "explanation": "0 = no stress (well-watered crop in mild weather), 1 = severe stress. Receipts surface `gating_factor`, `moisture_term`, `heat_term`, `dry_air_term` so an agronomist can audit which factor dominated."
    },
    "when_to_use": "Field-scale irrigation triggers, drought-stress mapping, agronomy decision support. Pair with `gdd_phenology@1` to know whether the stress is at a sensitive growth stage.",
-   "primitive": "POST /v1/recall {bands:['indices.ndmi','indices.ndvi','weather.temperature_2m','weather.relative_humidity']} \u2192 apply formula",
+   "primitive": "POST /v1/recall {bands:['indices.ndmi','indices.ndvi','weather.temperature_2m','weather.relative_humidity_2m']} \u2192 apply formula",
    "deterministic": true,
    "citation": "Idso, S.B. et al. 1981. Normalizing the stress-degree-day parameter for environmental variability. Agricultural Meteorology 24:45\u201355. Hunt, E.R. & Rock, B.N. 1989. Detection of changes in leaf water content using near and middle-infrared reflectances. Remote Sensing of Environment 30:43\u201354.",
    "frequency_of_calculation": "5-day cloud-permitting; weather inputs refresh hourly.",
@@ -11813,7 +11813,7 @@
     "delivery_resolution_m": 10,
     "baseline_sources": [
      "weather.temperature_2m",
-     "weather.relative_humidity"
+     "weather.relative_humidity_2m"
     ],
     "variance_sources": [
      "indices.ndmi",
@@ -11844,7 +11844,7 @@
       "purpose": "recent_heat_stress"
      },
      {
-      "band": "weather.relative_humidity",
+      "band": "weather.relative_humidity_2m",
       "lookback_days": 7,
       "aggregator": "min",
       "purpose": "recent_dryness"
@@ -11964,7 +11964,7 @@
                  "op": "div",
                  "a": {
                   "op": "band",
-                  "band": "weather.relative_humidity"
+                  "band": "weather.relative_humidity_2m"
                  },
                  "b": {
                   "op": "const",
