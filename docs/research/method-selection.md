@@ -124,6 +124,9 @@ small. The first run is retrospective inside each period; as-of replay comes wit
 ## 8. Steps
 
 1. Rule 13 in the program and the lab's reference guard (done with this note).
-2. As-of replay as an experiment kind, run first on the cached forests.
-3. `decision@1` and `verification@1` records, and a verifier desk.
+2. As-of replay, run first on the cached forests (done post hoc on the two-optical-sensor experiment; companion
+   paper, section 5.17). As an experiment kind of its own, next.
+3. `verification@1` and a verifier desk (done: the integrity desk re-derives each new experiment from its signed
+   records, with every input's receipt and canonical bytes checked offline, and signs the outcome under its own
+   key). `decision@1`, next.
 4. Read the missing periods, freeze the policies, sign the plan, run.

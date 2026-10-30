@@ -652,6 +652,53 @@ Landsat added. Landsat about doubled every forest's clear looks. Sinoe, the clou
 one of the three forests where version 4 did best (MCC 0.30; Sankuru 0.57, Cavally 0.93). Nine forests show no
 gradient one way or the other.
 
+### 5.17 As of the day, and checked by another agent (post hoc on section 5.15, deciding nothing)
+
+The program now asks whether an agent can tell that a method it trusted is wrong for a place, choose another on
+independent evidence, and have a second agent check the whole decision ([Method selection](method-selection.md)).
+Two of the measurements that question needs were first taken on the two-optical-sensor experiment. Its data had
+already been scored, so both are post hoc.
+
+**As-of replay.** Each detector was re-run on every cell's series truncated at nine quarterly dates from March
+2024 to March 2026, with the scoring window ending at that date, so that each output used only passes that existed
+then. The retrospective run had read passes up to October 2026, seven months after the window closed.
+
+| method | MCC, retrospective | MCC as of 31 March 2026 | 2024 loss flagged by the end of 2024 | false alarms by then | alerts withdrawn later (loss, stable) |
+|---|---|---|---|---|---|
+| `lab:memory_hls_emp@4` | 0.420 | 0.420 | 25% | 0.4% | 4, 12 of 51 cells ever alerted |
+| `lab:memory_mv_fusion_emp@3` | 0.342 | 0.342 | 20% | 0.9% | 9, 13 of 54 |
+| `lab:memory_optical@1` | 0.228 | 0.228 | 35% | 8.8% | none of 164 |
+| `lab:seasonal_canopy_loss@1` | 0.107 | 0.107 | 15% | 2.3% | 0, 1 of 53 |
+| `registry:deforestation_alert_ndvi_drop@1` | 0.058 | 0.058 | 47% | 37.0% | none of 498 |
+
+The later passes changed no final decision. Every method's score as of the window's end equals its retrospective
+score, so this experiment's results did not depend on reading past the window. The memory detectors raise most of
+what they will ever find within the loss year: version 4 flagged a quarter of the 2024 loss by the end of 2024, at
+0.4% false alarms.
+
+What the retrospective score hid is churn. Versions 3 and 4 decide each cell against the forest's empirical null,
+and that null moves as passes arrive. Version 4 withdrew 16 of the 51 alerts it ever raised. Twelve of those were
+false alarms it corrected, and four were real losses it dropped. Version 3 withdrew 22, nine of them real losses.
+The first memory detector, a sequential test with a fixed null, never withdrew an alert, but by the end of 2025 it
+had flagged 15.8% of stable forest. An alert product built on versions 3 or 4 would need to state that a share of
+its alerts are later retracted, and how many of those retractions are wrong.
+
+**Re-derived by an agent that does not trust the lab.** `verify_experiment.py` (emem-world) re-derived the experiment
+from its signed records alone, without the lab's cache or state. It read the plan and the result from emem memory and
+checked their signer. It checked that each method's source and the scoring code hash to the values the plan
+registered. For each of the 270 inputs it checked the receipt offline against the responder key, and checked that
+the input's canonical bytes hash to the content id it is cited by. It then rebuilt every forest's series and Hansen
+rasters from those bytes, reran every method and the scoring, and compared its numbers with the published ones. All
+24 published MCCs reproduced, to the third decimal.
+
+A receipt alone would not have been enough. It signs the content id, not the value: in the control, a series with
+one value changed still passed the receipt check, and only the hash of the bytes caught it.
+
+One part of the experiment could not be checked from signed records: its years, windows and sites lived in the lab's
+private roster. Plans now print those parameters and the scoring code's hash, so later experiments close the gap. The
+integrity desk now runs this verification on each new experiment under its own key and signs the outcome as
+`verification@1`.
+
 ### 5.16 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
