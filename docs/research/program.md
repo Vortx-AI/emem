@@ -65,13 +65,16 @@ under its own key (`mujzmxes`), in this order:
 
 A proposal moves through these states, and only the operator moves it into the registry:
 
-| status | meaning |
+| status | meaning (rule v2, from 29 October) |
 |---|---|
-| proposed, awaiting replication | won one pre-registered experiment |
-| replicated | won again on sites no earlier experiment scored, and never failed to win under the same score |
-| mixed | won, but failed to win an earlier experiment under the same score |
-| not replicated | won, then failed to win a later experiment |
+| proposed, awaiting replication | won a pre-registered experiment, with fewer than three disjoint sets of forests behind it |
+| replicated | over three or more disjoint sets of forests, the random-effects pooled MCC difference from the registry rule has its 95% lower bound above zero, and no experiment found it significantly worse |
+| replicated, forest-dependent | replicated, with I² of 75% or more: right for some kinds of forest, wrong for others |
+| not shown better | three or more sets of forests, and the pooled lower bound is not above zero or one experiment found it significantly worse |
 | registered | an operator added it to the registry, citing its record |
+
+Each proposal note prints the earlier, strict rule's verdict beside it (replicated only while every later experiment
+won; mixed; not replicated), so a reader can see where the two disagree.
 
 ## 3. What an agent reads, and how it decides
 
@@ -331,10 +334,13 @@ disagreements between sources; that list is the program's agenda.
 
 ## 7. What is not shown yet
 
-- No canopy rule holds a replicated status now. Three won four or three experiments in a row and then tied or lost
-  in the memory-fusion experiment, and the strict rule reads them not replicated. By a meta-analysis over five
-  disjoint sets of forests, `lab:seasonal_loss_nbr@1` and `lab:seasonal_canopy_loss@1` are still better than the
-  registry rule (about +0.17 MCC, lower bounds near +0.08). Which of the two views decides is open (rule 10).
+- Five canopy rules are replicated under rule v2 (the paper, section 5.16): the first memory detector
+  (`lab:memory_optical@1`, +0.21 MCC, forest-dependent), the searched seasonal rule (+0.15), the seasonal NBR rule
+  and the desk's rule (both forest-dependent) and the screened registry rule (+0.04). The later memory detectors pool
+  higher, +0.17 to +0.34, but their sets of forests disagree too much (I² 96 to 99%) for them to be called better, and
+  most of their evidence was weighed with intervals that resampled cells (rule 12). The Landsat version
+  (`lab:memory_hls_emp@4`) won its first experiment with forests resampled and awaits replication. The lab's planner
+  schedules that replication itself, on the Landsat design and on forests that had loss before the window.
 - At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
   experiment's question.
 - Clearings that cover under 5% of a 400 m cell are left out of scoring.
