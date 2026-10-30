@@ -559,7 +559,7 @@ second reference separates them, read the stated rate as a floor.
 
 **The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
 (intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
-failure to win after a first win means not replicated, so all three now read not replicated (section 5.16).
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.18).
 
 ### 5.14 Two references: loss in 2022 and 2023, judged by Hansen and by JRC TMF (MCC decides)
 
@@ -652,7 +652,7 @@ Landsat added. Landsat about doubled every forest's clear looks. Sinoe, the clou
 one of the three forests where version 4 did best (MCC 0.30; Sankuru 0.57, Cavally 0.93). Nine forests show no
 gradient one way or the other.
 
-### 5.17 As of the day, and checked by another agent (post hoc on section 5.15, deciding nothing)
+### 5.16 As of the day, and checked by another agent (post hoc on section 5.15, deciding nothing)
 
 The program now asks whether an agent can tell that a method it trusted is wrong for a place, choose another on
 independent evidence, and have a second agent check the whole decision ([Method selection](method-selection.md)).
@@ -699,7 +699,43 @@ private roster. Plans now print those parameters and the scoring code's hash, so
 integrity desk now runs this verification on each new experiment under its own key and signs the outcome as
 `verification@1`.
 
-### 5.16 Status of every proposal
+### 5.17 Clearings, by size, against chance (post hoc on section 5.15, deciding nothing)
+
+A 400 m cell is 16 hectares, and the label rule calls a cell lost at 5% of it, about 0.8 ha. A smaller clearing is
+never counted, although a clearing that size can matter to the owner of the land or to a compliance check. To see
+what the methods find at that scale, the unit of truth was changed from the cell to the clearing. Hansen draws each
+clearing as 8-connected 30 m pixels that lost cover in 2024 or 2025 and were forest in 2000. A method finds a clearing
+when any cell the clearing touches was flagged. Every forest cell is judged, including those the cell labels left
+out as ambiguous.
+
+That measure alone flatters a method that flags everywhere, as F1 did (section 6.1): a cell that is flagged at
+random still touches clearings. So beside each count stands the number the method's own flag rate on stable forest
+would find if its flags fell at random, 1 - (1 - rate)^k for a clearing touching k cells.
+
+The nine forests of section 5.15 held 305 clearings: 191 under 0.5 ha, 55 of 0.5 to 1 ha, 53 of 1 to 5 ha, 4 of 5
+to 20 ha and 2 over 20 ha. Each count below is clearings found, with the number expected by chance in brackets.
+
+| method | under 0.5 ha | 0.5 to 1 ha | 1 to 5 ha | 5 to 20 ha | over 20 ha |
+|---|---|---|---|---|---|
+| `lab:memory_hls_emp@4` | 18 (4) | 9 (1) | 14 (1) | 4 of 4 (0) | 2 of 2 (0) |
+| `lab:memory_mv_fusion_emp@3` | 16 (3) | 4 (1) | 9 (1) | 3 (0) | 2 (0) |
+| `lab:memory_optical@1` | 77 (48) | 23 (13) | 32 (15) | 3 (2) | 2 (0) |
+| `lab:seasonal_canopy_loss@1` | 35 (13) | 7 (3) | 7 (4) | 2 (1) | 1 (0) |
+| `lab:seasonal_loss_nbr@1` | 8 (8) | 1 (1) | 3 (1) | 2 (1) | 1 (0) |
+| `registry:deforestation_alert_ndvi_drop@1` | 136 (124) | 40 (38) | 42 (39) | 3 (3) | 1 (2) |
+
+At 400 m cells, then, emem finds large clearings and misses most small ones. Version 4 found all six clearings over
+5 ha. It found a quarter of those of 1 to 5 ha, against one expected by chance, and a tenth of those under 0.5 ha.
+The first memory detector finds more small clearings above chance (29 more under 0.5 ha than chance would give,
+against 14 for version 4), at the cost of flagging 17% of stable forest.
+
+The registry rule's apparent reach is chance: its 136 small clearings stand against 124 from its flag rate alone.
+The fixed seasonal NBR rule finds small clearings no better than chance.
+
+The next gain at small clearings will come from a finer unit (section 5.10 found 200 m cells better than 400 m),
+not from a sharper threshold at 400 m. Every result now carries this table, and its signed record the counts.
+
+### 5.18 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
 experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
@@ -822,7 +858,7 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.16). Read a silence as "no large
+  though the strict status rule reads them not replicated after one tie (section 5.18). Read a silence as "no large
   loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
   twentieth did.
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
@@ -854,10 +890,11 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.16); its verdicts are kept as
+- The program's status rule turns a single tie into not replicated (section 5.18); its verdicts are kept as
   registered, and a meta-analysis is reported beside them.
 - The status rule was tightened after the third replication (section 5.13). The change only demotes.
-- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.16 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
+- Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
+- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.18 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 
