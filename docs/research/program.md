@@ -301,10 +301,16 @@ These are the rules the program holds itself to, each learned or confirmed on th
 10. **A status rule must not punish running more experiments.** The rule in force asks every later experiment to
    win, so a method that is better on average will in time tie in a small experiment and read not replicated; with
    enough experiments, every good method does. The record keeps that rule's verdicts as registered and reports a
-   random-effects meta-analysis across disjoint site sets beside them (DerSimonian and Laird 1986). Adopting the
-   meta-analysis as the status rule is the operator's decision, for experiments not yet run.
+   random-effects meta-analysis across disjoint site sets beside them (DerSimonian and Laird 1986). On 29 October the
+   meta-analysis became the status rule (rule v2, signed at `research/rules/status-v2.md`), with the strict rule's
+   verdicts kept beside it.
 11. **The operator registers.** The lab proposes; the registry changes only when its operator adds an entry and cites
    the record.
+12. **The forest is the unit of evidence.** A clearing is one event seen in many cells, so an interval that resamples
+   cells counts it many times. On 29 October one clearing held 56 of an experiment's 59 loss cells, and the best
+   detector's lead ran +0.93 to +1.08 with cells resampled and -0.03 to +1.16 with forests resampled. Every result
+   reports both; a plan that registers forests as the unit decides by them; and forests are chosen where loss was
+   under way before the scored years, since a forest with no loss adds stable cells and no evidence.
 
 ## 6. Scaling the program
 

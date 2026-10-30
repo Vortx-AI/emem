@@ -540,9 +540,55 @@ second reference separates them, read the stated rate as a floor.
 
 **The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
 (intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
-failure to win after a first win means not replicated, so all three now read not replicated (section 5.14).
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.15).
 
-### 5.14 Status of every proposal
+### 5.14 Two references: loss in 2022 and 2023, judged by Hansen and by JRC TMF (MCC decides)
+
+Every result above is agreement with Hansen, and section 6.5 measures how far Hansen and JRC TMF agree. This
+experiment scored every method three ways on ten tropical forests no experiment had scored, for loss in 2022 and 2023
+(TMF ends in 2023): against Hansen, which decides; against TMF's deforestation year by the same rule of 5% of a 400 m
+cell, with Hansen's forest mask; and on the cells where the two agree (`canopy-loss-two-references-2022-2023-2026-10-29`,
+plan content id `nppiqq7e6wznwzwpa4kfxuvele`).
+
+**An erratum, signed before the result.** The plan's labels and decision paragraphs had been copied from the
+2024-2025 experiments and named their years. The code scores by the experiment's parameters (years 2022 and 2023,
+2021 adjacent, flags dated 2022-01-01 to 2024-03-31), which match the plan's question. An erratum stating this was
+signed beside the plan while the forests were being read and before any result existed
+(`erratum.md`, content id `tkdjsvkaslmwr7dlt6maddpcgy`); the transparency log orders it before the result. The lab now
+refuses to register a plan whose labels or decision name a year or a date its parameters do not contain.
+
+**Under Hansen the memory detectors lead.** 42 cells were labelled loss and 1,062 stable.
+
+| method | MCC | false-alarm rate | MCC minus the registry rule, 95% interval |
+|---|---|---|---|
+| `lab:memory_mv_optical@2` | 0.303 | 1.2% | +0.085 to +0.400 |
+| `lab:memory_fusion@1` | 0.269 | 8.2% | +0.115 to +0.303 |
+| `lab:memory_optical@1` | 0.253 | 10.0% | +0.105 to +0.276 |
+| `lab:seasonal_canopy_loss@1` | 0.190 | 5.1% | +0.024 to +0.238 |
+| `lab:memory_mv_fusion@2` | 0.188 | 1.8% | +0.004 to +0.271 |
+| `lab:memory_mv_fusion_emp@3` | 0.186 | 1.3% | -0.007 to +0.277 |
+| `lab:seasonal_loss_nbr@1` | 0.014 | 1.5% | -0.121 to +0.053 |
+| `registry:deforestation_alert_ndvi_drop@1` | 0.058 | 49.2% | baseline |
+
+The fixed seasonal NBR rule, replicated (forest-dependent) on the 2024-2025 forests, found almost nothing here, and the
+memory rules beat it on the same cells (`memory_fusion@1` minus `seasonal_loss_nbr@1`: +0.136 to +0.364). The
+calibrated detectors stated a 5% chance of flagging a stable cell and flagged 1.2 to 1.8%, so their calibration errs
+toward silence. The registered comparisons of version 2 against version 1, and of version 3 against version 2, show
+no clear difference. The two variants with false-discovery control across a forest flagged no cell at all, which makes
+them significantly worse than per-cell calibration (-0.324 to -0.061).
+
+The loss is concentrated. 26 of the 42 loss cells are in Pacajá (Pará), 7 in Palawan, 5 north of Porto Velho, and
+four of the ten forests (Paragominas, Lacandona, Imataca, Dja) had none, so the pooled score leans on one forest. The
+per-site lines are in the result note.
+
+**TMF could not judge.** By the same cell rule TMF marked 5 of these cells as loss in 2022 and 2023, against Hansen's
+42. No method can be shown better or worse with five positives, and every method reads "no" for "beats the baseline
+under all three references" for that reason, not for its own. TMF's deforestation year records the conversion of
+humid tropical forest, and Hansen records any loss of tree cover, so on forests that lose canopy to fire, logging or
+plantation cycles more than to conversion the two references count different events. The question this experiment
+asked is therefore still open; it needs forests chosen from TMF's own record of conversion before any series is read.
+
+### 5.15 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
 experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
@@ -554,28 +600,53 @@ has its 95% lower bound above zero and no experiment was significantly worse, an
 or more. The rule was adopted after the strict rule demoted those methods, and every proposal note prints both
 verdicts.
 
-| method | status (rule v2) | strict rule | pooled MCC difference, 95% interval | I² | MCC site sets |
-|---|---|---|---|---|---|
-| `lab:seasonal_loss_nbr@1` | replicated, forest-dependent | not replicated | +0.173, +0.076 to +0.270 | 85% | 5 |
-| `lab:seasonal_canopy_loss@1` | replicated | not replicated | +0.165, +0.073 to +0.257 | 66% | 3 |
-| `registry:deforestation_alert_ndvi_drop@1+screen` | replicated | not replicated | +0.052, +0.011 to +0.093 | 49% | 5 |
-| `desk:vegetation_loss@1` | replicated, forest-dependent | not replicated | +0.095, +0.003 to +0.186 | 83% | 5 |
-| `lab:memory_mv_fusion@2` | proposed, awaiting replication | proposed | one site set | | 1 |
-| `lab:green_fraction_loss@1+screen` | not shown better | not replicated | +0.077, -0.063 to +0.217 | 93% | 5 |
-| `desk:vegetation_loss@1+screen` | not shown better | not replicated | +0.049, -0.031 to +0.129 | 77% | 5 |
-| `registry:burn_severity_from_dnbr@1+screen` | not shown better | not replicated | +0.043, -0.016 to +0.101 | 58% | 5 |
-| `lab:subcell_loss_p10@1+screen` | not shown better | not replicated | +0.012, -0.170 to +0.195 | 96% | 5 |
-| the other five lab and desk rules | not shown better | not replicated | between -0.053 and +0.057 | | 5 |
+| method | status (rule v2) | pooled MCC difference, 95% interval | I² | MCC site sets |
+|---|---|---|---|---|
+| `lab:seasonal_canopy_loss@1` | replicated | +0.172, +0.114 to +0.230 | 48% | 5 |
+| `lab:seasonal_loss_nbr@1` | replicated, forest-dependent | +0.134, +0.047 to +0.221 | 87% | 7 |
+| `desk:vegetation_loss@1` | replicated, forest-dependent | +0.092, +0.024 to +0.160 | 79% | 7 |
+| `registry:deforestation_alert_ndvi_drop@1+screen` | replicated | +0.043, +0.016 to +0.071 | 26% | 7 |
+| `lab:memory_mv_fusion@2` | not shown better | +0.384, -0.138 to +0.907 | 98% | 3 |
+| `lab:memory_mv_optical@2` | not shown better | +0.373, -0.110 to +0.856 | 98% | 3 |
+| `lab:memory_fusion@1` | not shown better | +0.301, -0.012 to +0.613 | 97% | 3 |
+| `lab:memory_optical@1` | not shown better | +0.221, -0.007 to +0.448 | 95% | 3 |
+| `lab:memory_radar@1` | not shown better | +0.208, -0.181 to +0.597 | 98% | 3 |
+| `lab:memory_mv_fusion_fdr@2`, `_rel@2` | not shown better | about +0.29, -0.46 to +1.05 | 100% | 3 |
+| `lab:memory_mv_fusion_emp@3` | not shown better | one site set | | 1 |
+| the other ten lab, desk and registry rules | not shown better | between -0.025 and +0.087 | | 7 |
 
-Four methods are replicated. The seasonal NBR rule and the searched rule beat the registry rule by about 0.17 MCC over
-all the forests tested; the screened registry rule by a small, steady 0.05; the desk's rule only just. The sub-pixel
-rules' I² of 93 to 96% is the managed-forest finding in one number: right for one kind of forest, wrong for another.
+Four methods are replicated: the searched seasonal rule by +0.17 MCC over five site sets, the seasonal NBR rule and the
+desk's rule with forest-dependence, and the screened registry rule by a small, steady 0.04. Each proposal note also
+prints the strict rule's verdict. The memory detectors pool to the largest differences, +0.21 to +0.38, and are not
+shown better, because their three site sets disagree by far more than their intervals allow (I² 95 to 98%). With three
+studies the between-study variance is itself poorly estimated. The next paragraph shows where the disagreement comes
+from.
 
-**A replication that was stopped.** A replication of section 5.13 on the four unread forests and six new ones
-(`canopy-loss-memory-fusion-replication-2024-2025-2026-10-29`, plan content id `u24aifkusddf2zyyhoyhvygwtm`) was
-stopped after its first forest, because that forest's reads failed on a fault in emem's own COG reader (gap ledger):
-the LZW decoder refused a Hansen block whose pixels were all there. Its plan stays in memory with no result. It is
-rerun, with the same methods, once the fix is deployed.
+**The replication, completed, and what one clearing does to a pooled score.** The replication of section 5.13 on its
+four unread forests and six new ones (`canopy-loss-memory-fusion-replication-2024-2025-2026-10-29`, plan content id
+`u24aifkusddf2zyyhoyhvygwtm`) ran into three faults in turn. The first was the LZW decoder, which refused a Hansen
+block whose pixels were all there. The second was a forest raster across a 10-degree tile line. The third was a
+catalogue rate limit that failed a task. Each fault is in the gap ledger and fixed. Once all three were fixed, the run
+was completed under its signed plan. The earlier result, from six forests and 3 loss cells, stays in the result note's
+history.
+
+Completed, it scored 59 loss and 1,175 stable cells. The best detector reached MCC 0.93 (`lab:memory_mv_fusion_rel@2`;
+`memory_mv_fusion@2` 0.80, `memory_mv_optical@2` 0.73), against -0.08 for the registry rule. But 56 of the 59 loss
+cells are one clearing at Humaitá (Amazonas), and seven of the ten forests had no loss.
+
+The registered interval resamples cells, which counts that clearing as 56 independent findings: it put the best
+detector's lead at +0.93 to +1.08. With forests resampled instead (post hoc, deciding nothing, after the pooled numbers
+were reproduced exactly from the run's own inputs), the same lead runs from -0.03 to +1.16. With Humaitá left out, the
+version-2 detectors' edge is gone, while version 1's memory detectors keep +0.09 to +0.15.
+
+The same check on section 5.14 gives a steadier picture. Pacajá holds 26 of that experiment's 42 loss cells. Without
+it, `memory_mv_optical@2` keeps +0.21 and `memory_optical@1` +0.11. `memory_optical@1` is the one method whose
+forest-resampled interval lies above zero (+0.036 to +0.28).
+
+The unit of evidence is the forest, or the clearing in it, not the cell. Every result now reports both intervals. The
+two-optical-sensor experiment, registered next, decides by forests. It reads the nine unused equatorial forests of the
+desk's pool that lost forest in 2021 to 2023, the three years before its window, so that its reads land where there is
+loss to find.
 
 ## 6. Discussion
 
@@ -644,7 +715,7 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.14). Read a silence as "no large
+  though the strict status rule reads them not replicated after one tie (section 5.15). Read a silence as "no large
   loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
   twentieth did.
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
@@ -676,9 +747,10 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.14); its verdicts are kept as
+- The program's status rule turns a single tie into not replicated (section 5.15); its verdicts are kept as
   registered, and a meta-analysis is reported beside them.
 - The status rule was tightened after the third replication (section 5.13). The change only demotes.
+- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.15 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 
