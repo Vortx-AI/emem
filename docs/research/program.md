@@ -187,7 +187,9 @@ from the year before the window and confirms a fork at fixed odds of 39 to 1.
 
 - *Memory across bands and years.* For each cell and sensor group (Sentinel-2 NDVI, NBR and NDMI; Sentinel-1 VH),
   each band's normal is a least-squares annual harmonic fit over five years (2019 to 2023; two harmonics when the
-  memory spans two years), with a robust scale (1.4826 times the median absolute residual). The bands' joint noise
+  memory spans two years), with a robust scale (1.4826 times the median absolute residual about the fit; the
+  pinned source calls it a MAD, but it is not centred on the residuals' median as the conventional MAD is, and
+  field_series' served `memory` block uses the conventional one). The bands' joint noise
   is a rank correlation, 2 sin(πρ/6) of Spearman's ρ, shrunk 20% toward the identity so that a few dozen passes
   give a usable matrix R.
 - *A matched filter.* Canopy loss lowers the bands together, in the ratio s = (0.15, 0.20, 0.15) for NDVI, NBR and

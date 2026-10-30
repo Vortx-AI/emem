@@ -118,7 +118,7 @@ impl Index {
     }
 }
 
-const INDICES: [Index; 6] = [
+const INDICES: [Index; 7] = [
     Index {
         key: "ndvi",
         a: "s2.B08",
@@ -179,12 +179,25 @@ const INDICES: [Index; 6] = [
         formula: "(B11 - B12) / (B11 + B12)",
         reference: "Van Deventer et al. 1997",
     },
+    // Snow and water are bright in green and dark in shortwave infrared, which
+    // separates them from cloud, rock and vegetation; as MNDWI the same ratio
+    // keeps open water positive where sun glint drives NDWI towards zero.
+    // B03 is 10 m and B11 20 m: B03 is averaged 2x2 onto B11's pixels.
+    Index {
+        key: "ndsi",
+        a: "s2.B03",
+        b: "s2.B11",
+        c: None,
+        formula: "(B03 - B11) / (B03 + B11), B03 averaged 2x2 onto B11's 20 m pixels",
+        reference: "Hall et al. 1995 (NDSI); as MNDWI, Xu 2006",
+    },
 ];
 
 /// Other names a caller may use for an index.
 fn index_alias(key: &str) -> &str {
     match key {
         "lswi" | "ndwi_gao" => "ndmi",
+        "mndwi" => "ndsi",
         k => k,
     }
 }
@@ -207,7 +220,7 @@ const LANDSAT_BANDS: [(&str, &str); 6] = [
 /// The Sentinel-2 indices on the corresponding OLI bands, by Planetary
 /// Computer asset key. OLI has one near-infrared band (B5), so it stands in
 /// for both B08 and B8A. Every band is 30 m.
-const LANDSAT_INDICES: [Index; 6] = [
+const LANDSAT_INDICES: [Index; 7] = [
     Index {
         key: "ndvi",
         a: "nir08",
@@ -256,6 +269,14 @@ const LANDSAT_INDICES: [Index; 6] = [
         c: None,
         formula: "(SR_B6 - SR_B7) / (SR_B6 + SR_B7), on surface reflectance",
         reference: "Van Deventer et al. 1997",
+    },
+    Index {
+        key: "ndsi",
+        a: "green",
+        b: "swir16",
+        c: None,
+        formula: "(SR_B3 - SR_B6) / (SR_B3 + SR_B6), on surface reflectance",
+        reference: "Hall et al. 1995 (NDSI); as MNDWI, Xu 2006",
     },
 ];
 
@@ -475,6 +496,113 @@ fn window_corner(
         )
     } else {
         (x, y)
+    }
+}
+
+/// A Sentinel-2 band's native pixel size in metres.
+fn s2_native_m(band: &str) -> f64 {
+    match band {
+        "s2.B02" | "s2.B03" | "s2.B04" | "s2.B08" => 10.0,
+        "s2.B01" | "s2.B09" => 60.0,
+        _ => 20.0,
+    }
+}
+
+/// The band whose pixels a Sentinel-2 index is computed on: its coarsest, the
+/// first of equals.
+fn s2_lattice_band(index: &Index) -> &'static str {
+    [Some(index.a), Some(index.b), index.c]
+        .into_iter()
+        .flatten()
+        .fold(index.a, |m, b| {
+            if s2_native_m(b) > s2_native_m(m) {
+                b
+            } else {
+                m
+            }
+        })
+}
+
+/// The mean of each `f`x`f` block of a fine grid that is `w`x`h` blocks; a
+/// block whose pixels the mask all rejected stays NaN.
+fn coarsen(raw: &[f32], w: u32, h: u32, f: u32) -> Vec<f32> {
+    let (w, h, f) = (w as usize, h as usize, f as usize);
+    let fw = w * f;
+    let mut out = vec![f32::NAN; w * h];
+    for r in 0..h {
+        for c in 0..w {
+            let (mut sum, mut n) = (0.0f32, 0u32);
+            for i in 0..f {
+                for v in &raw[(r * f + i) * fw + c * f..(r * f + i) * fw + (c + 1) * f] {
+                    if v.is_finite() {
+                        sum += v;
+                        n += 1;
+                    }
+                }
+            }
+            if n > 0 {
+                out[r * w + c] = sum / n as f32;
+            }
+        }
+    }
+    out
+}
+
+/// A band finer than the lattice, read onto it: twice the window at the band's
+/// own pixel size, its corner on the lattice corner (`x0`, `y0`), masked, then
+/// averaged block by block. Sentinel-2's 20 m grid lines are every other 10 m
+/// line of the same tile, so the blocks are the lattice pixels exactly; and the
+/// scene classification is 20 m, so a block's pixels are kept or dropped
+/// together.
+#[allow(clippy::too_many_arguments)]
+async fn read_masked_scene_coarsened(
+    cli: &reqwest::Client,
+    host: &'static str,
+    item: &emem_fetch::stac::StacItem,
+    aliases: &[&str],
+    (x0, y0): (f64, f64),
+    w: u32,
+    h: u32,
+    lattice_m: f64,
+    fine_m: f64,
+    reject: &std::collections::BTreeSet<u8>,
+) -> Option<(Vec<f32>, JsonValue)> {
+    let f = (lattice_m / fine_m).round() as u32;
+    if f < 2 || (f as f64 * fine_m - lattice_m).abs() > 0.01 {
+        return None;
+    }
+    let (fw, fh) = (w * f, h * f);
+    // The shared reader centres its window on the floored pixel under the
+    // centre; half a pixel past the middle puts the window's corner at x0, y0.
+    let cx = x0 + (fw / 2) as f64 * fine_m + fine_m / 2.0;
+    let cy = y0 - (fh / 2) as f64 * fine_m - fine_m / 2.0;
+    let (raw, meta) =
+        read_masked_scene(cli, host, item, aliases, cx, cy, fw, fh, fine_m, reject).await?;
+    Some((coarsen(&raw, w, h, f), meta))
+}
+
+/// One Sentinel-2 band of a scene on the series lattice: read as it is when
+/// its pixels are the lattice's, averaged onto it when they are finer.
+#[allow(clippy::too_many_arguments)]
+async fn read_on_lattice(
+    cli: &reqwest::Client,
+    host: &'static str,
+    item: &emem_fetch::stac::StacItem,
+    aliases: &[&str],
+    band_m: f64,
+    (cx, cy): (f64, f64),
+    corner: (f64, f64),
+    (w, h): (u32, u32),
+    lattice_m: f64,
+    reject: &std::collections::BTreeSet<u8>,
+) -> Option<(Vec<f32>, JsonValue)> {
+    if band_m < lattice_m - 0.01 {
+        read_masked_scene_coarsened(
+            cli, host, item, aliases, corner, w, h, lattice_m, band_m, reject,
+        )
+        .await
+    } else {
+        read_masked_scene(cli, host, item, aliases, cx, cy, w, h, lattice_m, reject).await
     }
 }
 
@@ -901,13 +1029,7 @@ fn seasonal_memory(days: &[i64], vals: &[f64]) -> Option<JsonValue> {
     let beta = solve_small(ata, atb)?;
     let fit = |d: i64| row(d).iter().zip(&beta).map(|(x, b)| x * b).sum::<f64>();
     let resid: Vec<(i64, f64)> = pts.iter().map(|(d, v)| (*d, v - fit(*d))).collect();
-    let mut abs: Vec<f64> = resid.iter().map(|r| r.1.abs()).collect();
-    abs.sort_by(|a, b| a.total_cmp(b));
-    let mad = if abs.len() % 2 == 1 {
-        abs[abs.len() / 2]
-    } else {
-        (abs[abs.len() / 2 - 1] + abs[abs.len() / 2]) / 2.0
-    };
+    let mad = median_abs_deviation(&resid.iter().map(|r| r.1).collect::<Vec<_>>());
     let mut by_year: std::collections::BTreeMap<i32, (f64, usize)> = Default::default();
     for (d, r) in &resid {
         let e = by_year.entry(day_of_year(*d).0).or_default();
@@ -943,6 +1065,25 @@ fn seasonal_memory(days: &[i64], vals: &[f64]) -> Option<JsonValue> {
         "year_sd": year_sd.map(round6),
         "years": year_means.len(),
     }))
+}
+
+fn median_of(mut v: Vec<f64>) -> f64 {
+    v.sort_by(|a, b| a.total_cmp(b));
+    let n = v.len();
+    if n % 2 == 1 {
+        v[n / 2]
+    } else {
+        (v[n / 2 - 1] + v[n / 2]) / 2.0
+    }
+}
+
+/// median(|r - median(r)|). Centred on the residuals' own median, not on the
+/// fit: least squares is pulled by one-sided outliers such as cloud dips, so
+/// the residuals' median sits off zero, and |r| alone would count that offset
+/// as noise.
+fn median_abs_deviation(r: &[f64]) -> f64 {
+    let m = median_of(r.to_vec());
+    median_of(r.iter().map(|x| (x - m).abs()).collect())
 }
 
 /// Gaussian elimination with partial pivoting for the few-by-few normal
@@ -2140,7 +2281,19 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         .ok_or_else(|| upstream_error("no candidate scene survived selection".into()))?;
 
     // ── the pixel lattice, from the newest picked scene. ──────────────────
-    let anchor_url = alias_a
+    // A Sentinel-2 index's lattice is its coarsest band's; a finer band is
+    // averaged onto it (NDSI: B03 onto B11's 20 m).
+    let lattice_band = if landsat {
+        index.a
+    } else {
+        s2_lattice_band(index)
+    };
+    let alias_lattice: &[&str] = if landsat {
+        alias_a
+    } else {
+        aliases_of(lattice_band)
+    };
+    let anchor_url = alias_lattice
         .iter()
         .find_map(|a| anchor.assets.get(*a).cloned())
         .ok_or_else(|| upstream_error("anchor scene lost its band asset".into()))?;
@@ -2276,40 +2429,40 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
         for chunk in picked.chunks(SCENE_READ_CONCURRENCY) {
             let pairs = futures_util::future::join_all(chunk.iter().map(|it| {
                 futures_util::future::join3(
-                    read_masked_scene(
+                    read_on_lattice(
                         &cli,
                         host,
                         it,
                         alias_a,
-                        utm_c.easting,
-                        utm_c.northing,
-                        w,
-                        h,
+                        s2_native_m(index.a),
+                        (utm_c.easting, utm_c.northing),
+                        (wx0, wy0),
+                        (w, h),
                         native_m,
                         &reject,
                     ),
-                    read_masked_scene(
+                    read_on_lattice(
                         &cli,
                         host,
                         it,
                         alias_b,
-                        utm_c.easting,
-                        utm_c.northing,
-                        w,
-                        h,
+                        s2_native_m(index.b),
+                        (utm_c.easting, utm_c.northing),
+                        (wx0, wy0),
+                        (w, h),
                         native_m,
                         &reject,
                     ),
                     // No third band: an empty alias list returns at once.
-                    read_masked_scene(
+                    read_on_lattice(
                         &cli,
                         host,
                         it,
                         alias_c,
-                        utm_c.easting,
-                        utm_c.northing,
-                        w,
-                        h,
+                        index.c.map(s2_native_m).unwrap_or(native_m),
+                        (utm_c.easting, utm_c.northing),
+                        (wx0, wy0),
+                        (w, h),
                         native_m,
                         &reject,
                     ),
@@ -4043,6 +4196,41 @@ mod tests {
     }
 
     #[test]
+    fn ndsi_reads_b03_onto_b11s_twenty_metre_pixels() {
+        let ndsi = INDICES
+            .iter()
+            .find(|i| i.key == index_alias("mndwi"))
+            .unwrap();
+        assert_eq!(ndsi.key, "ndsi");
+        assert_eq!(s2_lattice_band(ndsi), "s2.B11");
+        for i in &INDICES {
+            if i.key != "ndsi" {
+                assert_eq!(s2_lattice_band(i), i.a, "{} keeps its lattice", i.key);
+            }
+        }
+        // Snow: bright green, dark shortwave infrared.
+        assert!(ndsi.at(6000.0, 800.0, None).unwrap() > 0.7);
+        assert!(ndsi.at(900.0, 2500.0, None).unwrap() < 0.0);
+    }
+
+    #[test]
+    fn a_fine_band_is_averaged_block_by_block() {
+        let nan = f32::NAN;
+        #[rustfmt::skip]
+        let fine = [
+            1.0, 3.0, 10.0, 10.0,
+            5.0, 7.0, 10.0, nan,
+            nan, nan, 2.0, 2.0,
+            nan, nan, 2.0, 4.0,
+        ];
+        let out = coarsen(&fine, 2, 2, 2);
+        assert_eq!(out[0], 4.0);
+        assert_eq!(out[1], 10.0);
+        assert!(out[2].is_nan());
+        assert_eq!(out[3], 2.5);
+    }
+
+    #[test]
     fn landsat_indices_are_the_sentinel2_ones_on_the_corresponding_bands() {
         assert_eq!(LANDSAT_INDICES.len(), INDICES.len());
         for s2 in &INDICES {
@@ -4231,6 +4419,16 @@ mod tests {
         );
         assert!(h[1]["amplitude"].as_f64().unwrap() < 2e-3, "{m}");
         assert!(m["resid_scale"].as_f64().unwrap() < 2e-3, "{m}");
+    }
+
+    #[test]
+    fn the_residual_scale_is_centred_on_the_residuals_median() {
+        // A fit pulled down by dips leaves most residuals at +0.1: they are
+        // tight about their own median, though not about zero.
+        let r = [0.0, 0.0, 0.1, 0.1, 0.1];
+        assert_eq!(median_abs_deviation(&r), 0.0);
+        assert!((median_of(r.iter().map(|x: &f64| x.abs()).collect()) - 0.1).abs() < 1e-12);
+        assert_eq!(median_abs_deviation(&[1.0, 2.0, 3.0, 4.0, 100.0]), 1.0);
     }
 
     #[test]

@@ -615,9 +615,12 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 
 `field_series` reads an area over time, one row per scene.
 
-- `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`) or `evi` from
-  Sentinel-2. `vv`, `vh` or `vh_vv` from Sentinel-1, on one relative
-  orbit (`orbit`; default: the orbit with the most scenes).
+- `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
+  `ndti` or `ndsi` (alias `mndwi`) from Sentinel-2. NDSI is green against
+  shortwave infrared, B03 averaged onto B11's 20 m pixels: snow and open
+  water read high, and unlike NDWI it stays positive over water in sun
+  glint. `vv`, `vh` or `vh_vv` from Sentinel-1, on one relative orbit
+  (`orbit`; default: the orbit with the most scenes).
 - `sensor: "landsat"` reads the same optical indices from Landsat 8 and
   9 Collection 2 Level-2 surface reflectance (Planetary Computer, Tier 1
   only), on 30 m pixels from 2013. The OLI bands stand in for the
