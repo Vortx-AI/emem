@@ -12089,7 +12089,19 @@ fn algorithm_here(
         ),
         (None, true) => ("runs", None),
     };
-    let mut out = json!({"status": status});
+    // `status` says whether the inputs can be had here; `executes` says who
+    // runs the formula. A documentation-only recipe is composed by the agent
+    // from served inputs, so its result is the agent's, not a signed one.
+    let executes = if a.documentation_only {
+        "agent"
+    } else if a.partial_runtime {
+        "responder, in part"
+    } else if a.evaluation.is_some() || a.runtime_path.is_some() {
+        "responder"
+    } else {
+        "agent"
+    };
+    let mut out = json!({"status": status, "executes": executes});
     if let Some(why) = why {
         out["why"] = json!(why);
         out["retired_inputs"] = json!(retired_inputs);
@@ -12219,7 +12231,7 @@ async fn algorithms(axum::extract::Query(q): axum::extract::Query<PageQuery>) ->
         "agent_hint": {
             "what_this_is": "A content-addressed dictionary of recipes that combine attested band facts into composite answers (e.g. flood_risk@1, water_consensus@1, embedding_novelty@1). Receipts citing one of these names + the algorithm_cid let any other operator replay the same composition deterministically.",
             "how_to_use":    "1) Pick the entry whose `when_to_use` matches the agent's query. 2) Read its `inputs[].band` list and assemble a single `/v1/recall` (or `/v1/recall_many`) body. 3) Apply the `formula` in-process. 4) Cite the algorithm key + algorithms_cid alongside the fact_cids in the agent's reply.",
-            "here":          "Each entry's `here.status` says whether it runs on this deployment: `runs`; `stored_only` (it reads a retired encoder or band, so it answers only where a fact signed before the retirement is stored); `cannot_run` (its runtime route is gone). A recipe that does not run names `use_instead` when a served one answers a nearby question. Pass `?runnable=true` to list only the recipes that run.",
+            "here":          "Each entry's `here.status` says whether it runs on this deployment: `runs`; `stored_only` (it reads a retired encoder or band, so it answers only where a fact signed before the retirement is stored); `cannot_run` (its runtime route is gone). A recipe that does not run names `use_instead` when a served one answers a nearby question. Pass `?runnable=true` to list only the recipes that run. `here.executes` says who runs the formula: `responder` (the result is computed and signed here), `responder, in part`, or `agent` (inputs are served and signed; the agent composes the formula, so the composition is the agent's own claim).",
             "kinds": {
                 "solo":      "single band → derived classification or scalar",
                 "combined":  "multi-band weighted composite",
@@ -92816,6 +92828,18 @@ mod tests {
             .lookup("jepa_temporal_predictor@1")
             .expect("predictor");
         assert_eq!(algorithm_here(jepa, retired_on_emem_dev)["status"], "runs");
+    }
+
+    #[test]
+    fn here_says_who_runs_the_formula() {
+        let reg = &*emem_core::algorithms::DEFAULT;
+        let who = |k: &str| {
+            algorithm_here(reg.lookup(k).expect(k), retired_on_emem_dev)["executes"].clone()
+        };
+        for k in ["memory_similarity@1", "memory_shift@1", "memory_novelty@1"] {
+            assert_eq!(who(k), "agent", "{k}");
+        }
+        assert_eq!(who("cross_modal_s1_s2_consistency@1"), "responder");
     }
 
     #[tokio::test]

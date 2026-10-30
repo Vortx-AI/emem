@@ -578,7 +578,7 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 |---|---|
 | `/v1/bands` | Active band ontology, offsets, dims, tempo |
 | `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
-| `/v1/algorithms` | 172 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question. `?runnable=true` lists only the ones that run |
+| `/v1/algorithms` | 172 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question; `here.executes` says who runs the formula (`responder`, `responder, in part`, or `agent`, when the inputs are served and signed but the composition is the agent's own). `?runnable=true` lists only the ones that run |
 | `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
 | `/v1/functions` | Derivation function registry |
 | `/v1/sources` | Upstream connectors with license metadata |
