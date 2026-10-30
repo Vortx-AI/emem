@@ -95,39 +95,72 @@ forests with real loss in the earlier period.
 
 **Forests.** The nine unused forests of the lab's pool with ten or more 400 m cells of Hansen loss in 2021 to 2023,
 read before either period: Sao Felix do Xingu, Boca do Acre, Sud-Ubangi, Sagaing, Zambezia, Sarawak, Attapeu,
-Masoala and Cujubim. They span humid rainforest, monsoon forest and dry miombo, so competence that differs by kind
-of forest has room to show.
+Masoala and Cujubim. (This Sao Felix do Xingu box lies about 70 km west of the box an earlier experiment read under
+the same name; they share no cell.) By the Koppen class at each box centre, five are monsoon rainforest (Am), two
+rainforest (Af), one savanna and dry forest (Aw) and one dry-winter subtropical (Cw).
 
-**Three experiments, run by the lab desk in order.**
+**Why a second earlier experiment.** The paper's section 5.18 found, post hoc, that competence follows the climate:
+in seasonally dry forest the registry rule holds up and the desk's rule is worse than it, while in evergreen forest
+the memory detectors win by a wide margin. That suggests a policy an agent can apply at a forest it has never scored:
+choose by the record of forests of the same climate. The table in section 5.18 cannot be that record, because most
+of its forests are scored for 2024 and 2025, the years this experiment scores its decisions on. A choice may read
+only evidence dated before the period it acts on (rule 14), and a shared year-level cause, such as a drought year,
+would otherwise reach the choice through its peers. So the context comes from a pool of forests of the same
+climates, scored for 2022 and 2023. Within the nine forests alone it could not: the Aw and Cw forests have no other
+forest of their class.
+
+**Four experiments, run by the lab desk in order.** Once one is done, the next due starts within the hour.
 
 1. `canopy-loss-selection-forests-2022-2023`: the earlier period, on the two-optical-sensor design, with Landsat.
    These forests are new to the lab, so this period is also a set of forests in every method's evidence.
-2. `canopy-loss-method-selection-2022-2025`: runs once (1) is scored. Its plan prints every forest's decision, and
-   each decision is signed as `decision@1` before the later period is read.
-3. `canopy-loss-selection-forests-2024-2025`: the later period, held until (2)'s decisions are signed. It covers
+2. `canopy-loss-context-forests-2022-2023`: the context pool, on the same design for the same years. It holds ten
+   forests the lab scored for 2024 and 2025 before, in the classes of the selection forests other than Am, which
+   has five selection forests of its own. For each such class, it takes the forests with eight or more loss cells in
+   2021 to 2023, up to five by loss, where the class had at least three. Aw gives Chiquitania, Bokeo, Lobaye, Prey
+   Lang and Sinop; Af gives Jambi, Ketapang, Madre de Dios, Ituri and Caqueta. Cw had two and is left out, so
+   Sagaing gets the global choice. These forests are already in other experiments' evidence, so the pool enters no
+   method's status evidence.
+3. `canopy-loss-method-selection-2022-2025`: runs once (1) and (2) are scored. Its plan prints every forest's
+   decision, the climate class of every forest it read, and the fact each class comes from. Each decision is signed
+   as `decision@1` before the later period is read.
+4. `canopy-loss-selection-forests-2024-2025`: the later period, held until (3)'s decisions are signed. It covers
    the same forests, so it enters no method's status evidence.
 
-Then (2) runs again and scores its decisions on (3).
+Then (3) runs again and scores its decisions on (4).
 
 **Candidates.** Versions 1 to 4 of the memory detectors, the two seasonal rules, the forest desk's rule and the
 registry rule. Each is named by the blake3 of its source.
 
-**Policies**, frozen in the plan:
+**Policies**, frozen in the plan. Every policy reads the same earlier record, (1) and (2) together, so the
+difference between P2 and P0 is the context and nothing else.
 
-- P0, global: the candidate with the best mean earlier-period MCC over the forests with five or more loss cells.
+- P0, global: the candidate with the best mean MCC over the forests of the earlier record with five or more loss
+  cells.
 - P1, local: each forest's MCC shrunk towards that mean by empirical Bayes.
+- P2, context: the candidate with the best mean MCC over the other forests of the earlier record in the same
+  climate class (the first two letters of the Koppen class), counting those with five or more loss cells; with fewer
+  than three such forests, P0's choice. It never reads the forest's own record.
 - P3, abstaining: P1, but only where the choice's shrunk lower bound beats the registry rule.
 
 The plan also says when the champion is flagged as wrong at a forest.
 
 **Scores on the later period**, with forests as the resampled unit:
 
-- P1 against P0;
+- P1 against P0, and P2 against P0, two registered comparisons, neither adjusted for the other, with the number
+  of forests where P2 chose other than P0;
 - P3's coverage, and its MCC beside P0's on the same forests;
 - how often the "champion wrong here" flag held.
 
 **Limits stated in advance.** Hansen is the reference in both periods, and it is a Landsat product. Nine forests is
-few. The scoring is retrospective inside each period; as-of replay comes with it as a second measurement.
+few, and five of them share one class, so P2 can differ from P0 at only a few forests. The Koppen class is read at
+one point, the box centre, from a 1 km map. Climate is confounded with continent. The scoring is retrospective inside
+each period; as-of replay comes with it as a second measurement.
+
+**What the verifier checks.** The integrity desk re-derives both earlier experiments from their signed records, reads
+every Koppen fact from its canonical bytes (its hash must be its content id, its band `koppen` and its value the
+class the plan prints), re-runs every policy, and signs agreement or the first difference. A dry run on the
+two-optical-sensor forests, split into a stand-in earlier period and a stand-in pool, found that the selection plan
+did not print the parameters block its verifier needs; it does now.
 
 ## 7. What it needs that the lab cannot provide alone
 
@@ -145,6 +178,7 @@ few. The scoring is retrospective inside each period; as-of replay comes with it
    every result, for the leading detectors and the registry rule).
 3. `verification@1` and a verifier desk (done: the integrity desk re-derives each new experiment from its signed
    records, with every input's receipt and canonical bytes checked offline, and signs the outcome under its own
-   key). `decision@1`, next.
+   key). `decision@1` is signed for every forest, with each policy's choice and the evidence it read.
 4. The experiment is registered (section 6) and runs from the lab desk on its own; its decisions are
    signed before the later period is read.
+5. The context policy (P2), from a pool scored for the years before the later period (section 6).

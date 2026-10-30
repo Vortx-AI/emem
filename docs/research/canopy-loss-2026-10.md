@@ -559,7 +559,7 @@ second reference separates them, read the stated rate as a floor.
 
 **The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
 (intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
-failure to win after a first win means not replicated, so all three now read not replicated (section 5.18).
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.19).
 
 ### 5.14 Two references: loss in 2022 and 2023, judged by Hansen and by JRC TMF (MCC decides)
 
@@ -735,7 +735,36 @@ The fixed seasonal NBR rule finds small clearings no better than chance.
 The next gain at small clearings will come from a finer unit (section 5.10 found 200 m cells better than 400 m),
 not from a sharper threshold at 400 m. Every result now carries this table, and its signed record the counts.
 
-### 5.18 Status of every proposal
+### 5.18 Where each method is competent, by climate (post hoc, deciding nothing)
+
+Section 5.9 found that the methods' results differ between forests far more than chance allows. To see how much of
+that difference follows the kind of place, every forest of the eight experiments scored by MCC in sections 5.5 to 5.15
+(79 forests; the cell-size and snow experiments aside) was put in the Koppen climate class at its box centre. That class is a signed emem fact (Beck et al.
+2018) that no method produced. Each method is scored only on the forests it ran on that had five or more loss cells:
+its pooled MCC minus the registry rule's on the same forests, and the interval with forests resampled.
+
+| class | forests with loss | best | `lab:memory_optical@1` | `lab:seasonal_loss_nbr@1` | `desk:vegetation_loss@1` |
+|---|---|---|---|---|---|
+| Am, monsoon rainforest | 15 | `lab:memory_mv_fusion@2` +0.58 (7 forests; +0.21 to +0.83) | +0.37 (+0.17 to +0.52) | +0.15 (-0.02 to +0.28) | +0.18 (+0.05 to +0.31) |
+| Af, rainforest | 13 | `lab:memory_mv_fusion@2` +0.32 (5 forests; +0.23 to +0.39) | +0.16 (+0.03 to +0.28) | +0.02 (-0.12 to +0.14) | +0.03 (-0.09 to +0.13) |
+| Aw, savanna and dry forest | 8 | `lab:memory_optical@1` +0.11 | +0.11 (+0.00 to +0.28) | -0.06 (-0.22 to +0.17) | -0.19 (-0.29 to -0.02) |
+| Cf, temperate | 3 | `lab:memory_optical@1` +0.54 | +0.54 (+0.46 to +0.64) | +0.43 | +0.26 |
+| Df, boreal | 3 | `lab:memory_optical@1` +0.48 | +0.48 (0.00 to +0.89) | +0.35 | -0.29 |
+
+Competence follows the climate. In evergreen forest (Am, Af, Cf) the detectors that compare a cell with its own
+past beat the registry rule by a wide margin. In the seasonally dry forests of class Aw, where leaves fall each dry
+season and a cell browns without being cleared, the registry rule's plain drop holds up (MCC 0.375). Only the first
+memory detector is above it there, and the desk's own rule, which wins in class Am, is significantly worse than it.
+In class Af the fixed seasonal rules have no edge at all. The first memory detector is the one method above the
+registry rule in every class it ran in.
+
+This is post hoc. The classes were not registered, climate is confounded with continent, the fusion detectors ran
+on two to seven forests per class, and most of these forests are scored for 2024 and 2025. That last point is why the
+table does not feed a decision. A choice may read only evidence dated before the period it acts on (rule 14), and
+the method-selection experiment scores its decisions on 2024 and 2025. Its context policy instead reads a pool of
+forests of the same climates scored for 2022 and 2023 ([Method selection](method-selection.md), section 6).
+
+### 5.19 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
 experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
@@ -858,7 +887,7 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.18). Read a silence as "no large
+  though the strict status rule reads them not replicated after one tie (section 5.19). Read a silence as "no large
   loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
   twentieth did.
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
@@ -890,11 +919,11 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.18); its verdicts are kept as
+- The program's status rule turns a single tie into not replicated (section 5.19); its verdicts are kept as
   registered, and a meta-analysis is reported beside them.
 - The status rule was tightened after the third replication (section 5.13). The change only demotes.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
-- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.18 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
+- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.19 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 
@@ -925,6 +954,8 @@ for each site, by `lab.py` at the same commit, and reproduce every pooled number
 
 ## References
 
+- Beck, H. E. et al. 2018. Present and future Koppen-Geiger climate classification maps at 1-km resolution.
+  Scientific Data 5:180214.
 - Chen, J. et al. 2004. A simple method for reconstructing a high-quality NDVI time-series data set based on the
   Savitzky-Golay filter. Remote Sensing of Environment 91:332-344.
 - DerSimonian, R. & Laird, N. 1986. Meta-analysis in clinical trials. Controlled Clinical Trials 7:177-188.

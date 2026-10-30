@@ -358,13 +358,17 @@ disagreements between sources; that list is the program's agenda.
 
 ## 7. What is not shown yet
 
-- Five canopy rules are replicated under rule v2 (the paper, section 5.18): the first memory detector
+- Five canopy rules are replicated under rule v2 (the paper, section 5.19): the first memory detector
   (`lab:memory_optical@1`, +0.21 MCC, forest-dependent), the searched seasonal rule (+0.15), the seasonal NBR rule
   and the desk's rule (both forest-dependent) and the screened registry rule (+0.04). The later memory detectors pool
   higher, +0.17 to +0.34, but their sets of forests disagree too much (I² 96 to 99%) for them to be called better, and
   most of their evidence was weighed with intervals that resampled cells (rule 12). The Landsat version
   (`lab:memory_hls_emp@4`) won its first experiment with forests resampled and awaits replication. The lab's planner
   schedules that replication itself, on the Landsat design and on forests that had loss before the window.
+- Much of that disagreement follows the climate (the paper, section 5.18, post hoc): in seasonally dry forest the
+  registry rule holds up, and in evergreen forest the memory detectors beat it widely. Whether choosing by climate
+  beats choosing the best on average is the method-selection experiment's context policy, scored on years its
+  evidence does not cover.
 - At 400 m they find 20% of cells with 5 to 10% cleared. Whether a 200 m reading closes that gap is the cell-size
   experiment's question.
 - Clearings that cover under 5% of a 400 m cell are left out of scoring.
