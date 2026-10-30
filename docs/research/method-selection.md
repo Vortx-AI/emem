@@ -132,8 +132,9 @@ few. The scoring is retrospective inside each period; as-of replay comes with it
 ## 7. What it needs that the lab cannot provide alone
 
 - **An independently designed reference.** A probability sample of stable forest, small clearings, plantations and
-  cloud-heavy places, interpreted by people on very-high-resolution imagery (Olofsson et al. 2014). Who interprets,
-  and on what imagery, is the operator's decision.
+  cloud-heavy places, interpreted by people on very-high-resolution imagery (Olofsson et al. 2014). The protocol is
+  in [An independent reference](reference-sample.md); who interprets, and on what imagery, is the operator's
+  decision.
 - **Competitors.** GLAD-S2, RADD and DIST-ALERT where they overlap. DIST-ALERT needs an Earthdata login, which is the
   operator's to provide.
 

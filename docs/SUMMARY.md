@@ -46,6 +46,7 @@
   - [Finding sudden canopy loss from Sentinel-2 cell series](./research/canopy-loss-2026-10.md)
   - [What the research found missing in emem](./research/gaps.md)
   - [Method selection: when the method an agent trusted is wrong for this place](./research/method-selection.md)
+  - [An independent reference: a probability sample interpreted by people](./research/reference-sample.md)
 - [How emem compares, and what we have not measured](./how-emem-compares.md)
 - [Benchmarks and methods](./benchmarks.md)
 - [Statistics, cost, and threats to validity](./paper-section-statistics-and-threats.md)
