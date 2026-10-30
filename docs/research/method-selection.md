@@ -84,34 +84,50 @@ signs a `verification@1` record: agree, or dispute with the first part that diff
 the decision, not hidden. The experiment reports how many decisions verified, and how long and how many bytes a
 verification took.
 
-## 6. The first experiment (draft)
+## 6. The first experiment, as registered
 
-**Places and periods.** Forests with Hansen loss both in an earlier period A (2022-2023) and a later period B
-(2024-2025). The two-reference experiment read ten forests for A, and the two-optical-sensor experiment nine forests
-for B; reading the other period of each gives up to 19 forests, both periods, the same frozen methods.
+**A first design was dropped before anything was signed.** It would have used the ten forests of the two-reference
+experiment, scored for 2022 and 2023, as the earlier period. A dry run showed why that was too thin. Those forests
+held 42 loss cells, 26 of them in one forest. At a forest with one loss cell, the champion was flagged wrong and
+replaced on the strength of that single cell, because resampling cells cannot show how little one hit or miss says.
+Two changes followed: a forest is local evidence only with five or more loss cells, and the experiment moved to new
+forests with real loss in the earlier period.
 
-**Policies**, fixed before any period-B label is read:
+**Forests.** The nine unused forests of the lab's pool with ten or more 400 m cells of Hansen loss in 2021 to 2023,
+read before either period: Sao Felix do Xingu, Boca do Acre, Sud-Ubangi, Sagaing, Zambezia, Sarawak, Attapeu,
+Masoala and Cujubim. They span humid rainforest, monsoon forest and dry miombo, so competence that differs by kind
+of forest has room to show.
 
-- P0, the global champion: the method with the best pooled evidence from other forests before B.
-- P1, local: each forest's own period-A MCC per method, shrunk towards the pooled value by the between-forest
-  variance (empirical Bayes), best shrunk estimate chosen.
-- P2, by context: the method with the best period-A record among forests of the same kind (cloudiness and forest
-  type, defined before the data are read).
-- P3, abstain: like P1, but no choice when no method's shrunk lower bound beats the registry rule.
+**Three experiments, run by the lab desk in order.**
 
-**Scores on period B**, with forests as the resampled unit: MCC difference of P1, P2 and P3 against P0 (P3 with its
-coverage), false alarms per 1,000 km² per year, and per-event recall where loss events can be told apart.
+1. `canopy-loss-selection-forests-2022-2023`: the earlier period, on the two-optical-sensor design, with Landsat.
+   These forests are new to the lab, so this period is also a set of forests in every method's evidence.
+2. `canopy-loss-method-selection-2022-2025`: runs once (1) is scored. Its plan prints every forest's decision, and
+   each decision is signed as `decision@1` before the later period is read.
+3. `canopy-loss-selection-forests-2024-2025`: the later period, held until (2)'s decisions are signed. It covers
+   the same forests, so it enters no method's status evidence.
 
-**Discovery.** A forest where P0's own period-A MCC falls significantly below its pooled value is flagged "wrong
-here". The experiment reports how often that flag was right about period B.
+Then (2) runs again and scores its decisions on (3).
 
-**Verification.** Every decision is re-derived by a second desk under its own key.
+**Candidates.** Versions 1 to 4 of the memory detectors, the two seasonal rules, the forest desk's rule and the
+registry rule. Each is named by the blake3 of its source.
 
-**Held out.** Five forests, drawn by a fixed seed before any data are read, are used by no policy and scored only
-once the policies are frozen.
+**Policies**, frozen in the plan:
 
-**Limits stated in advance.** Hansen is the reference in both periods, and it is a Landsat product. The sample is
-small. The first run is retrospective inside each period; as-of replay comes with it as a second measurement.
+- P0, global: the candidate with the best mean earlier-period MCC over the forests with five or more loss cells.
+- P1, local: each forest's MCC shrunk towards that mean by empirical Bayes.
+- P3, abstaining: P1, but only where the choice's shrunk lower bound beats the registry rule.
+
+The plan also says when the champion is flagged as wrong at a forest.
+
+**Scores on the later period**, with forests as the resampled unit:
+
+- P1 against P0;
+- P3's coverage, and its MCC beside P0's on the same forests;
+- how often the "champion wrong here" flag held.
+
+**Limits stated in advance.** Hansen is the reference in both periods, and it is a Landsat product. Nine forests is
+few. The scoring is retrospective inside each period; as-of replay comes with it as a second measurement.
 
 ## 7. What it needs that the lab cannot provide alone
 
@@ -129,4 +145,5 @@ small. The first run is retrospective inside each period; as-of replay comes wit
 3. `verification@1` and a verifier desk (done: the integrity desk re-derives each new experiment from its signed
    records, with every input's receipt and canonical bytes checked offline, and signs the outcome under its own
    key). `decision@1`, next.
-4. Read the missing periods, freeze the policies, sign the plan, run.
+4. The experiment is registered (section 6) and runs from the lab desk on its own; its decisions are
+   signed before the later period is read.
