@@ -336,7 +336,8 @@ These are the rules the program holds itself to, each learned or confirmed on th
 14. **A decision may use only what existed before it.** A retrospective score, where a detector reads passes after
    the change and a cloud screen reads both neighbours, is not the score of an alert issued on the day. Alerting
    claims are measured by as-of replay: the detector re-run on series truncated at each decision date, reporting
-   the first alert, the date it held, every reversal, and the retrospective score beside it.
+   the first alert, the date it held, every reversal, and the retrospective score beside it. Every result carries
+   this table for the leading detectors and the registry rule, and its signed record the figures.
 
 ## 6. Scaling the program
 

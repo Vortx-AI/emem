@@ -140,8 +140,8 @@ few. The scoring is retrospective inside each period; as-of replay comes with it
 ## 8. Steps
 
 1. Rule 13 in the program and the lab's reference guard (done with this note).
-2. As-of replay, run first on the cached forests (done post hoc on the two-optical-sensor experiment; companion
-   paper, section 5.16). As an experiment kind of its own, next.
+2. As-of replay (done: first post hoc on the two-optical-sensor experiment, companion paper section 5.16; now in
+   every result, for the leading detectors and the registry rule).
 3. `verification@1` and a verifier desk (done: the integrity desk re-derives each new experiment from its signed
    records, with every input's receipt and canonical bytes checked offline, and signs the outcome under its own
    key). `decision@1`, next.
