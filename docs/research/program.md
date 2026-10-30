@@ -2,6 +2,11 @@
 
 *Whitepaper, 29 October 2026. Companion paper: [Finding sudden canopy loss from Sentinel-2 cell series](canopy-loss-2026-10.md).*
 
+**From 30 October the program asks one question:** can an AI agent discover that the method it trusted yesterday is
+wrong for this place today, choose a better method using independent evidence, and let another agent verify the
+entire decision without trusting the first agent? The design is in
+[Method selection](method-selection.md); this paper is the discipline that question is answered under.
+
 ## Abstract
 
 emem publishes a registry of algorithms that compose signed Earth-observation facts into answers. Until now the
@@ -75,6 +80,11 @@ A proposal moves through these states, and only the operator moves it into the r
 
 Each proposal note prints the earlier, strict rule's verdict beside it (replicated only while every later experiment
 won; mixed; not replicated), so a reader can see where the two disagree.
+
+Every status so far is **exploratory**. Rule v2 was adopted after the experiments it judges had been seen, and most
+of its evidence was weighed with intervals that resampled cells (rule 12). A status becomes **confirmatory** only
+from an experiment whose methods, selection policy and score were frozen before it was registered, scored on a set
+of places and a period that no earlier experiment, search or rule change has touched.
 
 ## 3. What an agent reads, and how it decides
 
@@ -316,6 +326,17 @@ These are the rules the program holds itself to, each learned or confirmed on th
    detector's lead ran +0.93 to +1.08 with cells resampled and -0.03 to +1.16 with forests resampled. Every result
    reports both; a plan that registers forests as the unit decides by them; and forests are chosen where loss was
    under way before the scored years, since a forest with no loss adds stable cells and no evidence.
+13. **Three kinds of evidence, and only one decides.** Observations are signed facts an upstream produced. Hypotheses
+   are anything a method produced, however carefully, such as a desk's signed `canopy_alert@1`. Independent
+   references are products and adjudications no candidate method made. Selection and promotion read only the third:
+   a signed hypothesis is auditable, not true, and agreement among descendants of one prediction is not evidence
+   about the ground. The lab reads its truth only through a list of independent products, and a test fails if a
+   fleet derivation is ever on it. A reference that shares an input with a candidate (Hansen and version 4 both use
+   Landsat) is used with the dependence stated.
+14. **A decision may use only what existed before it.** A retrospective score, where a detector reads passes after
+   the change and a cloud screen reads both neighbours, is not the score of an alert issued on the day. Alerting
+   claims are measured by as-of replay: the detector re-run on series truncated at each decision date, reporting
+   the first alert, the date it held, every reversal, and the retrospective score beside it.
 
 ## 6. Scaling the program
 
