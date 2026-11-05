@@ -81187,6 +81187,27 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             ));
         }
     }
+    // The longest place names in use (Bangkok's ceremonial name) are under 200
+    // characters. 4,000 characters of junk ran every geocoder tier, took 7.6 s
+    // to refuse, and came back echoed whole in the 404.
+    const MAX_PLACE_CHARS: usize = 256;
+    if let Some(p) = req.place.as_deref() {
+        let n = p.chars().count();
+        if n > MAX_PLACE_CHARS && latlng_from_query(p).is_none() {
+            let start: String = p.chars().take(48).collect();
+            return Err(ApiError(
+                StatusCode::BAD_REQUEST,
+                ErrorBody {
+                    code: ErrorCode::InvalidArgument,
+                    message: format!(
+                        "place is {n} characters; a place name is at most {MAX_PLACE_CHARS}. \
+                         It starts \"{start}…\". Pass the name of the place, or lat and lng."
+                    ),
+                    details: None,
+                },
+            ));
+        }
+    }
     let (lat, lng, label) = match (req.lat, req.lng, req.place.as_deref()) {
         (Some(la), Some(lo), _) => (la, lo, None),
         // Coordinates passed as `q`/`place` mean the coordinates, not a place whose
@@ -81581,8 +81602,16 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 via = "pois";
                 let lab = poi.label();
                 (poi.lat, poi.lng, Some(lab))
-            } else if let Some((la, lo, lab, bb_cached, bb_source, cached_imp, cached_verdict)) =
-                nominatim_cache_get(p)
+            } else if let Some((
+                la,
+                lo,
+                lab,
+                bb_cached,
+                bb_source,
+                cached_imp,
+                cached_verdict,
+                cached_alternatives,
+            )) = nominatim_cache_get(p)
             {
                 // Layer 2: persistent cache hit. Recover the polygon_bbox
                 // from cache if we stored one, so recall_polygon at a
@@ -81597,6 +81626,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // field documents.
                 cache_verdict = cached_verdict;
                 cache_importance = cached_imp;
+                alternatives = cached_alternatives;
                 // Bug 4: when the query is an admin-boundary query, the
                 // cache may carry a stale POI bbox from before this fix
                 // landed (e.g. "Karnal district" → courthouse node). Treat
@@ -81846,7 +81876,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 // The original order is preserved among items with the
                 // same tier so non-admin ties don't shuffle.
                 let admin_query = is_admin_boundary_query(p);
-                let hits = if admin_query {
+                let mut hits = if admin_query {
                     let mut ranked: Vec<(usize, &NominatimHit)> = hits.iter().enumerate().collect();
                     ranked.sort_by_key(|(orig_idx, h)| (admin_hit_priority(h), *orig_idx));
                     ranked
@@ -81856,6 +81886,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 } else {
                     hits
                 };
+                place_first_for_qualified_query(p, &mut hits);
 
                 let mut hit = hits
                     .first()
@@ -82318,7 +82349,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     let decision_confirms = decision
         .as_ref()
         .is_some_and(|d| d.rule == "agreed" && d.best.exact && !d.ambiguous);
-    let (is_high_conf, confidence_reason) = match locate_confidence_checked(
+    let checked = locate_confidence_checked(
         via,
         sel_imp,
         class_mismatch,
@@ -82328,13 +82359,28 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         sel_label,
         sel_alt_names,
         &sel_class,
-    ) {
-        // A postcode stays unconfirmed: Wikidata matching a number says nothing
-        // about which country's postcode it is.
-        (false, r) if decision_confirms && !class_mismatch && r != "postcode_without_country" => {
+    );
+    // A cache hit now carries its candidates, so it reaches this block, and it
+    // replays the verdict its fresh lookup earned on the same rules as the
+    // branch below that has none: "cache" judged as a tier is unknown
+    // provenance, which is not what the row says.
+    let replayed = cache_verdict.as_ref().filter(|_| via == "cache");
+    let (is_high_conf, confidence_reason): (bool, &str) = match (replayed, checked) {
+        (Some(_), _) if disambiguation_required => (false, "ambiguous_top_two_candidates"),
+        (Some((_, r)), _)
+            if decision_confirms && !class_mismatch && r != "postcode_without_country" =>
+        {
             (true, "wikidata_confirms_answer")
         }
-        v => v,
+        (Some((hc, r)), _) => (*hc, r.as_str()),
+        // A postcode stays unconfirmed: Wikidata matching a number says nothing
+        // about which country's postcode it is.
+        (None, (false, r))
+            if decision_confirms && !class_mismatch && r != "postcode_without_country" =>
+        {
+            (true, "wikidata_confirms_answer")
+        }
+        (None, v) => v,
     };
     // Record it onto the cached row while the evidence still exists. This is
     // the only point where the candidate list has been walked, so it is the
@@ -82345,7 +82391,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // cascade's namesake, and the verdict is about another place.
     if via != "cache" && via != "wikidata" {
         if let Some(q) = req.place.as_deref() {
-            nominatim_cache_note_verdict(q, is_high_conf, confidence_reason);
+            nominatim_cache_note_verdict(q, is_high_conf, confidence_reason, &alternatives);
         }
     }
     mark_selected_alternative(&mut alternatives);
@@ -82466,6 +82512,12 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
                 "disambiguation_required".into(),
                 JsonValue::Bool(mismatch_text || !is_high_conf_else),
             );
+            if let Some(d) = decision.as_ref().filter(|_| disambiguation_required) {
+                let alts = decision_alternatives(lat, lng, label.as_deref(), via, d);
+                if alts.len() > 1 {
+                    m.insert("alternatives".into(), JsonValue::Array(alts));
+                }
+            }
             if mismatch_text {
                 m.insert(
                     "disambiguation_hint".into(),
@@ -82872,6 +82924,88 @@ fn is_facility_class(osm_class: &str) -> bool {
             | "office"
             | "public_transport"
     )
+}
+
+/// The decision stage that answers the place over a facility named after it
+/// skips a query with a qualifier ("Aurangabad, Maharashtra"), so the same
+/// rule runs here on the geocoder's own candidates. When the first is a
+/// facility, a settlement or area within 25 km whose name the facility's name
+/// contains leads instead, unless the query's head uses a word only the
+/// facility has. Photon put "Chhatrapati Sambhajinagar Airport" first for
+/// "Aurangabad, Maharashtra", reached through the city's former name; the head
+/// says nothing about an airport. "Heathrow Airport, London" and "Delhi Public
+/// School, Ghaziabad" name their facility and keep it.
+fn place_first_for_qualified_query(query: &str, hits: &mut [NominatimHit]) {
+    let Some((head, _)) = query.split_once(',') else {
+        return;
+    };
+    let words = |s: &str| -> std::collections::BTreeSet<String> {
+        s.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|t| !t.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let name_words = |h: &NominatimHit| {
+        let first = h.label.split(',').next().unwrap_or("");
+        words(first.split(" (").next().unwrap_or(first))
+    };
+    let head = words(head);
+    let Some(facility) = hits.first().filter(|h| is_facility_class(&h.class_)) else {
+        return;
+    };
+    if head.is_empty() {
+        return;
+    }
+    let facility_words = name_words(facility);
+    let (f_lat, f_lng) = (facility.lat, facility.lng);
+    let pick = hits.iter().position(|h| {
+        let place = name_words(h);
+        matches!(h.class_.as_str(), "place" | "boundary")
+            && haversine_km(h.lat, h.lng, f_lat, f_lng) < 25.0
+            && !place.is_empty()
+            && place.is_subset(&facility_words)
+            && facility_words.difference(&place).all(|w| !head.contains(w))
+    });
+    if let Some(i) = pick {
+        hits[..=i].rotate_right(1);
+    }
+}
+
+/// Something to choose from when the decision stage calls a name ambiguous and
+/// the tier that answered keeps no candidate list (the admin and GeoNames
+/// tiers): the served answer first, then each Wikidata namesake that lies
+/// elsewhere. Bare "Pratapgarh" was flagged ambiguous with no `alternatives`,
+/// so the caller was told to choose and given nothing to choose from.
+fn decision_alternatives(
+    lat: f64,
+    lng: f64,
+    label: Option<&str>,
+    via: &str,
+    d: &GeocodeDecision,
+) -> Vec<JsonValue> {
+    let cell = |la: f64, lo: f64| emem_codec::to_cell64(emem_codec::cell_from_latlng(la, lo));
+    let mut out = vec![json!({
+        "cell64": cell(lat, lng), "lat": lat, "lng": lng, "label": label, "source": via,
+    })];
+    let mut seen: Vec<&str> = Vec::new();
+    for c in std::iter::once(&d.best).chain(d.runner_up.as_ref()) {
+        if haversine_km(c.lat, c.lng, lat, lng) < 25.0 || seen.contains(&c.qid.as_str()) {
+            continue;
+        }
+        seen.push(&c.qid);
+        let named = if c.description.is_empty() {
+            c.label.clone()
+        } else {
+            format!("{} ({})", c.label, c.description)
+        };
+        out.push(json!({
+            "cell64": cell(c.lat, c.lng), "lat": c.lat, "lng": c.lng, "label": named,
+            "wikidata": c.qid, "source": "wikidata",
+        }));
+    }
+    mark_selected_alternative(&mut out);
+    out
 }
 
 /// The geocoder's hit is a facility named after the place, and Wikidata's best
@@ -83651,6 +83785,13 @@ struct CachedPlace {
     /// superseded generation.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     resolver_version: Option<u32>,
+    /// The candidates the fresh lookup ranked, stored beside its verdict. A
+    /// cache hit served none, so the first call for a name listed five places
+    /// and every later call listed nothing to choose from, and the decision
+    /// stage's facility rule, which reads the first candidate's class, never
+    /// ran on a cached answer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    alternatives: Option<Vec<JsonValue>>,
 }
 
 /// Map a stored `polygon_source` string back onto the `&'static str` the
@@ -83738,7 +83879,11 @@ fn polygon_source_static(s: &str) -> Option<&'static str> {
 /// 16: a query naming a feature class picks a candidate of that class, and
 ///     retries without the type word when none is ("Mount Kilimanjaro"
 ///     resolved to a primary school; OSM names the peak "Kilimanjaro").
-const LOCATE_RESOLVER_VERSION: u32 = 16;
+/// 17: a qualified query answers the place over a facility named after it
+///     ("Aurangabad, Maharashtra" resolved to the city's airport), and a row
+///     stores its candidate list so a cache hit can show it. Generation-16
+///     rows hold the facility and no candidates.
+const LOCATE_RESOLVER_VERSION: u32 = 17;
 
 /// 30 d TTL, place-name → centroid is stable. Nominatim's caching
 /// policy explicitly allows long retention. Override via
@@ -83930,6 +84075,7 @@ type CachedGeocode = (
     Option<&'static str>,
     Option<f64>,
     Option<(bool, String)>,
+    Vec<JsonValue>,
 );
 
 fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
@@ -84001,6 +84147,7 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
         bb_source,
         entry.importance,
         verdict,
+        entry.alternatives.unwrap_or_default(),
     ))
 }
 
@@ -84011,7 +84158,12 @@ fn nominatim_cache_get(query: &str) -> Option<CachedGeocode> {
 /// only decided afterwards, once the candidate list has been walked. Writing
 /// the verdict at put time would persist `false` for every ambiguous name,
 /// which is the bug this exists to close.
-fn nominatim_cache_note_verdict(query: &str, is_high_confidence: bool, reason: &str) {
+fn nominatim_cache_note_verdict(
+    query: &str,
+    is_high_confidence: bool,
+    reason: &str,
+    alternatives: &[JsonValue],
+) {
     let q = query.trim().to_ascii_lowercase();
     let Ok(Some(raw)) = geocoder_db().get(q.as_bytes()) else {
         return;
@@ -84021,6 +84173,7 @@ fn nominatim_cache_note_verdict(query: &str, is_high_confidence: bool, reason: &
     };
     entry.is_high_confidence = Some(is_high_confidence);
     entry.confidence_reason = Some(reason.to_string());
+    entry.alternatives = (!alternatives.is_empty()).then(|| alternatives.to_vec());
     if let Ok(bytes) = serde_json::to_vec(&entry) {
         let _ = geocoder_db().insert(q.as_bytes(), bytes);
     }
@@ -84075,6 +84228,7 @@ fn merge_cached_place(prior: Option<CachedPlace>, fresh: CachedPlace) -> CachedP
         // judgement about the old answer says nothing about a new one.
         is_high_confidence: prior.is_high_confidence,
         confidence_reason: prior.confidence_reason,
+        alternatives: fresh.alternatives.or(prior.alternatives),
         ..fresh
     }
 }
@@ -84110,6 +84264,7 @@ fn nominatim_cache_put(
         is_high_confidence: None,
         confidence_reason: None,
         resolver_version: Some(LOCATE_RESOLVER_VERSION),
+        alternatives: None,
     };
     let bytes = match serde_json::to_vec(&merge_cached_place(prior, fresh)) {
         Ok(b) => b,
@@ -97853,6 +98008,167 @@ mod tests {
         );
     }
 
+    fn photon_hit(label: &str, class_: &str, lat: f64, lng: f64) -> NominatimHit {
+        NominatimHit {
+            lat,
+            lng,
+            label: label.into(),
+            bbox: None,
+            osm_type: "N".into(),
+            osm_id: "1".into(),
+            class_: class_.into(),
+            type_: String::new(),
+            importance: 0.6,
+            alt_names: String::new(),
+            polygon_geojson: None,
+        }
+    }
+
+    /// Photon's five candidates for "Aurangabad, Maharashtra" on 2026-11-05.
+    #[test]
+    fn a_qualified_city_name_gives_the_city_not_its_airport() {
+        let mut hits = vec![
+            photon_hit(
+                "Chhatrapati Sambhajinagar Airport (aerodrome), Chhatrapati Sambhajinagar, Maharashtra, India",
+                "aeroway",
+                19.8644,
+                75.4024,
+            ),
+            photon_hit(
+                "Chhatrapati Sambhajinagar (city), Maharashtra, India",
+                "place",
+                19.8773,
+                75.3390,
+            ),
+            photon_hit(
+                "Aurangabad Pr. Adgaon (administrative), Maharashtra, India",
+                "boundary",
+                21.1768,
+                76.9918,
+            ),
+            photon_hit(
+                "Chhatrapati Sambhajinagar (station), Maharashtra, India",
+                "railway",
+                19.8598,
+                75.3114,
+            ),
+        ];
+        place_first_for_qualified_query("Aurangabad, Maharashtra", &mut hits);
+        assert_eq!(hits[0].class_, "place", "{}", hits[0].label);
+        assert_eq!(hits[1].class_, "aeroway");
+        assert_eq!(hits.len(), 4);
+
+        // The same facility first under a bare name is the decision stage's
+        // case, not this one.
+        let mut bare = hits.clone();
+        bare.rotate_left(1);
+        place_first_for_qualified_query("Aurangabad", &mut bare);
+        assert_eq!(bare[0].class_, "aeroway");
+    }
+
+    #[test]
+    fn a_qualified_name_that_names_the_facility_keeps_it() {
+        let london = photon_hit(
+            "London (city), England, United Kingdom",
+            "place",
+            51.507,
+            -0.128,
+        );
+        for (query, facility, class_, lat, lng) in [
+            (
+                "Heathrow Airport, London",
+                "London Heathrow Airport (aerodrome), London, United Kingdom",
+                "aeroway",
+                51.470,
+                -0.454,
+            ),
+            (
+                "JFK, New York",
+                "John F. Kennedy International Airport (aerodrome), New York, United States",
+                "aeroway",
+                40.641,
+                -73.778,
+            ),
+        ] {
+            let mut hits = vec![photon_hit(facility, class_, lat, lng), london.clone()];
+            place_first_for_qualified_query(query, &mut hits);
+            assert_eq!(hits[0].class_, class_, "{query}");
+        }
+        let mut school = vec![
+            photon_hit(
+                "Delhi Public School Ghaziabad Vasundhara (school), Ghaziabad, India",
+                "amenity",
+                28.66,
+                77.36,
+            ),
+            photon_hit(
+                "Ghaziabad (city), Uttar Pradesh, India",
+                "place",
+                28.67,
+                77.43,
+            ),
+        ];
+        place_first_for_qualified_query("Delhi Public School, Ghaziabad", &mut school);
+        assert_eq!(school[0].class_, "amenity");
+
+        let mut road = vec![
+            photon_hit(
+                "रांची-पुरुलिया रोड (primary), Jharkhand, India",
+                "highway",
+                23.33,
+                85.36,
+            ),
+            photon_hit("रांची (city), Jharkhand, India", "place", 23.36, 85.33),
+        ];
+        place_first_for_qualified_query("रांची, झारखंड", &mut road);
+        assert_eq!(road[0].class_, "place", "{}", road[0].label);
+    }
+
+    #[test]
+    fn an_ambiguous_answer_lists_what_to_choose_from() {
+        let c = |qid: &str, lat: f64, lng: f64, sitelinks: u32| emem_fetch::wikidata::Candidate {
+            qid: qid.into(),
+            label: "Pratapgarh".into(),
+            description: format!("place {qid}"),
+            lat,
+            lng,
+            sitelinks,
+            exact: true,
+        };
+        let cands = [c("Qup", 25.90, 81.95, 40), c("Qtr", 23.53, 91.53, 35)];
+        let d = decide_geocode(&cands, 25.89, 81.94, None).unwrap();
+        assert!(d.ambiguous, "{}", d.rule);
+        let alts = decision_alternatives(25.89, 81.94, Some("Pratapgarh, India"), "admin2", &d);
+        assert_eq!(
+            alts.len(),
+            2,
+            "the served answer, and the namesake elsewhere"
+        );
+        assert_eq!(alts[0]["source"], "admin2");
+        assert_eq!(alts[0]["is_selected"], true);
+        assert_eq!(alts[1]["wikidata"], "Qtr");
+        assert_eq!(alts[1]["label"], "Pratapgarh (place Qtr)");
+        assert_eq!(alts[1]["rank"], 1);
+    }
+
+    #[tokio::test]
+    async fn an_overlong_place_is_refused_at_once_without_echoing_it() {
+        let junk = "x".repeat(4000);
+        let started = std::time::Instant::now();
+        let Err(err) = locate_inner(LocateReq {
+            lat: None,
+            lng: None,
+            place: Some(junk),
+        })
+        .await
+        else {
+            panic!("a 4,000-character place must be refused");
+        };
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(err.1.message.len() < 300, "{}", err.1.message);
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
     #[test]
     fn a_bare_postcode_is_never_high_confidence() {
         for q in ["110001", "560 001", "10115", "75008"] {
@@ -102084,7 +102400,17 @@ mod tests {
             is_high_confidence: None,
             confidence_reason: None,
             resolver_version: Some(LOCATE_RESOLVER_VERSION),
+            alternatives: None,
         }
+    }
+
+    #[test]
+    fn a_cache_row_keeps_its_candidates_when_a_bbox_is_attached() {
+        let mut prior = a_row("Chhatrapati Sambhajinagar (city), Maharashtra, India");
+        prior.alternatives = Some(vec![json!({"label": "x"}), json!({"label": "y"})]);
+        let fresh = a_row("Chhatrapati Sambhajinagar (city), Maharashtra, India");
+        let merged = merge_cached_place(Some(prior), fresh);
+        assert_eq!(merged.alternatives.map(|a| a.len()), Some(2));
     }
 
     /// A row minted by a superseded resolver must not survive the merge.

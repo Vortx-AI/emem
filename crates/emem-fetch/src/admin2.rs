@@ -62,7 +62,7 @@ impl Admin2Record {
     }
 
     pub fn label(&self) -> String {
-        format!("{}, {} {}", self.name, self.admin1_code, self.country)
+        crate::geonames::place_label(&self.name, &self.country, Some(&self.admin1_code))
     }
 }
 
@@ -297,6 +297,18 @@ mod tests {
     fn cuyahoga_county_resolves() {
         let r = lookup("Cuyahoga County").expect("Cuyahoga County must hit");
         assert_eq!(r.country, "US");
+    }
+
+    #[test]
+    fn a_district_label_names_its_state_and_country() {
+        // Served as "Pratapgarh, 24 IN" until 2026-11-05.
+        let label = lookup("Pratapgarh").expect("Pratapgarh must hit").label();
+        assert!(label.ends_with(", India"), "{label}");
+        assert!(!label.chars().any(|c| c.is_ascii_digit()), "{label}");
+        assert_eq!(
+            lookup("Cuyahoga County").unwrap().label(),
+            "Cuyahoga County, Ohio, United States"
+        );
     }
 
     #[test]

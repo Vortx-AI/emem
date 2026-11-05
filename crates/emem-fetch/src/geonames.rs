@@ -132,17 +132,25 @@ impl GeonameRecord {
     /// entry is left out rather than shown raw, and a region named like
     /// the place itself (Singapore) is not repeated.
     pub fn label(&self) -> String {
-        let country = crate::countries::lookup(&self.country)
-            .filter(|c| c.iso2.eq_ignore_ascii_case(&self.country))
-            .map_or(self.country.as_str(), |c| c.name.as_str());
-        let region = Some(self.admin1.as_str())
-            .filter(|a| !a.is_empty())
-            .and_then(|a| crate::admin1::name_for_code(&self.country, a))
-            .filter(|r| *r != self.name);
-        match region {
-            Some(r) => format!("{}, {r}, {country}", self.name),
-            None => format!("{}, {country}", self.name),
-        }
+        place_label(&self.name, &self.country, Some(&self.admin1))
+    }
+}
+
+/// The one label shape every gazetteer tier answers with:
+/// `"<Name>, <Region>, <Country>"`, each code spelled out from the embedded
+/// tables. Shared because the admin tiers printed their own codes
+/// (`"Pratapgarh, 24 IN"`) long after this one was fixed.
+pub(crate) fn place_label(name: &str, country_iso2: &str, admin1_code: Option<&str>) -> String {
+    let country = crate::countries::lookup(country_iso2)
+        .filter(|c| c.iso2.eq_ignore_ascii_case(country_iso2))
+        .map_or(country_iso2, |c| c.name.as_str());
+    let region = admin1_code
+        .filter(|a| !a.is_empty())
+        .and_then(|a| crate::admin1::name_for_code(country_iso2, a))
+        .filter(|r| *r != name);
+    match region {
+        Some(r) => format!("{name}, {r}, {country}"),
+        None => format!("{name}, {country}"),
     }
 }
 

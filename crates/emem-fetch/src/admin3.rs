@@ -63,10 +63,7 @@ impl Admin3Record {
     }
 
     pub fn label(&self) -> String {
-        format!(
-            "{}, {}.{} {}",
-            self.name, self.admin1_code, self.admin2_code, self.country
-        )
+        crate::geonames::place_label(&self.name, &self.country, Some(&self.admin1_code))
     }
 }
 

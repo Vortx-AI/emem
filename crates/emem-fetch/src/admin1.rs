@@ -84,9 +84,9 @@ impl Admin1Record {
         (self.min_lat, self.max_lat, self.min_lng, self.max_lng)
     }
 
-    /// Reader-friendly label, e.g. `"West Bengal, IN"`.
+    /// Reader-friendly label, e.g. `"West Bengal, India"`.
     pub fn label(&self) -> String {
-        format!("{}, {}", self.name, self.country)
+        crate::geonames::place_label(&self.name, &self.country, None)
     }
 }
 
