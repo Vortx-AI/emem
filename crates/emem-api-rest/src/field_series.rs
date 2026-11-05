@@ -907,6 +907,50 @@ fn zones_bbox(zones: &[Zone]) -> Result<BBox, ApiError> {
     Ok(bbox)
 }
 
+/// The read window: the point every read is centred on, the window's size in
+/// pixels and its north-west corner on the raster's own grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ReadWindow {
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+    x0: f64,
+    y0: f64,
+}
+
+/// The window read for an area: sized from the projections of the box's
+/// (min_lat, min_lng) and (max_lat, max_lng) corners and centred on the box's
+/// middle. `corner(cx, cy, w, h)` is the north-west corner the reader uses for
+/// a `w` x `h` window centred on (cx, cy).
+fn read_window(
+    b: &BBox,
+    _rings: &[Vec<[f64; 2]>],
+    _zones: &[Zone],
+    epsg: u32,
+    step: f64,
+    corner: impl Fn(f64, f64, u32, u32) -> (f64, f64),
+) -> Result<ReadWindow, ApiError> {
+    let utm = |lat: f64, lng: f64| {
+        emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
+            .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))
+    };
+    let c = utm((b.min_lat + b.max_lat) / 2.0, (b.min_lng + b.max_lng) / 2.0)?;
+    let lo = utm(b.min_lat, b.min_lng)?;
+    let hi = utm(b.max_lat, b.max_lng)?;
+    let w = (((hi.easting - lo.easting).abs() / step).ceil() as u32).max(1);
+    let h = (((hi.northing - lo.northing).abs() / step).ceil() as u32).max(1);
+    let (x0, y0) = corner(c.easting, c.northing, w, h);
+    Ok(ReadWindow {
+        cx: c.easting,
+        cy: c.northing,
+        w,
+        h,
+        x0,
+        y0,
+    })
+}
+
 /// A read window's pixel grid in the scene CRS: north-west corner, step, size.
 struct Lattice {
     epsg: u32,
@@ -2314,14 +2358,21 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let utm_c = to_utm(centre_lat, centre_lng)?;
     let utm_min = to_utm(b.min_lat, b.min_lng)?;
     let utm_max = to_utm(b.max_lat, b.max_lng)?;
-    let w = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
-    let h = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    let win = read_window(b, &aoi.rings, &zones, epsg, native_m, |cx, cy, w, h| {
+        window_corner(&prof, cx, cy, w, h)
+    })?;
+    // Every read below is centred on `utm_c`, so it is the window's centre.
+    let utm_c = emem_fetch::proj::UtmCoord {
+        easting: win.cx,
+        northing: win.cy,
+        ..utm_c
+    };
+    let (w, h, wx0, wy0) = (win.w, win.h, win.x0, win.y0);
     if w > MAX_SIDE_PX || h > MAX_SIDE_PX {
         return Err(bad_request(format!(
             "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
         )));
     }
-    let (wx0, wy0) = window_corner(&prof, utm_c.easting, utm_c.northing, w, h);
     let centre_of = |r: u32, c: u32| {
         (
             wx0 + (c as f64 + 0.5) * native_m,
@@ -3215,15 +3266,22 @@ async fn radar_series(
     let utm_c = to_utm(centre_lat, centre_lng)?;
     let utm_min = to_utm(b.min_lat, b.min_lng)?;
     let utm_max = to_utm(b.max_lat, b.max_lng)?;
-    let w = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
-    let h = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    let win = read_window(b, &aoi.rings, &zones, epsg, native_m, |cx, cy, w, h| {
+        let (cc, cr) = prof.world_to_pixel(cx, cy);
+        prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2)
+    })?;
+    // Every read below is centred on `utm_c`, so it is the window's centre.
+    let utm_c = emem_fetch::proj::UtmCoord {
+        easting: win.cx,
+        northing: win.cy,
+        ..utm_c
+    };
+    let (w, h, wx0, wy0) = (win.w, win.h, win.x0, win.y0);
     if w > MAX_SIDE_PX || h > MAX_SIDE_PX {
         return Err(bad_request(format!(
             "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
         )));
     }
-    let (cc, cr) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
-    let (wx0, wy0) = prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2);
     let rings_utm: Vec<Vec<[f64; 2]>> = aoi
         .rings
         .iter()
@@ -4165,6 +4223,64 @@ mod tests {
             .map(|_| json!({"geometry": sq(75.0)}))
             .collect();
         assert!(parse_fields(&JsonValue::Array(many)).is_err());
+    }
+
+    /// Sentinel-2 tile 43RGM's 10 m grid, for window tests.
+    fn s2_43rgm() -> emem_fetch::cog::CogProfile {
+        emem_fetch::cog::CogProfile {
+            width: 10980,
+            height: 10980,
+            bits_per_sample: 16,
+            sample_format: 1,
+            compression: 8,
+            predictor: 1,
+            tile_w: 1024,
+            tile_h: 1024,
+            tile_cols: 11,
+            tile_rows: 11,
+            samples_per_pixel: 1,
+            planar_config: 1,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
+            pixel_scale: (10.0, 10.0),
+            tiepoint: (0.0, 0.0, 699_960.0, 3_200_040.0),
+            epsg: Some(32643),
+            nodata: Some("0".into()),
+            pixel_is_point: false,
+        }
+    }
+
+    /// Two 44 m squares near Dhaulana, 2.7 degrees east of zone 43's central
+    /// meridian, read together with `fields` (geo.qa's test of 2026-11-05).
+    /// Each holds 25 pixel centres on the 10 m grid. The window sized from the
+    /// box's (min, min) and (max, max) corners ended at x 760775, west of D2
+    /// (x 760772 to 760818): D2 was skipped as "0 pixel centres" and D3 read
+    /// 10 of its 25. Every field must be read whole.
+    #[test]
+    fn the_fields_window_holds_every_field() {
+        let sq = |a: [f64; 2], c: [f64; 2]| json!({"type": "Polygon", "coordinates": [[a, [c[0], a[1]], c, [a[0], c[1]], a]]});
+        let zones = parse_fields(&json!([
+            {"id": "D2", "geometry": sq([77.66675, 28.605193], [77.6672, 28.605589])},
+            {"id": "D3", "geometry": sq([77.649277, 28.621774], [77.649727, 28.62217])},
+        ]))
+        .unwrap();
+        let b = zones_bbox(&zones).unwrap();
+        let prof = s2_43rgm();
+        let win = read_window(&b, &[], &zones, 32643, 10.0, |cx, cy, w, h| {
+            window_corner(&prof, cx, cy, w, h)
+        })
+        .unwrap();
+        let g = Lattice {
+            epsg: 32643,
+            x0: win.x0,
+            y0: win.y0,
+            step: 10.0,
+            w: win.w,
+            h: win.h,
+        };
+        let (px, skipped) = zone_pixels(&zones, &g, 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(px.iter().map(Vec::len).collect::<Vec<_>>(), vec![25, 25]);
     }
 
     #[test]
