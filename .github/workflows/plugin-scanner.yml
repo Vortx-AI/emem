@@ -8,7 +8,10 @@ name: plugin-scanner
 
 on:
   push:
-    branches: [main]
+    # scanner-check/** runs the scanner alone on a branch, so a change to the
+    # skills or this workflow can be graded without a push to main (which
+    # starts ci, publish and a deploy).
+    branches: [main, "scanner-check/**"]
   pull_request:
     branches: [main]
 
@@ -48,25 +51,20 @@ jobs:
           except (OSError, ValueError) as e:
               print(f"::notice title=plugin scan::no JSON report ({e})")
               sys.exit(0)
-          found = []
-          def walk(v):
-              if isinstance(v, dict):
-                  if "rule_id" in v:
-                      found.append(v)
-                  for x in v.values():
-                      walk(x)
-              elif isinstance(v, list):
-                  for x in v:
-                      walk(x)
-          walk(report)
-          order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
-          found.sort(key=lambda f: order.get(str(f.get("severity", "")).lower(), 5))
-          head = {k: report.get(k) for k in ("score", "grade") if isinstance(report, dict) and k in report}
-          print(f"::notice title=plugin scan::{len(found)} findings {head}")
-          for f in found[:40]:
+          # scan-result.v1: findings carry ruleId / filePath / lineNumber.
+          findings = report.get("findings") or []
+          head = {k: report.get(k) for k in ("score", "grade", "profile", "policy_pass")}
+          print(f"::notice title=plugin scan::{len(findings)} findings {head} counts={report.get('summary', {}).get('findings')}")
+          for c in report.get("categories") or []:
+              for ch in c.get("checks") or []:
+                  if not ch.get("passed"):
+                      print(f"::notice title=check failed::{c.get('name')} / {ch.get('name')}: {ch.get('points')}/{ch.get('maxPoints')} {str(ch.get('message', ''))[:300]}")
+          for f in findings[:40]:
               sev = str(f.get("severity", "")).lower()
               level = "error" if sev in ("critical", "high") else "warning" if sev == "medium" else "notice"
-              where = f.get("file_path") or ""
-              text = f"{f.get('rule_id')} ({sev}) {where}: {f.get('title', '')}. {f.get('description', '')}"
-              print(f"::{level} title={f.get('rule_id')}::" + text.replace("\r", " ").replace("\n", " ")[:900])
+              where = f.get("filePath") or ""
+              if f.get("lineNumber"):
+                  where += f":{f.get('lineNumber')}"
+              text = f"{f.get('ruleId')} ({sev}) {where}: {f.get('title', '')}. {f.get('description', '')}"
+              print(f"::{level} title={f.get('ruleId')}::" + text.replace("\r", " ").replace("\n", " ")[:900])
           PY
