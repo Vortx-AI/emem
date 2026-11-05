@@ -82078,12 +82078,20 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // Decision stage: the cascade's answer against Wikidata's evidence of
     // which place the name means (see `geocode_decision`).
     let (mut lat, mut lng, mut label) = (lat, lng, label);
-    let decision = match req.place.as_deref() {
+    let mut decision = match req.place.as_deref() {
         Some(p) if via != "direct" && !p.contains(',') => {
             geocode_decision(p, lat, lng, polygon_bbox).await
         }
         _ => None,
     };
+    if let Some(d) = decision.as_mut() {
+        let top_class = alternatives
+            .first()
+            .and_then(|a| a.get("class"))
+            .and_then(JsonValue::as_str)
+            .unwrap_or("");
+        prefer_place_over_facility(d, top_class);
+    }
     if let Some(d) = &decision {
         if let Some(c) = &d.replace_with {
             lat = c.lat;
@@ -82321,7 +82329,11 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
         sel_alt_names,
         &sel_class,
     ) {
-        (false, _) if decision_confirms && !class_mismatch => (true, "wikidata_confirms_answer"),
+        // A postcode stays unconfirmed: Wikidata matching a number says nothing
+        // about which country's postcode it is.
+        (false, r) if decision_confirms && !class_mismatch && r != "postcode_without_country" => {
+            (true, "wikidata_confirms_answer")
+        }
         v => v,
     };
     // Record it onto the cached row while the evidence still exists. This is
@@ -82833,6 +82845,50 @@ fn locate_confidence(
     }
 }
 
+/// Digits only, 3 to 10 of them, with at most one space or hyphen inside:
+/// a postcode on its own.
+fn is_bare_postcode(q: &str) -> bool {
+    let q = q.trim();
+    let digits = q.chars().filter(|c| c.is_ascii_digit()).count();
+    let seps = q.chars().filter(|c| *c == ' ' || *c == '-').count();
+    (3..=10).contains(&digits)
+        && seps <= 1
+        && digits + seps == q.chars().count()
+        && q.starts_with(|c: char| c.is_ascii_digit())
+        && q.ends_with(|c: char| c.is_ascii_digit())
+}
+
+/// A geocoder class for a facility (a road, a school, an airport), not for a
+/// settlement or an area.
+fn is_facility_class(osm_class: &str) -> bool {
+    matches!(
+        osm_class,
+        "highway"
+            | "amenity"
+            | "aeroway"
+            | "building"
+            | "railway"
+            | "shop"
+            | "office"
+            | "public_transport"
+    )
+}
+
+/// The geocoder's hit is a facility named after the place, and Wikidata's best
+/// item is the place itself (an exact name, within 25 km): answer the place.
+/// "रांची" resolved to the Ranchi-Purulia road and "गाज़ियाबाद" to a school, each
+/// confirmed by Wikidata because the road and the school lie inside the city.
+fn prefer_place_over_facility(d: &mut GeocodeDecision, top_class: &str) {
+    if d.replace_with.is_none()
+        && d.rule == "agreed"
+        && d.best.exact
+        && is_facility_class(top_class)
+    {
+        d.replace_with = Some(d.best.clone());
+        d.rule = "the_place_not_a_facility_named_after_it";
+    }
+}
+
 /// [`locate_confidence`], plus a floor on how much of the query the
 /// returned label actually accounts for.
 ///
@@ -82845,9 +82901,10 @@ fn locate_confidence(
 /// Only demotes, never promotes. A hit the tier logic already rejected
 /// stays rejected, and the floor cannot talk a low-importance result into
 /// looking good.
-#[allow(clippy::too_many_arguments)] // nine independent signals about one
-                                     // candidate; a struct would rename them without making the call site clearer, and
-                                     // each is read individually inside.
+#[allow(clippy::too_many_arguments)]
+// nine independent signals about one
+// candidate; a struct would rename them without making the call site clearer, and
+// each is read individually inside.
 fn locate_confidence_checked(
     via: &str,
     importance: f64,
@@ -82859,6 +82916,12 @@ fn locate_confidence_checked(
     alt_names: &str,
     osm_class: &str,
 ) -> (bool, &'static str) {
+    // A postcode names no country, and several countries share most numbers:
+    // "110001" (New Delhi) resolved to a postcode in Shenyang with high
+    // confidence (2026-11-05). Without a country it cannot be a confident match.
+    if query.is_some_and(is_bare_postcode) {
+        return (false, "postcode_without_country");
+    }
     let (high, reason) = locate_confidence(
         via,
         importance,
@@ -84757,20 +84820,29 @@ fn decide_geocode(
     let far_rival = runner_up
         .as_ref()
         .is_some_and(|r| r.exact && best.exact && best.score() - r.score() < MARGIN);
-    let (replace_with, ambiguous, rule) =
-        if cascade_item.as_ref().is_some_and(|c| c.qid == best.qid) {
-            (None, far_rival, "agreed")
-        } else if let Some(ci) = &cascade_item {
-            if best.score() - ci.score() >= MARGIN {
-                (Some(best.clone()), false, "namesake_less_prominent")
-            } else {
-                (None, true, "namesakes_within_margin")
-            }
-        } else if best.exact && best.score() >= 2.0 {
-            (Some(best.clone()), far_rival, "cascade_unknown_to_wikidata")
+    // A two-decimal point whose decimals read as minutes, landing near the
+    // geocoder's answer when read as degrees and minutes and far from it as
+    // decimals, is a coordinate typed in the wrong notation. Wikidata held
+    // Dhaulana at 28.39, 77.39: 28°39', 77°39' is the town, and 28.39, 77.39
+    // is 37 km away. Such a point must not overrule the geocoder.
+    let dms_misread = reads_as_degrees_minutes(best.lat, best.lng)
+        .is_some_and(|(la, lo)| haversine_km(la, lo, lat, lng) < 10.0)
+        && haversine_km(best.lat, best.lng, lat, lng) > 10.0;
+    let (replace_with, ambiguous, rule) = if dms_misread {
+        (None, true, "wikidata_point_reads_as_degrees_minutes")
+    } else if cascade_item.as_ref().is_some_and(|c| c.qid == best.qid) {
+        (None, far_rival, "agreed")
+    } else if let Some(ci) = &cascade_item {
+        if best.score() - ci.score() >= MARGIN {
+            (Some(best.clone()), false, "namesake_less_prominent")
         } else {
-            (None, false, "evidence_too_weak")
-        };
+            (None, true, "namesakes_within_margin")
+        }
+    } else if best.exact && best.score() >= 2.0 {
+        (Some(best.clone()), far_rival, "cascade_unknown_to_wikidata")
+    } else {
+        (None, false, "evidence_too_weak")
+    };
     Some(GeocodeDecision {
         best,
         runner_up,
@@ -84779,6 +84851,24 @@ fn decide_geocode(
         ambiguous,
         rule,
     })
+}
+
+/// The point read as degrees and minutes, when both axes have exactly two
+/// decimals and each pair of decimals is a valid minute (under 60).
+fn reads_as_degrees_minutes(lat: f64, lng: f64) -> Option<(f64, f64)> {
+    let dm = |x: f64| -> Option<f64> {
+        let hundredths = (x.abs() * 100.0).round();
+        if ((x.abs() * 100.0) - hundredths).abs() > 1e-6 {
+            return None;
+        }
+        let deg = (hundredths / 100.0).trunc();
+        let min = hundredths - deg * 100.0;
+        if min == 0.0 || min >= 60.0 {
+            return None;
+        }
+        Some(x.signum() * (deg + min / 60.0))
+    };
+    Some((dm(lat)?, dm(lng)?))
 }
 
 /// Does the point belong to the box, allowing a margin of the box's own
@@ -97700,6 +97790,83 @@ mod tests {
             for b in e.bands() {
                 assert!(band_tempo_for_key(&b).is_some(), "unknown band {b}");
             }
+        }
+    }
+
+    /// Dhaulana as Wikidata held it (28.39, 77.39 read as decimals is 37 km off;
+    /// as degrees and minutes it is the town): no replacement, flagged.
+    #[test]
+    fn a_coordinate_in_degrees_minutes_does_not_overrule_the_geocoder() {
+        let c = |qid: &str, lat: f64, lng: f64, sitelinks: u32| emem_fetch::wikidata::Candidate {
+            qid: qid.into(),
+            label: qid.into(),
+            description: String::new(),
+            lat,
+            lng,
+            sitelinks,
+            exact: true,
+        };
+        let cands = [
+            c("Q3025704", 28.39, 77.39, 40),
+            c("Qdrain", 28.596, 77.667, 1),
+        ];
+        let d = decide_geocode(&cands, 28.596, 77.667, None).unwrap();
+        assert!(d.replace_with.is_none(), "{:?}", d.rule);
+        assert!(d.ambiguous);
+        assert_eq!(d.rule, "wikidata_point_reads_as_degrees_minutes");
+        assert_eq!(
+            reads_as_degrees_minutes(40.78, -73.97),
+            None,
+            "78 is not a minute"
+        );
+        let (la, lo) = reads_as_degrees_minutes(28.39, 77.39).unwrap();
+        assert!((la - 28.65).abs() < 1e-9 && (lo - 77.65).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_road_or_school_named_after_a_city_gives_the_city() {
+        let city = emem_fetch::wikidata::Candidate {
+            qid: "Q1122".into(),
+            label: "Ranchi".into(),
+            description: String::new(),
+            lat: 23.36,
+            lng: 85.33,
+            sitelinks: 120,
+            exact: true,
+        };
+        let mut d = decide_geocode(std::slice::from_ref(&city), 23.40, 85.40, None).unwrap();
+        assert_eq!(d.rule, "agreed");
+        prefer_place_over_facility(&mut d, "highway");
+        assert_eq!(
+            d.replace_with.as_ref().map(|x| x.qid.as_str()),
+            Some("Q1122")
+        );
+        assert_eq!(d.rule, "the_place_not_a_facility_named_after_it");
+        let mut d = decide_geocode(std::slice::from_ref(&city), 23.40, 85.40, None).unwrap();
+        prefer_place_over_facility(&mut d, "place");
+        assert!(
+            d.replace_with.is_none() && d.rule == "agreed",
+            "a city hit stays"
+        );
+    }
+
+    #[test]
+    fn a_bare_postcode_is_never_high_confidence() {
+        for q in ["110001", "560 001", "10115", "75008"] {
+            assert!(is_bare_postcode(q), "{q}");
+            let (high, reason) =
+                locate_confidence_checked("cache", 0.9, false, false, 5, Some(q), "x", "", "place");
+            assert!(!high && reason == "postcode_without_country", "{q}");
+        }
+        for q in [
+            "Ranchi",
+            "1600 Pennsylvania Ave",
+            "12",
+            "A1 2BC",
+            "-110001",
+            "11-00-01",
+        ] {
+            assert!(!is_bare_postcode(q), "{q}");
         }
     }
 

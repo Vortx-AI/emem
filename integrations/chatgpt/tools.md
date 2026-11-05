@@ -221,7 +221,7 @@ Find the objects that agents connected to a phrase. The tool ranks them by INDEP
 
 ## `emem_memory_contradictions`
 
-Find where the corpus DISAGREES with itself (algebra: competing evidence). Two or more independent sources can sign different values for the same place, band and time. This tool returns that disagreement with a severity from 0 to 1 and a citation for each disputed fact. It does not pick one value and hide the conflict. It tells you when not to trust a single answer. Read the SCOPE before you quote a zero. By default the tool counts only disagreement between two DIFFERENT attesters. One responder that answers from two upstreams counts only with `include_same_attester_sources: true`. When to…
+Find where the corpus DISAGREES with itself (algebra: competing evidence). Two or more independent sources can sign different values for the same place, band and time. This tool returns that disagreement with a severity from 0 to 1 and a citation for each disputed fact. It does not pick one value and hide the conflict. It tells you when not to trust a single answer. Read the SCOPE before you quote a zero. By default it counts two kinds: two DIFFERENT attesters that disagree, and one responder that answers from two upstreams. `disagreement_scope` names the kind.
 
 **Read-only:** yes. It reads and returns; it adds nothing another reader would see.
 
