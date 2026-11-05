@@ -44,8 +44,12 @@ use arrow::array::{
 };
 use arrow::datatypes::DataType;
 use futures_util::{StreamExt, TryStreamExt};
-use object_store::{aws::AmazonS3Builder, path::Path as ObjectPath, ObjectStore};
+use object_store::{aws::AmazonS3Builder, path::Path as ObjectPath, ObjectStore, ObjectStoreExt};
 use parquet::arrow::arrow_reader::ArrowReaderOptions;
+// parquet 60 deprecates ParquetObjectReader in favour of an AsyncFileReader of one's
+// own (apache/arrow-rs#10308). The upgrade from 55 is for RUSTSEC-2026-0435 (thrift),
+// so the reader stays as it was until it is replaced on its own.
+#[allow(deprecated)]
 use parquet::arrow::async_reader::{
     AsyncFileReader, ParquetObjectReader, ParquetRecordBatchStreamBuilder,
 };
@@ -469,6 +473,7 @@ impl OvertureClient {
     }
 
     /// Get cached footer for one parquet, fetching if absent.
+    #[allow(deprecated)]
     async fn footer(&self, key: &str) -> Result<Arc<ParquetMetaData>, OvertureError> {
         {
             let g = self.footers.lock().await;
@@ -506,6 +511,7 @@ impl OvertureClient {
     /// so the resolver can populate the GERS id, primary name, and
     /// admin level on the returned `DivisionMatch`. Passing `&[]`
     /// keeps the original behaviour for places/buildings/segments.
+    #[allow(deprecated)]
     async fn open_stream(
         &self,
         key: &str,

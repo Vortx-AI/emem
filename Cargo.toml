@@ -68,9 +68,9 @@ data-encoding = "2.5"
 
 # storage
 sled    = "0.34"
-parquet = "55"
-arrow   = "55"
-object_store = { version = "0.12", features = ["aws"] }
+parquet = "60"
+arrow   = "60"
+object_store = { version = "0.14", features = ["aws"] }
 
 # async / net
 async-trait = "0.1"
