@@ -98,9 +98,8 @@ the last row.
 | `details.code` | HTTP | Meaning |
 |---|---|---|
 | `memory_attestation_required` | 401 | The write has no `attester` block. emem.dev refuses unsigned writes. |
-| `memory_attestation_invalid` | 401 | The key is malformed (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the digest that was expected. `delete` and `rename` verify only the v2 preimage, `emem.memory_write.v2\|verb\|path\|body_hash\|base`. |
+| `memory_attestation_invalid` | 401 | The key is malformed (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the digest that was expected. Every verb verifies only the v2 preimage, `emem.memory_write.v2\|verb\|path\|body_hash\|base`; a v1 signature is refused with `reason: v1_retired` (since 2026-11-05). |
 | `memory_namespace_violation` | 403 | The path is in another key's `/memories/by_attester/<pubkey8>/` namespace, is owned by another key, or is under the reserved `/memories/.well-known/` prefix. |
-| `memory_signature_replayed` | 409 | A v1 signature for a state-dependent verb was used twice. Sign v2, which binds the version it replaces. |
 | `write_rate_limited` | 429 | The per-attester write backstop tripped. |
 | `vault_immutable` | 409 | An in-place edit was sent to a sealed vault entry. Re-create it instead. |
 | `level_too_low` on `/v1/entity`, `/v1/entity/alias` | 403 | The shared entity space needs a higher tier than your own namespace (`details.tier` says which you reached; `GET /v1/enlist` says what each check proves). When the mint was unsigned, `details.how_to_sign` (its `code` is `entity_attestation_required`) carries the digest to sign. |

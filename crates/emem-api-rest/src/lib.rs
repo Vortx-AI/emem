@@ -20648,6 +20648,7 @@ async fn get_memory_contradictions(
         limit: q.limit,
         min_severity: q.min_severity,
         include_same_attester_sources: q.include_same_attester_sources,
+        resume_after: q.resume_after,
     };
     emem_primitives::memory_contradictions::validate_request(&req)?;
     contradictions_cached(&req, &s).await
@@ -20668,6 +20669,8 @@ struct ContradictionsQuery {
     /// Also report keys where ONE attester answered from two different
     /// upstreams. See the field of the same name on `ContradictionsReq`.
     include_same_attester_sources: Option<bool>,
+    /// The `resume_after` of a scan that stopped at its time budget.
+    resume_after: Option<String>,
 }
 
 /// Request body for `POST /v1/backfill`. Mirrors the MCP `emem_backfill`
@@ -22399,17 +22402,12 @@ async fn post_verify_receipt(
             })
     };
 
-    // ── Optional facts cross-check (2026-05-31, advisory). When the caller
-    // passes the `facts` they intend to rely on, recompute each one's content
-    // id and report whether it is among the cids the receipt signs. This is
-    // ADVISORY and never flips `valid`: recomputation runs over the supplied
-    // JSON fact, and a JSON round-trip can diverge from the canonical CBOR for
-    // a GENUINE fact (float/encoding), so a non-match is INCONCLUSIVE, not
-    // proof of tampering. A POSITIVE match (in_receipt:true) IS meaningful -
-    // it confirms the supplied fact is one the receipt signed. For
-    // authoritative bytes, dereference GET /v1/facts/<cid>. (Earlier this
-    // flipped `valid:false` on any recompute mismatch, which wrongly failed
-    // genuine facts on the documented recall→verify path, regression fixed.)
+    // ── Optional facts cross-check. When the caller passes the `facts` they
+    // intend to rely on, recompute each one's content id and check it is among
+    // the cids the receipt signs. A miss makes `valid` false (below). It was
+    // advisory while a genuine fact could fail to re-hash from its own JSON: the
+    // default serde_json parser read some doubles one ULP off, which the
+    // workspace's float_roundtrip feature fixed on 2026-11-05.
     let receipt_cids: std::collections::HashSet<&str> =
         r.fact_cids.iter().map(|c| c.as_str()).collect();
     let mut facts_check: Vec<JsonValue> = Vec::new();
@@ -22555,11 +22553,17 @@ async fn post_verify_receipt(
 
     // A proof that was walked and failed makes the receipt invalid, not
     // merely annotated.
-    let valid = signature_valid && merkle_proof_valid != Some(false);
+    // A supplied fact that is not among the receipt's cids makes the pair invalid.
+    // This was advisory while a genuine fact could fail to re-hash from its own JSON
+    // (serde_json read some doubles one ULP off until float_roundtrip, 2026-11-05),
+    // and so a tampered fact beside a genuine receipt answered `valid: true`.
+    let valid =
+        signature_valid && merkle_proof_valid != Some(false) && facts_confirmed != Some(false);
     let reason: Option<&str> = match (signature_valid, merkle_proof_valid, reshaped_segment) {
         (false, _, Some(_)) => Some("receipt_reshaped_after_signing"),
         (false, _, None) => Some("signature_invalid"),
         (true, Some(false), _) => Some("merkle_proof_invalid"),
+        _ if facts_confirmed == Some(false) => Some("fact_mismatch"),
         _ => reason,
     };
     // The remedy, spelled out, because the whole point of separating these
@@ -22627,7 +22631,7 @@ async fn post_verify_receipt(
         "facts_supplied": supplied_n,
         "facts_check": facts_check,
         "facts_check_note": if supplied_n > 0 {
-            JsonValue::String("Advisory, does NOT affect `valid`. in_receipt:true confirms the supplied fact is one the receipt signed. in_receipt:false is INCONCLUSIVE, cid recomputation runs over the supplied JSON and can diverge from the canonical CBOR for a genuine fact; dereference GET /v1/facts/<cid> for authoritative bytes.".into())
+            JsonValue::String("Each supplied fact is content-addressed and must be among the receipt's fact_cids, or `valid` is false with reason `fact_mismatch`. Pass a fact as GET /v1/facts/<cid> or /v1/recall returns it: a value rounded or reshaped by a projection (for example a compact or 4-decimal view) is a different fact and fails too.".into())
         } else {
             JsonValue::Null
         },
@@ -23284,6 +23288,61 @@ fn log_entry_summary(i: u64, cbor: &[u8]) -> JsonValue {
         }
     }
     row
+}
+
+#[cfg(test)]
+mod fact_json_rehash_tests {
+    /// A fact read back from its own JSON must re-hash to its cid, or
+    /// verify_receipt cannot tell a genuine fact from a tampered one. A partner's
+    /// test found both answered alike (2026-11-05). The fixture is the live
+    /// /v1/facts answer for one NDVI fact, as JSON and as its stored CBOR.
+    #[test]
+    fn a_fact_read_back_from_its_json_rehashes_to_its_cid() {
+        let json = include_str!("testdata/fact_egllm2vb.json");
+        let stored: &[u8] = include_bytes!("testdata/fact_egllm2vb.cbor");
+        let f: emem_fact::Fact = serde_json::from_str(json).expect("parse");
+        let mut mine = Vec::new();
+        ciborium::ser::into_writer(&f, &mut mine).unwrap();
+        if mine != stored {
+            let at = mine
+                .iter()
+                .zip(stored)
+                .position(|(a, b)| a != b)
+                .unwrap_or(mine.len().min(stored.len()));
+            let lo = at.saturating_sub(24);
+            panic!(
+                "re-encoded {} bytes, stored {}; first difference at byte {at}\n mine:   {:02x?}\n stored: {:02x?}",
+                mine.len(),
+                stored.len(),
+                &mine[lo..(at + 24).min(mine.len())],
+                &stored[lo..(at + 24).min(stored.len())]
+            );
+        }
+        assert_eq!(
+            emem_cache::sled_hot::fact_cid_of(&f).unwrap().as_str(),
+            "egllm2vbgd6q2ekhznltbv2ym6oimhrmikmaxqseuypxzsqezrea"
+        );
+    }
+
+    /// The same fact as /v1/recall projects it (extra keys, confidence widened
+    /// from f32) also re-hashes to its cid: the documented recall-then-verify path.
+    /// And one changed value does not.
+    #[test]
+    fn the_recall_projection_rehashes_and_a_tampered_value_does_not() {
+        let json = include_str!("testdata/fact_egllm2vb_recall.json");
+        let f: emem_fact::Fact = serde_json::from_str(json).expect("parse");
+        assert_eq!(
+            emem_cache::sled_hot::fact_cid_of(&f).unwrap().as_str(),
+            "egllm2vbgd6q2ekhznltbv2ym6oimhrmikmaxqseuypxzsqezrea"
+        );
+        let mut v: serde_json::Value = serde_json::from_str(json).unwrap();
+        v["value"] = serde_json::json!(0.9);
+        let t: emem_fact::Fact = serde_json::from_value(v).unwrap();
+        assert_ne!(
+            emem_cache::sled_hot::fact_cid_of(&t).unwrap().as_str(),
+            "egllm2vbgd6q2ekhznltbv2ym6oimhrmikmaxqseuypxzsqezrea"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -35185,7 +35244,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/entity/alias":      {"post":{"summary":"Record a signed, ATTRIBUTED claim that an alternate label or a stable external id (GERS/OSM/Wikidata) denotes an existing entity -- or, with `stance: disputes`, that it does not. Shared-space write: T3 tier, per-key rate backstop. It changes what other agents see when they resolve this phrasing, so it is stored with your key and ranked by how many independent keys agree, never by arrival order.","operationId":"emem_entity_link","tags":["entity","identity"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"attester":{"type":"object","description":"Your ed25519 signature over the digest this responder names for this exact body. Send the body unsigned first: the refusal returns details.how_to_sign with the digest to sign.","properties":{"pubkey_b32":{"type":"string"},"sig_b32":{"type":"string"}}},"stance":{"type":"string","enum":["asserts","disputes"],"description":"asserts (default) or disputes; both attributed to your key, append-only"},"entity_cid":{"type":"string"},"entity_token":{"type":"string"},"alias":{"type":"string"},"external_ids":{"type":"object","properties":{"gers":{"type":"string"},"osm":{"type":"string"},"wikidata":{"type":"string"}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/entity/{id}":       {"get":{"summary":"Dereference a canonical object by entity_cid or emem:entity: token to its signed body, receipt, and recall hint. 404 with a typed code when this responder does not hold it.","operationId":"emem_entity_get","tags":["entity","identity"],"parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"string"},"description":"entity_cid or emem:entity:<entity_cid> (legacy meme: accepted)"}],"responses":{"200":json_ok,"404":json_not_found}}},
             "/v1/corpus_state_stats":{"get":{"summary":"snapshot of corpus liveness: distinct_cells, distinct_bands, facts_scanned, per-band counts. Same payload that backs /v1/stream's corpus.state tick (signed). Use this for a one-shot poll instead of holding an SSE connection.","operationId":"emem_corpus_state_stats","responses":{"200":json_ok}}},
-            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default that means two or more DISTINCT attesters; pass include_same_attester_sources to also report one attester answering from two different upstreams. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"cell":{"type":"string","description":"Alias for cell_prefix, and the name the other tools that take a cell64 use."},"cell64":{"type":"string","description":"Alias for cell_prefix."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":false,"description":"Also report keys where ONE attester answered the same address from two different upstreams. Default false: the scan asks only whether two or more DISTINCT attesters disagree, so on a single-responder corpus a zero means that narrower question came back empty, not that nothing disagrees. When true a single-attester key qualifies only if the facts differ in derivation.fn_key or in their sources[].scheme set — the same provider re-signed is a refresh, not a disagreement. Every record carries disagreement_scope (multi_attester | same_attester_provider_substitution) and a providers[] list, index-aligned with attestations, naming the recipe and schemes behind each value."}}}}}},"responses":{"200":json_ok}},
+            "/v1/memory_contradictions":{"post":{"summary":"(algebra: competing evidence) Scan for (cell, band, tslot) triples where signed observations disagree. By default it reports two kinds, each labelled in disagreement_scope: two or more DISTINCT attesters that disagree, and one attester answering from two different upstreams. Pass include_same_attester_sources: false for the first kind only. A scan stopped by its time budget returns resume_after; send it back to continue. Severity is computed per band kind: scalar (max-min over band range), vector (1 - mean cosine), categorical (1 - mode share). Receipt cites every fact CID involved.","operationId":"emem_memory_contradictions","tags":["memory","contradiction-detection"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"cell_prefix":{"type":"string","description":"A cell64 to scan, or a bytewise prefix of one (e.g. \"defi.zb5f9\"). Omit to scan the whole corpus up to the scan cap."},"cell":{"type":"string","description":"Alias for cell_prefix, and the name the other tools that take a cell64 use."},"cell64":{"type":"string","description":"Alias for cell_prefix."},"band":{"type":"string","description":"Band key filter (e.g. \"indices.ndvi\"). Omit to include all bands."},"window_unix_s":{"type":"array","items":{"type":"integer","minimum":0},"minItems":2,"maxItems":2,"description":"[lo, hi] inclusive Unix-seconds filter on attestations' signed_at. All disagreeing attestations must fall in the window."},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100},"min_severity":{"type":"number","minimum":0,"maximum":1,"default":0.1,"description":"Drop contradictions whose severity falls below this floor."},"include_same_attester_sources":{"type":"boolean","default":true,"description":"Default true: also report keys where ONE attester answered the same address from two different upstreams (a changed derivation.fn_key or sources[].scheme set). The same provider re-signed is a refresh and stays out. Each record names its disagreement_scope. Pass false to ask only whether two or more DISTINCT attesters disagree."},"resume_after":{"type":"string","description":"The resume_after of a scan that stopped at its time budget (cell|band|tslot of the last key it examined). The scan continues from the next key."}}}}}},"responses":{"200":json_ok}},
                                        "get":{"summary":"Same primitive as POST, exposed in query-string form for casual exploration. window_unix_s is split into window_lo + window_hi.","operationId":"emem_memory_contradictions_get","tags":["memory","contradiction-detection"],"parameters":[{"name":"cell_prefix","in":"query","required":false,"schema":{"type":"string"}},{"name":"band","in":"query","required":false,"schema":{"type":"string"}},{"name":"window_lo","in":"query","required":false,"schema":{"type":"integer"}},{"name":"window_hi","in":"query","required":false,"schema":{"type":"integer"}},{"name":"limit","in":"query","required":false,"schema":{"type":"integer"}},{"name":"min_severity","in":"query","required":false,"schema":{"type":"number"}}],"responses":{"200":json_ok}}},
             "/v1/edges":             {"post":{"summary":"Persist temporal knowledge-graph edges. Body is a signed Attestation envelope whose `edges[]` array carries each edge {subj, pred, obj, valid_from, valid_to?, confidence, signer, signed_at, schema_cid?, note?}. The edge leaves are folded into the merkle root so the signature commits to them. Additive: an attestation with no edges behaves exactly as /v1/attest.","operationId":"emem_edges_write","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["facts","edges","batch_root","attester","signature"],"properties":{"edges":{"type":"array","items":{"type":"object","required":["subj","pred","obj","valid_from","confidence","signer","signed_at"],"properties":{"subj":{"type":"string","description":"subject fact CID"},"pred":{"type":"string"},"obj":{"type":"string","description":"object fact CID"},"valid_from":{"type":"integer"},"valid_to":{"type":"integer"},"confidence":{"type":"number"},"note":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
             "/v1/edges/recall":      {"post":{"summary":"Recall temporal knowledge-graph edges in either direction, bi-temporally filtered. Forward (subj, direction=\"out\", default): edges originating at a subject fact. Reverse (obj, direction=\"in\"): edges pointing AT a fact (what disagrees-with / supersedes / relates-to it). Set exactly one of subj/obj, ambiguous or empty requests are rejected with a 400, never a silent empty. With as_of_tslot set, returns the latest edge per neighbour whose [valid_from, valid_to) interval covers as_of_tslot (supersession keeps the newest). pred=\"\" scans all predicates. Response carries `direction`, `objs` (always), and `subjs` (reverse only). Receipt cites the anchor + neighbour fact CIDs and commits the returned edge CIDs into the signature preimage.","operationId":"emem_edges_recall","tags":["edges","knowledge-graph"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","properties":{"subj":{"type":"string","description":"subject fact CID (forward / direction=out); set exactly one of subj/obj"},"obj":{"type":"string","description":"object fact CID (reverse / direction=in): what points at this fact"},"direction":{"type":"string","enum":["out","in"],"description":"out (default)=subj→objs; in=obj→subjs; inferred from which of subj/obj is set when omitted"},"pred":{"type":"string","description":"predicate filter; empty string scans all predicates"},"as_of_tslot":{"type":"integer","description":"valid-time bound; latest edge per neighbour whose interval covers it"},"limit":{"type":"integer","minimum":1,"maximum":1000,"default":100}}}}}},"responses":{"200":json_ok}}},
@@ -44907,6 +44966,10 @@ struct SupersedeRecord {
     sig_b32: Option<String>,
     #[serde(default)]
     log_entry_hash_b32: Option<String>,
+    /// The base the supersede signature named: the file_cid at the path when it
+    /// was superseded. Records from before 2026-11-05 lack it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    base: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45238,10 +45301,7 @@ fn attester_recipe(verb: &str, path: &str, body_hash: &[u8; 32], base: &str) -> 
             "base": base,
             "base_is": "The file_cid currently at this path, or the literal `absent` when nothing is there. It binds the signature to the version you intend to replace, so a signature read off the public log cannot be replayed once the path has moved on. Every caller signature is persisted in the ledger for offline re-verification, which is exactly why replay needs no interception.",
             "base_changes": "If another writer lands first, this value changes and your signature stops verifying. That is a lost update being refused rather than silently overwriting, and the remedy is to re-read and re-sign.",
-            "v1_status": match verb {
-                "delete" | "rename" => "REFUSED for this verb. A replayed delete removes whatever occupies the path today, including a file recreated since; a replayed rename re-executes a move. The v1 preimage (no base) is no longer accepted here.",
-                _ => "Still accepted for this verb during migration, and guarded by an in-memory replay set that a restart empties. Sign v2 and that caveat does not apply to you.",
-            },
+            "v1_status": "REFUSED for every verb since 2026-11-05. The v1 preimage (no base) could be replayed from the public log. Notes signed with v1 earlier still verify when read.",
             "body_hash_hex": data_encoding::HEXLOWER.encode(body_hash),
             "body_hash_is": match verb {
                 "create" => "blake3 of the `file_text` string's UTF-8 bytes, exactly as you transmit them",
@@ -45581,18 +45641,30 @@ fn validate_attester_binding(
             let (verdict, version) =
                 emem_primitives::verify_attester_versioned(verb, path, body_hash, base, att);
             match verdict {
-                // The in-memory replay set stays as a backstop for v1 writes,
-                // which are still accepted for the additive verbs. A v2
-                // signature does not need it: it names the version it replaces,
-                // so replaying it after the path moves on fails arithmetic
-                // rather than a lookup, and survives a restart because nothing
-                // has to be remembered.
-                AttestationVerdict::Ok => {
-                    if version != emem_primitives::PreimageVersion::V2 {
-                        replay_guard(verb, path, att)?;
-                    }
+                AttestationVerdict::Ok if version == emem_primitives::PreimageVersion::V2 => {
                     Ok(Some(SignedPreimage::new(version, base)))
                 }
+                // v1 is retired for every verb (owner decision, 2026-11-05). It binds
+                // only the verb, the path and the resulting body, so a signature read
+                // off the public log could put an old text back once the in-memory
+                // replay set was emptied by a restart, and could bring back a deleted
+                // note with its first create. A partner agent found this. Old v1 notes
+                // still verify when read; only a new write needs v2.
+                AttestationVerdict::Ok => Err(ApiError(
+                    StatusCode::UNAUTHORIZED,
+                    ErrorBody {
+                        code: ErrorCode::BadSignature,
+                        message: format!(
+                            "memory_attestation_invalid: this `{verb}` is signed with the retired v1 preimage, which binds no base and so can be replayed. Sign the v2 digest in `details.how_to_sign`."
+                        ),
+                        details: Some(json!({
+                            "code": "memory_attestation_invalid",
+                            "reason": "v1_retired",
+                            "how_to_sign": attester_recipe(verb, path, body_hash, base),
+                            "next": next_step::attester_next(&format!("emem_memory_{verb}"), "memory_attestation_invalid"),
+                        })),
+                    },
+                )),
                 AttestationVerdict::BadPubkey => Err(ApiError(
                     StatusCode::UNAUTHORIZED,
                     ErrorBody {
@@ -46369,147 +46441,6 @@ fn synth_memory_receipt(
         None,
     )
 }
-
-/// Persist a write: blobs[file_cid]=bytes, paths[path]=file_cid,
-/// history[path].push(file_cid), meta[file_cid]=MemoryFileMeta. The
-/// blob store is content-addressed so repeated writes of the same
-/// bytes cost storage once.
-///
-/// W1 adds a typed `kind` (episodic/semantic/procedural/resource) and
-/// a `(kind|path) → file_cid` index in `memory_files_by_kind`.
-/// W2 binds the write to an optional `attester_pubkey_b32` (the
-/// caller must already have passed the signature gate).
-/// W4 publishes a `MemoryEvent` on the broadcast channel after the
-/// sled commit succeeds. The previous file_cid (if any) is read up
-/// front so the Modified event can name what was replaced.
-#[allow(clippy::too_many_arguments)]
-/// fsync sled without parking a tokio worker in its condvar.
-///
-/// sled's `flush()` blocks until the IO buffer stabilises. Called straight
-/// from an async handler it blocks the worker polling that future, and every
-/// write path here did exactly that. Under concurrent writes the workers
-/// parked one at a time until the runtime had nothing left to poll and
-/// emem.dev stopped answering anything, /live included. That is the wedge the
-/// watchdog has been restarting five to ten times a day for months: 465
-/// snapshots, all with `sled::pagecache::iobuf::make_stable_inner` above an
-/// axum handler. f3a2ddc moved the recall hot path off the runtime in July and
-/// left every write path on it.
-///
-/// `block_in_place` tells tokio this thread is about to block so it can move
-/// the remaining tasks to another worker. It panics on a current-thread
-/// runtime, which is what `#[tokio::test]` builds, so the flavour is checked
-/// rather than assumed and anything off a multi-thread runtime flushes inline.
-///
-/// One tree is enough: `Tree::flush` is `self.context.pagecache.flush()` and
-/// the pagecache belongs to the Db, so flushing any tree fsyncs all of them.
-/// Call sites that flushed five trees in a row were doing five whole-database
-/// Refuse a signature that has already been used.
-///
-/// The write preimage is `blake3("emem.memory_write|" || verb || "|" || path
-/// || "|" || body_hash)` and carries no nonce, no timestamp and no tslot. That
-/// is deliberate and frozen: clients sign against it today, and changing the
-/// bytes would invalidate every signer at once. It also means a valid
-/// signature is valid forever, which an outside reviewer reported and I
-/// reproduced exactly:
-///
-///   delete /memories/consensus/threat-model.md with a fresh signature -> ok
-///   create the same path again                                        -> ok
-///   replay the FIRST delete signature, unchanged                      -> ok
-///
-/// The file was destroyed twice by one authorisation. For `create` the replay
-/// is close to harmless, since the body hash is in the preimage and re-writing
-/// identical bytes changes nothing. For `delete` and `str_replace` it is a
-/// real capability: capture one signature off the wire and you can keep
-/// applying it to whatever occupies that path later.
-///
-/// So the wire format stays and the responder remembers instead. A signature
-/// is a one-time authorisation for one write; presented twice, the second is
-/// refused. That is the property the missing nonce was supposed to provide,
-/// obtained without asking every existing client to change.
-///
-/// Only the destructive verbs are guarded. `create` is left replayable on
-/// purpose: it is idempotent by construction, retries after a dropped
-/// connection are normal and honest, and refusing them would break working
-/// clients to prevent a harm that does not exist.
-fn replay_guard(verb: &str, path: &str, att: &MemoryAttester) -> Result<(), ApiError> {
-    // Only the verbs whose effect depends on what is there NOW. Replaying a
-    // delete destroys whatever occupies the path today, which is the harm.
-    // Replaying a supersede sets the same pointer to the same target and
-    // changes nothing, and `supersede_is_idempotent_but_refuses_to_be_re_aimed`
-    // encodes that as a promise: a retry answers already_superseded: true
-    // rather than failing. I guarded it anyway in the first draft and that
-    // test caught me, which is what it was written for.
-    if !matches!(verb, "delete" | "str_replace" | "rename") {
-        return Ok(());
-    }
-    // Bounded, and honest about what that costs.
-    //
-    // This set lives in memory, so a restart empties it and the signature it
-    // was refusing becomes usable again. That is a real window: this responder
-    // restarts several times a day, so the guard closes replay within a
-    // process lifetime and not across one. It is written down rather than
-    // glossed because the alternative is worse right now. Persisting each
-    // signature means another sled write on the write path, and sled write
-    // pressure is the thing currently wedging this server; buying replay
-    // durability with more of it would trade a narrow hole for an outage.
-    //
-    // The cap stops an unbounded set: a signature is only useful to a replayer
-    // while the file it names still exists, and 200k of them is far more
-    // history than any restart interval here.
-    const CAP: usize = 200_000;
-    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<[u8; 32]>>> =
-        std::sync::OnceLock::new();
-    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-
-    let mut h = blake3::Hasher::new();
-    h.update(b"emem.replay.v1|");
-    h.update(att.pubkey_b32.as_bytes());
-    h.update(b"|");
-    h.update(att.sig_b32.as_bytes());
-    let key = *h.finalize().as_bytes();
-
-    let mut guard = match seen.lock() {
-        Ok(g) => g,
-        // A poisoned lock must not become an open door.
-        Err(e) => e.into_inner(),
-    };
-    if guard.len() >= CAP {
-        // Dropping the oldest would need an ordered structure and a write on
-        // every read. Clearing is cruder and its failure mode is the one this
-        // already has: a signature becomes usable again, exactly as it would
-        // after a restart. Loud, so it is not discovered from a graph.
-        tracing::warn!(
-            cap = CAP,
-            "replay guard reached its cap and was cleared; signatures seen before \
-             this point are usable again until they are seen once more"
-        );
-        guard.clear();
-    }
-    if !guard.insert(key) {
-        return Err(ApiError(
-            StatusCode::CONFLICT,
-            ErrorBody {
-                code: ErrorCode::BadSignature,
-                message: format!(
-                    "memory_signature_replayed: this exact signature has already \
-                     authorised a `{verb}`. A write signature is single-use here. \
-                     Sign the operation again: the preimage carries no nonce, so \
-                     an identical request produces an identical signature and the \
-                     responder cannot tell your retry from someone else's replay."
-                ),
-                details: Some(json!({
-                    "code": "memory_signature_replayed",
-                    "verb": verb,
-                    "path": path,
-                    "why": "This signature verified against the v1 preimage, blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash), which has no nonce or timestamp, so a captured one stays valid forever and is single-use here. Sign v2 instead (details.how_to_sign on any refusal): it binds the file_cid you replace, so a replay fails once the path has moved on.",
-                    "idempotent_verbs_exempt": "create and supersede are idempotent and stay replayable, so an honest retry after a dropped connection still works. Only verbs whose effect depends on current state are single-use.",
-                })),
-            },
-        ));
-    }
-    Ok(())
-}
-
 /// fsyncs for the durability of one.
 /// fsync sled on the blocking pool, and free the worker while it happens.
 ///
@@ -47888,7 +47819,9 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             "reason": meta.supersede.as_ref().map(|r| r.reason.as_str()),
             "attester_pubkey_b32": meta.supersede.as_ref().and_then(|r| r.attester_pubkey_b32.as_deref()),
             "sig_b32": meta.supersede.as_ref().and_then(|r| r.sig_b32.as_deref()),
-            "signed_preimage": "verb supersede, this path, body_hash = blake3(superseded_by|reason); the signature covers the reason as stored",
+            "signed_preimage": "v2: blake3(\"emem.memory_write.v2|supersede|\" || this path || \"|\" || blake3(superseded_by|reason) as 32 raw bytes || \"|\" || signed_base); the signature covers the reason as stored",
+            "signed_base": meta.supersede.as_ref().and_then(|r| r.base.clone()).unwrap_or_else(|| meta.file_cid.clone()),
+            "signed_base_source": if meta.supersede.as_ref().is_some_and(|r| r.base.is_some()) { "recorded at the supersede" } else { "inferred: this note's file_cid (a supersede before 2026-11-05 did not record its base)" },
             "log_entry_hash_b32": meta.supersede.as_ref().and_then(|r| r.log_entry_hash_b32.as_deref()),
         })
     });
@@ -48017,13 +47950,43 @@ fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError>
             v
         })
         .collect();
+    // Versions are the bytes a path has held; a supersede and a delete change no
+    // bytes, so they were missing, and a reader could not tell that a path was
+    // withdrawn or removed. A partner agent's test found it.
+    let mut events: Vec<JsonValue> = Vec::new();
+    let current = by_path
+        .as_ref()
+        .and_then(|bp| bp.get(path.as_bytes()).ok().flatten())
+        .and_then(|b| decode_meta(&b));
+    if let Some(m) = current.as_ref() {
+        if let Some(to) = m.superseded_by.as_ref() {
+            events.push(json!({
+                "event": "supersede",
+                "file_cid": m.file_cid,
+                "superseded_by": to,
+                "reason": m.supersede.as_ref().map(|r| r.reason.as_str()),
+                "attester_pubkey_b32": m.supersede.as_ref().and_then(|r| r.attester_pubkey_b32.as_deref()),
+                "signed_base": m.supersede.as_ref().and_then(|r| r.base.as_deref()),
+                "log_entry_hash_b32": m.supersede.as_ref().and_then(|r| r.log_entry_hash_b32.as_deref()),
+            }));
+        }
+    }
+    if let Some(t) = tombstone_for(s, path) {
+        events.push(json!({
+            "event": "delete",
+            "prior_file_cid": t.get("prior_file_cid"),
+            "deleted_by": t.get("deleted_by"),
+            "deleted_at": t.get("deleted_at"),
+        }));
+    }
     Ok(json!({
         "kind": "history",
         "path": path,
         "count": versions.len(),
         "order": "oldest_first",
         "versions": versions,
-        "note": "Read a version's bytes with memory_view {file_cid}. `base` is the previous version here; `signed_base` is the base the author's own signature named, when it signed one. A path that was written and later deleted keeps its history.",
+        "events": events,
+        "note": "Read a version's bytes with memory_view {file_cid}. `base` is the previous version here; `signed_base` is the base the author's own signature named, when it signed one. A path that was written and later deleted keeps its history. `events` lists what changed no bytes: a supersede (the path's current version) and the last delete (its tombstone).",
     }))
 }
 
@@ -48597,13 +48560,8 @@ async fn memory_supersede_inner(
     // reason, so a stored retraction cannot be re-aimed or re-worded
     // while still verifying under the author's key.
     let bh = emem_primitives::body_hash(format!("{target}|{reason}").as_bytes());
-    validate_attester_binding(
-        "supersede",
-        &path,
-        &bh,
-        &current_base_cid(s, &path),
-        req.attester.as_ref(),
-    )?;
+    let signed_base = current_base_cid(s, &path);
+    validate_attester_binding("supersede", &path, &bh, &signed_base, req.attester.as_ref())?;
     enforce_open_namespace_owner(s, "supersede", &path, req.attester.as_ref())?;
     enforce_write_rate_limit(req.attester.as_ref())?;
     reject_if_vault(s, &path, "supersede")?;
@@ -48747,6 +48705,7 @@ async fn memory_supersede_inner(
         attester_pubkey_b32: req.attester.as_ref().map(|a| a.pubkey_b32.clone()),
         sig_b32: req.attester.as_ref().map(|a| a.sig_b32.clone()),
         log_entry_hash_b32: log_entry_hash.clone(),
+        base: Some(signed_base.clone()),
     });
     record_meta(&by_path, &metas, &paths, &meta).map_err(|e| {
         ApiError(
@@ -48762,9 +48721,24 @@ async fn memory_supersede_inner(
         tracing::error!(target: "emem::durability", error = %e, "flush failed");
     }
 
+    let mut cells: Vec<String> = Vec::new();
+    if let Some(a) = req.attester.as_ref() {
+        cells.push(format!("pubkey:{}", a.pubkey_b32));
+    }
+    cells.push(path.clone());
+    let receipt = s.sign_receipt(
+        "emem.memory_file",
+        cells,
+        vec![],
+        false,
+        std::time::Instant::now(),
+        None,
+    );
     Ok(json!({
         "ok": true,
         "verb": "supersede",
+        "signed_base": signed_base,
+        "receipt": receipt,
         "path": path,
         "file_cid": cid,
         "superseded_by": target,
@@ -50013,6 +49987,7 @@ pub(crate) async fn run_refinement_pass(s: &AppState) -> Result<(usize, usize), 
         // instruments, so an edge there would assert corroboration that
         // does not exist. Deliberately left off.
         include_same_attester_sources: Some(false),
+        resume_after: None,
     };
     let resp = memory_contradictions(&req, s)
         .await
@@ -87589,40 +87564,62 @@ mod tests {
         }
     }
 
-    /// A destructive write signature must not work twice.
-    ///
-    /// Reproduced against the live responder before this existed: delete a
-    /// path, recreate it, replay the FIRST delete signature unchanged, and it
-    /// deleted the new file too. One authorisation, two destructions. The
-    /// preimage carries no nonce and is frozen, so the responder remembers
-    /// instead.
+    /// v1 is retired for every write verb: a v1 signature that verifies is
+    /// refused with reason v1_retired, and a v2 one over the same write passes.
     #[test]
-    fn a_destructive_signature_is_single_use() {
-        let att = MemoryAttester {
-            pubkey_b32: "k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia".into(),
-            sig_b32: "replaytestsignature".into(),
-        };
-        let p = "/memories/by_attester/k572x7go/replay-unit-test.md";
-        assert!(
-            replay_guard("delete", p, &att).is_ok(),
-            "first use must pass"
-        );
-        assert!(
-            replay_guard("delete", p, &att).is_err(),
-            "the same signature authorised a second delete"
-        );
-
-        // create stays replayable: it is idempotent, and an honest retry after
-        // a dropped connection must not be punished.
-        let c = MemoryAttester {
-            sig_b32: "createsig".into(),
-            ..att.clone()
-        };
-        assert!(replay_guard("create", p, &c).is_ok());
-        assert!(
-            replay_guard("create", p, &c).is_ok(),
-            "create must stay retryable"
-        );
+    fn a_v1_write_signature_is_refused_for_every_verb() {
+        use ed25519_dalek::Signer;
+        let sk = ed25519_dalek::SigningKey::from_bytes(&[7u8; 32]);
+        let pk = data_encoding::BASE32_NOPAD
+            .encode(sk.verifying_key().as_bytes())
+            .to_lowercase();
+        let path = format!("/memories/by_attester/{}/v1-retired-test.md", &pk[..8]);
+        let body_hash = *blake3::hash(b"text").as_bytes();
+        for verb in ["create", "str_replace", "insert"] {
+            let v1 = emem_primitives::attester_preimage(verb, &path, &body_hash);
+            let att = MemoryAttester {
+                pubkey_b32: pk.clone(),
+                sig_b32: data_encoding::BASE32_NOPAD
+                    .encode(&sk.sign(&v1).to_bytes())
+                    .to_lowercase(),
+            };
+            let err = validate_attester_binding(
+                verb,
+                &path,
+                &body_hash,
+                emem_primitives::BASE_ABSENT,
+                Some(&att),
+            )
+            .expect_err(verb);
+            assert_eq!(
+                err.1.details.as_ref().unwrap()["reason"],
+                "v1_retired",
+                "{verb}"
+            );
+            let v2 = emem_primitives::attester_preimage_v2(
+                verb,
+                &path,
+                &body_hash,
+                emem_primitives::BASE_ABSENT,
+            );
+            let ok = MemoryAttester {
+                pubkey_b32: pk.clone(),
+                sig_b32: data_encoding::BASE32_NOPAD
+                    .encode(&sk.sign(&v2).to_bytes())
+                    .to_lowercase(),
+            };
+            assert!(
+                validate_attester_binding(
+                    verb,
+                    &path,
+                    &body_hash,
+                    emem_primitives::BASE_ABSENT,
+                    Some(&ok)
+                )
+                .is_ok(),
+                "{verb}"
+            );
+        }
     }
 
     /// message/send must read the part spellings clients actually send.
@@ -96452,15 +96449,15 @@ mod tests {
         .await
         .map_err(|e| format!("verify bogus-fact: {} {}", e.0, e.1.message))
         .unwrap();
-        // `valid` reflects the receipt's cryptographic validity ONLY, it is
-        // genuine, so valid stays true even though the supplied fact is bogus.
-        // The facts cross-check is ADVISORY: a fact not in the receipt's cids
-        // surfaces as facts_confirmed:false (never a false `valid:false`, which
-        // previously broke the genuine recall→verify path over a JSON round-trip).
+        // A genuine receipt beside a fact it did not sign is not a valid pair.
         assert_eq!(
             v_tampered.get("valid").and_then(|x| x.as_bool()),
-            Some(true),
-            "receipt signature is genuine; valid reflects the receipt only: {v_tampered:?}"
+            Some(false),
+            "a fact the receipt did not sign must make the pair invalid: {v_tampered:?}"
+        );
+        assert_eq!(
+            v_tampered.get("reason").and_then(|x| x.as_str()),
+            Some("fact_mismatch")
         );
         assert_eq!(
             v_tampered.get("facts_confirmed").and_then(|x| x.as_bool()),
@@ -96780,6 +96777,9 @@ mod tests {
         }
     }
 
+    /// A v2 signature for a write to a path that holds nothing yet (base
+    /// `absent`). v1 is retired, so a write over an existing path needs
+    /// [`sign_attester_v2`] with that path's current file_cid.
     pub(crate) fn sign_attester(
         sk: &ed25519_dalek::SigningKey,
         verb: &str,
@@ -96788,7 +96788,8 @@ mod tests {
     ) -> emem_primitives::MemoryAttester {
         use ed25519_dalek::Signer;
         let bh = emem_primitives::body_hash(body);
-        let preimage = emem_primitives::attester_preimage(verb, path, &bh);
+        let preimage =
+            emem_primitives::attester_preimage_v2(verb, path, &bh, emem_primitives::BASE_ABSENT);
         let sig = sk.sign(&preimage);
         let pubkey_b32 = data_encoding::BASE32_NOPAD
             .encode(sk.verifying_key().as_bytes())
@@ -97022,7 +97023,12 @@ mod tests {
         );
         let mut bh32 = [0u8; 32];
         bh32.copy_from_slice(&bh);
-        let preimage = emem_primitives::attester_preimage("create", &path, &bh32);
+        let preimage = emem_primitives::attester_preimage_v2(
+            "create",
+            &path,
+            &bh32,
+            emem_primitives::BASE_ABSENT,
+        );
         let sig_bytes = data_encoding::BASE32_NOPAD
             .decode(
                 a.get("sig_b32")
@@ -97037,9 +97043,10 @@ mod tests {
             .verify(&preimage, &sig)
             .expect("persisted authorship signature verifies offline");
         // The block says which preimage that was, recorded at write time.
-        assert_eq!(a["preimage_version"], 1);
+        assert_eq!(a["preimage_version"], 2);
         assert_eq!(a["preimage_version_source"], "recorded_at_write");
-        assert!(a["base"].is_null());
+        // v2 names the base it replaced; a new path signs `absent`.
+        assert_eq!(a["base"], "absent");
     }
 
     /// A v2-signed note must be described as v2. The block described v1 for
@@ -98371,16 +98378,18 @@ mod tests {
     }
 
     fn sign_supersede(
+        s: &AppState,
         sk: &ed25519_dalek::SigningKey,
         path: &str,
         target: &str,
         reason: &str,
     ) -> MemoryAttester {
-        sign_attester(
+        sign_attester_v2(
             sk,
             "supersede",
             path,
             format!("{target}|{reason}").as_bytes(),
+            &current_base_cid(s, path),
         )
     }
 
@@ -98406,6 +98415,7 @@ mod tests {
                 superseded_by: new_cid.clone(),
                 reason: Some("estimator warm-up flipped the sign".into()),
                 attester: Some(sign_supersede(
+                    &s,
                     &sk,
                     &old,
                     &new_cid,
@@ -98456,10 +98466,10 @@ mod tests {
         let short = emem_primitives::pubkey_short_from_b32(&pubkey_b32);
         let old = format!("/memories/by_attester/{short}/sup-log-claim.md");
         let new = format!("/memories/by_attester/{short}/sup-log-fix.md");
-        publish_note(&s, &sk, &old, b"claim before").await;
+        let old_cid = publish_note(&s, &sk, &old, b"claim before").await;
         let new_cid = publish_note(&s, &sk, &new, b"claim after").await;
         let reason = "sign flipped";
-        let att = sign_supersede(&sk, &old, &new_cid, reason);
+        let att = sign_supersede(&s, &sk, &old, &new_cid, reason);
         let out = memory_supersede_inner(
             &s,
             MemorySupersedeReq {
@@ -98500,6 +98510,43 @@ mod tests {
         assert_eq!(
             banner["log_entry_hash_b32"].as_str(),
             Some(entry_hash.as_str())
+        );
+        // The supersede answers with a signed receipt and the base it signed, and
+        // the banner states that base, so a reader re-checks the signature from
+        // the banner alone (a partner's test could not: the base was missing).
+        assert!(out["receipt"].is_object(), "supersede has a receipt: {out}");
+        assert_eq!(out["signed_base"].as_str(), Some(old_cid.as_str()));
+        assert_eq!(banner["signed_base"].as_str(), Some(old_cid.as_str()));
+        assert!(banner["signed_base_source"]
+            .as_str()
+            .unwrap()
+            .starts_with("recorded"));
+        let bh = emem_primitives::body_hash(format!("{new_cid}|{reason}").as_bytes());
+        let (verdict, version) = emem_primitives::verify_attester_versioned(
+            "supersede",
+            &old,
+            &bh,
+            banner["signed_base"].as_str().unwrap(),
+            &att,
+        );
+        assert!(matches!(verdict, emem_primitives::AttestationVerdict::Ok));
+        assert_eq!(version, emem_primitives::PreimageVersion::V2);
+        // History shows the supersede, and a delete once a tombstone exists.
+        let h = memory_history_inner(&s, &old).expect("history");
+        assert_eq!(h["events"][0]["event"], "supersede", "{h}");
+        assert_eq!(
+            h["events"][0]["superseded_by"].as_str(),
+            Some(new_cid.as_str())
+        );
+        write_tombstone(&s, &old, Some(old_cid.as_str()), Some(pubkey_b32.as_str())).await;
+        let h = memory_history_inner(&s, &old).expect("history");
+        assert!(
+            h["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|e| e["event"] == "delete"),
+            "{h}"
         );
 
         // Look the entry up by its path rather than counting entries: the
@@ -99192,7 +99239,7 @@ mod tests {
                 path: old.clone(),
                 superseded_by: new_cid.clone(),
                 reason: None,
-                attester: Some(sign_supersede(&sk, &old, &new_cid, "")),
+                attester: Some(sign_supersede(&s, &sk, &old, &new_cid, "")),
             },
         )
         .await
@@ -99238,7 +99285,7 @@ mod tests {
                 path: old.clone(),
                 superseded_by: ghost.into(),
                 reason: None,
-                attester: Some(sign_supersede(&sk, &old, ghost, "")),
+                attester: Some(sign_supersede(&s, &sk, &old, ghost, "")),
             },
         )
         .await
@@ -99262,7 +99309,7 @@ mod tests {
         let b_cid = publish_note(&s, &sk, &b, b"second correction").await;
 
         let call = |target: String| {
-            let att = sign_supersede(&sk, &old, &target, "");
+            let att = sign_supersede(&s, &sk, &old, &target, "");
             memory_supersede_inner(
                 &s,
                 MemorySupersedeReq {
@@ -99304,7 +99351,7 @@ mod tests {
                 path: old.clone(),
                 superseded_by: b_cid,
                 reason: None,
-                attester: Some(sign_supersede(&sk, &old, &a_cid, "")),
+                attester: Some(sign_supersede(&s, &sk, &old, &a_cid, "")),
             },
         )
         .await
@@ -105477,7 +105524,15 @@ mod open_namespace_isolation_tests {
                 path: path.into(),
                 file_text: "second".into(),
                 kind: None,
-                attester: Some(sign_attester(&sk_b, "create", path, b"second")),
+                // The current base, so the owner check is what refuses it and not
+                // a signature over the wrong base.
+                attester: Some(sign_attester_v2(
+                    &sk_b,
+                    "create",
+                    path,
+                    b"second",
+                    &current_base_cid(&s, path),
+                )),
             },
         )
         .await
@@ -105503,7 +105558,13 @@ mod open_namespace_isolation_tests {
                     path: path.into(),
                     file_text: body.into(),
                     kind: None,
-                    attester: Some(sign_attester(&sk, "create", path, body.as_bytes())),
+                    attester: Some(sign_attester_v2(
+                        &sk,
+                        "create",
+                        path,
+                        body.as_bytes(),
+                        &current_base_cid(&s, path),
+                    )),
                 },
             )
             .await

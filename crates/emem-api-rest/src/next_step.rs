@@ -218,7 +218,13 @@ pub(crate) fn truncation_steps_reserve(map: &Map<String, JsonValue>) -> usize {
             other => serde_json::to_string(other).map(|s| s.len()).unwrap_or(0),
         })
         .sum();
-    256 + copied
+    // The emem_topics step for an omitted locate inventory (see truncation_steps).
+    let inventory = if map.contains_key("data_at_this_cell") {
+        64
+    } else {
+        0
+    };
+    256 + copied + inventory
 }
 
 /// The calls that return what a slimmed result omitted.
@@ -259,6 +265,15 @@ pub(crate) fn truncation_steps(
                 json!({}),
             ));
         }
+    }
+    // The locate inventory is the same block emem_topics serves, and that tool
+    // fits the budget whole. The REST step alone sent an MCP-only caller to a call
+    // it cannot make: a partner needed HTTP to see all 115 bands (2026-10-24).
+    if dropped
+        .iter()
+        .any(|d| d["field"].as_str() == Some("data_at_this_cell"))
+    {
+        out.insert(0, step("emem_topics", "data_at_this_cell", json!({})));
     }
     let Some(props) = tool_properties(tool) else {
         return out;
@@ -429,6 +444,27 @@ pub(crate) fn check_step(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_omitted_locate_inventory_points_at_emem_topics_and_keeps_the_rest_route() {
+        let map: Map<String, JsonValue> =
+            serde_json::from_value(json!({"cell64": "defi.zb509.xAgA.hewE"})).unwrap();
+        let dropped = vec![
+            json!({"field": "polygon_geojson", "stub": {"_omitted": true}}),
+            json!({"field": "data_at_this_cell", "stub": {"_omitted": true}}),
+        ];
+        let steps = truncation_steps(&map, &dropped, None, "emem_locate");
+        assert_eq!(steps[0]["verb"], "emem_topics", "{steps:?}");
+        assert_eq!(steps[0]["noun"], "data_at_this_cell");
+        assert!(
+            steps.iter().any(|s| s["verb"] == "POST /v1/locate"),
+            "the REST route for the other omitted fields stays: {steps:?}"
+        );
+        let other = vec![json!({"field": "polygon_geojson", "stub": {"_omitted": true}})];
+        assert!(truncation_steps(&map, &other, None, "emem_locate")
+            .iter()
+            .all(|s| s["verb"] != "emem_topics"));
+    }
 
     #[test]
     fn the_route_reader_sees_the_router() {

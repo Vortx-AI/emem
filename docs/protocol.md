@@ -1217,8 +1217,9 @@ attester_sig = ed25519_sign(caller_signing_key, attester_preimage)
 the path holds nothing, so a create of a new path signs `absent`. It makes
 each signature name the version it replaces, so a signature read off the
 public ledger cannot be replayed later. The v1 preimage is the same without
-`.v2` and without `|| "|" || base`; it is still accepted for `create`,
-`str_replace` and `insert`, and refused for `delete` and `rename`.
+`.v2` and without `|| "|" || base`. Since 2026-11-05 a write signed with it
+is refused for every verb (`reason: v1_retired`); notes signed with v1
+before then still verify when read.
 
 `memory_view` returns an `authorship` block that says which one was signed:
 `preimage_version` (1 or 2), `base`, and `preimage_version_source`, which is

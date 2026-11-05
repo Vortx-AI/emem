@@ -111,6 +111,10 @@ blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash + "|" + bas
 ```
 
 where `body_hash = blake3(canonical body bytes)` as 32 raw bytes, and
+A `file_cid` is the first 16 bytes of `blake3(content)`, in lowercase
+RFC 4648 base32 with no padding (26 characters). The first 16 bytes, not
+all 32: a reader who re-hashes a note must cut the digest before encoding.
+
 `base` is the `file_cid` now at `path`, or the literal `absent` when
 nothing is there. What counts as the body depends on the verb:
 
@@ -138,11 +142,10 @@ refusal instead of a silent lost update.
 
 The older v1 preimage,
 `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`, is
-still accepted for `create`, `str_replace` and `insert` while clients
-migrate, and refused for `delete` and `rename`. A v1 signature on a verb
-whose effect depends on current state is single-use: reusing it returns
-409 `memory_signature_replayed`. `create` and `supersede` stay
-replayable so an honest retry works.
+retired for every verb since 2026-11-05: a write signed with it is
+refused with `reason: v1_retired`. It binds no base, so a signature read
+off the log could put an old text back, or bring back a deleted note.
+Notes signed with v1 before that still verify when read.
 
 `rename` is the only verb whose signature binds two paths. The
 destination rides the preimage's `path`, the source rides its

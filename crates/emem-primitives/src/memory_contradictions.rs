@@ -99,9 +99,17 @@ pub struct ContradictionsReq {
     /// turning every refresh into a contradiction would be worse than the
     /// silence it replaces.
     ///
-    /// Off by default so existing results stay byte-identical.
+    /// On by default since 2026-11-05: a partner agent reported that the
+    /// default scan answered zero on a single-responder corpus, and a reader
+    /// who quotes that zero states the opposite of what the corpus holds. Each
+    /// record still says which kind it is in `disagreement_scope`. Pass `false`
+    /// for the two-attester question alone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub include_same_attester_sources: Option<bool>,
+    /// Continue a scan that stopped at its time budget: the `resume_after` of
+    /// that response. Keys up to and including it are skipped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_after: Option<String>,
 }
 
 /// One disagreeing attester's contribution to a contradiction.
@@ -187,6 +195,15 @@ pub struct ContradictionsResp {
     /// filter (or a tighter `cell_prefix`) for complete, fast coverage.
     #[serde(default)]
     pub scan_truncated: bool,
+    /// When the time budget stopped the scan: the last key fully examined, as
+    /// `cell|band|tslot`. Send it back as `resume_after` to continue from the
+    /// next key. Absent when the scan finished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resume_after: Option<String>,
+    /// True when the request's `resume_after` named no key in this scan, so
+    /// nothing was examined. Start again without it.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub resume_not_found: bool,
     /// How long the primitive took to run, milliseconds.
     pub time_taken_ms: u64,
     /// One-paragraph agent-facing summary explaining what to do next.
@@ -227,6 +244,12 @@ pub fn is_provider_substitution(providers: &[ProviderRef]) -> bool {
     scheme_sets.len() >= 2
 }
 
+/// The cursor form of a scan key, `cell|band|tslot`: neither a cell64 nor a
+/// band key contains `|`.
+pub fn resume_key(cell: &str, band: &str, tslot: u64) -> String {
+    format!("{cell}|{band}|{tslot}")
+}
+
 /// Scan the multi-attester index, score every multi-attester key, and
 /// return the contradictions that meet `min_severity`.
 pub async fn memory_contradictions(
@@ -243,7 +266,7 @@ pub async fn memory_contradictions(
         .min_severity
         .unwrap_or(DEFAULT_MIN_SEVERITY)
         .clamp(0.0, 1.0);
-    let include_same_attester_sources = req.include_same_attester_sources.unwrap_or(false);
+    let include_same_attester_sources = req.include_same_attester_sources.unwrap_or(true);
     // Wall-clock budget for the per-key fact hydration below. Kept well
     // under the HTTP dispatch cap so an unfiltered whole-corpus scan
     // returns a partial-but-signed result instead of hanging the request.
@@ -262,7 +285,17 @@ pub async fn memory_contradictions(
     let bands: &BandRegistry = &BAND_DEFAULTS;
 
     let mut contradictions: Vec<Contradiction> = Vec::new();
+    let mut skipping = req.resume_after.is_some();
+    let mut resume_after: Option<String> = None;
+    let mut last_done: Option<String> = None;
     for (key, cids) in &multi {
+        let key_id = resume_key(&key.cell, &key.band, key.tslot);
+        if skipping {
+            if req.resume_after.as_deref() == Some(key_id.as_str()) {
+                skipping = false;
+            }
+            continue;
+        }
         if let Some(ref b) = req.band {
             if key.band != *b {
                 continue;
@@ -279,8 +312,10 @@ pub async fn memory_contradictions(
         // keys above, so filtered scans effectively never reach this.
         if started.elapsed().as_millis() > time_budget_ms {
             scan_truncated = true;
+            resume_after = last_done.clone();
             break;
         }
+        last_done = Some(key_id.clone());
         // Hydrate facts. A multi-attester key might point at CIDs the
         // hot cache has since lost (eviction policy — Hot tier is 30
         // days). Drop any None so the scorer only sees live facts. We
@@ -446,6 +481,8 @@ pub async fn memory_contradictions(
         contradictions,
         corpus_scanned,
         scan_truncated,
+        resume_after,
+        resume_not_found: skipping,
         time_taken_ms: elapsed_ms,
         agent_hint,
         receipt,
@@ -720,10 +757,10 @@ fn build_agent_hint(
     let scope = if include_same_attester_sources {
         " SCOPE: keys where two attesters disagree, PLUS keys where one attester answered from two different upstreams (a changed derivation.fn_key or sources[].scheme); a re-signing of the same provider is still not counted."
     } else {
-        " SCOPE: only keys where two or more DISTINCT attesters disagree. A single responder answering one address from two different upstreams is not counted here — pass `include_same_attester_sources: true` to include provider substitutions, which on a single-responder corpus is where the real disagreements are."
+        " SCOPE: only keys where two or more DISTINCT attesters disagree (you passed `include_same_attester_sources: false`). A single responder answering one address from two different upstreams is not counted here, and on a single-responder corpus that is where the real disagreements are."
     };
     let trunc = if truncated {
-        " NOTE: the hydration budget was spent before every key was examined, so this is a PARTIAL view; pass a `band` filter (or a tighter `cell_prefix`) for complete, fast coverage."
+        " NOTE: the hydration budget was spent before every key was examined, so this is a PARTIAL view. Send `resume_after` from this response to continue from the next key, or pass a `band` filter (or a tighter `cell_prefix`) for complete, fast coverage."
     } else {
         ""
     };
@@ -740,7 +777,7 @@ fn build_agent_hint(
     if contradictions.is_empty() {
         if corpus_scanned == 0 {
             return format!(
-                "No multi-attester observations exist yet{filter}. Either the corpus is single-attester (every key has one signer) or no second attester has ever overlapped on the same (cell, band, tslot). This is honest 'no contradictions known', not 'lookup failed'.{scope}"
+                "No multi-attester observations exist yet{filter}: no (cell, band, tslot) holds two signed facts, from two attesters or from one attester and two upstreams. This is honest 'no contradictions known', not 'lookup failed'.{scope}"
             );
         }
         return format!(
@@ -890,6 +927,15 @@ mod tests {
                 multi.push((key, vec![cid.clone()]));
             }
             cid
+        }
+
+        /// Give one stored fact another recipe and source scheme: the same
+        /// attester answering from a different upstream.
+        fn set_provider(&self, cid: &FactCid, fn_key: &str, scheme: &str) {
+            if let Some(Fact::Primary(p)) = self.cid_to_fact.lock().unwrap().get_mut(cid.as_str()) {
+                p.derivation.fn_key = fn_key.into();
+                p.sources[0].scheme = scheme.into();
+            }
         }
     }
 
@@ -1487,12 +1533,121 @@ mod tests {
         ]));
     }
 
-    /// The option is off by default, so every existing caller's results
-    /// stay byte-identical until they ask for the wider scope.
-    #[test]
-    fn same_attester_sources_are_excluded_by_default() {
-        let req = ContradictionsReq::default();
-        assert_eq!(req.include_same_attester_sources, None);
-        assert!(!req.include_same_attester_sources.unwrap_or(false));
+    /// One attester answering one address from two upstreams is reported by
+    /// default, labelled, and left out when the caller passes `false`. The old
+    /// default answered zero here, and a reader quoted the zero.
+    #[tokio::test]
+    async fn one_attester_two_providers_is_reported_by_default_and_labelled() {
+        let storage = Arc::new(MockMultiStorage::new());
+        storage.insert_attestation(
+            "damO.zb000.xUti.zde78",
+            "copdem30m.elevation_mean",
+            0,
+            signer(1),
+            CborValue::Float(918.0),
+            1.0,
+            "2026-08-11T00:00:00Z",
+        );
+        let b = storage.insert_attestation(
+            "damO.zb000.xUti.zde78",
+            "copdem30m.elevation_mean",
+            0,
+            signer(1),
+            CborValue::Float(400.0),
+            1.0,
+            "2026-08-12T00:00:00Z",
+        );
+        storage.set_provider(
+            &b,
+            "copernicus_dem_30m_aws_pixel@1",
+            "copernicus.dem.30m.aws",
+        );
+        let srv = test_server(storage);
+        let all = memory_contradictions(
+            &ContradictionsReq {
+                min_severity: Some(0.0),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .unwrap();
+        assert_eq!(all.contradictions.len(), 1, "{}", all.agent_hint);
+        assert_eq!(
+            all.contradictions[0].disagreement_scope,
+            "same_attester_provider_substitution"
+        );
+        let narrow = memory_contradictions(
+            &ContradictionsReq {
+                min_severity: Some(0.0),
+                include_same_attester_sources: Some(false),
+                ..Default::default()
+            },
+            &srv,
+        )
+        .await
+        .unwrap();
+        assert!(narrow.contradictions.is_empty());
+    }
+
+    /// A resumed scan starts after its cursor; a cursor it cannot find says so
+    /// rather than answering zero as if the scan had run.
+    #[tokio::test]
+    async fn resume_after_continues_from_the_next_key() {
+        let storage = Arc::new(MockMultiStorage::new());
+        let cells = [
+            "damO.zb000.xUti.zde70",
+            "damO.zb000.xUti.zde71",
+            "damO.zb000.xUti.zde72",
+        ];
+        for c in cells {
+            storage.insert_attestation(
+                c,
+                "indices.ndvi",
+                12,
+                signer(1),
+                CborValue::Float(0.85),
+                1.0,
+                "2026-05-01T12:00:00Z",
+            );
+            storage.insert_attestation(
+                c,
+                "indices.ndvi",
+                12,
+                signer(2),
+                CborValue::Float(0.10),
+                1.0,
+                "2026-05-02T12:00:00Z",
+            );
+        }
+        let srv = test_server(storage);
+        let req = |r: Option<String>| ContradictionsReq {
+            min_severity: Some(0.0),
+            resume_after: r,
+            ..Default::default()
+        };
+        let full = memory_contradictions(&req(None), &srv).await.unwrap();
+        assert_eq!(full.contradictions.len(), 3);
+        assert!(full.resume_after.is_none() && !full.resume_not_found && !full.scan_truncated);
+        let rest =
+            memory_contradictions(&req(Some(resume_key(cells[0], "indices.ndvi", 12))), &srv)
+                .await
+                .unwrap();
+        let got: Vec<&str> = rest
+            .contradictions
+            .iter()
+            .map(|c| c.cell.as_str())
+            .collect();
+        assert_eq!(got.len(), 2);
+        assert!(!got.contains(&cells[0]));
+        let none =
+            memory_contradictions(&req(Some(resume_key(cells[2], "indices.ndvi", 12))), &srv)
+                .await
+                .unwrap();
+        assert!(none.contradictions.is_empty() && !none.resume_not_found);
+        let lost = memory_contradictions(&req(Some("no|such|key".into())), &srv)
+            .await
+            .unwrap();
+        assert!(lost.contradictions.is_empty() && lost.resume_not_found);
     }
 }

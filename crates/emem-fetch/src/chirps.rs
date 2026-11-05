@@ -35,6 +35,14 @@ use reqwest::Client;
 
 use crate::cog::{self, CogError};
 
+/// At most this many CHIRPS reads in flight from this process. The CHC host
+/// (data.chc.ucsb.edu) banned a partner's host after 8 parallel COG reads
+/// (reported 2026-11-05), and a recall over many cells fans out one read per
+/// cell. A ban would turn every precipitation fact into a transport error.
+const CHC_MAX_IN_FLIGHT: usize = 2;
+static CHC_PERMITS: std::sync::LazyLock<tokio::sync::Semaphore> =
+    std::sync::LazyLock::new(|| tokio::sync::Semaphore::new(CHC_MAX_IN_FLIGHT));
+
 /// UCSB CHC mirror — HTTPS, no auth, accept-ranges supported. Tested
 /// against the 2.0 release; 2.1 (when it lands) will need a separate
 /// scheme since the file naming + temporal coverage will differ.
@@ -259,6 +267,9 @@ pub async fn fetch_chirps_daily(
         .build()
         .map_err(|e| ChirpsError::Transport(format!("client build: {e}")))?;
 
+    // Held for the two reads below; the semaphore is never closed, so the
+    // acquire cannot fail.
+    let _permit = CHC_PERMITS.acquire().await.ok();
     let profile = cog::open_profile(&cli, &url)
         .await
         .map_err(|e| ChirpsError::from_cog(e, &url))?;
@@ -351,6 +362,7 @@ pub async fn fetch_chirps_monthly(
         .timeout(timeout)
         .build()
         .map_err(|e| ChirpsError::Transport(format!("client build: {e}")))?;
+    let _permit = CHC_PERMITS.acquire().await.ok();
     let profile = cog::open_profile(&cli, &url)
         .await
         .map_err(|e| ChirpsError::from_cog(e, &url))?;

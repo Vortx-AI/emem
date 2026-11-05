@@ -63,7 +63,10 @@ rand          = "0.8"
 # serialization
 ciborium = "0.2"
 serde    = { version = "1", features = ["derive"] }
-serde_json = "1"
+# float_roundtrip: the default parser is best effort, and read 0.20070733863837315
+# back as the double one ULP above it, so a fact parsed from its own JSON hashed to
+# another cid and verify_receipt could not tell it from a tampered one (2026-11-05).
+serde_json = { version = "1", features = ["float_roundtrip"] }
 data-encoding = "2.5"
 
 # storage
