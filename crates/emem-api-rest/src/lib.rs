@@ -95391,6 +95391,11 @@ mod tests {
 
     #[tokio::test]
     async fn eudr_large_plot_stores_exactly_what_the_response_names() {
+        // The receipt cap is read twice, once to prune and once to build the
+        // receipt, from an env var that eudr_dds_receipt_cells_capped sets.
+        // Without the guard a parallel run can change it between the reads,
+        // and the stored set and the cited set disagree (CI, 2026-11-05).
+        let _guard = eudr_test_env_guard();
         let s = test_app_state();
         let (obj, per_cell, pruned, computed) = eudr_simulated_plot(&s, 1500, 256);
         let hist_cid = obj["loss_year_histogram"]["signed_fact_cid"]
@@ -95434,6 +95439,7 @@ mod tests {
 
     #[tokio::test]
     async fn eudr_small_plot_stores_every_fact() {
+        let _guard = eudr_test_env_guard();
         let s = test_app_state();
         let (obj, per_cell, pruned, computed) = eudr_simulated_plot(&s, 10, 256);
         assert_eq!(
@@ -95454,6 +95460,7 @@ mod tests {
 
     #[test]
     fn eudr_prepare_unsaved_refuses_what_a_store_would() {
+        let _guard = eudr_test_env_guard();
         let s = test_app_state();
         let (_, _, pruned, _) = eudr_simulated_plot(&s, 1, 256);
         let mut f = pruned
