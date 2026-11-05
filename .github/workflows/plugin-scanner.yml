@@ -30,6 +30,43 @@ jobs:
         with:
           plugin_dir: "."
           mode: scan
+          format: json
+          output: plugin-scan.json
           fail_on_severity: high
           write_step_summary: true
           pr_comment: "off"
+      # The job summary shows only to a signed-in reader and the log API needs a
+      # token, so the first failed run said only "exit code 1" to anyone else.
+      # Annotations on the check run are public: each finding becomes one.
+      - name: findings as annotations
+        if: always()
+        run: |
+          python3 - plugin-scan.json <<'PY'
+          import json, sys
+          try:
+              report = json.load(open(sys.argv[1], encoding="utf-8"))
+          except (OSError, ValueError) as e:
+              print(f"::notice title=plugin scan::no JSON report ({e})")
+              sys.exit(0)
+          found = []
+          def walk(v):
+              if isinstance(v, dict):
+                  if "rule_id" in v:
+                      found.append(v)
+                  for x in v.values():
+                      walk(x)
+              elif isinstance(v, list):
+                  for x in v:
+                      walk(x)
+          walk(report)
+          order = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+          found.sort(key=lambda f: order.get(str(f.get("severity", "")).lower(), 5))
+          head = {k: report.get(k) for k in ("score", "grade") if isinstance(report, dict) and k in report}
+          print(f"::notice title=plugin scan::{len(found)} findings {head}")
+          for f in found[:40]:
+              sev = str(f.get("severity", "")).lower()
+              level = "error" if sev in ("critical", "high") else "warning" if sev == "medium" else "notice"
+              where = f.get("file_path") or ""
+              text = f"{f.get('rule_id')} ({sev}) {where}: {f.get('title', '')}. {f.get('description', '')}"
+              print(f"::{level} title={f.get('rule_id')}::" + text.replace("\r", " ").replace("\n", " ")[:900])
+          PY
