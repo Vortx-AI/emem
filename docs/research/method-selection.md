@@ -205,3 +205,13 @@ What the next selection changes:
    version with its own source hash, registered before it is scored.
 3. Each decision is signed as `decision@1`; a selection short of one holds its later period (now enforced).
 
+**Registered 5 November, before any of its forests was read.** The second selection runs as three experiments in
+order: `canopy-loss-selection2-forests-2022-2023`, `canopy-loss-method-selection2-2022-2025` and
+`canopy-loss-selection2-forests-2024-2025`. Its ten forests are the ones with the most 400 m cells lost in 2022 and
+2023 among 31 unused forests of the lab's pool and 14 placed on known clearing frontiers: Bafwasende, Djoum, Loreto,
+Trairao, Placas, Puerto Inca, Laguna del Tigre, Cartagena del Chaira, Jacareacanga and Apiacas, with 59 to 16 loss
+cells each. The earlier record adds the two experiments already scored for 2022 and 2023. Version 5,
+`lab:memory_hls_emp@5`, is a candidate: version 4's scores, decided under the theoretical null where more than three
+quarters of a forest's cells read as changed against their own nulls. Post hoc over the lab's 38 forest-periods with
+Landsat, that rule changes a decision at Sao Felix in 2024-2025 only; these forests test it.
+
