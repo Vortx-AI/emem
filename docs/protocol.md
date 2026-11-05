@@ -1560,6 +1560,16 @@ also accepts a note's content hash (blake3 of its bytes), answering
 no entry; logging them now would record the time of logging, not of
 writing.
 
+`GET /v1/log/entries?summary=1` serves one light row per entry instead
+of its bytes: `leaf_index`, `entry_kind`, `entry_hash_b32` and
+`entry_bytes`; for an attestation also `facts`, the first fact's `band`
+and `cell`, a `centre` rounded to 3 decimals, and `attested_at`; for a
+memory write `path`, `verb` and `signed_at`. On 2026-11-05 the last
+256 full entries, as served, had a median of 5.4 KB, a mean of 277 KB and
+a maximum of 2.6 MB: the bytes come twice in base32, once under each
+name. So a live feed on a phone reads summaries. Only `entry_hash_b32`
+is checkable: fetch the full entry to re-hash it against the leaf.
+
 
 ### 9.7 Signed readings of things emem did not measure
 

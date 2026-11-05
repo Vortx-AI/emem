@@ -23128,6 +23128,12 @@ struct LogEntriesReq {
     /// Exclusive. Defaults to `start + LOG_ENTRIES_MAX`.
     #[serde(default)]
     end: Option<u64>,
+    /// `summary=1`: one light row per entry (kind, band, cell, time) without the
+    /// entry bytes. Measured 2026-11-05 on the last 256 entries as served: median
+    /// 5.4 KB, mean 277 KB, max 2.6 MB, so a live feed on a phone could not afford
+    /// them; a caller re-hashes the full entry only when it needs to.
+    #[serde(default)]
+    summary: Option<String>,
 }
 
 /// `GET /v1/log/entries?start=<i>&end=<j>`, RFC 6962 §4.6 get-entries: the raw
@@ -23192,9 +23198,16 @@ async fn get_log_entries(
             },
         )
     })?;
+    let summary = req
+        .summary
+        .as_deref()
+        .is_some_and(|v| matches!(v, "1" | "true" | "yes"));
     let entries: Vec<JsonValue> = rows
         .iter()
         .map(|(i, cbor)| {
+            if summary {
+                return log_entry_summary(*i, cbor);
+            }
             let bytes = b32_lower(cbor);
             json!({
                 "leaf_index": i,
@@ -23214,6 +23227,7 @@ async fn get_log_entries(
     let returned = entries.len() as u64;
     Ok(Json(json!({
         "entries": entries,
+        "summary": summary,
         "start": start,
         // What you actually got, not what you asked for: a short read means the log
         // ended or the cap bit, and either way this is where you resume.
@@ -23224,6 +23238,184 @@ async fn get_log_entries(
         "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Two kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation) and `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds.",
         "spec": "https://emem.dev/spec.md#transparency-log"
     })))
+}
+
+/// One light row of `/v1/log/entries?summary=1`. The hash is still the leaf's
+/// preimage hash, so a reader can fetch the full entry later and check it; the
+/// other fields are read from the entry and carry no proof of their own.
+fn log_entry_summary(i: u64, cbor: &[u8]) -> JsonValue {
+    let kind = log_entry_kind(cbor);
+    let mut row = json!({
+        "leaf_index": i,
+        "entry_kind": kind,
+        "entry_hash_b32": b32_lower(blake3::hash(cbor).as_bytes()),
+        "entry_bytes": cbor.len(),
+    });
+    if kind == "attestation" {
+        if let Ok(att) = ciborium::de::from_reader::<Attestation, _>(cbor) {
+            let head = att.facts.first().map(|f| match f {
+                emem_fact::Fact::Primary(p) => (p.band.as_str(), p.cell.as_str()),
+                emem_fact::Fact::Derivative(d) => (d.band.as_str(), d.cell.as_str()),
+                emem_fact::Fact::Absence(n) => (n.band.as_str(), n.cell.as_str()),
+            });
+            row["facts"] = json!(att.facts.len());
+            row["attested_at"] = json!(att.attested_at);
+            if let Some((band, cell)) = head {
+                row["band"] = json!(band);
+                row["cell"] = json!(cell);
+                // Three decimals is about 110 m: enough to place a dot on a map.
+                if let Ok(ll) = emem_codec::latlng_from_cell64(cell) {
+                    row["centre"] = json!({
+                        "lat": (ll.lat_deg * 1000.0).round() / 1000.0,
+                        "lng": (ll.lng_deg * 1000.0).round() / 1000.0,
+                    });
+                }
+            }
+        }
+    } else if let Ok(ciborium::Value::Map(m)) =
+        ciborium::de::from_reader::<ciborium::Value, _>(cbor)
+    {
+        for (k, v) in m {
+            if let (Some(k), Some(v)) = (k.as_text(), v.as_text()) {
+                if matches!(k, "path" | "signed_at" | "verb") {
+                    row[k] = json!(v);
+                }
+            }
+        }
+    }
+    row
+}
+
+#[cfg(test)]
+mod light_feed_and_strict_locate_tests {
+    use super::*;
+
+    fn att(facts: Vec<emem_fact::Fact>) -> Vec<u8> {
+        let a = Attestation {
+            facts,
+            edges: vec![],
+            batch_root: [9u8; 32],
+            attester: emem_core::AttesterKey([1u8; 32]),
+            attester_key_epoch: emem_core::KeyEpoch(0),
+            registry_cid: emem_fact::RegistryCid::new("r"),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signature: emem_core::Signature([0u8; 64]),
+            attested_at: "2026-11-05T15:00:00Z".into(),
+            scope: None,
+            preimage_version: 0,
+        };
+        let mut out = Vec::new();
+        ciborium::ser::into_writer(&a, &mut out).unwrap();
+        out
+    }
+
+    fn ndvi_at(cell: &str) -> emem_fact::Fact {
+        emem_fact::Fact::Primary(emem_fact::PrimaryFact {
+            cell: cell.into(),
+            band: "indices.ndvi".into(),
+            tslot: 0,
+            value: ciborium::Value::Float(0.5),
+            unit: None,
+            confidence: 1.0,
+            uncertainty: None,
+            sources: vec![],
+            derivation: emem_fact::Derivation {
+                fn_key: "t@1".into(),
+                args: None,
+            },
+            privacy_class: "public".into(),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signer: emem_core::AttesterKey([1u8; 32]),
+            signed_at: "2026-11-05T15:00:00Z".into(),
+            served_via: None,
+        })
+    }
+
+    #[test]
+    fn a_summary_row_names_the_fact_and_keeps_the_checkable_hash() {
+        // The cell Mount Fuji resolves to.
+        let cbor = att(vec![ndvi_at("defi.zb592.nUkO.zEzE")]);
+        let row = log_entry_summary(42, &cbor);
+        assert_eq!(row["leaf_index"], 42);
+        assert_eq!(row["entry_kind"], "attestation");
+        assert_eq!(
+            row["entry_hash_b32"],
+            b32_lower(blake3::hash(&cbor).as_bytes())
+        );
+        assert_eq!(row["entry_bytes"], cbor.len());
+        assert_eq!(row["facts"], 1);
+        assert_eq!(row["band"], "indices.ndvi");
+        assert_eq!(row["cell"], "defi.zb592.nUkO.zEzE");
+        assert_eq!(row["attested_at"], "2026-11-05T15:00:00Z");
+        let (lat, lng) = (
+            row["centre"]["lat"].as_f64().unwrap(),
+            row["centre"]["lng"].as_f64().unwrap(),
+        );
+        assert!(
+            (lat - 35.36).abs() < 0.05 && (lng - 138.73).abs() < 0.05,
+            "{lat},{lng}"
+        );
+        assert!(row.get("entry_cbor_b32").is_none() && row.get("attestation_cbor_b32").is_none());
+    }
+
+    #[test]
+    fn a_summary_row_of_a_memory_write_names_its_path() {
+        let mut cbor = Vec::new();
+        let rec = ciborium::Value::Map(vec![
+            (
+                ciborium::Value::Text("kind".into()),
+                ciborium::Value::Text(MEMORY_LOG_KIND.into()),
+            ),
+            (
+                ciborium::Value::Text("path".into()),
+                ciborium::Value::Text("/memories/by_attester/x/n.md".into()),
+            ),
+            (
+                ciborium::Value::Text("verb".into()),
+                ciborium::Value::Text("create".into()),
+            ),
+            (
+                ciborium::Value::Text("sig_b32".into()),
+                ciborium::Value::Text("zz".into()),
+            ),
+        ]);
+        ciborium::ser::into_writer(&rec, &mut cbor).unwrap();
+        let row = log_entry_summary(7, &cbor);
+        assert_eq!(row["entry_kind"], MEMORY_LOG_KIND);
+        assert_eq!(row["path"], "/memories/by_attester/x/n.md");
+        assert_eq!(row["verb"], "create");
+        assert!(
+            row.get("sig_b32").is_none(),
+            "only the light fields are copied"
+        );
+    }
+
+    #[test]
+    fn an_attestation_with_no_facts_still_summarises() {
+        let row = log_entry_summary(1, &att(vec![]));
+        assert_eq!(row["facts"], 0);
+        assert!(row.get("band").is_none() && row.get("centre").is_none());
+    }
+
+    #[test]
+    fn strict_locate_refuses_a_weak_match_and_passes_a_confident_one() {
+        let weak = json!({"selected": {"label": "What's happening here? (board)", "cell64": "defi.zb630.zbc0a.jUlE",
+                                        "is_high_confidence": false, "confidence_reason": "ambiguous_top_two_candidates"},
+                          "disambiguation_required": true});
+        let err = strict_locate_check(&weak).unwrap_err();
+        assert_eq!(err.0, StatusCode::NOT_FOUND);
+        assert!(matches!(err.1.code, ErrorCode::NoGeocoderMatch));
+        assert_eq!(
+            err.1.details.as_ref().unwrap()["weak_match"]["cell64"],
+            "defi.zb630.zbc0a.jUlE"
+        );
+        let sure = json!({"selected": {"is_high_confidence": true, "confidence_reason": "wikidata_confirms_answer"}});
+        assert!(strict_locate_check(&sure).is_ok());
+        // Coordinates in: no geocoder match was made, so there is nothing to refuse.
+        assert!(strict_locate_check(&json!({"lat_input": 1.0, "lng_input": 2.0})).is_ok());
+        // A match with no confidence field is not a confident match.
+        assert!(strict_locate_check(&json!({"selected": {"label": "x"}})).is_err());
+    }
 }
 
 /// `GET /v1/log/inclusion?leaf_index=<i>` or `?entry_hash=<base32>`, an
@@ -34739,7 +34931,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/sources":           {"get":{"summary":"source registry","operationId":"emem_sources","responses":{"200":json_ok}}},
             "/v1/errors":            {"get":{"summary":"error code catalog","operationId":"emem_errors","responses":{"200":json_ok}}},
             "/v1/log/sth":           {"get":{"summary":"transparency log: signed tree head (RFC 6962) over the append-only attestation log. {tree_size, root_b32, signed_at, responder_pubkey_b32, signature_b32}; ed25519 over PreimageV1(\"emem.translog.sth.v1\"). Pin it, then re-check /v1/log/consistency to prove the log only grew.","operationId":"emem_log_sth","responses":{"200":json_ok}}},
-            "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
+            "/v1/log/entries":       {"get":{"summary":"transparency log: RFC 6962 §4.6 get-entries. Returns the raw attestations at global indices [start, end), as {leaf_index, attestation_cbor_b32, entry_hash_b32}. This is what makes the log AUDITABLE rather than only provable: /v1/log/inclusion proves a cid you already hold is committed, while enumeration lets a third party read what else is in the tree. Entry i is the preimage of leaf i in /v1/log/sth, so blake3(attestation_cbor_b32) == entry_hash_b32 and /v1/log/inclusion proves that hash sits under the STH, with no trust in this responder. Capped at 256 per call (RFC 6962 permits returning fewer than asked); the response carries end_exclusive and truncated so you paginate on what you received, not what you requested.","operationId":"emem_log_entries","parameters":[{"name":"start","in":"query","schema":{"type":"integer","minimum":0},"description":"first global leaf index, inclusive"},{"name":"end","in":"query","schema":{"type":"integer"},"description":"exclusive end; defaults to start+256 and is clamped to it"},{"name":"summary","in":"query","schema":{"type":"boolean"},"description":"1 or true: one light row per entry (leaf_index, entry_kind, entry_hash_b32, entry_bytes; for an attestation also facts, band, cell, a centre rounded to 3 decimals and attested_at; for a memory write path, verb and signed_at) without the entry bytes. Only entry_hash_b32 is checkable; fetch the full entry to re-hash it."}],"responses":{"200":json_ok,"400":json_bad_request,"501":json_ok}}},
             "/.well-known/did.json": {"get":{"summary":"node identity: the did:web document naming this node's responder key (the key under every STH and receipt) and, when the operator declares one, its witness key, both as Multikey. 404 with the fix when the node has no public host.","operationId":"emem_well_known_did","tags":["identity"],"responses":{"200":json_ok,"404":json_not_found}}},
             "/.well-known/emem-agents.json": {"get":{"summary":"organisation vouching: the keys this operator vouches for, from config/emem-agents.json. The enlistment ladder on OTHER nodes fetches this document to move a key to T4_affiliated; a node that asks peers to publish one publishes its own. Public keys only, no redirects, CORS open.","operationId":"emem_well_known_agents","tags":["identity"],"responses":{"200":json_ok}}},
             "/v1/log/inclusion":     {"get":{"summary":"transparency log: RFC 6962 inclusion (audit) proof that a log entry is committed under a tree head. Pass leaf_index=<i>, entry_hash=<base32 of the attestation record's blake3>, or fact_cid=<a fact's cid> to prove the attestation that carried it (its entry hash is also in a receipt's merkle_proof.log_entry_hash); add tree_size=<n> to prove against a historical head (the response's root_b32 is then the unsigned root at that size; bind it to a signed head with /v1/log/consistency). Unknown arguments are refused with 400. Verify offline with translog::verify_inclusion.","operationId":"emem_log_inclusion","parameters":[{"name":"leaf_index","in":"query","required":false,"schema":{"type":"integer","minimum":0}},{"name":"fact_cid","in":"query","required":false,"schema":{"type":"string"},"description":"a fact this responder signed; one signed before receipts recorded the log entry is found through its batch root"},{"name":"entry_hash","in":"query","required":false,"schema":{"type":"string","description":"base32-nopad of the record's 32-byte blake3"}},{"name":"tree_size","in":"query","required":false,"schema":{"type":"integer","minimum":1},"description":"1..=current head; default the current head"}],"responses":{"200":json_ok,"400":json_bad_request}}},
@@ -34842,8 +35034,9 @@ fn openapi_spec() -> JsonValue {
                     {"name":"name","in":"query","required":false,"schema":{"type":"string","description":"Alias for `place`."}},
                     {"name":"lat","in":"query","required":false,"schema":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."}},
                     {"name":"lng","in":"query","required":false,"schema":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}},
-                    {"name":"lon","in":"query","required":false,"schema":{"type":"number","description":"Alias for `lng`."}}
-                ],"responses":{"200":json_ok}},
+                    {"name":"lon","in":"query","required":false,"schema":{"type":"number","description":"Alias for `lng`."}},
+                    {"name":"strict","in":"query","required":false,"schema":{"type":"boolean","description":"1 or true: answer 404 no_geocoder_match when the place name matched only weakly (selected.is_high_confidence false), with the weak candidate in details, instead of returning its cell. Coordinates pass through. Also accepted as `strict` in the POST body."}}
+                ],"responses":{"200":json_ok,"404":json_ok}},
                 "post":{"summary":"resolve a place name (or lat/lng) to a cell64. `research_nearby`, when present, points at conclusions vouched agents signed inside the place: tokens only, read them with POST /v1/inferences","operationId":"emem_locate","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/LocateReq"}}}},"responses":{"200":json_ok}}
             },
             "/v1/grid":              {"post":{"summary":"a place as an n x n table of signed facts in one call: cells row-major (north row first), per band values + fact_cids + captured_at + one emem:bundle token, one receipt citing every fact. The cold half is read as one area (one Sentinel-2 scene search per grid, not per square). Accepts budget_ms with the partial-results contract.","operationId":"emem_grid","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["center","bands"],"properties":{"center":{"type":"string","description":"place name, cell64, or lat,lng"},"bands":{"type":"array","items":{"type":"string"},"maxItems":8},"n":{"type":"integer","minimum":2,"maximum":16,"default":12},"half_km":{"type":"number","minimum":0.05,"maximum":25,"default":3},"tslot":{"type":"integer"},"budget_ms":{"type":"integer"},"bundle":{"type":"boolean","default":true}}}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
@@ -35042,7 +35235,7 @@ fn openapi_spec() -> JsonValue {
                 "ElevationPostReq":{"type":"object","description":"Body for POST /v1/elevation. Supply `place` OR `lat`+`lng` (`lon` accepted as an alias) OR `cell64`. Deliberately NOT BoringPostReq: this route reads a narrower type and hardcodes band / bands / tslot / n_cells to None, so those four knobs are not offered here.","properties":{"place":{"type":"string"},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"cell64":{"type":"string"},"cell":{"type":"string","description":"Alias for `cell64`."}}},
                 "BoringPostReq":   {"type":"object","description":"Body for POST /v1/{ndvi,air,lst,soil,water,forest,weather,at,elevation}. Supply `place` (free-text geocoded via /v1/locate) OR `lat`+`lng` (or `lon`); /v1/at and /v1/elevation also accept optional `band`/`bands`/`tslot` and `cell64` respectively. When `place` resolves to an OSM feature with extent (airport, park, lake, region) the response includes a `polygon` block + per-band `stats` (mean/median/min/max/std for numeric bands, mode + class distribution for categorical bands like esa_worldcover.lc_2021); pass `n_cells: 1` to force point behaviour at the centroid instead. Single-band endpoints default to 16 sample cells when polygon detected; /v1/at defaults to 1 (multi-band × multi-cell explodes upstream fetch count). Use POST /v1/recall_polygon for raw per-cell facts.","properties":{"place":{"type":"string","description":"Free-text place name; resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number"},"lng":{"type":"number"},"lon":{"type":"number","description":"Alias for `lng`."},"band":{"type":"string","description":"Single band key (used by /v1/at)."},"bands":{"type":"string","description":"CSV of band keys (used by /v1/at)."},"tslot":{"type":"integer"},"n_cells":{"type":"integer","minimum":1,"maximum":64,"description":"Polygon-aggregation knob. When `place` resolves to a feature with extent and `n_cells` is unset, single-band endpoints fan out to 16 sample cells; /v1/at defaults to 1. `n_cells: 1` forces point behaviour at the centroid; values in 2..=64 are honoured. Anything else returns 400, heavy queries belong on POST /v1/recall_polygon."}}},
                 "FetchReq":        {"type":"object","description":"Body for POST /v1/fetch. Either `cid` (resolve a fact by content-address) OR `cell`+`band` (materialize / read-through that band at that cell, optionally pinned to `tslot`). `cell` may be a cell64 string or a free-text place name resolved through /v1/locate.","properties":{"cid":{"type":"string","description":"emem fact CID (blake3 base32-nopad lowercase)."},"cell":{"type":"string","description":"cell64 or place name."},"band":{"type":"string","description":"Band key (required when `cell` is given)."},"tslot":{"type":"integer","description":"Optional tslot pin; defaults to canonical."}}},
-                "LocateReq":       {"type":"object","description":"Body for POST /v1/locate. Provide `place` (free-text, geocoded via embedded gazetteer → cache → Photon → Nominatim) OR `lat`+`lng`. Mutually exclusive: at least one of (`place`/`q`/`query`/`name`) or (`lat`+`lng`) must be present.","oneOf":[{"required":["place"]},{"required":["q"]},{"required":["query"]},{"required":["name"]},{"required":["lat","lng"]}],"properties":{"place":{"type":"string","description":"Free-text place name. Resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."},"lng":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."}}},
+                "LocateReq":       {"type":"object","description":"Body for POST /v1/locate. Provide `place` (free-text, geocoded via embedded gazetteer → cache → Photon → Nominatim) OR `lat`+`lng`. Mutually exclusive: at least one of (`place`/`q`/`query`/`name`) or (`lat`+`lng`) must be present.","oneOf":[{"required":["place"]},{"required":["q"]},{"required":["query"]},{"required":["name"]},{"required":["lat","lng"]}],"properties":{"place":{"type":"string","description":"Free-text place name. Resolved via embedded gazetteer → cache → Photon → Nominatim."},"q":{"type":"string","description":"Alias for `place`."},"query":{"type":"string","description":"Alias for `place`."},"name":{"type":"string","description":"Alias for `place`."},"lat":{"type":"number","description":"WGS-84 latitude. REQUIRED with `lng` unless `place` is provided."},"lng":{"type":"number","description":"WGS-84 longitude. REQUIRED with `lat` unless `place` is provided."},"strict":{"type":"boolean","description":"true: answer 404 no_geocoder_match when the place name matched only weakly (selected.is_high_confidence false), with the weak candidate in details, instead of returning its cell. Coordinates pass through."}}},
                 "CompareBandsReq": {"type":"object","required":["cell","a","b"],"description":"Body for POST /v1/compare_bands. Compares two bands at the same cell. Returns scalar delta + percent change for scalar pairs, cosine + L2 for vector pairs. The vector arm requires `a == b` with different tslots (one band across two vintages), because no two bands share a vector space: two encoders of equal width still embed different chips at different receptive fields, so a cosine between them is meaningless and is refused with a 400 rather than served. Optional `predicate` folds a consistency check (e.g. \"DEM and GMRT agree within 200 m\") into a signed verdict.","properties":{"cell":{"type":"string","description":"cell64 string. `cell64` accepted as alias."},"a":{"type":"string","description":"Band A key, e.g. 'copdem30m.elevation_mean'. For a vector cosine this must equal `b` (same band, two tslots)."},"b":{"type":"string","description":"Band B key, e.g. 'gmrt.elevation_mean'. For a vector cosine this must equal `a`."},"tslot_a":{"type":"integer","description":"Optional tslot pin for band A. When omitted, the responder picks the latest tslot with an attested fact for band A at this cell."},"tslot_b":{"type":"integer","description":"Optional tslot pin for band B. Same semantics as `tslot_a`."},"predicate":{"type":"object","description":"Optional consistency predicate. Tagged enum: {kind: 'abs_diff_le'|'abs_diff_lt'|'cosine_ge'|'cosine_gt'|'l2_distance_le', threshold: number}.","required":["kind","threshold"],"properties":{"kind":{"type":"string","enum":["abs_diff_le","abs_diff_lt","cosine_ge","cosine_gt","l2_distance_le"]},"threshold":{"type":"number"}}}}},
                 "Cell64":          {"type":"string","description":"cell64 wire form: four base-65,536 bigrams separated by dots, e.g. `defi.zb4d9.pefa.zf619`. Encoded resolution is ~9.55 m at the equator. Each bigram is either a CVCV quad, consonant `[bcdfghjklmnpqrstvwxyz]` followed by vowel `[aeiouAEIOU]` repeated twice, OR a synthetic 5-char `z[0-9a-f]{4}` slot used for the unused pad cells in the 65,536-entry alphabet. The regex pin matches `pattern` below byte-for-byte and is also surfaced under `Cell64Pattern` so agents can validate before sending.","pattern":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$","minLength":19,"maxLength":23,"example":"defi.zb4d9.pefa.zf619"},
                 "Cell64Pattern":   {"type":"string","description":"Reference copy of the cell64 regex for tooling that wants the pattern without round-tripping through Cell64. Same string as Cell64.pattern.","example":"^(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})(?:\\.(?:(?:[bcdfghjklmnpqrstvwxyz][aeiouAEIOU]){2}|z[0-9a-f]{4})){3}$"},
@@ -36976,13 +37169,62 @@ fn latlng_from_query(s: &str) -> Option<(f64, f64)> {
     Some((lat, lng))
 }
 
+#[derive(Deserialize)]
+struct LocateBody {
+    #[serde(flatten)]
+    req: LocateReq,
+    #[serde(default)]
+    strict: bool,
+}
+
 async fn post_locate(
     State(s): State<AppState>,
-    Json(req): Json<LocateReq>,
+    Json(body): Json<LocateBody>,
 ) -> Result<Json<JsonValue>, ApiError> {
-    let Json(mut v) = locate_inner(req).await?;
+    let Json(mut v) = locate_inner(body.req).await?;
+    if body.strict {
+        strict_locate_check(&v)?;
+    }
     attach_locate_research(&mut v, &s).await;
     Ok(Json(v))
+}
+
+/// `strict=true` on /v1/locate: refuse a place name the geocoder matched only
+/// weakly, instead of answering with the weak match's cell. A site that puts the
+/// first answer on a map cannot tell "What is happening here?" from a place:
+/// measured 2026-11-05, it matched a noticeboard of that name in British
+/// Columbia, flagged `is_high_confidence: false` in a field the caller never read.
+/// Coordinates in, or a confident match, pass through unchanged.
+fn strict_locate_check(v: &JsonValue) -> Result<(), ApiError> {
+    let Some(sel) = v.get("selected") else {
+        return Ok(());
+    };
+    if sel.get("is_high_confidence").and_then(JsonValue::as_bool) == Some(true) {
+        return Ok(());
+    }
+    Err(ApiError(
+        StatusCode::NOT_FOUND,
+        ErrorBody {
+            code: ErrorCode::NoGeocoderMatch,
+            message: format!(
+                "strict=true and no confident place match: the best candidate was {:?} ({}). \
+                 Pass a more specific place name, or lat and lng; drop strict to get the weak match.",
+                sel.get("label").and_then(JsonValue::as_str).unwrap_or(""),
+                sel.get("confidence_reason")
+                    .and_then(JsonValue::as_str)
+                    .unwrap_or("no confidence reason given"),
+            ),
+            details: Some(json!({
+                "strict": true,
+                "weak_match": {
+                    "label": sel.get("label"),
+                    "cell64": sel.get("cell64"),
+                    "confidence_reason": sel.get("confidence_reason"),
+                },
+                "disambiguation_required": v.get("disambiguation_required"),
+            })),
+        },
+    ))
 }
 
 // ── /v1/memory_token ─────────────────────────────────────────────────────
@@ -50670,7 +50912,13 @@ async fn get_locate(
         .or_else(|| q.get("query"))
         .or_else(|| q.get("name"))
         .cloned();
+    let strict = q
+        .get("strict")
+        .is_some_and(|s| matches!(s.as_str(), "1" | "true" | "yes"));
     let Json(mut v) = locate_inner(LocateReq { lat, lng, place }).await?;
+    if strict {
+        strict_locate_check(&v)?;
+    }
     attach_locate_research(&mut v, &s).await;
     Ok(Json(v))
 }
@@ -80834,6 +81082,44 @@ fn synthesise_ask_answer(body: &serde_json::Map<String, JsonValue>) -> String {
     parts.join(" ")
 }
 
+/// `selected` is `alternatives[0]`, so the flags must say the same. The Wikidata
+/// decision stage puts its item first and left the cascade's pick flagged
+/// `is_selected: true`: for "Mars" (2026-11-05) `selected` named Mars in Ardèche
+/// while alternatives[1], Mars in Pennsylvania, carried the flag, and a client that
+/// trusted the flag took one match's label with the other's cell.
+fn mark_selected_alternative(alternatives: &mut [JsonValue]) {
+    for (i, a) in alternatives.iter_mut().enumerate() {
+        if let Some(o) = a.as_object_mut() {
+            o.insert("rank".into(), json!(i));
+            o.insert("is_selected".into(), json!(i == 0));
+        }
+    }
+}
+
+#[cfg(test)]
+mod mark_selected_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_first_alternative_is_selected_after_a_replacement() {
+        // The shape of the "Mars" answer: the decision's item inserted ahead of the
+        // cascade's candidates, which still carry their own rank and flag.
+        let mut alts = vec![
+            json!({"label": "Mars", "source": "wikidata", "cell64": "defi.zb600.kEza.zc4a8"}),
+            json!({"label": "Mars, Pennsylvania", "rank": 0, "is_selected": true}),
+            json!({"label": "Mars, Nebraska", "rank": 1, "is_selected": false}),
+        ];
+        mark_selected_alternative(&mut alts);
+        let flags: Vec<bool> = alts
+            .iter()
+            .map(|a| a["is_selected"].as_bool().unwrap())
+            .collect();
+        assert_eq!(flags, vec![true, false, false]);
+        let ranks: Vec<u64> = alts.iter().map(|a| a["rank"].as_u64().unwrap()).collect();
+        assert_eq!(ranks, vec![0, 1, 2]);
+    }
+}
+
 async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
     // One deadline for the whole request's Overture enrichment, shared by every
     // tier of the cascade so the cost cannot multiply.
@@ -82075,6 +82361,7 @@ async fn locate_inner(req: LocateReq) -> Result<Json<JsonValue>, ApiError> {
             nominatim_cache_note_verdict(q, is_high_conf, confidence_reason);
         }
     }
+    mark_selected_alternative(&mut alternatives);
     // Always emit the `alternatives[]` array, even when length is 1 -
     // so a downstream agent can read a stable shape. Previously the
     // single-hit path emitted nothing, hiding the OSM class/type that

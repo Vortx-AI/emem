@@ -4,10 +4,14 @@
   "asymmetric_on_purpose": {
     "emem_guard_verdict": [
       "messages"
+    ],
+    "emem_locate": [
+      "strict"
     ]
   },
   "asymmetric_on_purpose_reasons": {
-    "emem_guard_verdict": "POST /v1/guard/verdict accepts a chat-completions `messages` array, because a client that already holds an OpenAI-shaped body should not have to reshape it to ask a question. The MCP TOOL does not advertise it: a checker should ask for the smallest input that answers the question, and listing `messages` beside `texts` made handing it the whole conversation look like the documented way in. The wire is unchanged; only the advertisement is. Removing it from /openapi.json too would hide an input the route really accepts."
+    "emem_guard_verdict": "POST /v1/guard/verdict accepts a chat-completions `messages` array, because a client that already holds an OpenAI-shaped body should not have to reshape it to ask a question. The MCP TOOL does not advertise it: a checker should ask for the smallest input that answers the question, and listing `messages` beside `texts` made handing it the whole conversation look like the documented way in. The wire is unchanged; only the advertisement is. Removing it from /openapi.json too would hide an input the route really accepts.",
+    "emem_locate": "GET and POST /v1/locate accept `strict`: refuse a weak place match with no_geocoder_match instead of answering with its cell. It was added for a browser site that put the first answer on a map. The MCP TOOL does not advertise it, because the core tool page sat within 60 bytes of its 75,000-byte ceiling (2026-11-05) and the shortest description of `strict` pushed it 55 bytes over. An agent reads the same verdict from `selected.is_high_confidence` and `disambiguation_required`, which every answer carries."
   },
   "parameters_documented_only_for_agents": 133,
   "tools": {
