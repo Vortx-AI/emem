@@ -5,7 +5,7 @@ description: Answers agronomy questions about one farm field with signed evidenc
 
 # emem-field-signals
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`. Every request body is written in the command itself.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`. Every request body is written out in this skill.
 
 Field-scale questions, each one call, each answer carrying the fact cids
 it was computed from and a signed receipt.
@@ -30,8 +30,13 @@ a scene that both time neighbours refute gets `quality: "suspect"` and
 a `scene_check`, and the trend leaves it out. A `fields` answer adds a
 `suspect` column and `suspect_dates`.
 
-`field_burn_scar` and `field_actual_et` take the same body: `start` and
-`end` (YYYY-MM-DD, inclusive, at most 400 days), and the field as
+`field_boundaries` and `field_series` are tools of the plugin's MCP
+server, outside the short tool list it shows. The server runs them by
+name through `tools/call`. If your host calls only listed tools, or has
+no MCP, send the same JSON body to the REST route in the table.
+`field_burn_scar` and `field_actual_et` have no MCP tool, so their
+bodies go to the REST routes. Those two take the same body:
+`start` and `end` (YYYY-MM-DD, inclusive, at most 400 days), and the field as
 `geometry_geojson` (a GeoJSON Polygon or MultiPolygon, or
 `{"bbox":[w,s,e,n]}`) or as `cells` (cell64s). `budget_ms` (default
 25000, max 300000) is a warm-up budget: after it the call answers from
@@ -39,11 +44,18 @@ what is stored, and the warm-up continues, so a retry reads more.
 
 ## Step 1: the field's edges
 
+Call `emem_field_boundaries` with:
+
+```json
+{"polygon_bbox": {"min_lat": 30.90, "max_lat": 30.903, "min_lng": 75.80, "max_lng": 75.804}, "clean": true}
+```
+
+Save the result's JSON text as `fields.json`. A result over the MCP
+wire budget (about 24 KB) comes back slimmed, and `_emem_truncation`
+names what it left out. To get every polygon, send the same body to
+`POST https://emem.dev/v1/field_boundaries`. Then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/field_boundaries \
-  -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":30.90,"max_lat":30.903,"min_lng":75.80,"max_lng":75.804},"clean":true}' \
-  > fields.json
 jq '{count, returned, license, attribution,
      fields: [.geojson.features[] | {area_m2: .properties.area_m2, centroid: .properties.cell64_centroid}]}' fields.json
 ```
@@ -57,11 +69,16 @@ cleaning, 2 duplicates dropped, overlap 165,206 m² resolved to 0.
 
 ## Step 2: was it burned?
 
+Send this body to `POST https://emem.dev/v1/field_burn_scar`:
+
+```json
+{"geometry_geojson": {"bbox": [75.80, 30.90, 75.804, 30.903]},
+ "start": "2025-10-01", "end": "2025-11-30", "max_cells": 16}
+```
+
+Save the answer as `burn.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/field_burn_scar \
-  -H 'content-type: application/json' \
-  -d '{"geometry_geojson":{"bbox":[75.80,30.90,75.804,30.903]},
-       "start":"2025-10-01","end":"2025-11-30","max_cells":16}' > burn.json
 jq '{verdict, burn_events, events, observations, sensors_not_evaluated}' burn.json
 ```
 
@@ -84,13 +101,18 @@ as "not enough clear imagery yet", never as "no burning".
 
 ## Step 3: how much water did it use?
 
+Send this body to `POST https://emem.dev/v1/field_actual_et`:
+
+```json
+{"geometry_geojson": {"bbox": [77.03, 32.57, 77.036, 32.573]},
+ "start": "2026-05-01", "end": "2026-06-30"}
+```
+
+Save the answer as `et.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/field_actual_et \
-  -H 'content-type: application/json' \
-  -d '{"geometry_geojson":{"bbox":[77.03,32.57,77.036,32.573]},
-       "start":"2026-05-01","end":"2026-06-30"}' \
-  | jq '{verdict, et_mm, et_m3_per_ha, coverage, pixel_m,
-         composites: [.composites[] | {composite_start, days_in_window, et_mm, fact_cid}]}'
+jq '{verdict, et_mm, et_m3_per_ha, coverage, pixel_m,
+     composites: [.composites[] | {composite_start, days_in_window, et_mm, fact_cid}]}' et.json
 ```
 
 Recorded on 2026-09-28: `verdict: "complete"`, `et_mm: 148.04`,
@@ -108,12 +130,12 @@ June to September 2025 returned it on 2026-09-28).
 
 ## Step 4: look at it
 
-```sh
-curl -sf -o plot.png \
-  'https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903'
-```
+Fetch the picture with a GET and save the PNG as `plot.png`. No MCP
+tool returns this crop:
 
-The image is saved as `plot.png`: the newest clear Sentinel-2 pass over the
+`GET https://emem.dev/v1/scene.png?bbox=75.80,30.90,75.804,30.903`
+
+`plot.png` is then the newest clear Sentinel-2 pass over the
 box, at native 10 m. `max_cloud` and `datetime` narrow the choice. To name
 the scene, run `field_series` (above) over the same box: its rows give each
 pass's date, scene id and cloud cover. Recorded on 2026-09-28: a 39 x 34 px PNG

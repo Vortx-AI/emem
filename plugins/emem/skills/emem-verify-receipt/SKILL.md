@@ -24,13 +24,17 @@ every emem verifier share.
 
 ## Run the bundled verifier
 
-Save the response to a file, then run the shipped script on the file:
+Save the response to a file, then run the shipped script on the file.
+For example, call `emem_recall` with:
+
+```json
+{"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m"]}
+```
+
+Without MCP, send the same body to `POST https://emem.dev/v1/recall`.
+Save the result's JSON text as `recall.json`, then:
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
-  -o recall.json
 python3 "${CLAUDE_SKILL_DIR}/scripts/verify.py" recall.json
 ```
 
@@ -100,12 +104,23 @@ encoding.
 
 ## Server fallback
 
+Take the receipt out of a saved response:
+
 ```sh
-jq '{receipt: .receipt}' response.json \
-  | curl -sf -X POST https://emem.dev/v1/verify_receipt \
-      -H 'content-type: application/json' -d @- \
-  | jq '{valid, preimage_version, merkle_proof_valid, signer_pubkey_b32}'
+jq '{receipt: .receipt}' response.json > verify_req.json
 ```
+
+Call `emem_verify_receipt` with the object in `verify_req.json` as its
+arguments. It has this shape; pass the whole `receipt` object unchanged:
+
+```json
+{"receipt": {"primitive": "emem.recall", "request_id": "...", "served_at": "...", "...": "..."}}
+```
+
+Without MCP, send `verify_req.json` as the body of
+`POST https://emem.dev/v1/verify_receipt`. Read `valid`,
+`preimage_version`, `merkle_proof_valid` and `signer_pubkey_b32` in the
+result.
 
 `response.json` is any saved emem response. The server runs the same
 math and reports `merkle_proof_valid` beside `valid`. It is weaker than

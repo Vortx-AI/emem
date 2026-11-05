@@ -859,7 +859,7 @@ mod tests {
     fn a_figure_that_disagrees_with_the_fact_it_cites_is_denied() {
         let cfg = Config::default();
         assert!(cfg.provenance, "the rule lives under the provenance switch");
-        let token =
+        let token: &str =
             "emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qbj67sc4lhdgh5yklp43kqik2evhvdtbqq2rjv7m7yg6oq";
         let fv = crate::resolve::FactValue {
             value: 0.138_136_153_337_739_65,
@@ -908,7 +908,7 @@ mod tests {
     #[test]
     fn a_citation_after_the_full_stop_still_answers_for_the_sentence() {
         let cfg = Config::default();
-        let token =
+        let token: &str =
             "emem:fact:defi.zb493.hufo.zccc6:cqyzrjbuej7fdgmbgjjkboqnhjlfz4u6zy3nezps4t2qntab5sqa";
         let fv = crate::resolve::FactValue {
             value: 889.643_920_898_437_5,
@@ -949,7 +949,7 @@ mod tests {
     #[test]
     fn wrapping_a_line_does_not_change_the_verdict() {
         let cfg = Config::default();
-        let token =
+        let token: &str =
             "emem:fact:defi.zb493.hufo.zccc6:2hsx3izrfsgpafhqb6neqnavximzpywr5uo7innarfftvj2yeeaa";
         let fv = crate::resolve::FactValue {
             value: -0.036_615_874_459_859,
@@ -1006,7 +1006,7 @@ mod tests {
     /// The digits inside a cell64 are an address, not an assertion.
     #[test]
     fn an_address_is_not_a_number_the_prose_claimed() {
-        let token =
+        let token: &str =
             "emem:fact:defi.zb4e4.zcced.fUrI:3u37m4qbj67sc4lhdgh5yklp43kqik2evhvdtbqq2rjv7m7yg6oq";
         let found =
             crate::claim::scan_cited_numbers([

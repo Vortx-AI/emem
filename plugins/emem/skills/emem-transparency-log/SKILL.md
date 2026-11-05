@@ -31,23 +31,48 @@ lone nodes promoted rather than duplicated.
 in by Claude Code). It makes no network calls and imports nothing outside
 the standard library except `scripts/emem_crypto.py`, shipped with this skill, a
 plain-Python BLAKE3 and Ed25519 verifier; `--self-test` checks that
-module against the official test vectors. Save each response to a file
-and pass the file:
+module against the official test vectors. Save each result's JSON text
+to a file and pass the file. The MCP tools in the table are outside
+the short tool list the plugin's MCP server shows. The server runs them
+by name through `tools/call`; if your host calls only listed tools, or
+has no MCP, use the GET routes.
 
-```sh
-V="${CLAUDE_SKILL_DIR}/scripts/verify_log.py"
-curl -sf https://emem.dev/v1/log/sth > old_sth.json
-python3 "$V" sth old_sth.json
+1. Call `emem_log_sth` with `{}`, and save the result as `old_sth.json`.
+2. Call `emem_log_inclusion` with the leaf, and save the result as
+   `inc.json`:
 
-curl -sf "https://emem.dev/v1/log/inclusion?leaf_index=12345" > inc.json
-python3 "$V" inclusion inc.json
+   ```json
+   {"leaf_index": 12345}
+   ```
 
-# later: a new head, and the proof that links the two
-curl -sf https://emem.dev/v1/log/sth > new_sth.json
-OLD=$(jq .sth.tree_size old_sth.json); NEW=$(jq .sth.tree_size new_sth.json)
-curl -sf "https://emem.dev/v1/log/consistency?first=$OLD&second=$NEW" > cons.json
-python3 "$V" consistency old_sth.json new_sth.json cons.json
-```
+3. Check both:
+
+   ```sh
+   python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" sth old_sth.json
+   python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion inc.json
+   ```
+
+Later, fetch a new head and the proof that links the two:
+
+1. Call `emem_log_sth` again, and save the result as `new_sth.json`.
+2. Read both tree sizes:
+
+   ```sh
+   jq .sth.tree_size old_sth.json new_sth.json
+   ```
+
+3. Call `emem_log_consistency` with the old size as `first` and the new
+   size as `second`, and save the result as `cons.json`. For example:
+
+   ```json
+   {"first": 2466701, "second": 2466702}
+   ```
+
+4. Check the proof:
+
+   ```sh
+   python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" consistency old_sth.json new_sth.json cons.json
+   ```
 
 Recorded on 2026-09-28:
 
@@ -69,13 +94,21 @@ rather than guessing.
 
 A memory write is a log entry too. Pass the base32 BLAKE3 of the note's
 content as `entry_hash`, and the response says
-`matched: "memory_note_content"` with the note's `file_cid`:
+`matched: "memory_note_content"` with the note's `file_cid`.
+
+Call `emem_log_inclusion` with the hash as `entry_hash`, and save the
+result as `note_inc.json`:
+
+```json
+{"entry_hash": "<base32 blake3 of the note content, e.g. from authorship.body_hash_hex>"}
+```
+
+Without MCP, the same read is
+`GET https://emem.dev/v1/log/inclusion?entry_hash=<hash>`. Then:
 
 ```sh
-H=<base32 blake3 of the note content, e.g. from authorship.body_hash_hex>
-curl -sf "https://emem.dev/v1/log/inclusion?entry_hash=$H" > note_inc.json
 jq '{matched, memory_note_file_cid, leaf_index}' note_inc.json
-python3 "$V" inclusion note_inc.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify_log.py" inclusion note_inc.json
 ```
 
 Recorded on 2026-09-28: a note in `/memories/by_attester/k572x7go/`
@@ -86,11 +119,15 @@ hash you asked with, as the response's `verify` field says.
 
 ## Witnesses
 
-```sh
-curl -sf "https://emem.dev/v1/log/witnesses?limit=5" \
-  | jq '{independent_witness_count, independent_operator_domains,
-         head_is_independently_witnessed, freshest_independent_witness_entries_behind}'
+Call `emem_log_witnesses` with:
+
+```json
+{"limit": 5}
 ```
+
+Read `independent_witness_count`, `independent_operator_domains`,
+`head_is_independently_witnessed` and
+`freshest_independent_witness_entries_behind`.
 
 A witness attests only the prefix it signed. On 2026-10-16 there were
 112 independent witnesses and two independent operators (`eudr.dev` and

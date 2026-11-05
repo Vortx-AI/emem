@@ -437,7 +437,7 @@ const EXAMPLES = [
   { key: 'token-resolve', method: 'POST', path: '/v1/memory_token/resolve',
     label: 'memory_token · resolve',
     note: 'Turn a citation back into the byte-identical signed fact. This token is a GC-1 derivation the responder recomputed: its resolved record carries deterministic_index and a recomputation receipt, so a stranger recomputes the value from the cited parents. Verify the receipt offline at /verify.',
-    body: { token: 'emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q' } },
+    body: { 'token': 'emem:fact:defi.zb572.xoso.zb1ec:4qj3l4mgh7ch5kvxmkqspjdl6y42oqhm42khh3gostccpixkbz5q' } },
   { key: 'derive', method: 'POST', path: '/v1/derive',
     label: 'derive · recompute',
     note: 'Register a derivation over signed facts. Sent with no attester, so it returns 401 with `details.how_to_sign`: the exact 32-byte digest to sign, the encoding, and a worked example, no docs trip. Because a `code_cid` is pinned on a pure op (delta), a signed submission makes the responder RE-RUN it over the cited parents and record deterministic_index when it reproduces the value (exact for delta; reductions match within a stated ULP window that the receipt reports). This is the whole write + GC-1 path in one call.',

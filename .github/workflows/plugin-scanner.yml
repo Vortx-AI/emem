@@ -1,0 +1,35 @@
+name: plugin-scanner
+
+# The HOL plugin scanner grades this repository for the registries that list
+# the emem plugin (hol.org). Run here, its findings reach us at the commit that
+# causes them, not weeks later on a registry page. A separate workflow from
+# `ci` on purpose: the gated deploy refuses on any failed `ci` job, and a
+# scanner rule change upstream must not stop a server deploy.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: plugin-scanner-${{ github.ref }}-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    name: HOL plugin scanner
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: hashgraph-online/ai-plugin-scanner-action@9b169fc65d09b24726b66d70b3563ab563158b58 # v1.2.816
+        with:
+          plugin_dir: "."
+          mode: scan
+          fail_on_severity: high
+          write_step_summary: true
+          pr_comment: "off"

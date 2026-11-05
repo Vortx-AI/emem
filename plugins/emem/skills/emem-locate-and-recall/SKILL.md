@@ -7,9 +7,12 @@ description: Resolves a place name to an emem cell64 address and recalls signed 
 
 > **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
 
-Two REST calls turn a place name into signed facts. Each fact comes back
-with its own `emem:fact:` token, so the number never has to travel
-without its citation.
+Two calls turn a place name into signed facts: `emem_locate`, then
+`emem_recall`, both tools of the plugin's MCP server. Without MCP, send
+the same JSON bodies to `POST https://emem.dev/v1/locate` and
+`POST https://emem.dev/v1/recall`. Each fact comes back with its own
+`emem:fact:` token, so the number never has to travel without its
+citation.
 
 ## When to invoke
 
@@ -26,12 +29,14 @@ skip step 1. For an extent rather than a point, use
 
 ## Step 1: resolve the place
 
-```sh
-curl -sf -X POST https://emem.dev/v1/locate \
-  -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru, India"}' \
-  | jq '{cell64, place_label, via, disambiguation_required}'
+Call `emem_locate` with:
+
+```json
+{"q": "Bengaluru, India"}
 ```
+
+Read `cell64`, `place_label`, `via` and `disambiguation_required` in
+the result.
 
 `place` is accepted as a synonym of `q`, and `{"lat":..,"lng":..}` skips
 the geocoder. When `disambiguation_required` is true, or
@@ -41,14 +46,16 @@ returns Missouri first and flags it; that is the case this exists for.
 
 ## Step 2: recall the bands
 
-```sh
-CELL=defi.zb493.zezo.zcb35
-curl -sf -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"bands\":[\"weather.temperature_2m\",\"indices.ndvi\"]}" \
-  > recall.json
+Call `emem_recall` with the `cell64` from step 1:
 
-# The latest reading per band, with the token to cite it by.
+```json
+{"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m", "indices.ndvi"]}
+```
+
+Save the result's JSON text as `recall.json`. Then print the latest
+reading per band, with the token to cite it by:
+
+```sh
 jq -r '.current_by_band | to_entries[] | .value' recall.json | while read cid; do
   jq -c --arg c "$cid" '.facts[] | select(.fact_cid == $c)
         | {band, value_verbatim, unit, observed_at, memory_token}' recall.json
@@ -126,8 +133,13 @@ two adjacent cells and call it a gradient.
   bands can be materialised.
 - A malformed `cell64` is a 400 naming the bad symbol. Re-run step 1.
 - `compute_timeout`: the request passed the responder's 40 s transport
-  budget. Ask for fewer bands, retry once the background fetch lands, or
-  send the MCP tool call with a `task` param and poll `tasks/get`.
+  budget. Ask for fewer bands, or retry once the background fetch lands.
+  Recall does not take an MCP `task` param: only `emem_eudr_dds` and
+  `emem_hunt` run as tasks.
+- A tool result over the MCP wire budget (about 24 KB) comes back
+  slimmed, and `_emem_truncation` names what it left out. Ask for
+  fewer bands, or send the same body to the REST route, which returns
+  the whole response.
 
 ## One-call alternative
 

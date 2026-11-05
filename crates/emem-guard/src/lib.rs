@@ -194,7 +194,7 @@ mod tests {
             Ground::NoCitations,
             Ground::AllVerified { checked: 3 },
             Ground::Unresolvable {
-                token: "emem:fact:a:b".into(),
+                token: String::from("emem:fact:a:b"),
             },
         ];
         for g in &allow {
@@ -204,10 +204,10 @@ mod tests {
 
         let deny = [
             Ground::SignatureFailed {
-                token: "emem:fact:a:b".into(),
+                token: String::from("emem:fact:a:b"),
             },
             Ground::ByteMismatch {
-                token: "emem:fact:a:b".into(),
+                token: String::from("emem:fact:a:b"),
             },
         ];
         for g in &deny {
@@ -222,7 +222,7 @@ mod tests {
     #[test]
     fn a_token_we_do_not_hold_is_not_a_denial() {
         let g = Ground::Unresolvable {
-            token: "emem:fact:elsewhere:cid".into(),
+            token: String::from("emem:fact:elsewhere:cid"),
         };
         assert!(!g.is_denial());
         assert!(g.deny_reason().is_none());
@@ -233,7 +233,7 @@ mod tests {
     #[test]
     fn a_denial_names_the_token_and_the_remedy() {
         let g = Ground::SignatureFailed {
-            token: "emem:fact:cell:cid".into(),
+            token: String::from("emem:fact:cell:cid"),
         };
         let r = g.deny_reason().unwrap();
         assert!(

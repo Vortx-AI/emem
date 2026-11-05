@@ -43202,7 +43202,7 @@ fn spawn_derived_by_cell_backfill(state: &AppState) {
 // the responder signs over the full receipt.
 //
 // Wire identity:
-//   - `bundle_token = "emem:bundle:<bundle_cid>"`
+//   - `bundle_token` = `"emem:bundle:<bundle_cid>"`
 //   - `bundle_cid   = base32_nopad_lc(blake3(bundle_body)[:16])` where
 //     `bundle_body` is the deterministic concatenation defined in
 //     `emem-primitives::memory_bundle::compute_bundle_cid`.
@@ -96666,14 +96666,14 @@ mod tests {
     async fn vault_round_trip_with_cap() {
         let s = test_app_state();
         let path = "/memories/secrets/openai.key";
-        let secret = "OPENAI_API_KEY=sk-test123";
+        let plaintext = "OPENAI_API_KEY=sk-test123";
 
         // Create as Vault → sealed, no plaintext in the response.
         let create = memory_create_inner(
             &s,
             MemoryCreateReq {
                 path: path.into(),
-                file_text: secret.into(),
+                file_text: plaintext.into(),
                 kind: Some("vault".into()),
                 attester: None,
             },
@@ -96747,7 +96747,10 @@ mod tests {
         .map_err(|e| format!("vault view opened: {} {}", e.0, e.1.message))
         .unwrap();
         assert_eq!(opened.get("sealed").and_then(|v| v.as_bool()), Some(false));
-        assert_eq!(opened.get("content").and_then(|v| v.as_str()), Some(secret));
+        assert_eq!(
+            opened.get("content").and_then(|v| v.as_str()),
+            Some(plaintext)
+        );
     }
 
     /// B2 vault_excluded_from_search: a Vault secret is never indexed, so

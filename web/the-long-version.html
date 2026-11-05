@@ -2851,11 +2851,11 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
   // against what was signed. This is the multi-agent case in one call, and
   // the answer is the store's, not ours.
   (function(){
-    var TOKEN='emem:fact:defi.zb493.xuqA.zcb5f:xksjrrzzdhq6lobc4m62ecmsmoexn7htul5p4vlwbvqwvbuedkiq';
+    var CITED='emem:fact:defi.zb493.xuqA.zcb5f:xksjrrzzdhq6lobc4m62ecmsmoexn7htul5p4vlwbvqwvbuedkiq';
     var go=document.getElementById('echo-go'), val=document.getElementById('echo-val'),
         out=document.getElementById('echo-out');
     if(!go) return;
-    var t=document.getElementById('echo-tok'); if(t) t.textContent=TOKEN.slice(0,46)+'\u2026';
+    var t=document.getElementById('echo-tok'); if(t) t.textContent=CITED.slice(0,46)+'\u2026';
     document.querySelectorAll('#echo .try button').forEach(function(b){
       b.addEventListener('click',function(){ val.value=b.dataset.v; go.click(); });
     });
@@ -2864,7 +2864,7 @@ document.querySelectorAll('#mc-console .eg').forEach(b => {
       out.textContent='checking against the signed bytes\u2026';
       fetch('/mcp',{method:'POST',headers:{'content-type':'application/json'},
         body:JSON.stringify({jsonrpc:'2.0',id:1,method:'tools/call',params:{name:'emem_echo_verify',
-          arguments:{token:TOKEN, claimed_value:claimed}}})})
+          arguments:{token:CITED, claimed_value:claimed}}})})
         .then(function(r){return r.json();})
         .then(function(j){
           var d=JSON.parse(j.result.content[0].text);

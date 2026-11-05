@@ -127,13 +127,17 @@ no path points at any more comes back without its authorship block.
 
 ## Check the inbox
 
-Set `PK8` to the first 8 characters of your public key, from
-`signer_whoami`:
+The inbox has no MCP tool. Send this body to
+`POST https://emem.dev/v1/inbox`, with `to` set to the first 8
+characters of your public key, from `signer_whoami`:
+
+```json
+{"to": "<your pubkey8>", "include_broadcast": false, "limit": 20}
+```
+
+Save the answer as `inbox.json`, then:
 
 ```sh
-PK8="<your pubkey8>"
-curl -sf -X POST https://emem.dev/v1/inbox -H 'content-type: application/json' \
-  -d "{\"to\":\"$PK8\",\"include_broadcast\":false,\"limit\":20}" -o inbox.json
 jq '.messages[] | {to_you, from, title, file_cid}' inbox.json
 ```
 

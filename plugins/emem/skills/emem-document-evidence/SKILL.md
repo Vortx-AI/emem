@@ -29,10 +29,26 @@ below needs only the response and, if you have it, the document.
 
 ## Step 1: OCR the image
 
+Build the request from the image:
+
 ```sh
 base64 -w0 report.png | jq -Rs '{image_b64: ., lang: "eng"}' > ocr_req.json
-curl -sf -X POST https://emem.dev/v1/ocr \
-  -H 'content-type: application/json' -d @ocr_req.json > ocr.json
+```
+
+Call `emem_ocr` with the object in `ocr_req.json` as its arguments. It
+has this shape:
+
+```json
+{"image_b64": "<the base64 of report.png>", "lang": "eng"}
+```
+
+`emem_ocr` is outside the short tool list the plugin's MCP server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, or has no MCP, send `ocr_req.json` as the body
+of `POST https://emem.dev/v1/ocr`. Save the result's JSON text as
+`ocr.json`, then read it:
+
+```sh
 jq '{engine, lang, image_blake3_b32, text_blake3_b32}' ocr.json
 jq -r .text ocr.json
 ```
@@ -52,10 +68,18 @@ Send the OCR response itself as `ocr`: the parser refuses it with
 `text_blake3_b32`, so the parse is bound to the signed reading. Or send
 your own `text`, or a `url` / `image_b64` to OCR and parse in one call.
 
+The parse routes have no MCP tool. Put the whole OCR response in a
+request body, `{"ocr": ...}`:
+
 ```sh
-jq '{ocr: .}' ocr.json \
-  | curl -sf -X POST https://emem.dev/v1/lab_report_parse \
-      -H 'content-type: application/json' -d @- > lab.json
+jq '{ocr: .}' ocr.json > parse_req.json
+```
+
+Send `parse_req.json` as the body of
+`POST https://emem.dev/v1/lab_report_parse`, and save the answer as
+`lab.json`. Then read it:
+
+```sh
 jq '{verdict: .result.verdict, exceedances: .result.exceedances,
      rows: [.result.rows[] | {analyte, raw: .result.raw, result_mg_kg,
                               mrl_mg_kg, exceeds_printed_mrl, line_no}]}' lab.json

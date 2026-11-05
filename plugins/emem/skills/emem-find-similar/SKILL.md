@@ -40,18 +40,32 @@ this embedding aliases very different climates that share a texture.
 
 ## Step 1: resolve the seed
 
-```sh
-CELL=$(curl -sf -X POST https://emem.dev/v1/locate \
-  -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru, India"}' | jq -r '.cell64')
+Call `emem_locate` with:
+
+```json
+{"q": "Bengaluru, India"}
 ```
+
+Keep the `cell64` it returns. Without MCP, send the same body to
+`POST https://emem.dev/v1/locate`.
 
 ## Step 2: query, and branch on the answer
 
+Call `emem_find_similar` with the seed cell as `key` (`cell` is
+accepted as another name for it):
+
+```json
+{"key": "defi.zb493.zezo.zcb35", "k": 12}
+```
+
+Save the result's JSON text as `sim.json`. Over MCP, a refusal comes
+back as a tool error whose message names the code, for example
+`cid_not_found`. Without MCP, send the same body to
+`POST https://emem.dev/v1/find_similar` and save the answer as
+`sim.json` even when it is an error: here a refusal is an answer. Then
+branch on it:
+
 ```sh
-curl -s -X POST https://emem.dev/v1/find_similar \
-  -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"k\":12}" > sim.json
 jq 'if .code then {code, message}
     else [.neighbors[] | {cell, score, place: .place_label_cached, lat, lng}] end' sim.json
 ```

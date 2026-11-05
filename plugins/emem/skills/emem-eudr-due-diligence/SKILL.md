@@ -17,16 +17,27 @@ the response says so in `legality_disclaimer` and
 
 ## The request
 
-```sh
-curl -sf -m 300 -X POST https://emem.dev/v1/eudr_dds \
-  -H 'content-type: application/json' \
-  -d '{"operator": {"name": "Example Cocoa Importer"},
-       "plots": [{"plot_id": "CIV-001",
-                  "geometry_geojson": {"type": "Point", "coordinates": [-5.5471, 6.8276]},
-                  "country_of_production": "CIV",
-                  "commodity_hs": "180100",
-                  "quantity_kg": 1200}]}' > dds.json
+Call `emem_eudr_dds` with:
+
+```json
+{"operator": {"name": "Example Cocoa Importer"},
+ "plots": [{"plot_id": "CIV-001",
+            "geometry_geojson": {"type": "Point", "coordinates": [-5.5471, 6.8276]},
+            "country_of_production": "CIV",
+            "commodity_hs": "180100",
+            "quantity_kg": 1200}]}
 ```
+
+`emem_eudr_dds` is outside the short tool list the plugin's MCP server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, use the REST route.
+
+Save the result's JSON text as `dds.json`. The call can take minutes,
+so send it with a `task` param and poll `tasks/get`. A statement larger
+than the MCP wire budget (about 24 KB) is refused, not cut, because a
+partial statement still looks whole. When that happens, or when you have
+no MCP, send the same body to `POST https://emem.dev/v1/eudr_dds` and
+allow up to 300 s for the answer.
 
 Per plot: `geometry_geojson` (a Polygon for plots over 4 ha; a Point is
 allowed for 4 ha or less, except cattle, per Article 2(28); or
@@ -44,13 +55,23 @@ A cold plot can take minutes and can fail with `source_fetch_failed`
 naming the slow tile. Warm it first with a recall on one cell of the
 plot:
 
-```sh
-CELL=$(curl -sf -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
-  -d '{"lat":6.8276,"lng":-5.5471}' | jq -r .cell64)
-curl -sf -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"bands\":[\"jrc_gfc2020.forest_2020\",\"forest_change.lossyear\",\"forest_change.treecover2000\"]}" \
-  | jq '[.facts[] | {band, value}]'
-```
+1. Call `emem_locate` with the plot's coordinates, and keep the
+   `cell64` it returns:
+
+   ```json
+   {"lat": 6.8276, "lng": -5.5471}
+   ```
+
+2. Call `emem_recall` with that cell and the forest bands. Read `band`
+   and `value` of each entry in `facts[]`:
+
+   ```json
+   {"cell": "<the cell64 from step 1>",
+    "bands": ["jrc_gfc2020.forest_2020", "forest_change.lossyear", "forest_change.treecover2000"]}
+   ```
+
+Over REST, the same bodies go to `POST https://emem.dev/v1/locate` and
+`POST https://emem.dev/v1/recall`.
 
 ## Reading the response
 

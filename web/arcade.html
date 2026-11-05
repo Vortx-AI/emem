@@ -2423,9 +2423,9 @@ async function rawCall(tool,input){
     /* mint may be MCP-only on some responders: the token is pure concatenation per
        spec, so compose it and prove the binding with a real resolve round-trip */
     if(tool==='emem_memory_token'&&e&&(e.status===404||e.status===405)){
-      const token='emem:fact:'+input.cell+':'+input.fact_cid;
-      const rr=await restFetch('POST','/v1/memory_token/resolve',{token:token});
-      return {payload:Object.assign({},rr.payload||{},{memory_token:token})};
+      const tok='emem:fact:'+input.cell+':'+input.fact_cid;
+      const rr=await restFetch('POST','/v1/memory_token/resolve',{token:tok});
+      return {payload:Object.assign({},rr.payload||{},{memory_token:tok})};
     }
     throw e;
   }

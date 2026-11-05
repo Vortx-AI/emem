@@ -92,12 +92,12 @@ To make it verify, point it at a responder that holds facts:
 ./target/release/emem-guard --responder https://emem.dev
 ```
 
-Check: `curl -s localhost:8080/health | grep verifies_citations` says `true`.
+Check: `http://localhost:8080/health` reports `"verifies_citations": true`.
 
 ## Step 4: learn the whole contract in one request
 
 ```bash
-curl -s localhost:8080/.well-known/emem-guard.json
+curl -s http://localhost:8080/.well-known/emem-guard.json
 ```
 
 Every route, every deny code, every remedy, the reason grammar, and which
@@ -126,10 +126,12 @@ one company's product is a gate for that company's customers.
 The simplest possible integration, which works from anything that can make an
 HTTP request:
 
-```bash
-curl -sS -X POST localhost:8080/verdict \
-  -H 'content-type: application/json' \
-  -d '{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:abc123"]}'
+```http
+POST /verdict HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{"texts":["Elevation there is 918 m per emem:fact:defi.zb493.xuqA.zcb5f:abc123"]}
 ```
 
 Check: HTTP 200 and a JSON body with `action`, `checked` and `leaf`.
@@ -140,11 +142,13 @@ The most portable option, because MCP is an open protocol with many
 independent hosts. Put a proxy between your host and its servers, and before
 dispatching `tools/call`:
 
-```bash
-curl -sS -X POST localhost:8080/verdict/mcp \
-  -H 'content-type: application/json' \
-  -d '{"jsonrpc":"2.0","id":7,"method":"tools/call",
-       "params":{"name":"read_file","arguments":{"path":"notes.md"}}}'
+```http
+POST /verdict/mcp HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{"jsonrpc":"2.0","id":7,"method":"tools/call",
+ "params":{"name":"read_file","arguments":{"path":"notes.md"}}}
 ```
 
 On `allow: false` the response carries `result`, already shaped as a
@@ -170,10 +174,12 @@ that means the prompt reaches the model uninspected.
 So: your server must answer 200 with a well-formed verdict in every case,
 including ones it does not understand. Confirm your deployment does:
 
-```bash
-curl -sS -X POST localhost:8080/verdict/anthropic-hook \
-  -H 'content-type: application/json' \
-  -d '{"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}'
+```http
+POST /verdict/anthropic-hook HTTP/1.1
+Host: localhost:8080
+Content-Type: application/json
+
+{"type":"some_event_type_that_does_not_exist_yet","request_id":"probe"}
 ```
 
 Check: HTTP 200 and `{"action":"allow"}`. If you get a 4xx or 5xx, your
@@ -263,8 +269,10 @@ native one.
 ```
 
 ```bash
-curl -s localhost:8080/modules | jq '.modules[] | {id, latency_class, can_block, observed}'
+curl -s http://localhost:8080/modules
 ```
+
+Each entry in `modules` carries `id`, `latency_class`, `can_block` and `observed`.
 
 Two declarations decide where a module is allowed to run, and **neither is
 taken on trust**.
@@ -430,7 +438,7 @@ Check: post a 9 MB body and confirm you still get a verdict rather than a 413.
 Every verdict names a log leaf. Fetch it and check it yourself:
 
 ```bash
-curl -s localhost:8080/log/entry/leaf_0
+curl -s http://localhost:8080/log/entry/leaf_0
 ```
 
 You get the record, the ed25519 signature over its preimage, the public key

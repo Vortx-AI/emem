@@ -15,18 +15,28 @@ and re-summarised until it arrives somewhere as a fact nobody can trace.
 The words side is [`emem-shared-identity`](../emem-shared-identity/SKILL.md).
 This skill is the values side.
 
+Each call below is a tool of the plugin's MCP server. Without MCP, send
+the same JSON body to the REST route the text names.
+`emem_change_attribution` is outside the short tool list the server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, use the REST route.
+
 ## Carry a token to the number, not the number
 
 Every fact a recall returns already carries its citation in
 `memory_token`. Take the one for the reading you mean; `current_by_band`
-names the latest:
+names the latest. Call `emem_recall` (REST
+`POST https://emem.dev/v1/recall`) with:
+
+```json
+{"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m"]}
+```
+
+Save the result's JSON text as `recall.json`, then pick the token:
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' \
-  | jq -r '.current_by_band["weather.temperature_2m"] as $c
-           | .facts[] | select(.fact_cid == $c) | .memory_token'
+jq -r '.current_by_band["weather.temperature_2m"] as $c
+       | .facts[] | select(.fact_cid == $c) | .memory_token' recall.json
 ```
 
 `facts[]` is ordered oldest first, so `.facts[0]` is the oldest reading,
@@ -36,14 +46,14 @@ the same token (field `memory_token`) and adds the band's provenance
 block.
 
 The token is `emem:fact:<cell64>:<fact_cid>`. Any agent resolves it to
-the byte-identical signed object:
+the byte-identical signed object. Call `emem_memory_token_resolve`
+(REST `POST https://emem.dev/v1/memory_token/resolve`) with:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/memory_token/resolve \
-  -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}' \
-  | jq '{value_verbatim, unit, band, kind}'
+```json
+{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}
 ```
+
+Read `value_verbatim`, `unit`, `band` and `kind` in the result.
 
 Recorded on 2026-09-28: `{"value_verbatim":"28.0","unit":"degC","band":"weather.temperature_2m","kind":"primary"}`.
 Quote `value_verbatim`, the exact decimal string that was signed;
@@ -53,14 +63,13 @@ re-typing the JSON number is where precision gets lost.
 ## Grade yourself before you speak
 
 `POST /v1/echo_verify` (MCP `emem_echo_verify`) compares the value you
-are about to emit with the fact your token names:
+are about to emit with the fact your token names. Call it with:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/echo_verify \
-  -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq","claimed_value":0.74}' \
-  | jq '{matches, drift}'
+```json
+{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq", "claimed_value": 0.74}
 ```
+
+Read `matches` and `drift` in the result.
 
 Recorded on 2026-09-28: `claimed_value` 28.0 gave `matches: true`;
 0.74 gave `matches: false, drift: "wrong"`.
@@ -83,17 +92,18 @@ resolved token.
   band, and whether the path changed between visits.
 - `observed`: the year-over-year embedding change.
 
-```sh
-curl -sf -X POST https://emem.dev/v1/change_attribution \
-  -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35"}' | jq '{observed, terms}'
+Call it with the cell, and read `observed` and `terms`:
+
+```json
+{"cell": "defi.zb493.zezo.zcb35"}
 ```
 
 Expect `compute_timeout` on a cold cell: it materialises both visits
 across several bands, which can pass the 40 s transport budget (it did
-on 2026-09-28). Retrying the same call does not help. Recall the cell's
-index bands first, or send it as an MCP tool call with a `task` param
-and poll `tasks/get`.
+on 2026-09-28). Retrying the same call at once does not help. Recall the
+cell's index bands first, then ask again once their background fetch has
+landed. This tool does not take an MCP `task` param: only `emem_eudr_dds`
+and `emem_hunt` run as tasks.
 
 Two limits, both load-bearing:
 
@@ -106,16 +116,17 @@ Two limits, both load-bearing:
 
 ## Where the corpus disagrees with itself
 
-`POST /v1/memory_contradictions` surfaces two or more independent
-attesters who signed **different values for the same place, band and
-time**, with a 0 to 1 severity:
+`POST /v1/memory_contradictions` (MCP `emem_memory_contradictions`)
+surfaces two or more independent attesters who signed **different
+values for the same place, band and time**, with a 0 to 1 severity.
+Call it with:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/memory_contradictions \
-  -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","min_severity":0.2,"limit":20}' \
-  | jq '{n: (.contradictions | length), corpus_scanned, scan_truncated}'
+```json
+{"cell": "defi.zb493.zezo.zcb35", "min_severity": 0.2, "limit": 20}
 ```
+
+Read the number of entries in `contradictions`, `corpus_scanned` and
+`scan_truncated`.
 
 Every field is optional: `cell_prefix` scopes to a region, `band` to one
 measurement, `window_unix_s` to a period. Read `scan_truncated` before

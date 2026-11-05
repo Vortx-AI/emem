@@ -32,17 +32,24 @@ before building an analysis on it.
 
 ## One place
 
+Call `emem_recall` with:
+
+```json
+{"cell": "defi.zb595.zbaf8.zd63c",
+ "bands": ["overture.buildings.count", "overture.places.count",
+           "overture.transportation.road_length_m", "overture.transportation.road_bearing_deg",
+           "population", "indices.ndbi", "esa_worldcover.lc_2021",
+           "surface_water.recurrence", "nightlights.dmsp_ols_avg_dn"]}
+```
+
+Without MCP, send the same body to `POST https://emem.dev/v1/recall`.
+Save the result's JSON text as `urban.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb595.zbaf8.zd63c","bands":["overture.buildings.count",
-       "overture.places.count","overture.transportation.road_length_m",
-       "overture.transportation.road_bearing_deg","population","indices.ndbi",
-       "esa_worldcover.lc_2021","surface_water.recurrence","nightlights.dmsp_ols_avg_dn"]}' \
-  -o urban.json
 jq -c '.facts[] | {band, value, unit, observed_at, args: .derivation.args, token: .memory_token}' urban.json
 ```
 
-Get the cell with `POST /v1/locate` first
+Get the cell with `emem_locate` (`POST /v1/locate`) first
 ([`emem-locate-and-recall`](../emem-locate-and-recall/SKILL.md)).
 
 Recorded on 2026-09-28 at a Shibuya cell (35.65988 N, 139.70737 E):
@@ -60,11 +67,24 @@ counts are exactly what fell inside it. Area questions need area calls.
 
 ## An area
 
+Call `emem_recall_polygon` with:
+
+```json
+{"polygon_bbox": {"min_lat": 35.6585, "max_lat": 35.6605, "min_lng": 139.6995, "max_lng": 139.7015},
+ "bands": ["overture.transportation.road_length_m", "overture.buildings.count"],
+ "budget_ms": 60000}
+```
+
+`emem_recall_polygon` is outside the short tool list the plugin's MCP server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, use the REST route.
+
+Save the result's JSON text as `area.json`. A result over the MCP wire
+budget (about 24 KB) comes back slimmed, and `_emem_truncation` names
+what it left out. For the whole response, send the same body to
+`POST https://emem.dev/v1/recall_polygon`. Then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall_polygon -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":35.6585,"max_lat":35.6605,"min_lng":139.6995,"max_lng":139.7015},
-       "bands":["overture.transportation.road_length_m","overture.buildings.count"],
-       "budget_ms":60000}' -o area.json
 jq '{area_km2, cells_sampled, native_grid_cells_in_polygon, coverage_fraction, is_exhaustive}' area.json
 jq '[.by_cell | .. | objects | select(.band? == "overture.transportation.road_length_m") | .value]
     | {n: length, nonzero: (map(select(. > 0)) | length), sum: add}' area.json

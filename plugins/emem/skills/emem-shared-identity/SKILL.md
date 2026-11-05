@@ -35,15 +35,16 @@ thing.
 Fetch one by id with `GET /v1/entity/<entity_cid>`.
 
 Resolve first. Minting first is how a registry collects several
-identities for one object, and that has already happened:
+identities for one object, and that has already happened. Call
+`emem_entity_resolve` with:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/entity/resolve \
-  -H 'content-type: application/json' \
-  -d '{"text":"Mount Fuji","k":3}' \
-  | jq '[.candidates[] | {entity_token, kind: .entity.kind, cell64: .entity.cell64,
-                          corroboration, disputed_by}]'
+```json
+{"text": "Mount Fuji", "k": 3}
 ```
+
+Without MCP, send the same body to `POST https://emem.dev/v1/entity/resolve`.
+For each entry of `candidates[]`, read `entity_token`, `entity.kind`,
+`entity.cell64`, `corroboration` and `disputed_by`.
 
 On 2026-09-28 that returned three distinct tokens for "Mount Fuji" (two
 of kind `place`, one `volcano`), all at cell `defi.zb5ff.pOyA.zaf69`,
@@ -77,8 +78,10 @@ the refusal carries `details.how_to_sign` with the entity preimage and
 the digest for your exact body.
 
 ```sh
-curl -sf https://emem.dev/v1/enlist | jq '{computed: .computed_here, surfaces: .write_surfaces}'
+curl -sf https://emem.dev/v1/enlist
 ```
+
+Read `computed_here` and `write_surfaces` in the answer.
 
 | Tier | Requirement | A peer may conclude |
 |---|---|---|

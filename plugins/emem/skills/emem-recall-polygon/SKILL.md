@@ -32,13 +32,24 @@ polygon on its own sets the area: its bounds become the box and its
 boundary masks the sample. `geojson` and `geometry_geojson` are aliases
 of `polygon_geojson`. Beside a bbox, the polygon only masks the sample.
 
+Call `emem_recall_polygon` with:
+
+```json
+{"polygon_bbox": {"min_lat": 12.95, "max_lat": 13.05, "min_lng": 77.55, "max_lng": 77.65},
+ "bands": ["copdem30m.elevation_mean"],
+ "max_cells": 16, "budget_ms": 20000}
+```
+
+`emem_recall_polygon` is outside the short tool list the plugin's MCP server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, use the REST route.
+
+Save the result's JSON text as `poly.json`. A result over the MCP wire
+budget (about 24 KB) comes back slimmed, and `_emem_truncation` names
+what it left out. For the whole response, send the same body to
+`POST https://emem.dev/v1/recall_polygon`. Then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall_polygon \
-  -H 'content-type: application/json' \
-  -d '{"polygon_bbox":{"min_lat":12.95,"max_lat":13.05,"min_lng":77.55,"max_lng":77.65},
-       "bands":["copdem30m.elevation_mean"],
-       "max_cells":16, "budget_ms":20000}' \
-  > poly.json
 jq '{cells_sampled, facts_returned, area_km2, converged, coverage_fraction,
      pending: (.pending | length)}' poly.json
 ```

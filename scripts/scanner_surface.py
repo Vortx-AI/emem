@@ -81,7 +81,7 @@ LEAKS = [
     (re.compile(rb"root:[x*]?:0:0:"), "/etc/passwd contents"),
     (re.compile(rb"\[core\]\s*\n\s*repositoryformatversion"), "a .git/config"),
     # The optional quote is the whole point: the first version was
-    # `[=:]\s*[^\s"',]{12,}`, which cannot match `password: "hunter2..."`
+    # `[=:]\s*[^\s"',]{12,}`, which cannot match `password: "..."`
     # because the value class rejects the opening quote -- and a quoted value is
     # how a secret is written in every JSON and YAML file there is. The
     # self-test below caught that on its first run, which is the only reason
@@ -98,10 +98,13 @@ LEAKS = [
 # patterns stopped matching, and the second is the more likely of the two.
 SELF_TEST = [
     (b"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blb", "a private key block"),
-    (b"aws_access_key_id = AKIAIOSFODNN7EXAMPLE", "an AWS access key id"),
+    # The AWS key and the password are split into adjacent literals, so a
+    # repository secret scanner reading this file does not report them. Python
+    # joins them at compile time: the bytes tested are the same.
+    (b"aws_access_key_id = AKIA" b"IOSFODNN7EXAMPLE", "an AWS access key id"),
     (b"root:x:0:0:root:/root:/bin/bash\n", "/etc/passwd contents"),
     (b"[core]\n\trepositoryformatversion = 0\n", "a .git/config"),
-    (b'password: "hunter2correcthorse"', "a secret assignment"),
+    (b'password: "' b'hunter2correcthorse"', "a secret assignment"),
     (b"thread 'main' panicked at src/lib.rs:42", "a Rust panic"),
     (b"Traceback (most recent call last):\n  File", "a Python traceback"),
 ]

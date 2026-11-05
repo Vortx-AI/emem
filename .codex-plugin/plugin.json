@@ -1,0 +1,46 @@
+{
+  "name": "emem",
+  "version": "2.4.4",
+  "description": "Verifiable shared memory for AI agents: resolve a place to one canonical address, recall Ed25519-signed Earth-observation facts, and hand another agent a token it can check offline.",
+  "author": {
+    "name": "Vortx AI",
+    "email": "avijeet@vortx.ai",
+    "url": "https://vortx.ai"
+  },
+  "homepage": "https://emem.dev",
+  "repository": "https://github.com/Vortx-AI/emem",
+  "license": "Apache-2.0",
+  "keywords": [
+    "memory",
+    "verifiable",
+    "geospatial",
+    "earth-observation",
+    "ed25519",
+    "content-addressed",
+    "agent-memory"
+  ],
+  "skills": "./plugins/emem/skills",
+  "mcpServers": "./plugins/emem/.mcp.json",
+  "interface": {
+    "displayName": "emem",
+    "shortDescription": "Signed Earth facts and shared memory that another agent can verify offline.",
+    "longDescription": "emem gives every place one address (a cell64) and every observation one signed fact. Agents recall satellite, weather, elevation, soil and land-cover facts with Ed25519 receipts, cite them with tokens, and write their own signed notes. A second agent checks any fact, note or receipt offline, without trusting the first. Reads need no key.",
+    "developerName": "Vortx AI",
+    "category": "Research",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://emem.dev",
+    "privacyPolicyURL": "https://emem.dev/privacy",
+    "termsOfServiceURL": "https://emem.dev/terms",
+    "brandColor": "#1F6F5C",
+    "composerIcon": "./web/favicon.png",
+    "logo": "./web/logo.png",
+    "screenshots": [
+      "./web/og-image.png",
+      "./web/emem-strip.png"
+    ]
+  }
+}

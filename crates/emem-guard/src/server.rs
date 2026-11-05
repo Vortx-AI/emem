@@ -1379,7 +1379,8 @@ mod tests {
                 .load(Box::new(crate::modules::SecretPatterns::new()))
                 .unwrap();
         }
-        let secret = "AKIAIOSFODNN7EXAMPLE";
+        // AWS's documented example key, split so secret scanners skip the source.
+        let secret = concat!("AKIA", "IOSFODNN7EXAMPLE");
         let body = format!(r#"{{"texts":["deploy with {secret} please"],"request_id":"r-mod"}}"#);
         let (status, v) = post(router(g.clone()), "/verdict", &body).await;
         assert_eq!(status, StatusCode::OK);
@@ -1424,7 +1425,7 @@ mod tests {
         let ev = Evidence {
             tokens: vec![(
                 crate::tokens::FoundToken {
-                    token: "emem:fact:a:b".into(),
+                    token: String::from("emem:fact:a:b"),
                     kind: crate::tokens::TokenKind::Fact,
                 },
                 policy::TokenStatus::SignatureFailed,

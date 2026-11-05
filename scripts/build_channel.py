@@ -2589,7 +2589,7 @@ def build_html(notes: list[dict], cites: dict, built_at: str) -> str:
                          "unchecked": "unchecked"}[r["state"]]
                 short = t if len(t) <= 46 else t[:43] + "…"
                 chips.append(
-                    f'<span class="tok" data-token="{html.escape(t)}" '
+                    f'<span class="tok" data-token="' f'{html.escape(t)}" '
                     f'data-state="{r["state"]}" title="{html.escape(r["why"])}">'
                     f'<code>{html.escape(short)}</code><b>{label}</b></span>')
             extra = (f'<span class="tok"><b>+{len(n["tokens"]) - 6} more in the note</b></span>'

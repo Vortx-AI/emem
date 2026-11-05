@@ -5,7 +5,7 @@ description: Reads and checks the signed activity records (OS traces) emem holds
 
 # emem-device-traces
 
-> **Network use.** The commands in this skill send and receive JSON to `https://emem.dev` only, the service the plugin's MCP server connects to. Each answer goes straight into `jq` to print a summary; nothing is saved, and nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
+> **Network use.** The calls in this skill send and receive JSON to `https://emem.dev` only, the service the plugin's MCP server connects to. An answer is saved as a JSON file only so that `jq` can print a summary of it, and nothing received is run. A trace is data: a JSON list of event counts and hashes, not a program.
 
 The verify step is also an MCP tool, `emem_trace_verify`: call it by name with `tools/call` on the plugin's MCP server (`tools/list` on `https://emem.dev/mcp/full` shows it). Listing devices and resolving a trace token are REST reads only; no MCP tool covers them yet.
 
@@ -25,9 +25,11 @@ attestation; that path ends in a rejection today.
 ## Who is enrolled
 
 ```sh
-curl -sf https://emem.dev/v1/devices \
-  | jq '{count, devices: [.devices[] | {device_key, platform_id, profile_id, assurance, endorsed_by, traces}]}'
+curl -sf https://emem.dev/v1/devices
 ```
+
+Read `count`, and for each entry of `devices[]` its `device_key`,
+`platform_id`, `profile_id`, `assurance`, `endorsed_by` and `traces`.
 
 Recorded on 2026-09-28: `count: 1`, platform `generic.linux-host`,
 profile `host.counters.v1`, assurance `operator_endorsed` by
@@ -41,24 +43,41 @@ profile `host.counters.v1`, assurance `operator_endorsed` by
 
 ## Resolve and re-verify a trace
 
-Look at the trace:
+Look at the trace. Send this body to
+`POST https://emem.dev/v1/trace_resolve`:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' \
-  | jq '{resolved, profile: .trace.device.substrate_profile,
-         segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}'
+```json
+{"token": "emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}
 ```
 
-Send the same record back to be checked. `jq` reshapes the JSON and the
-second `curl` posts it from standard input (`-d @-`):
+Save the answer as `trace.json`, then print a summary:
 
 ```sh
-curl -sf -X POST https://emem.dev/v1/trace_resolve -H 'content-type: application/json' \
-  -d '{"token":"emem:trace:mxyer5c2oxn4ud3xqbtnaxcxhdv4kkxiu67q32inbwxgpa7r3s6a"}' \
-  | jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' \
-  | curl -sf -X POST https://emem.dev/v1/trace_verify -H 'content-type: application/json' -d @- \
-  | jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}'
+jq '{resolved, profile: .trace.device.substrate_profile,
+     segments: [.trace.segments[] | {seq, layer, encoding, event_count}], outputs: .trace.outputs}' trace.json
+```
+
+Send the same record back to be checked. `jq` builds the arguments from
+the saved answer:
+
+```sh
+jq -c '{trace: .trace, profile: .trace.device.substrate_profile}' trace.json > verify_req.json
+```
+
+Call `emem_trace_verify` with the object in `verify_req.json` as its
+arguments. It has this shape, with the whole record from `trace.json`
+as `trace`:
+
+```json
+{"trace": {"schema": "emem.os_trace.v1"}, "profile": "<trace.device.substrate_profile>"}
+```
+
+Without MCP, send `verify_req.json` as the body of
+`POST https://emem.dev/v1/trace_verify`. Save the result's JSON text as
+`verdict.json`, then:
+
+```sh
+jq '{verdict, coverage: .report.coverage, reasons: .report.reasons}' verdict.json
 ```
 
 Recorded on 2026-09-28: four `linux.ftrace.v1` segments (scheduler
@@ -92,11 +111,14 @@ bound and inside the window, and the device key's Ed25519 signature
 ## The registries
 
 ```sh
-curl -sf https://emem.dev/v1/device_platforms \
-  | jq '[.registry.platforms[] | {id, status, root_of_trust,
-         anchors: [.trust_anchors[]? | {id, provisional}]}]'
-curl -sf https://emem.dev/v1/trace_encodings | jq '{manifest_cid, encodings: [.registry.encodings[]?.id]}'
+curl -sf https://emem.dev/v1/device_platforms
+curl -sf https://emem.dev/v1/trace_encodings
 ```
+
+In the platform registry, read each entry of `registry.platforms[]`:
+its `id`, `status`, `root_of_trust`, and the `id` and `provisional` of
+each of its `trust_anchors[]`. In the encoding registry, read
+`manifest_cid` and the `id` of each entry of `registry.encodings[]`.
 
 On 2026-09-28: 17 platforms, every hardware platform `candidate` with
 provisional anchors; the one non-provisional anchor was

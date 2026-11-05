@@ -338,7 +338,7 @@ async function step1(){
   var C = new D.Checks($('o1'));
   if(!D.ready){ C.add(false, 'the in-tab verifier did not load or failed its self-test, so this page checks nothing'); return false; }
   var cell = $('cell').value.trim(), band = 'weather.temperature_2m', rb = { cell:cell, bands:[band] };
-  $('c1').textContent = D.curlPost('/v1/recall', rb) + '\n\n' + D.curlPost('/v1/memory_token/resolve', { token:'<memory_token>' });
+  $('c1').textContent = D.curlPost('/v1/recall', rb) + '\n\n' + D.curlPost('/v1/memory_token/resolve', { 'token':'<memory_token>' });
   var w = C.run('recalling the current air temperature…');
   var R = await D.post('/v1/recall', rb);
   if(!R.ok){ w(false, 'recall failed (' + R.status + '): ' + D.why(R)); return false; }

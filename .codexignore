@@ -1,0 +1,37 @@
+# Paths a Codex plugin install must never carry: build output, local state and
+# key material. The plugin itself is plugins/emem (skills and the MCP server
+# config); everything here is either generated or private to one machine.
+
+# Build output
+target/
+**/target/
+*.rlib
+*.so
+*.dylib
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local node state: the responder's key, its databases and logs
+var/
+**/var/emem/
+*.secret.b32
+*.seed
+*.sled/
+*.redb
+
+# Secrets and local configuration
+.env
+.env.*
+*.pem
+*.key
+**/agent_identity.json
+**/witness_key.json
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp

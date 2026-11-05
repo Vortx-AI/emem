@@ -20,6 +20,14 @@ anyone can re-derive.
 | `POST /v1/raster/resolve`, `/v1/cube/resolve`, `/v1/raster_bundle/resolve` | walk a token back to its record; `{"spot_check": true}` also re-hashes the pixels for you |
 | `POST /v1/cells_in_bbox` | the cell64 addresses in a bbox, paged, when you want addresses rather than a grid |
 
+Each route has an MCP tool that takes the same JSON body:
+`emem_band_raster`, `emem_band_composite`, `emem_band_cube`,
+`emem_raster_bundle`, `emem_raster_resolve`, `emem_cube_resolve`,
+`emem_raster_bundle_resolve` and `emem_cells_in_bbox`. They are
+outside the short tool list the plugin's MCP server shows. The server
+runs them by name through `tools/call`; if your host calls only listed
+tools, or has no MCP, send the body to the REST route.
+
 The receipt does not attest a value. It attests a **derivation**: this
 responder computed the artifact whose blake3 is `artifact_cid`, from a
 pinned Sentinel-2 scene, over a content-addressed area (`aoi_cid`) and
@@ -48,20 +56,26 @@ ocean). Window cap: 512 px a side, about 5.1 km at 10 m; page larger
 areas. `observed_on` (YYYY-MM-DD) targets a capture date; the chosen
 scene is pinned either way.
 
+Call `emem_band_raster` with:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362},
+ "band": "s2.B04"}
+```
+
+Save the result's JSON text as `raster.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/band_raster \
-  -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},
-       "band":"s2.B04"}' > raster.json
 jq '{raster: .tokens.raster, artifact: .artifact.url, cid: .artifact.artifact_cid,
      grid: .grid, scene: .derivation.sources[0].id}' raster.json
 ```
 
-Download the bytes to a file, then re-hash the file:
+Download the bytes at `artifact.url`
+(`GET https://emem.dev/v1/artifacts/<artifact_cid>`) and save them as
+`artifact.bin`. No MCP tool returns the bytes. Then re-hash the file:
 
 ```sh
 CID=$(jq -r '.artifact.artifact_cid' raster.json)
-curl -sf -o artifact.bin "https://emem.dev/v1/artifacts/$CID"
 python3 "${CLAUDE_SKILL_DIR}/scripts/rehash.py" "$CID" artifact.bin   # MATCH or MISMATCH
 ```
 
@@ -85,12 +99,17 @@ The grid bytes are a little-endian f32 array behind a 64-byte header
 
 ## A field over time (a cube)
 
+Call `emem_band_cube` with:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362},
+ "band": "s2.B08",
+ "observed_on": ["2026-05-15", "2026-06-15", "2026-07-15"]}
+```
+
+Save the result's JSON text as `cube.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/band_cube \
-  -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},
-       "band":"s2.B08",
-       "observed_on":["2026-05-15","2026-06-15","2026-07-15"]}' > cube.json
 jq '{cube: .tokens.cube, count: .member_count,
          members: [.derivation.members[] | {tslot, scene: .scene_id,
                     requested_dates, distance: .requested_date_distance_days,
@@ -109,22 +128,24 @@ the `2026-05-15` request was 10 June, 26 days away
 date the user asked for; a cube member is not a reading on the
 requested day.
 
-```sh
-jq '{token: .tokens.cube}' cube.json \
-  | curl -sf -X POST https://emem.dev/v1/cube/resolve \
-      -H 'content-type: application/json' -d @- \
-  | jq '.resolved, .member_tokens'
+To walk the cube back, call `emem_cube_resolve` with its token, the
+`tokens.cube` value in `cube.json`, and read `resolved` and
+`member_tokens`:
+
+```json
+{"token": "emem:cube:<aoi_cid>:s2.B08:<tslot_lo>..<tslot_hi>:<derivation_cid>"}
 ```
 
 ## Enumerate the cells in an area
 
-```sh
-curl -sf -X POST https://emem.dev/v1/cells_in_bbox \
-  -H 'content-type: application/json' \
-  -d '{"bbox":{"min_lat":32.5699,"min_lng":77.0328,"max_lat":32.5727,"max_lng":77.0362},
-       "page_size":1024}' \
-  | jq '{total, count, next_cursor, first: .cells[0]}'
+Call `emem_cells_in_bbox` with:
+
+```json
+{"bbox": {"min_lat": 32.5699, "min_lng": 77.0328, "max_lat": 32.5727, "max_lng": 77.0362},
+ "page_size": 1024}
 ```
+
+Read `total`, `count`, `next_cursor` and the first entry of `cells`.
 
 Page with `next_cursor` until it is null, and feed each page to
 `POST /v1/recall_many` with a `budget_ms`. Pure geometry: no facts read,
@@ -132,13 +153,15 @@ no receipt.
 
 ## Verify a token you were handed
 
-```sh
-jq '{token: .tokens.raster, spot_check: true}' raster.json \
-  | curl -sf -X POST https://emem.dev/v1/raster/resolve \
-      -H 'content-type: application/json' -d @- \
-  | jq '{bound: .resolved, artifact: .artifact.url, field: .receipt.field,
-         spot_check_passed: .spot_check.passed}'
+Call `emem_raster_resolve` with the token, for example the
+`tokens.raster` value in `raster.json`, and `spot_check`:
+
+```json
+{"token": "emem:raster:<aoi_cid>:s2.B04:<tslot>:<derivation_cid>", "spot_check": true}
 ```
+
+Read `resolved` (the token is bound), `artifact.url`, `receipt.field`
+and `spot_check.passed`.
 
 Every claim in the token binds to the signed record before anything
 dereferences: a mismatched area, band or date is a typed 409, never a

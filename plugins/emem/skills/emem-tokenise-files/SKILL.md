@@ -64,12 +64,9 @@ expected at `details.how_to_sign.sign_this.digest_hex`. Pass that digest
 to `signer_sign_write` as `expected_digest_hex`. When the two differ,
 your text differs from the note, and the signer signs nothing.
 
-For the shell steps below, set the two values you now hold:
-
-```sh
-P="/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md"
-CID="<the file_cid from the create result>"
-```
+Keep the two values you now hold for step 3: the note's path, for
+example `/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md`,
+and the `file_cid` from the create result.
 
 Published notes are public and permanent. Do not tokenise a file whose
 labels or hashes you would not publish; a `·` row reveals the unit's
@@ -77,11 +74,25 @@ hash and size, not its bytes.
 
 ## 3. Resolve and prove one unit
 
-```sh
-curl -sf -o row.json "https://emem.dev/v1/tree/$CID?row=2"
-curl -sf -o note.md "https://emem.dev$P"
-python3 "${CLAUDE_SKILL_DIR}/scripts/tree_proof.py" check row.json note.md report.md
-```
+1. Call `emem_tree` with the `file_cid` and the row, and save the
+   result's JSON text as `row.json`:
+
+   ```json
+   {"file_cid": "<the file_cid from the create result>", "row": "2"}
+   ```
+
+   `emem_tree` is outside the short tool list the plugin's MCP server
+   shows. The server runs it by name through `tools/call`. If your host
+   calls only listed tools, or has no MCP, the same read is
+   `GET https://emem.dev/v1/tree/<file_cid>?row=2`.
+2. Save the note's raw bytes as `note.md`. Fetch them with
+   `GET https://emem.dev<path>`, where `<path>` is the note's path. The
+   file must hash to the `file_cid`, so keep the bytes as served.
+3. Check the unit:
+
+   ```sh
+   python3 "${CLAUDE_SKILL_DIR}/scripts/tree_proof.py" check row.json note.md report.md
+   ```
 
 `check` requires the note to hash to the `file_cid`, the row's leaf to
 be rebuilt from the note's table, the audit path to fold to both the

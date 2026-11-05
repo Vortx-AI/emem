@@ -17,13 +17,16 @@ claim went out uncited.
 `POST /v1/guard/verdict` (MCP `emem_guard_verdict`) runs emem-guard's
 policy pipeline over the text. The field is `texts`, an **array**:
 
-```sh
-curl -sf -X POST https://emem.dev/v1/guard/verdict \
-  -H 'content-type: application/json' \
-  -d '{"texts":["Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)."],
-       "claim_gating": true}' \
-  | jq '{action, reason, citations_found, checked, citations}'
+Call `emem_guard_verdict` with:
+
+```json
+{"texts": ["Bengaluru air temperature is 35 degC (emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq)."],
+ "claim_gating": true}
 ```
+
+Without MCP, send the same body to `POST https://emem.dev/v1/guard/verdict`.
+Read `action`, `reason`, `citations_found`, `checked` and `citations` in
+the result.
 
 Recorded on 2026-09-28: the fact signs 28.0 degC, so that draft was
 denied with

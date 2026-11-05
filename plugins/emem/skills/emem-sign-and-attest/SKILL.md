@@ -136,16 +136,27 @@ exactly; `mean` and `sum` over more than two parents are compared inside
 a stated 4-ULP window, and the receipt names the `rule` and the measured
 `ulp_gap`, so require a gap of 0 if you need bit identity.
 
-```bash
-curl -s -X POST https://emem.dev/v1/derive -H 'content-type: application/json' -d '{
+Call `emem_derive` (REST `POST https://emem.dev/v1/derive`) with:
+
+```json
+{
   "fn_key": "same_doy_ndvi_delta@1",
   "inputs": ["emem:fact:<cell>:<earlier_cid>", "emem:fact:<cell>:<later_cid>"],
   "cell": "<cell>", "band": "indices.ndvi", "tslot_window": [<t0>, <t1>],
   "op": "delta", "value": <later_value - earlier_value>,
   "confidence": 0.95, "provenance_class": "model_output",
   "code_cid": "blake3:same_doy_ndvi_delta@1:ast"
-}'   # no attester: 401, details.how_to_sign names the digest and the CBOR body rules
+}
 ```
+
+`emem_derive` is outside the short tool list the plugin's MCP server
+shows. The server runs it by name through `tools/call`. If your host
+calls only listed tools, use the REST route.
+
+With no `attester` block the call is refused (HTTP 401 over REST), and
+`details.how_to_sign` names the digest and the CBOR body rules. Sign
+that digest with `signer_sign_digest`, then send the identical body
+again with the `attester` block.
 
 The claimed `value` must be the exact f64 result over the cited parents:
 readings of 0.5429769392033543 and 0.4871541501976284 delta to

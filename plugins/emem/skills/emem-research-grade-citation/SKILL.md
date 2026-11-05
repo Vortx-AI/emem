@@ -15,10 +15,16 @@ return, and says where the fields stop.
 
 ## What a fact carries
 
+Call `emem_recall` with:
+
+```json
+{"cell": "defi.zb493.zezo.zcb35", "bands": ["copdem30m.elevation_mean", "esa_worldcover.lc_2021"]}
+```
+
+Without MCP, send the same body to `POST https://emem.dev/v1/recall`.
+Save the result's JSON text as `facts.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["copdem30m.elevation_mean","esa_worldcover.lc_2021"]}' \
-  -o facts.json
 jq -c '.facts[] | {band, value, unit, observed_at, fn: .derivation.fn_key,
        args: .derivation.args, source: .sources[0].id, token: .memory_token}' facts.json
 jq '.spatial_basis' facts.json
@@ -85,9 +91,19 @@ say so in the methods.
 
 ## Why a number changed
 
+Call `emem_change_attribution` with:
+
+```json
+{"cell": "defi.zb493.zezo.zcb35"}
+```
+
+`emem_change_attribution` is outside the short tool list the plugin's
+MCP server shows. The server runs it by name through `tools/call`. If
+your host calls only listed tools, or has no MCP, send the same body to
+`POST https://emem.dev/v1/change_attribution`. Save the result's JSON
+text as `change.json`, then:
+
 ```sh
-curl -sf -X POST https://emem.dev/v1/change_attribution -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.zezo.zcb35"}' -o change.json
 jq '{algorithm_key, split, attribution_note, input_fact_cids, terms: (.terms|keys), ledger: .ledger_fact.token}' change.json
 ```
 
