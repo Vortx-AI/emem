@@ -559,7 +559,7 @@ second reference separates them, read the stated rate as a floor.
 
 **The replicated rules did not win here.** The seasonal NBR rule and the searched rule tied with the baseline
 (intervals -0.077 to +0.175 and -0.038 to +0.176); the desk's NDVI rule scored below it. Under the program's rule a
-failure to win after a first win means not replicated, so all three now read not replicated (section 5.19).
+failure to win after a first win means not replicated, so all three now read not replicated (section 5.20).
 
 ### 5.14 Two references: loss in 2022 and 2023, judged by Hansen and by JRC TMF (MCC decides)
 
@@ -764,7 +764,60 @@ table does not feed a decision. A choice may read only evidence dated before the
 the method-selection experiment scores its decisions on 2024 and 2025. Its context policy instead reads a pool of
 forests of the same climates scored for 2022 and 2023 ([Method selection](method-selection.md), section 6).
 
-### 5.19 Status of every proposal
+### 5.19 Method selection: the first experiment (registered; decisions committed before the later period)
+
+This is the first test of the program's question: can an agent tell that the method it trusts is wrong for a place,
+choose another on independent evidence, and have another agent verify the choice? The design is in
+[Method selection](method-selection.md). Nine forests were scored for 2022 and 2023
+(`canopy-loss-selection-forests-2022-2023`), beside a pool of ten forests of the same climates for the context policy
+(`canopy-loss-context-forests-2022-2023`). From that record each policy chose a method per forest, and the choices
+were printed in a signed plan before 2024 and 2025 were read (`canopy-loss-selection-forests-2024-2025`).
+
+**What was chosen.** The global policy (P0) chose the Landsat memory detector, `lab:memory_hls_emp@4`, at every
+forest. The local policy (P1) chose differently at three: `lab:memory_fusion@1` at Sao Felix do Xingu,
+`lab:memory_mv_fusion@2` at Boca do Acre and `lab:seasonal_canopy_loss@1` at Sud-Ubangi. The context policy (P2) chose
+as P0 everywhere. The champion was flagged wrong at Sud-Ubangi, where the abstaining policy (P3) made no choice.
+
+**What the later period showed.**
+
+| policy | forests it chose at | pooled MCC, 2024-2025 |
+|---|---|---|
+| P0, global | 9 | 0.145 |
+| P1, local | 9 | 0.656 |
+| P2, context | 9 (as P0 at all) | 0.145 |
+| P3, abstaining | 8 | 0.719, against 0.140 for P0 on the same forests |
+
+P1 minus P0, with forests resampled, lies between -0.052 and +0.750. The interval crosses zero, so the registered
+comparison does not decide, and P2 against P0 is zero by construction. The flag held: at Sud-Ubangi the champion
+scored below its own later-period mean.
+
+**Where the difference comes from (post hoc).** One forest. Sao Felix do Xingu held 119 of the later period's 197
+loss cells, and there the champion's MCC fell from 0.48 in 2022-2023 to 0.02, while the method P1 chose for it fell
+only from 0.63 to 0.41. The cause is the champion's calibration. Version 4, like version 3, sets its threshold from
+an empirical null fitted to the forest's own cells, which assumes most cells are unchanged. At Sao Felix in 2024-2025,
+119 of the 126 scored cells were lost. Before calibration the detector flagged all 119; after it, one. The fitted null
+had a location of 10.2 and a scale of 12.5, where in 2022-2023 it was -0.25 and 1.0: the clearing had become the
+null. An empirical null cannot see loss that covers most of the box it is fitted on.
+
+**A flaw in the design.** The nine forests were chosen for ten or more loss cells in 2021 to 2023, but the earlier
+period's labels leave 2021 out as an adjacent year. Six of the nine had no loss cell in 2022 or 2023, so only three
+forests (22, 24 and 22 loss cells) gave any policy local evidence, and at the other six P1 kept the mean. The next
+selection screens forests on the years its labels score.
+
+**What was verified.** The integrity desk re-derived the earlier period, the pool, the later period and every
+decision in the plan from signed records alone, and all agree. Its first pass over the later period failed: one
+forest's box straddles 50 E, where Hansen's tiles meet, and the verifier dropped the second tile. Fixed, every
+published MCC of the later period reproduces. No per-forest `decision@1` was signed: the record lacked a field the
+server requires, and the selection was recorded as registered anyway. The decisions are committed only in the signed
+plan, which the transparency log orders before the later period's plan (leaves 3148769 and 3148996). A selection
+short of a signed decision now holds its later period.
+
+**What it means.** The question has a first, narrow yes. From its own earlier record the local policy chose a
+different method where the champion went on to fail, and another agent re-derived the choice. It is not yet shown:
+one forest carries the difference, the interval crosses zero, and three forests of nine had local evidence. It also
+found a defect in the champion that no pooled score had shown.
+
+### 5.20 Status of every proposal
 
 **The status rule was changed on 29 October, in the open.** The rule in force until then asked every pre-registered
 experiment after a method's first win to win as well. Section 5.13 showed what that does: one experiment that read six
@@ -887,7 +940,7 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
   `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.19). Read a silence as "no large
+  though the strict status rule reads them not replicated after one tie (section 5.20). Read a silence as "no large
   loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
   twentieth did.
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
@@ -919,11 +972,11 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.19); its verdicts are kept as
+- The program's status rule turns a single tie into not replicated (section 5.20); its verdicts are kept as
   registered, and a meta-analysis is reported beside them.
 - The status rule was tightened after the third replication (section 5.13). The change only demotes.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
-- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.19 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
+- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.20 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 

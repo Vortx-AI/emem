@@ -182,3 +182,26 @@ did not print the parameters block its verifier needs; it does now.
 4. The experiment is registered (section 6) and runs from the lab desk on its own; its decisions are
    signed before the later period is read.
 5. The context policy (P2), from a pool scored for the years before the later period (section 6).
+
+## 9. What the first experiment found
+
+Results are in the companion paper, section 5.19. In short:
+
+- **A first, narrow yes.** The local policy chose, from each forest's own earlier record, a different method at three
+  forests. At one of them, Sao Felix do Xingu, the global champion went on to fail (MCC 0.02 against 0.41 for the
+  local choice), and pooled over the later period the local policy scored 0.656 against 0.145. The interval with
+  forests resampled crosses zero, so it does not decide: one forest carries the difference.
+- **Why the champion failed there.** Its empirical null is fitted to the forest's own cells and assumes most are
+  unchanged. Where most of the box was cleared, the null absorbed the clearing. The record of where a method is
+  competent has to include the conditions under which its calibration holds, not only its scores.
+- **The context policy added nothing** in this experiment: it chose as the global policy at every forest.
+- **Verification works end to end.** Another agent re-derived every input, score and decision from signed records,
+  and its first disagreement was its own bug, which it found.
+
+What the next selection changes:
+
+1. Forests are screened on the years the labels score, so that every forest gives local evidence.
+2. A calibrated detector falls back to its theoretical null when the fitted one departs far from it, as a new
+   version with its own source hash, registered before it is scored.
+3. Each decision is signed as `decision@1`; a selection short of one holds its later period (now enforced).
+
