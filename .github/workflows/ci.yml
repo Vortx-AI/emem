@@ -469,6 +469,26 @@ jobs:
         run: python3 scripts/plugin_crypto_copies.py
       - name: plugin skills pass the directory checks
         run: python3 scripts/plugin_skill_lint.py
+      # The plugin scripts' own tests sign with throwaway keys and serve key
+      # cards from 127.0.0.1, so they need no responder. Without
+      # `cryptography` every signing test would skip and the step would pass
+      # having checked nothing, so EMEM_TESTS_REQUIRE_CRYPTOGRAPHY turns a
+      # missing package into a failure. PyNaCl lets the libsodium control on
+      # the Ed25519-to-X25519 conversion run; the tests also pass without it.
+      # Same pins as the python-sdks and contract jobs.
+      - name: plugin script test dependencies
+        run: python3 -m pip install --quiet cryptography==50.0.1 pynacl==1.6.2
+      # The signer opens sealed notes with its own copy of the module the emem
+      # plugin seals with. Two copies that drift would seal what cannot open.
+      - name: the signer and the emem plugin share one sealed-note module
+        run: cmp plugins/emem/skills/emem-multi-agent-handoff/scripts/emem_sealed.py plugins/emem-signer/signer/emem_sealed.py
+      - name: plugin script tests pass
+        env:
+          EMEM_TESTS_REQUIRE_CRYPTOGRAPHY: "1"
+        run: |
+          python3 plugins/emem/skills/emem-multi-agent-handoff/scripts/test_sealed.py
+          python3 plugins/emem/skills/emem-multi-agent-handoff/scripts/test_verify_note.py
+          python3 plugins/emem-signer/signer/test_signer.py
       # `include_str!` makes a repo file a BUILD input, and the Dockerfile
       # copies selectively, so adding an include in Rust can break the image
       # build from a file nobody edited. server.json did exactly that on

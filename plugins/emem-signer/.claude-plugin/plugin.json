@@ -1,6 +1,6 @@
 {
   "name": "emem-signer",
-  "description": "A local signer for emem memory writes. It holds your Ed25519 signing key, given as a sensitive plugin option, and signs only the writes you compose. Optional: install it beside the emem plugin when you want to write signed notes; reading emem needs no key.",
+  "description": "A local signer for emem memory writes. It holds your Ed25519 signing key, given as a sensitive plugin option, and signs only the writes you compose. It also opens notes sealed to your key. Optional: install it beside the emem plugin when you want to write signed notes; reading emem needs no key.",
   "version": "2.4.4",
   "author": {
     "name": "Vortx AI",
@@ -24,6 +24,13 @@
       "title": "Signing key",
       "description": "The 32-byte Ed25519 seed that signs your emem memory writes, as 64 hex characters. It is stored in your secure credential store and given only to the local emem-signer process.",
       "sensitive": true,
+      "required": false
+    },
+    "signing_role": {
+      "type": "string",
+      "title": "Signing role",
+      "description": "Optional. What this key is for, in one or two words, such as agent, witness or operator. The signer reports it, and a witness key signs only /witness paths unless you confirm. It is not secret.",
+      "sensitive": false,
       "required": false
     }
   }

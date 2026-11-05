@@ -42,9 +42,9 @@ run against emem.dev, rather than a description:
 | `emem-tokenise-files` | a file cut into units under one signed Merkle root; cite and prove one unit |
 | `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
 | **Memory and other agents** | |
-| `emem-sign-and-attest` | write with your own key; the responder's refusal names the bytes to sign |
-| `emem-long-horizon-memory` | signed working state that survives a context reset, and the inbox |
-| `emem-multi-agent-handoff` | hand findings to other agents as tokens they can verify, and verify theirs |
+| `emem-sign-and-attest` | write with your own key; the signer computes the digest, so there is no refusal round trip |
+| `emem-long-horizon-memory` | signed working state that survives a context reset, the inbox, and waiting for a reply |
+| `emem-multi-agent-handoff` | hand findings to other agents as tokens they can verify, verify theirs, key cards, and notes sealed to one key |
 | `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
 | `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
 | **Checking** | |
@@ -53,7 +53,7 @@ run against emem.dev, rather than a description:
 | `emem-verify-before-publish` | check a draft's citations and the numbers written beside them |
 | `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
 
-Seven skills ship a small Python script beside their `SKILL.md`:
+Seven skills ship small Python scripts beside their `SKILL.md`:
 
 | Script | Does |
 |---|---|
@@ -61,27 +61,37 @@ Seven skills ship a small Python script beside their `SKILL.md`:
 | `emem-transparency-log/scripts/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
 | `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
 | `emem-field-tokens/scripts/rehash.py` | re-hashes a downloaded artifact against its cid |
-| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note |
+| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note and the signature on its supersede banner, then reads that key's own card (`test_verify_note.py` tests it) |
+| `emem-multi-agent-handoff/scripts/seal_note.py` | seals a note to one key; the recipient opens it with the emem-signer plugin's `signer_open_sealed` (`emem_sealed.py` holds the format, `test_sealed.py` tests it) |
 | `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
 | `emem-long-horizon-memory/scripts/verify_note.py` | the same note check, shipped with the skill that uses it |
+| `emem-long-horizon-memory/scripts/watch_inbox.py` | waits until a new note reaches your inbox |
 
-Each reads only the files you pass it and makes no network call. BLAKE3
-and Ed25519 verification come from one module, `emem_crypto.py`, shipped
-in each skill's `scripts/` so a skill copied on its own still runs: plain Python 3 with no third-party packages and
-no compiled code, so nothing is installed to run them. Every verifier
-takes `--self-test`, which checks that module against the official
-BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
-signatures it must reject.
+The scripts read only the files you pass them, and write only where you
+tell them to. Two of them also read from `https://emem.dev` and send
+nothing. `verify_note.py` reads the author's key card with one GET, and
+`--offline` skips it. `watch_inbox.py` polls the inbox. The other
+scripts make no network call. BLAKE3 and Ed25519 verification come from
+one module, `emem_crypto.py`, shipped in each skill's `scripts/` so a
+skill copied on its own still runs: plain Python 3 with no third-party
+packages and no compiled code, so nothing is installed to run them.
+Every verifier takes `--self-test`, which checks that module against the
+official BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
+signatures it must reject. `seal_note.py` is the exception: it needs
+the `cryptography` package for X25519 and ChaCha20-Poly1305. No script
+in this plugin reads a key or a seed.
 
 ## Signing key
 
 Reads need no key, and this plugin holds none. To write signed notes,
-also install the optional `emem-signer` plugin from the same
-marketplace (`/plugin install emem-signer@emem`). It keeps your Ed25519
+or to open notes sealed to your key, also install the optional
+`emem-signer` plugin from the same marketplace (`/plugin install emem-signer@emem`). It keeps your Ed25519
 key in a sensitive plugin option and signs in one local process; its
-[README](https://github.com/Vortx-AI/emem/blob/main/plugins/emem-signer/README.md) has the details. Without it, the
-skills that write tell you how to sign with an Ed25519 tool you already
-trust.
+[README](https://github.com/Vortx-AI/emem/blob/main/plugins/emem-signer/README.md) has the details.
+Without it, the skills that write tell you how to sign with an Ed25519
+tool you already trust. If one machine holds several keys, set each
+signer's role option, so that a log witness key does not sign your
+notes.
 
 ## Data
 

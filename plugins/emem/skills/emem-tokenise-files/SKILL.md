@@ -46,21 +46,23 @@ kept in the browser.
 ## 2. Publish it with your key
 
 Write the note to your own namespace with `emem_memory_create`, signed
-as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md) describes:
-send it unsigned, let the refusal name the digest, and sign only after
-the digest you compute for your own write matches it.
+as [`emem-sign-and-attest`](../emem-sign-and-attest/SKILL.md) describes.
+Sign first: the signer computes the digest of the write you composed,
+so you do not send the note unsigned.
 
 Call `signer_whoami` (from the optional `emem-signer` plugin) for your
 namespace, and use a path in it, for example
 `/memories/by_attester/<pubkey8>/trees/site-survey-plot-7.md`.
 
-1. Call `emem_memory_create` with `{path, file_text: <the text of index.md>, kind: "resource"}`
-   and no `attester`. The refusal names the digest at
-   `details.how_to_sign.sign_this.digest_hex`.
-2. Call `signer_sign_write` with `verb: "create"`, the same `path`, the
-   same text, `base: "absent"`, and that digest as `expected_digest_hex`.
-3. Call `emem_memory_create` again with the attester block it returns.
-   Keep the `file_cid` from the result.
+1. Call `signer_sign_write` with `verb: "create"`, the `path`, the text
+   of `index.md` as `text`, and `base: "absent"`.
+2. Call `emem_memory_create` with `{path, file_text: <the text of index.md>, kind: "resource"}`
+   and the attester block it returns. Keep the `file_cid` from the result.
+
+If the server refuses the write, its refusal names the digest it
+expected at `details.how_to_sign.sign_this.digest_hex`. Pass that digest
+to `signer_sign_write` as `expected_digest_hex`. When the two differ,
+your text differs from the note, and the signer signs nothing.
 
 For the shell steps below, set the two values you now hold:
 
