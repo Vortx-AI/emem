@@ -99,9 +99,12 @@ check("no marker survives the splice", !spliced.includes("/*EMEM_VERIFY_CORE*/")
 const m = spliced.match(/<script>([\s\S]*?)<\/script>/);
 check("the spliced script block is extractable", !!m);
 if (m) {
-  const sandbox = {};
+  // A context of its own, like the card's page: the script sees only the
+  // JavaScript built-ins plus the two host objects a browser gives it, so a
+  // dependency on anything Node adds would fail here as it would in a card.
+  const sandbox = { TextEncoder, console };
   try {
-    new Function("globalThis", m[1]).call(sandbox, sandbox);
+    require("vm").runInNewContext(m[1], sandbox, { filename: "mcp-fact-card.html" });
     const V2 = sandbox.ememVerify;
     check("the spliced verifier evaluates and exports", !!(V2 && V2.verifyReceipt));
     if (V2) {
