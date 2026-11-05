@@ -907,6 +907,259 @@ fn zones_bbox(zones: &[Zone]) -> Result<BBox, ApiError> {
     Ok(bbox)
 }
 
+/// The read window: the point every read is centred on, the window's size in
+/// pixels and its north-west corner on the raster's own grid.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ReadWindow {
+    cx: f64,
+    cy: f64,
+    w: u32,
+    h: u32,
+    x0: f64,
+    y0: f64,
+}
+
+/// The window read for an area. `corner(cx, cy, w, h)` is the north-west
+/// corner the reader uses for a `w` x `h` window centred on (cx, cy).
+///
+/// It is the window this responder has always read, sized from the
+/// projections of the box's (min_lat, min_lng) and (max_lat, max_lng) corners
+/// and centred on the box's middle, whenever that window holds every pixel
+/// centre the area holds ([`holds_every_pixel`]): those answers, grids and
+/// receipts do not change. Away from a zone's central meridian a lat/lng box
+/// projects to a turned quadrilateral, and its other two corners, with the
+/// fields near them, fall outside that window, which then read those fields in
+/// part or not at all. Then the window is the one [`covering_window`] builds
+/// around the area's whole UTM extent ([`utm_extent`]), centred on it.
+fn read_window(
+    b: &BBox,
+    rings: &[Vec<[f64; 2]>],
+    zones: &[Zone],
+    epsg: u32,
+    step: f64,
+    corner: impl Fn(f64, f64, u32, u32) -> (f64, f64),
+) -> Result<ReadWindow, ApiError> {
+    let utm = |lat: f64, lng: f64| {
+        emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, epsg)
+            .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))
+    };
+    let c = utm((b.min_lat + b.max_lat) / 2.0, (b.min_lng + b.max_lng) / 2.0)?;
+    let lo = utm(b.min_lat, b.min_lng)?;
+    let hi = utm(b.max_lat, b.max_lng)?;
+    let w = (((hi.easting - lo.easting).abs() / step).ceil() as u32).max(1);
+    let h = (((hi.northing - lo.northing).abs() / step).ceil() as u32).max(1);
+    let (x0, y0) = corner(c.easting, c.northing, w, h);
+    let old = ReadWindow {
+        cx: c.easting,
+        cy: c.northing,
+        w,
+        h,
+        x0,
+        y0,
+    };
+    let ext = utm_extent(b, rings, zones, epsg)
+        .ok_or_else(|| upstream_error(format!("epsg {epsg} is not a UTM code")))?;
+    if holds(x0, y0, w, h, step, ext) {
+        return Ok(old);
+    }
+    let (cx, cy) = ((ext.0 + ext.1) / 2.0, (ext.2 + ext.3) / 2.0);
+    let (nw, nh, nx0, ny0) = covering_window(ext, step, |w, h| corner(cx, cy, w, h))?;
+    // The old window misses part of the extent. It is kept when that part
+    // holds no pixel centre of the area, so no answer changes for nothing.
+    let project = |ring: &Vec<[f64; 2]>| -> Vec<[f64; 2]> {
+        ring.iter()
+            .filter_map(|[lng, lat]| {
+                emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg)
+                    .map(|u| [u.easting, u.northing])
+            })
+            .collect()
+    };
+    let polygons: Vec<Vec<Vec<[f64; 2]>>> = if !zones.is_empty() {
+        zones
+            .iter()
+            .map(|z| z.rings.iter().map(project).collect())
+            .collect()
+    } else if !rings.is_empty() {
+        vec![rings.iter().map(project).collect()]
+    } else {
+        Vec::new()
+    };
+    let boxed = (
+        lo.easting.min(hi.easting),
+        lo.easting.max(hi.easting),
+        lo.northing.min(hi.northing),
+        lo.northing.max(hi.northing),
+    );
+    if holds_every_pixel(&old, step, (nx0, ny0), &polygons, boxed) {
+        return Ok(old);
+    }
+    Ok(ReadWindow {
+        cx,
+        cy,
+        w: nw,
+        h: nh,
+        x0: nx0,
+        y0: ny0,
+    })
+}
+
+/// Whether `win` holds every pixel centre the area holds, on the raster grid
+/// through the corner `grid` with pixel `step`. The area is each field's
+/// polygon (`polygons`, in UTM, outer ring first) or, with none, the box
+/// `boxed` (min x, max x, min y, max y): the same inside tests the series runs.
+fn holds_every_pixel(
+    win: &ReadWindow,
+    step: f64,
+    grid: (f64, f64),
+    polygons: &[Vec<Vec<[f64; 2]>>],
+    boxed: (f64, f64, f64, f64),
+) -> bool {
+    let (gx, gy) = grid;
+    // A window's pixel centres run from half a pixel inside its edges; a
+    // quarter-pixel margin absorbs rounding between grids that share a phase.
+    let in_win = |x: f64, y: f64| {
+        x >= win.x0 + 0.25 * step
+            && x <= win.x0 + (win.w as f64 - 0.25) * step
+            && y <= win.y0 - 0.25 * step
+            && y >= win.y0 - (win.h as f64 - 0.25) * step
+    };
+    if polygons.is_empty() {
+        let (bx0, bx1, by0, by1) = boxed;
+        let (i0, i1) = (
+            ((bx0 - gx) / step - 0.5).ceil(),
+            ((bx1 - gx) / step - 0.5).floor(),
+        );
+        let (j0, j1) = (
+            ((gy - by1) / step - 0.5).ceil(),
+            ((gy - by0) / step - 0.5).floor(),
+        );
+        if i0 > i1 || j0 > j1 {
+            return true;
+        }
+        let (xa, xb) = (gx + (i0 + 0.5) * step, gx + (i1 + 0.5) * step);
+        let (ya, yb) = (gy - (j0 + 0.5) * step, gy - (j1 + 0.5) * step);
+        return in_win(xa, ya) && in_win(xb, yb);
+    }
+    for rings in polygons {
+        let Some(outer) = rings.first() else {
+            continue;
+        };
+        let (zx0, zx1, zy0, zy1) = outer.iter().fold(
+            (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
+            |(a, b, c, d), [x, y]| (a.min(*x), b.max(*x), c.min(*y), d.max(*y)),
+        );
+        if outer.is_empty() {
+            continue;
+        }
+        let (i0, i1) = (
+            ((zx0 - gx) / step).floor() as i64,
+            ((zx1 - gx) / step).ceil() as i64,
+        );
+        let (j0, j1) = (
+            ((gy - zy1) / step).floor() as i64,
+            ((gy - zy0) / step).ceil() as i64,
+        );
+        for j in j0..=j1 {
+            for i in i0..=i1 {
+                let (x, y) = (gx + (i as f64 + 0.5) * step, gy - (j as f64 + 0.5) * step);
+                if in_polygon(x, y, rings) && !in_win(x, y) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Whether the `w` x `h` window at (x0, y0) holds the UTM extent `ext`
+/// (min x, max x, min y, max y).
+fn holds(x0: f64, y0: f64, w: u32, h: u32, step: f64, ext: (f64, f64, f64, f64)) -> bool {
+    x0 <= ext.0 && x0 + w as f64 * step >= ext.1 && y0 >= ext.3 && y0 - h as f64 * step <= ext.2
+}
+
+/// The UTM extent a read window must hold, as (min x, max x, min y, max y):
+/// all four corners of the WGS-84 box, every vertex of the area's polygon and
+/// every vertex of each field. `None` when `epsg` is not a UTM code.
+fn utm_extent(
+    b: &BBox,
+    rings: &[Vec<[f64; 2]>],
+    zones: &[Zone],
+    epsg: u32,
+) -> Option<(f64, f64, f64, f64)> {
+    let corners = [
+        [b.min_lng, b.min_lat],
+        [b.max_lng, b.min_lat],
+        [b.max_lng, b.max_lat],
+        [b.min_lng, b.max_lat],
+    ];
+    let mut e = (f64::MAX, f64::MIN, f64::MAX, f64::MIN);
+    for [lng, lat] in corners
+        .iter()
+        .chain(rings.iter().flatten())
+        .chain(zones.iter().flat_map(|z| z.rings.iter().flatten()))
+    {
+        let u = emem_fetch::proj::latlng_to_utm_with_epsg(*lat, *lng, epsg)?;
+        e = (
+            e.0.min(u.easting),
+            e.1.max(u.easting),
+            e.2.min(u.northing),
+            e.3.max(u.northing),
+        );
+    }
+    Some(e)
+}
+
+/// The smallest window, in pixels, that holds the UTM extent `ext` once the
+/// reader has snapped it to the raster, and its north-west corner.
+/// `corner(w, h)` is the corner of a `w` x `h` window centred on the extent's
+/// middle. A side of `2 ceil(span / 2 step) + 2` pixels holds the span at any
+/// pixel phase of the centre; should the snap still leave an edge out, the
+/// window grows by two pixels a side, at most twice, and then the call is
+/// refused rather than read part of the area.
+fn covering_window(
+    ext: (f64, f64, f64, f64),
+    step: f64,
+    corner: impl Fn(u32, u32) -> (f64, f64),
+) -> Result<(u32, u32, f64, f64), ApiError> {
+    let side = |span: f64| 2 * ((span / (2.0 * step)).ceil().max(0.0) as u32) + 2;
+    let (mut w, mut h) = (side(ext.1 - ext.0), side(ext.3 - ext.2));
+    for _ in 0..3 {
+        let (x0, y0) = corner(w, h);
+        if holds(x0, y0, w, h, step, ext) {
+            return Ok((w, h, x0, y0));
+        }
+        w += 2;
+        h += 2;
+    }
+    Err(upstream_error(format!(
+        "no read window up to {w}x{h} px holds the area's UTM extent; nothing was read"
+    )))
+}
+
+/// The refusal for an area with too few pixel centres. It names only what
+/// the caller can change: a smaller inner buffer when one was asked, and a
+/// lower `min_support_px` only above its floor of 4.
+fn too_few_pixels(n_inside: usize, native_m: f64, buffer_m: f64, min_support: usize) -> ApiError {
+    let after = if buffer_m > 0.0 {
+        format!(" after a {buffer_m} m inner buffer")
+    } else {
+        String::new()
+    };
+    let buffer = if buffer_m > 0.0 {
+        ", a smaller inner_buffer_m"
+    } else {
+        ""
+    };
+    let lower = if min_support > 4 {
+        ", or a lower min_support_px (4 or more)"
+    } else {
+        ""
+    };
+    bad_request(format!(
+        "the area holds {n_inside} pixel centres at {native_m} m{after}; this call needs at least {min_support}. Give a larger area{buffer}{lower}."
+    ))
+}
+
 /// A read window's pixel grid in the scene CRS: north-west corner, step, size.
 struct Lattice {
     epsg: u32,
@@ -946,21 +1199,37 @@ fn zone_pixels(
             (f64::MAX, f64::MIN, f64::MAX, f64::MIN),
             |(a, b, c, d), [x, y]| (a.min(*x), b.max(*x), c.min(*y), d.max(*y)),
         );
-        let col = |x: f64| ((x - g.x0) / g.step).floor().clamp(0.0, (g.w - 1) as f64) as u32;
-        let row = |y: f64| ((g.y0 - y) / g.step).floor().clamp(0.0, (g.h - 1) as f64) as u32;
+        // The field's box on the lattice, not clamped to the window: a pixel
+        // centre of the field that falls outside the window means the field
+        // would be read in part and its median biased, so it is skipped with
+        // that reason instead. The window holds every pixel of every field
+        // ([`read_window`]), so this is a guard.
+        let col = |x: f64| ((x - g.x0) / g.step).floor() as i64;
+        let row = |y: f64| ((g.y0 - y) / g.step).floor() as i64;
         let mut px: Vec<usize> = Vec::new();
+        let mut past_window = false;
         if !outer.is_empty() {
-            for r in row(zy1)..=row(zy0) {
+            'scan: for r in row(zy1)..=row(zy0) {
                 for c in col(zx0)..=col(zx1) {
                     let x = g.x0 + (c as f64 + 0.5) * g.step;
                     let y = g.y0 - (r as f64 + 0.5) * g.step;
                     if in_polygon(x, y, &zr)
                         && (buffer_m <= 0.0 || distance_to_edge(x, y, &zr) >= buffer_m)
                     {
-                        px.push((r * g.w + c) as usize);
+                        if c < 0 || r < 0 || c >= g.w as i64 || r >= g.h as i64 {
+                            past_window = true;
+                            break 'scan;
+                        }
+                        px.push((r as usize) * (g.w as usize) + c as usize);
                     }
                 }
             }
+        }
+        if past_window {
+            skipped.push(json!({"id": z.id, "n_px": 0,
+                "reason": "the field reaches past the read window, so none of it was read"}));
+            zone_px.push(Vec::new());
+            continue;
         }
         if px.len() < min_support {
             skipped.push(json!({"id": z.id, "n_px": px.len(),
@@ -2314,14 +2583,21 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     let utm_c = to_utm(centre_lat, centre_lng)?;
     let utm_min = to_utm(b.min_lat, b.min_lng)?;
     let utm_max = to_utm(b.max_lat, b.max_lng)?;
-    let w = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
-    let h = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    let win = read_window(b, &aoi.rings, &zones, epsg, native_m, |cx, cy, w, h| {
+        window_corner(&prof, cx, cy, w, h)
+    })?;
+    // Every read below is centred on `utm_c`, so it is the window's centre.
+    let utm_c = emem_fetch::proj::UtmCoord {
+        easting: win.cx,
+        northing: win.cy,
+        ..utm_c
+    };
+    let (w, h, wx0, wy0) = (win.w, win.h, win.x0, win.y0);
     if w > MAX_SIDE_PX || h > MAX_SIDE_PX {
         return Err(bad_request(format!(
             "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
         )));
     }
-    let (wx0, wy0) = window_corner(&prof, utm_c.easting, utm_c.northing, w, h);
     let centre_of = |r: u32, c: u32| {
         (
             wx0 + (c as f64 + 0.5) * native_m,
@@ -2376,10 +2652,7 @@ pub async fn field_series(req: FieldSeriesReq, s: &AppState) -> Result<JsonValue
     }
     let n_inside = inside.iter().filter(|v| **v).count();
     if n_inside < min_support {
-        return Err(bad_request(format!(
-            "the area holds {n_inside} pixel centres at {native_m} m{}; this call needs at least {min_support}. Give a larger area, a smaller inner_buffer_m, or a lower min_support_px (4 or more).",
-            if buffer_m > 0.0 { format!(" after a {buffer_m} m inner buffer") } else { String::new() }
-        )));
+        return Err(too_few_pixels(n_inside, native_m, buffer_m, min_support));
     }
 
     let lattice = Lattice {
@@ -3215,15 +3488,22 @@ async fn radar_series(
     let utm_c = to_utm(centre_lat, centre_lng)?;
     let utm_min = to_utm(b.min_lat, b.min_lng)?;
     let utm_max = to_utm(b.max_lat, b.max_lng)?;
-    let w = (((utm_max.easting - utm_min.easting).abs() / native_m).ceil() as u32).max(1);
-    let h = (((utm_max.northing - utm_min.northing).abs() / native_m).ceil() as u32).max(1);
+    let win = read_window(b, &aoi.rings, &zones, epsg, native_m, |cx, cy, w, h| {
+        let (cc, cr) = prof.world_to_pixel(cx, cy);
+        prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2)
+    })?;
+    // Every read below is centred on `utm_c`, so it is the window's centre.
+    let utm_c = emem_fetch::proj::UtmCoord {
+        easting: win.cx,
+        northing: win.cy,
+        ..utm_c
+    };
+    let (w, h, wx0, wy0) = (win.w, win.h, win.x0, win.y0);
     if w > MAX_SIDE_PX || h > MAX_SIDE_PX {
         return Err(bad_request(format!(
             "the area is {w}x{h} px at {native_m} m; the cap is {MAX_SIDE_PX} per side. Shrink it or split it."
         )));
     }
-    let (cc, cr) = prof.world_to_pixel(utm_c.easting, utm_c.northing);
-    let (wx0, wy0) = prof.pixel_to_world(cc - (w as i64) / 2, cr - (h as i64) / 2);
     let rings_utm: Vec<Vec<[f64; 2]>> = aoi
         .rings
         .iter()
@@ -3267,9 +3547,7 @@ async fn radar_series(
     }
     let n_inside = inside.iter().filter(|v| **v).count();
     if n_inside < min_support {
-        return Err(bad_request(format!(
-            "the area holds {n_inside} pixel centres at {native_m} m; this call needs at least {min_support}. Give a larger area, a smaller inner_buffer_m, or a lower min_support_px (4 or more)."
-        )));
+        return Err(too_few_pixels(n_inside, native_m, buffer_m, min_support));
     }
     let lattice = Lattice {
         epsg,
@@ -4165,6 +4443,249 @@ mod tests {
             .map(|_| json!({"geometry": sq(75.0)}))
             .collect();
         assert!(parse_fields(&JsonValue::Array(many)).is_err());
+    }
+
+    /// Sentinel-2 tile 43RGM's 10 m grid, for window tests.
+    fn s2_43rgm() -> emem_fetch::cog::CogProfile {
+        emem_fetch::cog::CogProfile {
+            width: 10980,
+            height: 10980,
+            bits_per_sample: 16,
+            sample_format: 1,
+            compression: 8,
+            predictor: 1,
+            tile_w: 1024,
+            tile_h: 1024,
+            tile_cols: 11,
+            tile_rows: 11,
+            samples_per_pixel: 1,
+            planar_config: 1,
+            tile_offsets: Vec::new(),
+            tile_byte_counts: Vec::new(),
+            pixel_scale: (10.0, 10.0),
+            tiepoint: (0.0, 0.0, 699_960.0, 3_200_040.0),
+            epsg: Some(32643),
+            nodata: Some("0".into()),
+            pixel_is_point: false,
+        }
+    }
+
+    /// Two 44 m squares near Dhaulana, 2.7 degrees east of zone 43's central
+    /// meridian, read together with `fields` (geo.qa's test of 2026-11-05).
+    /// Each holds 25 pixel centres on the 10 m grid. The window sized from the
+    /// box's (min, min) and (max, max) corners ended at x 760775, west of D2
+    /// (x 760772 to 760818): D2 was skipped as "0 pixel centres" and D3 read
+    /// 10 of its 25. Every field must be read whole.
+    #[test]
+    fn the_fields_window_holds_every_field() {
+        let sq = |a: [f64; 2], c: [f64; 2]| json!({"type": "Polygon", "coordinates": [[a, [c[0], a[1]], c, [a[0], c[1]], a]]});
+        let zones = parse_fields(&json!([
+            {"id": "D2", "geometry": sq([77.66675, 28.605193], [77.6672, 28.605589])},
+            {"id": "D3", "geometry": sq([77.649277, 28.621774], [77.649727, 28.62217])},
+        ]))
+        .unwrap();
+        let b = zones_bbox(&zones).unwrap();
+        let prof = s2_43rgm();
+        let win = read_window(&b, &[], &zones, 32643, 10.0, |cx, cy, w, h| {
+            window_corner(&prof, cx, cy, w, h)
+        })
+        .unwrap();
+        let g = Lattice {
+            epsg: 32643,
+            x0: win.x0,
+            y0: win.y0,
+            step: 10.0,
+            w: win.w,
+            h: win.h,
+        };
+        let (px, skipped) = zone_pixels(&zones, &g, 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(px.iter().map(Vec::len).collect::<Vec<_>>(), vec![25, 25]);
+
+        // A window that cannot hold a field reads none of it, and says why.
+        let narrow = Lattice { w: 2, h: 2, ..g };
+        let (npx, nskipped) = zone_pixels(&zones, &narrow, 0.0, 4);
+        assert_eq!(nskipped.len(), 2, "{nskipped:?}");
+        assert!(nskipped[0]["reason"]
+            .as_str()
+            .unwrap()
+            .contains("past the read window"));
+        assert!(npx.iter().all(Vec::is_empty));
+    }
+
+    /// An area the old window already held keeps that window exactly, so its
+    /// answer, grid and receipt are what they were.
+    #[test]
+    fn a_window_that_held_its_area_is_unchanged() {
+        let sq = |a: [f64; 2], c: [f64; 2]| json!({"type": "Polygon", "coordinates": [[a, [c[0], a[1]], c, [a[0], c[1]], a]]});
+        let zones = parse_fields(&json!([
+            {"id": "D1", "geometry": sq([77.633828, 28.658161], [77.634278, 28.658557])},
+        ]))
+        .unwrap();
+        let b = zones_bbox(&zones).unwrap();
+        let prof = s2_43rgm();
+        let corner = |cx: f64, cy: f64, w: u32, h: u32| window_corner(&prof, cx, cy, w, h);
+        let win = read_window(&b, &[], &zones, 32643, 10.0, corner).unwrap();
+        let utm = |lat: f64, lng: f64| {
+            emem_fetch::proj::latlng_to_utm_with_epsg(lat, lng, 32643).unwrap()
+        };
+        let c = utm((b.min_lat + b.max_lat) / 2.0, (b.min_lng + b.max_lng) / 2.0);
+        let (lo, hi) = (utm(b.min_lat, b.min_lng), utm(b.max_lat, b.max_lng));
+        let (w, h) = (
+            ((hi.easting - lo.easting).abs() / 10.0).ceil() as u32,
+            ((hi.northing - lo.northing).abs() / 10.0).ceil() as u32,
+        );
+        let (x0, y0) = corner(c.easting, c.northing, w, h);
+        let old = ReadWindow {
+            cx: c.easting,
+            cy: c.northing,
+            w,
+            h,
+            x0,
+            y0,
+        };
+        // D1 alone read 25 of 25 before the fix: its window must not move,
+        // whether or not the old window also held the slivers of the extent
+        // that hold no pixel centre.
+        assert_eq!(win, old);
+        let g = Lattice {
+            epsg: 32643,
+            x0: win.x0,
+            y0: win.y0,
+            step: 10.0,
+            w: win.w,
+            h: win.h,
+        };
+        let (px, skipped) = zone_pixels(&zones, &g, 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(px[0].len(), 25);
+    }
+
+    /// A field whose outline pokes past the window edge, with no pixel centre
+    /// past it, is read whole; one with a pixel centre past it is skipped.
+    #[test]
+    fn the_field_guard_counts_pixel_centres() {
+        let epsg = 32643;
+        let ll = |x: f64, y: f64| {
+            let (lat, lng) = emem_fetch::proj::utm_to_latlng_with_epsg(x, y, epsg).unwrap();
+            [lng, lat]
+        };
+        // A 3 x 3 pixel window, corner (500000, 3400000), 10 m pixels.
+        let g = Lattice {
+            epsg,
+            x0: 500_000.0,
+            y0: 3_400_000.0,
+            step: 10.0,
+            w: 3,
+            h: 3,
+        };
+        let zone = |x1: f64| {
+            let ring = vec![
+                ll(500_000.5, 3_399_970.5),
+                ll(x1, 3_399_970.5),
+                ll(x1, 3_399_999.5),
+                ll(500_000.5, 3_399_999.5),
+                ll(500_000.5, 3_399_970.5),
+            ];
+            Zone {
+                id: "f".into(),
+                rings: vec![ring],
+                polygon_cid: None,
+            }
+        };
+        // East edge at x 500030.4: past the window (500030), no centre past it.
+        let (px, skipped) = zone_pixels(&[zone(500_030.4)], &g, 0.0, 4);
+        assert!(skipped.is_empty(), "{skipped:?}");
+        assert_eq!(px[0].len(), 9);
+        // East edge at x 500036: the centre at x 500035 is past the window.
+        let (px, skipped) = zone_pixels(&[zone(500_036.0)], &g, 0.0, 4);
+        assert_eq!(skipped.len(), 1, "{skipped:?}");
+        assert!(px[0].is_empty());
+    }
+
+    /// The keep rule counts pixel centres, not geometry: a window that misses
+    /// a sliver with no centre in it holds every pixel; one that misses a
+    /// centre does not.
+    #[test]
+    fn the_keep_rule_counts_pixel_centres() {
+        // One 30 m square on a 10 m grid through (0, 100): centres at 5, 15, 25.
+        let sq = vec![vec![
+            [0.5, 70.5],
+            [29.5, 70.5],
+            [29.5, 99.5],
+            [0.5, 99.5],
+            [0.5, 70.5],
+        ]];
+        let polygons = vec![sq];
+        let win = |x0: f64, w: u32| ReadWindow {
+            cx: 0.0,
+            cy: 0.0,
+            w,
+            h: 3,
+            x0,
+            y0: 100.0,
+        };
+        let boxed = (0.0, 0.0, 0.0, 0.0);
+        assert!(holds_every_pixel(
+            &win(0.0, 3),
+            10.0,
+            (0.0, 100.0),
+            &polygons,
+            boxed
+        ));
+        // Shifted one pixel east: the centre at x 5 is outside the window.
+        assert!(!holds_every_pixel(
+            &win(10.0, 3),
+            10.0,
+            (0.0, 100.0),
+            &polygons,
+            boxed
+        ));
+        // A bare box: its first and last centres decide.
+        let b = (0.5, 29.5, 70.5, 99.5);
+        assert!(holds_every_pixel(&win(0.0, 3), 10.0, (0.0, 100.0), &[], b));
+        assert!(!holds_every_pixel(&win(0.0, 2), 10.0, (0.0, 100.0), &[], b));
+    }
+
+    /// The covering window holds its extent at every pixel phase of its centre.
+    #[test]
+    fn the_covering_window_holds_its_extent_at_every_phase() {
+        let step = 10.0;
+        for k in 0..20 {
+            let shift = k as f64 * 0.5;
+            let ext = (
+                1000.0 + shift,
+                1437.0 + shift,
+                5000.0 - shift,
+                5291.0 - shift,
+            );
+            let (cx, cy) = ((ext.0 + ext.1) / 2.0, (ext.2 + ext.3) / 2.0);
+            // As the reader does: snap the centre to a pixel, step w / 2 back.
+            let corner = |w: u32, h: u32| {
+                let (c, r) = ((cx / step).floor() as i64, (-cy / step).floor() as i64);
+                (
+                    (c - (w as i64) / 2) as f64 * step,
+                    -((r - (h as i64) / 2) as f64) * step,
+                )
+            };
+            let (w, h, x0, y0) = covering_window(ext, step, corner).unwrap();
+            assert!(holds(x0, y0, w, h, step, ext), "shift {shift}: {w}x{h}");
+            assert!(w <= 48 && h <= 34, "a few pixels of slack at most: {w}x{h}");
+        }
+        // A corner that can never hold the extent is refused, not read in part.
+        assert!(covering_window((0.0, 100.0, 0.0, 100.0), step, |_, _| (50.0, 50.0)).is_err());
+    }
+
+    #[test]
+    fn too_few_pixels_names_only_what_can_change() {
+        let at_floor = too_few_pixels(1, 10.0, 0.0, 4).1.message.clone();
+        assert!(!at_floor.contains("min_support_px"), "{at_floor}");
+        assert!(!at_floor.contains("inner_buffer_m"), "{at_floor}");
+        let above = too_few_pixels(5, 10.0, 15.0, 9).1.message.clone();
+        assert!(
+            above.contains("min_support_px") && above.contains("inner_buffer_m"),
+            "{above}"
+        );
     }
 
     #[test]
