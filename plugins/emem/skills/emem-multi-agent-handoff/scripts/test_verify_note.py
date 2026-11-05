@@ -176,8 +176,12 @@ class Banner(unittest.TestCase):
 CARDS: dict = {}
 
 
+REQUESTS: list[str] = []
+
+
 class _Cards(BaseHTTPRequestHandler):
     def do_GET(self):  # noqa: N802 (the name http.server calls)
+        REQUESTS.append(self.path)
         doc = CARDS.get(self.path)
         if doc is None:
             self.send_response(404)
@@ -212,14 +216,23 @@ class KeyCard(unittest.TestCase):
         self.card_path = f"/memories/by_attester/{self.pub[:8]}/key-card.md"
         self.card = "# key card\n\nrole: witness\noperator: Example Lab\x1b[2J\nother_keys_of_this_operator: abcdefgh\n"
 
-    def test_no_card(self):
+    def test_the_default_makes_no_network_call(self):
+        CARDS[self.card_path] = note_view(self.k, self.pub, self.card_path, self.card)
+        REQUESTS.clear()
         code, out = run(self.view, "--origin", self.origin)
+        self.assertEqual(code, 0, out)
+        self.assertIn("card    SKIPPED", out)
+        self.assertEqual(REQUESTS, [], "the default must not tell the origin which key is checked")
+        self.assertNotIn("witness", out)
+
+    def test_no_card(self):
+        code, out = run(self.view, "--read-key-card", "--origin", self.origin)
         self.assertEqual(code, 0, out)
         self.assertIn("card    NONE", out)
 
     def test_card_by_the_same_key_is_shown_as_a_claim(self):
         CARDS[self.card_path] = note_view(self.k, self.pub, self.card_path, self.card)
-        code, out = run(self.view, "--origin", self.origin)
+        code, out = run(self.view, "--read-key-card", "--origin", self.origin)
         self.assertEqual(code, 0, out)
         self.assertIn("role      witness  (the author's own claim)", out)
         self.assertIn("others    abcdefgh", out)
@@ -228,7 +241,7 @@ class KeyCard(unittest.TestCase):
     def test_card_by_another_key_is_not_shown(self):
         k2, pub2 = keypair()
         CARDS[self.card_path] = note_view(k2, pub2, self.card_path, self.card)
-        code, out = run(self.view, "--origin", self.origin)
+        code, out = run(self.view, "--read-key-card", "--origin", self.origin)
         self.assertEqual(code, 0, out)
         self.assertIn("card    FOREIGN", out)
         self.assertNotIn("witness", out)
@@ -237,12 +250,12 @@ class KeyCard(unittest.TestCase):
         doc = note_view(self.k, self.pub, self.card_path, self.card)
         doc["content"] = self.card.replace("witness", "agent")
         CARDS[self.card_path] = doc
-        code, out = run(self.view, "--origin", self.origin)
+        code, out = run(self.view, "--read-key-card", "--origin", self.origin)
         self.assertEqual(code, 0, out)
         self.assertIn("card    INVALID", out)
 
     def test_network_failure_does_not_fail_the_note(self):
-        code, out = run(self.view, "--origin", "http://127.0.0.1:9")
+        code, out = run(self.view, "--read-key-card", "--origin", "http://127.0.0.1:9")
         self.assertEqual(code, 0, out)
         self.assertIn("card    UNCHECKED", out)
 

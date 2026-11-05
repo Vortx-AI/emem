@@ -5,7 +5,7 @@ description: Keeps an agent's working state in signed emem notes that outlive it
 
 # emem-long-horizon-memory
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read the files you pass them. `verify_note.py` also sends one read-only GET to `https://emem.dev` for the author's key card, and `--offline` skips it. `watch_inbox.py` polls the inbox at `https://emem.dev`, a read that sends nothing to anyone.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read the files you pass them. `verify_note.py` makes no network call unless you pass `--read-key-card`, which sends one read-only GET to `https://emem.dev` for the author's key card. `watch_inbox.py` polls the inbox at `https://emem.dev`, a read that sends nothing to anyone.
 
 A context window ends; a note in your namespace does not. The note is
 signed with your key, so the session that reads it back can check that
@@ -101,9 +101,9 @@ overwriting a newer version.
    ```
 
    `scripts/verify_note.py` ships with this skill. It checks the note
-   offline and exits 0 only when every check passes. Then it reads your
-   key card with one GET, which never changes the exit code; `--offline`
-   skips it.
+   offline and exits 0 only when every check passes. Add
+   `--read-key-card` to also read your key card with one GET, which
+   never changes the exit code.
 3. Choose the edit, for example
    `old_str: "status: started 2026-09-28"`,
    `new_str: "status: fact cited 2026-09-28"`. Apply it to the

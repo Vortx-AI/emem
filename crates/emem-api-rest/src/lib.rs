@@ -47953,6 +47953,7 @@ fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError>
     // Versions are the bytes a path has held; a supersede and a delete change no
     // bytes, so they were missing, and a reader could not tell that a path was
     // withdrawn or removed. A partner agent's test found it.
+    let recorded = path_events(s, path);
     let mut events: Vec<JsonValue> = Vec::new();
     let current = by_path
         .as_ref()
@@ -47979,6 +47980,14 @@ fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError>
             "deleted_at": t.get("deleted_at"),
         }));
     }
+    // A path changed before the list existed has only the two latest-only
+    // records above; one changed since has every event.
+    let events_source = if recorded.is_empty() {
+        "latest_records"
+    } else {
+        events = recorded;
+        "event_list"
+    };
     Ok(json!({
         "kind": "history",
         "path": path,
@@ -47986,7 +47995,8 @@ fn memory_history_inner(s: &AppState, path: &str) -> Result<JsonValue, ApiError>
         "order": "oldest_first",
         "versions": versions,
         "events": events,
-        "note": "Read a version's bytes with memory_view {file_cid}. `base` is the previous version here; `signed_base` is the base the author's own signature named, when it signed one. A path that was written and later deleted keeps its history. `events` lists what changed no bytes: a supersede (the path's current version) and the last delete (its tombstone).",
+        "events_source": events_source,
+        "note": "Read a version's bytes with memory_view {file_cid}. `base` is the previous version here; `signed_base` is the base the author's own signature named, when it signed one. A path that was written and later deleted keeps its history. `events` lists what changed no bytes, oldest first. With events_source `event_list` it is every supersede and delete. A path whose changes all predate that list has `latest_records`: the current version's supersede and the last delete only.",
     }))
 }
 
@@ -48720,6 +48730,21 @@ async fn memory_supersede_inner(
     if let Err(e) = flush_off_runtime(&metas).await {
         tracing::error!(target: "emem::durability", error = %e, "flush failed");
     }
+    append_path_event(
+        s,
+        &path,
+        json!({
+            "event": "supersede",
+            "file_cid": cid,
+            "superseded_by": target,
+            "reason": reason,
+            "attester_pubkey_b32": req.attester.as_ref().map(|a| a.pubkey_b32.as_str()),
+            "signed_base": signed_base,
+            "log_entry_hash_b32": log_entry_hash,
+            "at": emem_storage::server::iso8601_now(),
+        }),
+    )
+    .await;
 
     let mut cells: Vec<String> = Vec::new();
     if let Some(a) = req.attester.as_ref() {
@@ -48749,6 +48774,53 @@ async fn memory_supersede_inner(
                  still resolves by its own cid: this is a redirection, not a \
                  retraction of the bytes.",
     }))
+}
+
+/// Every supersede and delete of a path, oldest first, keyed by the path.
+///
+/// A supersede and a delete change no bytes, so a path's versions cannot show
+/// them, and the records they leave are each the latest only: the meta record
+/// that carries a supersede is removed by a later delete, and a tombstone holds
+/// the last delete. After a supersede and then a delete, history showed only
+/// the delete. A partner agent's re-test found it.
+const TREE_MEMORY_PATH_EVENTS: &str = "emem.memory_path_events";
+
+/// Append one event to a path's list. Best-effort, as for tombstones: the
+/// supersede or delete already happened, and a missing event is a worse record,
+/// not a wrong one.
+async fn append_path_event(s: &AppState, path: &str, event: JsonValue) {
+    let Some(db) = s.storage.hot_sled_db() else {
+        return;
+    };
+    let Ok(tree) = db.open_tree(TREE_MEMORY_PATH_EVENTS) else {
+        return;
+    };
+    let appended = tree.fetch_and_update(path.as_bytes(), |old| {
+        let mut list: Vec<JsonValue> = old
+            .and_then(|b| serde_json::from_slice(b).ok())
+            .unwrap_or_default();
+        list.push(event.clone());
+        serde_json::to_vec(&list)
+            .ok()
+            .or_else(|| old.map(<[u8]>::to_vec))
+    });
+    if let Err(e) = appended {
+        tracing::warn!(path, error = %e, "path event not recorded");
+        return;
+    }
+    if let Err(e) = flush_off_runtime(&tree).await {
+        tracing::error!(target: "emem::durability", error = %e, "flush failed");
+    }
+}
+
+/// The recorded supersede and delete events of a path, oldest first.
+fn path_events(s: &AppState, path: &str) -> Vec<JsonValue> {
+    s.storage
+        .hot_sled_db()
+        .and_then(|db| db.open_tree(TREE_MEMORY_PATH_EVENTS).ok())
+        .and_then(|t| t.get(path.as_bytes()).ok().flatten())
+        .and_then(|b| serde_json::from_slice(&b).ok())
+        .unwrap_or_default()
 }
 
 /// Record that a path was deleted, by whom, and when.
@@ -48784,6 +48856,17 @@ async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: 
             tracing::error!(target: "emem::durability", error = %e, "flush failed");
         }
     }
+    append_path_event(
+        s,
+        path,
+        json!({
+            "event": "delete",
+            "prior_file_cid": rec["prior_file_cid"],
+            "deleted_by": rec["deleted_by"],
+            "deleted_at": rec["deleted_at"],
+        }),
+    )
+    .await;
 }
 
 /// The tombstone for a path, if it was deleted.
@@ -49911,11 +49994,23 @@ pub(crate) async fn run_memory_consolidation_pass(
         )
         .await?;
         // Mark each source as superseded.
-        for (_p, _cid, mut m) in entries.iter().cloned() {
+        for (p, cid, mut m) in entries.iter().cloned() {
             m.superseded_by = Some(summary_meta.file_cid.clone());
             if let Some(bp) = by_path.as_ref() {
                 let _ = record_meta(bp, &metas, &paths, &m);
             }
+            append_path_event(
+                s,
+                &p,
+                json!({
+                    "event": "supersede",
+                    "file_cid": cid,
+                    "superseded_by": summary_meta.file_cid,
+                    "reason": "consolidated",
+                    "at": summary_meta.signed_at,
+                }),
+            )
+            .await;
             total_files_consolidated += 1;
         }
         flush_off_runtime_blocking(&metas);
@@ -84980,11 +85075,23 @@ fn decide_geocode(
     // decimals, is a coordinate typed in the wrong notation. Wikidata held
     // Dhaulana at 28.39, 77.39: 28°39', 77°39' is the town, and 28.39, 77.39
     // is 37 km away. Such a point must not overrule the geocoder.
-    let dms_misread = reads_as_degrees_minutes(best.lat, best.lng)
-        .is_some_and(|(la, lo)| haversine_km(la, lo, lat, lng) < 10.0)
-        && haversine_km(best.lat, best.lng, lat, lng) > 10.0;
-    let (replace_with, ambiguous, rule) = if dms_misread {
-        (None, true, "wikidata_point_reads_as_degrees_minutes")
+    let dms_point = reads_as_degrees_minutes(best.lat, best.lng)
+        .filter(|&(la, lo)| haversine_km(la, lo, lat, lng) < 10.0)
+        .filter(|_| haversine_km(best.lat, best.lng, lat, lng) > 10.0);
+    let (replace_with, ambiguous, rule) = if let Some((la, lo)) = dms_point {
+        // Read in the notation it was typed in, the item's point is the town
+        // to the minute (about 1.8 km). It replaces an answer farther off than
+        // that: for Dhaulana the cascade gave the tehsil's centroid, 9 km north
+        // of the town, and the point read as degrees and minutes is under 2 km
+        // from it. A geocoder point already at the town stays. Flagged either
+        // way, because the reading is an inference.
+        let replace = (haversine_km(la, lo, lat, lng) > 3.0).then(|| {
+            let mut c = best.clone();
+            c.lat = la;
+            c.lng = lo;
+            c
+        });
+        (replace, true, "wikidata_point_reads_as_degrees_minutes")
     } else if cascade_item.as_ref().is_some_and(|c| c.qid == best.qid) {
         (None, far_rival, "agreed")
     } else if let Some(ci) = &cascade_item {
@@ -97951,10 +98058,12 @@ mod tests {
         }
     }
 
-    /// Dhaulana as Wikidata held it (28.39, 77.39 read as decimals is 37 km off;
-    /// as degrees and minutes it is the town): no replacement, flagged.
+    /// Dhaulana as Wikidata held it: 28.39, 77.39 read as decimals is 37 km off,
+    /// and as degrees and minutes (28.65, 77.65) it is the town. The cascade's
+    /// tehsil centroid (28.713, 77.656) is replaced by that reading; a geocoder
+    /// point at the town itself is kept. Flagged both ways.
     #[test]
-    fn a_coordinate_in_degrees_minutes_does_not_overrule_the_geocoder() {
+    fn a_coordinate_in_degrees_minutes_is_read_as_such() {
         let c = |qid: &str, lat: f64, lng: f64, sitelinks: u32| emem_fetch::wikidata::Candidate {
             qid: qid.into(),
             label: qid.into(),
@@ -97968,10 +98077,20 @@ mod tests {
             c("Q3025704", 28.39, 77.39, 40),
             c("Qdrain", 28.596, 77.667, 1),
         ];
-        let d = decide_geocode(&cands, 28.596, 77.667, None).unwrap();
-        assert!(d.replace_with.is_none(), "{:?}", d.rule);
-        assert!(d.ambiguous);
+        let d = decide_geocode(&cands, 28.713, 77.656, None).unwrap();
         assert_eq!(d.rule, "wikidata_point_reads_as_degrees_minutes");
+        assert!(d.ambiguous);
+        let r = d
+            .replace_with
+            .as_ref()
+            .expect("the tehsil centroid is replaced");
+        assert!((r.lat - 28.65).abs() < 1e-9 && (r.lng - 77.65).abs() < 1e-9);
+        assert!(haversine_km(r.lat, r.lng, 28.634, 77.649) < 2.0, "the town");
+
+        let d = decide_geocode(&cands, 28.640, 77.649, None).unwrap();
+        assert_eq!(d.rule, "wikidata_point_reads_as_degrees_minutes");
+        assert!(d.ambiguous);
+        assert!(d.replace_with.is_none(), "a point at the town stays");
         assert_eq!(
             reads_as_degrees_minutes(40.78, -73.97),
             None,
@@ -99026,13 +99145,18 @@ mod tests {
         );
         write_tombstone(&s, &old, Some(old_cid.as_str()), Some(pubkey_b32.as_str())).await;
         let h = memory_history_inner(&s, &old).expect("history");
-        assert!(
-            h["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|e| e["event"] == "delete"),
-            "{h}"
+        // Both, in order: the delete must not hide the supersede before it.
+        let kinds: Vec<&str> = h["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["event"].as_str().unwrap())
+            .collect();
+        assert_eq!(kinds, vec!["supersede", "delete"], "{h}");
+        assert_eq!(h["events_source"], "event_list");
+        assert_eq!(
+            h["events"][0]["superseded_by"].as_str(),
+            Some(new_cid.as_str())
         );
 
         // Look the entry up by its path rather than counting entries: the

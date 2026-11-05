@@ -5,7 +5,7 @@ description: Hands work between agents so it arrives as checkable evidence rathe
 
 # emem-multi-agent-handoff
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read the files you pass them. `verify_note.py` also sends one read-only GET to `https://emem.dev` for the author's key card, and `--offline` skips it. The other scripts make no network calls, and none of them reads a key or a seed.
+> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. The files under `scripts/` read the files you pass them. `verify_note.py` makes no network call unless you pass `--read-key-card`, which sends one read-only GET to `https://emem.dev` for the author's key card. The other scripts make no network calls, and none of them reads a key or a seed.
 
 A handoff is a trust boundary. The receiver cannot see your context,
 cannot re-run your reasoning, and has no reason to believe your
@@ -112,10 +112,12 @@ Save the result's JSON text as `view.json`, and check it with the
 shipped script:
 
 ```sh
-python3 "${CLAUDE_SKILL_DIR}/scripts/verify_note.py" view.json
+python3 "${CLAUDE_SKILL_DIR}/scripts/verify_note.py" view.json --read-key-card
 ```
 
-Recorded on 2026-11-05 against the A2A standard itself:
+Without `--read-key-card` the check makes no network call, and the last
+line reads `card SKIPPED`. Recorded on 2026-11-05 against the A2A
+standard itself, with the key card read:
 
 ```
 body    MATCH     blake3(content)=5f9ef4e1183667b870337d8b5aaf23c715bbcdad7061b5fe5e10e11542c94aef
@@ -179,14 +181,14 @@ card that names the others, so that a reader can check that the cards
 agree. Write the card as any note (see Sign a note), with the key it
 describes, and set the same role in the signer's `signing_role` option.
 
-After a note verifies, `verify_note.py` reads its author's key card
-from `https://emem.dev`. It shows the role and the operator only when
+With `--read-key-card`, after a note verifies, `verify_note.py` reads its
+author's key card from `https://emem.dev`. It shows the role and the operator only when
 the note's full key signed the card, and labels them as the author's
 own claim. `card NONE` means there is no card, and `card UNCHECKED`
 means the read failed. `card FOREIGN`, `card INVALID` or `card UNSIGNED`
 means the card at that path does not verify as this key's own, so it is
-not shown. None of them changes the exit code. `--offline` skips the
-read.
+not shown. None of them changes the exit code. Without the flag there
+is no read, because the GET tells the origin which key you are checking.
 
 ## Sealed notes: for one recipient
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Verify who wrote an emem memory note, offline, then read its author's key card.
+"""Verify who wrote an emem memory note, offline, and on request read its author's key card.
 
-    verify_note.py VIEW.json [NOTE_FILE] [--offline] [--origin URL]
+    verify_note.py VIEW.json [NOTE_FILE] [--read-key-card] [--origin URL]
     verify_note.py --self-test      # check the bundled crypto
 
 VIEW.json is a saved emem_memory_view result: either the whole JSON-RPC
@@ -39,14 +39,16 @@ calls; BLAKE3 and Ed25519 come from emem_crypto.py beside this script, plain
 Python shipped with the plugin. A valid signature says which key wrote the
 note, never that what it says is true.
 
-When the note verifies, the script reads the author's key card,
+By default the script makes no network call at all. With
+--read-key-card, when the note verifies, it reads the author's key card,
 /memories/by_attester/<pubkey8>/key-card.md, with one read-only GET to URL
-(default https://emem.dev). A key card is the key's own statement of its
-role and operator. The script shows it only when the same key signed it,
-and labels it as the author's own claim: the signature proves who wrote
-the card, not that it is true. A missing card or a network failure changes
-nothing else, because the exit code comes from the note alone. --offline
-skips the read, and then the script makes no network call.
+(default https://emem.dev). That GET tells the origin which key is being
+checked, which is why it is not the default. A key card is the key's own
+statement of its role and operator. The script shows it only when the
+same key signed it, and labels it as the author's own claim: the
+signature proves who wrote the card, not that it is true. A missing card
+or a network failure changes nothing else, because the exit code comes
+from the note alone. --offline is accepted and is the default.
 """
 from __future__ import annotations
 
@@ -191,11 +193,13 @@ def key_card(origin: str, signer: str) -> list[str]:
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Verify who wrote an emem memory note, then read its author's key card.")
+    ap = argparse.ArgumentParser(description="Verify who wrote an emem memory note, offline.")
     ap.add_argument("view", nargs="?", help="a saved emem_memory_view result")
     ap.add_argument("note_file", nargs="?", help="the note's bytes, when the view omits `content`")
     ap.add_argument("--self-test", action="store_true", help="check the bundled crypto and exit")
-    ap.add_argument("--offline", action="store_true", help="do not read the author's key card")
+    ap.add_argument("--read-key-card", action="store_true",
+                    help="after the note verifies, read the author's key card with one GET to --origin")
+    ap.add_argument("--offline", action="store_true", help="make no network call (the default)")
     ap.add_argument("--origin", default=ORIGIN, help=f"where to read the key card (default {ORIGIN})")
     args = ap.parse_args()
     if args.self_test:
@@ -239,8 +243,8 @@ def main() -> int:
     print(f"path    {a['signed_path']}")
     banner_ok, line = banner(view, signer)
     print(line)
-    if args.offline:
-        print("card    SKIPPED   --offline")
+    if args.offline or not args.read_key_card:
+        print("card    SKIPPED   no network call; --read-key-card reads the author's key card")
     elif not ok:
         print("card    SKIPPED   the note did not verify")
     else:

@@ -61,7 +61,7 @@ Seven skills ship small Python scripts beside their `SKILL.md`:
 | `emem-transparency-log/scripts/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
 | `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
 | `emem-field-tokens/scripts/rehash.py` | re-hashes a downloaded artifact against its cid |
-| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note and the signature on its supersede banner, then reads that key's own card (`test_verify_note.py` tests it) |
+| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note and the signature on its supersede banner, offline; with `--read-key-card` it also reads that key's own card (`test_verify_note.py` tests it) |
 | `emem-multi-agent-handoff/scripts/seal_note.py` | seals a note to one key; the recipient opens it with the emem-signer plugin's `signer_open_sealed` (`emem_sealed.py` holds the format, `test_sealed.py` tests it) |
 | `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
 | `emem-long-horizon-memory/scripts/verify_note.py` | the same note check, shipped with the skill that uses it |
@@ -69,8 +69,8 @@ Seven skills ship small Python scripts beside their `SKILL.md`:
 
 The scripts read only the files you pass them, and write only where you
 tell them to. Two of them also read from `https://emem.dev` and send
-nothing. `verify_note.py` reads the author's key card with one GET, and
-`--offline` skips it. `watch_inbox.py` polls the inbox. The other
+nothing. `verify_note.py` reads the author's key card with one GET only
+when you pass `--read-key-card`. `watch_inbox.py` polls the inbox. The other
 scripts make no network call. BLAKE3 and Ed25519 verification come from
 one module, `emem_crypto.py`, shipped in each skill's `scripts/` so a
 skill copied on its own still runs: plain Python 3 with no third-party
