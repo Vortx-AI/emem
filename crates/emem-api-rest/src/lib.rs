@@ -9753,7 +9753,7 @@ async fn materializers(
                 "kernel_for_router": "wave_seasonal",
                 "fetch_strategy":    "stac_search + https_range_cog (Azure SAS-signed)",
                 "fetch_bytes_per_cell": "~700 KB (IFD + 1 tile)",
-                "notes":             "VV polarisation gamma-naught backscatter in dB (10·log₁₀ of linear power). Radar, works at night and through cloud, complements indices.ndvi for all-weather monitoring. Source: Microsoft Planetary Computer's `sentinel-1-rtc` collection, proper UTM-projected COG (the upstream Element84 `sentinel-1-grd` mirror ships SAFE-format scenes with GCP-based georeferencing the pure-Rust COG sampler can't decode). Asset URLs are anonymous Azure Blobs signed with a free SAS token cached process-wide. Position: the RTC pixels can sit 10 to 23 m from the Sentinel-2 position of the same ground, by relative orbit. Measured in December 2025 on the Ganga near Hapur, native pixels against Sentinel-2 river edges: orbit 63 (descending) about 18 m west and 9 m north, orbits 27 and 129 (ascending) about 20 m north. A cell near an edge (a river bank, a field boundary) can read its neighbour."
+                "notes":             "VV polarisation gamma-naught backscatter in dB (10·log₁₀ of linear power). Radar, works at night and through cloud, complements indices.ndvi for all-weather monitoring. Source: Microsoft Planetary Computer's `sentinel-1-rtc` collection, proper UTM-projected COG (the upstream Element84 `sentinel-1-grd` mirror ships SAFE-format scenes with GCP-based georeferencing the pure-Rust COG sampler can't decode). Asset URLs are anonymous Azure Blobs signed with a free SAS token cached process-wide. Position: the RTC pixels can sit 10 m or more from the Sentinel-2 position of the same ground, and the offset changes with the relative orbit and the place. Measured in December 2025 on the Ganga near Hapur, native pixels against Sentinel-2 river edges: orbit 63 (descending) about 18 m west and 9 m north, orbits 27 and 129 (ascending) about 20 m north. A cell near an edge (a river bank, a field boundary) can read its neighbour."
             },
             {
                 "band":              "surface_water.recurrence",
@@ -55877,18 +55877,20 @@ pub(crate) fn s2_catalogues() -> Vec<&'static str> {
 /// The additive DN term that turns this scene's DNs into reflectance with
 /// `reflectance = (DN + offset) * 1e-4`, or why no honest one exists.
 ///
-/// Element84 publishes harmonised DNs: it has already removed ESA's
-/// `BOA_ADD_OFFSET` (-1000 DN from processing baseline 04.00, 2022-01-25), so
-/// its offset is 0 for every scene.
+/// Element84 publishes harmonised DNs: it has removed ESA's `BOA_ADD_OFFSET`
+/// (-1000 DN from processing baseline 04.00, 2022-01-25), so its offset is 0,
+/// with one exception: baseline 04.00 items acquired from 2022-01-25 to
+/// 2022-02-27 still carry it ([`emem_fetch::stac::element84_dn_offset`]).
 ///
-/// That includes the items whose `earthsearch:boa_offset_applied` is false and
-/// whose blue asset lists `offset: -0.1`. Do not apply the offset on that flag.
-/// On 2026-11-06 we read a 300 x 300 blue window of 31 such items, from 8 sites
-/// (India, Pakistan, US, Brazil, Kenya, France), baselines 04.00 to 05.12, 2022
-/// to 2026. In every one, 8 % to 100 % of the valid pixels were under 1000 DN,
-/// which is impossible with the offset still in. A partner agent's reader took
-/// the offset from the flag and subtracted it twice: NDVI about 0.3 too high. Planetary Computer publishes ESA's DNs
-/// verbatim, so the offset is -1000 for baseline 04.00 onward and 0 before.
+/// Do not decide on `earthsearch:boa_offset_applied`: it reads false on the
+/// harmonised items and on the exceptions alike, and both list `offset: -0.1`.
+/// Nor on the share of dark blue pixels: a bright or hazy harmonised scene can
+/// have almost none under 1000 DN. What decides is reading one acquisition at
+/// one pixel from both catalogues, which is how the exception was found (with
+/// a partner agent, 2026-11-06): Element84 minus Planetary Computer is about 0
+/// for those items and about -1000 for every later one. Planetary Computer
+/// publishes ESA's DNs verbatim, so the offset is -1000 for baseline 04.00
+/// onward and 0 before.
 /// Getting this wrong does not fail loudly: a +1000 DN error on both bands of
 /// a ratio index pulls NDVI toward zero by roughly a third at canopy
 /// reflectance, a smooth plausible bias nothing downstream would catch. So an
@@ -55899,7 +55901,14 @@ pub(crate) fn s2_dn_offset(
     item: &emem_fetch::stac::StacItem,
 ) -> Result<f64, String> {
     if emem_fetch::stac::s2_dn_is_harmonised(search_url) {
-        return Ok(0.0);
+        return emem_fetch::stac::element84_dn_offset(item.processing_baseline.as_deref(), &item.datetime)
+            .ok_or_else(|| format!(
+                "refusing to scale Sentinel-2 DNs of Element84 scene {} ({}, baseline {}): Element84 began removing BOA_ADD_OFFSET on {}, and for this scene whether its DNs still carry it cannot be known; Planetary Computer serves the same acquisition with a known offset",
+                item.id,
+                item.datetime,
+                item.processing_baseline.as_deref().unwrap_or("not stated"),
+                emem_fetch::stac::ELEMENT84_HARMONISED_FROM,
+            ));
     }
     if search_url != emem_fetch::stac::STAC_MPC_V1 {
         return Err(format!(
@@ -87620,6 +87629,34 @@ mod s2_dn_offset_invariant {
         let from_e84 =
             ((esa_dn - 1000.0) + s2_dn_offset(e84, &item(Some("05.11"))).unwrap()) * 1e-4;
         assert!((from_mpc - from_e84).abs() < 1e-12);
+    }
+
+    /// Element84's first baseline 04.00 items still carry ESA's offset, read
+    /// against Planetary Computer for the same acquisition: on the Element84
+    /// path they get -1000 like an ESA DN, and the two days of the change are
+    /// refused rather than guessed.
+    #[test]
+    fn element84_early_04_00_items_keep_the_offset() {
+        let e84 = emem_fetch::stac::STAC_ELEMENT84_V1;
+        let at = |baseline: &str, datetime: &str| -> emem_fetch::stac::StacItem {
+            let mut it = item(Some(baseline));
+            it.datetime = datetime.to_string();
+            it
+        };
+        assert_eq!(
+            s2_dn_offset(e84, &at("04.00", "2022-02-18T05:40:57Z")).unwrap(),
+            -1000.0
+        );
+        assert_eq!(
+            s2_dn_offset(e84, &at("05.11", "2022-02-12T23:10:00Z")).unwrap(),
+            0.0
+        );
+        assert_eq!(
+            s2_dn_offset(e84, &at("04.00", "2022-03-05T05:41:07Z")).unwrap(),
+            0.0
+        );
+        let err = s2_dn_offset(e84, &at("04.00", "2022-02-27T05:21:00Z")).unwrap_err();
+        assert!(err.contains("Planetary Computer"), "{err}");
     }
 
     /// Unknowns are refused, never guessed.

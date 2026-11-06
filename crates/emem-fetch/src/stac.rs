@@ -49,8 +49,8 @@ pub struct StacItem {
     /// L2A reflectance with a `BOA_ADD_OFFSET` of -1000 DN, so
     /// `reflectance = (DN - 1000) * 1e-4` against a catalogue that serves
     /// ESA's DNs unaltered. Element84 removes that offset before publishing
-    /// (see [`s2_dn_is_harmonised`]), which is why the value path scales by
-    /// 1e-4 with no offset term. Parsed and carried so a future provider
+    /// (see [`s2_dn_is_harmonised`]), except on its first baseline 04.00
+    /// items ([`element84_dn_offset`]). Parsed and carried so a future provider
     /// swap has the fact available to branch on rather than having to
     /// guess; nothing is defaulted, because a wrong default here biases
     /// every index silently.
@@ -191,8 +191,9 @@ pub const S2_BOA_ADD_OFFSET_DN: f64 = -1000.0;
 ///
 /// Element84's AWS Open Data mirror harmonises the L2A DN range across the
 /// baseline 04.00 boundary: it publishes `DN_esa - 1000` for post-baseline
-/// scenes so that a single `DN * 1e-4` reads correctly for every scene in
-/// the archive. Microsoft Planetary Computer publishes ESA's DNs unaltered,
+/// scenes so that a single `DN * 1e-4` reads correctly for almost every scene
+/// in the archive. Its first baseline 04.00 items are the exception; ask
+/// [`element84_dn_offset`] per item, never this function alone. Microsoft Planetary Computer publishes ESA's DNs unaltered,
 /// so the same `DN * 1e-4` over an MPC scene overstates reflectance by 0.1
 /// in every band.
 ///
@@ -206,6 +207,39 @@ pub const S2_BOA_ADD_OFFSET_DN: f64 = -1000.0;
 /// provider instead of trusting it.
 pub fn s2_dn_is_harmonised(search_url: &str) -> bool {
     search_url == STAC_ELEMENT84_V1
+}
+
+/// Element84 harmonised its baseline 04.00 items from acquisitions of
+/// 2022-02-28 on. The first ones, acquired from 2022-01-25, were converted
+/// earlier and still carry ESA's offset, although their metadata
+/// (`earthsearch:boa_offset_applied: false`, `raster:bands` offset -0.1, the
+/// COG headers) reads exactly as a harmonised item's does. Items ESA later
+/// reprocessed (baseline 05.00 on, converted years after) are harmonised.
+/// Found by reading one acquisition at one pixel from both catalogues:
+/// Element84 minus Planetary Computer is about 0 for 04.00 items of
+/// 2022-01-29 to 2022-02-27 and about -1000 from 2022-02-28, at five places.
+pub const ELEMENT84_HARMONISED_FROM: &str = "2022-02-28";
+
+/// The first day of baseline 04.00, before which no scene carries the offset.
+pub const S2_BOA_OFFSET_FROM: &str = "2022-01-25";
+
+/// The DN offset of one Element84 item, from its acquisition `datetime`
+/// (RFC 3339) and baseline. `None` where it cannot be known: a 04.00 item of
+/// 2022-02-27 or 2022-02-28, the hours in which the conversion changed, and
+/// an item of the early period that states no baseline.
+pub fn element84_dn_offset(processing_baseline: Option<&str>, datetime: &str) -> Option<f64> {
+    let day = datetime.get(..10)?;
+    if !(S2_BOA_OFFSET_FROM..=ELEMENT84_HARMONISED_FROM).contains(&day) {
+        return Some(0.0);
+    }
+    let baseline = processing_baseline?;
+    if !(S2_BOA_OFFSET_BASELINE.."05.00").contains(&baseline) {
+        return Some(0.0);
+    }
+    if day >= "2022-02-27" {
+        return None;
+    }
+    Some(S2_BOA_ADD_OFFSET_DN)
 }
 
 /// Does an item on this baseline carry ESA's `BOA_ADD_OFFSET`? `None`
@@ -1157,6 +1191,33 @@ mod tests {
         assert_eq!(s2_baseline_has_boa_offset(Some("03.01")), Some(false));
         assert_eq!(s2_baseline_has_boa_offset(Some("04.00")), Some(true));
         assert_eq!(s2_baseline_has_boa_offset(Some("05.11")), Some(true));
+    }
+
+    /// Each case is an item whose DNs were read against Planetary Computer's
+    /// for the same acquisition and pixel (2026-11-06).
+    #[test]
+    fn element84_kept_the_offset_on_its_first_04_00_items() {
+        let off = |b: Option<&str>, t: &str| element84_dn_offset(b, t);
+        // S2B_43RGM_20220218_0_L2A and S2B_60VVP_20220212_0_L2A: ES = PC.
+        assert_eq!(
+            off(Some("04.00"), "2022-02-18T05:40:57.197000Z"),
+            Some(-1000.0)
+        );
+        assert_eq!(off(Some("04.00"), "2022-02-12T23:10:00Z"), Some(-1000.0));
+        // S2B_43RGM_20220228_0_L2A and S2A_45QXF_20220228: harmonised, but the
+        // change happened in these hours, so the two days are refused.
+        assert_eq!(off(Some("04.00"), "2022-02-28T05:41:00Z"), None);
+        assert_eq!(off(Some("04.00"), "2022-02-27T05:21:00Z"), None);
+        // From March 2022 every item read was harmonised.
+        assert_eq!(off(Some("04.00"), "2022-03-05T05:41:07Z"), Some(0.0));
+        assert_eq!(off(Some("05.12"), "2026-02-22T05:41:05Z"), Some(0.0));
+        // S2B_60VVP_20220212_2_L2A: reprocessed (05.11) years later, harmonised.
+        assert_eq!(off(Some("05.11"), "2022-02-12T23:10:00Z"), Some(0.0));
+        // Before baseline 04.00 there was no offset to keep.
+        assert_eq!(off(Some("03.01"), "2022-01-24T05:41:00Z"), Some(0.0));
+        assert_eq!(off(None, "2021-06-01T05:41:00Z"), Some(0.0));
+        // In the early period an item that states no baseline is unknown.
+        assert_eq!(off(None, "2022-02-10T05:41:00Z"), None);
     }
 
     #[test]
