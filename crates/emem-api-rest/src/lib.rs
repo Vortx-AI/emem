@@ -58,6 +58,7 @@ mod field_series;
 mod field_signals;
 mod intents;
 mod ledger;
+mod next_acquisition;
 mod next_step;
 mod physics;
 mod rain_series;
@@ -1355,6 +1356,10 @@ pub fn router(state: AppState) -> Router {
         // Read primitives
         .route("/v1/cells/:cell64", get(get_cell))
         .route("/v1/cells/:cell64/info", get(get_cell_info))
+        .route(
+            "/v1/cells/:cell64/next_acquisition",
+            get(next_acquisition::get_next_acquisition),
+        )
         // Note: matchit (axum 0.7) doesn't accept `:cell64.geojson` next to
         // `:cell64/info`. We expose the GeoJSON variant under a plain
         // sub-path. The handler still strips a `.geojson` suffix for
@@ -35122,6 +35127,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/attest_traced":     {"post":{"summary":"the device write path: submit an attestation together with the emem.os_trace.v1 execution trace that produced its facts. For an enrolled device key the gate verifies the trace against the enrolled profile, binds each fact's payload to an emitted output, checks the capture encodings, and returns the emem:trace: token on admit. An un-enrolled key's trace is ignored (identical to /v1/attest).","operationId":"emem_attest_traced","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["attestation"],"properties":{"attestation":{"type":"object","description":"the signed Attestation envelope (same shape as /v1/attest)"},"trace":{"type":"object","description":"the emem.os_trace.v1 record for the capture window"}}}}}},"responses":{"200":json_ok}}},
             "/v1/enroll_attested":   {"post":{"summary":"enrol a device key by presenting its platform attestation (self-service: the attestation must endorse the key and be signed by a whitelisted anchor). Because every anchor shipped is provisional, this currently returns the gate's rejection for every call. On success returns the enrolment record and its assurance level (platform_attested).","operationId":"emem_enroll_attested","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["device_key","profile","platform","attestation"],"properties":{"device_key":{"type":"string","description":"base32 device key being enrolled"},"profile":{"type":"string","description":"substrate profile ID, e.g. robot.fleet.v1"},"platform":{"type":"string","description":"device platform ID, e.g. nvidia.jetson-orin"},"attestation":{"type":"object","description":"the emem.platform_attestation.v0 evidence"}}}}}},"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/info":     {"get":{"summary":"cell64 introspection (centroid, bbox, neighbors)","operationId":"emem_cell_info","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
+            "/v1/cells/{cell64}/next_acquisition": {"get":{"summary":"When the next Sentinel-2, Sentinel-1 and Landsat passes over the cell are expected, projected one repeat cycle on from each satellite's own passes in the last 48 days. A projection, not the operators' plan: passes_missed counts the passes a track skipped. Not a signed fact; the scene ids it rests on are listed.","operationId":"emem_cell_next_acquisition","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/geojson":  {"get":{"summary":"cell polygon as GeoJSON","operationId":"emem_cell_geojson","parameters":[{"name":"cell64","in":"path","required":true,"schema":{"type":"string"}}],"responses":{"200":json_ok}}},
             "/v1/cells/{cell64}/scene.png":{"get":{"summary":"Sentinel-2 true-colour thumbnail (256×256 PNG)","operationId":"emem_cell_scene_png","parameters":[
                 {"name":"cell64","in":"path","required":true,"schema":{"type":"string"}},

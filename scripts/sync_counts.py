@@ -86,8 +86,9 @@ CANON = {
     # +1 each (and emem_inferences, 116 tools) for /v1/inferences.
     # +1 each for /v1/arcade/fleet.
     # +1 each for /v1/rain_series.
-    "rest_paths_v1": 182,           # documented /v1/* paths in OpenAPI
-    "rest_paths_openapi_total": 193,  # all paths in OpenAPI
+    # +1 each for /v1/cells/{cell64}/next_acquisition.
+    "rest_paths_v1": 183,           # documented /v1/* paths in OpenAPI
+    "rest_paths_openapi_total": 194,  # all paths in OpenAPI
     "cube_slots": 43,
     # 129 -> 125 on 2026-09-15: the four foundation encoders were retired for
     # this deployment (EMEM_RETIRED_BANDS) when the GPU behind them was
