@@ -139,7 +139,7 @@ tool returns this crop:
 box, at native 10 m. `max_cloud` and `datetime` narrow the choice. To name
 the scene, run `field_series` (above) over the same box: its rows give each
 pass's date, scene id and cloud cover. Recorded on 2026-09-28: a 39 x 34 px PNG
-from `S2C_MSIL2A_20260923T053641_R005_T43REQ_20260923T101809`, 14.74 % cloud.
+from `Sentinel 2`, 14.74 % cloud.
 The picture is a view, not a signed artifact; for pixels a third party
 can re-hash, use [`emem-field-tokens`](../emem-field-tokens/SKILL.md).
 
