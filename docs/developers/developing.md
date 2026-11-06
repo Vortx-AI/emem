@@ -8,7 +8,7 @@ rules that the repository enforces. For the system design, read
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
 The numbers on this page come from the code and from `https://emem.dev`
-on 7 November 2026. The `curl` commands ran against `https://emem.dev`
+on 6 November 2026. The `curl` commands ran against `https://emem.dev`
 on that date. The `cargo` commands are the ones that CI runs on every
 pull request to `main` (`.github/workflows/ci.yml`).
 
@@ -69,7 +69,7 @@ The workspace has 19 member crates. A twentieth directory,
 | `emem-sleep-agent` | Opt-in agent that merges contradicted memory into new signed memory |
 
 Most of the code is in two places. `crates/emem-api-rest/src/lib.rs` is
-one file of about 108,000 lines (7 November 2026). It holds the router
+one file of about 108,000 lines (6 November 2026). It holds the router
 and every inline materializer. `crates/emem-fetch/src/` has 36 modules:
 one for each upstream source, plus helpers such as `cog.rs`, `stac.rs`
 and `proj.rs`. Most changes touch `emem-api-rest` and one of
@@ -125,7 +125,7 @@ use a real directory. The server then keeps its Ed25519 key in
 
 This sequence calls the main read primitives in the order that an
 integration uses them. Set `BASE` to your node. The responses below are
-from `https://emem.dev` on 7 November 2026.
+from `https://emem.dev` on 6 November 2026.
 
 ```sh
 BASE=http://127.0.0.1:5051
