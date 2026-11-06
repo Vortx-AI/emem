@@ -1,16 +1,25 @@
 # Your first verified memory, in ten minutes
 
-By the end of this page you will have read a signed fact about a real
-place, verified it without trusting anyone, composed the one-line token
-that stands in for it, and handed that token to a second process that
-resolved it back to the identical bytes and checked the signature
-itself. Everything runs against the public node with no key, no
-account, and no install beyond curl and jq.
+This tutorial reads one signed fact, checks its receipt, writes the token for it by hand, and resolves that token in a
+second process. All steps use the public node at emem.dev.
 
-The worked example uses Cairo. Any place name works; swap it and every
-step below still holds, which is rather the point.
+## What you need
 
-## 1. Read a signed fact (one call)
+- `curl` and `jq`.
+- No key, no account and no install. Every call on this page is a read.
+
+## What you get
+
+- The elevation of one cell in Cairo, as a signed fact.
+- A receipt check that returns `signature_valid: true`.
+- A one-line token that another person or agent resolves to the same signed bytes.
+
+The example uses Cairo. You can use a different place name. The steps stay the same.
+
+All values on this page are what emem.dev returned on 6 November 2026. A newer reading can give a different
+`fact_cid`. The shape of each answer stays the same.
+
+## 1. Read a signed fact
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall \
@@ -18,20 +27,29 @@ curl -s -X POST https://emem.dev/v1/recall \
   -d '{"place":"Cairo","bands":["copdem30m.elevation_mean"]}'
 ```
 
-Three things in the response matter here:
+These fields in the response are important:
 
-- `facts[0].value`: the elevation, in metres, at one 10-metre cell of
-  Cairo.
-- `facts[0].fact_cid`: the record's content id, the blake3 hash of its
-  own canonical bytes. Change one byte and the id changes.
-- `receipt`: an ed25519 signature over what was answered, by whom,
-  when. Save the cell too; it is in `facts[0].cell` and
-  `receipt.cells[0]`.
+| Field | What it is | Value on 6 November 2026 |
+|---|---|---|
+| `facts[0].value` | The elevation in metres at one cell of about 10 m, from the Copernicus 30 m elevation model | `187.33578491210938` |
+| `facts[0].cell` | The cell64 address of that cell. `receipt.cells[0]` holds the same value. | `defi.zb555.ze8e5.xawO` |
+| `facts[0].fact_cid` | The BLAKE3 hash of the fact's canonical bytes. If one byte changes, the id changes. | `ivtsljcm...hnlq` |
+| `facts[0].memory_token` | The ready-made token for this fact. Step 3 makes it by hand. | `emem:fact:defi.zb555...` |
+| `receipt` | An Ed25519 signature over the answer: the question, the responder, and the time | an object with 16 fields |
 
-The place resolved to one cell. `/v1/locate {"q":"Cairo"}` shows which
-cell and why, and lists the other candidates if the name was ambiguous.
+The place name resolves to one cell. To see which cell and why, send the name to `/v1/locate`:
 
-## 2. Verify it, trusting nobody
+```bash
+curl -s -X POST https://emem.dev/v1/locate \
+  -H 'content-type: application/json' \
+  -d '{"place":"Cairo"}' | jq '{cell64, label: .selected.label, sure: .selected.is_high_confidence}'
+# {"cell64": "defi.zb555.ze8e5.xawO", "label": "Cairo, Egypt", "sure": true}
+```
+
+When a name has more than one match, `is_high_confidence` is `false`. Then `decision` shows the chosen place and the
+runner-up. Give a more specific name, or send `lat` and `lng`.
+
+## 2. Check the receipt
 
 ```bash
 curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
@@ -40,53 +58,51 @@ curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
   | curl -s -X POST https://emem.dev/v1/verify_receipt \
       -H 'content-type: application/json' --data-binary @- \
   | jq '{signature_valid, merkle_proof_valid}'
+# {"signature_valid": true, "merkle_proof_valid": true}
 ```
 
-`"signature_valid": true`. The check is arithmetic against the
-responder's published key, not a callback: the same verification runs
-fully offline in any blake3 plus ed25519 implementation, and
-[`/verify`](https://emem.dev/verify) runs it in your browser if you
-paste the receipt, or the token from step 3, there.
+This call asks the server to do the check. You do not have to trust the server for it. The check is BLAKE3 and
+Ed25519 arithmetic against the responder's published key. Any BLAKE3 and Ed25519 library can do the same check
+offline. The [`/verify`](https://emem.dev/verify) page does it in your browser: paste the receipt, or the token from
+step 3. The [Quickstart](../quickstart.md) shows the offline check in Python.
 
-## 3. Compose the token, by hand
+## 3. Write the token by hand
 
-There is no minting step to learn. The citation IS the address plus the
-content id, joined by colons:
+You do not need a call to make a token. The token is the cell and the fact id, joined by colons:
 
 ```text
 emem:fact:<cell64>:<fact_cid>
 ```
 
-Take `facts[0].cell` and `facts[0].fact_cid` from step 1 and write the
-line yourself. The recall response also carries it ready-made as
-`facts[0].memory_token`, so you can check your line against that. One
-Cairo elevation fact, signed on 2026-07-16, gives:
+Take `facts[0].cell` and `facts[0].fact_cid` from step 1 and write the line. Compare it with `facts[0].memory_token`.
+The two must be equal.
+
+This tutorial uses one Cairo elevation fact that emem signed on 16 July 2026:
 
 ```text
 emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa
 ```
 
-Yours may name a different fact if emem has signed a newer reading
-since; this one still resolves, because a fact is never rewritten.
+Your token from step 1 names a newer fact of the same cell. On 6 November 2026, that fact had `signed_at` 2026-09-28T09:06:51Z
+and the same value. The older token still resolves, because emem never rewrites a fact.
 
-That line is the whole memory. 84 characters, safe in a commit message,
-a report, a note, or another agent's context window. The payload can be
-dropped; the line brings it back.
+The token is 84 characters. You can put it in a commit message, a report, a note, or the context of another agent.
+You can drop the full fact, because the token gets it back.
 
-## 4. Hand it to someone who does not trust you
+## 4. Give the token to a second party
 
-Open a second terminal, a different machine, or send the line to a
-colleague. The receiver resolves it:
+Open a second terminal or a different machine, or send the token to a colleague. The receiver resolves it:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   -H 'content-type: application/json' \
-  -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}'
+  -d '{"token":"emem:fact:defi.zb555.ze8e5.xawO:zxxbyowj2vlhyvgcj55brc47aoubvnibo7ydck4q2vn32uqcp3oa"}' \
+  | jq '{band, value, unit, signed_at: .fact.signed_at}'
+# {"band": "copdem30m.elevation_mean", "value": 187.33578491210938, "unit": "m", "signed_at": "2026-07-16T10:47:40Z"}
 ```
 
-The response carries the signed fact (`fact`, with `value` and `unit`
-lifted to the top for convenience) and a receipt of its own, and the
-receiver runs step 2's verification on it themselves:
+The response holds the signed fact in `fact`. It also copies `value` and `unit` to the top level. It has its own
+`receipt`. The receiver checks that receipt with the step 2 check:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/memory_token/resolve \
@@ -96,29 +112,23 @@ curl -s -X POST https://emem.dev/v1/memory_token/resolve \
   | curl -s -X POST https://emem.dev/v1/verify_receipt \
       -H 'content-type: application/json' --data-binary @- \
   | jq '{signature_valid, merkle_proof_valid}'
+# {"signature_valid": true, "merkle_proof_valid": true}
 ```
 
-Nothing about that check involves trusting you, your paraphrase of the value,
-or the channel the line travelled through. Two parties now hold one
-fact, not two descriptions of it.
+The receiver does not trust you, your copy of the value, or the channel that carried the token. Both parties now hold
+one fact, not two descriptions of it.
 
-If both checks returned `true` for you, that is the protocol working
-end to end.
+If both checks return `true`, the full loop works.
 
-## 5. Where this goes next
+## 5. Next steps
 
-- An agent does this loop over MCP with `emem_recall`,
-  `emem_verify_receipt`, `emem_memory_token` and
-  `emem_memory_token_resolve`: connect any MCP client to
-  `https://emem.dev/mcp` and the [agent guide](../agents.md) walks the
-  same path tool by tool.
-- Time travel: `/v1/recall` accepts `as_of_tslot` (when it was on the
-  ground) and `as_of_signed_at` (what the memory knew by then), so
-  "what did we know when we decided" stays answerable later.
-- When a readout changes between visits, `POST /v1/change_attribution
-  {"cell": ...}` returns the per-term evidence (environment, sensor,
-  geometry, encoder, noise) with the fact cids behind each. It does not
-  split the change into amounts per term; `split` is null and the
-  response says why.
-- Several facts travel as one `emem:bundle:` token from
-  `POST /v1/memory_bundle`; see the [Quickstart](../quickstart.md).
+- Agents do the same loop over MCP with `emem_recall`, `emem_verify_receipt`, `emem_memory_token` and
+  `emem_memory_token_resolve`. Connect an MCP client to `https://emem.dev/mcp`. The [agent guide](../agents.md)
+  shows each tool.
+- `/v1/recall` accepts `as_of_tslot` and `as_of_signed_at`. The first selects the time on the ground. The second
+  selects what emem had signed by a given time. Use them to see what emem knew when you made a decision.
+- When a reading changes between visits, `POST /v1/change_attribution {"cell": ...}` returns evidence for each term
+  (environment, sensor, geometry, encoder, noise) with the fact ids. It does not split the change into amounts per
+  term. `split` is `null`, and `attribution_note` says why. The numeric split is roadmap.
+- To send several facts as one token, use `POST /v1/memory_bundle`. It returns an `emem:bundle:` token. See the
+  [Quickstart](../quickstart.md).
