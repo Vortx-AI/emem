@@ -20505,7 +20505,39 @@ async fn post_trajectory(
             );
         }
     }
+    // A crosscheck with dates of its own read an empty series as "nothing
+    // observed here", when nothing had been fetched and the response said
+    // nothing. A pinned (as_of) or scoped read is left alone: a fill now
+    // cannot change what it returns.
+    let unpinned =
+        req.as_of_tslot.is_none() && req.as_of_signed_at.is_none() && req.scope.is_none();
+    if series_empty && unpinned {
+        if let Some(fill) = trajectory_fill_hint(&req.cell, &canon, req.window) {
+            if let Some(map) = v.as_object_mut() {
+                map.insert("fill".into(), fill);
+            }
+        }
+    }
     Ok(Json(attach_resolved(v, env)))
+}
+
+/// The one call that turns an empty series into a signed one, for a band
+/// with history. `None` for a static or now-only band, where a backfill has
+/// nothing to add.
+fn trajectory_fill_hint(cell: &str, band: &str, window: [u64; 2]) -> Option<JsonValue> {
+    let meta = band_materializer_meta(band)?;
+    let secs = meta.tempo.slot_seconds() as i64;
+    if secs == 0 || matches!(meta.kind, BandKind::NowOnly) {
+        return None;
+    }
+    let start = window[0] as i64 * secs;
+    let end = (window[1] as i64 + 1) * secs - 1;
+    Some(json!({
+        "why": "emem holds no signed fact for this cell, band and window. That means nothing was fetched here yet, not that nothing was observed.",
+        "call": {"method": "POST", "path": "/v1/backfill", "mcp_tool": "emem_backfill",
+                 "body": {"cell": cell, "band": band, "start_unix": start, "end_unix": end}},
+        "then": "Read this series again. A backfill signs one fact per usable observation and, when it stops early, says where to call again.",
+    }))
 }
 
 /// Give each trajectory row the two columns a chart or a dashboard tile needs
@@ -34741,13 +34773,14 @@ fn enrich_openapi_op_descriptions(spec: &mut JsonValue) {
 /// endpoints (whose response shape genuinely varies) on the bare
 /// `{"type":"object"}` so we don't lie about a schema we don't enforce.
 fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
-    // operationId → schema component name. Only includes endpoints
-    // whose 200 envelope is stable enough to schema-fy honestly.
+    // operationId → schema component name. An entry is added only after a
+    // live 200 was checked against the schema's required keys. SignedResponse
+    // once named operations whose bodies have no `facts` (recall_many,
+    // trajectory, diff, backfill, the point tools; most have no `receipt`
+    // either), so a client generated from this document failed on them.
     const RESP_MAP: &[(&str, &str)] = &[
         ("emem_recall", "SignedResponse"),
         ("emem_recall_cell_get", "SignedResponse"),
-        ("emem_recall_many", "SignedResponse"),
-        ("emem_recall_polygon", "SignedResponse"),
         ("emem_query_region", "SignedResponse"),
         ("emem_ask", "AskResp"),
         ("emem_locate", "LocateResp"),
@@ -34755,12 +34788,8 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_compare", "CompareResp"),
         ("emem_compare_bands", "CompareBandsResp"),
         ("emem_find_similar", "FindSimilarResp"),
-        ("emem_diff", "SignedResponse"),
-        ("emem_trajectory", "SignedResponse"),
-        ("emem_backfill", "SignedResponse"),
+        ("emem_trajectory", "TrajectoryResp"),
         ("emem_verify", "VerifyResp"),
-        ("emem_memory_contradictions", "SignedResponse"),
-        ("emem_edges_recall", "SignedResponse"),
         ("emem_verify_receipt", "VerifyReceiptResp"),
         // The dereference at the centre of the product described itself as
         // `{"type":"object"}`, which is the schema equivalent of saying
@@ -34770,24 +34799,6 @@ fn enrich_openapi_response_schemas(spec: &mut JsonValue) {
         ("emem_fetch", "Fact"),
         ("emem_fetch_post", "Fact"),
         ("emem_field_boundaries", "FieldBoundariesResp"),
-        ("emem_elevation", "SignedResponse"),
-        ("emem_elevation_get", "SignedResponse"),
-        ("emem_at_post", "SignedResponse"),
-        ("emem_at_get", "SignedResponse"),
-        ("emem_ndvi_post", "SignedResponse"),
-        ("emem_ndvi_get", "SignedResponse"),
-        ("emem_air_post", "SignedResponse"),
-        ("emem_air_get", "SignedResponse"),
-        ("emem_lst_post", "SignedResponse"),
-        ("emem_lst_get", "SignedResponse"),
-        ("emem_soil_post", "SignedResponse"),
-        ("emem_soil_get", "SignedResponse"),
-        ("emem_water_post", "SignedResponse"),
-        ("emem_water_get", "SignedResponse"),
-        ("emem_forest_post", "SignedResponse"),
-        ("emem_forest_get", "SignedResponse"),
-        ("emem_weather_post", "SignedResponse"),
-        ("emem_weather_get", "SignedResponse"),
     ];
     let Some(paths) = spec.get_mut("paths").and_then(|v| v.as_object_mut()) else {
         return;
@@ -35312,6 +35323,7 @@ fn openapi_spec() -> JsonValue {
                 "Fact":            {"type":"object","description":"A primary attestation at (cell, band, tslot). `value` is the band's typed reading (number, array of numbers for vector bands, or a categorical class id). `unit` is the band's declared unit (e.g. `m_msl`, `degC`, `mm`).","required":["kind","cell","band","tslot","value","fact_cid","receipt"],"properties":{"kind":{"type":"string","enum":["primary","absence"],"description":"`primary` = signed measurement; `absence` = signed \"we don't have this here\" with a typed reason."},"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"tslot":{"$ref":"#/components/schemas/Tslot"},"value":{"description":"Number, array of numbers, or class id depending on band type."},"unit":{"type":"string"},"provenance":{"type":"string","description":"Upstream source key (e.g. `copdem30m`, `s2_l2a`, `cams_eu`)."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"receipt":{"$ref":"#/components/schemas/Receipt"},"absence_reason":{"type":"string","enum":["unavailable_capability","outside_coverage","archetype_seed_unavailable","gpu_unavailable","upstream_error","upstream_timeout"],"description":"Present only when kind=`absence`."}}},
                 "MaterializeNote": {"type":"object","description":"One entry in the response's `materialize_notes[]`, recording what the lazy materializer did during this call. status:\"materialized\" means a signed fact was minted and persisted (a Primary observation OR a confirmed, evidence-backed Absence - both are signed and citeable by fact_cid). status:\"skipped\" means nothing was signed: `reason_class` says why (transient `timeout`/`upstream_error`, retryable; or structural `unknown_band`/`no_materializer`, not retryable here) and `absence` is always false, because a skip is 'unknown', never a confirmed absence.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"band":{"type":"string"},"ok":{"type":"boolean"},"status":{"type":"string","enum":["materialized","skipped"]},"fact_cid":{"type":"string"},"reason":{"type":"string"},"reason_class":{"type":"string","enum":["timeout","upstream_error","upstream_gone","unknown_band","no_materializer","deferred","retired","not_geographic","no_data"]},"retryable":{"type":"boolean"},"absence":{"type":"boolean","description":"Always false on a skip; a confirmed absence is a signed fact with status:materialized, not a skip."},"latency_ms":{"type":"number"}}},
                 "SignedResponse":  {"type":"object","description":"Standard recall envelope. `facts` is the array of signed facts touched by this call (subset of `bands_already_attested_at_cell` after auto-materialization). `receipt` is the responder's signature over the call. `materialize_notes` lists any lazy-materializer activity that happened to satisfy the request, empty for purely warm reads.","required":["facts","receipt"],"properties":{"facts":{"type":"array","items":{"$ref":"#/components/schemas/Fact"}},"receipt":{"$ref":"#/components/schemas/Receipt"},"bands_already_attested_at_cell":{"type":"array","items":{"type":"string"},"description":"Bands the cell already has facts for, regardless of whether they were requested. Useful for follow-up calls without a second /v1/coverage_matrix hit."},"materialize_notes":{"type":"array","items":{"$ref":"#/components/schemas/MaterializeNote"}},"caveats":{"type":"array","items":{"type":"string"},"description":"Plain-language constraints the caller should fold into their answer (grid resolution, revisit cadence, sample-size warnings)."}}},
+                "TrajectoryResp":  {"type":"object","description":"Response of /v1/trajectory. `series` has one point per tempo slot in the window that holds a signed fact, oldest first. Each point carries its `fact_cid`, its `emem:fact:` token, the civil date its slot starts on, and the value. `receipt` signs the call. An empty `series` means emem holds no signed fact there yet, not that nothing was observed. For a band with history, an empty read without as_of or scope also carries `fill.call`: the exact /v1/backfill body for the window read.","required":["series","receipt"],"properties":{"series":{"type":"array","items":{"type":"object","required":["tslot","value","fact_cid"],"properties":{"tslot":{"type":"integer"},"value":{"description":"a number for a scalar band, an array for a vector band"},"fact_cid":{"type":"string"},"token":{"type":"string"},"slot_start":{"type":"string","description":"YYYY-MM-DD the slot starts on; the fact carries the capture time"}}}},"receipt":{"$ref":"#/components/schemas/Receipt"},"fill":{"type":"object","description":"Only on an empty, unpinned, unscoped read of a band with history.","properties":{"why":{"type":"string"},"call":{"type":"object","properties":{"method":{"type":"string"},"path":{"type":"string"},"mcp_tool":{"type":"string"},"body":{"type":"object"}}},"then":{"type":"string"}}},"unknown_band":{"type":"string"},"warning":{"type":"string"}}},
                 "LocateResp":      {"type":"object","description":"Response of /v1/locate. `cell64` is the canonical handle for the resolved place; `polygon_bbox` is present when the geocoder found an extent (city / park / lake / country / region), absent for point features. `via` declares which layer of the seven-tier embedded cascade answered, falling back to network (Photon → Nominatim) only when no embedded layer matched.","required":["cell64","via"],"properties":{"cell64":{"$ref":"#/components/schemas/Cell64"},"label":{"type":"string","description":"Reader-friendly place label."},"lat":{"type":"number"},"lng":{"type":"number"},"polygon_bbox":{"type":"object","description":"Present when the place has spatial extent.","properties":{"min_lat":{"type":"number"},"max_lat":{"type":"number"},"min_lng":{"type":"number"},"max_lng":{"type":"number"},"source":{"type":"string","enum":["wide_bbox_table","country_table","admin1_table","admin2_table","admin3_table","nominatim_boundingbox","overture_division_area","centre_cell_bbox"],"description":"`overture_division_area` is authoritative (conflated OSM+Esri+Meta+TomTom polygon), preferred whenever Overture has a row for the entity. `country_table` / `admin1_table` / `admin2_table` / `admin3_table` are cities1000-aggregated approximations used when Overture is unreachable. `wide_bbox_table` is the curated wide-feature override for Sahara/Amazon/Himalayas etc."}}},"polygon_geojson":{"type":"object","description":"True OSM/Overture boundary as GeoJSON `Polygon` or `MultiPolygon` when an admin tier resolved. Pass back to /v1/recall_polygon to mask the cell grid against the boundary."},"polygon_sample_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Up to 64 representative cells covering the polygon, pass to /v1/recall_many or /v1/recall_polygon."},"neighborhood_cells":{"type":"array","items":{"$ref":"#/components/schemas/Cell64"},"description":"Eight neighbouring cell64s of the resolved centre cell."},"via":{"type":"string","enum":["direct_latlng","wide_bbox_table","country","admin1","admin2","admin3","embedded","pois","cache","photon","nominatim"],"description":"Layer of the seven-tier locate cascade that answered. `country`/`admin1`/`admin2`/`admin3` = GeoNames hierarchical-admin tables (in-process); `embedded` = cities1000 populated places (in-process); `pois` = curated GeoNames well-known landmarks (peaks/lakes/parks/airports/monuments, in-process); `wide_bbox_table` = curated wide regions (in-process); `cache` = sled hot cache; `photon`/`nominatim` = network fallback."},"overture_division":{"type":"object","description":"Overture-divisions provenance, present when the cascade pulled an authoritative admin polygon. `division_id` is the GERS ID (globally stable, citable in receipts). `subtype` declares the admin level (country/region/county/locality/etc). `country` is the ISO 3166-1 alpha-2 owner.","properties":{"division_id":{"type":"string"},"subtype":{"type":"string","enum":["country","region","county","localadmin","locality","borough","macrohood","neighborhood","microhood","dependency"]},"country":{"type":"string","description":"ISO 3166-1 alpha-2 (e.g. `BD`, `US`)."},"schema_url":{"type":"string"}}},"localized_names":{"type":"object","additionalProperties":{"type":"string"},"description":"Map of ISO 639 language tag (`en`, `bn`, `zh-Hans`, `ar`, …) to localized name, when the resolved entity is in Overture and carries `names.common`. Lets an agent surface the user's-language label without a second geocoder call."},"data_at_this_cell":{"type":"object","description":"Topic-grouped inventory of recallable bands and applicable algorithms at this cell. Lets the caller chain into /v1/recall without a second introspection round-trip."}}},
                 "FindSimilarResp": {"type":"object","description":"Response of /v1/find_similar. `neighbors` is the top-k list ordered by similarity (descending). `mode` echoes the scoring choice (`cosine` / `hamming` / `hamming_then_rerank`).","required":["neighbors","receipt"],"properties":{"neighbors":{"type":"array","items":{"type":"object","required":["cell","score","lat","lng"],"description":"Stable neighbor schema: cell/score/lat/lng/place_label_cached are always present. lat/lng are explicit null for inline-vector queries or undecodable cells (no honest centroid), never absent, never fabricated.","properties":{"cell":{"$ref":"#/components/schemas/Cell64"},"score":{"type":"number","description":"Cosine similarity in [-1, 1] for `cosine` / `hamming_then_rerank`; normalised Hamming agreement in [0, 1] for `hamming`."},"lat":{"type":["number","null"],"description":"Centroid latitude decoded from `cell`; null when the cell has no honest centroid (inline vector / undecodable)."},"lng":{"type":["number","null"],"description":"Centroid longitude decoded from `cell`; null when unknown (see `lat`)."},"place_label_cached":{"type":["string","null"],"description":"Best-effort gazetteer label (~25 km gate); null when the cell isn't near a known anchor."},"fact_cid":{"$ref":"#/components/schemas/FactCid"},"label":{"type":"string","description":"Reader-friendly place label, if the cell is named in the gazetteer."}}}},"mode":{"type":"string","enum":["cosine","hamming","hamming_then_rerank"]},"band":{"type":"string"},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
                 "CompareResp":     {"type":"object","description":"Response of /v1/compare. Single cosine similarity score (vector bands) or scalar delta (scalar bands) plus per-band breakdown.","required":["score","receipt"],"properties":{"score":{"type":"number"},"deltas":{"type":"object","additionalProperties":{"type":"number"},"description":"Per-band scalar delta for scalar comparisons; absent for vector cosine."},"receipt":{"$ref":"#/components/schemas/Receipt"}}},
@@ -87485,6 +87497,22 @@ mod s2_dn_offset_invariant {
                 "s2b-0217"
             ]
         );
+    }
+
+    /// An empty series names the one backfill that fills it, over exactly
+    /// the window read; a static or now-only band gets no such call.
+    #[test]
+    fn an_empty_series_names_the_backfill_that_fills_it() {
+        let h = trajectory_fill_hint("defi.zb545.zcaad.zcde4", "indices.ndvi", [20_362, 20_543])
+            .unwrap();
+        let body = &h["call"]["body"];
+        assert_eq!(h["call"]["path"], "/v1/backfill");
+        assert_eq!(body["cell"], "defi.zb545.zcaad.zcde4");
+        assert_eq!(body["band"], "indices.ndvi");
+        assert_eq!(body["start_unix"], 20_362i64 * 86_400);
+        assert_eq!(body["end_unix"], 20_544i64 * 86_400 - 1);
+        assert!(trajectory_fill_hint("x", "copdem30m.elevation_mean", [0, 0]).is_none());
+        assert!(trajectory_fill_hint("x", "weather.temperature_2m", [20_362, 20_363]).is_none());
     }
 
     #[test]

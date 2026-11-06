@@ -613,6 +613,11 @@ the high-traffic groups; numbers reflect the live OpenAPI document.
 `query_region` `max_cells` is bbox-area-derived (target ~1 cell per
 (10 km)², clamped to `[64, 1024]`).
 
+`trajectory` reads only what emem has already signed. An empty series
+means nothing was fetched there yet, not that nothing was observed. For a
+band with history, an empty and unpinned read carries `fill.call`: the
+exact `/v1/backfill` body for the window read. Run it, then read again.
+
 `field_series` reads an area over time, one row per scene.
 
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
