@@ -79,7 +79,7 @@ for (py, col, _) in plots:
         c.dot(pts[k][0], pts[k][1], 1.2, INK_SOFT, a=160)
 c.lotus(VX, VY, 78)
 c.text(VX, VY + 100, "Due Diligence Statement", f_sub, INK, center=True)
-c.text(VX, VY + 117, "one signed 26-char handle", f_lab, INK_SOFT, center=True)
+c.text(VX, VY + 117, "one signed citable token", f_lab, INK_SOFT, center=True)
 c.seal(VX + 66, VY - 66, 11, fill=LEAF)  # PASS seal
 
 # cut-off timeline beneath the verdict
