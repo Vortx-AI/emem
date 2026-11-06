@@ -73,7 +73,7 @@
 <!-- gate -->
 <rect x="580" y="150" width="420" height="215" rx="14" fill="#faf7ee" stroke="#2e8c84" stroke-width="2.5"/>
 <text x="600" y="180" class="h" font-size="19" font-weight="bold">The trust gate</text>
-<text x="600" y="204" class="h" font-size="13.5">Substrate registry: ten profiles, one per machine class,</text>
+<text x="600" y="204" class="h" font-size="13.5">Substrate registry: eighteen profiles, one per source class,</text>
 <text x="600" y="222" class="h" font-size="13.5">content-addressed so an enrollment pins its exact contract.</text>
 <text x="600" y="246" class="h" font-size="13.5">The verifier admits only output bound inside a complete,</text>
 <text x="600" y="264" class="h" font-size="13.5">unaltered trace, and names every failure it finds:</text>
