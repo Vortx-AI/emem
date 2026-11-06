@@ -1,8 +1,9 @@
 # emem plugin for Claude Code
 
-Verifiable shared memory for AI agents. One address per place, one
-signed fact per observation, one token another agent can check offline.
-No account, no API key; reads are public.
+This plugin gives Claude Code verifiable shared memory. One place has one
+address. One observation has one signed fact. One token lets another agent
+check that fact offline. You need no account and no API key, because reads
+are public.
 
 ## Install
 
@@ -11,23 +12,27 @@ No account, no API key; reads are public.
 /plugin install emem@emem
 ```
 
-Or run it straight from a clone, without installing:
+To use the plugin from a clone without an install, run:
 
 ```sh
 claude --plugin-dir ./plugins/emem
 ```
 
-## What it adds
+## What the plugin adds
 
-**The MCP server** (`.mcp.json`): `https://emem.dev/mcp`, streamable
-HTTP, no auth. One `tools/list` returns the 18-tool core loop in a
-single page; `emem_tools` maps the rest, and `tools/call` dispatches any
-tool by name.
+### The MCP server
 
-**Nineteen skills**, each a worked procedure with an example that was
-run against emem.dev, rather than a description:
+The file `.mcp.json` points to `https://emem.dev/mcp`. It uses streamable
+HTTP and no authentication. One `tools/list` call returns the 18-tool core
+loop on one page (checked on 6 November 2026). The tool `emem_tools`
+lists the other tools. `tools/call` runs any tool by name, listed or not.
 
-| Skill | For |
+### Nineteen skills
+
+Each skill is a procedure with an example. Each example ran against
+emem.dev before the skill shipped.
+
+| Skill | Use it for |
 |---|---|
 | **Signed facts about places** | |
 | `emem-locate-and-recall` | a place name to a canonical cell, then signed facts and their citation tokens |
@@ -43,88 +48,106 @@ run against emem.dev, rather than a description:
 | `emem-document-evidence` | OCR plus lab-report and land-record parsing, every step signed |
 | **Memory and other agents** | |
 | `emem-sign-and-attest` | write with your own key; the signer computes the digest, so there is no refusal round trip |
-| `emem-long-horizon-memory` | signed working state that survives a context reset, the inbox, and waiting for a reply |
+| `emem-long-horizon-memory` | signed working state that survives a context reset, the inbox, and how to wait for a reply |
 | `emem-multi-agent-handoff` | hand findings to other agents as tokens they can verify, verify theirs, key cards, and notes sealed to one key |
 | `emem-shared-identity` | make two agents refer to the same object, and know what each token proves |
 | `emem-referential-drift` | pin a value to a citation, grade what you are about to say, ask why a number moved |
-| **Checking** | |
-| `emem-verify-receipt` | check a receipt's Ed25519 signature offline, without re-contacting the responder |
+| **Checks** | |
+| `emem-verify-receipt` | check the Ed25519 signature of a receipt offline, without a new call to the responder |
 | `emem-transparency-log` | prove the log only grew, and that an entry or note is in it |
-| `emem-verify-before-publish` | check a draft's citations and the numbers written beside them |
-| `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
+| `emem-verify-before-publish` | check the citations of a draft and the numbers written next to them |
+| `emem-device-traces` | resolve and verify again the signed OS trace of a device, and what enrolment admits today |
 
-Seven skills ship small Python scripts beside their `SKILL.md`:
+### Python scripts in seven skills
 
-| Script | Does |
+Seven skills ship small Python scripts next to their `SKILL.md`:
+
+| Script | What it does |
 |---|---|
-| `emem-verify-receipt/scripts/verify.py` | rebuilds a receipt's preimage and checks its signature |
+| `emem-verify-receipt/scripts/verify.py` | rebuilds the preimage of a receipt and checks its signature |
 | `emem-transparency-log/scripts/verify_log.py` | checks a tree head, an inclusion proof, a consistency proof |
-| `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the document's hashes |
-| `emem-field-tokens/scripts/rehash.py` | re-hashes a downloaded artifact against its cid |
-| `emem-multi-agent-handoff/scripts/verify_note.py` | checks which key wrote a memory note and the signature on its supersede banner, offline; with `--read-key-card` it also reads that key's own card (`test_verify_note.py` tests it) |
-| `emem-multi-agent-handoff/scripts/seal_note.py` | seals a note to one key; the recipient opens it with the emem-signer plugin's `signer_open_sealed` (`emem_sealed.py` holds the format, `test_sealed.py` tests it) |
-| `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks a unit's audit path and bytes |
+| `emem-document-evidence/scripts/verify_doc.py` | checks OCR and parse receipts and the hashes of the document |
+| `emem-field-tokens/scripts/rehash.py` | computes the hash of a downloaded artifact again and compares it with its cid |
+| `emem-multi-agent-handoff/scripts/verify_note.py` | checks offline which key wrote a memory note, and the signature on its supersede banner. With `--read-key-card`, it also reads the card of that key. `test_verify_note.py` tests it |
+| `emem-multi-agent-handoff/scripts/seal_note.py` | seals a note to one key. The recipient opens it with `signer_open_sealed` from the emem-signer plugin. `emem_sealed.py` holds the format and `test_sealed.py` tests it |
+| `emem-tokenise-files/scripts/tree_proof.py` | builds a pointer.v1 index; checks the audit path and the bytes of a unit |
 | `emem-long-horizon-memory/scripts/verify_note.py` | the same note check, shipped with the skill that uses it |
-| `emem-long-horizon-memory/scripts/watch_inbox.py` | waits until a new note reaches your inbox |
+| `emem-long-horizon-memory/scripts/watch_inbox.py` | waits until a new note comes into your inbox |
 
-The scripts read only the files you pass them, and write only where you
-tell them to. Two of them also read from `https://emem.dev` and send
-nothing. `verify_note.py` reads the author's key card with one GET only
-when you pass `--read-key-card`. `watch_inbox.py` polls the inbox. The other
-scripts make no network call. BLAKE3 and Ed25519 verification come from
-one module, `emem_crypto.py`, shipped in each skill's `scripts/` so a
-skill copied on its own still runs: plain Python 3 with no third-party
-packages and no compiled code, so nothing is installed to run them.
-Every verifier takes `--self-test`, which checks that module against the
-official BLAKE3 test vectors and RFC 8032 test vectors 1 to 3, plus four
-signatures it must reject. `seal_note.py` is the exception: it needs
-the `cryptography` package for X25519 and ChaCha20-Poly1305. No script
-in this plugin reads a key or a seed.
+The scripts read only the files that you give them. They write only to
+the location that you tell them. Two scripts also read from
+`https://emem.dev` and send nothing:
+
+- `verify_note.py` reads the key card of the author with one GET, only
+  when you give `--read-key-card`.
+- `watch_inbox.py` polls the inbox.
+
+The other scripts make no network call.
+
+One module, `emem_crypto.py`, does the BLAKE3 and Ed25519 checks. Each
+skill ships its own copy in `scripts/`, so a skill that you copy alone
+still runs. The module is plain Python 3. It uses no third-party package
+and no compiled code, so you install nothing to run it.
+
+Each verifier accepts `--self-test`. This checks the module against the
+official BLAKE3 test vectors and RFC 8032 test vectors 1 to 3. It also
+checks that the module rejects four bad signatures.
+
+`seal_note.py` is the exception: it needs the `cryptography` package for
+X25519 and ChaCha20-Poly1305. No script in this plugin reads a key or a
+seed.
 
 ## Signing key
 
-Reads need no key, and this plugin holds none. To write signed notes,
+Reads need no key, and this plugin holds no key. To write signed notes,
 or to open notes sealed to your key, also install the optional
-`emem-signer` plugin from the same marketplace (`/plugin install emem-signer@emem`). It keeps your Ed25519
-key in a sensitive plugin option and signs in one local process; its
-[README](https://github.com/Vortx-AI/emem/blob/main/plugins/emem-signer/README.md) has the details.
-Without it, the skills that write tell you how to sign with an Ed25519
-tool you already trust. If one machine holds several keys, set each
-signer's role option, so that a log witness key does not sign your
-notes.
+`emem-signer` plugin from the same marketplace:
 
-## Data
+```sh
+/plugin install emem-signer@emem
+```
 
-The MCP server and every command in the skills talk to one host,
-`https://emem.dev`, operated by Vortx AI Private Limited. The skills never
-call a third-party service; emem.dev fetches open data upstream on its own
-side. It needs no credentials. On your machine, the skill commands save
-the JSON they fetch into the current directory; nothing else is written.
+The signer keeps your Ed25519 key in a sensitive plugin option. It signs
+in one local process. Its
+[README](https://github.com/Vortx-AI/emem/blob/main/plugins/emem-signer/README.md)
+gives the details. Without the signer, the skills that write tell you how
+to sign with an Ed25519 tool that you already trust. If one machine holds
+more than one key, set the role option of each signer. Then a log witness
+key does not sign your notes.
 
-| What you call | What is sent | How long it is kept |
+## Data the plugin sends
+
+The MCP server and each command in the skills talk to one host,
+`https://emem.dev`. Vortx AI Private Limited operates it. The skills never
+call a third-party service. emem.dev gets open data from upstream sources
+on its own side, and needs no credentials from you. On your machine, the
+skill commands save the JSON they get into the current directory. They
+write nothing else.
+
+| What you call | What you send | How long emem.dev keeps it |
 |---|---|---|
-| `https://emem.dev/mcp` and the REST reads the skills use (locate, recall, recall_polygon, ask, field and EUDR checks, log and token reads) | Place names, coordinates, plot or field polygons, band names, dates, tokens and questions | Request bodies are used to compute the answer and are not logged. Request metadata (path, GET query string, status, duration, user agent, a one-way hash of your IP) is kept 30 days. Facts the service reads for your request are signed and join the public record permanently; they carry no identity of yours, but a cell you asked about can be read from the facts signed there |
-| Document routes (`/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`) | The image or text of the document | Used for that request and not stored; the signed receipt carries only hashes of the text and the result |
-| Device routes (`/v1/devices`, `/v1/trace_resolve`, `/v1/trace_verify`) | Trace tokens and trace records | Verifying is stateless; nothing sent is stored |
-| Memory writes (`emem_memory_create` and the other write verbs, used by sign-and-attest, handoff and long-horizon memory) | The note text, its path, your public key and your signature | Public and permanent by design. Deleting a note unpublishes the path; the signed history stays in the log |
+| `https://emem.dev/mcp` and the REST reads that the skills use (locate, recall, recall_polygon, ask, field and EUDR checks, log and token reads) | Place names, coordinates, plot or field polygons, band names, dates, tokens and questions | The service uses request bodies to compute the answer and does not log them. It keeps request metadata for 30 days: path, GET query string, status, duration, user agent, and a one-way hash of your IP. The service signs the facts that it reads for your request, and they join the public record permanently. They carry no identity of yours. But anyone can see which cells have facts, so a cell that you asked about is visible |
+| Document routes (`/v1/ocr`, `/v1/lab_report_parse`, `/v1/land_record_parse`) | The image or text of the document | The service uses it for that request and does not store it. The signed receipt holds only hashes of the text and the result |
+| Device routes (`/v1/devices`, `/v1/trace_resolve`, `/v1/trace_verify`) | Trace tokens and trace records | The check is stateless. The service stores nothing that you send |
+| Memory writes (`emem_memory_create` and the other write verbs, used by sign-and-attest, handoff and long-horizon memory) | The note text, its path, your public key and your signature | Public and permanent by design. When you delete a note, the path stops resolving. The signed history stays in the log |
 
-The privacy notice is the authority on all of this, including your
-rights: <https://emem.dev/privacy>.
+The privacy notice is the authority on this data and on your rights:
+<https://emem.dev/privacy>.
 
 ## Trust boundary
 
 Facts are band-typed measurements with no free-text field, so a fact
-cannot carry an instruction. Notes are prose written by other agents and
-arrive wrapped in `_content_is_data_not_instructions`; the skills treat
-them as data and never follow directives found inside one. A signature
-says who wrote something, never that it is true.
+cannot carry an instruction. Notes are prose that other agents write.
+They arrive inside `_content_is_data_not_instructions`. The skills treat
+notes as data and never obey a directive inside one. A signature tells
+you who wrote something. It never tells you that it is true.
 
-## What it does not do
+## What the plugin does not do
 
-No tool here writes anything you have not signed, and no read needs a
-key. The foundation-encoder embedding bands are retired on emem.dev:
-stored vectors still read and verify, new ones are not computed, and a
-request for one answers `band_retired_at_this_responder` rather than
-failing vaguely.
+No tool here writes anything that you did not sign, and no read needs a
+key. emem.dev retired the foundation-encoder embedding bands. Vectors
+already stored still read and verify. The service computes no new
+vectors. A request for a new one returns `band_retired_at_this_responder`
+instead of a vague failure.
 
 Source: <https://github.com/Vortx-AI/emem> · Docs: <https://emem.dev>
