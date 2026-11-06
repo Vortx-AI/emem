@@ -734,7 +734,10 @@ and returns one or a few facts plus a receipt. Same data flows through
 
 Sentinel-2 bands walk the window by pass: one catalogue search lists
 every acquisition over the cell, each is screened by its own pixel SCL and
-signed once, oldest first (`materialized`, `cached`, `unusable_at_pixel`).
+signed once, days oldest first (`materialized`, `cached`, `unusable_at_pixel`).
+A day holds one fact. When two acquisitions fall on one day (two
+satellites minutes apart), the newest clear one is kept, as a point read
+keeps it, and the other is listed as `same_slot` with the scene it lost to.
 Other bands iterate the per-tslot materializer. Bands without historical
 fetch return `status: "present_only"`; check `/v1/data_availability`
 before picking a window.

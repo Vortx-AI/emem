@@ -56690,8 +56690,9 @@ async fn s2_backfill_by_pass(
         }
     }
     let window_days = ((end - start) / 86_400).max(1);
+    let slot_secs = tempo.slot_seconds() as i64;
     let mut todo = Vec::new();
-    let mut seen = std::collections::HashSet::new();
+    let mut kept: std::collections::HashMap<u64, String> = std::collections::HashMap::new();
     for item in passes {
         let Some(at) = parse_iso8601_unix(&item.datetime) else {
             continue;
@@ -56704,6 +56705,7 @@ async fn s2_backfill_by_pass(
         }
         todo.push((tslot, at, item));
     }
+    s2_passes_in_slot_order(&mut todo);
     let mut probes = futures_util::stream::iter(todo.into_iter().map(|(tslot, at, item)| {
         let cli = cli.clone();
         async move {
@@ -56714,15 +56716,21 @@ async fn s2_backfill_by_pass(
     .buffered(s2_scl_probe_concurrency());
     let secs = materializer_timeout_secs();
     while let Some((tslot, at, item, scl)) = probes.next().await {
-        // Where two tiles overlap, one acquisition is one observation: the
-        // first tile that yields a fact wins, and a tile that is no-data or
-        // cloud at the pixel leaves the other still to try.
-        if seen.contains(&tslot) {
+        // A slot holds one fact. Two tiles of one acquisition compete for
+        // it, and so do two acquisitions on one day (two satellites minutes
+        // apart), which are different observations with different values.
+        // The newest clear pass wins, the rule of the point picker, so a
+        // slot's fact does not depend on which route filled it; the loser is
+        // listed, not dropped unseen.
+        if let Some(winner) = kept.get(&tslot) {
+            skipped += 1;
+            steps.push(json!({"tslot": tslot, "target_unix": at, "scene": item.id, "status": "same_slot", "kept": winner, "reason": "a slot holds one fact; the newest clear pass in the slot is kept"}));
             continue;
         }
+        let slot_start = tslot as i64 * slot_secs;
         if materialized >= max_facts {
             notes.push(format!(
-                "max_facts={max_facts} reached; call again with start_unix >= {at} to continue"
+                "max_facts={max_facts} reached; call again with start_unix >= {slot_start} to continue"
             ));
             break;
         }
@@ -56736,7 +56744,7 @@ async fn s2_backfill_by_pass(
         }
         if !materialize_budget_take(1) {
             notes.push(format!(
-                "{}; call again with start_unix >= {at} to continue",
+                "{}; call again with start_unix >= {slot_start} to continue",
                 budget_deferred_reason()
             ));
             break;
@@ -56760,7 +56768,7 @@ async fn s2_backfill_by_pass(
         match r {
             Ok(cid) => {
                 materialized += 1;
-                seen.insert(tslot);
+                kept.insert(tslot, id.clone());
                 steps.push(json!({"tslot": tslot, "target_unix": at, "scene": id, "status": "materialized", "fact_cid": cid.as_str()}));
             }
             Err(e) => {
@@ -56770,6 +56778,13 @@ async fn s2_backfill_by_pass(
         }
     }
     (steps, materialized, cached, skipped, notes)
+}
+
+/// Slots oldest first; inside one slot the newest pass first, so a backfill
+/// keeps the pass the point picker would. Stable, so two tiles of one
+/// acquisition keep the catalogue's order.
+fn s2_passes_in_slot_order<T>(todo: &mut [(u64, i64, T)]) {
+    todo.sort_by_key(|(slot, at, _)| (*slot, std::cmp::Reverse(*at)));
 }
 
 /// Read, compute and sign one Sentinel-2 band at `cell64` from a scene
@@ -87351,9 +87366,9 @@ mod s2_dn_offset_invariant {
         emem_codec::to_cell64(emem_codec::cell_from_latlng(lat, lng))
     }
 
-    /// A backfill walks passes, not days: each acquisition once, oldest
-    /// first, the ones already held reported as cached, and two tiles of one
-    /// acquisition counted as one observation.
+    /// A backfill walks passes, not days: each acquisition once, slots
+    /// oldest first, the ones already held reported as cached, and two tiles
+    /// of one acquisition counted as one observation.
     #[tokio::test]
     async fn a_backfill_visits_each_pass_once_in_time_order() {
         let s = crate::tests::test_app_state();
@@ -87439,6 +87454,37 @@ mod s2_dn_offset_invariant {
         );
         assert_eq!(cached, 1);
         assert_eq!(steps[0]["fact_cid"], "heldalready");
+    }
+
+    /// Two acquisitions on one day are two observations with different
+    /// values, and the slot holds one. The point picker keeps the newest
+    /// clear one, so the backfill tries the newest first: S2A at 05:41
+    /// before S2B at 05:29, while the days stay oldest first.
+    #[test]
+    fn a_backfill_tries_the_newest_pass_of_a_slot_first() {
+        let day = 86_400i64;
+        let at = |d: i64, hh: i64, mm: i64| d * day + hh * 3600 + mm * 60;
+        let mut todo = vec![
+            (20_491u64, at(20_491, 5, 29), "s2b-0207"),
+            (20_491, at(20_491, 5, 41), "s2a-0207"),
+            (20_496, at(20_496, 5, 28), "s2c-0212"),
+            (20_501, at(20_501, 5, 28), "s2b-0217"),
+            (20_501, at(20_501, 5, 41), "s2a-0217"),
+            (20_501, at(20_501, 5, 41), "s2a-0217-other-tile"),
+        ];
+        s2_passes_in_slot_order(&mut todo);
+        let order: Vec<&str> = todo.iter().map(|t| t.2).collect();
+        assert_eq!(
+            order,
+            [
+                "s2a-0207",
+                "s2b-0207",
+                "s2c-0212",
+                "s2a-0217",
+                "s2a-0217-other-tile",
+                "s2b-0217"
+            ]
+        );
     }
 
     #[test]
