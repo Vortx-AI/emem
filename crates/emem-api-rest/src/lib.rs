@@ -47776,20 +47776,30 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
         )
     })?;
 
+    // Where a line window falls in the note. A reader paging through a note
+    // had no way to know where it ends: the window answer carried no line
+    // count, and a window past the end was clamped to the last line, so lines
+    // 500 to 549 of a 233-line note came back as line 233. Both of our own
+    // readers guessed the end from the window's length, and one stopped a
+    // signed plan at half its length (2026-11-06).
+    let mut window = JsonValue::Null;
     let body = if let Some([s_in, e_in]) = req.view_range {
-        // Anthropic spec: 1-indexed inclusive. Clamp to [1, len].
+        // Anthropic spec: 1-indexed inclusive.
         let lines: Vec<&str> = text.lines().collect();
         let total = lines.len() as i64;
-        let start = s_in.max(1).min(total.max(1)) as usize;
-        let end = if e_in < 0 {
-            // Treat negative as "to end".
-            lines.len()
-        } else {
-            (e_in.max(1).min(total.max(1)) as usize).max(start)
-        };
-        if start == 0 || start > lines.len() {
+        let first = s_in.max(1);
+        if first > total {
+            window = json!({"total_lines": total, "served": null, "past_end": true});
             String::new()
         } else {
+            let start = first as usize;
+            let end = if e_in < 0 {
+                // Treat negative as "to end".
+                lines.len()
+            } else {
+                (e_in.max(1).min(total) as usize).max(start)
+            };
+            window = json!({"total_lines": total, "served": [start, end], "past_end": false});
             lines[start - 1..end].join("\n")
         }
     } else {
@@ -47923,6 +47933,7 @@ async fn memory_view_inner(s: &AppState, req: MemoryViewReq) -> Result<JsonValue
             None => json!(body),
         },
         "content_omitted": front_only.as_ref().map(|(_, why)| why),
+        "window": window,
         "signed_at": meta.signed_at,
         "receipt": meta.receipt,
     }))
@@ -96689,6 +96700,84 @@ mod tests {
         assert!(off.check("k").is_ok());
         assert!(off.check("k").is_ok());
         assert!(off.check("k").is_ok());
+    }
+
+    /// A line window says where the note ends, and a window past the end is
+    /// empty. It was clamped to the last line, and our own readers, guessing
+    /// the end from the window's length, stopped a signed plan at half of it.
+    #[tokio::test]
+    async fn a_line_window_says_where_the_note_ends() {
+        let s = test_app_state();
+        memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: "/memories/lines.md".into(),
+                file_text: "one\ntwo\n\nfour\nfive\n".into(),
+                kind: None,
+                attester: None,
+            },
+        )
+        .await
+        .map_err(|e| e.1.message)
+        .unwrap();
+        let view = |range: [i64; 2]| {
+            let s = &s;
+            async move {
+                memory_view_inner(
+                    s,
+                    MemoryViewReq {
+                        file_cid: None,
+                        path: "/memories/lines.md".into(),
+                        view_range: Some(range),
+                        kind: None,
+                        offset: None,
+                        vault_capability: None,
+                        view: None,
+                    },
+                )
+                .await
+                .map_err(|e| e.1.message)
+                .unwrap()
+            }
+        };
+        let w = view([1, 3]).await;
+        assert_eq!(
+            w["content"], "one\ntwo\n",
+            "line 3 is blank and still counted"
+        );
+        assert_eq!(w["window"]["total_lines"], 5);
+        assert_eq!(w["window"]["served"], json!([1, 3]));
+        assert_eq!(w["window"]["past_end"], false);
+        let w = view([4, 10]).await;
+        assert_eq!(w["content"], "four\nfive");
+        assert_eq!(w["window"]["served"], json!([4, 5]));
+        let w = view([6, 9]).await;
+        assert_eq!(
+            w["content"], "",
+            "past the end is empty, not the last line again"
+        );
+        assert_eq!(w["window"]["past_end"], true);
+        assert_eq!(w["window"]["served"], JsonValue::Null);
+        let whole = memory_view_inner(
+            &s,
+            MemoryViewReq {
+                file_cid: None,
+                path: "/memories/lines.md".into(),
+                view_range: None,
+                kind: None,
+                offset: None,
+                vault_capability: None,
+                view: None,
+            },
+        )
+        .await
+        .map_err(|e| e.1.message)
+        .unwrap();
+        assert_eq!(
+            whole["window"],
+            JsonValue::Null,
+            "no window asked, none reported"
+        );
     }
 
     #[tokio::test]
