@@ -19,10 +19,10 @@ No API key, signup, or local shell command. Reads are anonymous.
 
 Two endpoints, one server:
 
-- `https://emem.dev/mcp` advertises a 18-tool core loop, so a client
-  connecting cold spends about 40 KB of context instead of a quarter of a
-  megabyte.
-- `https://emem.dev/mcp/full` advertises all 116.
+- `https://emem.dev/mcp` advertises an 18-tool core loop. A client that
+  connects cold spends about 77 KB of context (measured 2026-11-06).
+- `https://emem.dev/mcp/full` advertises all 116, about 350 KB, in pages of
+  13 tools. Follow `nextCursor` to get the next page.
 
 The split is listing-only. Every one of the 116 tools is callable by name at
 either endpoint, so a tool missing from your list is not missing from the

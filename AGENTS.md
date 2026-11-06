@@ -12,7 +12,7 @@ instead; those describe how to *use* emem from an agent.
 If you only want to *call* emem (not edit its source), here is zero to a
 signed answer in three calls:
 
-1. **Ask.** `POST /v1/ask {"question":"what is the NDVI near Mount Fuji?"}`
+1. **Ask.** `POST /v1/ask {"q":"what is the NDVI near Mount Fuji?"}`
    (MCP tool `emem_ask`, or `emem_intent` / `POST /v1/intent` for a
    structured single-shot). The classifier routes the question to one of
    four paths: a self-description of emem, a corpus audit (a redirect to

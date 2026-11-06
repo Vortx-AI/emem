@@ -8,7 +8,7 @@ key: reads are open at every tier.
 ```bash
 curl -sX POST https://emem.dev/v1/ask \
     -H 'content-type: application/json' \
-    -d '{"question":"what is the elevation of South Mumbai?"}' | jq -r .answer
+    -d '{"q":"what is the elevation of Mount Fuji?"}' | jq -r .answer
 ```
 
 `/v1/ask` resolves the place, picks the bands, reads them and returns prose
@@ -25,17 +25,17 @@ The same two calls, five ways. Pick the one that matches your stack.
 ```bash
 curl -sX POST https://emem.dev/v1/locate \
     -H 'content-type: application/json' \
-    -d '{"q":"South Mumbai"}' | jq -r .cell64
-# defi.zb4d7.zb8ec.zf21e      (a geocoder result; it can change)
+    -d '{"place":"Mount Fuji"}' | jq -r .cell64
+# defi.zb592.nUkO.zEzE      (a geocoder result; it can change)
 
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d7.zb8ec.zf21e",
+    -d '{"cell":"defi.zb592.nUkO.zEzE",
          "bands":["copdem30m.elevation_mean"]}' | jq '.facts[0].value'
-# 6.563226699829102
+# 3539.042236328125
 ```
 
-The numbers in comments are what emem.dev answered on 2026-09-29. A
+The numbers in comments are what emem.dev answered on 2026-11-06. A
 geocoder or an upstream release can move them; the shape of the answer does
 not change.
 
@@ -49,9 +49,9 @@ pip install ememdev          # the import name is also ememdev
 from ememdev import Client
 
 with Client() as em:
-    cell  = em.locate("South Mumbai")["cell64"]
+    cell  = em.locate("Mount Fuji")["cell64"]
     facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
-    print(facts["facts"][0]["value"])   # 6.563226699829102
+    print(facts["facts"][0]["value"])   # 3539.042236328125
 ```
 
 Or editable from the repo:
@@ -70,9 +70,9 @@ npm install @vortxai/emem
 import { Client } from "@vortxai/emem";
 
 const em = new Client();
-const loc: any   = await em.locate({ place: "South Mumbai" });
+const loc: any   = await em.locate({ place: "Mount Fuji" });
 const facts: any = await em.recall({ cell: loc.cell64, bands: ["copdem30m.elevation_mean"] });
-console.log(facts.facts[0].value);   // 6.563226699829102
+console.log(facts.facts[0].value);   // 3539.042236328125
 ```
 
 The client returns parsed JSON typed as a generic `Json`, so narrow it (here
@@ -104,7 +104,7 @@ func post(path string, body any) (map[string]any, error) {
 }
 
 func main() {
-    loc, _   := post("/v1/locate", map[string]string{"q": "South Mumbai"})
+    loc, _   := post("/v1/locate", map[string]string{"q": "Mount Fuji"})
     facts, _ := post("/v1/recall", map[string]any{
         "cell":  loc["cell64"],
         "bands": []string{"copdem30m.elevation_mean"},
@@ -122,7 +122,7 @@ use serde_json::{json, Value};
 async fn main() -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let loc: Value = client.post("https://emem.dev/v1/locate")
-        .json(&json!({"q": "South Mumbai"})).send().await?.json().await?;
+        .json(&json!({"q": "Mount Fuji"})).send().await?.json().await?;
     let facts: Value = client.post("https://emem.dev/v1/recall")
         .json(&json!({
             "cell":  loc["cell64"],
@@ -137,23 +137,25 @@ async fn main() -> anyhow::Result<()> {
 
 ## What you just did
 
-1. `POST /v1/locate` resolved a place name to a **cell64**, the address of
-   a square about 9.5 m on a side at the equator. Latitude pitch is fixed;
-   longitude pitch narrows with the cosine of latitude, so cells are taller
-   than wide away from the equator (`GET /v1/grid_info` states both).
-   Adjacent cells often share leading bigrams, but do not read distance off
-   the prefix: from one origin, a cell 10 m north and a cell 1 km north can
-   share the same two leading bigrams of four. For real neighbours use
+1. `POST /v1/locate` resolved a place name to a **cell64**. A cell64 is the
+   address of a square. At the equator, the square is about 9.5 m on a side.
+   The latitude pitch is fixed. The longitude pitch gets smaller with the
+   cosine of latitude. So away from the equator, a cell is taller than it is
+   wide (`GET /v1/grid_info` gives both values).
+   Cells near each other often start with the same bigrams. Do not read the
+   distance from the prefix. A cell 10 m north and a cell 1 km north of one
+   origin can share the first two bigrams of four. For real neighbours use
    `neighborhood_cells` from the same `/v1/locate` response. Check
    `selected.is_high_confidence` before you rely on the pick; when it is
    false, `alternatives` lists the other candidates.
-2. `POST /v1/recall` returned a **signed fact** at that cell: value, unit,
-   derivation, upstream sources, `fact_cid`, a ready-made `memory_token`,
-   and an Ed25519 `receipt` over the answer.
-3. Anyone who asks for the same cell and band gets the same fact, and the
-   same `fact_cid`, until a new observation is signed. A cell nobody has
-   asked about yet is fetched from the upstream archive during your call,
-   roughly 0.5 to 1.6 s depending on the source. A warm cell answers in
+2. `POST /v1/recall` returned a **signed fact** at that cell. The fact has
+   the value, the unit, the derivation, the upstream sources and the
+   `fact_cid`. The answer also has a `memory_token` to cite, and an Ed25519
+   `receipt` over the answer.
+3. Each request for the same cell and band gets the same fact and
+   `fact_cid`, until emem signs a new observation. For a cell that
+   nobody asked about before, emem reads the upstream archive during your
+   call. This takes about 0.5 to 1.6 s, and the time changes with the source. A warm cell answers in
    single-digit milliseconds. `receipt.cost.was_cached` says which you got.
 
 ## Verify the receipt
@@ -167,7 +169,7 @@ The Python SDK checks it in your own process, without calling emem.dev:
 from ememdev import Client
 
 with Client() as em:
-    facts = em.recall("defi.zb4d7.zb8ec.zf21e", bands=["copdem30m.elevation_mean"])
+    facts = em.recall("defi.zb592.nUkO.zEzE", bands=["copdem30m.elevation_mean"])
     print(em.verify_receipt(facts["receipt"]))
 # {'valid': True, 'state': 'verified', ..., 'verified_locally': True}
 ```
@@ -181,7 +183,7 @@ the responder vouching for itself:
 ```bash
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d7.zb8ec.zf21e",
+    -d '{"cell":"defi.zb592.nUkO.zEzE",
          "bands":["copdem30m.elevation_mean"]}' > out.json
 
 curl -sX POST https://emem.dev/v1/verify_receipt \
@@ -243,9 +245,9 @@ curl -s "https://emem.dev/v1/memory_bundle/$TOKEN" | jq .schema
 # "emem.memory_bundle.v1"
 ```
 
-The bundle cid is computed over the member fact cids. NDVI at a live cell
-gets a new fact when new imagery lands, so the same two triples mint a
-different bundle on a different day. Use the token the compose call just
+The bundle cid is computed over the member fact cids. When new imagery
+comes in, the NDVI at a live cell gets a new fact. So the same two triples
+make a different bundle on a different day. Use the token the compose call just
 gave you. A bundle is capped at 256 facts (`GET /v1/limits`).
 
 ## Agent memory: signed notes, search, a live stream
@@ -266,8 +268,8 @@ ememdev write --path /memories/by_attester/<pubkey8>/runbook.md \
     --body "Mount Fuji: Cop-DEM mean elevation 3539 m at the cell locate picked."
 ```
 
-A write is permanent in the log, and only the key that wrote it can
-supersede or delete it, so test with a key you intend to keep. The wire
+A write stays in the log for good. Only the key that wrote it can supersede
+or delete it. So test with a key that you will keep. The wire
 format, the verbs and the signing preimage are in
 [Memory substrate](./memory.md).
 

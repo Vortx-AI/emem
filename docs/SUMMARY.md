@@ -7,6 +7,8 @@
      before it. -->
 
 [Introduction](./intro.md)
+[Start here (10 minutes)](./start-here.md)
+[Glossary](./glossary.md)
 [emem in depth](./emem-in-depth.md)
 [Why an agent benefits from emem](./why-agents.md)
 [Quickstart (60 seconds)](./quickstart.md)
@@ -51,6 +53,7 @@
 - [Benchmarks and methods](./benchmarks.md)
 - [Statistics, cost, and threats to validity](./paper-section-statistics-and-threats.md)
 - [The collaboration log](./collaboration-log.md)
+- [Case study: three teams and one sugar mill study](./case-studies/sugar-mill.md)
 
 # Surfaces
 
@@ -73,6 +76,7 @@
 - [Architecture](./developers/architecture.md)
 - [Data sources](./developers/data-sources.md)
 - [Developing](./developers/developing.md)
+- [How to write emem docs](./writing-docs.md)
 - [Inference](./developers/inference.md)
 
 # Operators

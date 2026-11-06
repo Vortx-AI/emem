@@ -1,49 +1,122 @@
 # emem.dev: verifiable memory for AI agents
 
-emem is shared memory for AI agents. Every place resolves to one address (`cell64`), every observation to one signed fact (`fact_cid`), and every object to one identity (`emem:entity:<entity_cid>`), so two models reason about the same thing rather than two descriptions of it. Every answer carries an Ed25519 receipt, so anyone can check it without trusting the server, in the browser at [/verify](/verify).
+emem is a shared memory for AI agents and programs. It gives each place one address, each observation one signed
+fact and each object one identity. So two models reason about the same thing, not about two descriptions of it.
+Each answer carries an Ed25519 receipt. Anyone can check the receipt without trust in the server, for example in
+the browser at [/verify](/verify).
 
-The substrate has two layers riding the same trust surface:
+New to emem? Read [Start here](./start-here.md) first. It takes ten minutes. The [glossary](./glossary.md) defines
+each term on this page.
 
-- **Earth memory.** The address space is the planet. A `cell64` addresses a place the way a token addresses text in an LLM: every patch of ground gets a 64-bit identifier (~9.55 m at the equator). Every measurement at that cell is a fact keyed by `(cell, band, tslot)`. Each fact is signed: the responder fingerprints the answer with a blake3 hash (change one byte, the fingerprint changes) over bytes packed in a fixed order (canonical CBOR), then signs that fingerprint with an ed25519 key. 115 materializer-wired band names across 43 cube slots, 46 upstream sources (five declared-but-not-yet-wired), 172 named composition algorithms. Cold cells materialise on first ask (sign, persist, return), so every cell on Earth answers cite-ably from day one without a pre-seeded corpus.
-- **Agent memory.** Above the spatial fact store sits a writable scratchpad the agent owns. Six Anthropic memory-tool verbs (`emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_rename`); each file carries a `kind` from the CoALA taxonomy (`episodic`, `semantic`, `procedural`, `resource`); writes are capability-bound to an ed25519 attester: a release responder refuses unattested writes by default, and paths under `/memories/by_attester/<pubkey>/...` reject any signer that isn't their owner under every policy. `memory_search` runs BGE-768 against a LanceDB IVF_PQ partition over file contents. `memory_bundle` composes N facts into one signed envelope (`emem:bundle:<bundle_cid>`). `memory_contradictions` walks a parallel multi-attester index and scores disagreement per band kind. `memory/sse` streams writes with server-side filter.
+## Two layers
 
-Every read primitive across both layers accepts a bi-temporal axis: `as_of_tslot` asks what the world looked like on a given date; `as_of_signed_at` asks what emem knew on a given date. Set both and both predicates hold simultaneously. The receipt carries an `as_of` block when the bound is non-empty so an auditor in 2027 takes a 2026 receipt to any peer and replays the exact same query.
+emem has two layers. Both use the same signatures and the same log.
 
-## Where this is going
+### Earth memory
 
-emem is built to be a protocol, not a single service. Because every fact is content-addressed and signed, any responder can serve it and any client can verify it offline, without trusting the source. Today that runs as one hosted responder plus self-hosted nodes. The design target is a federation of independent responders that resolve the same content ids byte-for-byte, cross-cite each other's attestations, and record where they disagree, so the shared memory gets more trustworthy the more agents read and write against it. Multi-host routing does not ship yet. What runs today is witnessing: emem.dev and geo.qa co-sign each other's log heads. What ships today is the substrate that makes it possible: content addressing, signed receipts, typed temporal edges, multi-attester contradiction scoring, and a deterministic refinement loop.
+The address space is the planet. emem divides the Earth into cells of about 10 m (9.55 m at the equator). Each cell
+has a 64-bit address, the `cell64`.
 
-This site renders the canonical docs straight from the repo at `docs/`. Every page here ships in the same signed server binary as the rest of `web/`; there is no separate docs host.
+Each measurement at a cell is a fact. A fact has a cell, a band (the kind of measurement) and a time slot (`tslot`).
+The responder encodes the fact in canonical CBOR, hashes the bytes with BLAKE3 and signs the hash with Ed25519. If
+one byte changes, the hash changes.
 
-## Where to start
+On 6 November 2026 the registries held 115 wired bands in 43 cube slots, 46 sources and 172 algorithms that combine
+bands. The counts come from [`/v1/manifests`](https://emem.dev/v1/manifests) and
+[`/v1/algorithms`](https://emem.dev/v1/algorithms).
 
-- **[Quickstart](./quickstart.md):** sixty seconds from cold to a signed answer, in five copy-pasteable forms (curl, Python, TypeScript, Go, MCP)
-- **[Memory substrate](./memory.md):** full wire reference for typing, capability binding, bi-temporal reads, semantic search, contradiction detection, SSE events, sled storage
-- **[Agents](./agents.md):** agent integrator's rosetta, every memory operation mapped to its emem primitive
-- **[Whitepaper](./whitepaper-v2.md):** math, trust layer, receipt rules
-- **[Protocol](./protocol.md):** wire format, `cell64`, `cid64`, `tslot`, receipts
-- **[Registries](./registries.md):** bands (43 cube slots, 115 wired names), algorithms (162), functions, sources (46), topics (27), schema, lcv-1, alphabet
-- **[Errors](./errors.md):** typed error codes including `memory_attestation_invalid`, `memory_namespace_violation`, `invalid_temporal_bound`, `invalid_signed_at_format`
-- **[Developers / Operators](./developers/architecture.md):** build, run, deploy
+emem needs no corpus loaded in advance. When you ask about a new cell, emem reads the public archive, signs the
+value, stores it and returns it. So each cell on Earth can give a signed answer from the first request.
 
-## Conventions
+### Agent memory
 
-- *Receipts* are ed25519-signed over a domain-separated, length-prefixed preimage, `blake3("emem.preimage.v1" ‖ "receipt" ‖ tagged(request_id, served_at, [scope], [as_of], [edges], [manifest], primitive, cells[], fact_cids[]))`, so no two distinct responses can share signed bytes. The receipt's `preimage_version` selects the rule; both it and `/v1/verify_receipt` are verifiable in-browser at `/verify`.
-- *One memory, three kinds of users.* AI agents ground claims in tokens instead of paraphrases; robots get durable spatial memory (landmarks as `emem:entity:` identities, terrain and hazards as signed facts at drift-free addresses, shared across fleets and vendors); satellites, drones, and fixed sensors attest at the source. Earth observation is the first substrate, not the boundary, and the boundary is now written down rather than implied: every contributor class is a profile in [`/v1/substrates`](https://emem.dev/v1/substrates) declaring its admission rule and its **address space**. `geo.cell64` is a place. `entity.cid` is a subject that is not one, named by an anchor rather than located, which is what a telescope's target, a file at a commit or a model at a checkpoint needs. Fifteen profiles are published, one is active, and the registry refuses to load a profile claiming to ship on an address space this build cannot key a fact by. The formal object, properties, and memory algebra are written down in [the memory model](model.md).
-- *A fact is a signed observation.* The signature proves who attested it and that the bytes are unchanged, never that the value is objectively true; confidence, uncertainty, and the band's provenance class (with an in-band `caution` on model and human classes) travel with it.
-- *Bi-temporal* receipts carry an additional `as_of: { valid_time, transaction_time }` block when at least one bound was set; the block is absent for current-state reads so old receipts deserialise byte-identically.
-- *Content-addressed everywhere*. A `fact_cid` is 52 base32 chars, the full 32-byte BLAKE3 of the fact's canonical CBOR; the same bytes hash to the same CID on every responder. Bundle and entity CIDs are shorter 26-char prefixes. `emem:fact:<cell64>:<fact_cid>` is the cite handle for one fact at one place; `emem:bundle:<bundle_cid>` for N facts at N places; `emem:entity:<entity_cid>` for a whole object (minted by `emem_entity`), the object you cite rather than only a fact. The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
-- *No silent fallbacks*. An empty result distinguishes wrong-query from empty-place. `find_similar` with a bi-temporal bound bypasses the LanceDB ANN fast-path (the index has no `signed_at` column) and reports `via: brute_force_fallback`.
-- *No stubs*. Nothing here is aspirational. If a primitive is documented, it ships and the receipt verifies.
+Above the facts, each agent has notes that it owns. A note is a Markdown file. Six verbs handle notes:
+`emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete` and
+`emem_memory_rename`.
 
-## Discoverability
+- Each note has a kind: `episodic`, `semantic`, `procedural` or `resource`. The kinds come from the CoALA
+  agent-memory taxonomy.
+- Each write needs an Ed25519 signature. A release responder refuses a write with no signature. Under
+  `/memories/by_attester/<key>/`, it refuses every signer except the owner of that key.
+- `memory_search` finds notes by meaning. It uses the BGE text model (768 dimensions) and a LanceDB index.
+- `memory_bundle` puts many facts into one signed token, `emem:bundle:<bundle_cid>`.
+- `memory_contradictions` finds places where signed sources disagree, and scores the disagreement.
+- `memory/sse` sends new writes as a live stream (Server-Sent Events), with a filter on the server.
 
-The same content surfaces are reachable to agents via:
+## Two time filters
 
-- `GET /openapi.json`: full REST surface (browseable at [/docs/api/](/docs/api/) via ReDoc)
-- `POST /mcp` `tools/list` returns the 18 core tools by default, so a host's context carries about 75 KB of descriptors instead of 324 KB; `POST /mcp/full` advertises all 116 (18 core, 98 extended), and `{"tier":"core"|"extended"|"all"}` overrides either default. `tools/call` dispatches all 116 by name at both endpoints, so narrowing discovery removes no capability. `emem_tools` maps the surface: every tool declares one `dev.emem/shape` (the form of the answer: `scalar`, `raster`, `identity`, `token`, `proof`, and so on) and any number of overlapping `dev.emem/bundles` (the job: `tokenisation`, `verification`, `agent_to_agent`, `robotics`, …) in MCP-standard `_meta`, and both are filters
-- `POST /mcp` `resources/list`: 21 resources + 9 URI templates (memory anchors include `memory://emem/cell/<cell64>`, `memory://emem/fact/<cid>`, `memory://emem/bundle/<token>`)
-- `GET /llms.txt`, `GET /skills.md`
-- `GET /agent.json`, `GET /ai-plugin.json`
-- `GET /sitemap.xml`
-- MCP directory listing at [/agents](/agents)
+Each read accepts two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks
+what emem knew on a date. When you set both, both apply.
+
+When a read uses a time filter, the receipt carries an `as_of` block. An auditor can take a receipt from 2026 to any
+node in 2027 and replay the same query.
+
+## What ships and what does not
+
+emem is a protocol, not only a service. Each fact has a content id and a signature. So any responder can serve it,
+and any client can check it offline.
+
+What runs today:
+
+- one hosted responder at emem.dev, and nodes that you run yourself;
+- log witnesses: emem.dev and geo.qa sign each other's log heads;
+- content ids, signed receipts, typed time edges, scores for disagreement between writers, and a fixed refinement loop.
+
+What does not ship: routing across many hosts. The design goal is a federation of responders that resolve the same
+content ids to the same bytes and record where they disagree. [Federation](./federation.md) describes the design.
+
+These docs come from the `docs/` folder of the repository. The server binary that serves the rest of `web/` also
+serves these pages. There is no separate docs host.
+
+## Where to go next
+
+- [Start here](./start-here.md): a signed answer in ten minutes, the five ideas, and the field names per endpoint.
+- [Quickstart](./quickstart.md): the same calls in curl, Python, TypeScript, Go and MCP.
+- [Glossary](./glossary.md): each term with one plain definition.
+- [Case study](./case-studies/sugar-mill.md): three teams use signed notes to fix a test plan before the test runs.
+- [Memory substrate](./memory.md): the wire reference for notes, signatures, time filters, search and streams.
+- [Agents](./agents.md): each memory operation and the emem tool that does it.
+- [Whitepaper](./whitepaper-v3.md): the math, the trust layer and the receipt rules.
+- [Protocol](./protocol.md): the wire format, `cell64`, `tslot` and receipts.
+- [Registries](./registries.md): bands, algorithms, sources, topics and the schema.
+- [Errors](./errors.md): typed error codes, for example `memory_attestation_invalid` and `memory_namespace_violation`.
+- [Developers and operators](./developers/architecture.md): build, run and deploy.
+- [How to write emem docs](./writing-docs.md): the prose rules and the two lint scripts.
+
+## Rules that hold on every page
+
+- A receipt is an Ed25519 signature over a preimage with a domain tag and length prefixes:
+  `blake3("emem.preimage.v1" ‖ "receipt" ‖ tagged(request_id, served_at, [scope], [as_of], [edges], [manifest], primitive, cells[], fact_cids[]))`.
+  So two different answers can never share signed bytes. The field `preimage_version` selects the rule.
+  [/verify](/verify) and `/v1/verify_receipt` check it.
+- A fact is a signed observation. The signature proves who signed it and that the bytes did not change. It does not
+  prove that the value is true. Each fact carries its confidence, its uncertainty and its provenance class. Model and
+  human values carry a `caution`.
+- One memory serves three kinds of users. AI agents cite tokens, not paraphrases. Robots keep landmarks as entities
+  and hazards as facts, shared across fleets. Satellites, drones and fixed sensors sign at the source.
+- Earth observation is the first data source, not the limit. Each class of contributor is a profile in
+  [`/v1/substrates`](https://emem.dev/v1/substrates), with its rule for what it can write and its address space.
+  On 6 November 2026 there were 18 profiles. One, `earth.satellite.v0`, was active. [The memory model](model.md)
+  gives the formal definitions.
+- Content ids are the same on each responder. A `fact_cid` is 52 base32 characters, the full 32-byte BLAKE3 hash of
+  the canonical CBOR. Bundle and entity ids are shorter, 26 characters. `emem:fact:<cell64>:<fact_cid>` names one
+  fact, `emem:bundle:<bundle_cid>` names many facts, and `emem:entity:<entity_cid>` names an object. The old
+  prefixes `memt:`, `memb:` and `meme:` still resolve.
+- No silent fallbacks. An empty result tells "wrong query" apart from "nothing is here". When `find_similar` gets a
+  time filter, it cannot use its fast index, and the answer says `via: brute_force_fallback`.
+- No stubs. If a page documents a primitive, the primitive ships and its receipt verifies.
+
+## How agents find the surface
+
+- `GET /openapi.json`: the full REST surface. [/docs/api/](/docs/api/) shows it in ReDoc.
+- `POST /mcp` with `tools/list`: the 18 core tools, about 77 KB of descriptors. `POST /mcp/full` lists all 116 tools
+  (18 core and 98 extended), about 350 KB, in pages of 13: follow `nextCursor`. `{"tier":"core"|"extended"|"all"}`
+  changes the list. `tools/call` runs each of the 116 tools by name on both endpoints.
+- `emem_tools` gives a map of the tools. In its MCP `_meta`, each tool declares one `dev.emem/shape`: the form of the
+  answer, for example `scalar`, `raster` or `proof`. It also declares any number of `dev.emem/bundles`: the jobs, for
+  example `verification` or `robotics`. You can filter on both.
+- `POST /mcp` with `resources/list`: 21 resources and 9 URI templates, for example `memory://emem/cell/<cell64>`.
+- `GET /llms.txt` and `GET /skills.md`.
+- `GET /agent.json` and `GET /ai-plugin.json`.
+- `GET /sitemap.xml`.
+- The MCP directory listing at [/agents](/agents).
