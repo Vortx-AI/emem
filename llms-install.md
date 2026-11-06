@@ -1,13 +1,16 @@
 # emem MCP installation
 
-*For agents and the developers wiring them up. Expect commands you can paste.*
+*For agents and for the developers who connect them. You can paste every command on this page.*
 
-emem is a public remote MCP server: shared, verifiable memory for AI agents.
-Every place has one permanent address, every observation is one signed fact,
-and any agent can check any answer offline with no key, no account, and no
-trust in the operator required.
+emem is a public remote MCP server. It gives AI agents shared memory that they can verify.
+Each place has one permanent address, and each observation is one signed fact.
+An agent can check an answer offline. It needs no key, no account and no trust in the operator.
 
-This file is the Cline install convention, and works for any MCP client.
+Cline reads this file (`llms-install.md`) to install a server. Other MCP clients can use the same steps.
+
+**What you need:** an MCP client that supports Streamable HTTP, or `curl` to test the endpoint.
+
+**What you get:** the emem tools in your client. Reads need no key.
 
 ## Remote MCP endpoint
 
@@ -15,33 +18,43 @@ This file is the Cline install convention, and works for any MCP client.
 https://emem.dev/mcp
 ```
 
-No API key, signup, or local shell command. Reads are anonymous.
+You do not need an API key, an account or a local command. Reads are anonymous.
 
-Two endpoints, one server:
+The server has two endpoints:
 
-- `https://emem.dev/mcp` advertises an 18-tool core loop. A client that
-  connects cold spends about 77 KB of context (measured 2026-11-06).
-- `https://emem.dev/mcp/full` advertises all 116, about 350 KB, in pages of
-  13 tools. Follow `nextCursor` to get the next page.
+| Endpoint | Tools listed | Size of the tool list (6 November 2026) |
+|---|---|---|
+| `https://emem.dev/mcp` | 18, the core loop | 76,812 bytes, one page |
+| `https://emem.dev/mcp/full` | all 116 | 354,069 bytes, 8 pages of 11 to 22 tools |
 
-The split is listing-only. Every one of the 116 tools is callable by name at
-either endpoint, so a tool missing from your list is not missing from the
-server. Call `emem_tools` to search the rest or fetch one tool's schema.
+On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
+
+The two endpoints differ only in the list. You can call any of the 116 by name at either endpoint.
+If a tool is not in your list, it is still on the server. Call `emem_tools` to search the other tools or to get the schema of one tool.
+
+To check that the endpoint works, list the core tools:
+
+```bash
+curl -sX POST https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
+# 18   (6 November 2026)
+```
 
 ## Cline setup
 
 1. Open MCP Servers.
-2. Choose Add Server, then Remote Server.
-3. Server name `emem`, Server URL `https://emem.dev/mcp`, Transport
-   Streamable HTTP.
+2. Select Add Server, then Remote Server.
+3. Set Server name to `emem` and Server URL to `https://emem.dev/mcp`.
+4. Set Transport to Streamable HTTP.
 
-## Manual config
+## Manual configuration
 
-Two shapes, and they are not interchangeable. Everything else about the server
-is identical: same endpoint, same 116 tools, no key to read.
+There are two configuration shapes. You cannot use one in place of the other.
+In all other ways the server is the same: the same endpoint, the same 116 tools, and no key for reads.
 
-**Cline, Claude Code, Claude Desktop, Cursor** and most Streamable HTTP hosts
-use `mcpServers`:
+Cline, Claude Code, Claude Desktop, Cursor and most Streamable HTTP hosts use `mcpServers`:
 
 ```json
 {
@@ -54,8 +67,7 @@ use `mcpServers`:
 }
 ```
 
-**VS Code and GitHub Copilot** use `servers`, in `.vscode/mcp.json` or the
-profile opened by the **MCP: Open User Configuration** command:
+VS Code and GitHub Copilot use `servers`. Put it in `.vscode/mcp.json`, or in the profile that the **MCP: Open User Configuration** command opens:
 
 ```json
 {
@@ -68,14 +80,13 @@ profile opened by the **MCP: Open User Configuration** command:
 }
 ```
 
-Pasting the wrong key is silent: the file parses, the server never loads, and
-nothing reports why. If you are an agent writing this config for a user, read
-which editor they are in before choosing the key. In VS Code the tools also
-only appear in Copilot Chat's **Agent** mode; Ask mode is the default and shows
-none, which looks identical to a broken config.
+If you use the wrong key, nothing tells you. The file parses, but the server does not load.
+If you are an agent that writes this configuration for a user, identify which editor they use first.
+In VS Code, the tools show only in the **Agent** mode of Copilot Chat.
+Ask mode is the default and shows no tools, so it looks the same as a broken configuration.
 
-VS Code can also install it without a config file at all, because emem is in
-the GitHub MCP Registry: search `@mcp emem` in the Extensions view, or run
+You can also install emem in VS Code without a configuration file, because emem is in the GitHub MCP Registry.
+Search for `@mcp emem` in the Extensions view, or run this command:
 
 ```bash
 code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
@@ -83,57 +94,55 @@ code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
 
 ## Client libraries (optional)
 
-The endpoints above need no library. If you want typed clients:
+The endpoints above do not need a library. If you want typed clients, install one of these:
 
 ```bash
-pip install ememdev          # Python
-npm i @vortxai/emem          # TypeScript
+pip install ememdev          # Python, version 2.4.4 on PyPI (6 November 2026)
+npm i @vortxai/emem          # TypeScript, version 2.4.4 on npm (6 November 2026)
 ```
 
-Both names are deliberate and neither is guessable: on PyPI the bare name
-`emem` belongs to an unrelated project, and npm refuses `ememdev` as too
-close to an existing package, so the JS client is scoped.
+The package names are not `emem`, and the reason is intentional.
+On PyPI, the name `emem` belongs to a different project.
+npm does not accept `ememdev` because it is too near the name of an existing package, so the JavaScript client has a scope.
 
-## When to reach for emem
+## When to use emem
 
-When the answer should be checkable rather than plausible:
+Use emem when an answer must be checkable, not only plausible:
 
-- A question about a real place: elevation, surface water, vegetation,
-  built-up context, land cover, weather, air quality.
-- A claim that has to survive context compaction. Keep the `emem:fact:`
-  token; it resolves to the same bytes in the next session or the next model.
-- A hand-off between agents. Both resolve one token to byte-identical
-  content instead of exchanging paraphrases.
-- Anything needing an audit trail: every read carries an ed25519 receipt,
-  verifiable offline against the responder's published key.
+- A question about a real place, for example elevation, surface water, vegetation, built-up land, land cover, weather or air quality.
+- A claim that must stay correct after context compaction. Keep the `emem:fact:` token. It resolves to the same bytes in the next session or in a different model.
+- A handoff between agents. Each agent resolves one token to the same bytes, so they do not exchange paraphrases.
+- Work that needs an audit trail. Each read has an Ed25519 receipt that you can verify offline against the published key of the responder.
 
-Do not reach for it as a private scratchpad. Everything an agent writes to
-the shared store is world-readable, and the log is append-only: deletion
-unpublishes rather than erases.
+Do not use emem as a private scratchpad. All data that an agent writes to the shared store is public.
+The log is append-only. A deletion unpublishes the data. It does not erase it.
 
 ## The loop
 
-1. `emem_locate` grounds a place to its permanent address (cell64).
-2. `emem_recall` reads the signed facts there.
-3. `emem_memory_token` mints a citation you can hand to another agent.
-4. `emem_verify_receipt` checks any answer, including one you did not fetch.
+1. `emem_locate` changes a place name into its permanent address (cell64).
+2. `emem_recall` reads the signed facts at that address.
+3. `emem_memory_token` makes a citation token that you can give to another agent.
+4. `emem_verify_receipt` checks a receipt, also one that a different agent fetched.
 
 ## Test prompts
 
-- Ask emem for the elevation at Bengaluru, and quote the fact CID.
-- Use emem to check whether Helsinki Airport has surface-water signals
-  relevant to flood risk.
-- Verify the receipt from the previous answer, and say what the signature
-  actually proves.
+- "Ask emem for the elevation at Bengaluru, and quote the fact CID."
+  On 6 November 2026 the value was 915.07 m (`copdem30m.elevation_mean`).
+- "Use emem to check if Helsinki Airport has surface-water signals that matter for flood risk."
+- "Verify the receipt from the previous answer, and say what the signature proves."
 
-## Verify before you trust
+## Verify a receipt
 
-Receipts carry `preimage_version`. Select the verification rule from that
-field rather than assuming one: v2 (current) binds the inclusion proof into
-the signature, v1 and v0 remain valid and verify under their own rules. The
-exact byte layout is published at
-[`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec), generated from the
-running code so it cannot drift from what the server signs.
+Each receipt has a `preimage_version` field. Read that field and use the rule for that version. Do not assume one version.
+
+| `preimage_version` | Status (6 November 2026) |
+|---|---|
+| 2 | Current. The signature also covers the inclusion proof. |
+| 1 | Emitted until 5 August 2026. Still valid. The signature does not cover the inclusion proof. |
+| 0 or absent | No longer emitted. `POST /v1/verify_receipt` still verifies it. |
+
+The byte layout of each version is at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec).
+The responder makes that document from the same code that signs receipts, so the two cannot differ.
 
 ## Links
 
@@ -145,5 +154,5 @@ running code so it cannot drift from what the server signs.
 - GitHub MCP Registry: https://github.com/mcp/Vortx-AI/emem
 - Official MCP Registry: `io.github.Vortx-AI/emem`
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
-- Smithery: https://smithery.ai/servers/vortxai/emem
+- Smithery registry entry: https://registry.smithery.ai/servers/vortxai/emem (the web page `smithery.ai/servers/vortxai/emem` returned 404 on 6 November 2026)
 - Container: `ghcr.io/vortx-ai/emem:latest`
