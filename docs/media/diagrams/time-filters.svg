@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 650" width="640" height="650" role="img" aria-labelledby="t d">
   <title id="t">The two time filters on a read</title>
-  <desc id="d">A chart. The horizontal axis is ground time, the tslot: when a value was true on the ground. The vertical axis is signed time, signed_at: when emem signed the fact. as_of_tslot is a vertical line and keeps the facts to its left. as_of_signed_at is a horizontal line and keeps the facts below it. With both filters set, the read uses only the facts in the lower left area. One fact in that area is kept. A fact observed after the as_of_tslot date is not kept. A fact signed after the as_of_signed_at date, for example a later fetch, is not kept. as_of_tslot asks what was true on the ground on a date. as_of_signed_at asks what emem knew on a date. The receipt carries an as_of block, so another node can replay the read.</desc>
+  <desc id="d">A chart. The horizontal axis is ground time, the tslot: when a value was true on the ground. The vertical axis is signed time, signed_at: when emem signed the fact. as_of_tslot is a vertical line and keeps the facts to its left. as_of_signed_at is a horizontal line and keeps the facts below it. With both filters set, the read uses only the facts in the lower left area. One fact in that area is kept. A fact observed after the as_of_tslot date is not kept. A fact signed after the as_of_signed_at date, for example a later fetch, is not kept. as_of_tslot asks what was true on the ground on a date. as_of_signed_at asks what emem knew on a date. With a filter set, the receipt signs an as_of block, so another node can replay the read.</desc>
   <defs>
     <marker id="ax" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
@@ -61,5 +61,5 @@
   <text class="sans val" x="210" y="550">asks what emem knew on a date</text>
 
   <text class="sans small" x="24" y="604">Set one filter, both, or none. With none, the read gives the current state.</text>
-  <text class="sans small" x="24" y="626">The receipt carries an as_of block, so another node can replay the read.</text>
+  <text class="sans small" x="24" y="626">With a filter set, the receipt signs an as_of block, so another node can replay the read.</text>
 </svg>
