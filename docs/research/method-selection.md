@@ -215,3 +215,24 @@ cells each. The earlier record adds the two experiments already scored for 2022 
 quarters of a forest's cells read as changed against their own nulls. Post hoc over the lab's 38 forest-periods with
 Landsat, that rule changes a decision at Sao Felix in 2024-2025 only; these forests test it.
 
+## 10. What the second experiment found
+
+Results are in the companion paper, section 5.20. In short:
+
+- **No yes against Hansen.** With local evidence at all ten forests, the local policy scored 0.261 against 0.314 for the
+  global champion, and the context policy 0.308. Neither interval with forests resampled excludes zero (-0.162 to +0.041
+  and -0.035 to +0.028), so neither decides. The first experiment's gain, carried by one forest, did not repeat.
+- **The registered independent test is still to come.** CL1, a panel of model readers over these forests, tests the
+  local policy against the global one for this same selection, and is drawn but not scored.
+- **The flag.** The champion was flagged wrong at three forests, and at all three it scored below its own mean. That
+  count decides nothing, and without the unflagged forests' rate it is not evidence that the flag works.
+- **Version 5 was not tested.** It scored exactly as version 4 in both periods, so its rule never changed a decision.
+- **Verification** re-derived the decisions and both forest experiments in full, with one trust gap on the climate
+  class P2 chooses by. The selection's own result, the policy scores and intervals, has no verification report yet.
+
+What the next selection changes:
+
+1. Candidates that score identically on the earlier record count as one, so a choice is a real change of method.
+2. The verifier re-derives the selection's result too, not only its decisions and inputs.
+3. The flag is reported beside the unflagged forests' rate, so it can be judged.
+4. It is scored against CL1's kind of reference as well as Hansen.
