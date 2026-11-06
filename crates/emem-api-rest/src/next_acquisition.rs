@@ -121,12 +121,16 @@ pub(crate) fn project(passes: &[Pass], cycle_days: i64, now: i64) -> Vec<Project
             continue;
         };
         // The gaps between passes in whole cycles. A gap of two cycles is one
-        // pass the satellite did not take, or the catalogue does not hold.
-        let missed: i64 = times
+        // pass the satellite did not take, or the catalogue does not hold. The
+        // cycles since the last pass count too: they are the ones that say a
+        // track has gone quiet (Sentinel-1D, orbit 63 at Dhaulana, took no
+        // scene on 2026-10-26, and only this term showed it).
+        let between: i64 = times
             .windows(2)
             .map(|w| ((w[1].0 - w[0].0 + cycle / 2) / cycle - 1).max(0))
             .sum();
         let k = (now - last).div_euclid(cycle) + 1;
+        let missed = between + (k - 1);
         out.push(Projection {
             platform,
             track,
@@ -375,10 +379,11 @@ mod tests {
             "2026-11-07T00:43:42Z",
             "10-26 passed, 11-07 next"
         );
+        assert_eq!(o63.passes_missed, 1, "10-26 is due and has no scene");
         let o136 = p.iter().find(|x| x.track.contains("136")).unwrap();
         assert_eq!(
-            o136.passes_missed, 1,
-            "10-07 is missing between 09-25 and 10-19"
+            o136.passes_missed, 2,
+            "10-07 is missing between 09-25 and 10-19, and 10-31 after it"
         );
         assert_eq!(iso(o136.next_expected), "2026-11-12T00:51:48Z");
     }
