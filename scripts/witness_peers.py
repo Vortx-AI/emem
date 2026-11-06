@@ -38,6 +38,7 @@ import os
 import pathlib
 import sys
 import time
+import urllib.error
 import urllib.request
 
 import blake3
@@ -51,6 +52,22 @@ STATE = pathlib.Path.home() / ".config/emem/witness_state.json"
 # unit are readable by any local user via `systemctl show`, and a witness key
 # that leaks lets someone impersonate this node's reads against the peer.
 PEER_KEYS = pathlib.Path.home() / ".config/emem/peer_keys.json"
+# Peers whose log entries this witness must not read, even with a key: a list
+# of origins. geo.qa's node logs reads about a partner's private area from
+# 2026-11-06, and asked that its entries not be read; the head, consistency
+# and inclusion stay open, and custody is checked from inclusion alone.
+ENTRIES_PRIVATE = pathlib.Path.home() / ".config/emem/entries_private.json"
+
+
+def _entries_private() -> set:
+    try:
+        return set(json.loads(ENTRIES_PRIVATE.read_text()))
+    except FileNotFoundError:
+        return set()
+    except Exception as e:
+        print(f"warn: {ENTRIES_PRIVATE} unreadable ({e}); treating no peer as private",
+              file=sys.stderr)
+        return set()
 
 
 def b32d(s: str) -> bytes:
@@ -273,8 +290,16 @@ def audit_indices(root: bytes, my_pk: bytes, size: int, k: int) -> list:
     return sorted({int.from_bytes(seed[8 * i:8 * i + 8], "big") % size for i in range(k)})
 
 
-def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes, k: int):
-    """Fetch k sampled leaves and their inclusion proofs. Returns (checked, problems).
+def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes, k: int,
+                  private: bool = False):
+    """Fetch k sampled leaves and their inclusion proofs. Returns (checked,
+    problems, private).
+
+    A peer whose entries are private (listed in ENTRIES_PRIVATE, or whose
+    entries route answers 401 or 403) is checked from inclusion alone: the
+    served leaf hash must reach the co-signed head. That proves the leaf is in
+    the tree, not that the peer still holds its bytes, and the caller says so.
+    A 401 is not a custody failure; before this it was reported as one.
 
     `/v1/log/inclusion` proves against the CURRENT head and returns the STH it
     proved against; it does not take a tree size (the first draft passed one,
@@ -288,13 +313,20 @@ def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes,
     idx = audit_indices(root, my_pk, size, k)
     extends = {}  # served tree_size -> consistency with (size, root) proven?
     for i in idx:
+        e = None
         try:
-            e = get(f"{origin}/v1/log/entries?start={i}&limit=1")["entries"][0]
+            if not private:
+                try:
+                    e = get(f"{origin}/v1/log/entries?start={i}&limit=1")["entries"][0]
+                except urllib.error.HTTPError as ex:
+                    if ex.code not in (401, 403):
+                        raise
+                    private = True
             inc = get(f"{origin}/v1/log/inclusion?leaf_index={i}")
         except Exception as ex:
             problems.append(f"leaf {i}: unreachable ({str(ex)[:40]})")
             continue
-        if int(e.get("leaf_index", -1)) != i:
+        if e is not None and int(e.get("leaf_index", -1)) != i:
             problems.append(f"leaf {i}: entries route answered with leaf {e.get('leaf_index')}")
             continue
         try:
@@ -308,14 +340,17 @@ def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes,
         if t < size:
             problems.append(f"leaf {i}: inclusion route's head {t} is behind the co-signed {size}")
             continue
-        entry = blake3.blake3(b32d(e["attestation_cbor_b32"])).digest()
-        if entry != b32d(e["entry_hash_b32"]):
-            problems.append(f"leaf {i}: served bytes do not hash to the served entry hash")
-            continue
-        leaf = leaf_hash(entry)
-        if leaf != b32d(inc["leaf_hash_b32"]):
-            problems.append(f"leaf {i}: inclusion route's leaf hash is not this entry's")
-            continue
+        if e is None:
+            leaf = b32d(inc["leaf_hash_b32"])
+        else:
+            entry = blake3.blake3(b32d(e["attestation_cbor_b32"])).digest()
+            if entry != b32d(e["entry_hash_b32"]):
+                problems.append(f"leaf {i}: served bytes do not hash to the served entry hash")
+                continue
+            leaf = leaf_hash(entry)
+            if leaf != b32d(inc["leaf_hash_b32"]):
+                problems.append(f"leaf {i}: inclusion route's leaf hash is not this entry's")
+                continue
         if not verify_inclusion(leaf, i, t, [b32d(x) for x in inc["audit_path_b32"]], root_t):
             problems.append(f"leaf {i}: inclusion proof does not reach the served root at {t}")
             continue
@@ -333,7 +368,7 @@ def audit_custody(origin: str, size: int, root: bytes, rpk: bytes, my_pk: bytes,
                     extends[t] = False
         if not extends[t]:
             problems.append(f"leaf {i}: served head {t} is not an extension of the co-signed head {size}")
-    return len(idx), problems
+    return len(idx), problems, private
 
 
 def verify_consistency(first: int, second: int, first_root: bytes,
@@ -494,14 +529,16 @@ def main() -> int:
         # peer still holds the bytes under it. Kept separate on purpose.
         k = int(os.environ.get("EMEM_WITNESS_SAMPLES", "4"))
         if k > 0:
-            checked, problems = audit_custody(origin, size, root, rpk, my_pk, k)
+            checked, problems, private = audit_custody(
+                origin, size, root, rpk, my_pk, k, private=origin in _entries_private())
+            how = "inclusion only, the entries are private" if private else "entries re-hashed"
             if problems:
                 print(f"  {origin}: CUSTODY FAILURE on {len(problems)} of {checked} sampled leaves:")
                 for pr in problems:
                     print(f"    {pr}")
                 failures.append(origin)
             else:
-                print(f"    audited {checked} sampled leaves under root {b32e(root)[:8]}: all verify")
+                print(f"    audited {checked} sampled leaves under root {b32e(root)[:8]} ({how}): all verify")
 
         # The pin records what we CO-SIGNED, not what we looked at, so it
         # advances whether or not custody was sampled. This used to sit inside
