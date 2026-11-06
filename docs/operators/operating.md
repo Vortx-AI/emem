@@ -324,6 +324,9 @@ The script downloads `model.onnx` (about 435 MB) and `tokenizer.json` to `$EMEM_
 takes more than 90 seconds, the node starts anyway. The first `/v1/ask` then waits for the warmup to finish.
 `EMEM_TOPIC_BACKEND=keyword` loads no model.
 
+The router runs on the CPU only. The build links the bundled CPU ONNX Runtime and has no CUDA feature, so no
+variable turns on a GPU. A comment in `topic_router.rs` names `EMEM_TOPIC_USE_GPU`, but no code reads it.
+
 ## Run more than one node
 
 A node runs on one host. There is no clustering, no leader election and no replicated store.

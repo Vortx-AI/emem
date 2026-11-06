@@ -84,6 +84,8 @@ All state is under `EMEM_DATA`. The binary default is `./var/emem`. The image se
 | `facts.redb` | The hot store of signed facts. |
 | `cache.sled/` | Memory notes, attesters, fact proofs and other small indexes. |
 | `log/` | The append-only Merkle log of attestations. |
+| `tile_store/` | Local copies of the static forest rasters, up to `EMEM_TILE_STORE_GB` gigabytes (default 40). `0` turns it off. |
+| `geocoder.sled/` | The cache of place-name lookups and Overture division polygons. |
 | `lance/` | Vector indexes for `find_similar` and memory search. The node loads them on start. |
 | `acme.cache/` | The Let's Encrypt certificate, when TLS is on. |
 | `models/` | Optional model files, for example `bge-base-en-v1.5` for memory search. |
@@ -91,8 +93,8 @@ All state is under `EMEM_DATA`. The binary default is `./var/emem`. The image se
 Back up `identity.secret.b32`. If you lose it, the node makes a new key. Agents that pinned your old
 `responder_pubkey_b32` then refuse every receipt that the new key signs. Your public key is in the reply from `/live`.
 
-The paths come from `MaterializingStorage::rooted` in `crates/emem-storage/src/lib.rs` and from
-`crates/emem-cli/src/bin/emem-server.rs`.
+The paths come from `MaterializingStorage::rooted` in `crates/emem-storage/src/lib.rs`,
+`crates/emem-cli/src/bin/emem-server.rs` and `geocoder_db_path` in `crates/emem-api-rest/src/lib.rs`.
 
 ## Build from source
 
