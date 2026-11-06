@@ -37,6 +37,7 @@ import concurrent.futures
 import glob
 import html
 import json
+import os
 import pathlib
 import re
 import shlex
@@ -404,6 +405,11 @@ def main() -> int:
         for path, line, cmd, v in failures:
             print(f"  {where(path)}:{line}  -> {v}")
             print(f"      {cmd[:150]}")
+            # The job log needs a login to read and annotations do not: a
+            # failed production-truth run said only "exit code 1" otherwise.
+            if os.environ.get("GITHUB_ACTIONS") == "true":
+                msg = f"{v} :: {cmd[:200]}".replace("\r", " ").replace("\n", " ")
+                print(f"::error file={where(path)},line={line}::{msg}")
         return 1
     print("Every runnable example we publish answers, and none of them answers "
           "with an error envelope.")
