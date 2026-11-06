@@ -18,14 +18,16 @@ external agent uses.
 
 > **It cannot write to a default responder today.** The agent sends
 > `emem_memory_create` with no `attester` block. A release build refuses
-> every unattested note write with 401 `memory_attestation_required`. The
+> every unattested note write with `memory_attestation_required`. The
 > operator must set `EMEM_MEMORY_OPEN=1` or `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`
 > to accept such writes. emem.dev sets `EMEM_MEMORY_REQUIRE_ATTESTER=1`, so
 > emem.dev refuses the agent's writes. On an open responder, the agent still
 > cannot write under `/memories/by_attester/`. It also cannot write over an
-> open-root path that another key created (403 `memory_namespace_violation`).
+> open-root path that another key created (`memory_namespace_violation`).
+> Both refusals arrive as an MCP tool result with `isError: true`, not as
+> an HTTP status. See [Write your first signed note](memory.md#write-your-first-signed-note).
 > Dry-run and candidate selection work on any responder. The agent cannot
-> sign its writes with a persisted key: that part is not built.
+> sign its writes with a persisted key: the crate has no code for that yet.
 
 ## How a pass works
 
@@ -50,7 +52,8 @@ Each pass has three steps.
    The agent finds candidates in two ways:
    - Contradictions. `POST /v1/memory_contradictions` returns
      `(cell, band, tslot)` triples where two or more attesters disagree.
-     Each triple has a severity in `[0,1]`. The agent does not send
+     Each triple has a severity in `[0,1]`. [Contradiction detection](memory.md#contradiction-detection)
+     describes the scan. The agent does not send
      `include_same_attester_sources`, so the server default (`true`)
      applies. The scan reports two kinds of disagreement: two or more
      different attesters, and one attester that answered the same address
@@ -96,7 +99,7 @@ export OPENAI_API_KEY=sk-...            # or EMEM_SLEEP_AGENT_LLM_API_KEY
 
 The transport sends a standard `messages` body and reads
 `choices[0].message.content`. The agent estimates the cost from the `usage`
-token counts that the model returns. The rate is fixed in `llm.rs`: USD 0.50
+token counts that the model returns. `llm.rs` sets a fixed rate: USD 0.50
 for each million prompt tokens and USD 1.50 for each million completion
 tokens. Only the budget cap uses this estimate. It never changes the text.
 

@@ -1053,6 +1053,11 @@ What the substrate gives you:
 
 ## See also
 
+- [model.md](model.md): the formal model behind notes, facts, tokens and
+  time filters.
+- [sleep-agent.md](sleep-agent.md): an opt-in loop that reads the
+  contradiction scan and proposes merged notes.
+- [glossary.md](glossary.md): one meaning for each term on this page.
 - [agents.md](agents.md): the read-side guide for callers that come
   from Mem0, Letta or LangGraph.
 - [whitepaper-v3.md](whitepaper-v3.md): the protocol, the trust layer and

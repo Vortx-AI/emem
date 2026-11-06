@@ -56,7 +56,7 @@ These parts of the model do not ship today:
   again,
 - the numeric split of a change between the world and the instrument,
 - derivations with more than one step as signed objects,
-- proofs of the properties that a machine checks.
+- machine-checked proofs of the properties.
 
 ## The formal model
 
