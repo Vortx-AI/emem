@@ -801,7 +801,7 @@ can hash the text and compare it with `reason_cid`. The responder
 signed some absences before it stored reason text. For those, `reason` is
 `null`.
 
-Examples of reason codes in the code on 7 November 2026:
+Examples of reason codes in the code on 6 November 2026:
 
 | Reason code | When the responder emits it |
 |---|---|
