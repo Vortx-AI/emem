@@ -107,7 +107,7 @@ answer as a regional answer.
 When `budget_ms` runs out, the call returns a partial 200 with
 `converged: false` and a `pending[]` list. Each entry says why it is
 pending and what to do. The server does not stop the pending fetches.
-Thus the same request, sent again, returns more facts. The responder
+Thus the same request, sent again, can return more facts. The responder
 does not sign the entries in `pending`. They do not state that a cell
 has no data.
 

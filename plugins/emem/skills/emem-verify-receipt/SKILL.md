@@ -94,9 +94,9 @@ The one band gave 12 facts, thus 12 fact cids. Your digest and counts
 will be different, because each call has a new `request_id` and
 `served_at`.
 
-We changed `served_at` in the same file, and the script printed
-`INVALID` and exited with 1. We deleted `receipt.merkle_proof`, and the
-result was the same.
+If you change `served_at` in the same file, the script prints `INVALID`
+and exits with 1. If you delete `receipt.merkle_proof`, the result is
+the same.
 
 | Exit code | Meaning |
 |---|---|

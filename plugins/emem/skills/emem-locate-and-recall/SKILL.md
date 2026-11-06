@@ -53,6 +53,8 @@ curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
 Read `cell64`, `place_label`, `via` and `disambiguation_required` in the
 result. On 6 November 2026 this call returned `defi.zb493.zezo.zcb35`,
 "Bengaluru (city), Karnataka, India", through the `photon` geocoder.
+A repeat call for the same place can show `cache` in `via`. Other
+values are `embedded`, `geonames`, `nominatim` and `direct`.
 
 The tool also accepts `place` as a synonym of `q`. A body with
 `{"lat":..,"lng":..}` does not use the geocoder.
@@ -98,7 +100,7 @@ Read the response by field name, not by position:
 | `current_by_band` | The `fact_cid` of the latest reading for each band. Use it to pick the fact that you quote. |
 | `value_verbatim` | The exact decimal string that the responder signed. Quote it. Do not re-type the JSON number. |
 | `memory_token` | The citation `emem:fact:<cell64>:<fact_cid>`. Give it to the user or to the next agent. |
-| `materialize_notes[]` | One note for each band you asked for: `materialized`, or `skipped` with a `reason_class`. |
+| `materialize_notes[]` | Present only when the call fetched on a miss. One note for each band that it fetched: `materialized`, or `skipped` with a `reason_class`. A warm recall has no `materialize_notes` key. |
 | `receipt` | The responder's signature over the `fact_cids` in this response. Verify it with [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md). |
 
 A `timeout` note with `retryable: true` means that the fetch continues
@@ -173,7 +175,8 @@ and `emem_hunt` run as tasks.
 
 `POST /v1/ask {"question":"what is the elevation of Bengaluru?"}` (MCP
 `emem_ask`) classifies the question and runs locate and recall for you.
-It returns the same signed facts and a receipt. Use the two-step path
+It returns `answer`, `fact_cids`, `facts_summary` and a `receipt`. It
+does not return a `facts[]` list or a `memory_token`. Use the two-step path
 when you must control the bands or the place resolution.
 
 ## Before you quote the number
