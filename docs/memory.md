@@ -249,7 +249,7 @@ of these is a signed write with its own body and `base`. The table in
 
 | Layer | Endpoint | Wire shape | Returns |
 |---|---|---|---|
-| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, as_of_tslot?, as_of_signed_at?}` | a stored embedding vector and a memory_token; the encoders are retired (see below), so it answers only from vectors signed before the retirement |
+| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, as_of_tslot?, as_of_signed_at?}` | a stored embedding vector and a memory_token; no encoder runs now (see below), so it answers only from vectors signed before the retirement |
 | State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
 | State fan-out | `POST /v1/state_multi` | `{cell, encoders?, as_of_*?}` | per-encoder dense map; empty by default, since no encoder is live |
 | State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}` | residual + cosine + both fact_cids |
@@ -271,7 +271,7 @@ of these is a signed write with its own body and `base`. The table in
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
 | Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, include_same_attester_sources?, limit?}` | severity-scored disagreements |
 
-The foundation encoders that `view=encoder` reads are retired. The code
+emem retired the foundation encoders that `view=encoder` reads. The code
 no longer contains Clay v1.5, Prithvi-EO-2.0 or Galileo. emem.dev also
 retires `geotessera` through `EMEM_RETIRED_BANDS`. Their bands stay in the
 manifest, so old vectors still recall and verify. The responder makes no
@@ -391,7 +391,7 @@ verb, with `reason: v1_retired`. The v1 preimage binds no base. Thus a
 signature copied from the log could restore an old text or a deleted
 note. Notes signed with v1 before that date still verify when you read
 them. `POST /v1/derive` still uses the v1 form with `verb = "derive"`
-(see [Registering your own derivations](#registering-your-own-derivations)).
+(see [Register your own derivations](#register-your-own-derivations)).
 
 `rename` is the only verb whose signature binds two paths. The preimage
 `path` is the destination. The `body_hash` is the hash of the source
@@ -414,7 +414,7 @@ Who may write where:
 - `/memories/.well-known/` belongs to the operator. It refuses every
   key, the key of the responder too (`reason: reserved_namespace`).
 
-Memory writes go through `POST /mcp`. So each refusal is a tool result
+Memory writes use `POST /mcp`. So each refusal is a tool result
 with `isError: true`, not an HTTP status. Its `details.code` names the
 case:
 
@@ -585,7 +585,7 @@ and each triple of `memory_bundle`.
 
 | Filter | Type | Returns |
 |---|---|---|
-| `as_of_tslot` | u64 | the latest fact per `(cell, band)` with `tslot <= as_of_tslot` (valid time: when the world was observed) |
+| `as_of_tslot` | u64 | the latest fact per `(cell, band)` with `tslot <= as_of_tslot` (valid time: when the sensor observed the world) |
 | `as_of_signed_at` | RFC 3339 string | the latest fact with `signed_at <= as_of_signed_at` (transaction time: when emem signed it) |
 
 When you set both, a fact must pass both. When you set neither, the
@@ -627,7 +627,7 @@ held 325 facts without the bound and that the bound removed all of them.
 | `as_of_tslot` is lower than `tslot` | 400 `invalid_argument`, message starts with `invalid_temporal_bound:` |
 | `as_of_signed_at` is not valid RFC 3339 | 400 `invalid_argument`, message starts with `invalid_signed_at_format:` |
 | The filter removes every fact | 200 with `temporal_advice`. Zero facts is a valid answer to "what did emem know then". |
-| `recall` with `as_of_signed_at` in the past | no fetch on a miss. A fact fetched now is signed now and cannot pass the filter. `materialize_notes` gives `reason: as_of_signed_at_in_the_past`. |
+| `recall` with `as_of_signed_at` in the past | no fetch on a miss. The responder signs a new fact with the current time, so it cannot pass the filter. `materialize_notes` gives `reason: as_of_signed_at_in_the_past`. |
 
 `find_similar` with a time filter does not use the LanceDB IVF_PQ index,
 because the Lance schema has no `signed_at`. It scans all vectors. The
@@ -641,7 +641,7 @@ The `mode` field selects one:
 | `mode` | How it ranks | Use it when |
 |---|---|---|
 | `dense` (default) | cosine between BAAI/bge-base-en-v1.5 vectors (768-D, L2-normalised) | you search by meaning |
-| `lexical` | BM25 over the same files | no embedder is installed, or the entries differ only in numbers or coordinates |
+| `lexical` | BM25 over the same files | the responder has no embedder, or the entries differ only in numbers or coordinates |
 
 Search covers the files of every caller, because memory here is a
 shared commons. To narrow it, send `attester_pubkey_b32` or
@@ -693,7 +693,7 @@ Each response has a `via` field that tells which path answered:
 | `via` | Path |
 |---|---|
 | `lance_chunks` | cosine over the chunk dataset |
-| `lance_scan` | cosine over the file dataset, before the chunk dataset is loaded |
+| `lance_scan` | cosine over the file dataset, before the first load of the chunk dataset |
 | `brute_force_fallback` | embeds each file in the process and scans them. Used when `EMEM_DISABLE_LANCE=1`, or when the dataset is empty or not reachable. |
 | `bm25_lexical` | the `lexical` mode |
 
@@ -727,8 +727,8 @@ responder stores that fact and adds it to the multi-attester index. The
 new fact does not take the slot. The multi-attester index therefore keeps the
 CID of each distinct attester at the key.
 
-Few keys can put a fact there. By default the fact plane is closed.
-`/v1/attest` accepts only these keys:
+Few keys can put a fact there. By default, `/v1/attest` accepts only
+these keys:
 
 - the key of the responder
 - a device enrolled for traces
@@ -814,57 +814,98 @@ The score depends on the band kind:
 
 ## Memory event stream
 
-`GET /v1/memory/sse?path_prefix=&kind=&attester=` opens a Server-Sent
-Events channel that emits every write event matching the filter.
-Event shape:
+`GET /v1/memory/sse` sends each memory write as a Server-Sent Event.
+Use it to follow the shared notes, so you do not have to poll. The three query
+parameters are optional filters:
 
-```json
-{
-  "type": "created" | "modified" | "deleted" | "renamed" | "expired" | "consolidated",
-  "path": "/memories/...",
-  "file_cid": "<new content-address>",
-  "prev_file_cid": "<previous content-address>",   // modified, renamed only
-  "kind": "episodic | semantic | procedural | resource",
-  "attester_pubkey_b32": "<base32>",               // null for bare writes
-  "signed_at": "ISO 8601",
-  "size_bytes": 1234                                // created, modified
-}
+| Parameter | An event passes when |
+|---|---|
+| `path_prefix` | its path starts with this text. For `renamed`, the new path counts. For `consolidated`, the first path counts. |
+| `kind` | its `kind` is equal to this value |
+| `attester` | its `attester_pubkey_b32` is equal to this key. `expired` and `consolidated` events have no attester, so this filter removes them. |
+
+This read ran on 6 November 2026 and stopped after 4 seconds:
+
+```sh
+curl -sN --max-time 4 \
+  'https://emem.dev/v1/memory/sse?path_prefix=%2Fmemories%2Fby_attester%2F'
 ```
 
-Events are not individually signed; the underlying file's receipt is
-the verification surface. The stream is best-effort notification.
+The first frame came at once. It names the filters and the two limits
+of the stream (text shortened here):
 
-Cap: 256 concurrent subscribers (`EMEM_SSE_MAX_SUBS`). 503 on overflow.
+```
+event: ready
+retry:5000
+data: {"type":"ready","stream":"emem.memory_event.v1","filters":{"attester":null,"kind":null,"path_prefix":"/memories/by_attester/"},"keepalive_s":15,"backfill":"none: this is a live tail. ...","resume":"none: events carry no id, ..."}
+```
 
-15-second keep-alive comments keep idle connections alive.
+After the `ready` frame, each write sends one `data:` frame with a JSON
+object. The `type` field selects the other fields:
+
+| `type` | Sent when | Fields |
+|---|---|---|
+| `created` | a write makes a new path | `path`, `file_cid`, `kind`, `attester_pubkey_b32`, `signed_at`, `size_bytes` |
+| `modified` | a write changes a path that exists (create, `str_replace`, `insert`) | `path`, `file_cid`, `prev_file_cid`, `kind`, `attester_pubkey_b32`, `signed_at` |
+| `deleted` | `emem_memory_delete` removes a path | `path`, `kind`, `attester_pubkey_b32`, `deleted_at` |
+| `renamed` | `emem_memory_rename` moves a path | `old_path`, `new_path`, `file_cid`, `kind`, `attester_pubkey_b32` |
+| `expired` | the TTL pass removes a path (only when `EMEM_MEMORY_TTL_ENABLED=1`) | `path`, `kind`, `expired_at` |
+| `consolidated` | a background pass combines episodic notes into one note (only when `EMEM_MEMORY_CONSOLIDATION_ENABLED=1`) | `paths`, `into_cid`, `kind`, `signed_at` |
+
+A supersede changes no bytes and sends no event. A write of the same
+bytes to the same path sends `modified`, with `prev_file_cid` equal to
+`file_cid`.
+
+Know these limits before you depend on the stream:
+
+- The responder does not sign the events. To check a write, read the
+  note and verify its receipt.
+- The stream is a live tail. It does not send events from before you
+  connected, and events have no `id`, so `Last-Event-ID` cannot fill a
+  gap. After a reconnect, read the notes again to find what you missed.
+- A client that reads too slowly gets
+  `{"type":"lag","reason":"subscriber too slow"}`. The client lost
+  events. Read the notes again.
+- A comment frame every 15 seconds keeps an idle connection open.
+- One responder accepts 256 subscribers at a time (`EMEM_SSE_MAX_SUBS`).
+  Above the cap, the request gets a 503 with code `rate_limited`.
 
 ## Storage layout
 
-Sled trees backing the substrate (the memory trees stayed in sled when
-the fact index moved to redb in 2.4.0):
+This section is for operators. The memory trees are in sled, under
+`var/emem/sled/`. Release 2.4.0 moved the fact index to redb, but the
+memory trees did not move.
 
 | Tree | Key | Value |
 |---|---|---|
 | `emem.memory_files` | path | `file_cid` |
 | `emem.memory_files_by_kind` | `kind\|path` | `file_cid` |
 | `emem.memory_files_expired` | path | `file_cid` |
-| `emem.memory_file_blobs` | `file_cid` | raw bytes (content-addressed; dedup across paths) |
-| `emem.memory_file_history` | path | CBOR `Vec<file_cid>` (chronological audit replay) |
-| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (path, signed_at, size_bytes, kind, attester, verb, receipt) |
+| `emem.memory_file_blobs` | `file_cid` | raw bytes, stored once for all paths that hold them |
+| `emem.memory_file_history` | path | CBOR `Vec<file_cid>`, oldest first |
+| `emem.memory_file_meta` | `file_cid` | CBOR `MemoryFileMeta` (path, signed_at, size_bytes, kind, attester, verb, receipt) of the first live writer of these bytes |
+| `emem.memory_file_meta_by_path` | path | the `MemoryFileMeta` of the write at that path |
+| `emem.memory_path_events` | path | each supersede and delete of the path, oldest first |
 | `emem.memory_tombstones` | path | JSON `emem.tombstone.v1` (prior `file_cid`, `deleted_by`, `deleted_at`) |
 | `emem.memory_vault` | path | CBOR sealed envelope (ciphertext, nonce, aad) |
 | `emem.memory_bundles` | `bundle_cid` | CBOR `BundleResp` |
 
+Two paths can hold the same bytes, so one `file_cid` can have two
+authors. For this reason the responder keeps the record of each write
+by path in `memory_file_meta_by_path`. The record by `file_cid` is for
+readers that have only the CID.
+
 The multi-attester index (`emem.multi_attester_index`, key
-`cell\0band\0tslot_be8`, value CBOR `Vec<FactCid>`) lives in
-`facts.redb` with the fact index on the default redb backend.
+`cell\0band\0tslot_be8`, value CBOR `Vec<FactCid>`) is in
+`facts.redb` with the fact index.
 
 The responder never deletes a blob. `emem_memory_delete` removes the
 path from the index and writes a tombstone. `memory_file_blobs` keeps
-the bytes, so you can still get them by `file_cid`. To rebuild what was
-written and when, the audit replay reads `memory_file_history` in order.
+the bytes, so you can still get them by `file_cid`. To rebuild the
+order of the writes to a path, read `memory_file_history`. To see its
+supersedes and deletes, read `memory_path_events`.
 
-## Registering your own derivations
+## Register your own derivations
 
 `POST /v1/derive` (`emem_derive`) registers a value that **you**
 computed over facts that this responder holds. You get back an ordinary
@@ -992,8 +1033,8 @@ second copy.
 | A knowledge graph | Zep, Graphiti | Contradiction detection looks at one `(cell, band, tslot)` at a time. It does not reason over relations with many hops. |
 | A stateful agent process | Letta | emem is a server that an agent calls. The agent decides what to remember. |
 
-The hosted namespace is a commons that everyone can read. No read is
-limited to the owner. A `vault` entry hides its bytes from other
+The hosted namespace is a commons that everyone can read. An owner cannot
+limit who reads a note. A `vault` entry hides its bytes from other
 callers but not from the operator. Keep private scratch on your side, or
 encrypt it before you write it.
 
