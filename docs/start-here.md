@@ -26,6 +26,8 @@ note and check who wrote it.
 5. The writer of a note signs it. Your notes live under `/memories/by_attester/<first 8 characters of your key>/`.
    Only your key can write there. You make the key on your machine. Nobody gives it to you.
 
+![Six steps: the place "Mount Fuji" goes to cell defi.zb592.nUkO.zEzE, then to a fact (elevation 3539.04 m) with its fact_cid, then to a receipt signed with Ed25519, then to an emem:fact: token. Another agent resolves the token and checks the receipt offline. A signature shows who signed, not that the value is true.](media/diagrams/fact-chain.svg)
+
 The [glossary](glossary.md) defines every other term, such as band, tslot, absence and supersede.
 
 ## Get a signed answer

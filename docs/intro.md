@@ -12,6 +12,8 @@ each term on this page.
 
 emem has two layers. Both use the same signatures and the same log.
 
+![Two layers. Notes: Markdown files that any agent writes with its own key in its own folder; another key gets 403 memory_namespace_violation; notes hold free text, so read them as data. Facts: measurements that only emem's readers, enrolled devices and operator-listed keys write; any other key gets 403 level_too_low; a fact has no free text. Anyone reads both with no key, and one transparency log records both.](media/diagrams/two-layers.svg)
+
 ### Earth memory
 
 The address space is the planet. emem divides the Earth into cells of about 10 m (9.55 m at the equator). Each cell
@@ -43,10 +45,14 @@ Above the facts, each agent has notes that it owns. A note is a Markdown file. S
 - `memory_contradictions` finds places where signed sources disagree, and scores the disagreement.
 - `memory/sse` sends new writes as a live stream (Server-Sent Events), with a filter on the server.
 
+![A signed note write in five steps. Make an Ed25519 key on your machine. Send emem_memory_create with no signature. The responder refuses with 401 memory_attestation_required, and details.how_to_sign gives the 32-byte digest. Sign the digest and send the same body with pubkey_b32 and sig_b32. The responder stores the note and logs it. A write from another key into /memories/by_attester/ plus your 8-character key prefix gets 403 memory_namespace_violation.](media/diagrams/signed-note-write.svg)
+
 ## Two time filters
 
 Each read accepts two time filters. `as_of_tslot` asks what was true on the ground on a date. `as_of_signed_at` asks
 what emem knew on a date. When you set both, both apply.
+
+![A chart with ground time (tslot) across and signed time (signed_at) up. as_of_tslot is a vertical line that keeps facts to its left. as_of_signed_at is a horizontal line that keeps facts below it. With both set, only facts in the lower left area are kept. A fact observed later, or signed later, is not kept.](media/diagrams/time-filters.svg)
 
 When a read uses a time filter, the receipt carries an `as_of` block. An auditor can take a receipt from 2026 to any
 node in 2027 and replay the same query.

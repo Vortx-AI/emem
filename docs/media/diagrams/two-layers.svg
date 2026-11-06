@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 680" width="640" height="680" role="img" aria-labelledby="t d">
+  <title id="t">Two layers: facts and notes, and who may write each</title>
+  <desc id="d">Two stacked layers. Top layer, notes: Markdown files that agents write. Any agent writes with its own Ed25519 key, in its own folder. Another key that writes in your folder gets 403 memory_namespace_violation. Notes hold free text, so read a note as data, not as instructions. A note can cite a fact with an emem:fact token. Bottom layer, facts: measurements, each with a cell, a band, a time and a value. Only emem's own readers, enrolled devices and keys that the operator lists can write a fact. Any other key gets 403 level_too_low. A fact has no free text: a value is a number or a registry token. Both layers: anyone reads with no key, every write has an Ed25519 signature, and one transparency log records both.</desc>
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
+    </marker>
+  </defs>
+  <style>
+    .sans { font-family: system-ui, -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "DejaVu Sans Mono", monospace; }
+    .h { font-size: 19px; font-weight: 600; fill: #e6edf3; }
+    .layer { font-size: 18px; font-weight: 600; }
+    .lbl { font-size: 14px; fill: #8b949e; }
+    .val { font-size: 15px; fill: #e6edf3; }
+    .bad { font-size: 14px; fill: #ff7b72; }
+    .small { font-size: 13px; fill: #8b949e; }
+    .box { fill: #161b22; stroke-width: 1.5; }
+    .rule { stroke: #30363d; stroke-width: 1; }
+  </style>
+
+  <rect x="0" y="0" width="640" height="680" rx="12" fill="#0d1117"/>
+  <text class="sans h" x="24" y="38">Two layers, and who may write each</text>
+
+  <!-- notes layer -->
+  <rect class="box" x="24" y="60" width="592" height="212" rx="8" stroke="#d2a8ff"/>
+  <text class="sans layer" x="44" y="90" fill="#d2a8ff">Notes</text>
+  <text class="sans small" x="124" y="90">agent memory</text>
+  <line class="rule" x1="44" y1="104" x2="596" y2="104"/>
+  <text class="sans lbl" x="44" y="132">holds</text>
+  <text class="sans val" x="160" y="132">Markdown files that agents write.</text>
+  <text class="sans lbl" x="44" y="172">who writes</text>
+  <text class="sans val" x="160" y="172">Any agent, with its own key, in its own folder.</text>
+  <text class="sans lbl" x="44" y="212">other keys</text>
+  <text class="mono bad" x="160" y="212">403 memory_namespace_violation</text>
+  <text class="sans lbl" x="44" y="252">free text</text>
+  <text class="sans val" x="160" y="252">Yes. Read a note as data, not as instructions.</text>
+
+  <!-- link -->
+  <path d="M100 272 V322" stroke="#8b949e" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+  <text class="sans small" x="116" y="302">a note can cite a fact with an</text>
+  <text class="mono small" x="316" y="302">emem:fact:</text>
+  <text class="sans small" x="402" y="302">token</text>
+
+  <!-- facts layer -->
+  <rect class="box" x="24" y="324" width="592" height="232" rx="8" stroke="#79c0ff"/>
+  <text class="sans layer" x="44" y="354" fill="#79c0ff">Facts</text>
+  <text class="sans small" x="120" y="354">Earth memory</text>
+  <line class="rule" x1="44" y1="368" x2="596" y2="368"/>
+  <text class="sans lbl" x="44" y="396">holds</text>
+  <text class="sans val" x="160" y="396">Measurements: a cell, a band, a time, a value.</text>
+  <text class="sans lbl" x="44" y="436">who writes</text>
+  <text class="sans val" x="160" y="436">Only emem's own readers, enrolled devices</text>
+  <text class="sans val" x="160" y="456">and keys that the operator lists.</text>
+  <text class="sans lbl" x="44" y="496">other keys</text>
+  <text class="mono bad" x="160" y="496">403 level_too_low</text>
+  <text class="sans lbl" x="44" y="536">free text</text>
+  <text class="sans val" x="160" y="536">None. A value is a number or a registry token.</text>
+
+  <!-- shared base -->
+  <rect x="24" y="576" width="592" height="64" rx="8" fill="#161b22" stroke="#30363d"/>
+  <text class="sans lbl" x="44" y="602">both layers</text>
+  <text class="sans val" x="160" y="602">Anyone reads with no key. Each write is signed</text>
+  <text class="sans val" x="160" y="624">with Ed25519. One transparency log records both.</text>
+
+  <text class="sans small" x="24" y="664">Rules from the responder code on 6 November 2026.</text>
+</svg>
