@@ -139,7 +139,8 @@ curl -s -X POST https://emem.dev/v1/locate \
 ```
 
 Read `cell64` (`defi.zb592.nUkO.zEzE`) and `data_at_this_cell`, which lists
-the bands you can recall there. `via` names the geocoder that answered. For an
+the bands you can recall there. `via` names the geocoder that answered. Before
+you use the cell, make sure that `selected.is_high_confidence` is `true`. For an
 object such as a bridge or a field, use
 [Find the shared identity of an object](#job-find-the-shared-identity-of-an-object).
 
@@ -305,9 +306,18 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"limit":3}'
 ```
 
-The scan read 44,682 facts and returned 3 contradictions. Each has a severity
-from 0 to 1 and the `fact_cid` of each side. Add `cell` or `band` to narrow the
-scan. The tool does not choose a winner.
+On 6 November 2026 the scan read 44,682 keys and returned 3 contradictions.
+It stopped before the end of the corpus (`scan_truncated: true`). Send the
+`resume_after` value back to continue the scan. Add `cell_prefix` or `band` to
+narrow the scan. Each contradiction has a severity from 0 to 1 and the
+`fact_cid` of each side. Read `disagreement_scope` before you quote one:
+
+| `disagreement_scope` | Meaning |
+|---|---|
+| `multi_attester` | Two attesters signed different values. |
+| `same_attester_provider_substitution` | One attester changed its upstream source. `providers[]` names the change. |
+
+The tool does not choose a winner.
 
 ### Job: check your draft before you send it
 
@@ -713,9 +723,12 @@ many, and how fresh. For these, call the coverage routes directly.
 | Which bands can emem fetch on a miss? | `GET /v1/materializers` | The per-band fetch registry |
 | What does this responder know about? | `GET /v1/discover` | A typed start point that names every catalogue |
 
-If you send a corpus question with no place to `/v1/ask`, a classifier
-catches it first. The answer has `status: "corpus_audit"` and no receipt.
-Its `redirect_to` list names the routes in the table above.
+A classifier in `/v1/ask` catches some corpus questions, but not all
+wordings. On 6 November 2026, "where do you have signed facts?" gave
+`status: "corpus_audit"` with no receipt. Its `redirect_to` list names the
+routes in the table above. "How many cells have facts?" gave
+`envelope_schema: "needs_location"`, because the geocoder read a company name
+as a place. Call the coverage routes directly.
 
 ### REST routes by group
 
@@ -930,7 +943,7 @@ Look at `/v1/data_availability` before you select a window.
 ### MCP tools by shape
 
 `tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
-`/mcp/full` advertises all 116 (about 324 KB over 8 pages). Send
+`/mcp/full` advertises all 116 (about 355 KB over 9 pages on 6 November 2026). Send
 `{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
 endpoint. `tools/call` runs any tool by name on both endpoints, so a short
 list costs you no tools.
