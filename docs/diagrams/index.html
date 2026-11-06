@@ -168,7 +168,7 @@
   <div class="grid">
 
     <figure id="01"><a href="/docs/diagrams/01-architecture.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="emem system architecture diagram"><img src="/docs/diagrams/01-architecture.svg" alt="emem system architecture diagram" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="One responder binary serves MCP and REST from the same handlers. It fetches STAC and COG data from 46 sources on the first miss, signs each fact, and appends it to a BLAKE3-chained log with a Merkle root per batch."><img src="/docs/diagrams/01-architecture.svg" alt="One responder binary serves MCP and REST from the same handlers. It fetches STAC and COG data from 46 sources on the first miss, signs each fact, and appends it to a BLAKE3-chained log with a Merkle root per batch." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">01 / 10 · ARCHITECTURE</div>
         <h2>the simple architecture</h2>
@@ -177,7 +177,7 @@
     </a></figure>
 
     <figure id="02"><a href="/docs/diagrams/02-data-flow.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="how data moves through emem"><img src="/docs/diagrams/02-data-flow.svg" alt="how data moves through emem" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="An open pixel is read with a range request, a stateless connector turns it into a fact, canonical CBOR encodes it, and BLAKE3 gives the content id of the signed fact."><img src="/docs/diagrams/02-data-flow.svg" alt="An open pixel is read with a range request, a stateless connector turns it into a fact, canonical CBOR encodes it, and BLAKE3 gives the content id of the signed fact." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">02 / 10 · DATA FLOW</div>
         <h2>how data moves</h2>
@@ -186,7 +186,7 @@
     </a></figure>
 
     <figure id="03"><a href="/docs/diagrams/03-anatomy-of-a-request.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="anatomy of a recall request"><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="anatomy of a recall request" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="A recall in five steps: a place name such as Denver, locate to a cell64, a cache miss, a fetch of the upstream COG tile, and an Ed25519 signature that returns a receipt with the fact_cid."><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="A recall in five steps: a place name such as Denver, locate to a cell64, a cache miss, a fetch of the upstream COG tile, and an Ed25519 signature that returns a receipt with the fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">03 / 10 · REQUEST</div>
         <h2>anatomy of a recall</h2>
@@ -195,7 +195,7 @@
     </a></figure>
 
     <figure id="04"><a href="/docs/diagrams/04-agent-loop.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="how an agent uses emem"><img src="/docs/diagrams/04-agent-loop.svg" alt="how an agent uses emem" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes back a new memory."><img src="/docs/diagrams/04-agent-loop.svg" alt="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes back a new memory." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">04 / 10 · AGENT LOOP</div>
         <h2>how an agent actually uses us</h2>
@@ -204,7 +204,7 @@
     </a></figure>
 
     <figure id="05"><a href="/docs/diagrams/05-fact-to-reasoning.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/05-fact-to-reasoning.svg" aria-label="how a fact reaches the model context"><img src="/docs/diagrams/05-fact-to-reasoning.svg" alt="how a fact reaches the model context" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/05-fact-to-reasoning.svg" aria-label="A signed elevation fact for Denver, 1609 m with its cell and fact_cid, goes into the context window. The model answers with the value and cites the fact_cid."><img src="/docs/diagrams/05-fact-to-reasoning.svg" alt="A signed elevation fact for Denver, 1609 m with its cell and fact_cid, goes into the context window. The model answers with the value and cites the fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">05 / 10 · REASONING</div>
         <h2>fact → reasoning</h2>
@@ -222,34 +222,34 @@
     </a></figure>
 
     <figure id="07"><a href="/docs/diagrams/07-cite-economy.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="the cite-economy"><img src="/docs/diagrams/07-cite-economy.svg" alt="the cite-economy" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="A cycle: an attester signs a fact, an agent reads it, the registry counts the read for the signer, and the leaderboard ranks signers by score. Recall results do not change."><img src="/docs/diagrams/07-cite-economy.svg" alt="A cycle: an attester signs a fact, an agent reads it, the registry counts the read for the signer, and the leaderboard ranks signers by score. Recall results do not change." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">07 / 10 · ECONOMICS</div>
         <h2>the cite-economy</h2>
-        <p>No token, no chain, no minting. The unit is the citation; the currency is the CID; the receipt is the receipt.</p>
+        <p>Each served read counts a citation for the key that signed the fact. The score ranks signers at /v1/contributors. It does not change what recall returns.</p>
       </figcaption>
     </a></figure>
 
     <figure id="08"><a href="/docs/diagrams/08-decentralised.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="the decentralised topology"><img src="/docs/diagrams/08-decentralised.svg" alt="the decentralised topology" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline."><img src="/docs/diagrams/08-decentralised.svg" alt="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">08 / 10 · TOPOLOGY</div>
         <h2>the decentralised way</h2>
-        <p>Many independent responders, the same registries, the same CIDs. Verification needs only the pubkey, no central anything.</p>
+        <p>Each responder signs under its own key, and the same registries give the same CIDs. The eight nodes are illustrative: on 6 November 2026 emem.dev declared one peer, geo.qa/emem. Verification needs only the public key.</p>
       </figcaption>
     </a></figure>
 
     <figure id="09"><a href="/docs/diagrams/09-address-algebra.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="cell64 plus band plus tslot becomes a CID"><img src="/docs/diagrams/09-address-algebra.svg" alt="cell64 plus band plus tslot becomes a CID" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator."><img src="/docs/diagrams/09-address-algebra.svg" alt="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">09 / 10 · ALGEBRA</div>
         <h2>address algebra</h2>
-        <p>cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID. The address that survives every translation.</p>
+        <p>cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID. The address that survives every translation.</p>
       </figcaption>
     </a></figure>
 
     <figure id="10"><a href="/docs/diagrams/10-trust-plane.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/10-trust-plane.svg" aria-label="receipts, merkle log, offline verify"><img src="/docs/diagrams/10-trust-plane.svg" alt="receipts, merkle log, offline verify" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/10-trust-plane.svg" aria-label="The fields of a version 1 receipt preimage are hashed with BLAKE3 and signed with Ed25519. Anyone checks the signature offline with the public key from /.well-known/emem.json."><img src="/docs/diagrams/10-trust-plane.svg" alt="The fields of a version 1 receipt preimage are hashed with BLAKE3 and signed with Ed25519. Anyone checks the signature offline with the public key from /.well-known/emem.json." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">10 / 10 · TRUST</div>
         <h2>the trust plane</h2>

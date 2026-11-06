@@ -466,12 +466,12 @@ def memory_vs_stac():
 
 def cite_economy():
     return _cycle("07-cite-economy", 7, "The cite economy",
-        "a fact that gets used gets found; citation is the discovery signal",
+        "each read counts a citation for the key that signed the fact",
         [("attester", "signs a fact", INDIGO), ("content id", "names the bytes", TEAL),
-         ("agent cites", "the CID", LEAF), ("registry", "CAS update", TURMERIC),
-         ("score grows", "more cites", LAC), ("discovery", "favours it", VERMIL)],
-        ("the fact", "gathers cites"), "attester", TURMERIC,
-        "The more an answer is cited, the easier the next agent finds it.")
+         ("agent reads", "the fact", LEAF), ("registry", "counts the read", TURMERIC),
+         ("score grows", "per signer", LAC), ("leaderboard", "ranks signers", VERMIL)],
+        ("the signer", "gathers cites"), "attester", TURMERIC,
+        "Citations rank signers at /v1/contributors. They do not change what recall returns.")
 
 
 def address_algebra():
