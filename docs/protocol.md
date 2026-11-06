@@ -27,7 +27,7 @@ read the sections it names.
 |---|---|
 | Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
 | Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
-| Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log) |
+| Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log), then the steps in [§9.6.1](#961-check-an-inclusion-proof-by-hand) |
 | Calculate a `fact_cid` from a fact | [§3 CID](#3-cid-and-factcid), [§4 CBOR](#4-cbor-canonicalisation), [§5 Fact](#5-fact) |
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
@@ -1698,16 +1698,21 @@ Test: `odd_cardinality_last_leaf_self_pairs`.
 
 ## 9. Append-only attestation log
 
-`crates/emem-storage/src/merkle_log.rs`. Every verified attestation
-goes here before any per-cell index is updated. The on-disk format is
-recoverable without the database.
+In short: every attestation the responder accepts goes into a log file
+on disk before any index changes. A second structure, the transparency
+log (§9.6), puts a signed Merkle tree over that log. With it, you can
+prove that one entry is in the log, and that the log only grew. You can
+check both proofs by hand (§9.6.1).
+
+The code is in `crates/emem-storage/src/merkle_log.rs`. You can recover
+the on-disk format without the database.
 
 ### 9.1 Layout
 
-Files live under `<EMEM_DATA>/log/` and are named
-`merkle.log.<u64-segment-index>` (`merkle_log.rs:77`).
+Files live under `<EMEM_DATA>/log/` and have the name
+`merkle.log.<u64-segment-index>`.
 
-Per record (`merkle_log.rs:58-85`):
+Each record (`AttestationLog::append_cbor`):
 
 ```
 +--------+-----------------------------+--------------------+
@@ -1716,141 +1721,211 @@ Per record (`merkle_log.rs:58-85`):
 +--------+-----------------------------+--------------------+
 ```
 
-Per segment trailer (`merkle_log.rs:161-171`):
+The trailing `blake3(CBOR)` is the *entry hash*. It is the value that
+§9.6 puts into the transparency tree.
+
+A segment that rotation sealed (`seal_segment`) has a trailer:
 
 ```
 < all records >  || segment_hash = blake3(all_records) [32 B]
 ```
 
-The trailer is written when the segment is sealed at rotation
-(`merkle_log.rs:74-76`). The current/open segment has no trailer until
-it rotates.
+The responder opens a new segment each time the process starts. It does
+not write a trailer to the segment of the previous process. So only
+segments that rotation sealed have a trailer.
 
 ### 9.2 Append semantics
 
-`AttestationLog::append` (`merkle_log.rs`): CBOR-encode the attestation,
-hash it, build the `[len][cbor][hash]` record and queue it. Whoever takes
-the log lock next writes every queued record in arrival order with one
-write and one `sync_all()` per segment (group commit), rotating to a new
-segment when the open one would exceed 1 GiB, then advances the segment
-hash. The write runs as its own task, so a caller that gives up cannot
-leave the bytes and the hash chain out of step. Data is fsynced before
-`append` returns; receipts depend on the durability claim.
+`AttestationLog::append` encodes the attestation as CBOR, hashes it,
+and builds the `[len][cbor][hash]` record. `append_cbor` does the same
+for an entry that is not an attestation, such as a memory write.
 
-`AppendOutcome` returns `segment_index`, `offset_in_segment`, and
-`record_hash`, enough to rebuild a record-level inclusion proof later.
+Records go into a queue. The next task that gets the log lock writes
+all queued records in arrival order (group commit). It uses one write
+and one `sync_all()` for each segment. Then it updates the segment hash.
+The write runs as a separate task. Thus a caller that stops waiting
+cannot put the bytes and the hash chain out of step. The data is on
+disk (fsynced) before `append` returns. Receipts depend on this.
+
+`AppendOutcome` gives `segment_index`, `offset_in_segment` and
+`record_hash`. These values are enough to find the record again.
 
 ### 9.3 Rotation
 
-When the open segment exceeds 1 GiB, `seal_segment`
-(`merkle_log.rs:161-171`) finalises the in-memory hasher, appends its
-32-byte output as a trailer, fsyncs, and bumps `segment_index`. The
-next append opens a fresh segment.
+Before a write that would make the open segment larger than 1 GiB
+(`SEGMENT_BYTES = 1 << 30`), `seal_segment` completes the segment hash.
+It appends the 32-byte hash as a trailer, fsyncs, and increments
+`segment_index`. The next record goes into a new segment.
 
 ### 9.4 Verify
 
-`AttestationLog::verify` (`merkle_log.rs:102-136`) walks every
-`merkle.log.*` file, splits off the trailing 32 bytes, recomputes
-`blake3(body)`, and counts segments where it matches. Mismatches are
-returned in `VerifyReport.bad`; the log keeps writing to a fresh
-segment so a corrupt sealed segment does not halt ingestion.
+`AttestationLog::verify` reads each `merkle.log.*` file. It removes the
+last 32 bytes, computes `blake3` of the remaining bytes, and compares.
+It counts the matches in `sealed_ok` and lists the mismatches in
+`VerifyReport.bad`. A segment without a trailer (the open segment, or
+one that a restart closed) also goes into `bad`. The log continues to
+write to its open segment when `verify` finds a bad segment.
 
 ### 9.5 Snapshot / replication trait
 
-`SegmentBackup` (`merkle_log.rs:230-246`) is the trait an operator
-implements to push sealed segments to S3, IPFS, etc., and to pull them
-back for replay-restore. The protocol does not mandate a backend; the
-segment file format and trailer hash are the wire contract.
+`SegmentBackup` is a trait for a backup backend. An operator writes one
+to copy sealed segments to S3, IPFS or a different store. The backend
+also pulls them back to replay and restore. The protocol does not specify a backend. The wire
+contract is the segment file format and the trailer hash.
 
 <a id="transparency-log"></a>
 
 ### 9.6 Transparency log {#transparency-log}
 
-The append-only log above proves *durability*; the transparency layer
-proves *append-only-ness to a third party*. It uses the
-[RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) *tree construction*,
-with BLAKE3-256 substituted for SHA-256, over the
-log's per-record hashes (each record's trailing `blake3(attestation_cbor)`,
-in append order), implemented in `crates/emem-attest/src/translog.rs`.
-RFC 6962 §2.1 mandates SHA-256, so this log is **not RFC 6962
-conformant** and no Certificate Transparency client, auditor or monitor
-interoperates with it; what is borrowed is the construction. The STH
-self-reports `"hash": "blake3-256"` for exactly this reason.
+In short: the log in §9.1 to §9.5 makes entries durable. The
+transparency log lets a third party prove two more things. An entry is
+in the log, and the log did not change its history.
 
-It is a **different tree from the batch-root construction** in section
-6.1: a lone node is *promoted* to its parent unchanged rather than paired
-with itself, so `mth([A,B,C]) != mth([A,B,C,C])` and the hash of the
-first `m` entries is a genuine prefix of the hash of the first `n >= m`.
-That prefix property is what makes consistency provable; the batch-root
-construction (which pairs the odd node with itself, the CVE-2012-2459
-shape it dedups to avoid) cannot answer consistency queries.
+The tree uses the
+[RFC 6962](https://www.rfc-editor.org/rfc/rfc6962) construction, with
+BLAKE3-256 instead of SHA-256. Its leaves are the entry hashes of the
+log (§9.1), in append order. The code is in
+`crates/emem-attest/src/translog.rs`. RFC 6962 §2.1 requires SHA-256.
+Thus this log is **not RFC 6962 conformant**, and no Certificate
+Transparency client, auditor or monitor can read it. emem uses only the
+construction. For this reason the STH says `"hash": "blake3-256"`.
+
+This tree is **different from the batch-root tree** in §6.1. Here a lone
+node goes up to its parent unchanged (promotion). The batch-root tree
+pairs a lone node with itself. Thus `mth([A,B,C]) != mth([A,B,C,C])`,
+and the root of the first `m` entries is a true prefix of the root of
+the first `n >= m` entries. Consistency proofs need this prefix
+property. The batch-root tree cannot give consistency proofs. It pairs
+the odd node with itself, which is the CVE-2012-2459 shape, and it
+removes duplicate leaves to prevent that attack.
 
 - Leaf: `blake3(0x00 || entry_hash)`. Node: `blake3(0x01 || left || right)`.
-- Leaves come from `AttestationLog::leaf_hashes()` (`merkle_log.rs`), the
-  natural append-ordered source.
+- The leaves come from `AttestationLog::leaf_hashes()` in append order.
 
-Three read-only endpoints, all strictly additive (they never mutate state
-and the responder is never trusted to self-certify; every proof verifies
-offline):
+Three read-only endpoints serve the tree. They do not change state. You
+do not have to trust the responder, because each proof verifies offline.
 
-- `GET /v1/log/sth` returns a **Signed Tree Head** nested under `sth`, beside
-  a `note` and a `spec` link: `{sth: {tree_size, root_b32, signed_at,
-  responder_pubkey_b32, signature_b32, log_id, algorithm}, note, spec}`. It has
-  been nested since the log shipped; this line described it flat, which sent at
-  least one outside reviewer to `d.tree_size`, an undefined, and the reasonable
-  conclusion that the format had broken under them. Read `d.sth.tree_size`. The signature is
-  ed25519 over `PreimageV1("emem.translog.sth.v1")` with segments
-  `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey` (same
-  preimage discipline as receipts, section 7.1).
-- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`)
-  returns an audit path proving entry `i` is committed under the STH.
-  Verify with `translog::verify_inclusion`.
-- `GET /v1/log/consistency?first=<m>&second=<n>` returns a proof that the
-  tree of size `m` is a prefix of the tree of size `n` (append-only).
-  Verify with `translog::verify_consistency` against the `first_root` in
-  the STH you pinned at size `m`; a mismatch means the log rewrote
-  history.
+- `GET /v1/log/sth` returns a **Signed Tree Head** (STH) inside `sth`.
+  A `note` and a `spec` link come next to it: `{sth: {tree_size, root_b32,
+  signed_at, responder_pubkey_b32, signature_b32, log_id, algorithm},
+  note, spec}`. Read `d.sth.tree_size`, not `d.tree_size`. The
+  signature is ed25519 over `PreimageV1("emem.translog.sth.v1")` with
+  segments `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey`
+  (the same preimage rules as receipts, §7.1).
+- `GET /v1/log/inclusion` returns an audit path that proves one entry is
+  under the STH. Give one of `leaf_index=<i>`, `entry_hash=<base32>` or
+  `fact_cid=<cid>`. An optional `tree_size=<n>` asks for the proof at an
+  earlier size. `entry_hash` also accepts the blake3 of a memory note's
+  bytes. The answer field `matched` says which key found the entry:
+  `entry_hash`, `fact_cid` or `memory_note_content`. Verify with
+  `translog::verify_inclusion`, or by hand (§9.6.1).
+- `GET /v1/log/consistency?first=<m>&second=<n>` returns a proof that
+  the tree of size `m` is a prefix of the tree of size `n`. Verify with
+  `translog::verify_consistency` against the root of the STH that you
+  kept at size `m`. A mismatch means that the log changed its history.
 
-Usage: pin an STH, then re-request `/v1/log/consistency` later to prove
-the log only grew. That is the whole of what it
-proves: append-only-ness, to a client that pinned an earlier head and came
-back. A first-contact client has no baseline and the endpoints prove it
-nothing.
+To use the consistency proof, keep (pin) an STH. Later, request
+`/v1/log/consistency` to prove that the log only grew. That is all it
+proves: append-only behaviour, to a client that kept an earlier head. A
+client that connects for the first time has no earlier head, so the
+endpoints prove nothing to it.
 
-Witness co-signing of STHs is available: an external party counter-signs a
-`(tree_size, root)` head via `POST /v1/log/witness` (listed at
-`GET /v1/log/witnesses`); the responder records a co-signature only when
-the signature verifies and the root matches its own history at that size.
-**This does not make split-view equivocation detectable today.** The STH,
-the proofs and the witness list are all served by the party a client would
-be checking, so an equivocating responder serves each client a
-self-consistent view of all three; there is no gossip channel between
-clients, and detecting a split view without one is not possible. There is
-also no witness allowlist or trust anchor: `POST /v1/log/witness` accepts
-any well-formed ed25519 key, so a co-signature proves only that *some* key
-signed a `(size, root)` pair, not that the key is independent of the
-responder. Treat witness co-signing as a mechanism awaiting an operating
-network. `GET /v1/log/witnesses` therefore also tiers each witness key:
-`key_only` (the signature verifies, nothing more), `org_vouched` (fresh DNS
-TXT or well-known evidence under a domain, from `GET /v1/enlist`) and
-`self_operator` (this node's declared key, or a key vouched by its own
-domains). `independent_operator_count` counts distinct `org_vouched`
-domains, not keys, since keys are free and domains are not. Each key's
-co-signatures also share the per-key write rate limit. A
-`fact_cid -> leaf_index` index, so an inclusion proof can be requested by
-fact rather than by log position, is the next increment on this substrate.
+#### 9.6.1 Check an inclusion proof by hand
 
-#### Memory writes in the log
+This check connects a receipt to the signed head. Each step uses only
+values from the responses, BLAKE3 and Ed25519.
 
-Every `create`, `str_replace` and `insert` through the memory surface (and
-the summary a `consolidate` writes) is also a log entry, so a note has an
-upper-bound timestamp: any signed head at or after its entry proves the
-bytes existed by then. Together with the `after: sth …` lower bound a
-writer can put inside a note, that is a two-sided timestamp. A
-`supersede` and a `delete` are logged too, each as its own entry kind
-(below). `rename` is not logged yet.
+1. Get an STH: `curl -s https://emem.dev/v1/log/sth`.
+2. Rebuild the STH digest. Use the `PreimageV1` rules of §7.1 with
+   domain `emem.translog.sth.v1` and the four segments above.
+   `tree_size` is 8 bytes big-endian. `root` and `responder_pubkey` are
+   the raw 32 bytes from base32. `signed_at` is the UTF-8 text.
+3. Verify `signature_b32` over that 32-byte digest with
+   `responder_pubkey_b32`.
+4. Get a proof. Use the `log_entry_hash` from a receipt's `merkle_proof`:
+   `curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>'`.
+   Or use `fact_cid=<cid>`.
+5. Compute `leaf = blake3(0x00 || entry_hash)`. It must equal
+   `leaf_hash_b32`.
+6. Walk `audit_path_b32` from the leaf to the root with the RFC 6962
+   rule below. The result must equal the STH `root_b32`.
+7. Optional: get the entry bytes with
+   `GET /v1/log/entries?start=<leaf_index>&end=<leaf_index+1>`. Then
+   `blake3(entry_cbor_b32 decoded)` must equal `entry_hash`. For an
+   attestation, the CBOR field `batch_root` must equal the receipt's
+   `merkle_proof.root`. That connects the fact (§8) to the log entry.
 
-A memory entry is a CBOR map, keys in length-then-bytewise order:
+The path walk for step 6, in Python:
+
+```python
+fn, sn, r = leaf_index, tree_size - 1, leaf
+for p in audit_path:                 # 32-byte siblings, bottom up
+    assert sn != 0
+    if fn % 2 == 1 or fn == sn:      # sibling on the left
+        r = blake3(b"\x01" + p + r).digest()
+        while fn % 2 == 0 and fn != 0:
+            fn >>= 1; sn >>= 1       # promoted lone node: skip a level
+    else:                            # sibling on the right
+        r = blake3(b"\x01" + r + p).digest()
+    fn >>= 1; sn >>= 1
+assert sn == 0 and r == root
+```
+
+On 6 November 2026 these steps passed against emem.dev. The STH had
+`tree_size` 3,243,053. The receipt from a `POST /v1/recall` had
+`log_entry_hash` `quzqrplqfultmmku5efrp4pnghwqpf37rimscveyxbonqxnsk33a`.
+That entry was leaf 2,463,431, with an audit path of 22 hashes. Its
+1,235 CBOR bytes hashed to the entry hash, and its `batch_root` was the
+receipt's Merkle root.
+
+#### 9.6.2 Witnesses, and what they do not prove
+
+An external party can counter-sign a `(tree_size, root)` head through
+`POST /v1/log/witness`. `GET /v1/log/witnesses` lists the
+co-signatures. The witness preimage is
+`PreimageV1("emem.translog.witness.v1"){1:u64_be tree_size, 2:root,
+3:witness_pubkey}`. The responder keeps a co-signature only when the
+signature verifies and the root agrees with its own history at that
+size.
+
+**Witnesses do not make split-view equivocation detectable today.** The
+party that a client checks also serves the STH, the proofs and the
+witness list. A responder that equivocates can give each client a view
+that agrees with itself in all three. Clients have no gossip channel,
+and without one you cannot detect a split view. There is also no
+witness allowlist or trust anchor. `POST /v1/log/witness` accepts any
+well-formed ed25519 key. Thus a co-signature proves only that *some* key
+signed a `(size, root)` pair. It does not prove that the key is
+independent of the responder. Treat witness co-signing as a mechanism
+that waits for a network of operators.
+
+For this reason `GET /v1/log/witnesses` puts each witness key in a tier:
+
+| tier | meaning |
+|---|---|
+| `key_only` | The signature verifies. emem knows nothing more. |
+| `org_vouched` | Recent DNS TXT or well-known evidence under a domain, from `GET /v1/enlist`. |
+| `self_operator` | The key of this node, or a key that its own domains vouch for. |
+
+`independent_operator_count` counts distinct `org_vouched` domains, not
+keys, because keys cost nothing and domains do not. The co-signatures of
+a key share the per-key write rate limit. The node also signs its own
+head every two minutes (`self_witness_pubkey_b32`). Thus
+`head_is_witnessed` is nearly always true. Use
+`head_is_independently_witnessed`, which ignores that key. On
+6 November 2026 it was `false`, and `independent_operator_count` was 1.
+
+#### 9.6.3 Memory writes in the log
+
+Each `create`, `str_replace` and `insert` through the memory surface is
+also a log entry. The summary that a `consolidate` writes is one too.
+Thus a note has an upper-bound timestamp: a signed head at or after its
+entry proves that the bytes existed at that time. A writer can also put
+an `after: sth …` lower bound inside a note. Together they give a
+two-sided timestamp. A `supersede` and a `delete` also go into the log,
+each as its own entry kind (below). `rename` does not write a log entry.
+
+A memory entry is a CBOR map. Its keys are in length-then-bytewise order:
 
 ```
 { "base", "kind": "emem.memory_write.v1", "path", "verb", "sig_b32",
@@ -1858,47 +1933,47 @@ A memory entry is a CBOR map, keys in length-then-bytewise order:
   "content_blake3": bytes(32), "preimage_version", "attester_pubkey_b32" }
 ```
 
-The note's bytes are named by `content_blake3`, not copied. Its leaf is
-`blake3(entry_cbor)` like any other entry.
+The entry does not copy the note's bytes. It names them by
+`content_blake3`. Its leaf is `blake3(entry_cbor)`, as for all entries.
 
-A supersede entry carries its reason whole, because the reason is the
-part its author signed and must not be able to reword:
+A supersede entry holds its full reason. The author signed the reason,
+so nobody must be able to change its words:
 
 ```
 { "kind": "emem.memory_supersede.v1", "path", "reason", "sig_b32",
   "file_cid", "signed_at", "superseded_by", "attester_pubkey_b32" }
 ```
 
-`file_cid` is the version retired and `superseded_by` the one that
-replaces it. The signature is the one the supersede request carried,
-over the verb `supersede`, the path and `blake3(superseded_by|reason)`;
-`memory_view` on the retired note serves the reason, key, signature and
+`file_cid` is the retired version. `superseded_by` is the version that
+replaces it. The signature is the one from the supersede request. It
+covers the verb `supersede`, the path and `blake3(superseded_by|reason)`.
+`memory_view` on the retired note shows the reason, key, signature and
 `log_entry_hash_b32` in its `_superseded` banner.
 
-A delete entry is written for each path a delete removes:
+A delete writes one delete entry for each path that it removes:
 
 ```
 { "base", "kind": "emem.memory_delete.v1", "path", "sig_b32",
   "deleted_at", "signed_path", "prior_file_cid", "attester_pubkey_b32" }
 ```
 
-The signature is the one the delete request carried, over the verb
-`delete`, `signed_path`, blake3 of the empty body and `base`. For a
-directory delete `signed_path` is the directory and `path` is one file
-removed from it. The delete answers with `log_entries`, and the path's
-tombstone and its `memory_history` event name the entry as
-`log_entry_hash_b32`. Deletes made before this was added have no entry.
+The signature is the one from the delete request. It covers the verb
+`delete`, `signed_path`, blake3 of the empty body and `base`. In a
+directory delete, `signed_path` is the directory and `path` is one file
+that the delete removed. The delete response contains `log_entries`.
+The tombstone of the path and its `memory_history` event give the entry
+as `log_entry_hash_b32`. Deletes from before this feature have no entry.
 
-`GET /v1/log/entries` labels each entry `entry_kind` (`attestation`,
+`GET /v1/log/entries` gives each entry an `entry_kind`: `attestation`,
 `emem.memory_write.v1`, `emem.memory_supersede.v1` or
-`emem.memory_delete.v1`) and
-serves its bytes as `entry_cbor_b32`; `attestation_cbor_b32` is kept as
-the legacy name for the same bytes. `memory_view` returns `log:
-{entry_hash_b32, inclusion}`, and `GET /v1/log/inclusion?entry_hash=`
-also accepts a note's content hash (blake3 of its bytes), answering
-`matched: "memory_note_content"`. Writes made before this was added have
-no entry; logging them now would record the time of logging, not of
-writing.
+`emem.memory_delete.v1`. It serves the bytes as `entry_cbor_b32`.
+`attestation_cbor_b32` is the legacy name for the same bytes.
+`memory_view` returns `log: {entry_hash_b32, inclusion}`.
+`GET /v1/log/inclusion?entry_hash=` also accepts the content hash of a
+note (blake3 of its bytes) and then answers
+`matched: "memory_note_content"`. Writes from before this feature have
+no entry. An entry added now would record the time of logging, not the
+time of writing.
 
 `GET /v1/log/entries?summary=1` serves one light row per entry instead
 of its bytes: `leaf_index`, `entry_kind`, `entry_hash_b32` and
