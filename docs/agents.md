@@ -124,7 +124,7 @@ curl -s -X POST https://emem.dev/v1/ask \
 
 Read `routed_to`, `answer`, `fact_cids` and `receipt`. Ask gives the current
 value. For a change, use [See how a value changed](#job-see-how-a-value-changed).
-Details: [Asking about the corpus vs asking about a place](#asking-about-the-corpus-vs-asking-about-a-place).
+Details: [Questions about the corpus, not about a place](#questions-about-the-corpus-not-about-a-place).
 
 ### Job: turn a place name into an address
 
@@ -683,312 +683,309 @@ secret, and an LLM host cannot keep that secret safe.
 
 ## Reference
 
-### Asking about the corpus vs asking about a place
+This section lists routes and tools by group. To find a tool for a job,
+use [Find the tool for your job](#find-the-tool-for-your-job) first. The
+full route list is `/openapi.json`. The full tool list is `tools/list` on
+`https://emem.dev/mcp/full`. On 6 November 2026, the route names and body
+fields below matched both lists.
 
-`POST /v1/ask` is for place-anchored questions ("is South Bombay
-flood-prone", "how hot are nights in Karachi"). It geocodes the
-`place` field to a `cell64` and routes the question to one of the
-27 band-topics in `/v1/topics`. If you instead want to know about
-the **corpus** (where the responder already has signed facts, how
-dense coverage is, which bands are wired), skip `/v1/ask` and call
-the introspection endpoints directly:
+### Questions about the corpus, not about a place
 
-| Question shape | Call this instead | Returns |
+`POST /v1/ask` answers questions about a place. It turns the place into a
+`cell64` and routes the question to a band topic in `/v1/topics`. Some
+questions are about the corpus itself: where emem has signed facts, how
+many, and how fresh. For these, call the coverage routes directly.
+
+| Question | Route | Answer |
 |---|---|---|
-| "where do you have signed facts" | `GET /v1/coverage_map.svg` | 1440 × 720 plate-carrée SVG of attested cells |
-| "how many cells / facts overall" | `GET /v1/coverage_matrix` | per-band live status + freshness + signer pubkey |
-| "what's the corpus density over \<region\>" | `GET /v1/coverage_matrix` + filter client-side, or `POST /v1/recall_polygon` with a bbox | per-cell densities you can aggregate |
-| "which bands are wired here" | `GET /v1/materializers` | per-band auto-fetch registry |
-| "what does this responder know about" | `GET /v1/discover` | typed bootstrap that names every catalog |
+| Where do you have signed facts? | `GET /v1/coverage_map.svg` | A 1440 by 720 plate carrée SVG map of attested cells |
+| How many cells have facts? | `GET /v1/coverage` | `total_cells`, and the cell list in pages, with `fact_count` for each cell |
+| How dense is the corpus in a region? | `GET /v1/coverage` | The cell list. Filter it to the region's bbox on your side |
+| Which bands have facts, and how fresh are they? | `GET /v1/coverage_matrix` | One row per band: `facts_count`, `last_attested_at`, `has_materializer` |
+| Which bands can emem fetch on a miss? | `GET /v1/materializers` | The per-band fetch registry |
+| What does this responder know about? | `GET /v1/discover` | A typed start point that names every catalogue |
 
-These are corpus meta-questions, not band recalls. `/v1/ask` does not
-route them through the topic embedder. When no place is pinned, a corpus
-classifier catches them first and answers with `routed_to:
-"corpus_audit"`: an envelope with no receipt whose `redirect_to` list
-names the endpoints in this table (coverage map, coverage totals,
-coverage matrix, manifests). Call those endpoints directly and you skip
-the redirect; they answer in one round-trip with signed receipts where
-applicable.
+If you send a corpus question with no place to `/v1/ask`, a classifier
+catches it first. The answer has `status: "corpus_audit"` and no receipt.
+Its `redirect_to` list names the routes in the table above.
 
-### REST endpoints by category
+### REST routes by group
 
-The full machine surface is at `/openapi.json`. The tables below cover
-the high-traffic groups; numbers reflect the live OpenAPI document.
-
-#### Discovery (8)
+#### Discovery
 
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/health` | Liveness, version, corpus stats, manifest CIDs |
-| GET | `/openapi.json` | OpenAPI 3.1 |
-| GET | `/openapi.action.json` | OpenAI custom-GPT-action variant |
-| GET | `/.well-known/emem.json` | Manifest CIDs, responder pubkey |
+| GET | `/health` | Liveness, version, corpus counts and manifest CIDs |
+| GET | `/openapi.json` | OpenAPI 3.1 document |
+| GET | `/openapi.action.json` | A smaller OpenAPI document for OpenAI custom GPT actions |
+| GET | `/.well-known/emem.json` | Manifest CIDs and the responder public key |
 | GET | `/.well-known/agent.json` | Agent manifest |
-| GET | `/.well-known/agent-card.json` | A2A agent-card v1 |
+| GET | `/.well-known/agent-card.json` | A2A agent card |
 | GET | `/.well-known/mcp.json` | MCP server descriptor |
-| GET, POST | `/mcp` | MCP JSON-RPC 2.0 transport |
+| GET, POST | `/mcp` | MCP JSON-RPC 2.0 transport, `core` tools |
+| GET, POST | `/mcp/full` | MCP JSON-RPC 2.0 transport, all tools |
 
-#### Introspection (15)
+#### Registries and introspection
+
+All routes in this table are `GET`.
 
 | Path | Purpose |
 |---|---|
-| `/v1/bands` | Active band ontology, offsets, dims, tempo |
-| `/v1/topics` | Topic-grouped registry of bands and algorithms. `GET /v1/topics?q=<question>` shows how `/v1/ask` would route a question, without running it |
-| `/v1/algorithms` | 172 composition recipes (paginated). Each carries `here.status`: `runs`, `stored_only` (reads a retired encoder or band) or `cannot_run` (its route is gone), and `use_instead` where a served recipe answers a nearby question; `here.executes` says who runs the formula (`responder`, `responder, in part`, or `agent`, when the inputs are served and signed but the composition is the agent's own). `?runnable=true` lists only the ones that run |
-| `/v1/algorithms/:key` | One recipe, formula + inputs + citation |
-| `/v1/functions` | Derivation function registry |
-| `/v1/sources` | Upstream connectors with license metadata |
-| `/v1/materializers` | Per-band auto-fetch registry |
-| `/v1/data_availability` | Per-band tempo + history bounds |
-| `/v1/coverage_matrix` | Per-band live status, freshness, signer pubkey |
-| `/v1/manifests` | All manifest CIDs together |
-| `/v1/grid_info` | cell64 grid encoding, ground resolution |
-| `/v1/errors` | Stable error code catalog |
-| `/v1/tools` | MCP tool descriptors over plain HTTP |
-| `/v1/schema` | CDDL/JSON schema bundle |
-| `/v1/capabilities` | Capability snapshot; no GPU sidecar runs, so `extensions` is empty |
+| `/v1/bands` | The active band ontology: offsets, dimensions, tempo |
+| `/v1/topics` | Bands and algorithms grouped by topic. `?q=<question>` shows how `/v1/ask` routes a question, without running it |
+| `/v1/algorithms` | The algorithm registry, in pages. See [Algorithms](#algorithms) for `here.status` and `?runnable=true` |
+| `/v1/algorithms/:key` | One algorithm: formula, inputs and citation |
+| `/v1/functions` | The derivation function registry |
+| `/v1/sources` | Upstream sources with licence data |
+| `/v1/materializers` | The per-band fetch registry |
+| `/v1/data_availability` | Per-band tempo and history limits |
+| `/v1/coverage_matrix` | Per-band status, freshness and signer public key |
+| `/v1/manifests` | All manifest CIDs |
+| `/v1/grid_info` | The `cell64` grid encoding and ground resolution |
+| `/v1/errors` | The stable error code catalogue |
+| `/v1/tools` | MCP tool descriptors over HTTP. It returns all tools and ignores `q` and `name` |
+| `/v1/schema` | The CDDL and JSON schema bundle |
+| `/v1/capabilities` | What this responder can do now. No GPU sidecar runs, so `extensions` is empty |
 
-#### Read primitives
+#### Read routes
 
-| Method | Path | Body shape |
-|---|---|---|
-| POST | `/v1/recall` | `{cell, bands?, tslot?}` |
-| POST | `/v1/recall_many` | `{cells:[...], bands?}` (max 256) |
-| POST | `/v1/recall_polygon` | `{place?, polygon_bbox?, bands?, max_cells?, include?:["ftw_fields"]}` |
-| POST | `/v1/grid` | `{center, bands, n?:12, half_km?:3, budget_ms?}` → cells row-major + per band `values`, `states` (value/absent/missing), `fact_cids`, `absence_cids`, `captured_at`, one `bundle_token`; one receipt; `pending`/`skipped` when not converged |
-| POST | `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` |
-| GET | `/v1/cells/:cell64` | One-shot recall, all bands |
-| POST | `/v1/query_region` | `{geometry, bands?, agg?, max_cells?}` |
-| POST | `/v1/compare` | `{a, b, family?}` |
-| POST | `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
-| POST | `/v1/find_similar` | `{key, k?, band?, mode?}` |
-| POST | `/v1/trajectory` | `{cell, band, window:[a,b]}` |
-| POST | `/v1/field_series` | `{geometry\|bbox\|areas\|fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?, memory?}` |
-| POST | `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
+All routes in this table are `POST`, except `/v1/cells/:cell64`. A `?`
+marks an optional field.
 
-`query_region` `max_cells` is bbox-area-derived (target ~1 cell per
-(10 km)², clamped to `[64, 1024]`).
+| Path | Body |
+|---|---|
+| `/v1/recall` | `{cell, bands?, tslot?, deterministic?}` |
+| `/v1/recall_many` | `{cells, bands?}`, at most 256 cells |
+| `/v1/recall_polygon` | `{place?, polygon_bbox?, polygon_geojson?, bands?, max_cells?, include?}` |
+| `/v1/grid` | `{center, bands, n?, half_km?, budget_ms?}` |
+| `/v1/field_boundaries` | `{place?, polygon_bbox?, zoom?}` |
+| `GET /v1/cells/:cell64` | No body. Recall of all bands at one cell |
+| `/v1/query_region` | `{geometry or bbox, bands?, agg?, max_cells?}` |
+| `/v1/compare` | `{a, b, family?}` |
+| `/v1/compare_bands` | `{cell, a, b, tslot_a?, tslot_b?, predicate?}` |
+| `/v1/find_similar` | `{key, k?, band?, mode?}` |
+| `/v1/trajectory` | `{cell or place, band, window?}`, or `from_date` and `to_date` in place of `window` |
+| `/v1/field_series` | `{geometry or bbox or areas or fields, start_date, end_date, index?, sensor?, orbit?, inner_buffer_m?, min_support_px?, max_scenes?, memory?}` |
+| `/v1/diff` | `{cell, band, tslot_a, tslot_b}` |
 
-`trajectory` reads only what emem has already signed. An empty series
-means nothing was fetched there yet, not that nothing was observed. For a
-band with history, an empty and unpinned read carries `fill.call`: the
-exact `/v1/backfill` body for the window read. Run it, then read again.
+`/v1/grid` returns the cells in row order. Each band has `values`,
+`states` (`value`, `absent` or `missing`), `fact_cids`, `absence_cids` and
+`captured_at`. The answer has one `bundle_token` and one receipt. Cells
+that did not finish are in `pending` or `skipped`.
 
-`field_series` reads an area over time, one row per scene.
+`/v1/query_region` sets `max_cells` from the bbox area when you do not
+send it. The target is one cell for each 100 km², clamped to 64 to 1024.
+
+`/v1/trajectory` reads only facts that emem already signed. An empty
+series means that emem fetched nothing there yet. It does not mean that
+nothing was observed. For a band with history, an empty read with no pin
+carries `fill.call`. That is the exact `/v1/backfill` body for the window.
+Run it, then read again.
+
+`/v1/field_series` reads an area over time, one row per scene.
 
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
-  `ndti` or `ndsi` (alias `mndwi`) from Sentinel-2. NDSI is green against
-  shortwave infrared, B03 averaged onto B11's 20 m pixels: snow and open
-  water read high, and unlike NDWI it stays positive over water in sun
-  glint. `vv`, `vh` or `vh_vv` from Sentinel-1, on one relative orbit
-  (`orbit`; default: the orbit with the most scenes).
-- `sensor: "landsat"` reads the same optical indices from Landsat 8 and
-  9 Collection 2 Level-2 surface reflectance (Planetary Computer, Tier 1
-  only), on 30 m pixels from 2013. The OLI bands stand in for the
-  Sentinel-2 ones: NDVI is SR_B5 against SR_B4, NDMI SR_B5 against SR_B6,
-  NBR SR_B5 against SR_B7. Reflectance is DN x scale + offset, from the
-  item's `raster:bands` (Collection 2: 0.0000275 and -0.2). QA_PIXEL bits
-  0 to 4 (fill, dilated cloud, cirrus, cloud, cloud shadow) are rejected;
-  snow (bit 5) is kept unless `qa_reject_bits` names it. Landsat 7 is left
-  out for its SLC-off stripes. The answer is signed as
-  `landsat_index_series@1` and its rows carry `platform`. Do not join a
-  Landsat line and a Sentinel-2 line without a cross-calibration.
-- `fields`: up to 500 `{id, geometry}` polygons, read once from one
-  window of at most 512 px a side.
-- `memory: true` (with `fields`): each field's summary carries `memory`,
-  its seasonal normal over the window: the mean; a drift per year when the
-  window spans two years; one annual harmonic, or two over two years and
-  20 scenes, each with amplitude and peak day of year; the residuals'
-  robust scale (1.4826 MAD); and the spread of whole years. It is a least
-  squares fit to the rows above it, so anyone can recompute it. The
-  `memory_similarity@1`, `memory_shift@1` and `memory_novelty@1` recipes
-  compare fields, or two windows of one field, by these numbers.
-- `inner_buffer_m` (0 to 60) drops edge pixels. `min_support_px` (4 to
-  30, default 30) is the fewest pixels a scene may rest on.
-- `polygon_cid` identifies the outline. `aoi_cid` is the bbox hash the
+  `ndti` or `ndsi` (alias `mndwi`) come from Sentinel-2. NDSI is green
+  against shortwave infrared, with B03 averaged onto the 20 m pixels of
+  B11. Snow and open water read high. Unlike NDWI, NDSI stays positive over
+  water in sun glint. `vv`, `vh` or `vh_vv` come from Sentinel-1, on one
+  relative orbit (`orbit`). The default orbit is the one with the most
+  scenes.
+- `sensor: "landsat"` reads the same optical indices from Landsat 8 and 9
+  Collection 2 Level-2 surface reflectance (Planetary Computer, Tier 1
+  only). Pixels are 30 m, from 2013. NDVI is SR_B5 against SR_B4, NDMI is
+  SR_B5 against SR_B6, and NBR is SR_B5 against SR_B7. Reflectance is DN
+  times scale plus offset, from the item's `raster:bands` (Collection 2:
+  0.0000275 and -0.2). QA_PIXEL bits 0 to 4 (fill, dilated cloud, cirrus,
+  cloud, cloud shadow) are rejected. Snow (bit 5) stays, unless
+  `qa_reject_bits` names it. Landsat 7 is not used because of its SLC-off
+  stripes. The answer is signed as `landsat_index_series@1`, and its rows
+  carry `platform`. Do not join a Landsat line and a Sentinel-2 line
+  without a cross-calibration.
+- `fields`: up to 500 `{id, geometry}` polygons. emem reads them in one
+  window of at most 512 px on each side.
+- `memory: true` (with `fields`): each field summary carries `memory`, its
+  seasonal normal over the window. It holds the mean, a drift per year
+  when the window spans two years, and one annual harmonic with amplitude
+  and peak day of year. With two years and 20 scenes, it holds two
+  harmonics. It also holds the scale of the residuals (1.4826 times the MAD)
+  and the spread of whole years. It is a least squares fit to the rows, so
+  anyone can compute it again. The recipes `memory_similarity@1`,
+  `memory_shift@1` and `memory_novelty@1` compare fields, or two windows of
+  one field, with these numbers.
+- `inner_buffer_m` (0 to 60) removes edge pixels. `min_support_px` (4 to
+  30, default 30) is the smallest number of pixels for one scene.
+- `polygon_cid` identifies the outline. `aoi_cid` is the bbox hash that the
   receipt binds.
-- Scene check, optical only: a scene that both time neighbours refute
-  gets `quality: "suspect"` and `scene_check`, and is left out of the
-  trend. A `fields` answer adds a `suspect` column and `suspect_dates`.
-- Radar rows have no `clear_fraction`. `mean` is the dB of the mean
-  linear power. Rows also carry `se_db`, `pixel_enl`, `below_nesz_share`
-  and `bright_rejected`.
-- A radar area answer carries `blocks`, `change_map` and `anomaly` like
-  an optical one, in dB and on its one orbit. A block's value is the
-  median of per-pixel dB over its valid pixels, and `blocks.n_px` gives
-  each block's pixel count. Speckle makes a small block noisy, and
-  `cautions` says how large a block change is noise at the smallest
-  block. A radar `fields` answer has none of the three.
+- Scene check, optical only: when both time neighbours refute a scene, the
+  scene gets `quality: "suspect"` and `scene_check`. The trend does not use
+  it. A `fields` answer adds a `suspect` column and `suspect_dates`.
+- Radar rows have no `clear_fraction`. `mean` is the dB of the mean linear
+  power. Rows also carry `se_db`, `pixel_enl`, `below_nesz_share` and
+  `bright_rejected`.
+- A radar area answer carries `blocks`, `change_map` and `anomaly`, as an
+  optical one does. They are in dB and on one orbit. A block value is the
+  median of per-pixel dB over its valid pixels. `blocks.n_px` gives the
+  pixel count of each block. Speckle makes a small block noisy. `cautions`
+  says how large a change in the smallest block can be noise. A radar
+  `fields` answer has none of these three.
 
-#### Geocoding and dispatch
+#### Place names and dispatch
 
-| Method | Path | Body shape |
+| Method | Path | Body |
 |---|---|---|
-| GET, POST | `/v1/locate` | `{place\|q\|name, lat?, lng?}` |
+| GET, POST | `/v1/locate` | `{place or q or name, lat?, lng?}` |
 | POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?}` |
-| POST | `/v1/intent` | typed `Intent`, see `emem-intent` |
+| POST | `/v1/intent` | A typed intent. `type` is required; the other fields depend on it |
 
 #### Physics
 
-| Method | Path | Body shape |
+| Method | Path | Body |
 |---|---|---|
 | POST | `/v1/heat_solve` | `{cell, hours_ahead?, diffusivity_m2_per_s?}` |
 | POST | `/v1/wave_solve` | `{coastal_cell, offshore_height_m, period_s, n_offshore_cells?}` |
 | POST | `/v1/jepa_predict` | `{cell, band?, lookback_months?, forecast_horizon_months?}` |
 
-`heat_solve` and `wave_solve` are explicit-FD solvers (CFL-stable).
-`jepa_predict` is a closed-form AR(2) seasonal NDVI predictor with fixed
-coefficients. It is arithmetic, not a learned model.
+`heat_solve` and `wave_solve` are explicit finite-difference solvers with
+a CFL stability check. `jepa_predict` is a constrained AR(2) seasonal NDVI
+predictor with fixed coefficients. It is arithmetic, not a learned model.
 
-#### Runtime algorithm endpoints
+#### Routes for algorithms that the formula engine cannot run
 
-Four algorithms the registry carries as `documentation_only` (their
-formula needs a multi-year series or a two-scene pair the scalar
-evaluation-AST can't express) have runnable surfaces here. Each signs
-its result and returns `verdict: "inconclusive"` (with no fabricated
-number) when its inputs aren't materializable. The registry entry keeps
-its `documentation_only` formula plus a `runtime_path` pointer to the
-endpoint.
+The registry marks these four algorithms `documentation_only`. Their
+formula needs a multi-year series or two scenes, and the scalar formula
+engine cannot express that. Each registry entry has a `runtime_path` to
+the route below. Each route signs its result. When an input is not
+available, it returns `verdict: "inconclusive"` and no number.
 
-| Method | Path | Body shape | Algorithm + citation |
-|---|---|---|---|
-| POST | `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`; each half degrades independently |
-| POST | `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
-| POST | `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | dNBR burn severity (Key & Benson 2006) |
-| POST | `/v1/rice_ch4` | `{cell, cultivation_period_days, efc_kg_ch4_ha_day, ndwi_series?, sfp?, sfo?, t_paddy_c?}` | Rice-cultivation CH4 (IPCC 2019 Tier 2, Eq 5.1) |
+| Path | Body | Algorithm |
+|---|---|---|
+| `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy@1`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`. Each half is reported alone when the other is missing |
+| `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | `spi_meteorological_drought@1`, Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
+| `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | `burn_severity_from_dnbr@1`, dNBR burn severity (Key and Benson 2006) |
+| `/v1/rice_ch4` | `{cell, cultivation_period_days, efc_kg_ch4_ha_day, ndwi_series?, sfp?, sfo?, t_paddy_c?}` | `rice_methane_awd_modeled@1`, rice methane (IPCC 2019 Tier 2, Eq 5.1) |
 
-#### Verification and attestation
+All four routes are `POST`. The second half of the deforestation alert
+compares two GeoTessera vintages (`geotessera.multi_year`). emem.dev
+retires that band (see [Algorithms](#algorithms)), so the second half
+needs vectors that emem stored before the retirement. On 6 November 2026
+the registry gave this algorithm `here.status: "stored_only"` and
+`use_instead: ["deforestation_alert_ndvi_drop@1"]`.
+
+#### Verification and writes
 
 | Method | Path | Purpose |
 |---|---|---|
-| POST | `/v1/verify` | Verify a structured claim, returns verdict + evidence |
-| POST | `/v1/verify_receipt` | Recompute preimage, verify Ed25519 |
-| POST | `/v1/fetch` | Resolve a fact by CID |
-| POST | `/v1/attest` | Submit a signed Attestation (JSON), write |
-| POST | `/v1/attest_cbor` | Submit a signed Attestation (canonical CBOR), write |
+| POST | `/v1/verify` | Check a claim at a cell. Returns a verdict and evidence |
+| POST | `/v1/verify_receipt` | Rebuild the preimage and check the Ed25519 signature |
+| POST | `/v1/fetch` | Get a fact by CID |
+| POST | `/v1/attest` | Send a signed attestation as JSON. This is a write |
+| POST | `/v1/attest_cbor` | Send a signed attestation as canonical CBOR. This is a write |
 
-`/v1/attest*` require an Ed25519 secret and are not exposed via MCP.
+#### Shortcuts by latitude and longitude
 
-#### Convenience lat/lng
+`/v1/at`, `/v1/elevation`, `/v1/ndvi`, `/v1/air`, `/v1/lst`, `/v1/soil`,
+`/v1/water`, `/v1/forest` and `/v1/weather` take `GET` and `POST`. `GET`
+takes `lat`, `lng` (or `lon`) and `place` as query parameters. A `POST`
+body takes `{lat, lng}` or `{place}`. Each returns one or a few facts with
+their `fact_cid`, but no receipt. For the receipt, call `/v1/recall` on the
+same cell.
 
-GET and POST variants for `/v1/{at, elevation, ndvi, air, lst, soil,
-water, forest, weather}`. Each takes `{lat, lng}` or `{place, lat, lng}`
-and returns one or a few facts plus a receipt. Same data flows through
-`/v1/recall` for the underlying cell.
+#### Cell geometry and images
 
-#### Imagery
+All routes in this table are `GET`.
 
-| Method | Path | Purpose |
-|---|---|---|
-| GET | `/v1/cells/:cell64/info` | lat/lng/bbox |
-| GET | `/v1/cells/:cell64/geojson` | Cell polygon as GeoJSON |
-| GET | `/v1/cells/:cell64/recall_geojson` | FeatureCollection of recalled bands |
-| GET | `/v1/cells/:cell64/scene.png` | Sentinel-2 L2A 256×256 RGB |
-| GET | `/v1/cells/:cell64/scene.rgb` | Raw RGB bytes |
-| GET | `/v1/coverage_map.svg` | 1440×720 corpus density map |
+| Path | Purpose |
+|---|---|
+| `/v1/cells/:cell64/info` | Latitude, longitude and bbox |
+| `/v1/cells/:cell64/geojson` | The cell polygon as GeoJSON |
+| `/v1/cells/:cell64/recall_geojson` | A FeatureCollection of the recalled bands |
+| `/v1/cells/:cell64/scene.png` | A Sentinel-2 L2A RGB image, 256 by 256 pixels |
+| `/v1/cells/:cell64/scene.rgb` | The raw RGB bytes |
+| `/v1/coverage_map.svg` | The 1440 by 720 corpus density map |
 
 #### Backfill
 
-| Method | Path | Body shape |
+`POST /v1/backfill` takes `{cell, band, start_unix?, end_unix?, max_facts?}`.
+Look at `/v1/data_availability` before you select a window.
+
+- Sentinel-2 bands: one catalogue search lists every acquisition over the
+  cell. emem screens each one with its own pixel SCL and signs it once,
+  oldest day first. Each day gets a status: `materialized`, `cached` or
+  `unusable_at_pixel`.
+- One day holds one fact. When two acquisitions fall on one day, emem
+  keeps the newest clear one, as a point read does. The other is listed as
+  `same_slot`, with the scene that replaced it.
+- Other bands run the per-tslot fetcher for each slot.
+- A band with no historical fetch returns `status: "present_only"`.
+
+### MCP tools by shape
+
+`tools/list` on `/mcp` shows the 18 `core` tools in one page (about 75 KB of descriptors).
+`/mcp/full` advertises all 116 (about 324 KB over 8 pages). Send
+`{"tier": "core"}`, `"extended"` or `"all"` to change the list on either
+endpoint. `tools/call` runs any tool by name on both endpoints, so a short
+list costs you no tools.
+
+Every tool declares one shape in `_meta` under `dev.emem/shape`. The shape
+is the form of the answer. The table lists all 116 tools on 6 November
+2026, from `/mcp/full`.
+
+| Shape | Answer | Tools |
 |---|---|---|
-| POST | `/v1/backfill` | `{cell, band, start_unix?, end_unix?, max_facts?}` |
+| `scalar` (34) | One number or a few numbers at one address | `emem_ask`, `emem_hunt`, `emem_eudr_dds`, `emem_spi`, `emem_burn_severity`, `emem_rice_ch4`, `emem_deforestation_alert`, `emem_sar_forest_disturbance`, `emem_change_attribution`, `emem_terrain`, `emem_state`, `emem_state_multi`, `emem_state_diff`, `emem_recall`, `emem_recall_polygon`, `emem_query_region`, `emem_compare`, `emem_compare_bands`, `emem_diff`, `emem_fetch`, `emem_backfill`, `emem_heat_solve`, `emem_wave_solve`, `emem_recall_many`, `emem_grid`, `emem_elevation`, `emem_at`, `emem_ndvi`, `emem_air`, `emem_lst`, `emem_soil`, `emem_water`, `emem_forest`, `emem_weather` |
+| `timeseries` (4) | Values over time | `emem_field_series`, `emem_trajectory`, `emem_compare_same_doy`, `emem_temporal_route` |
+| `raster` (6) | A grid of values over an area | `emem_band_raster`, `emem_band_cube`, `emem_band_composite`, `emem_raster_bundle`, `emem_coverage_map`, `emem_cell_scene_rgb` |
+| `geometry` (3) | Boundaries, polygons and the cells in an area | `emem_field_boundaries`, `emem_cells_in_bbox`, `emem_cell_geojson` |
+| `vector` (6) | An embedding or a neighbourhood in embedding space | `emem_region_similarity`, `emem_embedding_centroid`, `emem_embedding_diversity`, `emem_neighborhood_consistency`, `emem_find_similar`, `emem_jepa_predict` |
+| `identity` (4) | A canonical name for a place or an object | `emem_locate`, `emem_entity`, `emem_entity_resolve`, `emem_entity_link` |
+| `token` (13) | A citation handle, or the signed object behind one | `emem_raster_resolve`, `emem_cube_resolve`, `emem_raster_bundle_resolve`, `emem_memory_token`, `search`, `fetch`, `emem_memory_token_resolve`, `emem_derive`, `emem_derive_list`, `emem_inferences`, `emem_memory_bundle`, `emem_memory_bundle_resolve`, `emem_edges_recall` |
+| `proof` (12) | A check, a verdict or a log proof | `emem_range_hash`, `emem_tree`, `emem_echo_verify`, `emem_memory_contradictions`, `emem_verify`, `emem_trace_verify`, `emem_verify_receipt`, `emem_guard_verdict`, `emem_log_sth`, `emem_log_inclusion`, `emem_log_consistency`, `emem_log_witnesses` |
+| `plan` (2) | A plan or a tool choice | `emem_tools`, `emem_intent` |
+| `file` (9) | Notes in your own memory namespace | `emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_supersede`, `emem_memory_rename`, `emem_memory_list_by_kind`, `emem_memory_search` |
+| `catalog` (19) | A registry or a status list | `emem_corpus_state_stats`, `emem_benchmark`, `emem_bands`, `emem_functions`, `emem_sources`, `emem_schema`, `emem_errors`, `emem_manifests`, `emem_capabilities`, `emem_grid_info`, `emem_coverage_matrix`, `emem_materializers`, `emem_data_availability`, `emem_algorithms`, `emem_explain_algorithm`, `emem_topics`, `emem_fleet`, `emem_substrates`, `emem_guard_selfhost` |
+| `reading` (3) | Text or a typed decision read from something emem did not measure, signed with the hashes of the input | `emem_read`, `emem_ocr`, `emem_decide` |
+| `prose` (1) | Model text over cited facts. It is `model_output` and is not signed | `emem_reason` |
 
-Sentinel-2 bands walk the window by pass: one catalogue search lists
-every acquisition over the cell, each is screened by its own pixel SCL and
-signed once, days oldest first (`materialized`, `cached`, `unusable_at_pixel`).
-A day holds one fact. When two acquisitions fall on one day (two
-satellites minutes apart), the newest clear one is kept, as a point read
-keeps it, and the other is listed as `same_slot` with the scene it lost to.
-Other bands iterate the per-tslot materializer. Bands without historical
-fetch return `status: "present_only"`; check `/v1/data_availability`
-before picking a window.
+`emem_tools` filters the catalogue. With no arguments it returns the core
+loop, a bundle menu, and a shape menu in about 13 KB.
 
-### MCP tools
-
-The catalog below covers the high-traffic tools; `tools/list` (or `GET /v1/tools`) returns the full set with per-tool hints.
-
-`tools/list` at `/mcp` advertises the 18 tools of the loop in one page (about
-75 KB of descriptors); `/mcp/full` advertises all 116 (about 324 KB over 8
-pages), and
-`{"tier":"core"|"extended"|"all"}` overrides either endpoint's default.
-`tools/call` dispatches every tool by name at both endpoints regardless of
-tier, so a tool absent from your list is still callable and the narrower
-list costs no capability.
-
-`emem_tools` is the way in when you do not know the name. With no arguments
-it returns the loop, a bundle menu, and a shape menu in about 13 KB. Every
-tool declares its selection vocabulary in MCP-standard `_meta`: one
-`dev.emem/shape`, and any number of `dev.emem/bundles`.
-
-| Filter | Meaning | Values |
-|---|---|---|
-| `{"shape":"raster"}` | the form of the answer, exactly one per tool | `scalar`, `timeseries`, `raster`, `geometry`, `vector`, `identity`, `token`, `proof`, `plan`, `file`, `catalog` |
-| `{"bundle":"robotics"}` | the job, a view that overlaps | `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
-| `{"q":"ndvi"}` | free-text search over the catalog | any string |
-| `{"name":"emem_ndvi"}` | one tool's exact input schema and a runnable example, about 8 KB | any tool name |
-
-Shape is usually the real question. "Which tool do I use" is nearly always
-about the shape of the answer rather than its topic, and `scalar` (one
-number at one address) and `raster` (a gridded field over an area) answer
-very different ones. `{"bundle":"robotics"}` also works on `tools/list`
-itself, which returns that bundle and nothing else.
-
-Pure lookups are read-only (`readOnlyHint: true`). A read that can land on a cold address is not: `emem_recall`, `emem_ask` and every tool that auto-materialises fetch, sign and persist a fact on a miss, so they declare `readOnlyHint: false` and `openWorldHint: true`. The agent-memory file verbs (`emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_rename`) and the entity write surface (`emem_entity`, `emem_entity_link`) are writes and say so in their hints; `destructiveHint: true` is set only on the memory verbs that replace, move or remove a path. The reasoning for every tool's four hints is in `integrations/chatgpt/tool-annotations.md`. Inputs are JSON; MCP
-tools omit top-level `anyOf`/`oneOf` (Claude.ai's MCP frontend accepts
-only `{type, properties, required}`). Wire schemas live in
-`crates/emem-mcp/src/lib.rs`.
-
-Read primitives (14):
-
-| Tool | Purpose | REST equivalent |
-|---|---|---|
-| `emem_locate` | Place name → cell64 + band inventory | POST `/v1/locate` |
-| `emem_ask` | Single-shot Q&A with packaged receipts | POST `/v1/ask` |
-| `emem_recall` | Facts at a cell (auto-materializes on miss) | POST `/v1/recall` |
-| `emem_recall_many` | Batch recall, up to 256 cells | POST `/v1/recall_many` |
-| `emem_recall_polygon` | Recall across a place's polygon | POST `/v1/recall_polygon` |
-| `emem_field_boundaries` | Per-field agri polygons (Fields of The World) | POST `/v1/field_boundaries` |
-| `emem_query_region` | Aggregate over a region | POST `/v1/query_region` |
-| `emem_compare` | Two-cell cosine + per-band deltas | POST `/v1/compare` |
-| `emem_compare_bands` | Two-band comparison at one cell | POST `/v1/compare_bands` |
-| `emem_find_similar` | k-NN by embedding | POST `/v1/find_similar` |
-| `emem_trajectory` | Time series for (cell, band) | POST `/v1/trajectory` |
-| `emem_diff` | Signed delta between two tslots | POST `/v1/diff` |
-| `emem_fetch` | Resolve a fact by CID | POST `/v1/fetch` |
-| `emem_backfill` | Materialize history in a window | POST `/v1/backfill` |
-
-Domain shortcuts (9, one-shot locate→recall→aggregate):
-
-| Tool | Topic |
+| Argument | What it selects |
 |---|---|
-| `emem_at` | Mixed bands at a place |
-| `emem_ndvi` | Vegetation condition |
-| `emem_air` | CAMS air quality (PM2.5, NO2, O3) |
-| `emem_lst` | MODIS land-surface temperature |
-| `emem_soil` | SoilGrids carbon, pH, texture |
-| `emem_water` | Surface water recurrence + indices |
-| `emem_forest` | Hansen GFC + canopy bands |
-| `emem_weather` | Now-only met.no nowcast |
-| `emem_elevation` | Cop-DEM 30 m elevation |
+| `{"shape": "raster"}` | Tools with that shape. All 13 shapes worked on 6 November 2026, but the input schema lists only the first 11 |
+| `{"bundle": "robotics"}` | Tools for one job. Bundles overlap: `tokenisation`, `verification`, `agent_to_agent`, `long_horizon`, `robotics`, `satellites`, `agriculture`, `forestry`, `climate_risk` |
+| `{"q": "ndvi"}` | A text search over the catalogue |
+| `{"name": "emem_ndvi"}` | One tool's input schema and a runnable example, about 8 KB |
 
-Physics (3): `emem_heat_solve`, `emem_wave_solve`, `emem_jepa_predict`.
+`{"bundle": "robotics"}` also works as a `tools/list` argument. Then the
+list holds that bundle only.
 
-Verify (2): `emem_verify`, `emem_verify_receipt`.
+### Tool hints
 
-Introspection (20): `emem_bands`, `emem_functions`, `emem_sources`,
-`emem_schema`, `emem_errors`, `emem_manifests`, `emem_capabilities`,
-`emem_grid_info`, `emem_coverage_matrix`, `emem_coverage_map`,
-`emem_materializers`, `emem_data_availability`, `emem_fleet`,
-`emem_temporal_route`, `emem_algorithms`, `emem_explain_algorithm`,
-`emem_topics`, `emem_cell_scene_rgb`, `emem_cell_geojson`, `emem_intent`.
+Every tool carries the four MCP hints. On 6 November 2026, 51 tools
+had `readOnlyHint: false`. Some reads change the corpus: on a miss,
+`emem_recall`, `emem_ask` and the other fetching tools sign and store a new
+fact. These tools also set `openWorldHint: true`. The memory verbs and the
+entity writes (`emem_entity`, `emem_entity_link`) are writes. Five memory verbs, and
+no other tools, set `destructiveHint: true`: `emem_memory_create`,
+`emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete` and
+`emem_memory_rename`. The reason for each hint is in
+`integrations/chatgpt/tool-annotations.md`.
 
-The MCP catalog omits two L2 write surfaces. `emem_attest` and
-`emem_challenge` need an Ed25519 secret the attester controls. LLM
-hosts cannot manage keys safely, so writes go through plain REST from a
-process you control: `POST /v1/attest` (JSON) or `POST /v1/attest_cbor`
-(canonical CBOR). Key generation, signing, and rotation are documented
-in [emem-sign-and-attest](../plugins/emem/skills/emem-sign-and-attest/SKILL.md)
-and [protocol.md](protocol.md); the schema is in `/openapi.json`.
+MCP input schemas have no top-level `anyOf` or `oneOf`, because the
+Claude.ai MCP client accepts only `{type, properties, required}`. The wire
+schemas are in `crates/emem-mcp/src/lib.rs`.
+
+### Writes that MCP does not carry
+
+There is no MCP tool for `POST /v1/attest` or `POST /v1/attest_cbor`.
+These routes take an attestation that you sign with your own Ed25519
+key, from a process that you control. Other signed writes do have MCP
+tools: the memory verbs, `emem_derive` and the entity writes. If you send
+a memory verb or `emem_derive` without a signature, the 401 answer gives
+you the exact digest to sign. For key generation and signing, see
+[emem-sign-and-attest](../plugins/emem/skills/emem-sign-and-attest/SKILL.md)
+and [protocol.md](protocol.md).
 
 ---
 
@@ -1002,6 +999,18 @@ every `AlgorithmSpec` is typed and accessor-driven
 `GET /v1/algorithms/:key` for the formula body, then call `/v1/recall` for
 the input bands and replay the math locally. Read the entry's `here.status`
 first: only `runs` is a recipe this deployment can feed for any cell.
+
+| `here.status` | Meaning |
+|---|---|
+| `runs` | This responder can get every input |
+| `stored_only` | The recipe reads a retired encoder or band. Only facts stored before the retirement feed it |
+| `cannot_run` | The recipe needs a route that is gone |
+
+An entry that does not run can carry `use_instead`, a served recipe for a
+nearby question. `here.executes` says who runs the formula: `responder`,
+`responder, in part`, or `agent`. `agent` means that emem serves and signs
+the inputs, and you compute the result. `GET /v1/algorithms?runnable=true`
+lists only the recipes that run.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
