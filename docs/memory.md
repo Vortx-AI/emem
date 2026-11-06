@@ -479,6 +479,82 @@ wrote. You can still get the blob by its `file_cid`, because issued
 receipts must continue to verify. A delete unpublishes a note. It does
 not erase it.
 
+## Bundles: cite many facts with one token
+
+A bundle puts many facts behind one `emem:bundle:` token. Use it when
+an answer rests on more than one reading. The token has the same length
+for 2 facts or 256 facts.
+
+`POST /v1/memory_bundle` takes one of two inputs, not both:
+
+| Input | What the responder binds |
+|---|---|
+| `triples`: a list of `{cell, band, tslot?}` | The fact that a recall finds for each triple. With no `tslot`, the latest fact. The responder first geocodes a place name in `cell`. |
+| `fact_cids`: a list of fact cids | Exactly these facts. Use this to pin the facts you already read. |
+
+The limit is 256 entries in one call. Entry 257 gives a typed 400.
+An optional `purpose` string goes into the hash. The same facts with a
+different purpose thus give a different token.
+
+The response gives `bundle_token`, one citation per entry, and two
+counts. `members` is the number of entries. `resolved` is the number of
+entries that found a fact. An entry with no fact has a `miss_reason`.
+Read the two counts before you hand the token on. A bundle can be
+partial.
+
+The command below composes a bundle. This page does not run it, because
+the responder stores each bundle it composes. A triple can also make
+the responder fetch and sign a new fact.
+
+```sh
+# Not run here: the responder stores the bundle.
+curl -s -X POST https://emem.dev/v1/memory_bundle \
+  -H 'content-type: application/json' \
+  -d '{"fact_cids":["<fact_cid>","<fact_cid>"],"purpose":"<why>"}'
+```
+
+To read a bundle, send its token to `GET /v1/memory_bundle/<token>`.
+The MCP tool is `emem_memory_bundle_resolve`. The example below ran on
+6 November 2026:
+
+```sh
+curl -s https://emem.dev/v1/memory_bundle/emem:bundle:3d4octsgzilnelhvzvxwdvqzty
+```
+
+The responder signed this bundle at `2026-07-21T07:15:12Z`. It has 5 members
+(`indices.ndvi` at 5 cells) and 2 resolved. The first citation shows a
+miss:
+
+```json
+{"cell":"defi.zb4b7.dEma.bIwA","band":"indices.ndvi","resolved_tslot":20632,
+ "fact_cid":null,
+ "miss_reason":"no Primary fact at cell=defi.zb4b7.dEma.bIwA band=indices.ndvi tslot=Some(20632) on this responder"}
+```
+
+The `receipt` field of the bundle is a normal responder receipt with
+primitive `emem.memory_bundle`. Send `{"receipt": ...}` to
+`POST /v1/verify_receipt`. For this bundle the check gave
+`"valid":true`, `"signature_valid":true` and `"fact_cids_count":2`.
+
+You can also recompute the token from the citations. The
+`bundle_cid` is the first 16 bytes of a blake3 hash, in lowercase
+base32. The hash input is this text:
+
+```text
+emem.memory_bundle.v1|<purpose>\n
+<cell>|<band>|<resolved_tslot>|<fact_cid or empty>\n    (one line per citation)
+```
+
+The hash covers the citation list. It does not cover the bodies of the
+facts. To check a fact body, resolve its `emem:fact:` token.
+
+Two limits apply:
+
+- Only the responder that composed a bundle can resolve its token.
+  Other responders give a 404. They hold no copy of the bundle.
+- A bundle binds primary facts only. A cid of another kind becomes a
+  miss.
+
 ## Tokenised files: `emem:tree`
 
 A `pointer.v1` note names a large object. It holds the blake3 hash of
