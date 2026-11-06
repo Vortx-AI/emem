@@ -17,6 +17,10 @@ on:
 
 permissions:
   contents: read
+  # report_to_hol proves to HOL, with a GitHub OIDC token, that the summary
+  # below came from this repository's CI. It sends the score, grade, finding
+  # counts, scanner version, commit and run: never code or finding text.
+  id-token: write
 
 concurrency:
   group: plugin-scanner-${{ github.ref }}-${{ github.sha }}
@@ -38,6 +42,9 @@ jobs:
           fail_on_severity: high
           write_step_summary: true
           pr_comment: "off"
+          # The registry page counts the scanner as maintained in CI only when
+          # it receives this report; without it the trust score loses 10 %.
+          report_to_hol: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
       # The job summary shows only to a signed-in reader and the log API needs a
       # token, so the first failed run said only "exit code 1" to anyone else.
       # Annotations on the check run are public: each finding becomes one.

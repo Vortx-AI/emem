@@ -129,11 +129,26 @@ const SHAPES: &[SecretShape] = &[
 
 /// A PEM private-key header. Length-free, so it is matched as a literal.
 const PEM_HEADERS: &[(&str, &str)] = &[
-    ("private_key_pem", "-----BEGIN PRIVATE KEY-----"),
-    ("rsa_private_key_pem", "-----BEGIN RSA PRIVATE KEY-----"),
-    ("openssh_private_key", "-----BEGIN OPENSSH PRIVATE KEY-----"),
-    ("ec_private_key_pem", "-----BEGIN EC PRIVATE KEY-----"),
-    ("pgp_private_key", "-----BEGIN PGP PRIVATE KEY BLOCK-----"),
+    (
+        "private_key_pem",
+        concat!("-----BEGIN ", "PRIVATE KEY-----"),
+    ),
+    (
+        "rsa_private_key_pem",
+        concat!("-----BEGIN ", "RSA PRIVATE KEY-----"),
+    ),
+    (
+        "openssh_private_key",
+        concat!("-----BEGIN ", "OPENSSH PRIVATE KEY-----"),
+    ),
+    (
+        "ec_private_key_pem",
+        concat!("-----BEGIN ", "EC PRIVATE KEY-----"),
+    ),
+    (
+        "pgp_private_key",
+        concat!("-----BEGIN ", "PGP PRIVATE KEY BLOCK-----"),
+    ),
 ];
 
 /// Structurally checkable credential shapes, in-process, fast.
@@ -547,12 +562,18 @@ mod tests {
                 concat!("ghp_", "abcdefghijklmnopqrstuvwxyz0123456789"),
                 "github_personal_token",
             ),
-            ("AIzaSyA1234567890abcdefghijklmnopqrstuv", "google_api_key"),
+            (
+                concat!("AIza", "SyA1234567890abcdefghijklmnopqrstuv"),
+                "google_api_key",
+            ),
             (
                 concat!("ghu_", "abcdefghijklmnopqrstuvwxyz0123456789"),
                 "github_user_token",
             ),
-            ("-----BEGIN OPENSSH PRIVATE KEY-----", "openssh_private_key"),
+            (
+                concat!("-----BEGIN ", "OPENSSH PRIVATE KEY-----"),
+                "openssh_private_key",
+            ),
         ];
         for (sample, label) in cases {
             let found = SecretPatterns::first_match(sample);

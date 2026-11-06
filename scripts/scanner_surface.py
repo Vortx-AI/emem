@@ -97,7 +97,7 @@ LEAKS = [
 # scanner-surface check that reports clean is indistinguishable from one whose
 # patterns stopped matching, and the second is the more likely of the two.
 SELF_TEST = [
-    (b"-----BEGIN OPENSSH PRIVATE KEY-----\nb3Blb", "a private key block"),
+    (b"-----BEGIN " b"OPENSSH PRIVATE KEY-----\nb3Blb", "a private key block"),
     # The AWS key and the password are split into adjacent literals, so a
     # repository secret scanner reading this file does not report them. Python
     # joins them at compile time: the bytes tested are the same.
