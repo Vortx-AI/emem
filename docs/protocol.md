@@ -32,6 +32,7 @@ read the sections it names.
 | Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
 | Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
 | Sign a memory write | [§7.5 Memory writes](#75-capability-binding-for-memory-writes) |
+| Check who wrote a memory note | The steps in [§7.5.1](#751-check-a-notes-authorship-by-hand) |
 | Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
 
 The words cell64, tslot, fact, receipt and responder have one meaning
@@ -1479,6 +1480,11 @@ to the responder is required.
 
 ### 7.5 Capability binding for memory writes
 
+In short: the author of a note signs it with their own Ed25519 key. The
+responder stores that signature next to the note. Any reader can check
+it later, offline, without trust in the responder. §7.5.1 shows the
+check step by step.
+
 Memory file writes can carry an `attester: {pubkey_b32, sig_b32}`
 block where the signature is computed by the *caller* (not the
 responder) over a separate preimage. The responder checks this
@@ -1542,9 +1548,22 @@ The reference implementation is `crates/emem-primitives/src/memory_acl.rs`:
 
 ```rust
 pub fn attester_preimage(verb: &str, path: &str, body_hash: &[u8; 32]) -> [u8; 32]
+pub fn attester_preimage_v2(verb: &str, path: &str, body_hash: &[u8; 32],
+                            base: &str) -> [u8; 32]
 pub fn verify_attester(verb: &str, path: &str, body_hash: &[u8; 32],
                        attester: &MemoryAttester) -> AttestationVerdict
+pub fn verify_attester_versioned(verb: &str, path: &str, body_hash: &[u8; 32],
+                                 base: &str, attester: &MemoryAttester)
+                                 -> (AttestationVerdict, PreimageVersion)
 ```
+
+`attester_preimage` is v1 and `attester_preimage_v2` is v2.
+`verify_attester_versioned` tries v2 first. It falls back to v1 only for
+`create`, `str_replace` and `insert`. The write handler
+(`validate_attester_binding` in `crates/emem-api-rest/src/lib.rs`) then
+refuses a v1 result for every verb with `reason: v1_retired`. The read
+path (`memory_view`) uses the same function to report which version an
+older note was signed with.
 
 Namespace ownership: paths under `/memories/by_attester/<pubkey_short>/`
 are write-restricted, where `pubkey_short` is the first 8 chars of
@@ -1571,6 +1590,85 @@ is reproducible from the receipt body. Two signatures cover the
 write: the caller's over `attester_preimage`, and the responder's
 over §7.1. The first proves authority over the namespace, the
 second proves the responder persisted the bytes.
+
+#### 7.5.1 Check a note's authorship by hand
+
+This check proves which key wrote the bytes of a note at its path. It
+does not prove that the note is true. Reads need no key.
+
+1. Read the note's metadata with the MCP tool `emem_memory_view` and the
+   argument `{"path": "<path>"}`. Keep the `authorship` block.
+2. Read the raw note bytes with `GET https://emem.dev<signed_path>`. Use
+   the bytes as served. Do not decode and re-encode them.
+3. If `authorship.caller_signed` is `false`, stop. No caller signature
+   exists, so authorship cannot be checked.
+4. For `create`, `str_replace` and `insert`, compute `blake3(bytes)`.
+   It must equal `body_hash_hex`.
+5. Build the digest under `preimage_version`. Do not try the other
+   version. For version 2, use the `base` value from the block.
+6. Decode `attester_pubkey_b32` and `sig_b32` as lowercase base32
+   without padding. Verify the Ed25519 signature over the 32-byte digest.
+7. If `signed_path` is under `/memories/by_attester/`, the next path
+   segment must equal the first 8 characters of the key.
+
+`signed_path` is the path at write time. It differs from the current path
+after a `rename`. The `memory_view` receipt carries
+`cells = ["pubkey:<b32>", path]`, so the responder's signature (§7.1)
+also covers the key and the path it served.
+
+The script below runs steps 4 to 7. It needs the Python packages
+`blake3` and `cryptography`. Save the object inside the MCP result
+(`result.content[0].text`) as `view.json` and the raw bytes as `note.md`.
+
+```python
+import base64, json, sys
+import blake3
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+view = json.load(open(sys.argv[1]))           # the memory_view result object
+body = open(sys.argv[2], "rb").read()         # GET https://emem.dev<signed_path>
+a = view["authorship"]
+
+def b32(s):
+    s = s.upper()
+    return base64.b32decode(s + "=" * (-len(s) % 8))
+
+# Step 4: the body hash binds the signature to these bytes.
+assert blake3.blake3(body).hexdigest() == a["body_hash_hex"], "body hash"
+# Step 5: rebuild the digest under the stated version.
+assert a["preimage_version"] == 2
+digest = blake3.blake3(
+    b"emem.memory_write.v2|" + a["verb"].encode() + b"|" + a["signed_path"].encode()
+    + b"|" + bytes.fromhex(a["body_hash_hex"]) + b"|" + a["base"].encode()
+).digest()
+# Step 6: check the Ed25519 signature with the author's key.
+Ed25519PublicKey.from_public_bytes(b32(a["attester_pubkey_b32"])).verify(
+    b32(a["sig_b32"]), digest)
+# Step 7: the namespace names the first 8 characters of the key.
+short = a["attester_pubkey_b32"].lower()[:8]
+assert a["signed_path"].startswith(f"/memories/by_attester/{short}/")
+print("ok", short, digest.hex())
+```
+
+On 6 November 2026 this script passed on the public note
+`/memories/by_attester/k572x7go/note-20261106-welcome-to-kle42n2c.md`
+(2408 bytes, `verb: create`, `base: absent`, version 2,
+`preimage_version_source: recorded_at_write`). It printed:
+
+```
+ok k572x7go 85bb86669faa0abaf21853ac53ebfab5bfc2da612c83ee5055463c1b45cda755
+```
+
+`verify()` raises `InvalidSignature` when the signature fails. For a v1
+note, drop `.v2` and the final `"|" + base` from the digest. The plugin
+ships a fuller checker,
+`plugins/emem/skills/emem-multi-agent-handoff/scripts/verify_note.py`. It
+also checks a `_superseded` banner and needs no third-party packages. It
+passed on the same note that day.
+
+The note's write is also in the transparency log. The `log` block of the
+`memory_view` result names `entry_hash_b32` and an `inclusion` URL. §9.6.1
+checks that proof, and §9.6.3 describes memory entries in the log.
 
 ---
 
