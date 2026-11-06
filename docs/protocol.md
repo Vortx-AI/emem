@@ -2029,22 +2029,37 @@ path over leaves or chunks the caller holds.
 
 ## 10. Privacy classes
 
-`crates/emem-core/src/privacy.rs:18-41`. Every band declares a
-`PrivacyClass`; responders enforce it before serving facts.
+In short: every band in `bands-v0.json` declares a privacy class. The
+class is part of `bands_cid`, so a receipt commits to it. The rule in
+this section says what a conforming responder must do with the class.
+The reference responder does not apply that rule yet (see the note at
+the end of §10.1).
 
-| Class | Wire form | Behaviour |
+The type is `PrivacyClass` in `crates/emem-core/src/privacy.rs`.
+
+| Class | Wire form | Rule |
 |-------|-----------|-----------|
-| `Public` | `{"class":"public"}` | unrestricted at any resolution |
-| `AggregateOnly { min_res }` | `{"class":"aggregate_only","min_res":11}` | snap up to coarser-than-or-equal-to `min_res`; responses MUST mark `privacy_snapped: true` |
-| `L2OnlyWithModelCid` | `{"class":"l2_only_with_model_cid"}` | only at conformance L2; requires `Source.cid` of the model checkpoint |
-| `Prohibited` | `{"class":"prohibited"}` | conforming responder MUST refuse |
+| `Public` | `{"class":"public"}` | serve at any resolution |
+| `AggregateOnly { min_res }` | `{"class":"aggregate_only","min_res":11}` | snap to `min_res` or coarser; the response MUST carry `privacy_snapped: true` |
+| `L2OnlyWithModelCid` | `{"class":"l2_only_with_model_cid"}` | serve only at conformance L2, with the `Source.cid` of the model checkpoint |
+| `Prohibited` | `{"class":"prohibited"}` | a conforming responder MUST refuse |
 
 The discriminator is `class` (`#[serde(tag = "class", rename_all =
 "snake_case")]`), CBOR-encoded as the leading map key.
 
+On 6 November 2026, `bands-v0.json` declared these classes for its
+43 bands:
+
+| Class | Bands |
+|---|---|
+| `public` | 38 |
+| `aggregate_only`, `min_res` 11 | 3: `nightlights`, `ghsl`, `population` |
+| `l2_only_with_model_cid` | 2: `clay_v1`, `prithvi_eo2` |
+| `prohibited` | 0 |
+
 ### 10.1 permits_resolution
 
-`privacy.rs:43-55`:
+`PrivacyClass::permits_resolution` in `privacy.rs`:
 
 ```rust
 pub fn permits_resolution(self, requested_res: u8, conformance_l2: bool) -> bool {
@@ -2057,19 +2072,32 @@ pub fn permits_resolution(self, requested_res: u8, conformance_l2: bool) -> bool
 }
 ```
 
-A request at finer resolution than `min_res` does not silently fall
-through. The responder either snaps to `min_res` (and stamps
-`privacy_snapped: true` in the response payload) or rejects the
-request. The choice is the responder's, but it MUST announce which
-happened. Silent fallthrough would violate the no-silent-fallbacks
-contract: an agent seeing an empty result cannot tell whether the
-band was prohibited or simply absent.
+A request at a finer resolution than `min_res` must not fall through
+silently. The responder snaps to `min_res` and puts
+`privacy_snapped: true` in the response, or it refuses the request.
+The responder picks one, and it MUST say which it did. Without that,
+an agent that gets an empty result cannot tell a prohibited band from
+an absent one.
+
+What ships on 6 November 2026: no code outside `privacy.rs` calls
+`permits_resolution`, and no response carries `privacy_snapped`. The
+responder addresses every band at the one active cell64 resolution
+(tag 21, §1.1). That is finer than `min_res` 11, so the reference
+responder serves the three `aggregate_only` bands per cell, without a
+snap. Treat
+the class as a declaration that the manifest signs, not as an access
+control that the responder applies.
 
 ---
 
 ## 11. Claim algebra
 
-`crates/emem-claim/src/lib.rs`.
+In short: a claim is a typed test over the facts at one cell, such as
+"NDVI is greater than 0.3". `POST /v1/verify` evaluates a claim and
+signs the verdict with the fact CIDs it used. `find_similar` uses the
+same claims as filters.
+
+The types are in `crates/emem-claim/src/lib.rs`.
 
 ```rust
 struct Claim {
@@ -2082,7 +2110,7 @@ struct Claim {
 }
 ```
 
-Operators (`Op`, lib.rs:31-55):
+Operators (`Op`):
 
 | Op | Wire | Meaning |
 |----|------|---------|
@@ -2098,49 +2126,95 @@ Operators (`Op`, lib.rs:31-55):
 | `Absent` | `absent` | a confirmed-absence fact exists |
 
 Aggregations over a window (`Claim.agg`): `any`, `all`, `mean`, `min`,
-`max`. Either `tslot` or `window` MUST be set (`ClaimError::NoTime`).
+`max`. With no `agg`, the evaluator uses `any`. `mean` weights each
+value by the equal-area weight of its cell.
 
-A type mismatch between `Claim.value` and the fact's value type is
-*decidable* depending on context: in `find_similar.filter` it returns
-`false` (candidate filtered out); in `verify` it returns
-`ClaimError::TypeMismatch` so the agent can distinguish a typo from a
-mismatch. New ops ship under semver; an unknown op MUST surface as a
-structured error, not `false`.
+The spec says one of `tslot` or `window` MUST be set, and
+`emem-claim` defines `ClaimError::NoTime`, `TypeMismatch` and
+`UnsupportedOp` for that purpose. On 6 November 2026 no evaluator
+returns these errors. The table below shows what the code in
+`crates/emem-primitives/src/verify.rs` and `find_similar.rs` does, and
+what emem.dev returned that day.
+
+| Input | Result |
+|---|---|
+| no `tslot` and no `window` | accepted; the claim uses the facts at every tslot for that band |
+| `value` of a different type from the fact, for example a string against a number | `verdict: false`, with the fact CIDs in `evidence`. No error |
+| `agg` that is not one of the five names | evaluated as `any` |
+| unknown `op` | HTTP 400 `invalid_argument`, with `details.deserializer_error` naming the ten valid ops |
+
+So in `verify`, a `false` verdict can mean "the value fails the test"
+or "the types do not compare". Check the fact values in `evidence` to
+tell the two apart. New ops ship under semver. An unknown op MUST give
+a structured error, not `false`, and the responder does that.
 
 ---
 
 ## 12. Conformance gates: the four CIDs
 
-`/v1/manifests` returns four content-addressed identifiers that every
-responder MUST be able to compute from the same JSON inputs:
+In short: a second responder or verifier is compatible only if it computes
+the same manifest CIDs from the same registry files. This is the first
+test to pass, because every fact, receipt and attestation cites these
+CIDs.
 
-| CID | Source manifest | Pinned shape |
+`GET /v1/manifests` returns ten digests (§3.3). Four of them are the
+conformance gate:
+
+| CID | Source manifest | What the manifest pins |
 |-----|-----------------|--------------|
-| `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims; 115 materializer-wired band names (42 user-callable today) route into those slots |
-| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds (Solo, Combined, Embedding); each entry carries typed `parameters`, citation-bearing `learned_from`, and `prerequisites`, so every algorithm is re-executable against the receipt that cites it. See `docs/agents.md` for the catalog, including the six triple-encoder-consensus entries (`deforestation_triple@1`, `wetland_change_triple@1`, `urban_expansion_triple@1`, `disaster_anomaly_triple@1`, `climate_archetype_triple@1`, `coastal_erosion_triple@1`) |
-| `sources_cid` | `sources-v0.json` | 46 source schemes; the majority route through the universal STAC + COG sampler (`cog.rs`), the remainder through HTTPS-JSON, Parquet S3, NCSS CSV, TAR/ZIP, Overpass QL, and PMTiles paths |
+| `bands_cid` | `bands-v0.json` | 43 cube slots summing to exactly 1792 dims, each with its tempo and privacy class. 115 materializer-wired band names (42 user-callable today) route into those slots; that routing is not in this manifest |
+| `algorithms_cid` | `algorithms-v0.json` | 172 algorithms in three kinds: 29 `solo`, 114 `combined`, 29 `embedding`. Each entry carries typed `parameters`, `learned_from` with citations, and `prerequisites`, so a third party can run it again against the receipt that cites it. [agents.md](agents.md) lists the catalog, including the triple-encoder-consensus entries such as `deforestation_triple@1` and `coastal_erosion_triple@1` |
+| `sources_cid` | `sources-v0.json` | 46 source schemes, each with its providers, tempo and native resolution. The manifest does not record transport. In the code, many connectors use the shared STAC + COG sampler (`crates/emem-fetch/src/cog.rs`). Others use HTTPS JSON, Parquet on S3, NCSS CSV, TAR or ZIP, Overpass QL and PMTiles |
 | `schema_cid` | `schema-v0.json` | CDDL bundle pinned to `hash="blake3"`, `signature="ed25519"`, `cid_encoding="base32-nopad-lowercase"` |
 
-Recipe (identical for all four):
+The algorithm counts are from `algorithms-v0.json` on 6 November 2026.
+
+Recipe (the same for all four, `manifest_cid` in
+`crates/emem-core/src/manifest.rs`):
 
 ```
 manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest_json) )[..32] )
 ```
 
-The conformance test before any test vectors land: an external
-implementation reads the same JSON files, runs its own canonical CBOR
-encoder + BLAKE3, and produces byte-identical CIDs. If it does not,
-no other compatibility claim holds: every fact, every receipt, every
-attestation cites these CIDs.
+Here `manifest_json` is the registry after the responder parses it
+into its Rust type, not the JSON text. `ciborium` then writes that
+value. Three rules follow, and an external encoder must copy them:
+
+1. Map keys are in the field order of the Rust struct, not sorted and
+   not in file order. For a band, the order is `key`, `family`,
+   `provenance_class`, `offset`, `dims`, `tempo`, `privacy`, then the
+   optional text fields.
+2. A JSON key that the struct does not declare is dropped. In
+   `bands-v0.json`, `_source_note` is dropped and `_note` is kept.
+3. An optional field that is absent or empty is left out. A missing
+   `provenance_class` is written as `unclassified`.
+
+On 6 November 2026 this was checked on `bands-v0.json`. CBOR of the
+JSON in file order, and CBOR with sorted keys, both gave a different
+digest. CBOR in struct field order with rules 2 and 3 gave
+`mesoyti3qcs22pftcq27ljwcf3ifktnkqid4euqxyskhea5rpgra`. That is the
+live `bands_cid` and the value the test
+`the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary` in
+`crates/emem-core/src/bands.rs` pins.
+
+The free-text fields of a band (`description`, `interpretation`,
+`pitfalls`, `references`) are in the struct, so they are in
+`bands_cid`. An edit to them gives a new `bands_cid`.
 
 ---
 
 ## 13. Test vectors
 
-The directory `spec/test_vectors/` is the conformance fixture root.
-The 1.x line ships the directory framework only; populating each
-sub-directory with JSON-per-vector fixtures (extracted from the
-existing crate tests) is coming soon:
+The directory `spec/test_vectors/` holds the conformance fixtures.
+Its `README.md` gives the file format: one JSON file per vector, with
+`id`, `kind`, `spec`, `level`, `input`, `expected` and `notes`.
+
+What ships on 6 November 2026 is one set: `os_trace/`, with four
+vectors (`admit`, `chain_broken`, `output_unbound`,
+`archive_refused`). The test `crates/emem-trace/tests/vectors.rs`
+generates them with a fixed key and fixed clocks.
+
+These sub-directories are planned and do not exist yet:
 
 - `cell64/`: `(lat, lng) → cell64 string` inputs and outputs.
 - `tslot/`: `(unix_seconds, tempo) → tslot` and the text round-trip.
@@ -2153,74 +2227,103 @@ existing crate tests) is coming soon:
 - `derivation/`: parent FactCid set + Derivation recipe → expected
   derivative fact.
 
-This document does not invent vectors. An external implementation
-passes the conformance gate by producing byte-identical outputs against
-the fixtures (once shipped), against the CIDs in §12, and against the
-worked examples in §1.4 and §7.2.
+This document does not invent vectors. Until the planned sets ship,
+test an external encoder or verifier against these:
+
+- the `os_trace/` vectors;
+- the CIDs in §12;
+- the worked examples in §1.4 and §7.2;
+- a live receipt that you check by hand (§7.4).
 
 ---
 
 ## 14. Forward compatibility
 
-Three rules govern how this protocol evolves without breaking deployed
-verifiers.
+Three rules let the protocol change without breaking verifiers that
+are already deployed.
 
-1. **Manifests are content-addressed.** An operator who publishes a
-   new `bands-v0.json` ships a new `bands_cid`. Existing facts under
-   the old `bands_cid` stay valid forever; they never need to be
-   re-signed. A verifier with the receipt's `registry_cid` /
-   `schema_cid` knows exactly which manifest set was in force.
-2. **Schema migrations live at the manifest level.** A CDDL change
-   produces a new `schema_cid`. The CBOR encoder is intentionally not
-   versioned in-band: there is no version field in a fact. Two facts
-   with different `schema_cid` values describe themselves through
-   their respective manifests, not through wire-level discriminators.
-3. **Operators add ops/connectors under semver.** New `Claim` ops, new
-   `Source` connector kinds, new `Tempo` variants ship in a new
-   manifest CID. Old responders that don't recognise an op or a
-   connector kind MUST surface a structured error, not silently
-   evaluate as `false` or substitute a default.
+1. Manifests are content-addressed. An operator who publishes a new
+   `bands-v0.json` gets a new `bands_cid` (§12). Facts signed under
+   the old `bands_cid` stay valid and are not signed again. The
+   receipt's `registry_cid` and `schema_cid` tell a verifier which
+   manifest set applied.
+2. Schema changes happen at the manifest level. A CDDL change gives a
+   new `schema_cid`. A fact has no version field, and the CBOR encoder
+   has no version on the wire. Two facts with different `schema_cid`
+   values are described by their own manifests.
+3. Operators add ops and connectors under semver. New `Claim` ops,
+   new `Source` connector kinds and new `Tempo` variants ship with a
+   new manifest CID. A responder that does not know an op or a
+   connector kind MUST return a structured error. It must not evaluate
+   the claim as `false` or use a default. §11 shows what emem.dev does
+   today.
 
 End of spec.
 
 ## The tokenverse
 
-A token is the whole point of the citation: short enough to sit in a sentence,
-exact enough to name one thing, and resolvable by anyone.
+A token is a short text name for one thing that emem holds. It fits in
+a sentence, and any party can resolve it. The kinds do not bind equally
+much. Read the Strength column before you cite one.
 
-| Token | Names | Strength |
-|---|---|---|
-| `emem:fact:<cell>:<cid>` | one signed observation | **Full.** The cid is a 52-character digest of the whole body. Change any byte and the token no longer resolves. |
-| `emem:bundle:<cid>` | a set of facts cited together | Anchor. Binds the set, not each body. |
-| `emem:entity:<cid>` | an object two agents co-refer to | Anchor, truncated. A shared name, not shared bytes. |
-| `emem:raster:<cid>` | a field over an area, at native resolution | Full, over the artifact. |
-| `emem:cube:<cid>` | a field over an area over time | Full, over the artifact. |
-| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference. |
-| `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | **Full.** The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it. Resolve at `GET /v1/state/{cid}`. |
-| `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root. Resolve at `GET /v1/tree/{file_cid}?row=<index>`. |
-| `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch. Resolve at `POST /v1/raster_bundle/resolve`. |
+| Token | Names | Strength | Resolve at |
+|---|---|---|---|
+| `emem:fact:<cell>:<cid>` | one signed observation | Full. The cid is a 52-character digest of the whole body. Change any byte and the token no longer resolves | `POST /v1/memory_token/resolve`, MCP `emem_memory_token_resolve` |
+| `emem:bundle:<cid>` | a set of facts cited together | Anchor. Binds the set, not each body | `GET /v1/memory_bundle/{token}` |
+| `emem:entity:<cid>` | an object two agents co-refer to | Anchor, truncated. A shared name, not shared bytes | `GET /v1/entity/{token}` |
+| `emem:raster:<aoi_cid>:<band>:<tslot>:<derivation_cid>` | a field over an area, at native resolution | Full, over the artifact. The resolver refuses a token whose area, band or tslot differs from the signed record | `POST /v1/raster/resolve` |
+| `emem:cube:<aoi_cid>:<band>:<tslot_lo>..<tslot_hi>:<derivation_cid>` | a field over an area over time | Full, over the artifact. The resolver recomputes `cube_cid` from the members and refuses a mismatch | `POST /v1/cube/resolve` |
+| `emem:cell:<cell64>` | a patch of ground, about 9.55 m | An address. Nothing to dereference | `GET /v1/cells/{cell64}` describes the cell |
+| `emem:state:<cid>` | one stage of an `/v1/ask` answer's reasoning | Full. The cid is the whole 32-byte blake3 of the state's canonical CBOR. Each state commits to the stage before it | `GET /v1/state/{cid}` |
+| `emem:tree:<file_cid>#row=<index>` | one row of a note's Merkle table | Full over the row: an audit path from the row to the note's signed root (§9.7) | `GET /v1/tree/{file_cid}?row=<index>` |
+| `emem:rasterset:<bundle_cid>:<derivation_cid>` | a set of `emem:raster:` layers | Full over the signed manifest. The resolver recomputes `bundle_cid` from the members and refuses a mismatch | `POST /v1/raster_bundle/resolve` |
 
-They are not equally strong and the table says so, because a citation that
-looks the same and binds less is the kind of thing that gets found out later.
-`emem:fact:` is the one that binds a whole body; treat the anchors as shared
-references, not as shared bytes.
+Only `emem:fact:` binds a whole body. Treat the anchors as shared
+references, not as shared bytes. A citation that looks the same but
+binds less can mislead a reader later, so name the kind you cite.
 
-Resolve any of them with `emem_memory_token_resolve`, or over REST at
-`POST /v1/memory_token/resolve`. The exceptions are `emem:state:`,
-`emem:tree:` and `emem:rasterset:`, which use the routes in the table. Check the receipt with `emem_verify_receipt`,
-or in your own process with any ed25519 and blake3 implementation. The full
-grammar, with preimages and canonical bytes, is in [the spec](https://emem.dev/spec).
+`POST /v1/memory_token/resolve` takes only `emem:fact:` tokens (and the
+legacy `memt:` form). On 6 November 2026 it returned HTTP 400
+`invalid_argument` for `emem:raster:`, `emem:cube:` and `emem:entity:`
+tokens. Use the route in the table for each kind.
+
+Check the receipt with `emem_verify_receipt`, or in your own process
+with any ed25519 and blake3 library (§7.4). The full grammar,
+with preimages and canonical bytes, is in
+[the spec](https://emem.dev/spec).
 
 ### What a fact asserts, and what it does not
 
-A signature proves who attested a record and that the bytes never changed. It does not make the value true, and *how much* the record claims differs by provenance class. For anyone turning a fact into a decision that gets audited, the difference is legal rather than cosmetic:
+A signature proves who attested a record, and that the bytes did not
+change. It does not make the value true. How much a record claims
+depends on its provenance class. If an audited decision rests on a
+fact, this difference can have legal weight.
 
-| Provenance class | What the responder is actually telling you |
+The classes are `ProvenanceClass` in `crates/emem-core/src/bands.rs`.
+
+| Provenance class | What the responder tells you |
 |---|---|
-| `direct_sensor` | measured, or read straight from the cited raw source |
-| `deterministic_index` | **recomputed by this responder** from the cited parents. Exact for ops with nothing to accumulate; `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise) with the measured gap returned, because nobody signed the sum |
-| `attested_execution` | produced inside a **verified OS execution trace** on an enrolled device, the output digest bound in the trace. Not recomputable by a third party, so `deterministic: true` excludes it |
-| `model_output` | **attributed, not checked.** The responder signs that *this attester claims V via recipe R*. It never evaluated V |
+| `direct_sensor` | measured, or read directly from the cited raw source |
+| `deterministic_index` | recomputed by this responder from the cited parents. Exact for ops that do not accumulate. `mean` and `sum` over more than two parents compare under a [stated 4-ULP window](how-emem-compares.md#5b-what-verification-cannot-promise). No party signed the sum, so the response gives the measured gap |
+| `estimator` | a fitted quantity. The same signed inputs, the same named estimator and the same seed give it again, so a third party can run it again. No band in `bands-v0.json` declared this class on 6 November 2026 |
+| `attested_execution` | made inside a verified OS execution trace on an enrolled device, with the output digest bound in the trace. A third party cannot recompute it, so `deterministic: true` excludes it |
+| `model_output` | attributed, not checked. The responder signs that this attester claims value V through recipe R. It did not evaluate V |
 | `human_curated` | a person asserted it |
+| `unclassified` | the default for a band with no class. Lowest trust. It never claims tamper evidence |
 
-Citing a `model_output` derivation as though it were evidence is exactly the error this table exists to prevent. Pass `deterministic: true` on a read to keep only what a third party can recompute from raw source. And where there is no observation, emem distinguishes two answers that a 404 would collapse into one. Where the responder looked and there is nothing, it returns a **signed absence** carrying a typed reason: evidence of no-data, citeable like any other fact. Where it could not look (an upstream failed, coverage does not reach) it returns a typed, UNSIGNED note with `absence: false`, because signing "I could not look" as though it were "I looked and found nothing" is the dishonesty the signed absence exists to prevent. An unknown never poses as a confirmed absence.
+Only `direct_sensor` and `deterministic_index` count as deterministic
+(`ProvenanceClass::is_deterministic`). Pass `deterministic: true` on a
+read to keep only those facts. Do not cite a `model_output` derivation
+as evidence.
+
+When there is no observation, emem gives one of two answers. A plain
+404 cannot tell them apart.
+
+| Case | Answer |
+|---|---|
+| The responder looked and found nothing | a signed absence with a typed reason (§5.3). You can cite it like any other fact |
+| The responder could not look, for example an upstream failed or coverage does not reach the cell | a typed note with `absence: false`. It is not signed |
+
+The responder does not sign "I could not look", because that would
+read as "I looked and found nothing". An unknown never appears as a
+confirmed absence.
