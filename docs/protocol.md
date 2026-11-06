@@ -340,8 +340,11 @@ Facts and manifests use BLAKE3 over canonical CBOR. The hash bytes are encoded w
 | `entity_cid`, `bundle_cid` | 16 | 26 | `crates/emem-primitives/src/entity.rs:251` (`compute_entity_cid`), `crates/emem-primitives/src/memory_bundle.rs:159` (`compute_bundle_cid`) | a reference to an object, not a binding of its whole body ([§3.2](#32-factcid)) |
 | `FactCid`, manifest CID | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`), `crates/emem-core/src/manifest.rs:111-119` | durable storage and signing |
 
-The full 32-byte hash is computed once (`blake3_32`, cbor.rs:77-83).
-The shorter forms are prefixes of it.
+The full 32-byte hash of a fact is computed once (`blake3_32`, cbor.rs:77-83).
+A `cid64` is the first 8 bytes of that hash. An `entity_cid` and a
+`bundle_cid` are not prefixes of any fact CID. Each hashes its own text
+preimage (`emem.entity.v1|...` or `emem.memory_bundle.v1|...`) and keeps the
+first 16 bytes.
 
 ### 3.1 cid64
 
@@ -1001,12 +1004,34 @@ code from `crates/emem-core/src/error.rs`
 ![the trust plane: preimage, signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
 *The five-step trust pipeline. Section 7.2 specifies the preimage byte-by-byte; sections 8 and 9 cover the Merkle path and the append-only log.*
 
-`crates/emem-fact/src/receipt.rs:11-58`.
+In plain words: every read response carries a receipt. The receipt names
+the facts the responder served and the cells they belong to. The
+responder signs a BLAKE3 digest of those names with its Ed25519 key. You
+rebuild the digest from the receipt alone and check the signature with
+the public key the receipt carries. You do not need a second call. Then
+you can check the receipt's Merkle proof (§8) and the log entry it points
+to (§9.6).
+
+To check a receipt by hand:
+
+1. Read `preimage_version` (§7.1). Rebuild the segment stream under that
+   rule, not under the newest rule.
+2. Take `blake3(stream)`. Verify `signature` over those 32 bytes with
+   `responder`.
+3. Fold `merkle_proof` from `fact_cids[0]` to `root` (§8). Use the rule
+   that `merkle_proof.version` names.
+4. Optional: prove `merkle_proof.log_entry_hash` into a signed tree head
+   with `GET /v1/log/inclusion` (§9.6).
+
+The script in §7.4 does steps 1 and 2. On 6 November 2026 it verified a
+live `POST /v1/recall` receipt from emem.dev without changes.
+
+The struct is `Receipt` in `crates/emem-fact/src/receipt.rs:11-103`.
 
 | Field | Type | Notes |
 |-------|------|-------|
 | `request_id` | `String` | ULID generated per request |
-| `served_at` | `String` | ISO 8601 UTC, second precision (`server.rs:194-211`) |
+| `served_at` | `String` | ISO 8601 UTC, second precision (`iso8601_now`, `crates/emem-storage/src/server.rs:648-666`) |
 | `primitive` | `String` | namespaced wire form: `"emem.recall"`, `"emem.find_similar"`, `"emem.verify"`, `"emem.query_region"`, `"emem.memory_file"`, `"emem.memory_bundle"`, `"emem.memory_contradictions"`, … (the bare form without `emem.` is internal-only; wire receipts always carry the prefix) |
 | `intent` | `Option<String>` | populated when served via `/v1/intent`; omitted from JSON when None |
 | `cells` | `Vec<String>` | cell64 strings cited in the response. For `emem.memory_file` primitives, `cells[0]` is the memory path; when an attester block was supplied, `cells[0] = "pubkey:<b32>"` and `cells[1]` is the path |
@@ -1016,13 +1041,18 @@ code from `crates/emem-core/src/error.rs`
 | `merkle_proof` | `Option<MerkleProof>` | inclusion proof for `fact_cids[0]` when persisted; omitted from JSON when None. Bound into the signature from `preimage_version: 2` on, so do not strip it (see §7.3.1) |
 | `responder` | `AttesterKey` | ed25519 pubkey, `[u8; 32]` |
 | `responder_key_epoch` | `KeyEpoch` | `u32` rotation counter |
-| `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`; appended at REST-serialization time so JSON consumers don't need to re-encode the bytes |
+| `responder_pubkey_b32` | `String` | base32-nopad-lowercase of `responder`. A copy for JSON readers. The signature does not cover it, and the responder omits it when empty |
 | `signature` | `Signature` | ed25519 `[u8; 64]` |
-| `source_versions` | `BTreeMap<String, String>` | per-source version pins |
+| `signature_b32` | `String` | base32-nopad-lowercase of `signature`. A copy, like `responder_pubkey_b32` |
+| `source_versions` | `BTreeMap<String, String>` | manifest pins. On emem.dev on 6 November 2026 it held four keys: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. Signed through the `0x06` segment when not empty |
 | `registry_cid` | `RegistryCid` | function registry CID in force |
-| `cost` | `Cost` | self-declared (see below) |
+| `cost` | `Cost` | self-declared (see below). Not signed |
+| `scope` | `Option<Scope>` | `{user_id, agent_id, run_id, org_id}` when the caller set a scope; omitted otherwise. Signed through the `0x03` segment |
+| `edge_cids` | `Vec<EdgeCid>` | temporal edge CIDs the response cited; omitted when empty. Signed through the `0x05` segment |
+| `field` | `Option<FieldBinding>` | `{aoi_cid, derivation_cid}` on field responses only. Signed through the `0x0a` segment |
+| `preimage_version` | `u8` | the signing rule: `2` today, `1` for older receipts. Omitted when `0` (legacy rule) |
 
-`Cost` (`receipt.rs:46-58`):
+`Cost` (`receipt.rs:185-214`):
 
 ```rust
 struct Cost {
@@ -1116,6 +1146,13 @@ not the raw stream. The signature is
 `ed25519_dalek::SigningKey::sign(digest)` emitted as a 64-byte
 `Signature`.
 
+Key order in `manifest_hex` is the `BTreeMap` order: a plain
+lexicographic sort of the key strings. It is not the RFC 8949 §4.2.1
+order, which sorts by encoded bytes and so puts shorter keys first. For
+the four real keys the two orders differ. If you use the RFC order, every
+valid receipt fails (`Server::manifest_versions_blake3_hex`,
+`crates/emem-storage/src/server.rs:231`).
+
 The canonical, code-generated segment table is served at
 `GET /v1/verifier_spec` (also `/.well-known/emem-verifier.json`); it is
 emitted from the same compiled `emem_attest` constants the signer uses,
@@ -1180,9 +1217,14 @@ Given a current-state recall receipt (no scope, `as_of`, edges, or
 - `request_id = "01HZX0K9V3"` (ULID, 26 chars in practice; this short
   example is illustrative)
 - `served_at = "2026-05-08T11:22:33Z"`
-- `primitive = "emem.recall"` (every emitted primitive name is namespaced; `crates/emem-primitives/src/recall.rs:115` calls `sign_receipt("emem.recall", …)`)
+- `primitive = "emem.recall"` (every emitted primitive name is namespaced; `crates/emem-primitives/src/recall.rs:539-540` calls `sign_receipt_with_edges("emem.recall", …)`)
 - `cells = ["dedi.zaf00.bafi.baba", "dedi.zaf00.bafi.babe"]`
-- `fact_cids = ["bn7cabcdefghij1234567890ab"]`
+- `fact_cids = ["bn7cabcdefghij1234567890ab"]` (a real `fact_cid` has 52
+  characters; this short value is also illustrative)
+
+This example has no `0x0b` segment, so it is the v1 stream. A v2 receipt
+appends `seg(0x0b, merkle_hex)` after `0x09` (or after `0x0a` when a field
+binding is present), so its digest differs.
 
 The blake3 stream is the domain prefix followed by the required
 segments, each tagged and length-prefixed (bytes shown hex):
@@ -1214,7 +1256,8 @@ each the blake3-hex of the field's canonical CBOR (see §7.1).
 
 ### 7.3 Merkle proof attachment
 
-`server.rs:163-165` attaches `merkle_proof` for `fact_cids[0]` only.
+`sign_receipt_v1_inner` (`crates/emem-storage/src/server.rs:354-359`)
+attaches `merkle_proof` for `fact_cids[0]` only.
 The receipt's signature already binds **all** cited CIDs together
 (they appear in the preimage), so a single inclusion anchor to the
 attestation tree is sufficient: the verifier checks the signature,
@@ -1261,11 +1304,11 @@ That is not a defect in the verifier; it is the same property that
 stops an intermediary stripping a proof in transit, seen from the
 other side. Store and forward the responder's exact bytes.
 
-Only two omissions actually reach a signature failure. Dropping any of
-the other fourteen receipt fields is refused by the deserialiser with a
-400 `invalid_argument`, and dropping `responder_pubkey_b32` or
-`signature_b32` changes nothing because each duplicates a byte-array
-field. The two that fall through are v2's own:
+Only two omissions reach a signature failure. A live recall receipt has
+16 keys. If you drop `responder_pubkey_b32` or `signature_b32`, nothing
+changes, because each is a copy of a byte-array field. If you drop any of
+the other twelve required keys, the deserialiser refuses the receipt with
+a 400 `invalid_argument`. The two that fall through are v2's own:
 
 - `merkle_proof`, which v2 binds, so its removal changes the preimage.
 - `preimage_version`, which deserialises to `0` when absent and so
@@ -1292,9 +1335,24 @@ the distinction at all; `web/verify.html` says so rather than guessing.
 
 ### 7.4 Offline verification (Python)
 
-A self-contained verifier that mirrors `emem_attest::receipt_preimage_v1`
-and `emem_attest::receipt_preimage_v2` byte-for-byte. The segment table it encodes is the one served at
-`GET /v1/verifier_spec`.
+This verifier mirrors `emem_attest::receipt_preimage_v1` and
+`emem_attest::receipt_preimage_v2` byte for byte. It encodes the segment
+table that `GET /v1/verifier_spec` serves. It needs two packages:
+`pip install blake3 pynacl`.
+
+Get a receipt to check. These two calls are reads and need no key:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["elevation"]}' \
+  | python3 -c 'import json,sys; json.dump(json.load(sys.stdin)["receipt"], open("receipt.json","w"))'
+```
+
+Then run the script below in the same directory. It prints nothing when
+the signature is good, and raises `BadSignatureError` when it is not. To
+compare with the responder, send the same receipt to
+`POST /v1/verify_receipt` as `{"receipt": ...}`. Its `preimage_blake3_hex`
+must equal `digest.hex()` from the script.
 
 ```python
 import json
@@ -1518,44 +1576,83 @@ second proves the responder persisted the bytes.
 
 ## 8. Merkle inclusion proof
 
-`crates/emem-fact/src/receipt.rs:60-69`:
+In plain words: one attestation signs a batch of facts at once. The batch
+is a Merkle tree, and the attestation signs its root. A receipt's
+`merkle_proof` is the list of sibling hashes that leads from one fact up
+to that root. If the fold ends on `root`, the fact was in the signed
+batch.
+
+The struct is `MerkleProof` in `crates/emem-fact/src/receipt.rs:244-276`:
 
 ```rust
 struct MerkleProof {
     leaf_index: u32,                    // position in sorted-leaves order
     path: Vec<[u8; 32]>,                // sibling hashes from leaf upward
     root: [u8; 32],                     // expected root
+    version: u8,                        // 0 (omitted) or 1: the hashing rule
+    fact_cid: Option<String>,           // not signed, see §7.3
+    leaf_count: Option<u32>,            // not signed, see §7.3
+    log_entry_hash: Option<String>,     // not signed, see §7.3
 }
 ```
 
+The leaf is the 32 bytes of the fact's `fact_cid`: base32-decode the
+52-character string. Those bytes are `blake3(CBOR(fact))`.
+
 `leaf_index` is the position of the leaf in the **sorted** batch (the
-same sort that produced `batch_root`); not the original fact index.
-The conversion from "original fact index" to "sorted leaf index" is
-done at write time by `persist_fact_proofs`
-(`crates/emem-storage/src/lib.rs:360-400`).
+same sort that produced `batch_root`), not the original fact index.
+`persist_fact_proofs` makes this conversion at write time
+(`crates/emem-storage/src/lib.rs:2039-2100`).
+
+### Which rule a proof uses
+
+`version` names the hashing rule. Read it from the proof. Do not guess it.
+`persist_fact_proofs` writes version 1 for every attestation signed under
+the v1 attestation rule (§6), and 0 for older ones.
+
+| `version` | Leaf promotion | Internal node | Code |
+|---|---|---|---|
+| `0`, or absent | `blake3(C \|\| C)` | `blake3(left \|\| right)` | `verify_merkle_path`, `crates/emem-attest/src/lib.rs:104-127` |
+| `1` | `blake3(0x00 \|\| C)` | `blake3(0x01 \|\| left \|\| right)` | `promote_leaf_v1`, `verify_merkle_path_v1`, `crates/emem-attest/src/lib.rs:738-830` |
+
+`C` is the leaf: the 32 bytes of the `fact_cid`. Both rules use the same
+tree shape. An odd layer pairs its last node with itself. Version 1
+separates leaves from nodes with the `0x00` and `0x01` prefixes, so a leaf
+cannot pass as a node. A version 1 verifier must also refuse a batch with
+a duplicate leaf (`has_adjacent_duplicate`). Without that check,
+`root([A,B,C])` equals `root([A,B,C,C])`.
+
+On 6 November 2026, a live `POST /v1/recall` receipt from emem.dev carried
+`version: 1`, `leaf_count: 1` and an empty `path`. Its root was
+`blake3(0x00 || C)`, as §8.3 says.
 
 ### 8.1 verify_merkle_path
 
-`crates/emem-attest/src/lib.rs:94-117`. The verifier walks the path
-bottom-up: at each layer, `idx % 2 == 0` means the accumulator is the
-left child (`acc := blake3(acc || sibling)`); odd means it is the
-right child (`acc := blake3(sibling || acc)`); then `idx /= 2`. Final
-`acc` must equal `root`.
+The verifier walks the path bottom-up. At each layer, an even `idx`
+means the accumulator is the left child: `acc := H(acc, sibling)`. An
+odd `idx` means it is the right child: `acc := H(sibling, acc)`. Then
+`idx /= 2`. At the end, `acc` must equal `root`. `H` is the node hash
+from the table above.
 
 Two preconditions a verifier must respect:
 
-1. The `leaf` argument is the **promoted** leaf `blake3(C || C)`,
-   not the raw `C = blake3(CBOR(fact))`. The same self-hash that
-   `merkle_root` applies internally must be done by the caller before
-   `verify_merkle_path`. The test at `lib.rs:160-171` and `lib.rs:196-218`
-   show the exact pattern.
+1. The `leaf` argument is the **promoted** leaf, not the raw `C`. Promote
+   it with the rule that `version` names before you fold. The tests
+   `single_leaf_is_self_hashed` (version 0) and
+   `v1_paths_round_trip_via_verify` (version 1) in
+   `crates/emem-attest/src/lib.rs` show the pattern.
 2. The path is **bottom-up**: `path[0]` is the leaf's sibling at
    layer 0; `path[k]` is the sibling at layer `k`.
+
+`POST /v1/verify_receipt` does the same walk when the responder still
+holds the fact. It reports the result as `merkle_proof_valid`.
 
 ### 8.2 Worked path: leaf 1 of a 4-leaf tree
 
 For four facts producing sorted leaves `[C0, C1, C2, C3]`, with
-promoted forms `[l0, l1, l2, l3]`:
+promoted forms `[l0, l1, l2, l3]`. This trace uses the version 0 node
+hash `b3(left || right)`. For version 1, read each `b3(x || y)` as
+`b3(0x01 || x || y)`; the steps do not change.
 
 ```
                   root = b3(L01 || L23)
@@ -1583,16 +1680,19 @@ Trace `verify_merkle_path(l1, 1, [l0, L23], root)`:
 ### 8.3 Single-leaf case
 
 For a one-fact attestation, `path` is empty (no siblings to combine)
-and the promoted leaf **is** the root (`lib.rs:160-171`). The verifier
-short-circuits: `acc = leaf; return acc == root`.
+and the promoted leaf **is** the root (test
+`single_leaf_path_is_empty_and_root_is_self_hash`). The verifier
+short-circuits: `acc = leaf; return acc == root`. Under version 1 the
+root is `blake3(0x00 || C)`.
 
 ### 8.4 Odd-cardinality case
 
-When a layer has odd size, the trailing element pairs with itself
-(`lib.rs:36-44`). The recorded sibling for that index at that level is
-the leaf itself; `verify_merkle_path` reproduces the duplicate-pair
-branch automatically because `idx % 2 == 0` for the last index, so
-`acc := b3(acc || acc)`. Test: `lib.rs:174-194`.
+When a layer has odd size, the trailing node pairs with itself
+(`merkle_root_and_paths`, `crates/emem-attest/src/lib.rs:41-49`). The
+recorded sibling for that node at that layer is the node itself.
+`verify_merkle_path` reproduces the duplicate pair without a special case,
+because `idx % 2 == 0` for the last index, so `acc := b3(acc || acc)`.
+Test: `odd_cardinality_last_leaf_self_pairs`.
 
 ---
 
