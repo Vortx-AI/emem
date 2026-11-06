@@ -158,8 +158,9 @@ curl -s -X POST https://emem.dev/v1/query_region \
 # {"copdem30m.elevation_mean": 321.9013770903458} (6 November 2026)
 ```
 
-`cos_lat_weighting_applied` in the response tells you if the mean used an
-equal-area weight. For a named area instead of a list of cells, use
+The mean uses a cos-latitude weight. It is not the plain mean of the two
+values (325.88 on 6 November 2026). `cos_lat_weighting_applied` in the
+response tells you if the mean used this equal-area weight. For a named area instead of a list of cells, use
 `POST /v1/recall_polygon` or `POST /v1/grid`. Each one samples cells in the
 area and combines their values in one call.
 
@@ -168,14 +169,18 @@ area and combines their values in one call.
 ```bash
 curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \
-  -d '{"q":"how is the vegetation doing around Manaus?"}' | jq '{answer, fact_cids: .receipt.fact_cids}'
+  -d '{"q":"how is the vegetation doing around Manaus?"}' \
+  | jq '{answer, shown: .band_observations_summary.bands_shown, cited: (.receipt.fact_cids|length)}'
 # answer starts "At Manaus, Amazonas, Brazil, in the one cell that name resolves to:
-# greenness (NDVI) 0.51 ...", with 12 signed readings (6 November 2026)
+# greenness (NDVI) 0.51 ...". On 6 November 2026: "shown": 12, "cited": 742
 ```
 
 `ask` sends a plain-language question to the correct path. It returns an
 answer and the ids of the facts it read. The answer gives the age of each
-reading. Over MCP, `emem_tools` searches the full tool list when the tool you
+reading. The answer shows 12 bands that match the question
+(`band_observations_summary.bands_shown`). The receipt cites every fact held at
+the cell, 742 on 6 November 2026. Each entry in
+`band_observations_summary.bands` has its own `fact_cid`. Over MCP, `emem_tools` searches the full tool list when the tool you
 need is not in your list.
 
 ## Which call to make first
