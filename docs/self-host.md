@@ -81,7 +81,8 @@ All state is under `EMEM_DATA`. The binary default is `./var/emem`. The image se
 | Path | What it holds |
 |---|---|
 | `identity.secret.b32` | The Ed25519 secret key of the responder. The node makes it on the first start. |
-| `cache.sled/` | The hot store: signed facts and stored payloads. |
+| `facts.redb` | The hot store of signed facts. |
+| `cache.sled/` | Memory notes, attesters, fact proofs and other small indexes. |
 | `log/` | The append-only Merkle log of attestations. |
 | `lance/` | Vector indexes for `find_similar` and memory search. The node loads them on start. |
 | `acme.cache/` | The Let's Encrypt certificate, when TLS is on. |
@@ -131,7 +132,7 @@ Each default below comes from the code on 6 November 2026.
 | `EMEM_SLED_FLUSH_MS` | `200` | How often sled makes its log stable, from 50 to 5000. A read of a page written in this window waits for it. |
 | `EMEM_TOPIC_BACKEND` | `ort` | The topic router for `/v1/ask`. `model2vec` is a pure-Rust fallback. `keyword` loads no model. If `ort` fails to load, the node uses `model2vec`. |
 
-[Operating](operators/operating.md) lists more variables for a large public node.
+[Operate a public node](operators/operating.md) lists more variables for a large public node.
 
 ### Memory variables
 
@@ -281,5 +282,5 @@ The Space pins an image digest, not `:latest`, so it can be older than emem.dev.
 
 ## Read more
 
-[Operating](operators/operating.md) covers the process model, backup and restore, sled tuning, geocoder warmup and
+[Operate a public node](operators/operating.md) covers the process model, backup and restore, sled tuning, geocoder warmup and
 production incidents.

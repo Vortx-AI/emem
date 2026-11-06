@@ -71,7 +71,6 @@ LEGACY_DASHES = {
     "docs/plans/v0.0.8-and-v0.0.9.md": 37,
     "docs/developers/architecture.md": 19,
     "docs/developers/developing.md": 16,
-    "docs/operators/operating.md": 15,
 }
 
 DASH = re.compile(r"[–—]")
