@@ -3,12 +3,12 @@
 > The formal definition of what this substrate is (the observation tuple,
 > the property table, the memory algebra) lives in [the memory model](model.md).
 
-The memory substrate is the writable layer of emem. Below it sit the
+The memory substrate is the writable layer of emem. Below it are the
 read primitives (`/v1/recall`, `/v1/state`, `/v1/find_similar`,
-`/v1/trajectory`) whose facts come from upstream materialisers and are
-signed by the responder. Above
-it sit the agents that read, cite, write, and stream memory through the
-same ed25519 receipt surface as every other primitive.
+`/v1/trajectory`). Their facts come from upstream materialisers, and the
+responder signs them. Above the substrate are the agents. They read,
+cite, write and stream memory with the same ed25519 receipts as every
+other primitive.
 
 This page is the wire reference. The agents guide ([agents.md](agents.md))
 covers the read-side rosetta; this document covers everything the agent
@@ -245,11 +245,11 @@ After your first note, you can edit it, supersede it or delete it. Each
 of these is a signed write with its own body and `base`. The table in
 [Signed writes and namespaces](#signed-writes-and-namespaces) gives them for each verb.
 
-## What's in the substrate
+## Endpoints in the substrate
 
 | Layer | Endpoint | Wire shape | Returns |
 |---|---|---|---|
-| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, as_of_tslot?, as_of_signed_at?}` | a stored embedding vector + memory_token; the encoders are retired (see below), so this answers only from vectors signed before |
+| State (single encoder) | `POST /v1/state` | `{cell, encoder?, view?, as_of_tslot?, as_of_signed_at?}` | a stored embedding vector and a memory_token; the encoders are retired (see below), so it answers only from vectors signed before the retirement |
 | State (full cube) | `POST /v1/state` view=cube | same, plus `materialize?` | 1792-D state vector, per-slot coverage, `state_cid` and an `emem:bundle:` token |
 | State fan-out | `POST /v1/state_multi` | `{cell, encoders?, as_of_*?}` | per-encoder dense map; empty by default, since no encoder is live |
 | State delta | `POST /v1/state_diff` | `{cell, encoder?, tslot_a, tslot_b}` | residual + cosine + both fact_cids |
@@ -259,32 +259,32 @@ of these is a signed write with its own body and `base`. The table in
 | Memory bundle | `POST /v1/memory_bundle` | `{triples}` or `{fact_cids}`, plus `purpose?`, `scope?` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
 | Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester}` | `file_cid` + signed receipt |
-| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, attester}` etc. | new `file_cid` + receipt |
+| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, attester}` for `str_replace`; `{path, insert_line, new_str, attester}` for `insert` | new `file_cid` + receipt |
 | Memory file supersede | MCP `emem_memory_supersede` | `{path, superseded_by, reason?, attester}` | readers of `path` get `superseded_by` and a `_superseded` banner; the bytes stay |
 | Memory file read | MCP `emem_memory_view` | `{path}` or `{file_cid}`, plus `view_range?`, `view?`, `offset?`, `kind?` | content with its `authorship` block, or a directory listing. With `view_range`, `window` gives `total_lines` and the lines served; a window past the end is empty, with `past_end` true |
 | Memory file read, plain | `GET /memories/<path>` | path | the note as `text/markdown`, `ETag` = its `file_cid` |
 | Memory file rename | MCP `emem_memory_rename` | `{old_path, new_path, attester}` | new path index + receipt |
-| Memory file delete | MCP `emem_memory_delete` | `{path, attester}` | path drop plus a tombstone (blob retained, history preserved) |
+| Memory file delete | MCP `emem_memory_delete` | `{path, attester}` | removes the path and writes a tombstone; the blob and the history stay |
 | Memory list by kind | MCP `emem_memory_list_by_kind` | `{kind, prefix?, limit?}` | typed listing sorted by signed_at desc |
 | Memory file search | `POST /v1/memory/search` | `{q, k?, mode?, kind?, path_prefix?, attester_pubkey_b32?}` | ranked hits + snippets |
 | Row audit path | `GET /v1/tree/<file_cid>?row=` (MCP `emem_tree`) | path + query | one row's leaf and its path to the root a `pointer.v1` or `directory.v1` note signs |
 | Memory event stream | `GET /v1/memory/sse?path_prefix=&kind=&attester=` | query string | `text/event-stream` of writes |
 | Multi-attester contradictions | `POST /v1/memory_contradictions` | `{cell_prefix?, band?, window_unix_s?, min_severity?, include_same_attester_sources?, limit?}` | severity-scored disagreements |
 
-The foundation encoders that `view=encoder` read are retired: Clay v1.5,
-Prithvi-EO-2.0 and Galileo were removed from the code, and emem.dev also
+The foundation encoders that `view=encoder` reads are retired. The code
+no longer contains Clay v1.5, Prithvi-EO-2.0 or Galileo. emem.dev also
 retires `geotessera` through `EMEM_RETIRED_BANDS`. Their bands stay in the
-manifest, so vectors signed under them still recall and verify, but no new
-one is made. On a cell with none, `view=encoder` returns 404 naming the
-retirement and pointing at `view="cube"`.
+manifest, so old vectors still recall and verify. The responder makes no
+new vectors. On a cell with no stored vector, `view=encoder` returns 404.
+The 404 names the retirement and points to `view="cube"`.
 
 The pre-rename prefixes `memt:`, `memb:`, and `meme:` still resolve.
 
 ## The kinds
 
-Memory files carry a `kind` from the CoALA / LangMem agent-memory
-ontology. Default is `resource` so callers that don't pass `kind` keep
-the back-compat Anthropic memory-tool shape.
+Each memory file has a `kind` from the CoALA and LangMem agent-memory
+ontology. The default is `resource`. A caller that does not send `kind`
+gets the shape of the Anthropic memory tool.
 
 | `kind` | Purpose | TTL default |
 |---|---|---|
@@ -295,34 +295,40 @@ the back-compat Anthropic memory-tool shape.
 | `vault` | An AEAD-sealed entry, stored encrypted in its own tree and never indexed by search or the contradiction scan. | infinite |
 | `core` | A persona block, listed first by `emem_memory_view`. Parsed by the server but not in the tool schemas' `kind` enum. | infinite |
 
-A `vault` entry reads back as ciphertext unless the caller passes a
-`vault_capability`: an ed25519 signature over
+A `vault` entry reads back as ciphertext unless the caller sends a
+`vault_capability`. This is an ed25519 signature over
 `blake3("emem.vault_open|" + path + "|" + nonce)` that verifies under
-the responder's key. The seal key is derived from the responder's own
-secret, so a vault keeps bytes from other callers and from anyone who
-copies the database file, not from the operator. Encrypt client-side if
-the operator must not read it.
+the responder's key. The responder makes the seal key from its own
+secret. A vault therefore hides the bytes from other callers and from anyone
+who copies the database file. It does not hide them from the operator.
+If the operator must not read an entry, encrypt it on your side first.
 
-TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) sweeps every hour
-(`EMEM_MEMORY_TTL_INTERVAL_SECS`). Expired files move from
-`memory_files` to `memory_files_expired`; the blob is retained under
-`memory_file_blobs` (content-addressed; never deleted). Per-kind
-overrides via
+The TTL pass (`EMEM_MEMORY_TTL_ENABLED=1`) runs every hour
+(`EMEM_MEMORY_TTL_INTERVAL_SECS`). It moves expired files from
+`memory_files` to `memory_files_expired`. The blob stays in
+`memory_file_blobs`, which is content-addressed and never deletes.
+To change the TTL for one kind, set
 `EMEM_MEMORY_TTL_{CORE,RESOURCE,EPISODIC,SEMANTIC,PROCEDURAL,VAULT}_DAYS`
-(0 = infinite).
+(0 means infinite).
 
-The consolidation pass (`EMEM_MEMORY_CONSOLIDATION_ENABLED=1`) runs
-every 24 h (`EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`). For every
-`/memories/by_attester/<pubkey>/<sub>/` with at least 50 episodic files
+The merge pass (`EMEM_MEMORY_CONSOLIDATION_ENABLED=1`) runs every 24
+hours (`EMEM_MEMORY_CONSOLIDATION_INTERVAL_SECS`). It looks at each
+directory `/memories/by_attester/<pubkey>/<sub>/`. A directory qualifies
+when it holds at least 50 episodic files
 (`EMEM_MEMORY_CONSOLIDATION_MIN_FILES`) older than 7 days
-(`EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`), it concatenates the bodies
-in chronological order, signs the result as a `semantic` kind file at
-`.consolidated/<unix_ts>.md`, and stamps `superseded_by: <consolidated_cid>`
-on every original's metadata. Originals stay accessible via
-`memory_file_history`.
+(`EMEM_MEMORY_CONSOLIDATION_MIN_AGE_DAYS`). For each such directory, the
+pass does three things:
 
-Both passes are off unless the operator sets them. emem.dev does not set
-either today, so files there do not expire and are not consolidated.
+1. It joins the file bodies in time order.
+2. It signs the result as a `semantic` file at `.consolidated/<unix_ts>.md`.
+3. It writes `superseded_by: <consolidated_cid>` into the metadata of
+   each original file.
+
+You can still read the originals through `memory_file_history`.
+
+Both passes are off unless the operator turns them on. emem.dev turns
+on neither, so files there do not expire and the responder does not
+merge them.
 
 ## Signed writes and namespaces
 
@@ -341,10 +347,11 @@ The signed preimage (v2) is:
 blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash + "|" + base)
 ```
 
-where `body_hash = blake3(canonical body bytes)` as 32 raw bytes, and
+Here `body_hash` is `blake3(canonical body bytes)` as 32 raw bytes.
+
 A `file_cid` is the first 16 bytes of `blake3(content)`, in lowercase
-RFC 4648 base32 with no padding (26 characters). The first 16 bytes, not
-all 32: a reader who re-hashes a note must cut the digest before encoding.
+RFC 4648 base32 with no padding (26 characters). It uses 16 bytes, not
+all 32. To check a note, cut the digest to 16 bytes, then encode it.
 
 `base` is the `file_cid` now at `path`, or the literal `absent` when
 nothing is there. What counts as the body depends on the verb:
@@ -354,36 +361,44 @@ nothing is there. What counts as the body depends on the verb:
 | `create` | the file written | the `file_text` string sent | current `file_cid` or `absent` |
 | `str_replace` | the file edited | the whole file *after* the edit | current `file_cid` |
 | `insert` | the file edited | the whole file *after* the edit | current `file_cid` |
-| `delete` | the file removed | empty, i.e. `blake3("")` | the `file_cid` being deleted |
+| `delete` | the file removed | empty, that is `blake3("")` | the `file_cid` that the delete removes |
 | `rename` | the **new_path** | the **old_path** string | `absent` (new_path must be empty) |
 | `supersede` | the note marked stale | `"<superseded_by>\|<reason>"` | current `file_cid` |
 
-You do not have to build this by hand. Send the write without `attester`
-and the 401 carries `details.how_to_sign`: the exact 32-byte digest for
-that write, the encoding rules, and a runnable Python example. Sign the
-digest and resend the identical body. No registration or API key is
-involved; any locally generated keypair works. Keep the seed: the key
-owns its namespace, and a write can only be unpublished by that key.
+You do not have to build this digest yourself. Send the write without
+`attester`. The 401 response holds `details.how_to_sign`, which gives
+three things:
 
-Why `base`: caller signatures are stored in the ledger so authorship can
-be re-verified offline, which makes every past signature public. Binding
-the version a write replaces means a signature read off the log fails
-once the path has moved on, and two agents editing one path get a
-refusal instead of a silent lost update.
+- the exact 32-byte digest for that write
+- the encoding rules
+- a Python example that runs
 
-The older v1 preimage,
-`blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`, is
-retired for every verb since 2026-11-05: a write signed with it is
-refused with `reason: v1_retired`. It binds no base, so a signature read
-off the log could put an old text back, or bring back a deleted note.
-Notes signed with v1 before that still verify when read.
+Sign the digest and send the same body again. You need no registration
+and no API key. Any keypair that you make locally works. Keep the seed.
+The key owns its namespace, and only that key can unpublish its writes.
 
-`rename` is the only verb whose signature binds two paths. The
-destination rides the preimage's `path`, the source rides its
-`body_hash`, so one signature authorises one specific move. When the
-source is itself under `by_attester`, the responder additionally checks
-the key owns it, and refuses with 403 `memory_namespace_violation`
-(`reason: source_namespace`) if not.
+The ledger stores each caller signature, so anyone can check authorship
+offline. This makes every past signature public. For this reason the
+preimage includes `base`, the version that the write replaces. When the
+path moves on, a signature copied from the log no longer verifies. When
+two agents edit one path, the second gets a refusal and loses no update
+silently.
+
+The older v1 preimage was
+`blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`.
+Since 5 November 2026 the responder refuses it for every memory-file
+verb, with `reason: v1_retired`. The v1 preimage binds no base. Thus a
+signature copied from the log could restore an old text or a deleted
+note. Notes signed with v1 before that date still verify when you read
+them. `POST /v1/derive` still uses the v1 form with `verb = "derive"`
+(see [Registering your own derivations](#registering-your-own-derivations)).
+
+`rename` is the only verb whose signature binds two paths. The preimage
+`path` is the destination. The `body_hash` is the hash of the source
+path. One signature therefore allows one specific move. When the source is
+also under `by_attester`, the responder also checks that the key owns
+the source. If not, it refuses with 403 `memory_namespace_violation`
+(`reason: source_namespace`).
 
 Who may write where:
 
@@ -391,26 +406,25 @@ Who may write where:
   form starts with `<pubkey8>`. Only that key may write there, under
   every policy.
 - Everywhere else under `/memories/`, the first attester to create a
-  path owns it, and only that key may change it. Such names are
-  unreserved: whoever writes `/memories/standard.md` first holds it for
-  good, so do not build a protocol dependency on an open-root name.
-  Open-root files written before authorship was stored have no owner
-  and are frozen for every key.
-- `/memories/.well-known/` is reserved to the operator and refuses every
-  key, the responder's included (`reason: reserved_namespace`).
+  path owns it. Only that key may change it. Nobody reserves these
+  names. Whoever writes `/memories/standard.md` first holds it for good.
+  Do not make your protocol depend on a name outside your namespace.
+  Some files outside `by_attester` have no stored author, because they
+  came before the responder stored authorship. No key can change them.
+- `/memories/.well-known/` belongs to the operator. It refuses every
+  key, the key of the responder too (`reason: reserved_namespace`).
 
-Refusals, all with `details.code` naming the case:
+Each refusal names its case in `details.code`:
 
-- No attester where one is needed → 401 `memory_attestation_required`.
-- Signature does not verify, or the key is malformed → 401
-  `memory_attestation_invalid`; the message names the digest the
-  responder expected.
-- Wrong namespace, wrong owner or reserved prefix → 403
-  `memory_namespace_violation`.
+| Cause | Status and code |
+|---|---|
+| No attester, and the write needs one | 401 `memory_attestation_required` |
+| The signature does not verify, or the key is not valid | 401 `memory_attestation_invalid`; the message names the digest the responder expected |
+| Wrong namespace, wrong owner or reserved prefix | 403 `memory_namespace_violation` |
 
-Bare `/memories/...` is **not** anyone-writable by default. A release
-build with no env set refuses every unattested write. The operator picks
-the policy:
+By default, nobody can write to bare `/memories/...` without a
+signature. A release build with no env variable set refuses every
+unattested write. The operator selects the policy:
 
 | env | unattested writes to bare `/memories/...` |
 |---|---|
@@ -419,123 +433,159 @@ the policy:
 | `EMEM_MEMORY_OPEN=1` | accepted for every verb (the unsigned memory-tool contract) |
 | `EMEM_MEMORY_REQUIRE_ATTESTER=1` | refused for every verb (the default, set explicitly) |
 
-Precedence when several are set: `EMEM_MEMORY_REQUIRE_ATTESTER` >
-`EMEM_MEMORY_OPEN` > `EMEM_MEMORY_HARDEN_DESTRUCTIVE`. The value is
-read once at startup, so a change needs a restart. `emem.dev` runs with
+When the operator sets more than one, this order applies:
+`EMEM_MEMORY_REQUIRE_ATTESTER` first, then `EMEM_MEMORY_OPEN`, then
+`EMEM_MEMORY_HARDEN_DESTRUCTIVE`. The responder reads the value once at
+startup. A change needs a restart. `emem.dev` runs with
 `EMEM_MEMORY_REQUIRE_ATTESTER=1`.
 
-The policy only ever governs the bare namespace.
-`/memories/by_attester/<pubkey8>/...` requires a valid attester under
-every policy, including `EMEM_MEMORY_OPEN=1`.
+The policy applies only to the bare namespace.
+`/memories/by_attester/<pubkey8>/...` needs a valid attester under
+every policy, `EMEM_MEMORY_OPEN=1` too.
 
-For attested writes, the receipt's `cells[]` becomes
-`["pubkey:<b32>", path]`; for bare writes it stays `[path]`. A read of
-the note returns an `authorship` block (key, signature, verb, signed
-path, `base`, `body_hash_hex`, `preimage_version`) so a third party can
-re-verify the author offline, and should also check `body_hash_hex`
-against blake3 of the content it received.
+For an attested write, the receipt `cells[]` is `["pubkey:<b32>", path]`.
+For a bare write it is `[path]`. A read of the note returns an
+`authorship` block with these fields: key, signature, verb, signed path,
+`base`, `body_hash_hex` and `preimage_version`. With it, a third party
+can check the author offline. That party must also compare
+`body_hash_hex` with blake3 of the content it received.
 
 ## Reading, superseding and deleting
 
-A note can be read by path or by content address. `emem_memory_view`
-with `file_cid` returns the bytes whether or not a path still points at
-them, so a citation survives its author renaming, superseding or
-deleting the note. `GET /memories/<path>` serves the same note as plain
-markdown with its `file_cid` as the `ETag`. A memory `file_cid` is
-blake3 of the bytes truncated to 16 bytes (26 base32 characters),
-shorter than a fact cid; re-hash what comes back to check it.
+You can read a note by path or by content address. `emem_memory_view`
+with `file_cid` returns the bytes even when no path points to them. A citation
+thus stays valid after the author renames, supersedes or deletes
+the note. `GET /memories/<path>` serves the same note as plain markdown,
+with its `file_cid` as the `ETag`. A memory `file_cid` is blake3 of the
+bytes cut to 16 bytes (26 base32 characters). It is shorter than a fact
+cid. Hash the bytes you receive to check it.
 
-`emem_memory_supersede` points one of your notes at the note that
+`emem_memory_supersede` points one of your notes to the note that
 replaces it. Readers of the old path then get `superseded_by` and a
-`_superseded` banner above the content. The replacement must already
-exist, a note cannot supersede itself, and a superseded note cannot be
-re-aimed, so a correction chain only grows.
+`_superseded` banner above the content. Three rules apply:
+
+- The replacement must exist before the call.
+- A note cannot supersede itself.
+- You cannot change the target of a superseded note.
+
+A chain of corrections can only grow.
 
 `emem_memory_delete` removes the path from the index and writes a
-tombstone (`emem.tombstone.v1`: path, prior `file_cid`, who deleted it,
-when). A later read of that path returns 404 saying it was deleted by
-its owner, with the tombstone in `details`, rather than the plain
-"never written" 404. The blob stays addressable by `file_cid`, because
-issued receipts must keep verifying. Treat delete as unpublish, not
-erasure.
+tombstone. The tombstone (`emem.tombstone.v1`) holds the path, the prior
+`file_cid`, the key that deleted it and the time. A later read of that
+path returns a 404 that says the owner deleted it. The tombstone is in
+`details`. This 404 is different from the 404 for a path that nobody
+wrote. You can still get the blob by its `file_cid`, because issued
+receipts must continue to verify. A delete unpublishes a note. It does
+not erase it.
 
 ## Tokenised files: `emem:tree`
 
-A `pointer.v1` note names a large object by the blake3 hash of every
-chunk it read plus one Merkle root over them; a `directory.v1` note does
-the same over a listing. The root is inside the author's signed note.
-`GET /v1/tree/<file_cid>` returns the row count and root, and
-`?row=<index or label>` returns that row's leaf and its audit path, so a
-reader checks one chunk with log2(n) hashes instead of the whole table.
-The token is `emem:tree:<file_cid>#row=<i>`. The route refuses
-`root_mismatch` when the note's stated root does not match its own rows,
-and `not_a_tree` for other kinds. It signs nothing itself: the path is
-checkable against the root in the author's note. The tree has no
-leaf/node domain separation, unlike the transparency log; the route's
-`scheme` field states the exact hashing.
+A `pointer.v1` note names a large object. It holds the blake3 hash of
+each chunk and one Merkle root over these hashes. A `directory.v1` note
+does the same for a listing. The root is inside the signed note of the
+author.
 
-## Bi-temporal reads
+`GET /v1/tree/<file_cid>` returns the row count and the root. Add
+`?row=<index or label>` to get the leaf of that row and its audit path.
+A reader then checks one chunk with log2(n) hashes, not the whole table.
+The token is `emem:tree:<file_cid>#row=<i>`.
 
-Every read primitive in the substrate (`recall`, `recall_polygon`,
-`recall_many`, `trajectory`, `query_region`, `find_similar`,
-`state`, `state_multi`, `memory_bundle` per-triple) accepts:
+The route refuses with `root_mismatch` when the stated root of the note
+does not match its rows. It refuses with `not_a_tree` for other kinds.
+The route signs nothing. You check the path against the root in the
+signed note. Unlike the transparency log, this tree does not separate
+leaf hashes from node hashes. The `scheme` field of the response gives
+the exact hashing.
 
-- `as_of_tslot: u64`: return the latest fact per `(cell, band)` whose
-  `tslot ≤ as_of_tslot`.
-- `as_of_signed_at: string (RFC 3339)`: return the latest fact whose
-  `signed_at ≤ as_of_signed_at`.
+## Time filters on reads (bi-temporal)
 
-When both are set, both predicates hold simultaneously. When neither
-is set, the read is current-state (back-compat).
+Every read primitive in the substrate takes two optional time filters.
+These primitives are `recall`, `recall_polygon`, `recall_many`,
+`trajectory`, `query_region`, `find_similar`, `state`, `state_multi`
+and each triple of `memory_bundle`.
 
-The receipt body carries an `as_of` block only when at least one
-bound is set:
+| Filter | Type | Returns |
+|---|---|---|
+| `as_of_tslot` | u64 | the latest fact per `(cell, band)` with `tslot <= as_of_tslot` (valid time: when the world was observed) |
+| `as_of_signed_at` | RFC 3339 string | the latest fact with `signed_at <= as_of_signed_at` (transaction time: when emem signed it) |
 
-```json
-{
-  "as_of": { "valid_time": 1609372800, "transaction_time": "2026-05-15T00:00:00Z" }
-}
+When you set both, a fact must pass both. When you set neither, the
+read returns the current state.
+
+### Example: what emem knew on 1 October 2026
+
+This read ran on 6 November 2026. It asks for PM2.5 at the cell of
+Mount Fuji, as emem knew it on 1 October 2026:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nUkO.zEzE","bands":["cams.pm25"],
+       "as_of_signed_at":"2026-10-01T00:00:00Z"}'
 ```
 
-Pre-bi-temporal receipts deserialise byte-identically (field absent).
+The response held one fact, signed on 28 September 2026, with value 4.9.
+Without the filter, the same cell held newer PM2.5 facts from October.
+The receipt carries the bound:
 
-Honesty guards:
+```json
+{ "as_of": { "transaction_time": "2026-10-01T00:00:00Z" } }
+```
 
-- Conflicting `tslot` and `as_of_tslot` (`as_of_tslot < tslot`) →
-  400 `invalid_argument`, message starting `invalid_temporal_bound:`.
-- Malformed RFC 3339 in `as_of_signed_at` → 400 `invalid_argument`,
-  message starting `invalid_signed_at_format:`.
-- Empty result with non-empty bound → 200 with `temporal_advice`
-  explaining what got filtered. Never a 404 because zero is a valid
-  answer for "what did emem know last quarter."
-- A recall with an `as_of_signed_at` bound in the past does not
-  materialise on a miss: a fact fetched now is signed now and could
-  never fall inside that bound, so `materialize_notes` says it was
-  skipped.
+The receipt has an `as_of` block only when you set at least one filter.
+The block can also hold `valid_time` (from `as_of_tslot`). Receipts
+without filters have no `as_of` field, so older receipts still verify
+byte for byte.
 
-`find_similar` with either bound set bypasses the LanceDB IVF_PQ
-fast-path (the Lance schema doesn't carry `signed_at`) and falls back
-to brute-force scan. The `via` field of the response reports which
-path was taken.
+With `"as_of_signed_at":"2026-09-01T00:00:00Z"` the same read returned
+no facts and a 200 status. The `temporal_advice` block said that the cell
+held 325 facts without the bound and that the bound removed all of them.
+
+### Errors and edge cases
+
+| Case | Result |
+|---|---|
+| `as_of_tslot` is lower than `tslot` | 400 `invalid_argument`, message starts with `invalid_temporal_bound:` |
+| `as_of_signed_at` is not valid RFC 3339 | 400 `invalid_argument`, message starts with `invalid_signed_at_format:` |
+| The filter removes every fact | 200 with `temporal_advice`. Zero facts is a valid answer to "what did emem know then". |
+| `recall` with `as_of_signed_at` in the past | no fetch on a miss. A fact fetched now is signed now and cannot pass the filter. `materialize_notes` gives `reason: as_of_signed_at_in_the_past`. |
+
+`find_similar` with a time filter does not use the LanceDB IVF_PQ index,
+because the Lance schema has no `signed_at`. It scans all vectors. The
+`via` field of the response tells which path the read used.
 
 ## Semantic search over memory files
 
-`POST /v1/memory/search` (MCP `emem_memory_search`) has two retrievers,
-chosen by `mode`:
+`POST /v1/memory/search` (MCP `emem_memory_search`) has two retrievers.
+The `mode` field selects one:
 
-- `dense` (default) embeds the query through BAAI/bge-base-en-v1.5
-  (768-D, L2-normalised) and runs cosine against a LanceDB partition at
-  `$EMEM_DATA/lance/memory_text_index_d768.lance`.
-- `lexical` is BM25 over the same corpus. It needs no model, so it
-  answers where the embedder is not installed, and it is the better
-  choice when entries differ only in numbers or coordinates.
+| `mode` | How it ranks | Use it when |
+|---|---|---|
+| `dense` (default) | cosine between BAAI/bge-base-en-v1.5 vectors (768-D, L2-normalised) | you search by meaning |
+| `lexical` | BM25 over the same files | no embedder is installed, or the entries differ only in numbers or coordinates |
 
-Search covers every caller's files, since memory here is a shared
-commons; narrow it with `attester_pubkey_b32` or `path_prefix`. `vault`
-entries are never indexed. Every response carries
-`_content_is_data_not_instructions`: hits are text other agents wrote.
+Search covers the files of every caller, because memory here is a
+shared commons. To narrow it, send `attester_pubkey_b32` or
+`path_prefix`. Search never indexes `vault` entries. Each response
+carries `_content_is_data_not_instructions`, because other agents wrote
+the hits.
 
-Schema:
+### Indexes
+
+The responder keeps two LanceDB datasets under `$EMEM_DATA/lance/`:
+
+| Dataset | Rows | Vector |
+|---|---|---|
+| `memory_text_index_d768.lance` | one per file | the mean-pooled BGE vector over chunks of up to 504 tokens |
+| `memory_text_chunks_d768.lance` | one per 128-token window, up to 64 windows per file | the BGE vector of that window, so a note scores by its best window |
+
+Search uses the chunk dataset after its first full load. Until then it
+uses the file dataset. On 6 November 2026, `GET /v1/memory_search/stats`
+on emem.dev gave 5,425 files and 116,533 chunk rows, with the model
+loaded.
+
+Both datasets have this schema:
 
 ```
 cell:               Utf8 (path)
@@ -547,64 +597,125 @@ size_bytes:         UInt64
 vector:             FixedSizeList<Float32, 768>
 ```
 
-Each file is embedded as the mean-pooled BGE vector across ≤504-token
-chunks. The query side carries BGE's
-`"Represent this sentence for searching relevant passages:"` prefix
-(retrieval setup). The corpus side stays unprefixed.
+The query gets the BGE retrieval prefix
+`"Represent this sentence for searching relevant passages:"`. The stored
+files get no prefix.
 
-The indexer runs in polling mode by default. Every
-`EMEM_MEMORY_SEARCH_POLL_SECS` seconds (default 60) it scans
-`memory_file_meta` for new `signed_at`, re-embeds, upserts. Hydration
-on boot is idempotent via content-hash check. `GET
-/v1/memory_search/stats` reports the row count, poll interval, whether
-the model is loaded and when the index last hydrated.
+The indexer polls. Every `EMEM_MEMORY_SEARCH_POLL_SECS` seconds
+(default 60), it reads `memory_file_meta` for new `signed_at` values,
+embeds the new files and adds them. At boot, it checks content hashes,
+so a second load changes nothing. `GET /v1/memory_search/stats` gives
+the row counts, the poll interval, the model state and the time of the
+last load.
 
-The response always carries `via`:
+### The `via` field
 
-- `lance_scan`: cosine over the vectors Lance already holds. Exhaustive, not
-  indexed: this dataset carries no vector index, so every query scores all of
-  it. Measured 2.2 s over 18,269 rows against 0.06 s to open the dataset, so
-  the cost is the scan and not the I/O. It was called `lance_ann` and claimed
-  IVF_PQ here, which told anyone reading a slow query that the indexed path was
-  already in use. The `find_similar` cell-embedding partitions DO carry
-  `vector_idx`; this one does not.
-- `brute_force_fallback`: inline embed + linear scan (when
-  `EMEM_DISABLE_LANCE=1`, the model isn't loaded, or the partition is
-  empty / unreachable)
-- `bm25_lexical`: the `lexical` mode.
+Each response has a `via` field that tells which path answered:
 
-Hits include a 200-char snippet with `[...]` ellipsis if truncated. The
-snippet is picked lexically, not by re-embedding each chunk.
+| `via` | Path |
+|---|---|
+| `lance_chunks` | cosine over the chunk dataset |
+| `lance_scan` | cosine over the file dataset, before the chunk dataset is loaded |
+| `brute_force_fallback` | embeds each file in the process and scans them. Used when `EMEM_DISABLE_LANCE=1`, or when the dataset is empty or not reachable. |
+| `bm25_lexical` | the `lexical` mode |
 
-If the BGE model isn't installed under `$EMEM_DATA/models/`, a `dense`
-query returns a typed 503, never random vectors; `lexical` still works.
+None of these datasets has a vector index, so each dense query scores
+all rows. The name `lance_scan` replaced `lance_ann`, because no
+approximate index exists here. The `find_similar` cell-embedding
+datasets do have `vector_idx`.
+
+Each hit has a snippet of up to 200 characters, with `[...]` when the
+responder cut it. The responder selects the snippet by word match, not
+by a new embedding.
+
+If the BGE model is not in `$EMEM_DATA/models/`, a `dense` query returns
+a typed 503. It never returns random vectors. `lexical` still works.
 
 ## Contradiction detection
 
 `POST /v1/memory_contradictions` (also `GET` with query parameters)
-walks a parallel index (`emem.multi_attester_index` keyed by
-`cell|band|tslot` → CBOR `Vec<FactCid>`, held with the fact index in
-redb since 2.4.0) populated on every `put_attestation`. The canonical
-index keeps a slot with the signer that holds it: a different signer's
-fact at the same key is stored and added to the multi-attester index,
-but does not take the slot. The multi-attester index keeps every
-distinct attester's CID at the same key.
+finds addresses where signed facts disagree. An address here is one
+`(cell, band, tslot)` key.
 
-Who can put a fact there at all is narrow. The fact plane is closed by
-default: `/v1/attest` admits the responder's own key, a trace-enrolled
-device, and keys on the operator's `EMEM_FACT_PLANE_WRITERS` list
-(`EMEM_FACT_PLANE_OPEN=1` reopens it). An agent that wants to register
-its own value uses `/v1/derive` below, which keys no address. On a
-single-responder corpus, then, a zero from the default scan answers a
-narrow question. Pass `include_same_attester_sources: true` to also
-report keys where one attester answered the same address from two
-different upstreams (a different `derivation.fn_key` or `sources[].scheme`
-set); each record then carries `disagreement_scope` and `providers[]`.
-A scan that runs out of budget says `scan_truncated: true`; filter by
-`band` or a tighter `cell_prefix` (a full cell64 works) for complete
-coverage.
+### How the index works
 
-Severity is scored per band kind:
+The scan reads `emem.multi_attester_index`. Its key is
+`cell|band|tslot` and its value is a CBOR `Vec<FactCid>`. Since 2.4.0
+it lives in redb with the fact index. Each `put_attestation` adds to it.
+
+The canonical index keeps one fact per key, from the signer that holds
+the slot. When a different signer writes a fact at the same key, the
+responder stores that fact and adds it to the multi-attester index. The
+new fact does not take the slot. The multi-attester index therefore keeps the
+CID of each distinct attester at the key.
+
+Few keys can put a fact there. By default the fact plane is closed.
+`/v1/attest` accepts only these keys:
+
+- the key of the responder
+- a device enrolled for traces
+- keys in the `EMEM_FACT_PLANE_WRITERS` list of the operator
+
+`EMEM_FACT_PLANE_OPEN=1` opens it again. An agent that wants to register
+its own value uses `/v1/derive` (see below), which writes to no
+address.
+
+### Two kinds of disagreement
+
+Each record has a `disagreement_scope`:
+
+| `disagreement_scope` | Meaning |
+|---|---|
+| `multi_attester` | two or more distinct attesters disagree at the key |
+| `same_attester_provider_substitution` | one attester answered the key from two different upstreams: a different `derivation.fn_key` or a different set of `sources[].scheme` |
+
+The scan reports both kinds by default
+(`include_same_attester_sources` defaults to `true`). Send `false` to get
+only `multi_attester`. When one attester signs again from the same
+provider, the scan does not count it. Each record also has
+`providers[]`, which names what changed.
+
+### Example
+
+This read ran on 6 November 2026 on emem.dev:
+
+```sh
+curl -s -X POST https://emem.dev/v1/memory_contradictions \
+  -H 'content-type: application/json' \
+  -d '{"cell_prefix":"defi.zb592","limit":3}'
+```
+
+It scanned 56 keys in 592 ms and found 2 records. Both were at cell
+`defi.zb592.nemu.zEvE`:
+
+| `band` | `tslot` | `disagreement_scope` | attestations |
+|---|---|---|---|
+| `copdem30m.provenance` | 0 | `multi_attester` | 89 |
+| `geotessera.multi_year` | 54 | `same_attester_provider_substitution` | 5 |
+
+Read `disagreement_scope` before you quote a record. A
+`multi_attester` record shows two or more witnesses. A
+`same_attester_provider_substitution` record shows one witness that
+changed its source.
+
+### Filters and limits
+
+| Field | Effect |
+|---|---|
+| `cell_prefix` (or `cell`, `cell64`) | a full cell64, or a bytewise prefix of one |
+| `band` | one band key |
+| `window_unix_s` | `[lo, hi]` on `signed_at`; all disagreeing facts must fall inside |
+| `min_severity` | drops records below this score (default 0.1) |
+| `limit` | 1 to 1000 records (default 100) |
+| `resume_after` | continues a scan that stopped at its time budget |
+
+A scan that stops at its time budget returns `scan_truncated: true` and
+a `resume_after` value. Send that value back to continue. A `band`
+filter or a narrower `cell_prefix` also gives complete coverage.
+
+### Severity
+
+The score depends on the band kind:
 
 | Band kind | Score |
 |---|---|
@@ -613,18 +724,15 @@ Severity is scored per band kind:
 | Categorical (`esa_worldcover.lc_2021`, `s2.scl`, …) | `1 - max_class_share` |
 | Mixed / unknown | `1.0` (flag for human review) |
 
-Same-attester re-attestation is filtered out (the multi-attester set
-must have `len >= 2`).
+### Response fields
 
-The response includes:
-
-- `contradictions[]`: per `(cell, band, tslot)` group with all
-  disagreeing attestations
-- `corpus_scanned`: number of `(cell, band, tslot)` keys walked
-- `scan_truncated`, when the scan stopped early
+- `contradictions[]`: one record per `(cell, band, tslot)` key, with all
+  the disagreeing attestations
+- `corpus_scanned`: the number of keys the scan read
+- `scan_truncated`, and `resume_after` when the scan stopped early
 - `time_taken_ms`
-- `agent_hint`: one-paragraph guidance on what to do with the result
-- signed receipt with primitive `emem.memory_contradictions`
+- `agent_hint`: one paragraph on what to do with the result
+- a signed receipt with primitive `emem.memory_contradictions`
 
 ## Memory event stream
 
@@ -673,144 +781,169 @@ The multi-attester index (`emem.multi_attester_index`, key
 `cell\0band\0tslot_be8`, value CBOR `Vec<FactCid>`) lives in
 `facts.redb` with the fact index on the default redb backend.
 
-Blobs are never deleted. `emem_memory_delete` drops the path index and
-writes a tombstone, and `memory_file_blobs` keeps the bytes addressable
-by `file_cid`. The
-audit replay walks `memory_file_history` in order to reconstruct what
-was written when.
+The responder never deletes a blob. `emem_memory_delete` removes the
+path from the index and writes a tombstone. `memory_file_blobs` keeps
+the bytes, so you can still get them by `file_cid`. To rebuild what was
+written and when, the audit replay reads `memory_file_history` in order.
 
 ## Registering your own derivations
 
-`POST /v1/derive` (`emem_derive`) lets a caller register a value **it**
-computed over facts this responder holds, and get back an ordinary
-`emem:fact:` token for it. The registered fact names its parents by CID,
-so what used to be "here is my conclusion, trust me" becomes a handle a
-stranger resolves and walks down to signed measurements.
+`POST /v1/derive` (`emem_derive`) registers a value that **you**
+computed over facts that this responder holds. You get back an ordinary
+`emem:fact:` token for it. The registered fact names its parents by CID.
+A stranger can resolve the token and follow it down to signed
+measurements. In this way, "here is my conclusion, trust me" becomes a handle
+that anyone can check.
 
-Three things about it are worth knowing before you reach for it, because
-each one is a deliberate refusal rather than a gap.
+Know three rules before you use it. Each rule is a deliberate refusal,
+not a gap.
 
-**The signature is narrow.** A derive receipt attests that *this
-attester submitted this derivation, over these parent facts, at this
-time, and the responder stored it*. It does not attest that the value is
-true. This is the same discipline as tokenising a row: signing "I
-ingested these bytes, from this source, at this time" is not signing
-"this is true". `provenance_class` must be `model_output`,
-`human_curated` or `estimator`; `direct_sensor` and
-`deterministic_index` are refused, because the responder did not compute
-the value.
+### Rule 1: the signature says who, not what is true
 
-One exception, and it is narrow. When `op` is a pure scalar function the
-responder knows (`delta` = `inputs[1] - inputs[0]`, `mean`, `sum`) and
-the call pins a `code_cid`, the responder re-runs that op over the cited
-parent facts (it evaluates the op; it never runs your code) and, if it
-reproduces your value, records the derivation as `deterministic_index`
-with a `recomputation` block naming the rule, its ULP tolerance and the
-measured gap. `mean` and `sum` over more than two parents compare inside
-a 4-ULP window, so require `ulp_gap == 0` if you need bit-identity. On a
-mismatch or any other op the class stays as sent, with a note.
+A derive receipt attests that *this attester submitted this derivation,
+over these parent facts, at this time, and the responder stored it*. It
+does not attest that the value is true. A tokenised row follows the same
+rule. "I ingested these bytes, from this source, at this time" is a
+different claim from "this is true".
 
-**It must be attested, and the refusal tells you how.** Send it without
-an `attester` block and the 401 hands back the exact 32-byte digest to
-sign for that exact body, the encoding rules, and a worked example. Sign
-the digest, re-send the identical body. No registration, no API key, any
-locally generated keypair. The preimage reuses the memory-write scheme
-with `verb = "derive"`, so there is one signing story to learn, not two:
+`provenance_class` must be `model_output`, `human_curated` or
+`estimator`. The responder refuses `direct_sensor` and
+`deterministic_index`, because it did not compute the value.
+
+There is one narrow exception. It applies when both conditions are true:
+
+- `op` is a pure scalar function that the responder knows: `delta`
+  (`inputs[1] - inputs[0]`), `mean` or `sum`.
+- The call pins a `code_cid`.
+
+The responder then runs that op again over the cited parent facts. It
+evaluates the op. It never runs your code. If it gets your value, it
+records the derivation as `deterministic_index`. A `recomputation`
+block names the rule, its ULP tolerance and the measured gap. For `mean`
+and `sum` over more than two parents, the window is 4 ULP. If you need
+the same bits, require `ulp_gap == 0`. On a mismatch, or for any other
+op, the class stays as you sent it, with a note.
+
+### Rule 2: you must sign it, and the refusal shows how
+
+Send the body without an `attester` block. The 401 response gives the
+exact 32-byte digest to sign for that body. It also gives the encoding
+rules and a worked example. Sign the digest and send the same body
+again. You need no registration and no API key. Any keypair that you
+make locally works.
+
+The preimage uses the memory-write scheme with `verb = "derive"`. It is
+the v1 form, with no `base`:
 
 ```text
 sig = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
 ```
 
-**Derived facts are attester-scoped and absent from every default
-read.** A derivative carries no canonical `(cell, band, tslot)` key, so
-it is never written to the canonical index that `recall`,
-`recall_polygon`, `state`, `query_region`, `memory_search` and
-`find_similar` all read through. Register a derivation at a cell and
-recall that cell: it is not there. That is the design, not an oversight.
-A stranger's claim surfacing in another agent's default read would be
-memory poisoning at the fact layer, which is worse than any leak the
-`by_attester` namespace closes. What you get is citation and resolution:
-your world hands over a token that resolves and verifies. It does not
-need emem to assert your claim as fact.
+### Rule 3: default reads never return a derived fact
 
-Reaching one back means asking for derivations on purpose:
+A derived fact has no canonical `(cell, band, tslot)` key, so the
+responder never writes it to the canonical index. `recall`,
+`recall_polygon`, `state`, `query_region`, `memory_search` and
+`find_similar` all read through that index. If you register a
+derivation at a cell and then recall that cell, the derivation is not
+there.
+
+This is by design. If a claim from a stranger came back in the default
+read of another agent, it would poison memory at the fact layer. That
+risk is worse than any leak that the `by_attester` namespace closes.
+What you get is citation and resolution: a token that resolves and
+verifies. emem does not need to assert your claim as fact.
+
+### How to read derivations
+
+To read a derivation, ask for it explicitly:
 
 | Want | Call |
 |---|---|
 | The bytes behind a token you hold | `POST /v1/memory_token/resolve` |
 | Everything one key has registered | `POST /v1/derived` with `attester_pubkey_b32` (MCP `emem_derive_list`) |
-| What was concluded near one place, across keys | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and `radius_m` (MCP `emem_inferences`) |
+| What keys concluded near one place | `POST /v1/inferences` with `cell`, or `lat` and `lng`, and `radius_m` (MCP `emem_inferences`) |
 
-`/v1/derived` has no all-attesters form. Naming whose claims you want is
-the contract, not a filter you may omit.
+`/v1/derived` has no form for all attesters. You must name whose claims
+you want. This is the contract, not an optional filter.
 
-`/v1/inferences` reads by place instead, and names whose claims it admits
-in its trust policy. It reads every cell within `radius_m` of the point
-(default 5000, max 50000; `0` reads the one cell), nearest first, and
-gives each item its `cell` and `distance_m`. A cell is 9.55 m, so a study
-anchored at its own point is found by a reader standing a street away. By default that is every key this responder reads at
-`T4_affiliated` or above: an organisation vouched for the key by DNS or
-`.well-known` within the last 30 days (`GET /v1/enlist`). Send `min_tier`
-to move that floor, or `attesters` to admit exactly the keys you name. The
-response returns the newest derivation per `(cell, fn_key, attester)`, counts
-what the policy left out in `excluded_by_policy`, marks every value as
-data rather than instructions, and says in words what a signature proves:
-who concluded something, never that it is true.
+`/v1/inferences` reads by place. It reads every cell within `radius_m`
+of the point, nearest first. The default is 5000 m and the maximum is
+50000 m. With `0` it reads the one cell. Each item has its `cell` and
+`distance_m`. A cell is 9.55 m wide, so a reader one street away
+finds a study anchored at its own point.
 
-`/v1/ask` and `/v1/locate` (and their MCP tools) add a `research_nearby`
-block when vouched research lies inside the place they resolved to (the
-place's polygon box, or 5 km around a bare point). The block holds pointers only: token, `fn_key`, nick, tier and
-distance. No derivation's value enters the answer or its receipt; read
-them with `/v1/inferences`.
+The trust policy decides which keys `/v1/inferences` admits. By default
+it admits each key that this responder reads at `T4_affiliated` or
+above. For such a key, an organisation vouched for it by DNS or
+`.well-known` within the last 30 days (`GET /v1/enlist`). Send
+`min_tier` to move that floor. Send `attesters` to admit only the keys
+that you name.
 
-Registration is idempotent per `(your key, derivation body)`: re-posting
-an identical derivation returns the token already minted for it, so a
-retry after a timeout is safe rather than a way to accumulate twins.
+The response gives these items:
 
-See [protocol.md § 5.2](protocol.md) for the exact `DeriveBody` wire
-encoding, the two traps a generic CBOR encoder falls into, and how a
-verifier rebuilds the caller's signature from a stored fact alone.
+- the newest derivation per `(cell, fn_key, attester)`
+- `excluded_by_policy`, the count that the policy left out
+- a mark on each value that it is data, not instructions
+- a sentence that says what a signature proves: who concluded
+  something, never that it is true
+
+`/v1/ask` and `/v1/locate` (and their MCP tools) can add a
+`research_nearby` block. They add it when vouched research lies inside
+the place they resolved. The place is the polygon box, or 5 km around a
+bare point. The block holds pointers only: token, `fn_key`, nick, tier
+and distance. No derivation value enters the answer or its receipt. To
+read the values, use `/v1/inferences`.
+
+Registration is idempotent per `(your key, derivation body)`. If you
+post the same derivation again, you get the token that the responder
+already made for it. A retry after a timeout is safe and makes no
+second copy.
+
+[protocol.md § 5.2](protocol.md) gives three more items:
+
+- the exact `DeriveBody` wire encoding
+- the two traps that a generic CBOR encoder falls into
+- how a verifier rebuilds the signature of the caller from a stored fact
 
 ## What the substrate is not
 
-- **It is not a chat memory.** Mem0 and LangMem own that pattern.
-  emem doesn't extract entities from free-form messages, doesn't keep
-  per-session conversation history, doesn't dedupe paraphrases. What
-  the `/memories/*` verbs are for is narrower: shared, signed notes that
-  another party, or a later run of you, can resolve to identical bytes
-  and verify. The hosted namespace is a world-readable commons and
-  there are no owner-scoped reads. A `vault` entry hides its bytes from
-  other callers but not from the operator, so private scratch belongs
-  on your side, or encrypted before it is written.
-- **It is not a knowledge graph.** Zep / Graphiti own that pattern.
-  emem's contradiction detection looks at one `(cell, band, tslot)` at
-  a time; it doesn't reason over multi-hop entity relations.
-- **It is not stateful in the Letta sense.** Letta runs a long-lived
-  per-agent process. emem is a server an agent talks to; the agent
-  decides what to remember.
+| It is not | Who owns that pattern | What emem does instead |
+|---|---|---|
+| A chat memory | Mem0, LangMem | Signed notes that another party, or a later run of you, resolves to the same bytes and verifies. emem does not extract entities from messages, keep session history or remove duplicate paraphrases. |
+| A knowledge graph | Zep, Graphiti | Contradiction detection looks at one `(cell, band, tslot)` at a time. It does not reason over relations with many hops. |
+| A stateful agent process | Letta | emem is a server that an agent calls. The agent decides what to remember. |
 
-What the substrate does give you: under the default write policy every
-memory write is signed by its author, and every receipt by the
-responder; every read primitive takes a bi-temporal
-bound; every note and fact is content-addressed; an `emem:fact:` token
-names the full 32-byte hash of the signed body, so it resolves to the
-same bytes wherever that fact is held (`emem:entity:` and
-`emem:bundle:` tokens are 16-byte anchors, a shared reference rather
-than a hash of the whole record); disagreements between attesters are
-kept as evidence; and receipts verify offline with ed25519.
+The hosted namespace is a commons that everyone can read. No read is
+limited to the owner. A `vault` entry hides its bytes from other
+callers but not from the operator. Keep private scratch on your side, or
+encrypt it before you write it.
+
+What the substrate gives you:
+
+- Under the default write policy, the author signs each memory write.
+  The responder signs each receipt.
+- Each read primitive takes a bi-temporal filter.
+- Each note and each fact has a content address.
+- An `emem:fact:` token names the full 32-byte hash of the signed body.
+  It resolves to the same bytes on each responder that holds the fact.
+- `emem:entity:` and `emem:bundle:` tokens are 16-byte anchors. They
+  are a shared reference, not a hash of the whole record.
+- The responder keeps disagreements between attesters as evidence.
+- Receipts verify offline with ed25519.
 
 ## See also
 
-- [agents.md](agents.md): the read-side rosetta for callers arriving
-  from Mem0, Letta, LangGraph, etc.
-- [whitepaper-v3.md](whitepaper-v3.md): the protocol, the trust layer, and
+- [agents.md](agents.md): the read-side guide for callers that come
+  from Mem0, Letta or LangGraph.
+- [whitepaper-v3.md](whitepaper-v3.md): the protocol, the trust layer and
   the receipt rules.
-- [security.md](security.md): what is checked, what is proven, and what
-  is not claimed.
-- [protocol.md](protocol.md): the cell64, cid64, tslot bit layouts.
-- [errors.md](errors.md): every typed error code, including
+- [security.md](security.md): what the responder checks, what it proves,
+  and what it does not claim.
+- [protocol.md](protocol.md): the cell64, cid64 and tslot bit layouts.
+- [errors.md](errors.md): each typed error code, with
   `memory_attestation_invalid`, `memory_namespace_violation`,
-  `invalid_temporal_bound`, `invalid_signed_at_format`.
-- `/v1/verify_receipt`: POST `{receipt}` back, get `valid`,
-  `signature_valid`, `merkle_proof_valid`, `primitive`,
-  `preimage_blake3_hex` and `signer_pubkey_b32`, among other fields.
+  `invalid_temporal_bound` and `invalid_signed_at_format`.
+- `/v1/verify_receipt`: POST `{receipt}` back. The response gives
+  `valid`, `signature_valid`, `merkle_proof_valid`, `primitive`,
+  `preimage_blake3_hex`, `signer_pubkey_b32` and other fields.
