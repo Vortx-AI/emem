@@ -375,7 +375,7 @@ equivalent in what dereferencing proves. There is one type per shape of
 memory: a point, a set, an object, a bare place, and, for a world model,
 a field and a field over time.
 
-![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of 84 characters. Agent B resolves the token, gets the same bytes from any node, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
+![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of about 84 characters. Agent B resolves the token, gets the same bytes from any node, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
 *Figure 3: the token lifecycle. Recall returns a signed fact and its
 receipt; the token is the one-line citation; the receiver resolves it to
 the identical bytes and verifies the receipt offline.*
@@ -541,8 +541,8 @@ and `resolution = 21` distinguishes the active grid from the pre-0.0.3
 silently misplacing a fact by hundreds of metres.
 
 ![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: an fp16 vector, with a 12-byte prefix in receipts. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
-*Figure 4: the address algebra. Three integers become one handle the
-rest of the protocol cites.*
+*Figure 4: the four wire forms and their sizes. The cell, the tslot
+and the CID together address one fact.*
 
 The string form is four base-65,536 bigrams joined by `.`, drawn from a
 65,536-entry alphabet (`crates/emem-codec/src/alphabet.rs:48`); four
@@ -1167,9 +1167,9 @@ facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
 ![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and phenology, and signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
-*Figure 6: the representation is the interface. emem signs the
-embedding agents actually read, not the pixels, and the frozen encoder
-checkpoint pins the Δ_encoder term of §1.1 by construction.*
+*Figure 6: the responder decodes each open archive into typed values
+and signs each value. Four deterministic decoders read the same place,
+so a disagreement between them is information.*
 
 ### 10.1 Bands: the 1792-dimension voxel
 

@@ -23,7 +23,7 @@ and compared; the dotted text form is what shows up inside facts and
 receipts.
 
 ![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: an fp16 vector, with a 12-byte prefix in receipts. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
-*The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
+*The four wire forms and their sizes. Section 1 gives the cell, section 2 the tslot and section 3 the CID.*
 
 ### 1.1 Bit layout
 
@@ -777,7 +777,7 @@ Failure → write rejected. The HTTP layer surfaces this as the
 ## 7. Receipt
 
 ![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, and the lists of cells and fact_cids. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
-*The five-step trust pipeline. Section 7.2 specifies the preimage byte-by-byte; sections 8 and 9 cover the Merkle path and the append-only log.*
+*What a responder signs. Section 7.2 gives the preimage byte by byte. Sections 8 and 9 give the Merkle path and the append-only log.*
 
 `crates/emem-fact/src/receipt.rs:11-58`.
 
