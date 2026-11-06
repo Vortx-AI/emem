@@ -41,8 +41,8 @@ curl -sS -X POST https://emem.dev/v1/ask -H 'content-type: application/json' \
   -d '{"q":"what is the elevation of Mount Fuji?"}' | jq -r .answer
 ```
 
-On 6 November 2026 the answer started with "elevation 3539.04 m". The value is for the one cell that the name
-resolves to, not for the summit.
+On 6 November 2026 the answer named the place, then gave "elevation 3539.04 m". The value is for the one cell that
+the name resolves to, not for the summit. The answer also gives the age of the reading.
 
 Do the same in two steps, so you see what emem signs. First find the cell:
 
