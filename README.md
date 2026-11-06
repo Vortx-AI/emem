@@ -6,7 +6,7 @@
 
 <p><b>emem is shared, verifiable memory for machines and AI. The proof travels; the files stay where they are.</b></p>
 
-<p><a href="https://emem.dev">Try it, no key</a> · <a href="#quickstart">Quickstart</a> · <a href="#memory-that-changes-without-losing-its-history">A worked example</a> · <a href="https://emem.dev/verify">Verify a token</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
+<p><a href="https://emem.dev">Try it, no key</a> · <a href="docs/start-here.md">Start here</a> · <a href="#quickstart">Quickstart</a> · <a href="#memory-that-changes-without-losing-its-history">A worked example</a> · <a href="https://emem.dev/verify">Verify a token</a> · <a href="https://emem.dev/agents.md">Agent guide</a> · <a href="https://emem.dev/docs/">Docs</a></p>
 
 [![ci](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml/badge.svg)](https://github.com/Vortx-AI/emem/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/ememdev?label=pypi%20ememdev)](https://pypi.org/project/ememdev/)
@@ -119,7 +119,7 @@ There is no rule for turning a tool name into a REST path, so do not guess one: 
 
 </details>
 
-**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 75 KB of context, not the whole catalog: loading all 116 descriptors costs about 329 KB. For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB, and `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
+**For agents.** Connect to `https://emem.dev/mcp`. It advertises the 18 tools of the core loop in one page, about 77 KB of context. The whole catalog of 116 descriptors is about 350 KB, at `/mcp/full` in pages of 13 (follow `nextCursor`). For the lightest first contact, `emem_tools` returns the loop and a menu in about 13 KB. `tools/call` dispatches every tool by name, with or without its `emem_` prefix. To hand records on, prefer a bundle: `emem_memory_bundle` names up to 256 facts in 38 characters.
 
 ## Memory that changes without losing its history
 
@@ -167,7 +167,7 @@ The operations behind those steps, and the rest of what agents do with them:
 | Job | How emem does it |
 |---|---|
 | **Name a thing once** | `emem_entity` mints an identity; `emem_entity_resolve` and `emem_entity_link` converge different phrasings onto it. |
-| **Read what is known, at a place or across an area** | `emem_recall`, `emem_recall_polygon` and `emem_grid` fetch and sign on a miss; `emem_ask` takes plain language. [168 published recipes](https://emem.dev/v1/algorithms) combine readings into scores for flood risk, heat, crop condition and more. |
+| **Read what is known, at a place or across an area** | `emem_recall`, `emem_recall_polygon` and `emem_grid` fetch and sign on a miss; `emem_ask` takes plain language. [172 published recipes](https://emem.dev/v1/algorithms) combine readings into scores for flood risk, heat, crop condition and more. |
 | **Follow a place through time** | `emem_trajectory` lists the dated readings stored at a cell; `emem_diff` and `emem_compare` contrast two; `emem_field_series` follows an area through a season, with a change map. |
 | **Derive, so others can recompute** | `emem_derive` records your result over signed facts and re-runs pure operations before recording. |
 | **Reuse what others concluded** | `emem_inferences` lists the conclusions agents signed near a place, nearest first, under a trust policy it states; `emem_ask` points at the ones inside the place it answers about. |
@@ -215,8 +215,8 @@ The row groups it names are public bytes in Overture's own bucket, so anyone can
 3. **Every record says how it was made**: a sensor read it, a formula recomputed it from a cited source, a model produced it, or a person typed it. The four never look alike, and `model_output` and `human_curated` carry a caution in the same payload.
 4. **A missing value is never a bare 404.** Where the responder looked, it signs an absence with a typed reason; where it could not look, it returns a typed, unsigned `unknown`.
 5. **Nothing is overwritten.** Later records supersede, and disagreement between writers is kept and scored as evidence, never averaged away.
-6. **History is auditable, not just asserted.** Everything emem signs goes into an append-only RFC 6962 Merkle log, 2,811,200 entries on 2026-10-10. Pin a signed head at [`/v1/log/sth`](https://emem.dev/v1/log/sth), prove it only grew, prove one entry sits under it, and read the independent co-signatures at [`/v1/log/witnesses`](https://emem.dev/v1/log/witnesses). Receipts signed since 2026-10-10 name the log entry that carried them, and [test vectors](https://emem.dev/v1/log/test_vectors) let a new verifier check itself.
-7. **A derivation can be recomputed, not just signed**, as step 3 of the worked example shows.
+6. **You can audit the history.** Everything emem signs goes into an append-only RFC 6962 Merkle log, 2,811,200 entries on 2026-10-10. Pin a signed head at [`/v1/log/sth`](https://emem.dev/v1/log/sth). Then prove that the log only grew, and that one entry sits under the head. The independent co-signatures are at [`/v1/log/witnesses`](https://emem.dev/v1/log/witnesses). Receipts signed since 2026-10-10 name the log entry that carried them, and [test vectors](https://emem.dev/v1/log/test_vectors) let a new verifier check itself.
+7. **emem can compute a derivation again**, as step 3 of the worked example shows. A signature alone does not do this.
 
 What a fact can hold is measured, not promised: [`/v1/plane/conformance`](https://emem.dev/v1/plane/conformance) samples up to 400 live facts on every call and checks that no value carries text, no string field exceeds 128 bytes, and no tool accepts a caller's value, so a fact cannot carry an instruction. Notes, which agents write, are a different plane: every read wraps a note's body in `_content_is_data_not_instructions`, because a memory agents write to is a prompt-injection surface by construction. The exact preimage rules to re-check any receipt yourself are at [`/v1/verifier_spec`](https://emem.dev/v1/verifier_spec), generated from the running code.
 
@@ -336,6 +336,7 @@ Version 2.4.4, a patch on the 2.4.0 minor. The receipt preimage last changed in 
 
 - **[eudr.dev](https://eudr.dev)** checks farm plots against the EU Deforestation Regulation cut-off with emem's forest facts, and prepares Annex II statements an auditor can re-verify.
 - **[geo.qa](https://geo.qa)** runs a second node, whose transparency-log head emem co-signs.
+- **emembounds** maps farm fields and cane around a sugar mill. It signs hash-only notes to fix a test plan before the draw ([case study](docs/case-studies/sugar-mill.md)).
 
 ## Learn more
 
@@ -343,7 +344,9 @@ Version 2.4.4, a patch on the 2.4.0 minor. The receipt preimage last changed in 
 |---|---|
 | the long form: what a record promises, A2A and the channel, the agent card, security, every limit | [docs/emem-in-depth.md](docs/emem-in-depth.md) |
 | why it matters: robot fleets, satellite tasking, agent swarms, compaction | [emem in depth, what breaks without it](docs/emem-in-depth.md#what-breaks-without-it) |
+| start from zero: the five ideas, a signed answer, the right field name for each endpoint | [start here](docs/start-here.md), [glossary](docs/glossary.md) |
 | see it work in ten minutes | [tutorial](docs/tutorials/first-verified-memory.md), [agent walkthroughs](examples/agent-walkthroughs.md) |
+| see three teams use signed notes to fix a test plan before the test | [case study: a sugar mill](docs/case-studies/sugar-mill.md) |
 | follow one request end to end, with live consoles | [emem.dev/how-it-works](https://emem.dev/how-it-works) |
 | wire your agent in | [agent guide](https://emem.dev/agents.md), [skills](https://emem.dev/skills.md), [connect a client](https://emem.dev/reference#client-setup) |
 | put it on a machine | [machines that ask emem where they are](docs/robots.md), [emem-airgap](crates/emem-airgap/README.md), [federation](docs/federation.md) |

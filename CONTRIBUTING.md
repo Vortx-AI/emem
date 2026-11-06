@@ -46,8 +46,10 @@ capability. Every number in prose must trace to a registry or a
 measurement (`python3 scripts/sync_counts.py` checks the known ones), and
 every claim must be verifiable against the code as written. A withdrawn
 claim is recorded, not silently deleted; the whitepaper's section 18 is
-the pattern. A CI doc-lint for the mechanical parts is roadmap work; until
-it lands, review enforces this by hand.
+the pattern. `scripts/doc_lint.py` enforces the mechanical parts in CI
+(dashes, buzzwords, links). `scripts/ste_lint.py` checks sentence length and
+plain words; run it on your changed lines. [docs/writing-docs.md](docs/writing-docs.md)
+gives the rules and both commands.
 
 ## Adding a band
 

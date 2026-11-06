@@ -1648,7 +1648,7 @@ MCP_BYTES_TOLERANCE = 0.5
 MCP_BYTES_CLAIMS = [
     # (file, regex capturing the KB figure, which surface it describes)
     ("README.md", r"core loop in one page, about (\d+) KB of context", "core"),
-    ("README.md", r"all " + str(CANON["mcp_tools"]) + r" descriptors costs about (\d+) KB", "full"),
+    ("README.md", r"whole catalog of " + str(CANON["mcp_tools"]) + r" descriptors is about (\d+) KB", "full"),
     ("docs/agents.md", r"in one page \(about\s+(\d+) KB of descriptors\)", "core"),
     # `over \d+`, not `over 7`. Pinning the page count inside this pattern meant
     # that correcting the page count (7 -> 8, which had itself gone stale)
@@ -1656,8 +1656,8 @@ MCP_BYTES_CLAIMS = [
     # on another. The page count is verified on its own, below.
     ("docs/agents.md",
      r"advertises all " + str(CANON["mcp_tools"]) + r" \(about (\d+) KB over \d+", "full"),
-    ("docs/intro.md", r"carries about (\d+) KB of descriptors instead of (?:\d+) KB", "core"),
-    ("docs/intro.md", r"instead of (\d+) KB", "full"),
+    ("docs/intro.md", r"core tools, about (\d+) KB of descriptors", "core"),
+    ("docs/intro.md", r"98 extended\), about (\d+) KB, in pages", "full"),
     ("docs/mcp-directory.md", r"in a single page \(about (\d+) KB\)", "core"),
     ("docs/mcp-directory.md", r"the full " + str(CANON["mcp_tools"]) + r" cost about (\d+) KB", "full"),
     ("docs/integrations.md", r"registers about (\d+) KB of descriptors", "core"),
