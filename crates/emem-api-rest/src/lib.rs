@@ -55850,7 +55850,15 @@ pub(crate) fn s2_catalogues() -> Vec<&'static str> {
 ///
 /// Element84 publishes harmonised DNs: it has already removed ESA's
 /// `BOA_ADD_OFFSET` (-1000 DN from processing baseline 04.00, 2022-01-25), so
-/// its offset is 0 for every scene. Planetary Computer publishes ESA's DNs
+/// its offset is 0 for every scene.
+///
+/// That includes the items whose `earthsearch:boa_offset_applied` is false and
+/// whose blue asset lists `offset: -0.1`. Do not apply the offset on that flag.
+/// On 2026-11-06 we read a 300 x 300 blue window of 31 such items, from 8 sites
+/// (India, Pakistan, US, Brazil, Kenya, France), baselines 04.00 to 05.12, 2022
+/// to 2026. In every one, 8 % to 100 % of the valid pixels were under 1000 DN,
+/// which is impossible with the offset still in. A partner agent's reader took
+/// the offset from the flag and subtracted it twice: NDVI about 0.3 too high. Planetary Computer publishes ESA's DNs
 /// verbatim, so the offset is -1000 for baseline 04.00 onward and 0 before.
 /// Getting this wrong does not fail loudly: a +1000 DN error on both bands of
 /// a ratio index pulls NDVI toward zero by roughly a third at canopy
