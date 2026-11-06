@@ -213,11 +213,11 @@
     </a></figure>
 
     <figure id="06"><a href="/docs/diagrams/06-memory-vs-stac.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/06-memory-vs-stac.svg" aria-label="memory vs STAC catalog"><img src="/docs/diagrams/06-memory-vs-stac.svg" alt="memory vs STAC catalog" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/06-memory-vs-stac.svg" aria-label="With raw STAC the agent picks a scene, reads pixels, undoes scaling and masks, and gets an uncited number. With emem one recall returns a signed number and its fact_cid."><img src="/docs/diagrams/06-memory-vs-stac.svg" alt="With raw STAC the agent picks a scene, reads pixels, undoes scaling and masks, and gets an uncited number. With emem one recall returns a signed number and its fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">06 / 10 · NEIGHBOURS</div>
         <h2>why a memory, not a catalog</h2>
-        <p>STAC points to where the bytes live; emem answers the question at the place. STAC is one of seven upstream connectors, not the protocol.</p>
+        <p>STAC points to where the bytes live; emem answers the question at the place. emem uses STAC to find scenes; STAC is not the protocol.</p>
       </figcaption>
     </a></figure>
 
@@ -362,16 +362,16 @@
       <figcaption><div class="num">30 · INDUSTRY · MARITIME</div><h2>maritime &amp; ports</h2><p>A pilot, a port authority, and an underwriter, looking at the same byte. Bathymetry, AIS, tide, surge, signed.</p></figcaption>
     </a></figure>
     <figure id="31"><a href="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" aria-label="encoders in orbit, decoders on the ground"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Encoders in orbit, decoders on the ground" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>the sensors fly; the responder decodes their stacks into signed embeddings</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" aria-label="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and phenology, and signs each value."><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and phenology, and signs each value." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>the sensors fly; the responder decodes their stacks into signed values</p></figcaption>
     </a></figure>
     <figure id="33"><a href="/docs/diagrams/33-fusion-orbit-and-ground.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/33-fusion-orbit-and-ground.svg" aria-label="fusion: orbit and ground"><img src="/docs/diagrams/33-fusion-orbit-and-ground.svg" alt="Fusion: orbit and ground" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>many modalities, one cell, one signed embedding the next agent can cite</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/33-fusion-orbit-and-ground.svg" aria-label="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder fuses them into one signed record with a content id."><img src="/docs/diagrams/33-fusion-orbit-and-ground.svg" alt="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder fuses them into one signed record with a content id." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>many modalities, one cell, one signed record the next agent can cite</p></figcaption>
     </a></figure>
     <figure id="34"><a href="/docs/diagrams/34-shared-memory.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/34-shared-memory.svg" aria-label="one memory, many agents"><img src="/docs/diagrams/34-shared-memory.svg" alt="One memory, many agents" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>any agent writes signed facts, any agent recalls them, every agent checks for itself</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/34-shared-memory.svg" aria-label="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later."><img src="/docs/diagrams/34-shared-memory.svg" alt="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>emem signs the facts; any agent recalls them and signs notes; each agent checks for itself</p></figcaption>
     </a></figure>
     <figure id="35"><a href="/docs/diagrams/35-two-agents-one-memory.svg">
       <object class="frame" type="image/svg+xml" data="/docs/diagrams/35-two-agents-one-memory.svg" aria-label="two agents, one memory"><img src="/docs/diagrams/35-two-agents-one-memory.svg" alt="Two agents, one memory" loading="lazy" decoding="async"/></object>

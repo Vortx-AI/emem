@@ -81,7 +81,7 @@ def shared_memory():
             avoid.append((x, y, 92))
     _ground(s, avoid=avoid)
     _header(s, "One memory, many agents",
-            "any agent writes signed facts · any agent recalls them · every agent checks for itself")
+            "emem signs the facts · any agent recalls them and signs notes · each checks for itself")
 
     # flows between agents and the memory. Writes are turmeric (attest),
     # reads leaf-green (signed recall), the audit read vermilion-dashed.
@@ -108,9 +108,9 @@ def shared_memory():
             _agent(s, x, y, col, label if i == 0 else "", None)
 
     # verbs on the flows
-    s.text(492, 330, "attest: signed write", 11.5, TURMERIC, font=MONO, weight="bold")
+    s.text(492, 330, "write a signed note", 11.5, TURMERIC, font=MONO, weight="bold")
     s.text(1108, 330, "recall: signed fact", 11.5, LEAF, font=MONO, anchor="end", weight="bold")
-    s.text(470, 726, "write + read", 11.5, INK_SOFT, font=MONO)
+    s.text(470, 726, "note + recall", 11.5, INK_SOFT, font=MONO)
     s.text(1130, 726, "verify offline", 11.5, VERMIL, font=MONO, anchor="end", weight="bold")
 
     # the memory itself
@@ -128,7 +128,7 @@ def shared_memory():
     s.text(CX, LOGY + 36, "append-only · every fact signed · addressed by its content", 11.5,
            INK_SOFT, font=MONO, anchor="middle")
 
-    _footer(s, "A fact written by one agent is memory for every agent that comes after.",
+    _footer(s, "A fact signed once is memory for every agent that comes after.",
             "no shared password, no shared database to trust: each reader re-derives the id and checks the signature")
     s.save(f"{OUT}/34-shared-memory.svg")
     return "34-shared-memory"
