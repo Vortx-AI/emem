@@ -475,13 +475,23 @@ gate; `crates/emem-fact/tests/round_trip.rs` enforces it.
 
 ## 5. Fact
 
-Three variants. All carry `signer: AttesterKey` (32-byte ed25519
-public key) and `signed_at: String` (ISO 8601 UTC), so any fact can be
-attributed without referring to its enclosing attestation.
+In plain words: a fact is one signed value at one address and one time
+slot. There are three kinds:
+
+| kind (`"kind"` on the wire) | Rust type | What it says |
+|---|---|---|
+| `primary` | `PrimaryFact` | "I measured this value here, from these sources." |
+| `derivative` | `DerivativeFact` | "This value comes from these parent facts by this operation." |
+| `absence` | `NegativeFact` | "I looked here and found no data. This is what I looked at." |
+
+All three carry `signer: AttesterKey` (a 32-byte ed25519 public key)
+and `signed_at: String` (ISO 8601 UTC). Thus you can find who signed a
+fact without its attestation. The `signed_at` field is the signing
+time. The data time is the `tslot`.
 
 ### 5.1 PrimaryFact
 
-`crates/emem-fact/src/fact.rs:37-67`.
+`crates/emem-fact/src/fact.rs:73-112`.
 
 ```rust
 struct PrimaryFact {
@@ -498,8 +508,15 @@ struct PrimaryFact {
     schema_cid: SchemaCid,
     signer: AttesterKey,                // [u8; 32]
     signed_at: String,                  // ISO 8601 UTC
+    served_via: Option<ServedVia>,      // omitted when None
 }
 ```
+
+`served_via` records which compute tier made the value (`tier`,
+`model`, `device`, and an optional `fallback_reason` and
+`model_blake2b_hex`). Numeric bands such as NDVI and elevation leave it
+out. Serde skips it when it is `None`, so facts without it keep their
+CID.
 
 Worked example (Fast-tempo NDVI composite over a single Sentinel-2 capture):
 
@@ -527,7 +544,7 @@ capture's day.
 
 ### 5.2 DerivativeFact
 
-`fact.rs:71-94`.
+`fact.rs:150-175`.
 
 ```rust
 struct DerivativeFact {
@@ -562,49 +579,49 @@ Worked example (90-day NDVI mean over three monthly composites):
 }
 ```
 
-A derivative's `signed_at` is part of its CID, so a responder derivative
-that should be comparable across calls takes it from its inputs rather
-than the wall clock. The change ledger (`change_attribution@1`) signs the
-newest parent's `signed_at` (the epoch when it read nothing), so equal
-inputs give one fact and one token, and a repeat call returns the stored
-fact (`persistence: "existing_derivative_fact"`). When the responder signed
-it is still in the attestation and the receipt.
+The `signed_at` of a derivative is part of its CID. Thus a responder
+derivative that must stay the same across calls takes `signed_at` from
+its inputs, not from the wall clock. The change ledger
+(`change_attribution@1`) signs the `signed_at` of the newest parent (or
+the epoch when it read no parent). Equal inputs then give one fact and
+one token. A repeat call returns the stored fact with
+`persistence: "existing_derivative_fact"`. The attestation and the
+receipt still record when the responder signed.
 
 #### Caller-registered derivations (`POST /v1/derive`)
 
-A responder computes derivatives of its own. A caller can also register
-one: a value it computed itself over facts the responder holds. The
-result is an ordinary `DerivativeFact` with an ordinary
-`emem:fact:<cell64>:<fact_cid>` token, which is the point. A world model
-built out of emem facts can hand a stranger one string that resolves,
-verifies, and names its parents, instead of asserting a conclusion and
-asking to be believed. A verifier walks `parents` down to the
-responder's own signed measurements.
+In plain words: a caller can register a value that it computed from
+facts that this responder holds. The result is an ordinary
+`DerivativeFact` with an ordinary `emem:fact:<cell64>:<fact_cid>` token.
+A stranger can resolve the token, verify it, and follow `parents` down
+to the signed measurements of the responder. The responder signs that
+the caller submitted the value. It does not sign that the value is
+true.
 
-Three rules make that safe to expose.
+Three rules apply.
 
-**1. Every parent must resolve here.** Each `inputs[]` entry is parsed,
-fetched, and checked against the cell it claims. A token naming a fact
-this responder does not hold is refused with `404
-derive_parent_unresolved` naming the index that failed; a real
-`fact_cid` under a false cell is refused with `409
-derive_parent_cell_mismatch`. Unvalidated parents would be fake lineage,
-which is worse than none: it would let a token's ancestry *look* like it
-terminates in signed measurements when it terminates in nothing.
+**1. Every parent must resolve here.** The responder parses and fetches
+each `inputs[]` entry, and checks it against the cell that it names.
 
-**2. The provenance class must be a caller class.** `model_output`,
-`human_curated`, or `estimator`, declared by the caller and validated by
-the responder. `estimator` is for a quantity FITTED from data that a
-third party holding your signed inputs, your named estimator and your
-seed would reproduce exactly; it is admissible here for the same reason
-`model_output` is, because the responder records what you declared rather
-than vouching for it, and it tells a reader something `model_output`
-cannot: that reproduction is possible at all.
-`direct_sensor` and `deterministic_index` are refused with `400
-derive_provenance_class_refused`. Those two classes assert
-tamper-evidence (a sensor produced this, or anyone can recompute it
-from the cited raw source) and the responder can assert neither about
-arithmetic it never saw.
+| Problem | Response |
+|---|---|
+| The token names a fact that this responder does not hold. | `404 derive_parent_unresolved`, with the index of the bad entry |
+| A real `fact_cid` under a different cell. | `409 derive_parent_cell_mismatch` |
+
+Without this check, a token could seem to end in signed measurements
+when it ends in nothing.
+
+**2. The provenance class must be a caller class.** The caller declares
+one of `model_output`, `human_curated` or `estimator`, and the responder
+validates it. Use `estimator` for a quantity fitted from data. A third
+party with your signed inputs, your named estimator and your seed can
+then reproduce it exactly. The responder records your declaration. It
+does not vouch for it.
+
+The responder refuses `direct_sensor` and `deterministic_index` with
+`400 derive_provenance_class_refused`. Those two classes say "a sensor
+made this" or "anyone can recompute this from the raw source". The
+responder did not see the arithmetic, so it cannot say either.
 
 **3. It must be attested, and the signature means something narrow.**
 
@@ -613,12 +630,11 @@ arithmetic it never saw.
 > that the responder stored it. It does **not** attest that the value is
 > true. The responder did not compute it and cannot recompute it.
 
-`signer` on the fact is the **responder's** key, because the responder's
-own identity is the only one it can sign with, and minting a fact that
-claimed the caller's key had signed the fact's canonical CBOR would be a
-forgery: the caller signed the derive preimage, not the fact body. The
-caller's binding is recorded inside `derivation.args`, hence inside the
-`fact_cid`, hence covered by the responder's signature:
+The `signer` on the fact is the key of the **responder**. The caller
+signed the derive preimage, not the fact body. A fact that names the
+caller as `signer` would be a forgery. The responder records the
+signature of the caller inside `derivation.args`. Thus the `fact_cid`
+covers it, and the signature of the responder covers the `fact_cid`:
 
 ```jsonc
 "derivation": {
@@ -636,30 +652,32 @@ caller's binding is recorded inside `derivation.args`, hence inside the
 }
 ```
 
-Every field of the signed body is recoverable from the stored fact, so a
-third party holding only the fact can rebuild `body_hash`, rebuild the
-preimage, and re-check the **caller's** signature without the original
-HTTP request. That is the difference between recording "some key signed
-something" and proving "this key signed *this* derivation".
+You can get every field of the signed body back from the stored fact.
+Thus a third party with only the fact can rebuild `body_hash` and the
+preimage. It can then check the signature of the **caller** without the
+original HTTP request. This proves that this key signed *this*
+derivation.
 
 ##### The preimage
 
-The binding reuses the memory-write attester scheme unchanged (§ see
-`crates/emem-primitives/src/memory_acl.rs`), with `verb = "derive"` and
-`path = "/v1/derive"`:
+The binding uses the v1 memory-write attester scheme
+(`attester_preimage` in `crates/emem-primitives/src/memory_acl.rs`),
+with `verb = "derive"` and `path = "/v1/derive"`. Memory file writes
+moved to a v2 preimage that also binds a `base` (§7.5). Derive still
+uses the v1 form below. A replayed derive body returns the token that
+already exists (see the idempotency rule below).
 
 ```text
 sig       = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
 body_hash = blake3(cbor(DeriveBody))
 ```
 
-One scheme, one verifier. The verb is what separates the domains: no
-memory-file verb is spelled `derive`, so a signature minted for a file
-write cannot be replayed as a derivation or the reverse. The literal
+One scheme needs one verifier. The verb separates the domains. No
+memory-file verb is `derive`, so a signature for a file write cannot be
+replayed as a derivation, and the reverse. The literal
 `emem.memory_write` prefix is the domain for every caller-attested write
-at this responder, not only file writes; it is spelled that way because
-renaming it would invalidate every memory-write signature already
-issued.
+at this responder, not only file writes. A new name would make every
+memory-write signature already issued invalid, so the name stays.
 
 `cbor(DeriveBody)` is a **definite-length 10-entry map whose keys appear
 in declaration order**:
@@ -677,70 +695,71 @@ in declaration order**:
 | 9 | `provenance_class` | text |
 | 10 | `code_cid` | text, or CBOR null when omitted |
 
-Two traps worth stating plainly, because a generic encoder gets both
-wrong:
+A generic encoder gets two things wrong:
 
-- The outer map is **not** RFC 8949 §4.2.1 key-sorted. It is declaration
-  order. A canonical-CBOR library pointed at this map will sort the keys
-  and compute the wrong digest.
-- `confidence` is a **float32**, not a float64, because
-  `DerivativeFact::confidence` is an `f32` and the signed body has to
-  match the stored fact bit-for-bit or the reconstruction above breaks.
+- The outer map is **not** key-sorted as in RFC 8949 §4.2.1. The keys
+  are in declaration order. A canonical-CBOR library sorts the keys and
+  gives the wrong digest.
+- `confidence` is a **float32**, not a float64.
+  `DerivativeFact::confidence` is an `f32`, and the signed body must
+  match the stored fact bit for bit.
 
-Nested maps *inside* `value` are sorted by their encoded key bytes, per
-§4.2.1, so the digest does not depend on the caller's JSON key order.
+The encoder sorts nested maps *inside* `value` by their encoded key
+bytes, as in §4.2.1. Thus the digest does not change with the JSON key order of
+the caller.
 
-**You do not have to implement any of this.** Send the request with no
-`attester` block. The `401 derive_attestation_required` response carries
-`details.how_to_sign.sign_this.digest_hex`: the exact 32 bytes the
-responder will verify against, plus the full byte-level rules and a
-worked example. Sign that digest, re-send the byte-identical body with
-the signature attached. The digest is a pure function of the request, so
-nothing about it is secret and nothing about it expires. The rules above
-are published for verifiers rebuilding a digest from a stored fact, and
-for clients that would rather sign in one round-trip.
+**You do not have to build this digest yourself.** Send the request
+with no `attester` block. The `401 derive_attestation_required` response
+carries `details.how_to_sign.sign_this.digest_hex`. These are the exact
+32 bytes that the responder verifies, with the full byte rules and a
+worked example. Sign that digest. Then send the same body again, byte
+for byte, with the signature. The digest depends only on the request,
+so it is not secret and it does not expire. The rules above are for
+verifiers that rebuild a digest from a stored fact, and for clients
+that sign in one round trip.
 
 ##### Tenancy: derived facts are attester-scoped
 
-A caller-registered derivative is untrusted input, so it must never
-reach another agent's default read. It does not, and not because of a
-filter:
+A caller-registered derivative is untrusted input. It must never appear
+in a default read of another agent. The storage layout prevents this;
+no filter is necessary:
 
 > `fact_canonical_key` returns `None` for the `Derivative` variant
 > (`crates/emem-cache/src/sled_hot.rs`), so a derivative is stored
 > content-addressed but is **never written to the canonical index**, the
 > multi-attester index, or the scope index.
 
-Every keyed read walks one of those indexes. So `recall`,
+Every keyed read uses one of those indexes. Thus `recall`,
 `recall_polygon`, `state`, `query_region`, `memory_search` and
-`find_similar` cannot return a caller's derivation at all. The absence
-is structural rather than six filters someone has to remember to apply.
-This is the point rather than a limitation: registering a derivation
-buys citation and resolution, not an assertion into the commons.
+`find_similar` cannot return a derivation of a caller. No one has to
+remember to apply six filters. A registered derivation gets citation
+and resolution. It does not become part of the shared default reads.
 
-Two reads reach a derivation, and both require naming it:
+Three reads reach a derivation. Each one names the derivation, its
+attester, or a trust policy:
 
-1. **Its token.** `POST /v1/memory_token/resolve` (or `GET
-   /v1/facts/<fact_cid>`). A derivation is not a new token family, it
-   is a fact.
-2. **`POST /v1/derived`**, which requires `attester_pubkey_b32`. There is
-   no all-attesters form. A required pubkey is a stronger guarantee than
-   an optional filter on `recall`, where a future `attester: None` could
-   silently come to mean "everyone".
+| Read | What you give | Notes |
+|---|---|---|
+| `POST /v1/memory_token/resolve`, or `GET /v1/facts/<fact_cid>` | the token or the `fact_cid` | A derivation is a fact, not a new token family. |
+| `POST /v1/derived` | `attester_pubkey_b32` (required) | There is no all-attesters form. |
+| `POST /v1/inferences`, or `GET /v1/inferences?cell=...` | a place | The trust policy of the reader decides which attester keys it admits. The response states the policy. |
+
+A required pubkey is a stronger guarantee than an optional filter on
+`recall`. With an optional filter, a later `attester: None` could start
+to mean "everyone" and nobody would notice.
 
 `POST /v1/derive` is **idempotent per `(attester, body_hash)`**. A
-repeat submission returns the token already minted for it, flagged
-`deduplicated: true`, so retrying a timed-out call is safe. This is an
-explicit index rather than a consequence of content-addressing: because
-`signed_at` rides on the fact, two identical submissions inside one
-second would collapse to a single CID while two a second apart would
-not, and "idempotent if you retry fast enough" is not a contract a
-caller can code against. Dedup is scoped to the attester: two keys
-making the same claim are two claims, and each gets its own token.
+repeat submission returns the token that the responder already minted,
+with `deduplicated: true`. Thus you can safely retry a call that timed
+out. An explicit index does this, not content addressing. The fact
+carries `signed_at`, so two equal submissions in one second give one
+CID, but two submissions one second apart do not. Dedup is per
+attester. When two keys make the same claim, these are two claims, and
+each gets its own token.
 
 ### 5.3 NegativeFact
 
-`fact.rs:98-117`.
+`fact.rs:177-198`.
 
 ```rust
 struct NegativeFact {
@@ -754,70 +773,140 @@ struct NegativeFact {
 }
 ```
 
-A negative fact is **not** the same as a missing record. Missing means
-"no responder has attested this (cell, band, tslot)". Negative means
-"I looked and there was nothing; here is what I looked at
-(`reason_cid`)". Per the no-silent-fallbacks rule, the API must
-distinguish these states; see §10.
+A negative fact is **not** the same as a missing record:
 
-#### Signed Absence as a first-class protocol move
-
-Every band that has no data at a cell returns a `NegativeFact`,
-referred to throughout the codebase as a **signed Absence**. The
-Absence itself is content-addressed (it has a `FactCid`), signed by
-the responder, and citable on the same footing as a Primary or
-Derivative fact. The `reason_cid` carries a typed enumeration:
-
-| Reason | When the responder emits it |
+| State | Meaning |
 |---|---|
-| `outside_coverage` | The query falls outside the dataset's spatial or temporal window (DMSP-OLS post-2013, CHIRPS poleward of ±50°, Köppen pixel value 0 over open ocean). |
-| `unavailable_capability` | A required upstream is reachable but does not expose the requested layer (Hansen 80°N tile genuinely not published; Overture release lacks the queried theme). |
-| `gpu_unavailable` | Registered for a GPU-tier band; not produced by this responder, which runs no GPU tier. |
-| `archetype_seed_unavailable` | A climate-archetype query landed in a Köppen-Geiger zone that the v1 centroid seed file does not yet cover. |
-| `upstream_no_data` | Upstream returned an empty result with no error (WorldPop `total_population == 0`; FIRMS bulk CSV with no fire detection inside the window). |
+| Missing | No responder attested this (cell, band, tslot). |
+| Negative | "I looked and found nothing. `reason_cid` names the reason, and `sources` names what I looked at." |
 
-A signed Absence is a working answer, not an error path. A verifier
-holding the Absence's receipt can replay the same upstream call and
-expect the same empty result; downstream agents can pin reasoning on
-"the responder looked and confirmed nothing was there" instead of
-guessing why a recall came back empty.
+The API must keep these two states apart (no silent fallbacks). See §10.
+
+#### Signed Absence
+
+The codebase calls a `NegativeFact` a **signed Absence**. An Absence
+has a `FactCid`, the responder signs it, and you can cite it like a
+Primary or Derivative fact.
+
+The responder writes the reason as one line of text. The text starts
+with a short code and a colon. `reason_cid` is the content address of
+that text (`reason_cid_for`, `crates/emem-api-rest/src/lib.rs`):
+
+```text
+reason_cid = lowercase(base32_nopad(blake3(reason_text)[0..16]))   // 26 characters
+```
+
+Recall responses serve the text as `reason`, next to `reason_cid`. You
+can hash the text and compare it with `reason_cid`. The responder
+signed some absences before it stored reason text. For those, `reason` is
+`null`.
+
+Examples of reason codes in the code on 7 November 2026:
+
+| Reason code | When the responder emits it |
+|---|---|
+| `copdem_coverage_gap` | Cop-DEM GLO-30 has no tile here, or gives 0 m or no data (open ocean). |
+| `esa_worldcover_no_tile`, `esa_worldcover_no_class` | ESA WorldCover has no tile here, or the pixel is the no-data value 0. |
+| `jrc_gsw_unmapped`, `jrc_gsw_no_data` | The JRC Global Surface Water pixel is 255 (outside the mapped domain, or no valid observation). |
+| `koppen_no_data` | The Köppen-Geiger pixel is 0 (outside the land domain). |
+| `dmsp_ols_out_of_bounds` | The cell is outside the DMSP-OLS latitude range of -65° to +75°. |
+| `worldpop_empty_aoi` | WorldPop gives no positive value in the 1 km² window. |
+| `no_detections`, `outside_window` | FIRMS finds no fire in the cell, or the time slot is outside its 24-hour window. |
+| `jrc_gfc2020_coverage_gap`, `jrc_tmf_coverage_gap` | The cell is outside the latitude band of the forest dataset. |
+
+The OpenAPI `Fact` schema also lists a typed `absence_reason` label
+(for example `outside_coverage` or `unavailable_capability`). That
+label is not part of the signed fact. The signature covers only
+`reason_cid`.
+
+A signed Absence is a working answer, not an error. A verifier can
+replay the same upstream call and expect the same empty result. An
+agent can then rely on "the responder looked and found nothing". It
+does not have to guess why a recall came back empty.
 
 ### 5.4 Tagged enum on the wire
 
-`fact.rs:9-25`. The `Fact` enum serialises with `#[serde(tag = "kind",
-rename_all = "snake_case")]`. CBOR shape: a single map with `"kind"`
-keying the string discriminator `"primary" | "derivative" | "absence"`
-plus the variant's fields flattened in.
+`fact.rs:9-18`. The `Fact` enum serialises with `#[serde(tag = "kind",
+rename_all = "snake_case")]`. The CBOR shape is one map. The key
+`"kind"` holds `"primary"`, `"derivative"` or `"absence"`, and the
+fields of the variant follow in the same map.
 
 ---
 
 ## 6. Attestation envelope
 
-`crates/emem-fact/src/attest.rs:10-28`.
+In plain words: an attestation is the signed batch that carries facts
+into storage. The attester hashes each fact, builds a Merkle root over
+the hashes, and signs the root with the registry and schema CIDs. The
+responder checks all of this before it stores anything. A receipt (§7)
+is a different object: it is what a read returns.
+
+`crates/emem-fact/src/attest.rs:13-64`.
 
 ```rust
 struct Attestation {
     facts: Vec<Fact>,
-    batch_root: [u8; 32],               // blake3 merkle root of CBOR(fact_i)
+    edges: Vec<EdgeFact>,               // omitted from JSON when empty
+    batch_root: [u8; 32],               // merkle root over the fact and edge leaves
     attester: AttesterKey,
     attester_key_epoch: KeyEpoch,
     registry_cid: RegistryCid,
     schema_cid: SchemaCid,
     signature: Signature,               // [u8; 64]
     attested_at: String,                // ISO 8601 UTC
+    scope: Option<Scope>,               // index hint; not signed; omitted when None
+    preimage_version: u8,               // 0 or 1; omitted when 0
 }
 ```
 
-The `signature` is over
+| Field | Note |
+|---|---|
+| `edges` | Typed temporal edges. Each edge adds the leaf `blake3(canonical_cbor(edge))`. With no edges, the leaf set is the same as before edges existed. |
+| `scope` | A tenant index hint for storage. It is not in `batch_root` or in the signed preimage. |
+| `preimage_version` | Selects the signature rule and the Merkle rule. `1` is current. `0` (or absent) is the legacy rule. |
+
+### Which rule signs an attestation
+
+The responder signs new attestations with
+`Attestation::build_and_sign_v1`, so they carry `preimage_version: 1`.
+Attestations with `preimage_version` absent or `0` still verify under
+the v0 rule. A verifier must read the version and use its rule.
+
+| `preimage_version` | Signed message | Merkle rule (§6.1) | Duplicate leaves |
+|---|---|---|---|
+| `1` (current) | `attestation_preimage_v1` | `merkle_root_v1` | refused |
+| `0` or absent (legacy) | `blake3(batch_root ‖ registry_cid ‖ schema_cid)` | `merkle_root` | not checked |
+
+**v1.** The signed message is the 32-byte digest of a v1 preimage
+stream with the domain `attestation`
+(`emem_attest::attestation_preimage_v1`). The stream rules are the
+same as for the v1 receipt (§7.1):
+
+```text
+stream = "emem.preimage.v1\x00"                 // 17 bytes
+      || u32_le(11) || "attestation"            // domain
+      || 0x01 || u32_le(32)  || batch_root       // 32 raw bytes
+      || 0x02 || u32_le(len) || registry_cid     // UTF-8 of the CID text
+      || 0x03 || u32_le(len) || schema_cid       // UTF-8 of the CID text
+signature = ed25519_sign( blake3(stream) )
+```
+
+The tags and the lengths keep segment boundaries fixed. Under v0,
+`("abc", "def")` and `("abcd", "ef")` give the same bytes. Under v1
+they do not. `GET /v1/verifier_spec` lists these segments under
+`other_signed_objects` (name `attestation`). The responder builds that
+list from the same constants it signs with.
+
+**v0 (legacy).** The `signature` is over
 
 ```text
 ed25519_sign( blake3( batch_root || registry_cid_bytes || schema_cid_bytes ) )
 ```
 
-where `registry_cid_bytes` and `schema_cid_bytes` are the **string
-bytes** (UTF-8 of the lowercase base32 CID), not the raw hash bytes.
-That is what `verify_attestation` (`crates/emem-storage/src/lib.rs:428-438`)
-passes to BLAKE3:
+`registry_cid_bytes` and `schema_cid_bytes` are the **string bytes**
+(UTF-8 of the lowercase base32 CID), not the raw hash bytes. This is
+what the v0 branch of `verify_attestation`
+(`crates/emem-storage/src/lib.rs:2212-2230`) passes to BLAKE3:
 
 ```rust
 let mut h = Hasher::new();
@@ -832,22 +921,40 @@ pk.verify_strict(msg.as_bytes(), &sig)?;
 
 ### 6.1 Merkle root construction
 
-`crates/emem-attest/src/lib.rs:11-89`. Leaves are the
-`blake3(canonical_cbor(fact))` hashes, sorted bytewise. The empty input
-returns `[0u8; 32]`.
+Both rules start the same way. Each fact gives the leaf
+`blake3(canonical_cbor(fact))`, and each edge gives
+`blake3(canonical_cbor(edge))`. The rule sorts the leaves bytewise.
+An empty input gives `[0u8; 32]`. The rules differ in how they hash a
+leaf and a node:
 
-Every leaf is **promoted by self-hash** before pairing: the leaf
-becomes `blake3(leaf || leaf)`. The self-hash separates the "leaf" and
-"internal node" domains; without it, an attacker who knows a
-`CBOR(fact)` could splice it in at an internal position. The test
-`single_leaf_is_self_hashed` (lib.rs:128-139) pins the rule for the
-1-leaf case: `merkle_root([leaf]) == blake3(leaf || leaf)`.
+| Step | v1 (`merkle_root_v1`, current) | v0 (`merkle_root`, legacy) |
+|---|---|---|
+| Promote a leaf | `blake3(0x00 ‖ leaf)` | `blake3(leaf ‖ leaf)` |
+| Hash a node | `blake3(0x01 ‖ left ‖ right)` | `blake3(left ‖ right)` |
+| Odd layer | the last element pairs with itself | the last element pairs with itself |
+| Duplicate leaves | the verifier refuses the batch | not checked |
+| Code (`crates/emem-attest/src/lib.rs`) | lines 738-764, 798-810 | lines 17-23, 71-99 |
 
-Once promoted, layers fold pairwise with `blake3(left || right)`. For
-odd-cardinality layers the trailing element pairs **with itself**
-(lib.rs:36-44, lib.rs:174-194).
+The topology is the same in both rules, so a verifier still checks a
+path by index (§8).
 
-ASCII tree for 4 facts with sorted CBOR-hashes `C0 ≤ C1 ≤ C2 ≤ C3`:
+Why v1 exists: under v0, a promoted leaf `blake3(L ‖ L)` has the same
+shape as a node `blake3(A ‖ A)`. Also, the last element of an odd layer
+pairs with itself, so `root([A, B, C]) == root([A, B, C, C])`. This is
+the CVE-2012-2459 pattern. The v1 prefixes `0x00` and `0x01` (as in
+RFC 6962) separate leaves from nodes. Sorted leaves put duplicates next
+to each other, so the v1 verifier refuses any batch where
+`has_adjacent_duplicate` is true. The signer refuses to build such a
+batch (`AttestBuildError::DuplicateLeaf`).
+
+Tests that pin the rules (same file): `single_leaf_is_self_hashed`
+(v0, `merkle_root([leaf]) == blake3(leaf ‖ leaf)`),
+`odd_cardinality_last_leaf_self_pairs`, `v1_root_differs_from_v0_root`,
+`v1_leaf_and_node_domains_are_separated` and
+`v1_duplicate_last_leaf_detected`.
+
+The tree below uses the v0 rule. For 4 facts with sorted CBOR hashes
+`C0 ≤ C1 ≤ C2 ≤ C3`:
 
 ```
                           root
@@ -862,20 +969,30 @@ ASCII tree for 4 facts with sorted CBOR-hashes `C0 ≤ C1 ≤ C2 ≤ C3`:
 
 ### 6.2 Verify-on-write
 
-`crates/emem-storage/src/lib.rs:407-440` (`verify_attestation`). Every
-attestation re-checks the merkle root and the ed25519 signature
-**before** it is persisted; no bypass:
+`crates/emem-storage/src/lib.rs:2150-2232` (`verify_fact_subjects`,
+`verify_attestation`). Storage checks every attestation **before** it
+stores it. There is no bypass:
 
-1. CBOR-encode each fact, take `blake3(bytes)` → leaf.
-2. Sort leaves bytewise.
-3. `emem_attest::merkle_root(&leaves)` must equal `att.batch_root`,
-   else `StorageError::AttestationInvalid("merkle root mismatch …")`.
-4. Recover `VerifyingKey::from_bytes(&att.attester.0)`.
-5. `vk.verify_strict(blake3(batch_root || registry_cid || schema_cid),
-   sig)` must succeed, else `AttestationInvalid("bad signature …")`.
+1. Each fact subject must be a cell64 or an `emem:entity:` identity.
+2. CBOR-encode each fact and take `blake3(bytes)` as its leaf. Add the
+   leaf of each edge.
+3. Sort the leaves bytewise.
+4. If `preimage_version >= 1`, refuse adjacent duplicate leaves.
+5. The root (`merkle_root_v1` for v1, `merkle_root` for v0) must equal
+   `att.batch_root`.
+6. Get `VerifyingKey::from_bytes(&att.attester.0)`.
+7. `verify_strict` must accept the signature over the message of the
+   rule for this version (v1 preimage, or the v0 hash).
 
-Failure → write rejected. The HTTP layer surfaces this as the
-`BadSignature` error code from `crates/emem-core/src/error.rs`.
+If a check fails, storage refuses the write with
+`StorageError::AttestationInvalid`. The HTTP layer maps it to an error
+code from `crates/emem-core/src/error.rs`
+(`crates/emem-storage/src/lib.rs:779-785`):
+
+| Failed check | Error code | HTTP |
+|---|---|---|
+| Step 1 (subject in no address space) | `unaddressable_subject` | 400 |
+| Steps 2 to 7 (duplicate leaf, root mismatch, bad key, bad signature) | `bad_signature` | 422 |
 
 ---
 
