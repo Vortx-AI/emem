@@ -26,8 +26,10 @@ endpoint that does it. Open work stays in its own section.
   disagreement. It does not average them.
 - When emem has no data, it signs an absence with a typed reason. It
   never returns an empty answer as if it were knowledge.
-- Every answer carries a receipt. You check it offline with the public
-  key of the responder.
+- Every fact read carries a receipt. You check it offline with the
+  public key of the responder. Some answers are not fact reads and have
+  no receipt, for example a corpus audit from `/v1/ask` or a memory
+  search hit.
 - A signature proves who signed the bytes and that the bytes did not
   change. It does not prove that the value is true.
 
@@ -137,7 +139,7 @@ machine checks is open work for all of them.
 | Verifiability | any answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
 | Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope); `emem:entity:` (one object identity over many observations) |
 | Honest absence | an absence of data is itself a signed answer with a typed reason, and you can cite it | absence facts; never an empty 200 that looks like knowledge |
-| Attested trust class | an attestation says how emem made a value; the response does not declare it | the provenance class is in the content-addressed bands manifest, and every receipt preimage includes its `bands_cid` |
+| Attested trust class | an attestation says how emem made a value. The class comes from the signed bands manifest, not from a claim in one response | the provenance class is in the content-addressed bands manifest, and every receipt preimage includes its `bands_cid` |
 
 The receipt preimage is domain-separated, tagged and length-prefixed.
 The current form is `preimage_version: 2`, in use since 2026-08-05. It

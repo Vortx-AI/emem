@@ -366,7 +366,7 @@ nothing is there. What counts as the body depends on the verb:
 | `supersede` | the note marked stale | `"<superseded_by>\|<reason>"` | current `file_cid` |
 
 You do not have to build this digest yourself. Send the write without
-`attester`. The 401 response holds `details.how_to_sign`, which gives
+`attester`. The refusal holds `details.how_to_sign`, which gives
 three things:
 
 - the exact 32-byte digest for that write
@@ -414,13 +414,15 @@ Who may write where:
 - `/memories/.well-known/` belongs to the operator. It refuses every
   key, the key of the responder too (`reason: reserved_namespace`).
 
-Each refusal names its case in `details.code`:
+Memory writes go through `POST /mcp`. So each refusal is a tool result
+with `isError: true`, not an HTTP status. Its `details.code` names the
+case:
 
-| Cause | Status and code |
+| Cause | `details.code` |
 |---|---|
-| No attester, and the write needs one | 401 `memory_attestation_required` |
-| The signature does not verify, or the key is not valid | 401 `memory_attestation_invalid`; the message names the digest the responder expected |
-| Wrong namespace, wrong owner or reserved prefix | 403 `memory_namespace_violation` |
+| No attester, and the write needs one | `memory_attestation_required` |
+| The signature does not verify, or the key is not valid | `memory_attestation_invalid`; the message names the digest the responder expected |
+| Wrong namespace, wrong owner or reserved prefix | `memory_namespace_violation` |
 
 By default, nobody can write to bare `/memories/...` without a
 signature. A release build with no env variable set refuses every
@@ -761,7 +763,7 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"cell_prefix":"defi.zb592","limit":3}'
 ```
 
-It scanned 56 keys in 592 ms and found 2 records. Both were at cell
+It scanned 56 keys and found 2 records. Both were at cell
 `defi.zb592.nemu.zEvE`:
 
 | `band` | `tslot` | `disagreement_scope` | attestations |

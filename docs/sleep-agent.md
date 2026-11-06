@@ -50,10 +50,11 @@ Each pass has three steps.
    The agent finds candidates in two ways:
    - Contradictions. `POST /v1/memory_contradictions` returns
      `(cell, band, tslot)` triples where two or more attesters disagree.
-     Each triple has a severity in `[0,1]`. By default the scan counts only
-     disagreement between different attesters. The fact plane admits few
-     attesters, so on a single-responder corpus the scan usually returns
-     nothing. A triple with a severity equal to or more than
+     Each triple has a severity in `[0,1]`. The agent does not send
+     `include_same_attester_sources`, so the server default (`true`)
+     applies. The scan reports two kinds of disagreement: two or more
+     different attesters, and one attester that answered the same address
+     from two different upstreams. A triple with a severity equal to or more than
      `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
      higher.
    - Churn. The agent lists the notes of the configured kinds
@@ -169,7 +170,7 @@ The live rewrite path is real code. Without a key, nothing runs it.
 ## Dry-run, end to end
 
 These commands need a local Rust build. This page did not run them on
-7 November 2026.
+6 November 2026.
 
 ```bash
 # Start a responder:
