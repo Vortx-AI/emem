@@ -991,14 +991,17 @@ and [protocol.md](protocol.md).
 
 ## Algorithms
 
-The algorithm registry includes the standard agronomic and hydrological
-indices (NDVI, NBR, NDWI, walkability, heat index, RUSLE). Each tuned
-threshold carries a `learned_from` citation, and the `parameters` block on
-every `AlgorithmSpec` is typed and accessor-driven
-(`Algorithm::param_f64("consensus_threshold")`). Pass an algorithm key to
-`GET /v1/algorithms/:key` for the formula body, then call `/v1/recall` for
-the input bands and replay the math locally. Read the entry's `here.status`
-first: only `runs` is a recipe this deployment can feed for any cell.
+The algorithm registry holds standard agronomic and hydrological indices,
+for example NDVI, NBR, NDWI, walkability, heat index and RUSLE. Each tuned
+threshold carries a `learned_from` citation. The `parameters` block on each
+`AlgorithmSpec` has types (`Algorithm::param_f64("consensus_threshold")`).
+
+To replay an algorithm yourself:
+
+1. Get the formula with `GET /v1/algorithms/:key`.
+2. Read `here.status` in that entry. Continue only when it is `runs`.
+3. Get the input bands with `POST /v1/recall`.
+4. Do the calculation locally.
 
 | `here.status` | Meaning |
 |---|---|
@@ -1006,224 +1009,240 @@ first: only `runs` is a recipe this deployment can feed for any cell.
 | `stored_only` | The recipe reads a retired encoder or band. Only facts stored before the retirement feed it |
 | `cannot_run` | The recipe needs a route that is gone |
 
-An entry that does not run can carry `use_instead`, a served recipe for a
-nearby question. `here.executes` says who runs the formula: `responder`,
-`responder, in part`, or `agent`. `agent` means that emem serves and signs
-the inputs, and you compute the result. `GET /v1/algorithms?runnable=true`
-lists only the recipes that run.
+An entry that does not run can carry `use_instead`: a recipe that runs here
+for a related question. `here.executes` tells who runs the formula. The
+values are `responder`, `responder, in part` and `agent`. With `agent`, emem
+signs the inputs and you calculate the result.
+`GET /v1/algorithms?runnable=true` lists only the recipes that run. On
+6 November 2026 it listed 128 of 172.
 
 The registry still declares the triple-encoder consensus family
 (`clay_prithvi_tessera_triple_consensus@1` and six variants). Earlier
-versions ran Clay, Prithvi and Galileo on a GPU sidecar; those encoders are
-retired, so none of that family runs here. Facts they signed still recall
-and verify.
+versions ran Clay, Prithvi and Galileo on a GPU sidecar. emem retired those
+encoders, so no recipe in that family runs here. The facts that they signed
+still recall and verify.
 
-Tessera (`geotessera`, 128-D annual) was consumed as an upstream
-foundation fact from `dl2.geotessera.org`, not run in-process. emem.dev
-retires it too (`EMEM_RETIRED_BANDS`): vectors stored before the
-retirement still recall and verify, and no new one is fetched, so every
-recipe over it reports `here.status: stored_only`. A node that serves it
-again reports `runs`.
+Tessera (`geotessera`, 128-D, annual) came from `dl2.geotessera.org` as an
+upstream fact. emem did not run it in-process. emem.dev also retires this
+band through `EMEM_RETIRED_BANDS`. Stored vectors still recall and verify,
+but the responder fetches no new vectors. Thus each recipe over Tessera
+reports `here.status: stored_only`. A node that serves the band reports
+`runs`.
 
 ---
 
-## Asking a model to read the signed answer
+## Ask a model to read the signed answer
 
-`/v1/ask` writes `answer` with no generative model. Topics are routed by a
-fixed embedding encoder (`BAAI/bge-base-en-v1.5` under onnxruntime), which
-scores the question against the topic registry and writes no text. Every
-number in `answer` traces to a `fact_cid`, which is what makes the envelope
-citable. Pass `model` and you get a
-second field, `model_answer`, holding one model's prose reading of that same
-envelope, beside the deterministic answer rather than instead of it.
+`/v1/ask` writes `answer` without a generative model. A fixed embedding
+encoder (`BAAI/bge-base-en-v1.5` under onnxruntime) routes the question to
+a topic. The encoder gives scores and writes no text. Each number in
+`answer` comes from a `fact_cid`, so you can cite the answer.
+
+Add `model` to the request to get one more field, `model_answer`. It holds
+the prose of one model that read the same envelope. The deterministic
+`answer` stays in the response.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/ask \
   -H 'content-type: application/json' \
-  -d '{"q":"What is the air quality in Munich?","model":"cosmos"}'
+  -d '{"q":"What is the air quality in Munich?","model":"gemma"}'
 ```
 
-The same parameter works on the MCP tools `emem_ask` and `emem_reason`, and
-through the A2A door. Prefer the `emem_ask` skill there: it returns the signed
-answer whether or not the model finishes, where `emem_reason` returns only the
-prose and has nothing to fall back on when a cold question plus a deliberating
-model runs past the request budget.
+On 6 November 2026, emem.dev routed two models: `google.gemma-3-12b-it`
+(family `gemma`) and `nvidia/Cosmos3-Edge` (family `cosmos3_edge`). The
+Cosmos model returned a typed error that day: the host had no CUDA device.
+
+The `model` field also works on the MCP tools `emem_ask` and `emem_reason`,
+and on the A2A door. Use the `emem_ask` skill there. It returns the signed
+answer also when the model does not finish. `emem_reason` returns only the
+prose, so a slow model leaves you with nothing.
 
 ```bash
 curl -s -X POST https://emem.dev/a2a/tasks \
   -H 'content-type: application/json' \
-  -d '{"skill":"emem_ask","args":{"q":"What is the air quality in Munich?","model":"cosmos"}}'
+  -d '{"skill":"emem_ask","args":{"q":"What is the air quality in Munich?","model":"gemma"}}'
 ```
 
-Name a model by `base_model`, by `family`, or by any fragment that picks out
-exactly one of them: `cosmos`, `cosmos3_edge` and `nvidia/Cosmos3-Edge` all
-reach the same weights. A fragment matching two is refused and names both, and
-a name matching none is refused with the list of what is routable. Nothing is
-ever substituted, so the `base_model` in the reply is always the one that ran.
+Name a model by `base_model`, by `family`, or by a fragment that matches
+only one model. For example, `cosmos`, `cosmos3_edge` and
+`nvidia/Cosmos3-Edge` select the same weights. A fragment that matches two
+models gets an error that names both. A name that matches no model gets an
+error with the list of models that you can use. The responder never
+replaces one model with another. Thus `base_model` in the reply is always
+the model that ran.
 
 | Field in `model_answer` | What it tells you |
 |---|---|
-| `answer_prose` | the model's reading. Never evidence |
-| `base_model` | which weights answered |
-| `provenance_class` | always `model_output`; `signed` is always false |
-| `answer_protocol` | `action` when the model used the tool protocol, `prose` when it could not and was asked again in plain language |
-| `tool_trace` | the read-only tools it called, if any |
-| `grounding` | a pointer to the sibling fields of this envelope, which are the evidence |
+| `answer_prose` | The text of the model. It is never evidence |
+| `base_model` | The weights that answered |
+| `provenance_class` | Always `model_output`. `signed` is always false |
+| `answer_protocol` | `action` when the model used the tool protocol. `prose` when the responder asked again in plain language |
+| `tool_trace` | The read-only tools that the model called, if any |
+| `grounding` | Names the sibling fields of the envelope that hold the evidence |
 
-Three things worth knowing before you build on it.
+Before you build on `model_answer`, know these rules:
 
-The prose is not signed and never becomes signed. Cite `fact_cids` and verify
-`receipt`; those live at the top level of the envelope, which is why
-`model_answer.grounding` points at them rather than repeating them.
-
-A model that is loaded but busy is reported as busy, and one that is down is
-reported as down. Neither is silently swapped for the other model, because an
-answer from weights you did not name, in a response that says which weights
-answered, is a true statement that misleads.
-
-And the reasoning tier can refuse. If the evidence does not support an answer
-the prose begins `ABSTAIN:` and says what is missing, and if the model produces
-no language under either protocol you get a typed error in `model_answer` while
-`answer` beside it is unaffected. It never needed a model.
+- Nobody signs the prose, now or later. Cite `fact_cids` and
+  verify `receipt`. Both are at the top level of the envelope.
+  `model_answer.grounding` points to them and does not copy them.
+- The responder reports a busy model as busy and a down model as down.
+  It does not use a different model in its place.
+- The model can refuse. When the evidence does not support an answer, the
+  prose starts with `ABSTAIN:` and tells what is missing.
+- When the model gives no text, `model_answer` holds a typed error.
+  `answer` does not change, because it does not use a model.
 
 ---
 
 ## Signed Absence
 
-When a band has no data at a cell, the responder does not return `404`
-or an empty array. It returns a signed **Absence** fact with a typed
-reason:
+When a band has no data at a cell, the responder does not return `404` or
+an empty array. It returns a signed Absence fact. The fact has
+`"kind": "absence"`, `"value": null`, a `reason` and a `reason_cid`. You
+can cite its `fact_cid` like any other fact.
 
-| Reason | Meaning |
-|---|---|
-| `unavailable_capability` | The upstream is reachable but does not publish the requested layer |
-| `outside_coverage` | Cell falls outside the upstream product footprint |
-| `gpu_unavailable` | Registered, not produced here: this responder runs no GPU tier |
-| `archetype_seed_unavailable` | Climate/place archetype centroids not loaded |
-| `no_auto_materializer_registered` | Band reserved in cube but no connector wired |
-| `present_only` | Band is now-only (e.g. met.no nowcast); past tslots return absence |
+`reason` is text that starts with a short code from the connector. Examples
+from the code are `jrc_gsw_no_data`, `copdem_coverage_gap`,
+`esa_worldcover_no_tile` and `radd_no_alert`. `reason_cid` is a BLAKE3
+hash of the reason text, so the same reason always gives the same id.
 
-Absence facts are content-addressed and citable in receipts. An agent
-that quotes `evidence: ["absence_cid_..."]` in its answer is making a
-verifiable claim that "no data exists for (cell, band, tslot)" rather
-than guessing from a `404`.
+This call on 6 November 2026 returned an Absence for open sea in the
+Pacific:
+
+```bash
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"lat":0.5,"lng":-140.5,"bands":["surface_water.recurrence"]}'
+```
+
+```json
+{
+  "kind": "absence",
+  "band": "surface_water.recurrence",
+  "value": null,
+  "reason": "jrc_gsw_no_data: surface_water.recurrence at (0.500007,-140.500021) returned 255 or non-finite. ...",
+  "reason_cid": "ww5mv5uvnsnlqxigmugspn5vju",
+  "fact_cid": "caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a",
+  "tslot": 0
+}
+```
+
+An agent that cites an Absence `fact_cid` makes a claim that you can
+verify: no data exists for this cell, band and tslot. A `404` gives no
+such claim.
 
 ---
 
 ## Auto-materialize on miss
 
-An empty `/v1/recall` on a cell with a registered materializer triggers
-an upstream fetch (Sentinel-2 STAC + COG range reads, Copernicus DEM,
-JRC GSW, Hansen GFC, Overture, ...), signs the result under the
-responder's identity, persists it, and returns it in the same response.
+When `/v1/recall` finds no fact for a band that has a registered
+materializer, the responder fetches the value from the upstream. Examples
+of upstreams are Sentinel-2 (STAC and COG range reads), Copernicus DEM,
+JRC GSW, Hansen GFC and Overture. The responder signs the result, stores
+it and returns it in the same response. The next recall reads the stored
+fact.
 
-Latency: ~180 ms cold (one upstream round-trip), ~10 ms warm (stored
-fact). Every cell on Earth answers; nothing needs to be pre-seeded.
+On 6 November 2026, `GET /v1/materializers` listed 113 entries
+(`pagination.total`).
 
-`GET /v1/materializers` lists 113 entries today
-(`pagination.total`). When the band key is not even in
-the registry, the response is explicit, not silent:
+Each band that the responder did not sign comes back in
+`materialize_notes` with `status: "skipped"` and a typed `reason_class`:
 
-```json
-{
-  "facts": [],
-  "materialize_notes": [{
-    "band": "foo.bar", "status": "skipped",
-    "reason": "no_auto_materializer_registered: no upstream connector wired for band=foo.bar; submit a signed Attestation via /v1/attest_cbor to seed it. Call GET /v1/bands to see all known band keys.",
-    "reason_class": "no_materializer", "retryable": false, "absence": false
-  }],
-  "bands_already_attested_at_cell": ["...keys actually present..."]
-}
-```
+| `reason_class` | Kind | `retryable` |
+|---|---|---|
+| `timeout`, `upstream_error`, `deferred` | Temporary. Try again to fill the cell | `true` |
+| `unknown_band`, `no_materializer`, `upstream_gone`, `retired`, `not_geographic` | Permanent on this responder | `false` |
+| `no_data` | The newest scene has no value at this pixel. A retry gives the same result until the next overpass | `false` |
 
-Every skip is typed. `reason_class` is `timeout`, `upstream_error` or
-`deferred` (transient, `retryable: true` - retry to warm the cell); or
-`unknown_band`, `no_materializer`, `upstream_gone`, `retired` or
-`not_geographic` (structural, `retryable: false` at this responder); or
-`no_data` (the newest scene has no reading at this pixel, so a retry repeats
-it until the next overpass, `retryable: false`).
-`absence` is always `false`: a skip is *unknown*, never a confirmed absence.
-A genuine "no data here" is a signed fact and comes back as
-`status: "materialized"` with an Absence `fact_cid` you can cite and verify -
-which is why a timeout is not minted as an Absence: the upstream never
-answered, so there is nothing observed to sign.
+`absence` is always `false` on a skip. A skip means "unknown". It is never
+a confirmed absence. A confirmed "no data here" is a signed fact. It comes
+back with `status: "materialized"` and an Absence `fact_cid`. A timeout
+does not become an Absence, because the upstream did not answer. There is
+no observation to sign.
 
-That is the no-silent-fallbacks contract: empty result must distinguish
-"wrong query" from "place is empty."
+A band key that the registry does not know gets an error before any fetch.
+On 6 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
+with `code: "band_not_in_registry"`. Use `GET /v1/bands` for the valid keys.
 
 ---
 
 ## Geocoder cascade
 
-`/v1/locate` walks layers in order; `via` reports which one answered.
+`/v1/locate` tries the layers below in this order. The `via` field in the
+response tells which layer answered.
 
-| Layer | Source | Notes |
-|---|---|---|
-| `wide_bbox` | Curated table for ambiguous large polities | Exits with full bbox + admin polygon |
-| `embedded` | In-binary gazetteer | Major cities, country capitals |
-| `geonames` | GeoNames cities-5000, 68,581 places, in-process | Unified gazetteer surface |
-| `cache` | geocode cache | Hits prior Photon/Nominatim lookups |
-| `photon` | komoot Photon (primary live) | Fuzzy matching |
-| `nominatim` | OSM Nominatim (secondary) | Fallback |
-| `overture_divisions` | Overture `divisions/division_area` | Admin-boundary fix when Nominatim returns a POI (e.g. Karnal-district courthouse case) |
-
-The unified gazetteer is `emem_fetch::geonames`; all hand-curated
-in-binary tables have been retired in favour of GeoNames cities-5000.
+| `via` | Source |
+|---|---|
+| `direct_latlng` | You sent coordinates, not a name |
+| `wide_bbox_table` | A curated table of large regions, for example the Sahara or the Amazon |
+| `country`, `admin1`, `admin2`, `admin3` | GeoNames administrative tables, in-process |
+| `embedded` | GeoNames cities1000 populated places, in-process |
+| `geonames` | GeoNames cities5000 (68,581 places), in-process |
+| `pois` | Curated GeoNames landmarks: peaks, lakes, parks, airports and monuments |
+| `cache` | Earlier Photon and Nominatim answers, stored by the responder |
+| `photon` | komoot Photon, the first network geocoder |
+| `nominatim` | OSM Nominatim, the second network geocoder |
+| `overture_admin_fallback` | Overture `divisions/division_area`, when the network answer is a point of interest but the query names an administrative area |
+| `wikidata` | A Wikidata item replaced the cascade result |
 
 ---
 
 ## Recipes
 
-The 60-second tour already shows the basic locate / recall / find_similar
-/ verify shapes. The recipes below cover the cases an agent reaches for
-next.
+These recipes cover the next calls that an agent usually needs after the
+jobs in [Find the tool for your job](#find-the-tool-for-your-job). The
+examples use the Bengaluru cell `defi.zb493.xuqA.zcb5f`. Each call ran on
+emem.dev on 6 November 2026.
 
-### 1. Verify with windowed predicate
+### 1. Check a claim over a time window
 
 ```bash
 curl -s -X POST https://emem.dev/v1/verify \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xuqA.zcb5f","claim":{"band":"modis.ndvi_mean","op":"gt","value":0.3,"window":[1700000000,1735689600],"agg":"mean"}}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","claim":{"band":"indices.ndvi","op":"gt","value":0.3,"window":[20000,20500],"agg":"mean"}}'
 ```
 
-`op` is one of `eq | ne | lt | le | gt | ge | in | ni | exists | absent`.
-`claim.window: [a, b]` plus `claim.agg: any|all|mean|min|max` evaluates
-over a tslot window. `mode: "zk"` returns an explicit error (reserved).
-Quote `evidence` CIDs in your reply.
+The response has `verdict` (here `true`), `evidence` (here 15 fact CIDs)
+and a `receipt`. Quote the `evidence` CIDs in your answer.
 
-### 2. Signed delta between two tslots
+- `op` is one of `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `ni`, `exists`
+  and `absent`.
+- `window` holds two tslots, not Unix seconds. Take tslots from a recall.
+- `agg` is one of `any` (the default), `all`, `mean`, `min` and `max`.
+- `mode` is `fast` (the default) or `resolve`. `resolve` fetches the
+  upstream value when no fact exists at one exact tslot.
 
-`tslot_b: 1` is not a slot that exists. Take both slots from a recall rather
-than assuming they are consecutive: a band is observed when the satellite passed,
-not on every tick, so the slots are sparse and the gaps are the norm.
+### 2. Get a signed difference between two tslots
+
+The tslots of a band are not consecutive. The responder stores a slot only
+when a satellite observed the place. Thus take both tslots from a recall.
 
 ```bash
-# 1. see which slots this cell actually holds for the band
+# 1. List the tslots that this cell holds for the band
 curl -s -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","bands":["indices.ndvi"]}'
 
-# 2. diff two of the slots it returned
+# 2. Get the difference between two of those tslots
 curl -s -X POST https://emem.dev/v1/diff \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":0,"tslot_b":20245}'
+  -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","tslot_a":20245,"tslot_b":20490}'
 ```
 
-The response is a `delta_fact` and a `receipt`: the difference is itself a
-signed fact, so a caller can cite the change rather than recomputing it.
+The response has a `delta_fact` and a `receipt`. The difference is a signed
+fact with `op: "delta"` and the two source facts in `parents`. Cite the
+difference. Do not calculate it again.
 
-When both tslots exist, returns a signed
-`DerivativeFact{op:"delta", parents:[a_cid, b_cid]}`. When only one side
-is attested:
+When one of the tslots has no fact, the response is HTTP 404:
 
 ```json
-{"code":"cid_not_found","message":"CidNotFound: no fact at tslot_b=1 for (defi.zb493.xuqA.zcb5f,indices.ndvi)"}
+{"code":"cid_not_found","message":"CidNotFound: no fact at tslot_b=1 for (defi.zb493.xuqA.zcb5f,indices.ndvi)","schema":"emem.error.v1"}
 ```
 
-Seed history with `/v1/backfill` first. Diff rejects `tslot_a == tslot_b`
-(tautology guard).
+To add history first, use `/v1/backfill` (recipe 4). When `tslot_a` and
+`tslot_b` are equal, the response is HTTP 400 `invalid_argument`.
 
-### 3. Region total
+### 3. Get one value over a region
 
 ```bash
 curl -s -X POST https://emem.dev/v1/query_region \
@@ -1231,12 +1250,12 @@ curl -s -X POST https://emem.dev/v1/query_region \
   -d '{"geometry":"cells:defi.zb493.xuqA.zcb5f,defi.zb493.xozI.zcb6a","bands":["copdem30m.elevation_mean"],"agg":"mean"}'
 ```
 
-`geometry` accepts `cell64` or `cells:c1,c2,c3,...`. `agg` is one of
-`mean | median | p90 | vector_centroid`. Vector centroid returns the
-dimension-wise mean of vector bands. `max_cells` defaults to
-bbox-area-derived `[64, 1024]`.
+`geometry` is one cell64, or `cells:` followed by cell64s with commas
+between them. `agg` is one of `mean`, `median`, `p90` and
+`vector_centroid`. `vector_centroid` gives the mean of each dimension of a
+vector band. The call above returned a mean elevation of 915.07 m.
 
-### 4. Materialize history
+### 4. Add history for a band
 
 ```bash
 curl -s -X POST https://emem.dev/v1/backfill \
@@ -1244,34 +1263,38 @@ curl -s -X POST https://emem.dev/v1/backfill \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"weather.temperature_2m","max_facts":2}'
 ```
 
-Each step carries `status` (`cached | materialized | present_only |
-error`). `present_only` is the no-silent-fallbacks discipline: the band
-answers, but the upstream is now-only. For bands with real history
-(`surface_water.recurrence`, `modis.ndvi_mean`), check
-`/v1/data_availability` before picking a window.
+Each item in `steps` has a `status`: `cached`, `materialized`,
+`present_only` or `error`. `present_only` means that the upstream gives
+only the current value. `weather.temperature_2m` is such a band, so this
+call stops after the first step. For bands with history, for example
+`surface_water.recurrence` or `modis.ndvi_mean`, read
+`/v1/data_availability` before you select a window.
 
-### 5. Sentinel-2 thumbnail
+### 5. Get a Sentinel-2 picture of a cell
 
 ```bash
 curl -s "https://emem.dev/v1/cells/defi.zb493.xuqA.zcb5f/scene.png?max_cloud=80" \
   --output bengaluru.png
 ```
 
+The headers tell which scene the responder used:
+
 ```
 HTTP/1.1 200 OK
 content-type: image/png
-x-emem-scene-item-id: S2B_43PGQ_20260502_0_L2A
-x-emem-scene-datetime: 2026-05-02T05:25:16.655000Z
-x-emem-scene-cloud-cover: 27.23
+x-emem-scene-item-id: S2A_MSIL2A_20261105T051231_R019_T43PGQ_20261105T101508
+x-emem-scene-datetime: 2026-11-05T05:12:31.024000Z
+x-emem-scene-cloud-cover: 61.80
 x-emem-scene-epsg: 32643
 ```
 
-Pipeline is pure-Rust: STAC search → HTTP-Range COG read → 2-98
-percentile stretch → PNG encode. No GDAL. 256×256 px ≈ 2.56 km × 2.56 km
-at S2's 10 m native pitch. Raise `max_cloud` to 60-80 for tropical /
-cloudy regions.
+The responder searches STAC, reads the COG with HTTP range requests,
+stretches each channel from the 2nd to the 98th percentile and encodes a
+PNG. It does not use GDAL. The image is 256 by 256 pixels, about 2.56 km
+by 2.56 km at the 10 m pitch of Sentinel-2. For tropical or cloudy places,
+set `max_cloud` to 60 to 80.
 
-### 6. EUDR pre-screen
+### 6. Pre-screen a plot for EUDR
 
 ```bash
 curl -s -X POST https://emem.dev/v1/eudr_dds \
@@ -1283,31 +1306,35 @@ curl -s -X POST https://emem.dev/v1/eudr_dds \
                  "quantity_kg":12000}]}'
 ```
 
-Runs `eudr_compliance@1` per cell (JRC GFC2020, V4 today, as the 2020 legal
-baseline, Hansen GFC v1.13 for post-cut-off loss year), applies the
-Article 2(4) 0.5 ha floor, and returns the Annex II-shaped statement
-with a `dds_reference_number` and a signed receipt over the per-cell
-fact CIDs (capped on a large plot, disclosed as
-`receipt_fact_cids_capped`). It also carries a `legality_disclaimer`:
-Article 9(1)(b) legality is out of Earth-observation scope, so the
-receipt proves the forest facts and nothing about land tenure.
+The responder runs `eudr_compliance@1` for each cell. The 2020 legal
+baseline is JRC GFC2020 (V4 on 6 November 2026). The loss year after the
+cut-off comes from Hansen GFC v1.13. The responder applies the 0.5 ha floor
+of Article 2(4). It returns a statement in the shape of Annex II with a
+`dds_reference_number` and a receipt signed over the per-cell fact CIDs. On
+a large plot the receipt holds only part of the CIDs, and the response
+says so with `receipt_fact_cids_capped: true`.
 
-Each plot carries `per_cell_rows_cid`: blake3 hex over one line per
-sampled cell, `<cell>|<verdict>|<fact_cids joined by ,>\n`. Every
-sampled cell's facts are stored, so every fact CID behind it resolves.
-`per_cell_detail: "anchor"` leaves the rows out and keeps the cid;
-`rows` (default) inlines them. Page the rows with `per_cell_offset` and
-follow `per_cell_next_offset` until it is `null`. For coverage, read
-`sampled_polygon_fraction`, never a count of rows.
+The response also has a `legality_disclaimer`. Earth observation cannot
+show legality under Article 9(1)(b). Thus the receipt proves the forest
+facts and nothing about land tenure.
 
-This endpoint used to be documented here as `/v1/intent` with
-`{"kind":"verify"}`. That request 400s: the field is `type`, not `kind`,
-and `verify` is not one of the intents. `/v1/intent` takes
-`where_is | what_is_here | is_like | did_change | find_like | confirm |
-ask | area_over_time`, and `type` selects which other fields are read.
-`area_over_time` forwards a polygon or bbox and a date window to
-`emem_field_series`, so a host that lists only the core tools can still get
-an area series:
+Each plot has `per_cell_rows_cid`. It is the BLAKE3 hex of one line for
+each sampled cell, in the form `<cell>|<verdict>|<fact_cids joined by ,>\n`.
+The responder stores the facts of each sampled cell, so each fact CID
+resolves.
+
+- `per_cell_detail: "rows"` (the default) puts the rows in the response.
+  `"anchor"` leaves out the rows and keeps the CID.
+- To page the rows, send `per_cell_offset`. Follow `per_cell_next_offset`
+  until it is `null`.
+- For coverage, read `sampled_polygon_fraction`. Do not count rows.
+
+`/v1/intent` does not do this job. Its `type` field accepts `where_is`,
+`what_is_here`, `is_like`, `did_change`, `find_like`, `confirm`, `ask` and
+`area_over_time`. `type` selects which other fields the responder reads.
+`area_over_time` sends a polygon or bbox and a date window to
+`emem_field_series`. Thus a host that lists only the core tools can get an
+area series. This `confirm` call checks a claim at one cell:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/intent \
@@ -1316,10 +1343,10 @@ curl -s -X POST https://emem.dev/v1/intent \
        "claim":{"band":"indices.ndvi","op":"gt","value":0}}'
 ```
 
-### 7. Reuse what another agent already concluded here
+### 7. Use what another agent already found at a place
 
-Before you compute something about a place, read what research agents
-already signed there:
+Before you calculate a value for a place, read what research agents signed
+there:
 
 ```bash
 curl -s -X POST https://emem.dev/v1/inferences \
@@ -1327,24 +1354,29 @@ curl -s -X POST https://emem.dev/v1/inferences \
   -d '{"lat":30.9015,"lng":75.802,"radius_m":5000}'
 ```
 
-Each item is an `emem:fact:` token with its `fn_key` (the recipe, such
-as `field_phenology@1`), `value`, `confidence`, `distance_m`, the
-attester's key, tier and nick, and `parents`: the signed measurements it
-was computed from. The response states its `trust_policy`. By default it
-admits only keys an organisation vouched for, and it counts the rest in
-`excluded_by_policy` rather than hiding them. To reuse a conclusion:
+Each item is an `emem:fact:` token with `fn_key` (the recipe, for example
+`outlook@1`), `value`, `confidence` and `distance_m`. It also gives the key,
+tier and nick of the attester. `parents` lists the signed measurements that
+the value came from.
+On 6 November 2026 this call returned 8 items.
 
-1. resolve its token with `POST /v1/memory_token/resolve` and check the
-   receipt;
-2. resolve its `parents` and confirm they are the measurements you would
-   have used;
-3. cite the token instead of recomputing the value.
+The response states its `trust_policy`. By default it admits only keys at
+tier `T4_affiliated` or higher: an organisation vouched for the key. It
+counts the other keys in `excluded_by_policy` and does not hide them.
 
-A signature says who concluded something, never that it is true. When
-nothing is admitted, `next` says why and how to register the first
-conclusion yourself with `POST /v1/derive`. `/v1/ask` and `/v1/locate`
-point at the same conclusions in `research_nearby` when they lie inside
-the place, so the first call of either path tells you what to reuse.
+To use a result of another agent:
+
+1. Resolve its token with `POST /v1/memory_token/resolve`. Check the
+   receipt.
+2. Resolve its `parents`. Make sure that they are the measurements you
+   would use.
+3. Cite the token. Do not calculate the value again.
+
+A signature tells who made a conclusion. It does not tell that the
+conclusion is true. When the policy admits no item, `next` tells why and
+how to register the first conclusion with `POST /v1/derive`. `/v1/ask` and
+`/v1/locate` show the same conclusions in `research_nearby` when they are
+inside the place.
 
 ---
 
