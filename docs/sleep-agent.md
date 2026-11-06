@@ -3,28 +3,29 @@
 _Plan reference: `docs/plans/v0.0.8-and-v0.0.9.md`, "Change 6: Sleep-time
 agent loop". v0.0.9 connect-and-evolve lane._
 
-The sleep-time agent is the **opt-in LLM rewrite/merge loop** that layers
-on top of the deterministic refinement that already ships in emem. The
-deterministic loop (`EMEM_REFINEMENT_ENABLED`) reacts to a contradiction by
-drawing a `disagrees_with` edge; the sleep-time agent goes one step further
-and, during idle periods, asks an LLM to actually *reconcile* the
-conflicting / duplicated memory into a single cleaner note, then writes
-that note back non-destructively.
+The sleep-time agent is an **opt-in loop that uses an LLM to merge notes**.
+It adds to the deterministic refinement loop that already ships in emem.
 
-It ships as the standalone crate `crates/emem-sleep-agent` with one binary,
-`emem-sleep-agentd`. The crate links no emem internals: it drives a running
-responder over the same public REST + MCP surface any external agent uses.
+| Loop | What it does when it finds a problem |
+|---|---|
+| Deterministic refinement (`EMEM_REFINEMENT_ENABLED`) | Draws a `disagrees_with` edge between the facts that disagree. |
+| Sleep-time agent | In idle periods, asks an LLM to reconcile the conflicting or duplicate notes into one cleaner note. It writes that note back and keeps the old versions. |
+
+The agent ships as the standalone crate `crates/emem-sleep-agent`, with one
+binary, `emem-sleep-agentd`. The crate links no emem internals. It drives a
+running responder through the same public REST and MCP surface that any
+external agent uses.
 
 > **It cannot write to a default responder today.** The agent sends
-> `emem_memory_create` with no `attester` block, and a release build
-> refuses every unattested memory write (401 `memory_attestation_required`)
-> unless the operator sets `EMEM_MEMORY_OPEN=1` or
-> `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. emem.dev sets
-> `EMEM_MEMORY_REQUIRE_ATTESTER=1`, so the agent's writes there are
-> refused. Even on an open responder it cannot write under
-> `/memories/by_attester/`, or over an open-root path another key created
-> (403 `memory_namespace_violation`). Dry-run and candidate selection work
-> anywhere. Signing its writes with a persisted key is not built.
+> `emem_memory_create` with no `attester` block. A release build refuses
+> every unattested note write with 401 `memory_attestation_required`. The
+> operator must set `EMEM_MEMORY_OPEN=1` or `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`
+> to accept such writes. emem.dev sets `EMEM_MEMORY_REQUIRE_ATTESTER=1`, so
+> emem.dev refuses the agent's writes. On an open responder, the agent still
+> cannot write under `/memories/by_attester/`. It also cannot write over an
+> open-root path that another key created (403 `memory_namespace_violation`).
+> Dry-run and candidate selection work on any responder. The agent cannot
+> sign its writes with a persisted key: that part is not built.
 
 ## How a pass works
 
@@ -43,40 +44,48 @@ responder over the same public REST + MCP surface any external agent uses.
             └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Each pass:
+Each pass has three steps.
 
-1. **Candidate selection** (`candidates.rs`, pure + unit-tested):
-   - **Contradictions**: `POST /v1/memory_contradictions` returns
-     `(cell, band, tslot)` triples where ≥2 attesters disagree, each with a
-     severity in `[0,1]`. By default that scan counts only disagreement
-     between distinct attesters, and the fact plane admits few of them, so
-     on a single-responder corpus it usually returns nothing. Anything above `EMEM_SLEEP_AGENT_MIN_SEVERITY`
-     (default 0.3) is a candidate; severity scores its urgency.
-   - **Churn**: memory files of the configured kinds are enumerated
-     (`emem_memory_list_by_kind`) and clustered by a normalized path stem
-     (`notes/site-1`, `notes/site-2`, `notes/site.md` → `notes/site`).
-     A cluster with ≥2 members, or a single path rewritten past the churn
-     threshold, is a candidate.
-   - Candidates are ranked (contradictions outrank churn) and truncated to
-     `EMEM_SLEEP_AGENT_TOPN`.
+1. **Select candidates** (`candidates.rs`, pure functions with unit tests).
+   The agent finds candidates in two ways:
+   - Contradictions. `POST /v1/memory_contradictions` returns
+     `(cell, band, tslot)` triples where two or more attesters disagree.
+     Each triple has a severity in `[0,1]`. By default the scan counts only
+     disagreement between different attesters. The fact plane admits few
+     attesters, so on a single-responder corpus the scan usually returns
+     nothing. A triple with a severity equal to or more than
+     `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
+     higher.
+   - Churn. The agent lists the notes of the configured kinds
+     (`emem_memory_list_by_kind`). It groups them by a normalized path stem:
+     `notes/site-1`, `notes/site-2` and `notes/site.md` all become
+     `notes/site`. A group with two or more notes is a candidate. A group
+     whose total version count reaches the churn threshold is also a
+     candidate.
 
-2. **Rewrite + merge** (`llm.rs`): the candidate cluster is rendered into a
-   reconcile prompt and handed to the configured `LlmTransport`. The
-   instruction preserves every distinct fact and states disagreements
-   explicitly rather than silently picking one.
+   The agent ranks contradictions above churn. It keeps the first
+   `EMEM_SLEEP_AGENT_TOPN` candidates.
 
-3. **Write-back** (`merge.rs`): the merged text (plus a provenance trailer
-   naming each source `path@file_cid`) is written via `emem_memory_create` to the
-   cluster's canonical path.
+2. **Rewrite and merge** (`llm.rs`). The agent puts the candidate group into
+   a reconcile prompt and sends it to the configured `LlmTransport`. The
+   prompt tells the model to keep every distinct fact. It also tells the
+   model to state each disagreement, and not to pick one side silently.
 
-A `PassSummary` is printed per pass: mode, candidate counts by source,
-merges written, new CIDs, spend, and the plan lines.
+3. **Write back** (`merge.rs`). The agent adds a provenance trailer to the
+   merged text. The trailer names each source as `path@file_cid`. The agent
+   then sends the text with `emem_memory_create` to the canonical path of
+   the group.
 
-## LLM gateway configuration
+After each pass, the agent prints a `PassSummary`. It shows the mode, the
+candidate counts by source, the merges written, the new CIDs, the spend and
+the plan lines.
 
-The merge call is **real**, never faked. Two configurable routes:
+## Configure the LLM route
 
-### OpenAI-compatible chat-completions
+The merge call goes to a real model. The agent never fakes it. You can
+configure one of two routes.
+
+### OpenAI-compatible chat completions
 
 ```bash
 export EMEM_SLEEP_AGENT_LLM_URL=https://api.openai.com/v1/chat/completions
@@ -84,76 +93,86 @@ export EMEM_SLEEP_AGENT_LLM_MODEL=gpt-4o-mini
 export OPENAI_API_KEY=sk-...            # or EMEM_SLEEP_AGENT_LLM_API_KEY
 ```
 
-The transport POSTs a standard `messages` body and reads
-`choices[0].message.content`. Cost is estimated from reported `usage`
-tokens at a conservative blended small-model rate; the estimate only drives
-the budget cap, it never alters the text.
+The transport sends a standard `messages` body and reads
+`choices[0].message.content`. The agent estimates the cost from the `usage`
+token counts that the model returns. The rate is fixed in `llm.rs`: USD 0.50
+for each million prompt tokens and USD 1.50 for each million completion
+tokens. Only the budget cap uses this estimate. It never changes the text.
 
-### Responder's own `/v1/ask` gateway
+### The responder's own `/v1/ask` route
 
 ```bash
 export EMEM_SLEEP_AGENT_USE_ASK=1
 ```
 
-The merge prompt is routed through the responder's `/v1/ask`, so the model
-choice follows the operator's responder configuration rather than a
-separately-pinned key. Cost is reported as 0.0 (the responder owns metering).
-`/v1/ask` is built to answer place questions, not to rewrite notes; the
-transport takes its `answer` (or `summary`) text as the merge and refuses
-when there is none, so read what it produced before trusting this route.
+The agent sends the merge prompt to the `/v1/ask` endpoint of the
+responder. The operator's responder configuration then chooses the model,
+and you do not need a separate key. The agent records the cost as 0.0,
+because the responder does its own metering.
+
+`/v1/ask` answers questions about places. Nobody designed it to rewrite
+notes. The transport uses the `answer` text, or else the `summary` text, as
+the merge. When neither field has text, the transport refuses. Read the
+merged text before you trust this route.
 
 ## Budget and loop caps
 
 | Env var | Default | Meaning |
 |---|---|---|
-| `EMEM_SLEEP_AGENT` | _(unset)_ | `1` enables the long-running loop; otherwise one pass and exit |
-| `EMEM_URL` / `EMEM_SLEEP_AGENT_URL` | `http://127.0.0.1:5051` | responder base URL |
-| `EMEM_SLEEP_AGENT_INTERVAL_SECS` | 600 | seconds between passes |
-| `EMEM_SLEEP_AGENT_TOPN` | 8 | candidates per pass |
-| `EMEM_SLEEP_AGENT_BUDGET_USD` | 0.50 | per-pass USD cap, checked before each call |
-| `EMEM_SLEEP_AGENT_MIN_SEVERITY` | 0.3 | contradiction severity floor |
-| `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | versions before a path is high-churn |
-| `EMEM_SLEEP_AGENT_CHURN_KINDS` | `semantic,episodic,resource` | kinds scanned for churn |
-| `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | read into the config but not sent with any write; it signs nothing |
+| `EMEM_SLEEP_AGENT` | _(unset)_ | `1` or `true` starts the long-running loop. Otherwise the agent runs one pass and exits. `--once` forces one pass. |
+| `EMEM_SLEEP_AGENT_URL`, then `EMEM_URL` | `http://127.0.0.1:5051` | Responder base URL. The `--url` flag overrides both. |
+| `EMEM_SLEEP_AGENT_INTERVAL_SECS` | 600 | Seconds between passes (minimum 1). |
+| `EMEM_SLEEP_AGENT_TOPN` | 8 | Candidates per pass (minimum 1). |
+| `EMEM_SLEEP_AGENT_BUDGET_USD` | 0.50 | Spend cap per pass, in USD. |
+| `EMEM_SLEEP_AGENT_MIN_SEVERITY` | 0.3 | Contradiction severity floor. |
+| `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | Version count that makes a path high-churn (minimum 2). |
+| `EMEM_SLEEP_AGENT_CHURN_KINDS` | `semantic,episodic,resource` | Note kinds that the churn scan reads. |
+| `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | The agent reads this value into its config. It does not send the value with any write, and it signs nothing. |
 
-The budget cap is evaluated **before** each LLM call, so a pass never starts
-a call that would breach it; the remaining candidates are deferred to the
-next pass with a logged note.
+Before each LLM call, the agent compares the spend of the pass with the
+cap. When the spend is equal to or more than the cap, the pass stops and
+adds a note to the summary. The next pass selects candidates again. The
+check happens before the call, so the last call of a pass can take the
+spend above the cap.
 
-## Non-destructive supersession guarantee
+## Old versions stay readable
 
-`emem_memory_create` to an existing `path`, where the responder accepts it:
+This section applies when the responder accepts the write. An
+`emem_memory_create` to an existing `path` does two things:
 
-- updates `memory_files[path] → new_cid`, so `emem_memory_view` and any
-  `as_of:now` read return the merged text, and
-- appends `new_cid` to the append-only `memory_file_history[path]`, so the
-  prior versions are still resolvable by CID (`emem_memory_view` with
-  `file_cid`) and replayable.
+- It sets `memory_files[path]` to the new CID. `emem_memory_view` and any
+  `as_of:now` read then return the merged text.
+- It appends the new CID to the append-only `memory_file_history[path]`.
+  You can still read each earlier version by its CID (`emem_memory_view`
+  with `file_cid`) and replay it.
 
-Nothing is deleted. The merged entry's provenance trailer records every
-source folded in, so an auditor can walk back to the originals. This is the
-exact bi-temporal shadow the plan calls for: the newer entry wins under
-`as_of` now, the originals stay replayable. The agent does not call
-`emem_memory_supersede`, so the source notes at other paths carry no
+The agent deletes nothing. The provenance trailer of the merged note names
+every source note, so an auditor can go back to the originals. This is the
+bi-temporal shadow that the plan asks for. The newer note wins for
+`as_of` now, and the originals stay replayable. The agent does not call
+`emem_memory_supersede`. The source notes at other paths therefore carry no
 `superseded_by` pointer to the merge.
 
-## Honesty: no fabrication
+## No invented rewrites
 
-The agent never invents a rewrite when it has no real LLM to call:
+The agent never writes a rewrite when it has no real LLM to call.
 
-- `emem-sleep-agentd --dry-run`: connect, select candidates, print exactly
-  what would be merged, and exit 0. **No** LLM call, **no** write. Works
-  fully offline against a local responder. An empty corpus is reported
-  honestly ("empty candidate set") rather than silently passing.
-- Live mode with no transport configured degrades to dry-run with a logged
-  note instead of fabricating output.
+- `emem-sleep-agentd --dry-run` connects, selects candidates, prints the
+  merges that it would do, and exits 0. It makes **no** LLM call and **no**
+  write. It works offline against a local responder. When the corpus has no
+  candidates, the summary says "empty candidate set".
+- In live mode with no transport configured, the agent runs as a dry run.
+  It adds a note to the summary and writes nothing.
 
-The real rewrite path is real code; it is simply unexercised without a key.
+The live rewrite path is real code. Without a key, nothing runs it.
 
 ## Dry-run, end to end
 
+These commands need a local Rust build. This page did not run them on
+7 November 2026.
+
 ```bash
-# Boot a responder:
+# Start a responder:
 cargo build -p emem-cli --bin emem-server
 EMEM_DATA=:memory: EMEM_BIND=127.0.0.1:5088 EMEM_OVERTURE_SKIP_WARMUP=1 \
   ./target/debug/emem-server &
@@ -169,12 +188,13 @@ EMEM_URL=http://127.0.0.1:5088 \
 cargo test -p emem-sleep-agent
 ```
 
-- `merge::tests::mock_llm_merge_writes_superseding_memory`: injects a mock
-  `LlmTransport` returning fixed merged text, runs a full pass against a
-  mock responder, and asserts the agent writes the merged text + provenance
-  to the canonical path with the inherited kind. No real API.
-- `merge::tests::dry_run_selects_but_never_writes`: dry-run selects a
-  candidate but performs no LLM call and no write even when a transport is
-  available.
-- `candidates::tests::*`: candidate selection over a JSON fixture
-  (churn clustering, severity floor, ranking, empty corpus).
+- `merge::tests::mock_llm_merge_writes_superseding_memory` uses a mock
+  `LlmTransport` that returns fixed merged text. It runs a full pass
+  against a mock responder. It checks that the agent writes the merged
+  text and provenance to the canonical path, with the inherited kind. It
+  calls no real API.
+- `merge::tests::dry_run_selects_but_never_writes` checks that a dry run
+  selects a candidate but makes no LLM call and no write. This is true
+  even when a transport is available.
+- `candidates::tests::*` test candidate selection over a JSON fixture:
+  churn grouping, the severity floor, ranking and an empty corpus.
