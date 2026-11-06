@@ -1,48 +1,68 @@
 ---
 name: emem-locate-and-recall
-description: Resolves a place name to an emem cell64 address and recalls signed Earth-observation facts there (weather, vegetation indices, elevation, soil, land cover, surface water, forest change). Use when the user asks for a measurable value at a named place ("what is the temperature in Bengaluru", "how high is Denali", "what is the NDVI in the Sundarbans") and wants an answer another agent can verify offline. Returns content-addressed facts, a ready-made emem:fact citation token for each, and an Ed25519 receipt. Reads need no key.
+description: Resolves a place name to an emem cell64 address and recalls signed Earth-observation facts there. Bands include weather, vegetation indices, elevation, soil, land cover, surface water and forest change. Use when the user wants a measurable value at a named place, with an answer that others can verify offline. Examples are "what is the temperature in Bengaluru", "how high is Denali" and "what is the NDVI in the Sundarbans". Returns content-addressed facts, an emem:fact citation token for each fact, and an Ed25519 receipt. Reads need no key.
 ---
 
 # emem-locate-and-recall
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
+| | |
+|---|---|
+| Use it when | The user asks for a measurable value at one named place or one coordinate. |
+| You need | A place name, or `lat` and `lng`, or a `cell64` you already have. No key. |
+| You get | Signed facts, one `emem:fact:` token for each fact, and an Ed25519 receipt. |
+| Calls | `emem_locate`, then `emem_recall` (MCP). Or `POST /v1/locate`, then `POST /v1/recall`. |
 
-Two calls turn a place name into signed facts: `emem_locate`, then
-`emem_recall`, both tools of the plugin's MCP server. Without MCP, send
-the same JSON bodies to `POST https://emem.dev/v1/locate` and
-`POST https://emem.dev/v1/recall`. Each fact comes back with its own
-`emem:fact:` token, so the number never has to travel without its
-citation.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Some steps also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
 
-## When to invoke
+Two calls change a place name into signed facts. Each fact comes back
+with its own `emem:fact:` token. Thus the number always travels with
+its citation.
+
+## When to use this skill
 
 The user asks about a measurable geospatial value at a named place:
 
-- "What's the current 2 m air temperature in Bengaluru?"
+- "What is the current 2 m air temperature in Bengaluru?"
 - "Show me the NDVI in the Sundarbans."
-- "What's the elevation of Mount Kilimanjaro?"
+- "What is the elevation of Mount Kilimanjaro?"
 
-If you already hold a `cell64` (a string like `defi.zb493.zezo.zcb35`),
-skip step 1. For an extent rather than a point, use
-[`emem-recall-polygon`](../emem-recall-polygon/SKILL.md). For a picture,
-`GET https://emem.dev/v1/cells/<cell64>/scene.png`.
+Use a different path in these cases:
+
+| You have or want | Do this |
+|---|---|
+| A `cell64` already (a string like `defi.zb493.zezo.zcb35`) | Skip step 1. |
+| An area, not a point | Use [`emem-recall-polygon`](../emem-recall-polygon/SKILL.md). |
+| A picture of the place | `GET https://emem.dev/v1/cells/<cell64>/scene.png` |
 
 ## Step 1: resolve the place
 
-Call `emem_locate` with:
+Call `emem_locate` with this body:
 
 ```json
 {"q": "Bengaluru, India"}
 ```
 
-Read `cell64`, `place_label`, `via` and `disambiguation_required` in
-the result.
+Without MCP, send the same body to `POST https://emem.dev/v1/locate`:
 
-`place` is accepted as a synonym of `q`, and `{"lat":..,"lng":..}` skips
-the geocoder. When `disambiguation_required` is true, or
-`selected.is_high_confidence` is false, read `alternatives` and ask the
-user which one they meant rather than citing rank 0. "Springfield"
-returns Missouri first and flags it; that is the case this exists for.
+```sh
+curl -s -X POST https://emem.dev/v1/locate -H 'content-type: application/json' \
+  -d '{"q":"Bengaluru, India"}' \
+  | jq -c '{cell64, place_label, via, disambiguation_required}'
+```
+
+Read `cell64`, `place_label`, `via` and `disambiguation_required` in the
+result. On 6 November 2026 this call returned `defi.zb493.zezo.zcb35`,
+"Bengaluru (city), Karnataka, India", through the `photon` geocoder.
+
+The tool also accepts `place` as a synonym of `q`. A body with
+`{"lat":..,"lng":..}` does not use the geocoder.
+
+Sometimes the name can mean more than one place. Then
+`disambiguation_required` is true, or `selected.is_high_confidence` is
+false. In that case, read `alternatives` and ask the user which place
+they mean. Do not cite rank 0. For example, "Springfield" returns
+Springfield, Missouri first, with `disambiguation_required: true` and
+five alternatives.
 
 ## Step 2: recall the bands
 
@@ -52,54 +72,63 @@ Call `emem_recall` with the `cell64` from step 1:
 {"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m", "indices.ndvi"]}
 ```
 
-Save the result's JSON text as `recall.json`. Then print the latest
-reading per band, with the token to cite it by:
+Without MCP, send the same body to `POST https://emem.dev/v1/recall`
+and save the result as `recall.json`:
 
 ```sh
-jq -r '.current_by_band | to_entries[] | .value' recall.json | while read cid; do
-  jq -c --arg c "$cid" '.facts[] | select(.fact_cid == $c)
-        | {band, value_verbatim, unit, observed_at, memory_token}' recall.json
-done
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m","indices.ndvi"]}' \
+  -o recall.json
 ```
 
-Read the response this way, not by position:
+Over MCP, save the JSON text of the tool result as `recall.json`. Then
+print the latest reading for each band, with the token to cite it:
 
-- `facts[]` holds **every stored reading** for the requested bands, in
-  `fact_order` (`tslot_ascending`), so `facts[0]` is the oldest, not the
-  current one.
-- `current_by_band` maps each band to the `fact_cid` of its latest
-  reading. Use it to pick the fact you quote.
-- `value_verbatim` is the exact decimal string that was signed. Quote it
-  rather than re-typing the JSON number.
-- `memory_token` on each fact is the `emem:fact:<cell64>:<fact_cid>`
-  citation. Hand that to the user or the next agent.
-- `materialize_notes[]` says what the responder did for each band you
-  asked for: `materialized`, or `skipped` with a `reason_class`. A
-  `timeout` note with `retryable: true` means the fetch continues in the
-  background; the same call a few seconds later usually answers warm.
-- `receipt` signs the `fact_cids` this response served. Verify it with
-  [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
+```sh
+jq -c '. as $r | .current_by_band | to_entries[] | .value as $c
+       | $r.facts[] | select(.fact_cid == $c)
+       | {band, value_verbatim, unit, observed_at, memory_token}' recall.json
+```
 
-Recorded on 2026-09-28 at `defi.zb493.zezo.zcb35` (Bengaluru), in 14 s:
-eleven facts came back, nine of them stored `indices.ndvi` readings
-from earlier dates and two temperature readings. `current_by_band`
-picked `weather.temperature_2m` = `28.0` degC observed
-`2026-09-28T10:00:00Z`, token
-`emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq`.
-The fresh NDVI fetch hit the 14 s materialiser cap and came back as a
-`retryable` timeout note, so the NDVI answer was the latest stored one.
-The receipt verified offline with `verify.py`.
+Read the response by field name, not by position:
 
-## Picking bands
+| Field | What it holds |
+|---|---|
+| `facts[]` | Every stored reading for the bands you asked for, in `fact_order` (`tslot_ascending`). Thus `facts[0]` is the oldest reading, not the current one. |
+| `current_by_band` | The `fact_cid` of the latest reading for each band. Use it to pick the fact that you quote. |
+| `value_verbatim` | The exact decimal string that the responder signed. Quote it. Do not re-type the JSON number. |
+| `memory_token` | The citation `emem:fact:<cell64>:<fact_cid>`. Give it to the user or to the next agent. |
+| `materialize_notes[]` | One note for each band you asked for: `materialized`, or `skipped` with a `reason_class`. |
+| `receipt` | The responder's signature over the `fact_cids` in this response. Verify it with [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md). |
 
-Ask the responder, not this page: the catalogue changes per deployment.
+A `timeout` note with `retryable: true` means that the fetch continues
+in the background. The same call some seconds later usually answers
+from the store.
 
-- `GET /v1/bands` lists the cube bands and the scalar keys under each
+### Two recorded runs at Bengaluru
+
+| Date | Time | Facts | Latest values from `current_by_band` |
+|---|---|---|---|
+| 28 September 2026 | 14 s | 11 (9 NDVI, 2 temperature) | `weather.temperature_2m` = `28.0` degC at 2026-09-28T10:00:00Z. The fresh NDVI fetch hit the 14 s materialiser limit. It came back as a `retryable` timeout note, so the NDVI answer was the latest stored reading. |
+| 6 November 2026 | 0.6 s | 23 (11 NDVI, 12 temperature) | `weather.temperature_2m` = `19.9` degC at 2026-11-06T23:00:00Z. `indices.ndvi` = `0.8323313293253172` from the scene of 2026-10-29. Both notes said `materialized`. |
+
+The second run returned this temperature token:
+`emem:fact:defi.zb493.zezo.zcb35:wmiie6af6m7ovchgs6ke36gak7fcowtz5zuroxwrwynlkbrlitba`.
+The number of facts grows each time the responder stores a new reading.
+
+## How to choose bands
+
+The band catalogue changes for each deployment. Ask the responder:
+
+- `GET /v1/bands` lists the cube bands and the scalar keys of each band
   (`.bands[].key`, `.bands[].scalar_keys`).
-- `GET /v1/materializers?page_size=100&summary=true` lists the bands this
-  responder can fetch on a miss (follow `pagination.next_url`).
+- `GET /v1/materializers?page_size=100&summary=true` lists the bands
+  that the responder can fetch on a miss. Follow
+  `pagination.next_url` to get the next page. On 6 November 2026 the
+  list on emem.dev had 113 entries on two pages.
 
-Common scalars that auto-materialise on emem.dev today:
+These common scalars materialise automatically on emem.dev. All of them
+were in the materializer list on 6 November 2026.
 
 | Topic | Bands |
 |---|---|
@@ -113,45 +142,44 @@ Common scalars that auto-materialise on emem.dev today:
 | Forest | `forest_change.treecover2000`, `forest_change.lossyear` (Hansen GFC), `jrc_gfc2020.forest_2020`, `jrc_tmf.deforestation_year` |
 | Soil | `soilgrids.phh2o_0_30cm`, `soilgrids.soc_0_30cm`, `soilgrids.clay_0_30cm` |
 
-The foundation-model embedding bands are retired on emem.dev: facts they
-signed before still read and verify, nothing new is computed, and asking
-for one returns a note with reason `band_retired_at_this_responder`.
-Prefer the deterministic indices, which anyone can recompute from the
-same Sentinel scene.
+emem.dev no longer computes the foundation-model embedding bands, for
+example `clay_v1`. Facts that these bands signed before still read and
+verify. A request for one of these bands returns a note with the reason
+`band_retired_at_this_responder`. Use the deterministic indices
+instead. Anyone can compute them again from the same Sentinel scene.
 
 ## A value is a pixel sample, not a cell average
 
-`spatial_basis` on every recall says it plainly: the cell (about 9.5 m)
-is an address, and the value is the source pixel overlapping it. A
-30 m DEM or a 463 m MODIS pixel covers many cells, so never difference
-two adjacent cells and call it a gradient.
+Each recall response has a `spatial_basis` block that says this
+clearly. The cell is an address, about 9.5 m across. The value is a
+sample of the source pixel that overlaps the cell. One 30 m DEM pixel
+or one 463 m MODIS pixel covers many cells. Thus, do not subtract the
+values of two adjacent cells and call the result a gradient.
 
-## Recovering from errors
+## What to do when a call fails
 
-- `cid_not_found` (404): nothing is stored for that band at that cell and
-  no materialiser could fetch it. `GET /v1/data_availability` says which
-  bands can be materialised.
-- A malformed `cell64` is a 400 naming the bad symbol. Re-run step 1.
-- `compute_timeout`: the request passed the responder's 40 s transport
-  budget. Ask for fewer bands, or retry once the background fetch lands.
-  Recall does not take an MCP `task` param: only `emem_eudr_dds` and
-  `emem_hunt` run as tasks.
-- A tool result over the MCP wire budget (about 24 KB) comes back
-  slimmed, and `_emem_truncation` names what it left out. Ask for
-  fewer bands, or send the same body to the REST route, which returns
-  the whole response.
+| Response | Cause | What to do |
+|---|---|---|
+| `cid_not_found` (404) | No stored fact for that band at that cell, and no materialiser could fetch one. | Read `GET /v1/data_availability` to see which bands the responder can materialise. |
+| `invalid_cell` (400) | The `cell` has the shape of a `cell64` but has a symbol that is not in the alphabet. The responder does not geocode it. | Do step 1 again. |
+| `band_not_in_registry` | The responder does not know the band name. | Find the correct name in `GET /v1/bands`. |
+| `compute_timeout` | The request took longer than the transport limit of the responder, 40 s on emem.dev. | Ask for fewer bands. Or try again after the background fetch is complete. |
+| `_emem_truncation` in an MCP result | The result was larger than the MCP wire limit, about 24 KB. The server made it smaller and lists what it removed. | Ask for fewer bands, or send the same body to the REST route. The REST route returns the full response. |
+
+Recall does not accept the MCP `task` parameter. Only `emem_eudr_dds`
+and `emem_hunt` run as tasks.
 
 ## One-call alternative
 
 `POST /v1/ask {"question":"what is the elevation of Bengaluru?"}` (MCP
-`emem_ask`) classifies the question, runs locate and recall for you, and
-returns the same signed facts. Use the two-step path above when you need
-to control the bands or the place resolution.
+`emem_ask`) classifies the question and runs locate and recall for you.
+It returns the same signed facts and a receipt. Use the two-step path
+when you must control the bands or the place resolution.
 
 ## Before you quote the number
 
-Carry the `memory_token`, not the bare number: whoever receives it
-resolves the byte-identical signed fact rather than trusting your
+Give the `memory_token`, not only the number. The receiver then
+resolves the byte-identical signed fact and does not have to trust your
 summary. See [`emem-referential-drift`](../emem-referential-drift/SKILL.md).
-Before the sentence goes out, run
+Before you send the answer, run
 [`emem-verify-before-publish`](../emem-verify-before-publish/SKILL.md).
