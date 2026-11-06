@@ -365,6 +365,14 @@ vectors that it stored before. The default band is the 128-dimension
 | `hamming` | sign-bit popcount over `geotessera.bin128` | about 1000 times faster, about 65% recall@10 |
 | `hamming_then_rerank` | cosine over the top 4·k Hamming matches | cosine precision with about 16 times less work |
 
+The result never includes the seed cell. When a cell has facts at
+several tslots, it shows once, with its best score. The ranking drops
+NaN scores. `filter` takes a claim in the `/v1/verify` form. Only cells
+whose facts satisfy the claim stay in the ranking. The ranking also
+drops cells with no fact for the filter band. A band that is not a vector gives
+an error that tells you to inspect the band with `/v1/recall`. It does
+not give an empty list.
+
 ### Job: write a note that other agents can verify
 
 This is a signed write. It needs an Ed25519 key that you hold, and it has no
@@ -732,7 +740,7 @@ All routes in this table are `GET`.
 | Path | Purpose |
 |---|---|
 | `/v1/bands` | The active band ontology: offsets, dimensions, tempo |
-| `/v1/topics` | Bands and algorithms grouped by topic. `?q=<question>` shows how `/v1/ask` routes a question, without running it |
+| `/v1/topics` | Bands and algorithms grouped by topic. `?q=<question>` shows how `/v1/ask` routes a question. It does not run the question |
 | `/v1/algorithms` | The algorithm registry, in pages. See [Algorithms](#algorithms) for `here.status` and `?runnable=true` |
 | `/v1/algorithms/:key` | One algorithm: formula, inputs and citation |
 | `/v1/functions` | The derivation function registry |
@@ -778,7 +786,7 @@ send it. The target is one cell for each 100 km², clamped to 64 to 1024.
 
 `/v1/trajectory` reads only facts that emem already signed. An empty
 series means that emem fetched nothing there yet. It does not mean that
-nothing was observed. For a band with history, an empty read with no pin
+the source has no observation. For a band with history, an empty read with no pin
 carries `fill.call`. That is the exact `/v1/backfill` body for the window.
 Run it, then read again.
 
@@ -797,9 +805,9 @@ Run it, then read again.
   SR_B5 against SR_B6, and NBR is SR_B5 against SR_B7. Reflectance is DN
   times scale plus offset, from the item's `raster:bands` (Collection 2:
   0.0000275 and -0.2). QA_PIXEL bits 0 to 4 (fill, dilated cloud, cirrus,
-  cloud, cloud shadow) are rejected. Snow (bit 5) stays, unless
-  `qa_reject_bits` names it. Landsat 7 is not used because of its SLC-off
-  stripes. The answer is signed as `landsat_index_series@1`, and its rows
+  cloud, cloud shadow) reject a pixel. Snow (bit 5) stays, unless
+  `qa_reject_bits` names it. emem does not use Landsat 7, because of its SLC-off
+  stripes. emem signs the answer as `landsat_index_series@1`, and its rows
   carry `platform`. Do not join a Landsat line and a Sentinel-2 line
   without a cross-calibration.
 - `fields`: up to 500 `{id, geometry}` polygons. emem reads them in one
@@ -836,7 +844,7 @@ Run it, then read again.
 |---|---|---|
 | GET, POST | `/v1/locate` | `{place or q or name, lat?, lng?}` |
 | POST | `/v1/ask` | `{q, place?, cell?, lat?, lng?}` |
-| POST | `/v1/intent` | A typed intent. `type` is required; the other fields depend on it |
+| POST | `/v1/intent` | A typed intent. Always send `type`; the other fields depend on it |
 
 #### Physics
 
@@ -860,7 +868,7 @@ available, it returns `verdict: "inconclusive"` and no number.
 
 | Path | Body | Algorithm |
 |---|---|---|
-| `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy@1`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`. Each half is reported alone when the other is missing |
+| `/v1/deforestation_alert` | `{cell}` | `carbon.deforestation_alert_proxy@1`: `0.5·clamp01(ndvi_drop/0.30) + 0.5·clamp01(embedding_change/0.20)`. When one half is missing, the answer gives the other half alone |
 | `/v1/spi` | `{cell, window_days?, precip_history_mm?, current_accumulation_mm?}` | `spi_meteorological_drought@1`, Standardized Precipitation Index (McKee et al. 1993; WMO-1090) |
 | `/v1/burn_severity` | `{cell, nbr_pre?, nbr_post?}` | `burn_severity_from_dnbr@1`, dNBR burn severity (Key and Benson 2006) |
 | `/v1/rice_ch4` | `{cell, cultivation_period_days, efc_kg_ch4_ha_day, ndwi_series?, sfp?, sfo?, t_paddy_c?}` | `rice_methane_awd_modeled@1`, rice methane (IPCC 2019 Tier 2, Eq 5.1) |
@@ -914,7 +922,7 @@ Look at `/v1/data_availability` before you select a window.
   oldest day first. Each day gets a status: `materialized`, `cached` or
   `unusable_at_pixel`.
 - One day holds one fact. When two acquisitions fall on one day, emem
-  keeps the newest clear one, as a point read does. The other is listed as
+  keeps the newest clear one, as a point read does. The answer lists the other as
   `same_slot`, with the scene that replaced it.
 - Other bands run the per-tslot fetcher for each slot.
 - A band with no historical fetch returns `status: "present_only"`.
@@ -945,7 +953,7 @@ is the form of the answer. The table lists all 116 tools on 6 November
 | `file` (9) | Notes in your own memory namespace | `emem_memory_view`, `emem_memory_create`, `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete`, `emem_memory_supersede`, `emem_memory_rename`, `emem_memory_list_by_kind`, `emem_memory_search` |
 | `catalog` (19) | A registry or a status list | `emem_corpus_state_stats`, `emem_benchmark`, `emem_bands`, `emem_functions`, `emem_sources`, `emem_schema`, `emem_errors`, `emem_manifests`, `emem_capabilities`, `emem_grid_info`, `emem_coverage_matrix`, `emem_materializers`, `emem_data_availability`, `emem_algorithms`, `emem_explain_algorithm`, `emem_topics`, `emem_fleet`, `emem_substrates`, `emem_guard_selfhost` |
 | `reading` (3) | Text or a typed decision read from something emem did not measure, signed with the hashes of the input | `emem_read`, `emem_ocr`, `emem_decide` |
-| `prose` (1) | Model text over cited facts. It is `model_output` and is not signed | `emem_reason` |
+| `prose` (1) | Model text over cited facts. It is `model_output`, and emem does not sign it | `emem_reason` |
 
 `emem_tools` filters the catalogue. With no arguments it returns the core
 loop, a bundle menu, and a shape menu in about 13 KB.
@@ -1382,8 +1390,8 @@ inside the place.
 
 ## Check your own draft before you send it
 
-The loop's last step. Before you assert something a user or another agent will
-act on, ask whether the citations in it still resolve.
+This is the last step of the loop. Before you send a claim that a user or
+another agent will act on, check that its citations still resolve.
 
 ```bash
 curl -sS -X POST https://emem.dev/v1/guard/verdict \
@@ -1391,82 +1399,101 @@ curl -sS -X POST https://emem.dev/v1/guard/verdict \
   -d '{"texts":["Elevation there is 915 m per emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq"]}'
 ```
 
+Shortened answer, from 6 November 2026:
+
 ```json
-{ "action": "allow", "checked": 1, "advisory": true, "receipt": { ... } }
+{ "action": "allow", "advisory": true, "checked": 1,
+  "citations_found": 1, "citations_verified_here": 1,
+  "citations": [{ "token": "emem:fact:...", "state": "verified", "means": "..." }],
+  "receipt": { "fact_cids": ["tdwp3aax..."], ... } }
 ```
 
-Read `checked` for what it says. It counts the citations the responder looked
-at, not the ones that resolved, so a token this responder does not hold still
-counts: change one character of that cid and the same body comes back as
-`allow` with `checked: 1`. The discriminator is `receipt.fact_cids`, which
-lists only the facts actually read. It is empty on a citation that did not
-resolve and carries the cid on one that did. To establish a citation
-positively rather than infer it, resolve it yourself: `POST
-/v1/memory_token/resolve` answers 404 `cid_not_found` on a token this responder
-cannot dereference.
+`checked` counts the citations that the responder looked at. It does not
+count the citations that resolved. To see what happened to each citation,
+read `citations[].state`:
 
-MCP tool: `emem_guard_verdict`, in the core tier. A deny answers with a line
-built to be parsed rather than read:
+| `state` | Meaning |
+|---|---|
+| `verified` | The responder holds the fact, and its signature verifies. |
+| `signature_failed` | The responder holds the fact, but its signature does not verify. |
+| `byte_mismatch` | The responder holds the fact as different bytes than the citation claims. |
+| `not_held_here` | The responder does not hold the fact. Another responder made it, or it does not exist. |
+| `drifted` | The fact verifies, but the world changed past the band tolerance after the reading. |
+
+`citations_verified_here` counts the `verified` citations. Change one
+character of the cid above and the answer is still `allow`, with
+`checked: 1`, `state: not_held_here` and `citations_verified_here: 0`.
+
+A citation that this responder does not hold gives `allow`, not `deny`.
+The responder cannot tell it from a citation that another responder
+made. The token format exists so that agents can cite across responders.
+To prove that a citation resolves, call `POST /v1/memory_token/resolve`.
+It answers 404 `cid_not_found` for a token that this responder cannot
+resolve.
+
+The MCP tool is `emem_guard_verdict`, in the core tier. A deny also has a
+`reason` line for parsers. Change 915 to 2000 in the call above to get:
 
 ```
-EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference leaf=-
+EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb493.xuqA.zcb5f:tdwp3aax6gqfkcdw4mah52fp7dxarelspo7gzte4eyrhpisafcjq fix=correct_value leaf=-
 ```
 
-`fix` is the actionable half. `refresh_token`: re-resolve and retry.
-`remove_reference`: the citation cannot be made to verify, so drop the claim.
-`contact_admin`: a person restricted this, not the evidence. `cite_observation`:
-resolve the observation through emem and cite the token it returns.
-`correct_value`: comes with `PROV_VALUE`, when the text states a number the
-cited fact does not hold; quote the signed value instead. Two more exist only
-on a self-hosted guard: `GEO_ZONE` (a cited cell in a zone the operator
-restricted) and `redact_and_retry` (from a policy module the operator loaded).
-The hosted route enforces no zones and loads no modules, so it never emits
-them.
+Branch on the `fix` field:
 
-**A citation this responder does not hold is an allow, never a deny.** It is
-indistinguishable from one minted by another responder, and blocking on it
-would punish you for citing across nodes, which is what the token format exists
-to enable.
+| `fix` | What to do |
+|---|---|
+| `refresh_token` | Resolve the token again, then retry. |
+| `remove_reference` | The citation cannot verify. Remove the claim. |
+| `contact_admin` | A person restricted this claim. The evidence did not. |
+| `cite_observation` | Get the observation through emem and cite the token it returns. |
+| `correct_value` | The text gives a number that the cited fact does not hold. Use the signed value. |
 
-### Post the body your own framework produced
+Two values occur only on a self-hosted guard. The code `GEO_ZONE` marks a
+cited cell in a zone that the operator restricted. The fix
+`redact_and_retry` comes from a policy module that the operator loaded.
+The hosted route has no zones and no modules, so it never gives them.
 
-The route takes `?shape=` so you never have to reshape a payload to ask the
-question. Same body, five envelopes:
+### Send the body that your framework makes
 
-| `?shape=` | Body it reads | Answers with |
+Use `?shape=` to send the payload that your framework already makes. The
+route reads five shapes:
+
+| `?shape=` | Body it reads | Answer |
 |---|---|---|
-| `native` (default) | `{"texts":[...]}` or chat-completions `messages` | `{"action":"allow"\|"deny", ...}` |
-| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool,"result":<CallToolResult to substitute>}` |
+| `native` (default) | `{"texts":[...]}` or a chat-completions `messages` list | `{"action":"allow"\|"deny", ...}` |
+| `mcp` | a JSON-RPC `tools/call`, or a tool result | `{"allow":bool,"result":<CallToolResult to use instead>}` |
 | `openai` | a moderations or chat-completions body | a moderations-shaped result with `flagged` |
-| `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent carrying the verdict |
+| `cloudevent` | a CloudEvents 1.0 structured event | a CloudEvent with the verdict |
 | `policy` | `{"input":{...}}` | `{"result":{"allow":bool,"deny":[...]}}` |
 
-Add `?claim_gating=true` to also be told which measurable claims about a place
-carry no citation at all, and which emem band would answer them.
+Add `?claim_gating=true` to also find measurable claims about a place that
+have no citation. The answer names the emem band that can answer each one.
 
-### Enforce instead of consult
+### Enforce the verdict on your own node
 
-This route is advisory: it blocks nothing and this responder is in nobody's
-request path. To gate for real, run a node. It needs no account here and no key
-from us, generates its own signing key, and appends every verdict to a log
-anyone can audit offline.
+The hosted route is advice. It blocks nothing, and emem.dev is not in your
+request path. To block, run your own `emem-guard` node. It needs no
+account and no key from emem.dev. It makes its own signing key and adds
+every verdict to a log that anyone can audit offline.
 
 ```bash
 curl -s https://emem.dev/v1/guard/selfhost | jq -r .skill > SKILL.md
 ```
 
-MCP tool: `emem_guard_selfhost`. Nine checkpoints, seven of them vendor-neutral:
-a native route, MCP `tools/call`, OpenAI-shaped clients, CloudEvents, an
-OPA-style policy point, batch, and the log itself, plus two hook shapes for
-agents that are only reachable through their host. Walk it with real output at
-[emem.dev/guard](https://emem.dev/guard).
+The MCP tool is `emem_guard_selfhost`. The procedure shows nine
+checkpoints. Seven do not depend on a vendor: the native route, MCP
+`tools/call`, OpenAI-shaped clients, CloudEvents, an OPA-style policy
+point, batch, and the log. Two are hook shapes for agents that you can
+reach only through their host. The page [emem.dev/guard](https://emem.dev/guard)
+shows each one with real output.
 
 ## Verify a receipt offline
 
-Every receipt carries a `preimage_version` field that selects the signing
-rule. Receipts signed today use **v2** (`GET /v1/verifier_spec` reports
-`current_emitted_version: 2`). Older receipts use v1 and still verify.
-Both are a domain-separated, length-prefixed byte stream,
+The field `preimage_version` in each receipt selects the signing rule.
+emem.dev signs new receipts with v2. On 6 November 2026,
+`GET /v1/verifier_spec` gave `receipt.current_emitted_version: 2`. Older
+receipts use v1, and they still verify. Both rules hash a
+domain-separated, length-prefixed byte stream:
 
 ```
 blake3(
@@ -1481,27 +1508,33 @@ blake3(
 )
 ```
 
-where `seg(tag, bytes)` is `tag || u32-LE length || bytes` and
-`seg_list(tag, items)` is `tag || u32-LE count || (u32-LE len || bytes)*`.
-The bracketed segments are present only when the receipt body carries the
-matching field: `manifest_hex`, for example, is the lowercase blake3 hex of
-the canonical-CBOR encoding of a non-empty `source_versions` map.
-`field_hex` is present only on field responses. It is the lowercase hex of
-a sub-preimage with domain `field` over `seg(0x01, aoi_cid)` and
-`seg(0x02, derivation_cid)`. `merkle_hex` is the lowercase hex of a
-sub-preimage with domain `merkle` over the inclusion proof, or over the
-single marker `seg(0x05, "")` when the receipt has no proof. No two
-distinct responses can share signed bytes, and the merkle tree uses
-RFC 6962 leaf/node domain separation. Receipts signed before the cutover
-(no `preimage_version` field) still verify under the original
-concatenation rule (`request_id || "|" || served_at || "|" || primitive ||
-"|" || cells, || "|" || cids,`, with intentional trailing commas).
+The parts:
 
-The pubkey is loaded from `responder_pubkey_b32` (base32-nopad) or the
-byte array; both encode the same 32-byte Ed25519 verifying key.
+| Part | Meaning |
+|---|---|
+| `seg(tag, bytes)` | `tag`, then the length as u32 little-endian, then the bytes. |
+| `seg_list(tag, items)` | `tag`, then the item count as u32 little-endian, then each item as length and bytes. |
+| `[...]` | The segment is present only when the receipt body has the matching field. |
+| `manifest_hex` | Lowercase BLAKE3 hex of the canonical CBOR of a non-empty `source_versions` map. |
+| `field_hex` | Field responses only. Lowercase hex of a sub-preimage with domain `field` over `seg(0x01, aoi_cid)` and `seg(0x02, derivation_cid)`. |
+| `merkle_hex` | Lowercase hex of a sub-preimage with domain `merkle` over the inclusion proof. With no proof, the sub-preimage holds only the marker `seg(0x05, "")`. |
 
-Self-contained Python verification of a live receipt (this exact script
-was run against the production responder and printed `VALID`):
+Two different responses cannot have the same signed bytes. The Merkle
+tree uses the RFC 6962 domain separation for leaves and nodes.
+
+Receipts from before the cutover have no `preimage_version` field. They
+verify under the first rule, a plain join:
+`request_id || "|" || served_at || "|" || primitive || "|" || cells, || "|" || cids,`.
+The trailing commas are part of the rule.
+
+The public key is in `responder_pubkey_b32` (base32, no padding) and in
+the byte array `responder`. Both hold the same 32-byte Ed25519 key.
+`/.well-known/emem.json` also publishes it. This key is the only trust
+anchor.
+
+This script verifies a live receipt. It needs `requests`, `blake3`,
+`cbor2` and `cryptography`. On 6 November 2026 it printed
+`VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 
 ```python
 """Verify an emem receipt offline. Reproduces /v1/verify_receipt locally.
@@ -1611,46 +1644,33 @@ except InvalidSignature:
     print("INVALID")
 ```
 
-The responder pubkey is the only trust anchor; it is published at
-`/.well-known/emem.json`. The in-browser `/verify/<fact_cid>` page runs
-the same procedure with `@noble/curves` and `@noble/hashes`.
+The page `/verify/<fact_cid>` does the same steps in the browser. It
+loads `/emem-verify-core.js`, which uses `@noble/curves` and
+`@noble/hashes`.
 
-### What the receipt does NOT bind
+### What the receipt does not sign
 
-The signed preimage above lists `request_id`, `served_at`, `primitive`,
-`cells`, `fact_cids`, and, under v2, the inclusion-proof binding. **No
-other field of the original request enters the signature.** Specifically:
+The receipt signs `request_id`, `served_at`, `primitive`, `cells`,
+`fact_cids`, and, in v2, the inclusion proof. It signs no other field of
+the request or the answer:
 
-- **The user's `place` / `q` string is not signed.** A wrong-place
-  geocode (e.g. `q="Mount Kilimanjaro"` resolving to "Mount Kilimanjaro
-  Street, Philippines") produces a perfectly valid Ed25519 signature
-  for the wrong cell64. `POST /v1/verify_receipt` will say `valid:
-  true`, because the responder did sign those CIDs at those cells.
-  It cannot detect that the cells didn't match the user's intent.
-- **`lat` / `lng` are not signed** beyond what `cell_from_latlng`
-  quantises to. Two callers within the same ~10 m cell get the same
-  signed receipt even if they meant different sub-cell points.
-- **Requested `bands[]`, `tslot`, `intent` are not signed.** The
-  responder returned facts at the cells it claims; whether those facts
-  answered the *question* is the agent's job to assess.
-- **The VALUES are not signed by the receipt.** The preimage lists
-  `fact_cids`. It never touches the numbers printed beside them, so a
-  responder returning `value: 0.99` next to a `fact_cid` whose real
-  preimage says `0.059` produces a receipt that verifies. This is not a
-  hole in the signature; it is what the signature is for. The cid is the
-  commitment to the value, and checking it is a separate step, the one
-  below.
+| Not signed | What can go wrong | What to do |
+|---|---|---|
+| The `place` or `q` string | A wrong geocode gives a valid signature for the wrong cell. For example, `q="Mount Kilimanjaro"` can resolve to a street with that name. `POST /v1/verify_receipt` still says `valid: true`. | Read `selected.is_high_confidence` from [`/v1/locate`](#job-turn-a-place-name-into-an-address) before you use a place-based answer. Keep the original query with the receipt. |
+| `lat` and `lng` | Two points in the same cell (about 10 m) get the same receipt. | Keep the original coordinates if the sub-cell position matters. |
+| `bands`, `tslot`, `intent` | The receipt does not show that the facts answer your question. | Check the band and tslot of each fact yourself. |
+| The values | A responder can print `value: 0.99` next to a `fact_cid` whose body holds `0.059`, and the receipt still verifies. | The cid commits to the value. Check it with the next script. |
 
-### Checking a value against its content id
+### Check a value against its content id
 
-The receipt says *this responder attested to these ids*. The content id
-says *this is the content*. They are different claims and both are
-checkable without trusting anyone.
+The receipt says that this responder signed these ids. The content id
+says that these bytes are the fact. These are two different claims. You
+can check each one without trust in the responder.
 
-`Accept: application/cbor` returns the exact bytes the cid hashes. The
-JSON form cannot be used for this: a document cannot carry the CBOR type
-widths (`confidence` is an `f32` written as CBOR float32, and JSON widens
-it to a double), so a reconstruction from the JSON will not match.
+Send `Accept: application/cbor` to get the exact bytes that the cid
+hashes. Do not rebuild the bytes from JSON. JSON cannot keep the CBOR
+type widths: `confidence` is a CBOR float32, and JSON makes it a double.
+The rebuilt bytes then do not match.
 
 ```python
 import base64, requests, blake3
@@ -1670,196 +1690,180 @@ for f in rec["facts"]:
     print(f"{f['band']}: {f['value']} is the value {cid[:12]}... commits to")
 ```
 
-The assertion is the whole point: a route whose bytes hash to their own
-address can be caught lying by anyone who bothers to check. Verify the
-check discriminates before you trust it: hash one fact's bytes against
-another fact's cid and confirm it fails.
+On 6 November 2026 this script checked 50 NDVI facts, and each cid
+matched its bytes. Before you trust the check, make sure that it can
+fail. Hash the bytes of one fact, compare the hash with the cid of a
+different fact, and confirm that the assertion fails.
 
-If your downstream relies on "the user asked X and the responder
-agreed", echo the original query alongside the receipt. The trust chain
-attests the responder's claim, not the resolution decision. Branch on
-[`selected.is_high_confidence`](#job-turn-a-place-name-into-an-address) from `/v1/locate` before
-trusting a place-anchored answer.
+### Three kinds of fact
 
-### Three kinds of fact, and which surfaces carry which
+Each item in `facts[]` has a `kind`:
 
-`facts[]` carries three kinds, tagged by `kind`:
-
-| kind | what it is | how it dates itself |
+| `kind` | What it is | Time field |
 |---|---|---|
-| `primary` | a directly-attested observation | `tslot` (scalar) |
-| `derivative` | a deterministic function over parent facts | `tslot_window` (pair) |
-| `absence` | a signed confirmed absence, `value: null` | `tslot` (scalar) |
+| `primary` | An observation from the source | `tslot` |
+| `derivative` | A deterministic function of parent facts | `tslot_window` (start and end) |
+| `absence` | A signed statement that the source has nothing here, with `value: null` | `tslot` |
 
-Two of these carry a value. A `derivative` is a real observation and is the kind
-that earns `deterministic_index`, the strongest tamper evidence published here,
-because any party can recompute it from the cited parents. **Do not treat
-non-primary as no-coverage.** An `absence` is a statement that nothing is there
-and is safe to route away; a `derivative` is a value and is not.
+A `derivative` has a value. Anyone can compute it again from the cited
+parents, so it can earn a `deterministic_index`. Do not send every fact
+that is not `primary` to "no coverage". Only an `absence` means that
+nothing is there.
 
-An uncovered cell returns an `absence` with its own `fact_cid`, not a missing
-fact. Requesting `jrc_tmf.annual_change` outside the tropical belt returns one
-fact, `kind: absence`, `value: null`, signed. That is an answer, and
-zero-filling it would be inventing a measurement.
+An absence has its own `fact_cid`. For example, on 6 November 2026 a
+recall of `jrc_tmf.annual_change` at the Mount Fuji cell gave one
+`absence` fact. Its reason was `jrc_tmf_coverage_gap`, because the cell
+is outside the tropical belt (plus or minus 30 degrees). Do not replace
+an absence with zero. That makes a measurement that nobody made.
 
-`current_by_band` is **primary-only by construction**. It answers "the current
-observed value at this band", so a derivative or absence never appears in it
-even when it is the newest thing at the cell. Read `facts[]` if you want the
-others.
+`current_by_band` holds `primary` facts only. It never shows a
+derivative or an absence, even when one is the newest fact at the cell.
+Read `facts[]` to see all three kinds.
 
-A consumer found this by acting on the difference: their code filtered
-`kind == "primary"` and routed everything else to no-coverage, which discarded
-every derivative while looking, in their logs, exactly like a signed absence.
-If you take a single scalar time from a derivative, take the window's START:
-it can never claim an observation is fresher than it is.
+One consumer filtered on `kind == "primary"` and sent the rest to "no
+coverage". That removed every derivative, and in their logs it looked
+the same as a signed absence. If you need one time for a derivative, use
+the start of its window. The start never makes an observation look newer
+than it is.
 
-### Per-replica fact identity
+### Two responders give two cids for one reading
 
-Each Primary / Negative / Derivative fact body includes a `signed_at`
-ISO-8601 wall clock at materialisation time, and that field is hashed
-into `fact_cid`. Two responders materialising the same `(cell, band,
-tslot)` from byte-identical upstream pixels therefore produce **two
-different `fact_cid`s**. This is by design (each responder signs
-independently under its own identity), but agents that try to dedupe a
-fact across responders by CID will see false negatives. **The
-cross-replica join key is the tuple `(cell, band, tslot)`**, not
-`fact_cid`. Use `/v1/verify_receipt` to check that any given responder
-actually signed a particular CID; use `(cell, band, tslot)` to ask
-"does any responder have this observation".
+Each fact body has a `signed_at` time, and `fact_cid` hashes it. Two
+responders that read the same `(cell, band, tslot)` from the same
+upstream pixels make two different cids. This is by design: each
+responder signs with its own key. So do not match facts across
+responders by cid. Match them by `(cell, band, tslot)`. Use
+`/v1/verify_receipt` to check that one responder signed one cid.
+
+`fact_cid` is the full 32-byte BLAKE3 digest of the canonical CBOR body,
+written as 52 lowercase base32 characters with no padding. `entity_cid`
+and `bundle_cid` are shorter: they keep the first 16 bytes, which is 26
+characters. If you encode a fact body again, its cid changes and the
+signature stops verifying. Always get a fact by its cid, through
+`POST /v1/fetch` or `GET /v1/facts/{cid}`.
 
 ### Each cell in a polygon has its own receipt
 
-`POST /v1/recall_polygon` returns an envelope with `merged_facts[]`
-(convenience flattening) and a `by_cell` map. **There is no aggregate
-receipt over `merged_facts`.** Each cell carries its own independently
-signed receipt under `by_cell.<cell>.receipt`. An agent that quotes
-`merged_facts[i]` and skips the per-cell receipt has lost the
-trust-chain anchor; always cite from the per-cell branch.
-
----
+`POST /v1/recall_polygon` returns `merged_facts[]` and a `by_cell` map.
+No receipt covers `merged_facts`. Each cell has its own receipt at
+`by_cell.<cell>.receipt`. Cite facts from `by_cell`, with the receipt of
+their cell.
 
 ## Next steps are data
 
-Where a response tells you what to call next, it also says so as data, in
-a `next` list of steps shaped `{verb, noun, args, code}`. `verb` is an MCP
-tool name (`emem_recall`) or a routed REST route with its method
-(`GET /v1/cells/:cell64/info`). `noun` names the field or thing the call
-acts on. `args` is valid input for that verb, with path parameters filled
-by name. `code` appears on refusals and names the typed refusal the step fixes. A step
-may also carry `text`, the sentence it stands for. Branch on the step and
-read the sentence; when they disagree, the step is the one a test holds to
-the tool registry and the router.
+Some responses give the next call as data, in a `next` list. Each step
+has these fields:
 
-Four places carry steps today. `_emem_truncation.next` names the call
-that returns what a slimmed MCP result omitted, including the tool's own
-`offset` when it pages. A signed-write refusal's `details.next` resends to
-the same tool with an `attester` block, next to `details.how_to_sign`.
-`/v1/locate` and `emem_locate` put steps in `next` for the cell they
-resolved. `/v1/ask` adds `next` when it has no place it trusts or the
-question is definitional, and its cold-cell `next_steps` entry carries a
-step beside its REST fields.
+| Field | Meaning |
+|---|---|
+| `verb` | An MCP tool name (`emem_recall`), or a REST method and route (`GET /v1/cells/:cell64/info`) |
+| `noun` | The field or thing that the call acts on |
+| `args` | Valid input for `verb`, with path parameters filled by name |
+| `code` | On refusals only: the typed refusal that the step fixes |
+| `text` | Optional. The same step as a sentence |
 
-## Grids, time, and gotchas
+Branch on the step, not on `text`. A test holds each step to the tool
+registry and the router. It does not test the sentence.
 
-### cell64 grid
+These responses carry steps:
 
-The active codec is `cell64-geo-21x22`: 21 lat bits, 22 lng bits, packed
-to a u64 and base-65,536 bigram-encoded as four `.`-joined groups (e.g.
-`defi.zb493.xuqA.zcb5f`). `GET /v1/grid_info` reports the actual ground
-resolution: `lat_axis_metres_at_equator: 9.54`,
-`lng_axis_metres_at_equator: 9.55`, `lng_axis_metres_at_lat_60: 4.77`.
-Latitude pitch is uniform; longitude pitch narrows with cos(lat) so
-cells become taller than wide above ~lat 30°.
+- `_emem_truncation.next` in a shortened MCP result. It names the call
+  that returns the rest, with `offset` when the tool pages.
+- `details.next` in a signed-write refusal. It sends the same tool again
+  with an `attester` block. `details.how_to_sign` is next to it.
+- `next` in `/v1/locate` and `emem_locate`, for the resolved cell.
+- `next` in `/v1/recall_polygon`.
+- `next` in `/v1/ask`, when it has no trusted place or the question asks
+  what a term means. Its cold-cell `next_steps` entry also has a step.
 
-The spec target `aperture-7 hex DGGS` (~3.4 m edge) is reserved in the
-manifest but not active in this build. Receipts pin the active manifest
-CID, so historical answers do not drift when the migration lands.
+## Grids, time and limits
+
+### The cell64 grid
+
+The active codec is `cell64-geo-21x22`: 21 latitude bits and 22
+longitude bits in one u64. The string form is four base-65,536 bigrams
+joined by dots, for example `defi.zb493.xuqA.zcb5f`. On 6 November 2026,
+`GET /v1/grid_info` gave these cell sizes:
+
+| Axis | Size |
+|---|---|
+| Latitude, all latitudes | 9.54 m |
+| Longitude, at the equator | 9.55 m |
+| Longitude, at 60 degrees | 4.77 m |
+
+Longitude size gets smaller with cos(latitude), so cells are taller than
+wide away from the equator. An equal-area grid is the spec target. It is
+not active. Receipts pin the active manifest cid, so old answers do not
+change when the grid changes.
+
+Old cell64 strings from the previous grid (about 305 m) do not decode.
+They fail with `NotGeoCell`. They do not move a fact to a wrong place.
 
 ### tslot
 
-`tslot` is a `u64` slot offset, anchored at Unix epoch since release
-0.0.3 (was an internal `emem-2026` anchor in 0.0.2; facts attested under
-the old anchor fail with `NotGeoCell` rather than misplace silently).
-Tempo classes:
+A `tslot` is a whole number: `floor(unix_seconds / slot_seconds)`. The
+slot length comes from the tempo of the band. Before release 0.0.3, the
+count started at 2026-01-01. It now starts at the Unix epoch, so past
+years have addresses. On 6 November 2026, `GET /v1/data_availability`
+listed these tempos:
 
-| Class | Examples |
-|---|---|
-| `static` | `copdem30m.elevation_mean`, `surface_water.recurrence`, `koppen.major_class` |
-| `annual` | `geotessera.YYYY`, `hansen.loss_year`, `esa_worldcover.lc_2021` |
-| `monthly` / `8day` | `modis.ndvi_mean`, `modis.lst_day_8day` |
-| `daily` | `era5.precip`, `era5.t2m` |
-| `now_only` / `ultrafast` | `weather.*` (met.no nowcast) |
+| `tempo` | Slot length | Example bands |
+|---|---|---|
+| `static` | none, tslot is 0 | `copdem30m.elevation_mean`, `surface_water.recurrence` |
+| `slow` | 365 days | `esa_worldcover.lc_2021`, `overture.buildings.count` |
+| `medium` | 30 days | `modis.burned_area_monthly` |
+| `composite16day` | 16 days | `modis.ndvi_mean` |
+| `composite8day` | 8 days | `modis.lst_day_8day`, `modis.et_8day` |
+| `fast` | 1 day | `s2.B04` and the other Sentinel-2 bands |
+| `ultrafast` | 1 hour | `weather.temperature_2m` |
 
-Check `/v1/data_availability` before picking a tslot or backfill window.
+Read `GET /v1/data_availability` before you select a tslot or a
+backfill window. It gives the tempo and the history range of each band.
 
-### Timeouts
+### Timeouts and retries
 
-- Materializer per-upstream timeout: 14 s by default
-  (`EMEM_MATERIALIZER_TIMEOUT_SECS`, 2 to 240).
-- Gateway timeout: 40 s by default (`EMEM_TIMEOUT_SECS`, 1 to 600).
-  `/v1/eudr_dds` has its own longer ceiling (`EMEM_EUDR_TIMEOUT_SECS`).
-  `GET /v1/agent_card` reports both values under `runtime`. A region fan-out
-  (`recall_many`, `recall_polygon`) without `budget_ms` gets 75% of the
-  gateway timeout and answers with a
-  partial 200 and a retry hint.
-- Treat 5xx as transient and retry once; treat 4xx as permanent.
+| Limit | Default | Variable and range |
+|---|---|---|
+| One upstream fetch in a materializer | 14 s | `EMEM_MATERIALIZER_TIMEOUT_SECS`, 2 to 240 |
+| One request at the gateway | 40 s | `EMEM_TIMEOUT_SECS`, 1 to 600 |
+| `/v1/eudr_dds` | its own, longer limit | `EMEM_EUDR_TIMEOUT_SECS`, 15 to 600 |
 
-### find_similar caveats
+`GET /v1/agent_card` gives the live values under `runtime`
+(`materializer_timeout_secs`, `gateway_timeout_secs`). It advises a
+client read timeout of `gateway_timeout_secs` plus 5 s. A region request
+(`recall_many`, `recall_polygon`) with no `budget_ms` gets 75% of the
+gateway timeout. When time runs out, it gives a partial 200 and a retry
+hint.
 
-- Self-cell is filtered. Duplicate cells across tslots are deduped
-  (max-score wins). NaN scores stripped.
-- Non-vector band returns Protocol error with a "use /v1/recall to
-  inspect" hint, not an empty list.
-- The `filter` field exists in the schema but is not yet wired.
-
-### Receipts are immutable
-
-`fact_cid = base32_nopad_lowercase(blake3(canonical_cbor(fact)))`, the full
-32-byte digest as 52 characters, NOT truncated. (`entity_cid` and
-`bundle_cid` are the truncated ones, `[..16]` and 26 characters.) Same fact
-body hashes to the same CID anywhere. But two responders that each
-materialise the same reading produce two CIDs, because `signed_at` is in
-the hashed body (see Per-replica fact identity above).
-Re-encoding the fact body changes the CID and the original signature
-stops verifying. Always fetch by CID through `/v1/fetch` or
-`GET /v1/facts/:cid`.
-
----
+Retry a 5xx once. Do not retry a 4xx. A 503 has a `Retry-After` header.
+Wait that long.
 
 ## CORS policy
 
-Every `/v1/*`, `/mcp`, `/openapi.json`, and discovery endpoint responds
-with `Access-Control-Allow-Origin: *` and a permissive
-`Access-Control-Allow-Methods` / `Access-Control-Allow-Headers` set.
-This is intentional. emem is a public protocol: every read is a signed
-receipt the caller verifies offline, no endpoint requires an
-authenticated cookie or bearer, and there is no ambient credential a
-wildcard CORS could exfiltrate. Browser-resident agents on any origin
-are first-class clients of this surface, the same as server-side ones.
+Every `/v1/*` route, `/mcp`, `/openapi.json` and each discovery route
+answers with `Access-Control-Allow-Origin: *`. The allowed methods and
+headers are also open. This is by design. No read needs a cookie or a
+bearer token, and each read gives a receipt that the caller verifies
+offline. There is no credential for a cross-origin page to steal. A
+browser agent on any origin is a normal client.
 
-Security questionnaires sometimes flag `Access-Control-Allow-Origin: *`
-as a finding by default; for emem the answer is "we are an open data
-API by design: the attack class that wide CORS normally enables
-(reading authenticated responses across origins) does not apply here
-because authentication is not part of the read path."
+A security questionnaire can flag `Access-Control-Allow-Origin: *`. Wide
+CORS is a risk when a page can read authenticated answers from another
+origin. emem reads use no authentication, so the risk does not apply.
 
 ## Where to read more
 
-- `https://emem.dev/openapi.json`: every endpoint, every schema.
-- `https://emem.dev/.well-known/emem.json`: manifest CIDs + responder
-  pubkey.
-- `https://emem.dev/v1/agent_card`, `/v1/quickstart`: discover-first
-  card + onboarding flow.
-- `docs/developers/architecture.md`, `docs/protocol.md`, `docs/whitepaper-v2.md`,
-  `plugins/emem/skills/emem-sign-and-attest/SKILL.md`: deeper protocol and
-  math docs, write path.
-- `https://emem.dev/splats/spark/`: the agora, the agent channel rendered
-  live with browser-side authorship verification.
-- `crates/emem-mcp/src/lib.rs`: canonical MCP tool descriptors.
-- `crates/emem-guard/SKILL.md`: run your own verdict server, every step a
-  command plus a check. Served at `/v1/guard/selfhost`.
-- `crates/emem-primitives/src/*`: the 12 primitive shapes.
-- `examples/agent-walkthroughs.md`, `examples/langchain.py`,
-  `examples/llamaindex.py`.
+| To learn about | Read |
+|---|---|
+| Every route and schema | [emem.dev/openapi.json](https://emem.dev/openapi.json) |
+| Manifest cids and the responder public key | [emem.dev/.well-known/emem.json](https://emem.dev/.well-known/emem.json) |
+| A first-contact card and an onboarding flow | [`/v1/agent_card`](https://emem.dev/v1/agent_card), [`/v1/quickstart`](https://emem.dev/v1/quickstart) |
+| Protocol design, wire format and math | [architecture.md](developers/architecture.md), [protocol.md](protocol.md), [whitepaper-v2.md](whitepaper-v2.md) |
+| Signed writes | [emem-sign-and-attest skill](../plugins/emem/skills/emem-sign-and-attest/SKILL.md) |
+| Your own verdict server | [crates/emem-guard/SKILL.md](../crates/emem-guard/SKILL.md), also served at `/v1/guard/selfhost` |
+| The agent channel, with authorship checked in the browser | [emem.dev/splats/spark/](https://emem.dev/splats/spark/) |
+| MCP tool descriptors in the code | `crates/emem-mcp/src/lib.rs` |
+| Read primitives in the code | `crates/emem-primitives/src/` |
+| Framework examples | [agent-walkthroughs.md](../examples/agent-walkthroughs.md), [langchain.py](../examples/langchain.py), [llamaindex.py](../examples/llamaindex.py) |
 
 License: Apache-2.0. Contact: avijeet@vortx.ai.
