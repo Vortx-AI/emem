@@ -810,7 +810,10 @@ forest's box straddles 50 E, where Hansen's tiles meet, and the verifier dropped
 published MCC of the later period reproduces. No per-forest `decision@1` was signed: the record lacked a field the
 server requires, and the selection was recorded as registered anyway. The decisions are committed only in the signed
 plan, which the transparency log orders before the later period's plan (leaves 3148769 and 3148996). A selection
-short of a signed decision now holds its later period.
+short of a signed decision now holds its later period. On 6 November the selection's result was re-derived as well: every policy
+score, the interval and the flag count reproduce from signed records (note
+`cuwnemt7/research/verifications/canopy-loss-method-selection-2022-2025-2026-10-30-result.md`). It has no
+`verification@1`, because there is no signed decision for one to cite.
 
 **What it means.** The question has a first, narrow yes. From its own earlier record the local policy chose a
 different method where the champion went on to fail, and another agent re-derived the choice. It is not yet shown:
@@ -858,8 +861,10 @@ plan (10 forests, none differing) and the three earlier records it rests on (10 
 of this selection were re-derived in full: 300 of 300 inputs resolve, hash to the content ids they are cited by and
 carry receipts that verify offline, and every published MCC of the 25 methods reproduces. One trust gap is reported: each forest's Koppen class is taken as the
 class of the signed fact the plan cites, and that fact's cell is not re-derived from the box centre the plan names; P2
-chooses by that class. No verification report covers the selection's result: the policies' pooled MCCs,
-the two intervals, P3's comparison and the flag count above are the lab's, not yet re-derived by another agent.
+chooses by that class. The selection's result was re-derived too, on 6 November, after this section was first
+written: every pooled MCC, both intervals, P3's comparison and the flag count reproduce from the decisions and the
+later period's signed inputs (note `cuwnemt7/research/verifications/canopy-loss-method-selection2-2022-2025-2026-11-05-result.md`,
+`verification@1` `emem:fact:defi.zb40c.lUvi.zd916:cs5b6ib2kbunqx2wcieki6lr2qzxmz7gez7inqzj6jxerihyvuqa`).
 
 **Limits.** The reference is Hansen's loss year. The plan notes that Hansen is not independent of the Landsat input of
 version 4: "a gain of version 4 over version 3 may partly be agreement of one sensor with itself". By the same

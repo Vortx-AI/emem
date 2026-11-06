@@ -228,11 +228,12 @@ Results are in the companion paper, section 5.20. In short:
   count decides nothing, and without the unflagged forests' rate it is not evidence that the flag works.
 - **Version 5 was not tested.** It scored exactly as version 4 in both periods, so its rule never changed a decision.
 - **Verification** re-derived the decisions and both forest experiments in full, with one trust gap on the climate
-  class P2 chooses by. The selection's own result, the policy scores and intervals, has no verification report yet.
+  class P2 chooses by. The selection's own result, the policy scores and intervals, was re-derived too, after this
+  section was first written, and reproduces; so does the first selection's.
 
 What the next selection changes:
 
 1. Candidates that score identically on the earlier record count as one, so a choice is a real change of method.
-2. The verifier re-derives the selection's result too, not only its decisions and inputs.
+2. The verifier re-derives the selection's result too, not only its decisions and inputs (done since, on 6 November).
 3. The flag is reported beside the unflagged forests' rate, so it can be judged.
 4. It is scored against CL1's kind of reference as well as Hansen.
