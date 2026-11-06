@@ -23239,7 +23239,7 @@ async fn get_log_entries(
         "returned": returned,
         "truncated": asked_end > end || start + returned < end,
         "max_per_call": LOG_ENTRIES_MAX,
-        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Two kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation) and `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds.",
+        "note": "RFC 6962 get-entries. leaf_index is global and append-only, and entry i is the preimage of leaf i in /v1/log/sth: re-hash entry_cbor_b32 with blake3 and it equals entry_hash_b32, which /v1/log/inclusion proves is committed under the STH. Enumerate to audit the log rather than only proving inclusion of a cid you already hold. Four kinds of entry: `attestation` (CBOR of a signed emem_fact::Attestation), `emem.memory_write.v1` (a CBOR map naming a memory note by path, file_cid and content_blake3, with the author's key and signature), `emem.memory_supersede.v1` and `emem.memory_delete.v1` (a supersede or a delete, with the author's key and signature). attestation_cbor_b32 is the legacy name of entry_cbor_b32 and holds the same bytes for both kinds.",
         "spec": "https://emem.dev/spec.md#transparency-log"
     })))
 }
@@ -46780,7 +46780,55 @@ fn supersede_log_record(
     buf
 }
 
-/// Which kind a log entry is: a memory write, a supersede, or `attestation`.
+/// The kind tag of a delete entry in the transparency log.
+const DELETE_LOG_KIND: &str = "emem.memory_delete.v1";
+
+/// A delete as a log entry, one per path removed. The signature binds verb
+/// `delete`, `signed_path`, blake3 of the empty body and `base`; for a
+/// directory delete `signed_path` is the directory and `path` is one file in
+/// it. Before this, a delete left only a tombstone the server could rewrite.
+fn delete_log_record(
+    path: &str,
+    prior_file_cid: Option<&str>,
+    signed_path: &str,
+    base: &str,
+    deleted_at: &str,
+    attester: Option<&MemoryAttester>,
+) -> Vec<u8> {
+    use ciborium::Value as V;
+    let mut entries: Vec<(&str, V)> = vec![
+        ("kind", V::Text(DELETE_LOG_KIND.into())),
+        ("path", V::Text(path.into())),
+        (
+            "prior_file_cid",
+            prior_file_cid.map_or(V::Null, |c| V::Text(c.into())),
+        ),
+        ("signed_path", V::Text(signed_path.into())),
+        ("base", V::Text(base.into())),
+        ("deleted_at", V::Text(deleted_at.into())),
+        (
+            "attester_pubkey_b32",
+            attester.map_or(V::Null, |a| V::Text(a.pubkey_b32.clone())),
+        ),
+        (
+            "sig_b32",
+            attester.map_or(V::Null, |a| V::Text(a.sig_b32.clone())),
+        ),
+    ];
+    entries.sort_by(|a, b| a.0.len().cmp(&b.0.len()).then(a.0.cmp(b.0)));
+    let map = V::Map(
+        entries
+            .into_iter()
+            .map(|(k, v)| (V::Text(k.into()), v))
+            .collect(),
+    );
+    let mut buf = Vec::new();
+    let _ = ciborium::ser::into_writer(&map, &mut buf);
+    buf
+}
+
+/// Which kind a log entry is: a memory write, a supersede, a delete, or
+/// `attestation`.
 fn log_entry_kind(cbor: &[u8]) -> &'static str {
     let tag = ciborium::de::from_reader::<ciborium::Value, _>(cbor)
         .ok()
@@ -46795,6 +46843,7 @@ fn log_entry_kind(cbor: &[u8]) -> &'static str {
     match tag.as_str() {
         MEMORY_LOG_KIND => MEMORY_LOG_KIND,
         SUPERSEDE_LOG_KIND => SUPERSEDE_LOG_KIND,
+        DELETE_LOG_KIND => DELETE_LOG_KIND,
         _ => "attestation",
     }
 }
@@ -48834,7 +48883,13 @@ fn path_events(s: &AppState, path: &str) -> Vec<JsonValue> {
 /// Best-effort by design: a tombstone that fails to write must not fail the
 /// delete the caller authorised and this responder already performed. A
 /// missing tombstone is a worse record, not a wrong one.
-async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: Option<&str>) {
+async fn write_tombstone(
+    s: &AppState,
+    path: &str,
+    prior_cid: Option<&str>,
+    by: Option<&str>,
+    log_entry_hash: Option<&str>,
+) {
     let Some(db) = s.storage.hot_sled_db() else {
         return;
     };
@@ -48847,6 +48902,7 @@ async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: 
         "prior_file_cid": prior_cid,
         "deleted_by": by,
         "deleted_at": chrono_iso8601_utc(),
+        "log_entry_hash_b32": log_entry_hash,
         "note": "The bytes were removed by their namespace owner. This record is \
                  what makes that different from a note that never existed.",
     });
@@ -48864,9 +48920,38 @@ async fn write_tombstone(s: &AppState, path: &str, prior_cid: Option<&str>, by: 
             "prior_file_cid": rec["prior_file_cid"],
             "deleted_by": rec["deleted_by"],
             "deleted_at": rec["deleted_at"],
+            "log_entry_hash_b32": rec["log_entry_hash_b32"],
         }),
     )
     .await;
+}
+
+/// Append one removal to the transparency log and return its entry hash. A
+/// log failure is logged and the delete still stands, as for writes.
+async fn log_delete(
+    s: &AppState,
+    path: &str,
+    prior_file_cid: Option<&str>,
+    signed_path: &str,
+    base: &str,
+    attester: Option<&MemoryAttester>,
+) -> Option<String> {
+    let log = s.storage.transparency_log()?;
+    let record = delete_log_record(
+        path,
+        prior_file_cid,
+        signed_path,
+        base,
+        &emem_storage::server::iso8601_now(),
+        attester,
+    );
+    match log.append_cbor(record).await {
+        Ok(out) => Some(b32_lower(&out.record_hash)),
+        Err(e) => {
+            tracing::warn!(path, error = %e, "delete not logged");
+            None
+        }
+    }
 }
 
 /// The tombstone for a path, if it was deleted.
@@ -48893,11 +48978,12 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     }
     // W2 attester binding (delete has no body, use blake3(b"")).
     let empty_bh = emem_primitives::body_hash(b"");
+    let signed_base = current_base_cid(s, &path);
     validate_attester_binding(
         "delete",
         &path,
         &empty_bh,
-        &current_base_cid(s, &path),
+        &signed_base,
         req.attester.as_ref(),
     )?;
     enforce_open_namespace_owner(s, "delete", &path, req.attester.as_ref())?;
@@ -48924,13 +49010,15 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         if let Err(e) = flush_off_runtime(&tree).await {
             tracing::error!(target: "emem::durability", error = %e, "flush failed");
         }
-        write_tombstone(s, &path, None, attester_pk.as_deref()).await;
+        let logged = log_delete(s, &path, None, &path, &signed_base, req.attester.as_ref()).await;
+        write_tombstone(s, &path, None, attester_pk.as_deref(), logged.as_deref()).await;
         return Ok(json!({
             "ok": true,
             "verb": "delete",
             "path": path,
             "memory_kind": "vault",
             "deleted": 1,
+            "log_entry_hash_b32": logged,
         }));
     }
 
@@ -49103,8 +49191,26 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
     // Every removal leaves a record. See write_tombstone: the bytes going is
     // the point of the verb; the fact going is what makes a loss
     // unattributable.
+    let mut log_entries: Vec<JsonValue> = Vec::new();
     for (p, _k, prior) in &removed {
-        write_tombstone(s, p, Some(prior.as_str()), attester_pk.as_deref()).await;
+        let logged = log_delete(
+            s,
+            p,
+            Some(prior.as_str()),
+            &path,
+            &signed_base,
+            req.attester.as_ref(),
+        )
+        .await;
+        write_tombstone(
+            s,
+            p,
+            Some(prior.as_str()),
+            attester_pk.as_deref(),
+            logged.as_deref(),
+        )
+        .await;
+        log_entries.push(json!({"path": p, "log_entry_hash_b32": logged}));
     }
     let receipt = s.sign_receipt("emem.memory_file", cells, vec![], false, started, None);
     let responder_pubkey_b32 = data_encoding::BASE32_NOPAD
@@ -49124,6 +49230,7 @@ async fn memory_delete_inner(s: &AppState, req: MemoryDeleteReq) -> Result<JsonV
         "ok": true,
         "verb": "delete",
         "removed": removed_paths,
+        "log_entries": log_entries,
         "responder_pubkey_b32": responder_pubkey_b32,
         "receipt": receipt,
     }))
@@ -97234,6 +97341,81 @@ mod tests {
         assert!(read_memory_file(&s, &a_note).unwrap().is_some());
     }
 
+    /// A delete is in the transparency log, and its history event and tombstone
+    /// name the entry. A partner agent's re-test found the delete event had no
+    /// log hash: a delete was recorded only in a tombstone the server can
+    /// rewrite.
+    #[tokio::test]
+    async fn a_delete_is_logged_and_history_names_the_entry() {
+        let s = test_app_state();
+        let (sk, pk) = test_attester_signer();
+        let short = emem_primitives::pubkey_short_from_b32(&pk);
+        let path = format!("/memories/by_attester/{short}/gone.md");
+        let att = sign_attester(&sk, "create", &path, b"soon gone");
+        let made = memory_create_inner(
+            &s,
+            MemoryCreateReq {
+                path: path.clone(),
+                file_text: "soon gone".into(),
+                kind: Some("episodic".into()),
+                attester: Some(att),
+            },
+        )
+        .await
+        .map_err(|e| e.1.message)
+        .unwrap();
+        let prior = made["file_cid"].as_str().unwrap().to_string();
+        let base = current_base_cid(&s, &path);
+        let del = sign_attester_v2(&sk, "delete", &path, b"", &base);
+        let out = memory_delete_inner(
+            &s,
+            MemoryDeleteReq {
+                path: path.clone(),
+                attester: Some(del.clone()),
+            },
+        )
+        .await
+        .map_err(|e| e.1.message)
+        .unwrap();
+        let hash = out["log_entries"][0]["log_entry_hash_b32"]
+            .as_str()
+            .expect("the delete names its log entry")
+            .to_string();
+
+        let h = memory_history_inner(&s, &path).expect("history");
+        let last = h["events"].as_array().unwrap().last().unwrap().clone();
+        assert_eq!(last["event"], "delete", "{h}");
+        assert_eq!(last["log_entry_hash_b32"].as_str(), Some(hash.as_str()));
+        assert_eq!(
+            tombstone_for(&s, &path).unwrap()["log_entry_hash_b32"].as_str(),
+            Some(hash.as_str())
+        );
+
+        // The entry alone is enough to re-check who deleted what.
+        let log = s.storage.transparency_log().expect("log");
+        let total = log.record_count().await;
+        let rows = log.entries(0, total).expect("entries");
+        let (_, cbor) = rows
+            .iter()
+            .find(|(_, cbor)| b32_lower(blake3::hash(cbor).as_bytes()) == hash)
+            .expect("the hash names a log entry");
+        assert_eq!(log_entry_kind(cbor), DELETE_LOG_KIND);
+        let entry: std::collections::BTreeMap<String, ciborium::Value> =
+            ciborium::de::from_reader(&cbor[..]).unwrap();
+        let text = |k: &str| entry[k].as_text().unwrap().to_string();
+        assert_eq!(text("path"), path);
+        assert_eq!(text("prior_file_cid"), prior);
+        assert_eq!(text("sig_b32"), del.sig_b32);
+        let (verdict, _) = emem_primitives::verify_attester_versioned(
+            "delete",
+            &text("signed_path"),
+            &emem_primitives::body_hash(b""),
+            &text("base"),
+            &del,
+        );
+        assert!(matches!(verdict, emem_primitives::AttestationVerdict::Ok));
+    }
+
     /// A vault entry answers to the key that sealed it. It never enters the
     /// plaintext tree where authorship is recorded, so until 2026-10-16 any
     /// key could overwrite or delete another's secret.
@@ -99150,7 +99332,14 @@ mod tests {
             h["events"][0]["superseded_by"].as_str(),
             Some(new_cid.as_str())
         );
-        write_tombstone(&s, &old, Some(old_cid.as_str()), Some(pubkey_b32.as_str())).await;
+        write_tombstone(
+            &s,
+            &old,
+            Some(old_cid.as_str()),
+            Some(pubkey_b32.as_str()),
+            None,
+        )
+        .await;
         let h = memory_history_inner(&s, &old).expect("history");
         // Both, in order: the delete must not hide the supersede before it.
         let kinds: Vec<&str> = h["events"]

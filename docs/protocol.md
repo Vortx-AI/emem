@@ -1523,8 +1523,8 @@ the summary a `consolidate` writes) is also a log entry, so a note has an
 upper-bound timestamp: any signed head at or after its entry proves the
 bytes existed by then. Together with the `after: sth …` lower bound a
 writer can put inside a note, that is a two-sided timestamp. A
-`supersede` is logged too, as its own entry kind (below). `delete` and
-`rename` are not logged yet.
+`supersede` and a `delete` are logged too, each as its own entry kind
+(below). `rename` is not logged yet.
 
 A memory entry is a CBOR map, keys in length-then-bytewise order:
 
@@ -1551,8 +1551,23 @@ over the verb `supersede`, the path and `blake3(superseded_by|reason)`;
 `memory_view` on the retired note serves the reason, key, signature and
 `log_entry_hash_b32` in its `_superseded` banner.
 
+A delete entry is written for each path a delete removes:
+
+```
+{ "base", "kind": "emem.memory_delete.v1", "path", "sig_b32",
+  "deleted_at", "signed_path", "prior_file_cid", "attester_pubkey_b32" }
+```
+
+The signature is the one the delete request carried, over the verb
+`delete`, `signed_path`, blake3 of the empty body and `base`. For a
+directory delete `signed_path` is the directory and `path` is one file
+removed from it. The delete answers with `log_entries`, and the path's
+tombstone and its `memory_history` event name the entry as
+`log_entry_hash_b32`. Deletes made before this was added have no entry.
+
 `GET /v1/log/entries` labels each entry `entry_kind` (`attestation`,
-`emem.memory_write.v1` or `emem.memory_supersede.v1`) and
+`emem.memory_write.v1`, `emem.memory_supersede.v1` or
+`emem.memory_delete.v1`) and
 serves its bytes as `entry_cbor_b32`; `attestation_cbor_b32` is kept as
 the legacy name for the same bytes. `memory_view` returns `log:
 {entry_hash_b32, inclusion}`, and `GET /v1/log/inclusion?entry_hash=`
