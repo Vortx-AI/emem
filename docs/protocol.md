@@ -1,33 +1,62 @@
 # emem protocol (v1.2.1)
 
-> The wire spec below is the concrete encoding; the formal object, the
-> property table, and the memory algebra live in [the memory model](model.md).
+This page defines the bytes on the wire. Use it to build a client, a
+verifier or a second responder in another language. The formal object,
+the property table and the memory algebra are in
+[the memory model](model.md).
 
 ## What this document promises
 
-Bytes on the wire. Anyone implementing emem in another language reads this
-document, follows it line by line, and produces byte-identical receipts to
-a Rust responder running the same registry CIDs. Where the prose diverges
-from `crates/emem-codec`, `crates/emem-fact`, `crates/emem-attest`, or
-`crates/emem-storage`, the source is canonical and this document is the
-bug. Every encoding rule cites the file and line that defines it.
+If you follow this page line by line, your code makes receipts that are
+byte-identical to the Rust responder. This is true when both use the
+same registry CIDs.
+
+The source code is the reference. If this page and the code do not
+agree, the code is correct and this page has a bug. The code is in
+`crates/emem-codec`, `crates/emem-fact`, `crates/emem-attest` and
+`crates/emem-storage`. Each encoding rule gives the file and the line
+that defines it. Line numbers move when the code changes. If a line
+number is wrong, search the file for the function name.
+
+## How to read this document
+
+You do not have to read every section. Find your task in this table and
+read the sections it names.
+
+| Your task | Sections to read |
+|---|---|
+| Check a receipt that a responder gave you | [§7 Receipt](#7-receipt), then the Python verifier in [§7.4](#74-offline-verification-python) |
+| Check that a fact is in a signed batch | [§8 Merkle inclusion proof](#8-merkle-inclusion-proof) |
+| Check that a fact or a memory note is in the transparency log | [§9.6 Transparency log](#transparency-log) |
+| Calculate a `fact_cid` from a fact | [§3 CID](#3-cid-and-factcid), [§4 CBOR](#4-cbor-canonicalisation), [§5 Fact](#5-fact) |
+| Change a latitude and a longitude into a cell64 | [§1 Cell64](#1-cell64-the-spatial-primitive) |
+| Change a time into a tslot | [§2 Tslot](#2-tslot-temporal-addressing) |
+| Sign a memory write | [§7.5 Memory writes](#75-capability-binding-for-memory-writes) |
+| Test your own encoder or verifier | [§12 Conformance gates](#12-conformance-gates-the-four-cids), [§13 Test vectors](#13-test-vectors) |
+
+The words cell64, tslot, fact, receipt and responder have one meaning
+each. The [glossary](glossary.md) gives it.
 
 ---
 
 ## 1. Cell64: the spatial primitive
 
+A cell64 is the name of one small square on the Earth. At the equator the
+square is about 9.55 m on each side. Every point in the square gets the
+same cell64, so two agents that ask about the same place get the same
+address.
+
 A Cell64 is a 64-bit integer that addresses a quantised lat/lng bucket on
 the WGS-84 ellipsoid. The wire form is four base-65,536 digits joined by
-dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
-and compared; the dotted text form is what shows up inside facts and
-receipts.
+dots, for example `dedi.zaf00.bafi.baba`. Hashes and comparisons use the
+integer form. Facts and receipts contain the dotted text form.
 
 ![address algebra: cell + band + tslot → canonical CBOR → blake3 → 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
 *The full address pipeline at a glance. Section 4 walks each box; the SVG also names every constant the encoder uses.*
 
 ### 1.1 Bit layout
 
-Defined in `crates/emem-codec/src/geo.rs:38-45`.
+Defined in `crates/emem-codec/src/geo.rs:41-50`.
 
 ```
  bit  63           60 59         52 51         44 43 42         22 21          0
@@ -48,24 +77,42 @@ Defined in `crates/emem-codec/src/geo.rs:38-45`.
 
 The lat axis carries one fewer bit than the lng axis on purpose:
 180° / 2^21 ≈ 360° / 2^22, so the bucket is square at the equator
-(~9.54 m × ~9.55 m). Equal bit counts would give 1:2-rectangular cells.
+(about 9.55 m on each axis; the test at geo.rs:367 pins this).
+Equal bit counts would give 1:2-rectangular cells.
 
 ### 1.2 Encoding rule (lat/lng → Cell)
 
-Defined in `crates/emem-codec/src/geo.rs:75-82`:
+Defined in `crates/emem-codec/src/geo.rs:137-172`. The code below
+removes the comments from the source:
 
 ```rust
 pub fn cell_from_latlng(lat_deg: f64, lng_deg: f64) -> Cell {
-    let lat = lat_deg.clamp(-90.0, 90.0);
-    let lng = ((lng_deg + 180.0).rem_euclid(360.0)) - 180.0;
+    let lat = if lat_deg.is_finite() {
+        lat_deg.clamp(-90.0, 90.0)
+    } else {
+        0.0
+    };
+    let lng = if lng_deg.is_finite() {
+        ((lng_deg + 180.0).rem_euclid(360.0)) - 180.0
+    } else {
+        0.0
+    };
     let lat_q = (((lat + 90.0) / 180.0) * GEO_LAT_MAX as f64).round() as u64 & GEO_LAT_MASK;
-    let lng_q = (((lng + 180.0) / 360.0) * GEO_LNG_MAX as f64).round() as u64 & GEO_LNG_MASK;
+    let mut lng_q = (((lng + 180.0) / 360.0) * GEO_LNG_MAX as f64).round() as u64 & GEO_LNG_MASK;
+    if lng_q == GEO_LNG_MAX {
+        lng_q = 0;
+    }
+    let lng_q = if lat_q == 0 || lat_q == GEO_LAT_MAX {
+        0
+    } else {
+        lng_q
+    };
     let path = (lat_q << GEO_LNG_BITS) | lng_q;
     Cell::from_raw(GEO_PREFIX | path)
 }
 ```
 
-Constants (geo.rs:50-71):
+Constants (geo.rs:55-104):
 `GEO_LAT_BITS=21`, `GEO_LNG_BITS=22`,
 `GEO_LAT_MAX=(1<<21)-1=2_097_151`,
 `GEO_LNG_MAX=(1<<22)-1=4_194_303`,
@@ -73,9 +120,19 @@ Constants (geo.rs:50-71):
 `GEO_BASE=0xab` (aperture marker),
 `GEO_PREFIX = (1 << 60) | (21 << 52) | (0xab << 44) = 0x1150_ab00_0000_0000`.
 
-Lat clamps to `[-90, 90]`. Lng wraps via `rem_euclid` (`-181°` →
-`+179°`). Quantisation is `f64::round`
-(round-half-away-from-zero).
+The encoder applies these rules in this order:
+
+1. A latitude or a longitude that is NaN or infinite becomes `0.0`.
+2. Latitude clamps to `[-90, 90]`.
+3. Longitude wraps with `rem_euclid`, so `-181°` becomes `+179°`.
+4. Quantisation is `f64::round` (round-half-away-from-zero).
+5. Dateline rule: `lng_q == GEO_LNG_MAX` becomes `lng_q = 0`. Thus
+   `+180°`, `-180°` and `179.99999999°` give the same cell.
+6. Pole rule: on the two pole rows (`lat_q` is `0` or `GEO_LAT_MAX`),
+   `lng_q` becomes `0`. Thus each pole has one cell.
+
+`try_cell_from_latlng` (geo.rs:179) is the strict form. It returns an
+error for an input out of range or not finite, and does not clamp.
 
 ### 1.3 Text form: 4 bigrams + dots
 
@@ -129,34 +186,43 @@ dedi.zaf00.bafi.baba
 
 ### 1.5 Decode rule (cell64 → lat/lng)
 
-`latlng_from_cell64` (geo.rs:96-117) inverts the encode: parse the
-four bigrams via `from_cell64` (cell64.rs:41-54), reject if
-`(raw & 0xFFFF_F000_0000_0000) != GEO_PREFIX` (guards against legacy;
-see §1.7), then unpack
-`lng_q = raw & GEO_LNG_MASK`, `lat_q = (raw >> 22) & GEO_LAT_MASK`,
-and convert with `lat_deg = (lat_q/GEO_LAT_MAX)·180 - 90` and
-`lng_deg = (lng_q/GEO_LNG_MAX)·360 - 180`. The bucket bbox extends
-`±half_lat / ±half_lng` from the centre, clipped to `[-90, 90]` on lat.
+`latlng_from_cell64` (geo.rs:284-305) reverses the encode in four steps:
+
+1. Parse the four bigrams with `from_cell64` (cell64.rs:62-75).
+2. Reject the cell if `(raw & 0xFFFF_F000_0000_0000) != GEO_PREFIX`.
+   This check stops legacy cells (see §1.7).
+3. Unpack `lng_q = raw & GEO_LNG_MASK` and
+   `lat_q = (raw >> 22) & GEO_LAT_MASK`.
+4. Convert with `lat_deg = (lat_q/GEO_LAT_MAX)·180 - 90` and
+   `lng_deg = (lng_q/GEO_LNG_MAX)·360 - 180`.
+
+ The bucket bbox extends `±half_lat / ±half_lng` from the centre. The
+decoder clips the latitude of the bbox to `[-90, 90]`.
 
 ### 1.6 Round-trip and edge cases
 
-The tests in `geo.rs:139-241` pin the contract.
+The tests in `geo.rs:357-700` pin the contract.
 
-- **Sub-quantum collision** (geo.rs:198-202): two queries 9 µ° apart
+- **Sub-quantum collision** (geo.rs:444-450): two queries 9 µ° apart
   (~1 m) MUST produce the same cell: the cell's grain, not a bug.
-- **12 m apart distinguishes** (geo.rs:187-193): two queries
+- **12 m apart distinguishes** (geo.rs:433-442): two queries
   `1.08e-4°` apart (~12 m) MUST produce different cells.
-- **Antimeridian** (geo.rs:178-180): `lng = 179.99` round-trips;
+- **Antimeridian** (geo.rs:424-431): `lng = 179.99` round-trips;
   `lng = -181` wraps to `+179`.
-- **Polar clamp** (geo.rs:76): `lat = 95` clamps to `90`.
-- **Square at equator** (geo.rs:207-225): bucket extent is 8 to 12 m on
+- **Polar clamp** (geo.rs:141-142): `lat = 95` clamps to `90`.
+- **Square at equator** (geo.rs:453-476): bucket extent is 8 to 12 m on
   both axes; lat and lng agree to within 5%.
+- **Dateline** (geo.rs:495-506): `lng = +180`, `lng = -180` and
+  `lng = 179.99999999` give one cell.
+- **Poles** (geo.rs:508-526): at `lat = 90` the longitudes `0`, `137.5`
+  and `-42.7` give one cell. The same is true at `lat = -90`. The two
+  pole cells are different.
 
 ### 1.7 Legacy 16-bit grid: rejected
 
 Pre-0.0.3 emem used a `GEO_RES = 12` (16-bit-per-axis, ~305 m) grid.
 That encoding is **not** decodable by the current codec. The test at
-`geo.rs:231-241` constructs a legacy-shaped raw word and confirms
+`geo.rs:478-493` constructs a legacy-shaped raw word and confirms
 `latlng_from_cell64` returns `Err(CodecError::NotGeoCell)`: the
 resolution field changed (12 → 21), `GEO_PREFIX_MASK` keys on it, so
 legacy strings fail closed instead of silently misplacing a fact by
@@ -167,14 +233,18 @@ upgrade legacy cell64 strings.
 
 ## 2. Tslot: temporal addressing
 
+A tslot is the time part of an address. Each band has a cadence, for
+example one hour for weather or one year for soil. The tslot counts how
+many periods of that cadence have passed since 1 January 1970.
+
 A `Tslot` is a `u64` bucket index of the Unix timeline at a band's
-declared tempo cadence. Defined in `crates/emem-core/src/tslot.rs:19-22`.
+declared tempo cadence. Defined in `crates/emem-core/src/tslot.rs:19-21`.
 
 ### 2.1 Anchor: Unix epoch, not emem epoch
 
 Pre-0.0.3 emem anchored tslot at `2026-01-01T00:00:00Z` (`EMEM_EPOCH_UNIX
 = 1_767_225_600`). That broke history: every pre-2026 observation
-collapsed to `Tslot(0)`. The current code (tslot.rs:56-68) computes
+collapsed to `Tslot(0)`. The current code (tslot.rs:64-76) computes
 
 ```
 Tslot(unix_seconds.max(0) / tempo.slot_seconds())
@@ -186,15 +256,23 @@ inputs clamp to `Tslot(0)`.
 
 ### 2.2 Tempo class
 
-Defined in `tslot.rs:24-37, 43-54`. Five variants:
+Defined in `tslot.rs:23-43` (the enum) and `tslot.rs:49-62`
+(`slot_seconds`). Seven variants:
 
-| Variant | `slot_seconds()` | Cadence | Sample bands |
-|---------|------------------|---------|--------------|
-| `Static` | 0 | never changes | DEM, Köppen, lcv-1 |
-| `Slow` | 31_536_000 | 365 d | Tessera (2017..2024 vintages + `multi_year` 1024-D + `bin128`), soil |
-| `Medium` | 2_592_000 | 30 d | NDVI composites |
-| `Fast` | 86_400 | 1 d | raw S2 NDVI |
-| `UltraFast` | 3_600 | 1 h | weather, traffic |
+| Variant | Serde name | `slot_seconds()` | Cadence | Sample bands |
+|---------|------------|------------------|---------|--------------|
+| `Static` | `static` | 0 | never changes | DEM, Köppen, lcv-1 |
+| `Slow` | `slow` | 31_536_000 | 365 d | Tessera (2017..2024 vintages + `multi_year` 1024-D + `bin128`), soil |
+| `Composite16Day` | `composite_16day` | 1_382_400 | 16 d | MODIS MOD13Q1 NDVI composites |
+| `Composite8Day` | `composite_8day` | 691_200 | 8 d | MODIS LST, ET, GPP and LAI composites |
+| `Medium` | `medium` | 2_592_000 | 30 d | NDVI composites |
+| `Fast` | `fast` | 86_400 | 1 d | raw S2 NDVI |
+| `UltraFast` | `ultra_fast` | 3_600 | 1 h | weather, traffic |
+
+The two composite variants are in the code. On 6 November 2026 no band
+family in `crates/emem-core/data/bands-v0.json` declares them. The
+responder uses them when it materialises the MODIS composite readings
+(`crates/emem-api-rest/src/lib.rs`, search `Composite16Day`).
 
 `Static` returns `Tslot(0)` regardless of input; the slot is
 meaningless for a band that never refreshes. `to_unix_start` is the
@@ -214,7 +292,7 @@ UltraFast  ::::::::::::::::::::::::::::::::::::::::::::::::::::::
 
 Sample-band cadences:
 - Tessera annual:  one Slow slot per year         (Slow)
-- MODIS NDVI:      one Fast slot per 8-day comp   (Fast)
+- MODIS NDVI:      one slot per 16-day composite  (Composite16Day)
 - Open-Meteo:      one UltraFast slot per hour    (UltraFast)
 ```
 
@@ -232,7 +310,9 @@ fn to_tslot_text(t: Tslot) -> String {
 }
 ```
 
-Worked examples (matching the test at tslot_text.rs:70-77):
+Worked examples. The test at tslot_text.rs:70-76 uses these four values.
+That test checks only that decode reverses encode. It does not check the
+text. We checked the text below with Python's `base64.b32encode`:
 
 - `Tslot(0)` → varint `[0x00]` → base32 `"AA"` → text `t.aa`.
 - `Tslot(1)` → varint `[0x01]` → base32 `"AE"` → text `t.ae`.
@@ -247,17 +327,21 @@ the body, base32-decode, LEB128-decode.
 
 ## 3. CID and FactCid
 
-emem uses BLAKE3 over canonical CBOR. The hash bytes are encoded with
-`data_encoding::BASE32_NOPAD` and lowercased. There are exactly two
-durable lengths:
+A CID is the name of a block of bytes. A hash of the bytes makes the
+name, so the same bytes always get the same CID. If one byte
+changes, the CID changes. A `fact_cid` is the CID of one fact.
+
+Facts and manifests use BLAKE3 over canonical CBOR. The hash bytes are encoded with
+`data_encoding::BASE32_NOPAD` and lowercased. Three lengths are in use:
 
 | Form | Bytes | Chars | Source | Use |
 |------|-------|-------|--------|-----|
 | `cid64` | 8 | 13 | `crates/emem-codec/src/cid64.rs:9-11` | short visible ID for inline text |
-| `FactCid` | 16 | 26 | `crates/emem-fact/src/cbor.rs:38-41` (`base32_prefix(&hash, 16)`) | durable storage and signing |
+| `entity_cid`, `bundle_cid` | 16 | 26 | `crates/emem-primitives/src/entity.rs:251` (`compute_entity_cid`), `crates/emem-primitives/src/memory_bundle.rs:159` (`compute_bundle_cid`) | a reference to an object, not a binding of its whole body ([§3.2](#32-factcid)) |
+| `FactCid`, manifest CID | 32 | 52 | `crates/emem-cache/src/sled_hot.rs:813-820` (`fact_cid_of`), `crates/emem-core/src/manifest.rs:111-119` | durable storage and signing |
 
-The full 32-byte hash is computed once (`blake3_32`, cbor.rs:30-35);
-the two encodings are prefixes.
+The full 32-byte hash is computed once (`blake3_32`, cbor.rs:77-83).
+The shorter forms are prefixes of it.
 
 ### 3.1 cid64
 
@@ -279,11 +363,12 @@ prefix; full collision resistance requires the full 32-byte CID.
 FactCid = base32_nopad_lowercase( blake3( canonical_cbor(fact) ) )
 ```
 
-The **full 32-byte digest**, which is 52 base32 characters. It is not
-truncated, and the difference is not cosmetic: a reader who truncates
-computes an identifier that can never match a real `fact_cid`, so every
-lookup misses and every signature check fails, in a way that looks like a
-corrupt corpus rather than a wrong rule.
+A `fact_cid` uses the **full 32-byte digest**, which is 52 base32
+characters. Do not truncate it. A truncated identifier never matches a
+real `fact_cid`. Every lookup then misses and every signature check
+fails. The failure looks like a corrupt corpus, not like a wrong rule.
+On 6 November 2026 a recall at Mount Fuji on emem.dev returned
+`fact_cid` values of 52 characters.
 
 This page said `[..16]` until 2026-08-13, and so did the agent guide. The
 whitepaper's own errata already called that the most consequential error
@@ -306,8 +391,10 @@ The same recipe constructs the other newtypes from `cid.rs:25-34`:
 
 ### 3.3 Manifest CID
 
-For the eight registries (bands, algorithms, functions, sources,
-topics, schema, lcv-1, alphabet) the recipe is identical:
+A manifest CID names one version of a registry, for example the band
+list. Two responders with the same manifest CIDs read the same
+registries. `crates/emem-core/src/manifest.rs:111-119` computes it with
+the same recipe as a `FactCid`:
 
 ```text
 manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest) )[..32] )
@@ -317,11 +404,23 @@ Full 32 bytes (52 chars). The bigger size is acceptable here because a
 manifest CID appears once per response in `registry_cid` / `schema_cid`,
 not once per fact.
 
+`GET /v1/manifests` lists the digests that the responder serves. On
+6 November 2026 emem.dev returned ten: `algorithms_cid`, `bands_cid`,
+`device_platforms_cid`, `functions_cid`, `registry_cid`, `schema_cid`,
+`sources_cid`, `substrates_cid`, `topics_cid` and
+`trace_encodings_cid`. The registries are in
+`crates/emem-core/data/`. [Registries](registries.md) describes each
+one.
+
 ---
 
 ## 4. CBOR canonicalisation
 
-Defined in `crates/emem-fact/src/cbor.rs`.
+A fact must have exactly one byte form. If two programs write the same
+fact with different bytes, they get different CIDs and different
+signatures. This section gives the rules that make the byte form unique.
+
+Defined in `crates/emem-fact/src/cbor.rs:21-27`.
 
 ```rust
 pub fn to_canonical_cbor<T: serde::Serialize>(v: &T) -> Result<Vec<u8>, ...> {
@@ -358,13 +457,19 @@ gate; `crates/emem-fact/tests/round_trip.rs` enforces it.
   `ciborium` emits).
 - Field order = serde declaration order. For `PrimaryFact` that is
   `cell, band, tslot, value, unit?, confidence, uncertainty?, sources,
-  derivation, privacy_class, schema_cid, signer, signed_at`
-  (fact.rs:38-67).
+  derivation, privacy_class, schema_cid, signer, signed_at, served_via?`
+  (fact.rs:73-112).
 - `Option::None` fields with `#[serde(skip_serializing_if =
   "Option::is_none")]` are absent from the CBOR map (not encoded as
   null).
-- Floats serialise as f64 unless declared `f32`. `confidence: f32`
-  emits CBOR major type 7 with f32 head.
+- A float takes the shortest CBOR form that keeps its exact value
+  (f16, f32 or f64). `ciborium` makes this choice. For example `0.0`
+  encodes as `f9 00 00` (test at cbor.rs:123-129).
+- Before it signs its own facts, the responder changes every NaN to the
+  one quiet NaN `f9 7e 00`. It also changes `-0.0` to `0.0`. The code is
+  `canonical_float` (cbor.rs:43-53) and `Fact::canonicalize_floats`
+  (fact.rs:32). The responder does not change facts that other
+  attesters submit, because that would break their signatures.
 
 ---
 
@@ -1439,6 +1544,8 @@ segment so a corrupt sealed segment does not halt ingestion.
 implements to push sealed segments to S3, IPFS, etc., and to pull them
 back for replay-restore. The protocol does not mandate a backend; the
 segment file format and trailer hash are the wire contract.
+
+<a id="transparency-log"></a>
 
 ### 9.6 Transparency log {#transparency-log}
 
