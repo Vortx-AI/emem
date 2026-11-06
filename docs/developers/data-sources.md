@@ -12,7 +12,7 @@ own Primary attestation, and persist it forever — so the next caller hits the
 hot cache. This is the read → attest → cache loop that lets every cell on
 Earth answer cite-ably from day one.
 
-![open pixel → signed receipt, in eight steps](/docs/diagrams/02-data-flow.svg)
+![The path of one value in six steps: an open pixel is read with an HTTP Range request, a stateless connector makes a PrimaryFact or Derivative, canonical CBOR encodes it, BLAKE3 gives its content id, and the responder signs the fact. The same bytes give the same content id on every machine.](/docs/diagrams/02-data-flow.svg)
 *The path a single value takes from an upstream tile to a citable fact. Same upstream + same registries ⇒ same CID, byte-for-byte.*
 
 ## Materialization flow

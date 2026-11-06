@@ -58,7 +58,7 @@ The draw script needs a random seed. If one team picks the seed, that team can t
 sample. So each team made a secret and put only its sha256 in the plan. The signed note fixed both commitments
 before either team revealed its secret.
 
-![Panel 4 commit-then-reveal timeline, 6 November 2026, UTC](../media/case-studies/sugar-mill/commit-reveal.svg)
+![Panel 4 timeline, 6 November 2026, UTC. Before 20:29 each team puts the sha256 of its secret in the plan. At 20:29 a signed public note fixes the plan and both commitments. Team A reveals at 20:30; team B checks it at 21:30. Team B reveals next, then the draw runs.](../media/case-studies/sugar-mill/commit-reveal.svg)
 
 The draw script computes the seed from both secrets, and it stops if a secret does not match its commitment:
 

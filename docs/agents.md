@@ -304,7 +304,7 @@ Four discovery URLs for agent onboarding:
 | `GET /v1/agent_card` | Discover-first card: band taxonomy + tool list |
 | `GET /llms.txt` | Page-scoped manifest for LLM crawlers |
 
-![the agent loop: discover, locate, recall, reason, verify](/docs/diagrams/04-agent-loop.svg)
+![The agent loop in five steps: ask in free text, recall a signed fact, cite its fact_cid, act in the world, and write back a new memory. The shared memory grows each turn.](/docs/diagrams/04-agent-loop.svg)
 *The five-step loop. After first contact, agents skip whatever they have already cached and call directly into `recall` / `find_similar` with a known cell.*
 
    ## Quick reference

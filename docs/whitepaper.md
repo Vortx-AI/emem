@@ -147,7 +147,7 @@ The paper's contributions, stated once:
   method stated per number, typed failure modes, and the limits
   restated as an adversary model (§14, §15, §16).
 
-![emem architecture: one Rust binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
+![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
 *Figure 1: one binary, signed end to end. The same handlers answer MCP
 and REST, reads need no auth, and every write is logged.*
 
@@ -178,7 +178,7 @@ An attribution ledger ships (§10.3): per-term evidence under a signed
 receipt. Splitting a delta numerically among the terms is still open
 work; nothing in this build computes the split.
 
-![the observed change at a pinned reference decomposes into environment, sensor, geometry, encoder, and noise terms; only the first is the world](/docs/diagrams/37-change-decomposition.svg)
+![The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. The other terms are pinned or kept apart by signed metadata. Splitting one change into the terms is an open primitive, not shipped.](/docs/diagrams/37-change-decomposition.svg)
 *Figure 2: the decomposition. Only Δ_env is about the world; the
 substrate pins or separates the other four by construction, and
 splitting a specific delta is the open primitive of §10.3.*
@@ -375,7 +375,7 @@ equivalent in what dereferencing proves. There is one type per shape of
 memory: a point, a set, an object, a bare place, and, for a world model,
 a field and a field over time.
 
-![two agents, one memory: agent A hands agent B one line of text and agent B verifies it without trusting agent A](/docs/diagrams/35-two-agents-one-memory.svg)
+![Agent A recalls a signed fact and gives agent B one line: an emem:fact: token of 84 characters. Agent B resolves the token, gets the same bytes from any node, and checks the signature offline. Agent B does not trust agent A.](/docs/diagrams/35-two-agents-one-memory.svg)
 *Figure 3: the token lifecycle. Recall returns a signed fact and its
 receipt; the token is the one-line citation; the receiver resolves it to
 the identical bytes and verifies the receipt offline.*
@@ -540,7 +540,7 @@ and `resolution = 21` distinguishes the active grid from the pre-0.0.3
 305 m grid. A legacy cell64 fails decoding with `NotGeoCell` rather than
 silently misplacing a fact by hundreds of metres.
 
-![cell + band + tslot to canonical CBOR to blake3 to 52-character base32 CID](/docs/diagrams/09-address-algebra.svg)
+![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: an fp16 vector, with a 12-byte prefix in receipts. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
 *Figure 4: the address algebra. Three integers become one handle the
 rest of the protocol cites.*
 
@@ -657,7 +657,7 @@ Every answer carries an ed25519 receipt that verifies offline against the
 responder's published key. No callback, no account, no API key. The
 receiver checks arithmetic, not reputation.
 
-![receipt preimage, ed25519 signature, merkle path, offline verify](/docs/diagrams/10-trust-plane.svg)
+![The receipt preimage: a domain tag, request_id, served_at, optional scope, as_of, edges and manifest, the primitive, and the lists of cells and fact_cids. BLAKE3 makes a 32-byte digest and Ed25519 signs it. Anyone verifies it offline with the responder public key from /.well-known/emem.json.](/docs/diagrams/10-trust-plane.svg)
 *Figure 5: the trust plane. What a responder signs, and how anyone
 re-checks it without trusting the server; the `/verify` page recomputes
 these steps in the browser.*
@@ -1166,7 +1166,7 @@ foundation embedding. Earlier versions also ran Clay, Prithvi and Galileo;
 facts they signed still verify. **172 algorithms** and **27 topics**
 are enumerated at `/v1/algorithms` and `/v1/topics`.
 
-![the encoder runs at the source and emits an embedding; emem stores and signs the embedding on the ground](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
+![Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder, which decodes them into spectral indices, SAR backscatter, terrain and phenology, and signs each value.](/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg)
 *Figure 6: the representation is the interface. emem signs the
 embedding agents actually read, not the pixels, and the frozen encoder
 checkpoint pins the Δ_encoder term of §1.1 by construction.*
