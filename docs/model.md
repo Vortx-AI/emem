@@ -1,12 +1,64 @@
 # The memory model
 
-The aim, stated plainly: not the best geospatial memory system, but the
-first mathematically defined memory protocol for physical observations.
-This page is the current state of that definition. Everything in the
-first three sections is shipped and points at its mechanism; the last
-section is the open formal work, kept honest and separate.
+This page defines what emem stores and what you can do with it. A plain
+summary comes first. The formal model follows it. The last section lists
+the formal work that is still open.
 
-## The object
+The aim is a memory protocol for physical observations with a
+mathematical definition. This page is the current state of that
+definition. Each claim in the formal model points to the code or the
+endpoint that does it. Open work stays in its own section.
+
+## In short
+
+- emem stores observations. One observation is one value for one place,
+  one band and one time, signed by the responder.
+- The id of an observation is the hash of its bytes. The same bytes have
+  the same id on every responder.
+- You never change an observation. A correction is a new observation
+  with a `supersedes` edge to the old one. The old bytes stay readable.
+- Time is part of the key. `as_of_tslot` asks what was true on the
+  ground on a date. `as_of_signed_at` asks what emem knew on a date.
+- A token is a short name that another agent resolves to the same
+  record. `emem:fact:` names exact bytes. `emem:entity:` names an
+  identity only.
+- When two sources disagree at one place, emem keeps both and scores the
+  disagreement. It does not average them.
+- When emem has no data, it signs an absence with a typed reason. It
+  never returns an empty answer as if it were knowledge.
+- Every answer carries a receipt. You check it offline with the public
+  key of the responder.
+- A signature proves who signed the bytes and that the bytes did not
+  change. It does not prove that the value is true.
+
+Notes are a separate plane. A note is a Markdown file that an agent
+writes and signs in its own namespace. [Memory](./memory.md) describes
+notes, namespaces and signed writes.
+
+The common operations and their endpoints:
+
+| You want to | Endpoint |
+|---|---|
+| read the facts at a place, at a date | `POST /v1/recall` with `as_of_tslot` or `as_of_signed_at` |
+| compare one band at two times | `POST /v1/diff` |
+| name a set of facts with one token | `POST /v1/memory_bundle` |
+| find where sources disagree | `POST /v1/memory_contradictions` |
+| check a receipt | `POST /v1/verify_receipt`, or offline |
+| know which facts are still fresh | `POST /v1/temporal_route` |
+
+These parts of the model do not ship today:
+
+- a `forget` operation, which is absent on purpose (see
+  [Absent on purpose](#absent-on-purpose)),
+- a counterfactual that removes one observation and computes its effects
+  again,
+- the numeric split of a change between the world and the instrument,
+- derivations with more than one step as signed objects,
+- proofs of the properties that a machine checks.
+
+## The formal model
+
+### The observation
 
 The unit of memory is one observation:
 
@@ -16,215 +68,267 @@ O = (a, b, t, v, u, p, s)
 
 | Element | Meaning | Wire mechanism |
 |---|---|---|
-| `a` | address | cell64, a 64-bit canonical cell (~9.55 m at the equator); antimeridian and pole handling pinned in code |
+| `a` | address | cell64, a 64-bit canonical cell (about 9.55 m at the equator); the code fixes antimeridian and pole handling |
 | `b` | band | typed channel from the content-addressed bands manifest (`bands_cid`) |
-| `t` | valid time | `tslot`, band-tempo-relative; paired with transaction time `signed_at` inside `p` |
-| `v` | value | scalar or vector, with `unit`, canonical CBOR encoded |
-| `u` | uncertainty | `confidence` plus optional `uncertainty` on every `PrimaryFact` (crates/emem-fact) |
-| `p` | provenance | `sources[]` (scheme, id, content hash, capture time), `derivation` (registry `fn_key` plus args), the band's provenance class with in-band `caution`, the attester key, and `signed_at` |
-| `s` | signature | ed25519 over blake3 of the canonical CBOR body |
+| `t` | valid time | `tslot`, relative to the tempo of the band; paired with the transaction time `signed_at` inside `p` |
+| `v` | value | scalar or vector, with `unit`, encoded as canonical CBOR |
+| `u` | uncertainty | `confidence` plus an optional `uncertainty` on every `PrimaryFact` (crates/emem-fact) |
+| `p` | provenance | `sources[]` (scheme, id, content hash, capture time), `derivation` (registry `fn_key` plus args), the provenance class of the band with its in-band `caution`, the attester key, and `signed_at` |
+| `s` | signature | Ed25519 over BLAKE3 of the canonical CBOR body |
 
-Identity is content: `cid(O) = blake3(canonical_cbor(O))`, 52 base32
-characters, so the same bytes have the same name on every conformant
-responder. The memory itself is
+### Identity and the memory
+
+Identity is content: `cid(O) = blake3(canonical_cbor(O))`, written as 52
+base32 characters. Thus the same bytes have the same name on every
+conformant responder. The memory itself is
 
 ```
 M = (O*, E*)
 ```
 
-an append-only set of observations plus typed temporal edges
-`E = (subj, pred, obj, valid_from, valid_to)`. The predicate is a
-free-form label; the ones in use include `disagrees_with`, `supersedes`,
-`replaced_by` and `co_located_with`. A token is the name of an element
-or a set, and the families are not equally strong:
+This is an append-only set of observations plus typed temporal edges
+`E = (subj, pred, obj, valid_from, valid_to)`. The predicate is a free
+label. The labels in use include `disagrees_with`, `supersedes`,
+`replaced_by` and `co_located_with`.
+
+### Tokens
+
+A token is the name of an element or of a set. The token families do not
+have equal strength:
 
 | Token | Names | Strength |
 |---|---|---|
 | `emem:fact:<a>:<cid>` | one observation | the full 32-byte hash of the signed body, so it resolves to byte-identical bytes |
-| `emem:bundle:<cid>` | a signed set of observations | 16 bytes of a hash over the purpose and each citation's cell, band, tslot and fact cid; the member fact cids carry the full strength |
-| `emem:entity:<cid>` | one object identity | 16 bytes of a hash over the identity anchor (a stable external id such as Overture GERS, OSM or Wikidata, else cell, kind and label), not over the whole record; a shared reference, not shared bytes |
+| `emem:bundle:<cid>` | a signed set of observations | 16 bytes of a hash over the purpose and the cell, band, tslot and fact cid of each citation. The member fact cids carry the full strength |
+| `emem:entity:<cid>` | one object identity | 16 bytes of a hash over the identity anchor, not over the whole record; a shared reference, not shared bytes |
 | `emem:cell:<a>` | a place | an address; it names no bytes |
-| `emem:tree:<file_cid>#row=<i>` | one row of a tokenised file | checked by an audit path against the root in the author-signed note |
+| `emem:tree:<file_cid>#row=<i>` | one row of a tokenised file | an audit path checks it against the root in the note that the author signed |
 
-An entity's geometry sits outside its cid and its mint signature, and
-geometry that does not fall in the entity's own cell is withheld where
-served (`bbox_withheld`, `geojson_withheld`, `point_withheld`).
+The identity anchor of an entity is a stable external id, such as
+Overture GERS, OSM or Wikidata. When there is none, the anchor is the
+cell, the kind and the label.
 
-The fundamental key is `(a, b, t)`, not `a`: time is part of the object,
-not metadata on it. Every read primitive accepts the bi-temporal pair
-(`as_of_tslot` for what was true on the ground, `as_of_signed_at` for
-what the memory knew), so `Recall(M, a, t)` is the shipped read, not a
-roadmap item.
+The geometry of an entity is outside its cid and its mint signature.
+Some geometry falls outside the cell of the entity. Where emem
+serves such geometry, it withholds it (`bbox_withheld`,
+`geojson_withheld`, `point_withheld`).
 
-## Properties
+### Time
 
-Stated as claims with their mechanism. "Mechanism shipped" means the
-property holds by construction and is checkable today; a machine-checked
-proof is open work for all of them.
+The key is `(a, b, t)`, not `a`. Time is part of the object, not
+metadata on it. Every read primitive accepts the bi-temporal pair:
+
+- `as_of_tslot` gives what was true on the ground at that time.
+- `as_of_signed_at` gives what the memory knew at that time.
+
+Thus `Recall(M, a, t)` is the read that ships today.
+
+### Properties
+
+Each property is a claim with the mechanism that makes it hold. The
+mechanism ships, so you can check each property today. A proof that a
+machine checks is open work for all of them.
 
 | Property | Statement | Mechanism |
 |---|---|---|
-| Immutability | no operation rewrites an observation; change is a new observation that `supersedes` on the transaction-time axis | content addressing; a changed byte is a different `cid`; supersede edges; bi-temporal reads replay the old state |
-| Determinism | encoding is canonical, so equal values produce equal bytes produce equal names | canonical CBOR + blake3; golden-vector tests pin the Rust and JS encoders to each other |
-| Reproducibility | resolving a name returns byte-identical bytes on any responder holding it; `direct_sensor` and `deterministic_index` observations are additionally recomputable from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
-| Verifiability | any answer re-verifies offline with only the responder pubkey | receipt preimage (domain-separated, tagged, length-prefixed; `preimage_version: 2`, current since 2026-08-05, also binds the fact's Merkle inclusion proof); an RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign; `/verify` in-browser; the Python samples in [agents](./agents.md) run against production and print VALID |
-| Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope), `emem:entity:` (one object identity over many observations) |
-| Honest absence | the absence of data is itself a signed, citable answer with a typed reason | Absence facts; never an empty 200 pretending to be knowledge |
-| Attested trust class | how a value was produced is attested transitively, not self-declared per response | provenance class rides the content-addressed bands manifest whose `bands_cid` is folded into every receipt preimage |
+| Immutability | no operation rewrites an observation; a change is a new observation that `supersedes` the old one on the transaction-time axis | content addressing (a changed byte gives a different `cid`); supersede edges; bi-temporal reads replay the old state |
+| Determinism | the encoding is canonical: equal values give equal bytes, and equal bytes give equal names | canonical CBOR and BLAKE3; golden-vector tests pin the Rust and JS encoders to each other |
+| Reproducibility | a name resolves to byte-identical bytes on any responder that holds it. You can also compute `direct_sensor` and `deterministic_index` observations again from their cited raw source | content addressing; provenance classes; the `deterministic: true` recall filter |
+| Verifiability | any answer verifies offline with only the public key of the responder | the receipt preimage (see below). An RFC 6962 transparency log (`/v1/log/*`) that outside witnesses co-sign. `/verify` in the browser. The Python samples in [agents](./agents.md) run against production and print VALID |
+| Composability | signed sets and named objects are first-class | `emem:bundle:` (N observations, one signed envelope); `emem:entity:` (one object identity over many observations) |
+| Honest absence | an absence of data is itself a signed answer with a typed reason, and you can cite it | absence facts; never an empty 200 that looks like knowledge |
+| Attested trust class | an attestation says how emem made a value; the response does not declare it | the provenance class is in the content-addressed bands manifest, and every receipt preimage includes its `bands_cid` |
 
-What the signature does NOT claim: objective truth. It proves who
-attested the observation and that the bytes never changed; `u` and the
-provenance class carry the epistemic status.
+The receipt preimage is domain-separated, tagged and length-prefixed.
+The current form is `preimage_version: 2`, in use since 2026-08-05. It
+also binds the Merkle inclusion proof of the fact.
 
-## The algebra, as shipped today
+The signature does not claim that the value is true. It proves who attested
+the observation and that the bytes did not change. The uncertainty `u`
+and the provenance class carry the epistemic status.
 
-The operations below exist on the wire. Naming them as an algebra is the
-point of this section: memory is something applications compute over,
-not just retrieve.
+### Operations
 
-| Operation | Shipped surface |
+Each operation below exists on the wire. Together they are an algebra:
+applications compute over the memory, and they also read from it.
+
+| Operation | Endpoint or mechanism that ships |
 |---|---|
-| `recall(M, a, t)` | `POST /v1/recall` with `as_of_tslot` / `as_of_signed_at`; provenance-filtered variant via `deterministic` / `provenance` |
-| `diff(M, a, b, t1, t2)` | `POST /v1/diff` (same band, two times), `/v1/state_diff` (embedding delta), `/v1/temporal_route` (staleness-ranked) |
-| `merge(O1..On)` | `POST /v1/memory_bundle`: one signed envelope, one citable name for the set |
-| `verify(O)` | `POST /v1/verify_receipt`, or fully offline from the receipt bytes |
-| `trace(O)` | in the object itself: `derivation.fn_key` resolves in the algorithm registry to a published formula and citation; `sources[]` carry upstream ids, content hashes, and capture times; edges extend the chain across observations |
-| `competing(M, a)` | `POST /v1/memory_contradictions`: disagreement scored per band kind (normalised spread, 1 - cosine, mode share), kept as evidence, never averaged away |
-| `explain(O)` | the receipt plus the registry formula are the signed explanation; `/v1/ask` returns prose over signed reads, and its receipt signs the fact cids it read, not the prose |
-| `evolve(M)` | attest; a later observation `supersedes` without erasing, and the refinement loop records `disagrees_with` edges from contradictions |
-| `resolve(name)` | token dereference: `emem:fact:` back to byte-identical bytes, `emem:bundle:` to its signed envelope, `emem:entity:` to the object record |
-| `ensure(M, a, B)` | shipped at single-hop: `POST /v1/recall` with a band list states the goal; the responder reuses what exists (`was_cached`), fetches and signs what does not (`materialize_notes`), and the agent never orchestrates the fetch. Multi-hop targets are open work (see the compiler view) |
-| `valid(M, a)` | `POST /v1/temporal_route`: per-band staleness Q(dt) from the band's physics decay kernel, split into `cite_now` (fresh enough to cite) and `fetch_for_intent` (needs re-materialisation): validity intervals and invalidation, on the wire |
-| `attribute(M, a, t1, t2)` | `POST /v1/change_attribution` (`change_attribution@1`): the per-term evidence for why one cell's readout moved between two visits, each item with its fact cids, under a signed receipt. The numeric split of the delta among those terms is not computed; `split` is null and says why |
+| `recall(M, a, t)` | `POST /v1/recall` with `as_of_tslot` or `as_of_signed_at`; `deterministic` or `provenance` filters the result by provenance |
+| `diff(M, a, b, t1, t2)` | `POST /v1/diff` (one band, two times); `/v1/state_diff` (embedding delta); `/v1/temporal_route` (ranked by staleness) |
+| `merge(O1..On)` | `POST /v1/memory_bundle`: one signed envelope, one name to cite for the set |
+| `verify(O)` | `POST /v1/verify_receipt`, or offline from the receipt bytes |
+| `trace(O)` | in the object: `derivation.fn_key` resolves in the algorithm registry to a published formula and citation. `sources[]` carry upstream ids, content hashes and capture times. Edges continue the chain across observations |
+| `competing(M, a)` | `POST /v1/memory_contradictions`: a disagreement score for each band kind (normalised spread, 1 - cosine, mode share); emem keeps the disagreement as evidence and never averages it away |
+| `explain(O)` | the receipt and the registry formula are the signed explanation. `/v1/ask` returns prose over signed reads. Its receipt signs the fact cids that it read, not the prose |
+| `evolve(M)` | attest; a later observation `supersedes` an older one and does not erase it; the refinement loop records `disagrees_with` edges from contradictions |
+| `resolve(name)` | token dereference: `emem:fact:` gives byte-identical bytes, `emem:bundle:` gives its signed envelope, `emem:entity:` gives the object record |
+| `ensure(M, a, B)` | ships for one step. A `POST /v1/recall` with a band list states the goal. The responder uses what exists (`was_cached`) and fetches and signs the rest (`materialize_notes`). The agent does not control the fetch |
+| `valid(M, a)` | `POST /v1/temporal_route`: staleness Q(dt) for each band, from the physics decay kernel of the band. It splits bands into `cite_now` (fresh enough to cite) and `fetch_for_intent` (needs a new read) |
+| `attribute(M, a, t1, t2)` | `POST /v1/change_attribution` (`change_attribution@1`): the evidence for why the readout of one cell moved between two visits, term by term. Each item has its fact cids, under a signed receipt. emem does not compute the numeric split of the delta among the terms, so `split` is null and says why |
 
-Deliberately absent: a silent `forget()`. Removal without trace would
-break every property above. What exists instead is supersession on the
-transaction-time axis, privacy classes at write time, and, for notes,
-an author's delete that leaves a tombstone while the bytes stay
-addressable by cid.
+`ensure` for targets that need more than one step is open work. See
+[The memory as a build graph](#the-memory-as-a-build-graph).
 
-Partial today: `counterfactual(M, before)` in the transaction-time
-direction is exactly `as_of_signed_at`: the memory as it stood before an
-observation arrived. Counterfactual REMOVAL (the memory with one
-observation excised and downstream effects recomputed) is open work, and
-harder than it looks because derivations would need re-execution.
+### Absent on purpose
 
-## The compiler view
+There is no silent `forget()`. A removal without a trace would break
+every property above. These mechanisms exist instead:
 
-Read the model above from a different angle and a second system appears:
-a content-addressed build graph over the physical world, one graph per
-cell. The leaf level is shipped and serving traffic today:
+- supersession on the transaction-time axis,
+- privacy classes at write time,
+- for notes, a delete by the author. It leaves a tombstone, and the
+  bytes stay addressable by cid.
 
-- **Rule**: every derived observation names its rule, `derivation.fn_key`
-  (`sentinel2_l2a_indices_ndvi@1`), a versioned entry in the
-  content-addressed algorithm registry whose `algorithms_cid` is pinned
-  into receipts, together with the full argument list.
-- **Inputs**: `sources[]` carry the upstream ids, content hashes, and
-  capture times.
-- **Output**: the `fact_cid`, blake3 of the canonical bytes.
-- **Demand-driven**: recall on a miss materialises, signs, and persists,
-  which is a lazy build; the receipt's `was_cached` is cache semantics
-  on the wire.
-- **Hermeticity labels**: the provenance classes are exactly this.
-  `deterministic_index` is a hermetic action (rebuild the value from the
-  cited sources, no hidden input); `model_output` is a pinned
-  non-hermetic action (reproducible given the signed checkpoint);
-  `direct_sensor` and `human_curated` are sources, not actions.
+A counterfactual is partly there. `counterfactual(M, before)` on the
+transaction-time axis is `as_of_signed_at`: the memory before an
+observation arrived. A counterfactual REMOVAL is open work. That is the
+memory with one observation cut out and its downstream effects computed
+again. It is hard because each derivation would have to run again.
 
-Hermetic does not mean bit-identical for every action, and the split is
-accumulation. An op with no accumulation rebuilds bit for bit: a
-difference, a ratio, a tree of 2-ary selections. A reduction over many
-inputs does not, because the summation order is an implementation detail
-nobody signed. Measured over real signed NDVI parents, a `sum` recomputed
-against a caller's own lands 0 to 2 ULP away depending on how many
-parents there are, and not monotonically in the count, since accumulation
-error cancels as readily as it compounds. So the recompute path compares
-`mean` and `sum` over more than two parents inside a published 4-ULP
-window and everything else exactly, and it returns the rule it used, the
-tolerance, and the measured gap on every answer, so a caller who needs
-bit-identity can require a gap of 0.
+## The memory as a build graph
 
-Determinism buys the property a build system wants most: derived
-artifacts are evictable without breaking citations, because
-re-materialisation by the same implementation yields the same bytes,
-hence the same cid, hence every token keeps resolving. Nothing permanent
-is required beyond immutable observations and the rule registry.
+The same model is also a content-addressed build graph over the physical
+world, one graph for each cell. The lowest level ships and serves
+traffic today:
 
-What is missing before "build graph" is earned rather than aspirational,
-in dependency order: multi-hop composition as signed objects (the worlds
-bake already derives splats from facts with re-derivable bilinear
-weights, but the splat layer lives in a sidecar, not in the fact model);
-the one-traversal `lineage(O)` DAG from the open-work list below; a
-target language (ask for a mesh at a cell and the graph compiles
-gaussians, mesh, and navigation surfaces on demand); and portable,
-sandboxed action definitions, since today the registry formulas document
-Rust implementations rather than define hermetic rules a second
-implementation could execute.
+- Rule. Every derived observation names its rule, `derivation.fn_key`
+  (for example `sentinel2_l2a_indices_ndvi@1`), with the full list of
+  arguments. The rule is a versioned entry in the content-addressed
+  algorithm registry. Receipts pin the `algorithms_cid` of that
+  registry.
+- Inputs. `sources[]` carry the upstream ids, content hashes and capture
+  times.
+- Output. The `fact_cid`, which is the BLAKE3 hash of the canonical
+  bytes.
+- Build on demand. A recall on a miss reads, signs and stores the value.
+  This is a lazy build. The `was_cached` field of the receipt is cache
+  semantics on the wire.
+- Hermeticity labels. The provenance classes are these labels.
 
-### From build graph to execution substrate
+| Provenance class | Build role |
+|---|---|
+| `deterministic_index` | a hermetic action: you can build the value again from the cited sources, with no hidden input |
+| `model_output` | a pinned action that is not hermetic: you can reproduce it with the signed checkpoint |
+| `direct_sensor` | a source, not an action |
+| `human_curated` | a source, not an action |
 
-The deeper consequence, and the direction this is being built toward:
-the agent no longer owns the state, the world owns the state. An agent's
-progress is not "I completed step 17" in a session transcript; it is the
-state of the cells it touched: which observations exist, at which
-versions, derived from what, still valid until when. A different agent,
-months later, under a different model, continues from the world.
+### When a rebuild gives the same bits
 
-The state the session inherits still lacks half of one operator: the
-derivative. Two states of one cell say what changed. The evidence for
-why it moved now ships as `change_attribution@1`: the observed change,
-the sources each visit was read through, the encoder pinning, the scene
-class per visit, each with fact cids, stored as a derived fact with its
-own token. What does not ship is the number: how much of the delta is
-the world and how much is the instrument, the registration, or the
-encoder. That split is on the [roadmap](./roadmap.md#change-attribution-why-did-this-places-readout-move),
-and it slots into this graph as one more derived, signed object over
-parent facts.
+Hermetic does not always mean bit-identical. The difference is
+accumulation:
 
-The mechanisms for that are the ones above, read as an execution
-substrate. What already exists: every recall returns
-`bands_already_attested_at_cell`, so "what has been computed here" is
-one call. What is still valid: `temporal_route`'s per-band staleness
-scores split `cite_now` from `fetch_for_intent`. What replaced what:
-supersede edges. Why believe any of it: the receipt. And the goal verb
-is shipped at single-hop: a recall with a band list is `ensure`, not
-`get`; the agent states what must exist and the responder decides reuse
-versus fetch. What is missing is stated in the gap list above:
-multi-hop targets and a cost-based planner ("cheapest valid path to a
-navigation surface at this cell"), which turn ensure from a band-level
-verb into a graph-level one.
+- An operation with no accumulation gives the same bits again. Examples
+  are a difference, a ratio and a tree of 2-ary selections.
+- A reduction over many inputs does not. The order of the sum is a
+  detail that nobody signed.
 
-Coordination follows the same shape. A thousand agents working the same
-region do not synchronise through messages; they coordinate through
-shared, immutable, content-addressed artifacts and the dependency rules
-between them, with contradiction scoring as the conflict rule when two
-writers disagree. The objective underneath all of it: make repeated
-reasoning unnecessary. If an artifact is deterministic, reproducible,
-and already exists, no future agent should spend tokens re-deriving it
-or arguing itself into trusting it; it resolves by name and re-checks by
-hash.
+We measured this over real signed NDVI parents. A `sum` that a caller
+computes again lands 0 to 2 ULP from ours. The gap depends on the
+number of parents, but it does not grow steadily with it. Errors of
+rounding cancel as easily as they add up.
 
-One scope note, taken from review: "memory for long-horizon agents" is
-one application of this substrate, not its definition. The architecture
-is meant to stay valuable even if today's agents are replaced by a
-different class of systems; durable, verifiable, reusable state about
-the physical world is the invariant. The same invariant is what admits
-the next substrates (fixed sensors, drones, robot fleets, machines,
-government registries), each a written profile over the same attest,
-recall, cite, verify path, with location as the first key.
+Thus the recompute path compares `mean` and `sum` over more than two
+parents inside a published window of 4 ULP. It compares all other
+operations exactly. Each answer returns the rule it used
+(`rule`), the tolerance (`ulp_tolerance`) and the measured gap
+(`ulp_gap`). A caller who needs the same bits can require a gap of 0.
 
-### The atom, answered
+Determinism gives a build system its most useful property. You can
+delete a derived artifact and the citations still work. The same code
+builds the same bytes again, so the cid is the same and every token
+still resolves. Only the immutable observations and the rule registry
+must be permanent.
 
-Review asked the right whiteboard question: what is the smallest
-immutable object, git's blob, IPFS's block? If the answer were "band",
-emem would have stopped too early. It is not. The atom is the
-observation `O` defined at the top of this page; the band is its
-semantic TYPE field, not the object. The proposed "Earth Value"
-(location, time, semantic meaning, algorithm, dependencies, cid,
-confidence, validity, signature) maps element for element onto what
-already ships:
+### What a full build graph still needs
 
-| Proposed | Shipped element of `O` |
+These items are missing, in order of dependency:
+
+1. Composition over more than one step, as signed objects. The worlds
+   bake already derives splats from facts with bilinear weights that you
+   can derive again. But the splat layer is in a sidecar, not in the
+   fact model.
+2. The one-traversal `lineage(O)` graph from
+   [Open formal work](#open-formal-work).
+3. A target language. For example, you ask for a mesh at a cell. The
+   graph then builds the gaussians, the mesh and the navigation surfaces
+   on demand.
+4. Portable action definitions that run in a sandbox. Today the registry
+   formulas describe Rust code. They are not hermetic rules that a
+   second codebase could run.
+
+### State that outlives the agent
+
+This is the direction of the work. The world owns the state, not the
+agent. The progress of an agent is not "I completed step 17" in a
+session transcript. It is the state of the cells that the agent touched:
+
+- which observations exist, at which versions,
+- what they come from,
+- until when they stay valid.
+
+Months later, a different agent with a different model continues from
+that state.
+
+The state that a session inherits still lacks part of one operator, the
+derivative. Two states of one cell show what changed.
+`change_attribution@1` ships the evidence for why it changed:
+
+- the observed change,
+- the sources that each visit used,
+- the encoder pinning,
+- the scene class of each visit.
+
+Each item has its fact cids. emem stores the result as a derived fact
+with its own token. The number does not ship: how much of the change
+comes from the world, and how much from the instrument, the registration
+or the encoder. That split is on the
+[roadmap](./roadmap.md#change-attribution-why-did-this-places-readout-move).
+It will be one more derived, signed object over parent facts in this
+graph.
+
+The mechanisms above already give most of an execution substrate:
+
+| Question | Mechanism that ships |
+|---|---|
+| What exists at this cell? | every recall returns `bands_already_attested_at_cell` |
+| What is still valid? | the staleness scores of `temporal_route` split `cite_now` from `fetch_for_intent` |
+| What replaced what? | supersede edges |
+| Why believe it? | the receipt |
+| How do I state a goal? | a recall with a band list is `ensure`: you state what must exist, and the responder decides to use a stored value or to fetch |
+
+Two parts are missing. One is targets with more than one step. The other
+is a planner that compares cost, for example "the least costly valid
+path to a navigation surface at this cell". Together they make `ensure`
+work on a graph, not only on one band.
+
+Coordination has the same shape. A thousand agents in one region do not
+synchronise through messages. They share immutable, content-addressed
+artifacts and the dependency rules between them. When two writers
+disagree, the contradiction score is the conflict rule. The aim is that
+no agent reasons the same thing twice. If an artifact is deterministic
+and already exists, a later agent resolves it by name and checks it by
+hash. It does not spend tokens to derive it again.
+
+Memory for long-horizon agents is one application of this substrate. It
+is not the definition of the substrate. If a different class of system
+replaces the agents of today, durable and verifiable state about the
+physical world keeps its value. The same rule admits the next
+substrates: fixed sensors, drones, robot fleets, machines and government
+registries. Each is a written profile over the same path (attest,
+recall, cite, verify), with location as the first key.
+
+### The smallest object
+
+A review asked: what is the smallest immutable object, as the blob is in
+git and the block is in IPFS? The answer is not the band. The atom is
+the observation `O` at the top of the formal model. The band is its
+semantic TYPE field.
+
+The review proposed an "Earth Value" with nine parts. Each part maps to
+an element of `O` that ships:
+
+| Proposed | Element of `O` that ships |
 |---|---|
 | location | `a` (cell64) |
 | time | `t` plus `signed_at` (bi-temporal) |
@@ -233,86 +337,94 @@ already ships:
 | dependencies | `p.sources[]` (ids, content hashes, capture times) |
 | cid | `cid(O)` |
 | confidence | `u` |
-| validity | tempo class + Q(dt) staleness (`valid(M, a)`) |
+| validity | tempo class plus Q(dt) staleness (`valid(M, a)`) |
 | signature | `s` |
 
-The git analogy holds the same way: blob, tree, commit correspond to
-observation, edge, rule-plus-receipt. Worlds, meshes, and projects are
-meant to emerge from those, not to become new stored types.
+The git analogy holds in the same way. Blob, tree and commit map to
+observation, edge, and rule with receipt. Worlds, meshes and projects
+are to come from these. They are not to become new stored types.
 
-Where the review is right that we have stopped early: today `v` is
-band-typed. Whole fields are now signed as one object (a raster bundle,
-and the `emem:cube:` band cube over time), but a gaussian patch, a mesh,
-or a road graph is not yet an observation; the worlds bake keeps its
-derived splats in a provenance sidecar. Generalising `v` to artifact-typed values with canonical
-encodings, so a mesh is signed, cited, and evicted exactly like an NDVI
-reading, is the real content of the "multi-hop derivation as signed
-objects" gap above, and it strengthens the existing fact model rather
-than adding a second object system beside it.
+The review is correct on one point: today `v` is band-typed. emem now
+signs whole fields as one object (a raster bundle, and the `emem:cube:`
+band cube over time). But a gaussian patch, a mesh or a road graph is
+not an observation yet. The worlds bake keeps its derived splats in a
+provenance sidecar. The real content of the gap "derivation over more
+than one step as signed objects" is this: let `v` hold typed artifacts
+with canonical encodings. Then a mesh is signed, cited and evicted in
+the same way as an NDVI reading. This makes the fact model stronger. It
+does not add a second object system next to it.
 
-On learned graphs versus written ones: build systems assume someone
-wrote the graph, and for Earth nobody knows the graph. The position
-here is deliberate: the RULES stay declared, versioned, and signed,
-because a discovered rule cannot be re-verified, but WHICH declared
-derivations exist, apply, and are worth running at a given cell for a
-given goal is discovered, not hardcoded. The seed of that planner
-already ships: `/v1/ask` routes a question to the applicable recipes in
-`algorithms_for_question`, and one goal already has competing
-derivations to choose between (deforestation via the NDVI-drop alert,
-via SAR disturbance, or via the Hansen and JRC TMF loss layers that
-`/v1/eudr_dds` reads). Learn the graph; never learn the rule.
+### Learned graphs and declared rules
 
-The verb this converges on is `prove(goal)`, not `get` and not
-`build(target)`: the answer to a goal is an artifact PLUS a
-machine-checkable chain that every dependency is valid for this
-location at this time. At single-hop that is shipped today, receipt
-plus provenance class plus staleness on every ensure; making it hold
-across a discovered multi-hop chain is the planner work in the gap
-list, with its trust question answered per hop ("can I trust this
-gaussian", not "does it exist").
+A build system expects someone to write the graph. For the Earth, nobody
+knows the graph. The position here is deliberate:
 
-Against the neighbours: Earth Engine is a computation graph inside one
-org's trust domain with unsigned results; Bazel and Nix are
-content-addressed builds inside one org's trust domain. The receipts are
-what make this graph verifiable ACROSS trust domains: any robot can
-re-check any org's compiled artifact offline. The memory is the product;
-the build graph is the substrate thesis.
+- The RULES stay declared, versioned and signed, because nobody can
+  verify a discovered rule again.
+- WHICH declared derivations exist, apply and are worth running at a
+  cell for a goal is discovered, not hardcoded.
+
+The seed of that planner ships. `/v1/ask` sends a question to the
+recipes that apply, in `algorithms_for_question`. One goal already has
+competing derivations. Deforestation comes from the NDVI-drop alert,
+from SAR disturbance, or from the Hansen and JRC TMF loss layers that
+`/v1/eudr_dds` reads. The rule is: learn the graph, never learn the
+rule.
+
+The verb of this direction is `prove(goal)`. The answer to a goal is an
+artifact and a chain that a machine can check. The chain shows that
+each dependency is valid for this location at this time. For one step
+this ships today: each `ensure` returns a receipt, a provenance class
+and a staleness score. Over a discovered chain of several steps it is
+planner work, in the gap list. It asks its trust question for each
+step ("can I trust this gaussian", not only "does it exist").
+
+### Comparison with other systems
+
+| System | Graph | Trust |
+|---|---|---|
+| Earth Engine | a computation graph | inside the trust domain of one organisation; it does not sign results |
+| Bazel, Nix | content-addressed builds | inside the trust domain of one organisation |
+| emem | content-addressed facts and rules | receipts let any robot check the artifact of any organisation offline |
+
+The receipts make this graph verifiable across trust domains. The memory
+is the product. The build graph is the thesis about the substrate.
 
 ## Open formal work
 
-The honest gap list, in priority order:
+The gap list, in order of priority:
 
 1. Machine-checked statements of the property table (immutability,
-   determinism, reproducibility) over the canonical encodings, rather
-   than by-construction arguments in prose.
-2. Uncertainty propagation: `u` exists on every observation but most
-   materializers write point confidence today; deriving the `u` of a
-   computed observation from the `u` of its inputs through
-   `derivation.fn_key` is defined nowhere yet.
-3. Semantic compression: whether N observations of one place compress
-   into a canonical memory without losing citability. This is not
-   entropy coding; every compressed claim must still resolve to signed
-   sources. Related shipped primitives: bundles name sets, but do not
-   summarise them; `emem:tree` checks one row of a tokenised file
-   against a signed root without fetching the rest.
-4. Full provenance graphs as one queryable object: today the chain
-   lives across `sources[]`, `derivation`, and edges; a single
-   `lineage(O)` traversal that renders acquisition to answer as one
-   graph is not yet a surface.
-5. A written conformance profile, so a second implementation can claim
-   compatibility by satisfying the algebra and property table rather
-   than by matching this codebase.
-6. Artifact-typed observations: generalise `v` beyond band-typed values
-   so gaussians, meshes, and route graphs are first-class signed
-   observations with canonical encodings, extending the existing fact
-   model instead of adding a parallel object system. Prerequisite for
-   multi-hop signed derivation.
-7. Derivation discovery and the `prove(goal)` contract: learn, per cell
-   and goal, which declared rules apply and which chain is cheapest,
-   while every edge stays a declared, signed rule; the planner's output
-   is the artifact plus the validity chain. Seed shipped:
-   `algorithms_for_question` routing and competing derivations for one
+   determinism, reproducibility) over the canonical encodings. Today
+   they are arguments in prose that follow from the construction.
+2. Uncertainty propagation. `u` exists on every observation, but most
+   materialisers write a point confidence today. No rule yet derives the
+   `u` of a computed observation from the `u` of its inputs through
+   `derivation.fn_key`.
+3. Semantic compression. Can N observations of one place compress into
+   a canonical memory and stay citable? This is not entropy coding.
+   Every compressed claim must still resolve to signed sources. Two
+   related primitives ship. Bundles name sets but do not summarise them.
+   `emem:tree` checks one row of a tokenised file against a signed root
+   and does not fetch the other rows.
+4. Full provenance graphs as one object that you can query. Today the
+   chain lives across `sources[]`, `derivation` and edges. No
+   surface gives one `lineage(O)` traversal from acquisition to answer
+   as one graph.
+5. A written conformance profile. A second codebase could then claim
+   compatibility when it satisfies the algebra and the property table.
+   It would not need to match this codebase.
+6. Artifact-typed observations. Let `v` hold more than band-typed
+   values. Then gaussians, meshes and route graphs become first-class
+   signed observations with canonical encodings. This extends the fact
+   model. It does not add a parallel object system. It must come before
+   signed derivation over more than one step.
+7. Derivation discovery and the `prove(goal)` contract. For each cell
+   and goal, learn which declared rules apply and which chain costs
+   least. Every edge stays a declared, signed rule. The output of the
+   planner is the artifact plus the validity chain. The seed ships:
+   `algorithms_for_question` routing, and competing derivations for one
    goal.
 
-The research roadmap in [Limits and roadmap](./roadmap.md#open-research)
-tracks these; the sequencing argument is in the [whitepaper](./whitepaper-v3.md).
+[Limits and roadmap](./roadmap.md#open-research) tracks these items. The
+[whitepaper](./whitepaper-v3.md) gives the argument for their order.
