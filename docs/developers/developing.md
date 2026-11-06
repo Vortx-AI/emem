@@ -1,366 +1,351 @@
-# developing emem
+# Develop emem
 
-This doc is for engineers cutting code against the emem.dev workspace at
-`github.com/Vortx-AI/emem`. It covers setup, the day-to-day workflows the
-maintainers actually run, and the conventions the repo enforces. It does
-not duplicate `docs/developers/architecture.md` (system topology) or
-`docs/protocol.md` (wire bytes).
+This page is for engineers who change the code in
+`github.com/Vortx-AI/emem`. It covers setup, the daily workflows and the
+rules that the repository enforces. For the system design, read
+[architecture.md](architecture.md). For the wire bytes, read
+[protocol.md](../protocol.md). For the contribution rules, read
+[CONTRIBUTING.md](../../CONTRIBUTING.md).
 
-## Setup
+The numbers on this page come from the code and from `https://emem.dev`
+on 7 November 2026. The `curl` commands ran against `https://emem.dev`
+on that date. The `cargo` commands are the ones that CI runs on every
+pull request to `main` (`.github/workflows/ci.yml`).
 
-| | |
+## Prepare a build host
+
+| Item | Value |
 |---|---|
-| Rust toolchain | 1.91 (workspace `rust-version` in `Cargo.toml`) |
+| Rust | 1.91 or later (`rust-version` in `Cargo.toml`). CI also runs clippy and tests on current stable. |
 | Edition | 2021 |
-| Workspace version | 1.2.1 |
-| OS for production | Linux, `debian:trixie-slim` (glibc 2.41 — required by `ort-sys` 2.0.0-rc.12) |
-| OS for dev | Linux or macOS; older glibc is fine if you skip the topic-router ONNX backend |
-| Repo | `github.com/Vortx-AI/emem`, branch `main` |
+| Workspace version | 2.4.4 |
+| Build tools | `g++`, `protoc` and the protobuf well-known types (`protobuf-compiler` and `libprotobuf-dev` on Debian), `mdbook` 0.5.2 |
+| glibc | 2.38 or later. `ort-sys` links symbols that glibc 2.36 does not have. The Docker image builds on `debian:trixie-slim` (glibc 2.41). |
+| Operating system | Linux or macOS. CI runs the tests on `ubuntu-latest` and `macos-latest`. |
 
-```
+Build the docs site before you build the code. The server embeds
+`docs/book/` with `include_dir!`, so `cargo build` fails when that
+directory does not exist. `docs/book/` is in `.gitignore`.
+
+```sh
 git clone https://github.com/Vortx-AI/emem
 cd emem
-cargo build --workspace --release
-./target/release/emem-server  # binds 0.0.0.0:5051 by default
+mdbook build docs && rm -f docs/book/book.toml
+cargo build --workspace
+cargo run --release --bin emem-server   # listens on 0.0.0.0:5051
 ```
 
-The first build pulls a few hundred crates. Allow ~12 minutes on a clean
-host with cold caches; ~90 seconds on warm. The big-ticket transitive
-dep is `ort-sys` (bundled ONNX parser; needs `g++` and glibc 2.38+).
+The `rm` step removes the mdbook build configuration from the output, so
+that the binary does not serve it. The Dockerfile and CI do the same step.
 
-Port note: `5051` is emem's default. Port `5050` on the dev host is
-held by an unrelated `tile_server.py` for a different project, so it is
-permanently unavailable for emem; do not try to switch defaults to 5050.
+The default port is 5051. Do not change it to 5050: on the maintainers'
+host, another service uses port 5050.
 
-## Workspace tour
+## Know the workspace
 
-The workspace is 16 Rust crates. One-line role for
-each:
+The workspace has 19 member crates. A twentieth directory,
+`crates/zstd-0.13-compat`, is a patch shim and not a member.
 
 | Crate | Role |
 |---|---|
-| `emem-core` | bands, algorithms, functions, sources, topics, schema, taxonomy, manifest, privacy, tslot, cell, bbox |
-| `emem-codec` | cell64 / cid64 / tslot_text / vec64 / hilbert / geo / alphabet codecs |
-| `emem-fact` | Fact / Receipt / Attestation CBOR + ed25519 signing primitives |
-| `emem-claim` | Claim predicate (`Op` enum + value, no signature) |
-| `emem-cache` | sled wrapper |
-| `emem-fetch` | open-data connectors — 12 data modules (chirps, cog, dmsp_ols, firms, ftw, geonames, hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop) + 6 utility modules (cache_window, connectors, lib, proj, stac, template) |
-| `emem-storage` | sled hot cache, attesters reputation, append-only merkle log, `Server` + `MaterializingStorage` |
-| `emem-cubes` | AgriSynth `.npz` handle (Python authoritative) |
-| `emem-primitives` | recall, find_similar, trajectory, compare, compare_bands, diff, verify, query_region, binary_embedding, refinement, cbor_ops |
-| `emem-attest` | pure `merkle_root` + `merkle_root_and_paths` |
-| `emem-intent` | 7-variant `Intent` enum → `Plan{calls[]}` rule-based planner |
-| `emem-mcp` | MCP tool registry (single file) |
-| `emem-api-rest` | HTTP/MCP router, 173 `.route()` registrations (mapping to 106 OpenAPI-documented REST paths in `openapi.json`, 103 of them under `/v1/*`) + 116 MCP tools (18 core, 98 extended), all inline materializers |
-| `emem-cli` | 7 binaries (see below) |
-| `emem-sleep-agent` | sleep-time consolidation agent: background edge + refinement formation over the corpus |
-| `emem-scorecard` | memory-surface benchmark harness (MemoryAgentBench-style recall/edges runs) |
+| `emem-core` | Cells, tslots, taxonomy, registry loaders (bands, functions, sources, topics), signing keys, error catalog |
+| `emem-codec` | Text codecs: cell64, vec64, cid64, tslot text |
+| `emem-fact` | Fact types, canonical CBOR, content addressing |
+| `emem-claim` | Claim algebra (band, operator, value, tslot) and its evaluator |
+| `emem-cache` | Fact cache tiers |
+| `emem-fetch` | Source connectors that fetch upstream data on demand |
+| `emem-storage` | Cache, fetch, materializer and attestation log together; lazy materialization |
+| `emem-cubes` | Loaders for the AgriSynth 1792-dimension cubes |
+| `emem-primitives` | Read primitives: recall, query_region, compare, find_similar, verify, diff, trajectory |
+| `emem-attest` | Attestation envelope, receipt preimage, Merkle batching |
+| `emem-trace` | OS execution trace schema and its verification engine |
+| `emem-intent` | Intent grammar and a rule-based planner |
+| `emem-mcp` | MCP tool registry |
+| `emem-api-rest` | HTTP router: REST, MCP JSON-RPC, OpenAPI, and the inline materializers |
+| `emem-cli` | The `emem` CLI, `emem-server` and the demo and admin binaries |
+| `emem-guard` | Signed verdict server for AI inference hooks |
+| `emem-airgap` | Air-gapped node: a folder in, a folder out, no network |
+| `emem-scorecard` | MemoryAgentBench-style scorecard for a local responder |
+| `emem-sleep-agent` | Opt-in agent that merges contradicted memory into new signed memory |
 
-The bulk of the codebase is concentrated. `crates/emem-api-rest/src/lib.rs`
-is one file at ~24.8 k lines; it is the central router and holds every
-inline materializer. The foundation-embedding fan-out for `/v1/ask` lives
-in the sibling `ask_foundation.rs` module. `crates/emem-fetch` spans 12
-data connector modules (chirps, cog, dmsp_ols, firms, ftw, geonames,
-hansen_gfc, koppen, overture, terraclimate, wdpa, worldpop) plus 6 utility
-modules (cache_window, connectors, lib, proj, stac, template). Most
-contributions touch one or two crates at most — usually `api-rest` plus
-one of `fetch`, `primitives`, or `core`.
+Most of the code is in two places. `crates/emem-api-rest/src/lib.rs` is
+one file of about 108,000 lines (7 November 2026). It holds the router
+and every inline materializer. `crates/emem-fetch/src/` has 36 modules:
+one for each upstream source, plus helpers such as `cog.rs`, `stac.rs`
+and `proj.rs`. Most changes touch `emem-api-rest` and one of
+`emem-fetch`, `emem-primitives` or `emem-core`.
 
-Out of the workspace:
+Outside the workspace:
 
-- `web/` — static SSR HTML landing page (no React/Vue, no API calls).
-- `sdks/emem-py`, `sdks/emem-ts` — empty placeholders today; integrate
-  via REST or MCP.
-- `examples/` — LangChain, LlamaIndex, MCP host configs (claude-code,
-  cursor, cline, claude-desktop, gemini-extension, openai-gpt-action).
-- `ops/systemd/` — service unit + journald retention drop-in.
-- `Dockerfile` — multi-stage build, runtime stage on `debian:trixie-slim`.
-- `huggingface-space/` — Docker SDK wrapper around the GHCR image.
-
-## The 7 CLI binaries
-
-`crates/emem-cli` produces seven distinct binaries. Pick by intent:
-
-| Binary | Role |
+| Path | Contents |
 |---|---|
-| `emem` | introspection: `manifests`, `bands`, `functions`, `sources`, `errors`, `keygen`, `cell <cell64>` decode, `cell-encode <u64>`, `verify [path|-]` for offline receipt verify |
-| `emem-server` | the production HTTP+MCP server; single port serves both |
-| `emem-demo` | smoke test: 3 cells × 1 band against an existing endpoint |
-| `emem-livedemo` | full audit-trail run: 4 cells × 2 bands × 3 tslots = 24 facts; writes per-step JSON + curl repro + blake3 hashes + `trace.json` to `var/demos/<UTC>/` |
-| `emem-realdemo` | live-data run against Cop-DEM 30 m S3 tiles for Mt Fuji, Mt Everest, Grand Canyon |
-| `emem-ask-eval` | Routing check for `/v1/ask`: 12 fixed questions plus 1 intentional out-of-scope. Run it by hand; no CI job runs it. |
-| `emem-purge-fnkey` | admin cache-purge by `derivation.fn_key`; **server must be stopped** (sled holds an exclusive lock) |
+| `web/` | Static HTML pages, embedded with `include_str!` |
+| `sdks/` | `emem-py`, `emem-ts`, `emem-langmem`, `llama-index-tools-emem` |
+| `examples/` | MCP host configurations and framework examples (LangChain, LlamaIndex, CrewAI, AutoGen, and others) |
+| `ops/systemd/` | Example units, the watchdog and a journald retention drop-in |
+| `Dockerfile` | Multi-stage build, runtime on `debian:trixie-slim` |
+| `huggingface-space/` | A Docker wrapper around the GHCR image |
 
-The three demo binaries are intentionally non-overlapping. Use
-`emem-demo` for the 30-second sanity check, `emem-livedemo` when you
-want a directory you can paste in a PR, and `emem-realdemo` to confirm
-network-dependent ingest still works.
+## Pick a binary
 
-## Common workflows
+`crates/emem-cli` builds ten binaries.
 
-### Run a server locally
+| Binary | Use |
+|---|---|
+| `emem` | Inspect registries (`manifests`, `bands`, `functions`, `sources`, `errors`), make a key (`keygen`), decode or encode a cell (`cell`, `cell-encode`), and verify a receipt offline (`verify`) |
+| `emem-server` | The HTTP and MCP server. One port serves both. |
+| `emem-demo` | Short round trip: signs 3 facts with a temporary key, posts them to `/v1/attest`, then runs the read primitives |
+| `emem-livedemo` | Runs every primitive and writes each request, response and a `trace.json` index to a directory |
+| `emem-realdemo` | Reads Copernicus DEM 30 m tiles from public S3 and runs the read primitives on them |
+| `emem-connect-demo` | Runs the "connect and evolve" loop from `examples/connect-and-evolve.md` |
+| `emem-demo-device` | Enrols this host as a labelled demo device and publishes a trace |
+| `emem-ask-eval` | Checks how `/v1/ask` routes a fixed set of questions |
+| `emem-purge-fnkey` | Admin: removes cached facts by `derivation.fn_key`. Stop the server first. |
+| `emem-sled-slim` | Admin: copies the live sled trees into a new store. Stop the server first. |
 
+Other crates build `emem-guard`, `emem-airgap`, `emem-encode`,
+`emem-scorecard` and `emem-sleep-agentd`.
+
+`emem-demo`, `emem-livedemo` and `emem-realdemo` write to the server.
+Run them against your own node, not against `https://emem.dev`.
+
+## Run a local server
+
+```sh
+EMEM_DATA=:memory: cargo run --release --bin emem-server
 ```
-EMEM_DATA=:memory: cargo run --release --bin emem-server &
-sleep 2
-curl -s http://127.0.0.1:5051/health | jq
-curl -s -X POST http://127.0.0.1:5051/v1/locate \
-  -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru"}' | jq '.cell64'
+
+`EMEM_DATA=:memory:` keeps no files and makes a new responder key at each
+start. For work that must survive a restart, such as replaying receipts,
+use a real directory. The server then keeps its Ed25519 key in
+`<EMEM_DATA>/identity.secret.b32` (mode 0600). The default directory is
+`./var/emem`.
+
+## Call each primitive
+
+This sequence calls the main read primitives in the order that an
+integration uses them. Set `BASE` to your node. The responses below are
+from `https://emem.dev` on 7 November 2026.
+
+```sh
+BASE=http://127.0.0.1:5051
+H='content-type: application/json'
+
+# 1. What the responder is.
+curl -sS $BASE/health | jq -c '{version}'          # {"version":"2.4.4"}
+curl -sS $BASE/v1/manifests | jq -c 'keys'
+curl -sS $BASE/v1/grid_info | jq -c '.active_encoding.encoded_string_form'
+
+# 2. Find a place, then read its facts.
+CELL=$(curl -sS -X POST $BASE/v1/locate -H "$H" \
+  -d '{"place":"Bengaluru"}' | jq -r '.cell64')   # defi.zb493.xuqA.zcb5f
+curl -sS -X POST $BASE/v1/recall -H "$H" \
+  -d "{\"cell\":\"$CELL\",\"band\":\"dem\"}" > /tmp/recall.json
+jq -c '{facts: (.facts|length), bands: (.bands_already_attested_at_cell|length)}' /tmp/recall.json
+
+# 3. Compare two cells.
+curl -sS -X POST $BASE/v1/compare -H "$H" \
+  -d "{\"a\":\"$CELL\",\"b\":\"defi.zb592.nemu.zEvE\"}" | jq -c 'keys'
+
+# 4. A time series for one band.
+curl -sS -X POST $BASE/v1/trajectory -H "$H" \
+  -d "{\"cell\":\"$CELL\",\"band\":\"dem\",\"from_date\":\"2024-01-01\",\"to_date\":\"2024-12-31\"}" | jq -c 'keys'
+
+# 5. Check the receipt from step 2.
+jq '{receipt}' /tmp/recall.json | curl -sS -X POST $BASE/v1/verify_receipt \
+  -H "$H" -d @- | jq -c '{valid, signature_valid, preimage_version}'
 ```
 
-`:memory:` skips the sled file and gives you a fresh ephemeral
-responder identity per run. For anything reproducible — receipt
-round-tripping, livedemo, re-attesting after a restart — use a real
-data dir so `<EMEM_DATA>/identity.secret.b32` (mode 0600) persists the
-ed25519 key across runs.
+Step 5 returned `{"valid":true,"signature_valid":true,"preimage_version":2}`.
+`/v1/verify_receipt` takes the receipt inside a `receipt` field. `/v1/compare`
+takes the cells as `a` and `b`. `/v1/trajectory` needs a window:
+`from_date` and `to_date`, or `window: [a, b]` in Unix seconds.
 
-### Add a new band
+An empty answer must say why it is empty. `recall` returns
+`bands_already_attested_at_cell`, so a caller can tell a wrong query from
+an empty place. `compare_bands` returns `bands_with_no_history` for bands
+that the responder has never signed at any cell.
 
-1. Edit `crates/emem-core/data/bands-v0.json`. Append the band entry.
-   Verify cube offsets do not collide and that the total dim count
-   still equals 1792. The validator is in
-   `crates/emem-core/src/bands.rs`.
-2. `cargo test -p emem-core bands` — the registry tests catch overlap,
-   gap, and dim-sum errors.
-3. If the band derives from another band, add a recipe in
-   `crates/emem-core/data/functions-v0.json` and re-run the validators
-   in `crates/emem-core/src/functions.rs`.
-4. Wire a materializer. Inline materializers live in
-   `crates/emem-api-rest/src/lib.rs` (search for the band registry
-   `match` near the materializer index). Heavier connectors get a
-   module under `crates/emem-fetch/src/`.
-5. Register `band_materializer_meta` so `/v1/data_availability` reports
-   `history_available_from_unix` / `history_available_to_unix` /
-   `tempo_seconds` honestly. A null history bound is fine for static
-   climatology and for nowcast-only sources; the agent surface depends
-   on this signal being accurate.
-6. `cargo test -p emem-api-rest` — endpoint contract tests catch
-   regressions in the materializer fan-out.
+## Verify a receipt offline
 
-### Add a new connector
+Save the receipt object to a file, then run the `emem` CLI:
 
-A connector is the bytes-on-the-wire layer that sits behind a
-materializer. Steps:
+```sh
+jq '.receipt' /tmp/recall.json > /tmp/receipt.json
+./target/release/emem verify /tmp/receipt.json --base-url http://127.0.0.1:5051
+```
 
-1. New file under `crates/emem-fetch/src/<scheme>.rs`.
-2. Re-export from `crates/emem-fetch/src/lib.rs`.
-3. Use the `cog::range_read` helper for COG/GeoTIFF or the `stac`
-   helper for STAC catalogues — both already wrap `vsicurl` semantics
-   and a 30-second per-upstream timeout (overridden by
-   `EMEM_MATERIALIZER_TIMEOUT_SECS`).
-4. Update `crates/emem-core/data/sources-v0.json` so the source
-   shows up in `/v1/sources` and gets a real `sources_cid`.
-5. Document the source in `docs/developers/data-sources.md`. License, native
-   resolution, vintage cadence, primary URL, mirror if any. The doc is
-   `include_str!()`'d into the binary so it ships with the server.
+`emem verify` rebuilds the BLAKE3 preimage with the same code as
+`POST /v1/verify_receipt`. It picks the public key in this order:
+`--pubkey`, then the key at `--base-url` (or `EMEM_BASE_URL`) in
+`/.well-known/emem.json`, then the responder key in the receipt.
 
-### Add a primitive
+The browser has a third path. `web/verify.html`, served at `/verify`,
+loads `/emem-verify-core.js` from the same responder. That script
+rebuilds the preimage and checks the Ed25519 signature in the tab.
 
-1. New file under `crates/emem-primitives/src/<name>.rs` with a `Req`,
-   `Resp`, and an async function.
-2. Re-export from `crates/emem-primitives/src/lib.rs`.
-3. Wire into `crates/emem-api-rest/src/lib.rs` (axum router) and
-   `crates/emem-mcp/src/lib.rs` (MCP tool list).
-4. Add an OpenAPI schema entry in `api-rest/src/lib.rs`'s
-   `openapi_json()` builder.
-5. Sign the receipt:
-   `srv.sign_receipt(name, cells, fact_cids, was_cached, started, intent)`.
-   See `crates/emem-storage/src/server.rs:119` for the canonical
-   preimage layout.
+## Add a band
 
-### Test invariants
+1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
+   `key`, `offset`, `dims`, `tempo`, `privacy` and descriptive fields.
+   The `dims` of all bands must add up to 1792. Make sure that offsets
+   do not overlap.
+2. Run `cargo test -p emem-core bands`. The registry tests find overlaps,
+   gaps and a wrong total.
+3. If the band comes from other bands, add a recipe to
+   `crates/emem-core/data/functions-v0.json`.
+4. Connect a materializer. Inline materializers are in
+   `crates/emem-api-rest/src/lib.rs` (search for `async fn materialize_`).
+   A larger connector gets its own module in `crates/emem-fetch/src/`.
+5. Add the band to `band_materializer_meta` in the same file, so that
+   `/v1/data_availability` reports the true history window and tempo.
+   A null history bound is correct for static climatology and for
+   nowcast-only sources.
+6. Run `cargo test -p emem-api-rest`.
+
+## Add a connector
+
+1. Make a file `crates/emem-fetch/src/<source>.rs`.
+2. Declare the module in `crates/emem-fetch/src/lib.rs`.
+3. For COG or GeoTIFF data, use the range-read helpers in `cog.rs`. For
+   STAC catalogues, use `stac.rs`. The per-upstream timeout is 30 seconds;
+   `EMEM_MATERIALIZER_TIMEOUT_SECS` changes it.
+4. Add the source to `crates/emem-core/data/sources-v0.json`, so that it
+   shows in `/v1/sources` and in `sources_cid`.
+5. Describe the source in [data-sources.md](data-sources.md): licence,
+   native resolution, update cadence, primary URL and any mirror.
+
+## Add a primitive
+
+1. Make a file `crates/emem-primitives/src/<name>.rs` with a request
+   type, a response type and an async function.
+2. Export it from `crates/emem-primitives/src/lib.rs`.
+3. Add the route in `crates/emem-api-rest/src/lib.rs` and the tool in
+   `crates/emem-mcp/src/lib.rs`.
+4. Add the path to the OpenAPI document (`openapi_spec()` in
+   `crates/emem-api-rest/src/lib.rs`).
+5. Sign the receipt with
+   `srv.sign_receipt(primitive, cells, fact_cids, was_cached, started, intent)`
+   (`crates/emem-storage/src/server.rs`).
+6. Write a test that proves an empty answer says why it is empty.
+
+## Run the tests and lints
 
 | Goal | Command |
 |---|---|
-| Unit + bin tests, no network | `cargo test --workspace --lib --bins --tests` |
-| Live (network-dependent) tests | `cargo test --workspace --test live_cog_fetch` (or run the file directly — there is no `live` cargo feature, the network-gated tests live in `crates/emem-fetch/tests/live_cog_fetch.rs` and are skipped automatically when offline) |
-| Format (local) | `cargo fmt --all` |
-| Format (CI gate) | `cargo fmt --all --check` |
-| Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
+| Unit, binary and integration tests, no network | `cargo test --workspace --lib --bins --tests` |
+| Live network tests | `cargo test -p emem-fetch --test live_cog_fetch` |
+| Format | `cargo fmt --all` |
+| Format, CI gate | `cargo fmt --all --check` |
+| Lint, CI gate | `cargo clippy --workspace --all-targets -- -D warnings` |
 
-Unit tests live inline in `src/` next to the code under test
-(`#[cfg(test)] mod tests`); the only crate-level integration tests are
-`crates/emem-fact/tests/round_trip.rs` and `crates/emem-fetch/tests/live_cog_fetch.rs`.
+There is no `live` cargo feature. The live tests are in
+`crates/emem-fetch/tests/live_cog_fetch.rs`. They skip when you set
+`EMEM_NO_NETWORK=1`. Run them after you change a connector or the
+source registry.
 
-The "no stubs" rule is enforced by `feedback_no_stubs.md` and by the
-contract tests:
+Unit tests are in `src/`, next to the code (`#[cfg(test)] mod tests`).
+Five crates also have tests in `tests/`: `emem-airgap`, `emem-fact`,
+`emem-fetch`, `emem-primitives` and `emem-trace`.
 
-- `recall` returns `bands_already_attested_at_cell` so an empty
-  response distinguishes "wrong query" from "place is empty"; the
-  same envelope on `recall_many` repeats the list per cell.
-- `compare_bands` returns `bands_with_no_history` for bands the
-  responder has never attested anywhere, separately from bands it
-  has attested but not at this cell.
-- `recall` on a band with no materializer returns a structured
-  `MaterializeMiss` error, not an empty list.
-- `compare_bands` with a mismatched fact type errors instead of
-  silently coercing.
+CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on pull
+requests to `main`. These jobs gate a merge:
 
-When you add a primitive, write a test that locks at least one of
-those failure modes. Empty results with no shape information will be
-caught in review.
-
-### Round-trip a receipt
-
-```
-curl -s -X POST http://127.0.0.1:5051/v1/recall \
-  -H 'content-type: application/json' \
-  -d '{"cell": "BGLR-1234", "band": "geotessera"}' \
-  > /tmp/receipt.json
-
-./target/release/emem verify /tmp/receipt.json \
-  --base-url http://127.0.0.1:5051
-```
-
-`emem verify` rebuilds the blake3 preimage byte-for-byte using the
-same code path as `POST /v1/verify_receipt`. Pubkey resolution is
-`--pubkey > --base-url's /.well-known/emem.json > the receipt's
-embedded responder`. Round-trip tests live at
-`crates/emem-fact/tests/round_trip.rs`.
-
-A third verification surface lives in the browser: `web/verify.html`
-(served at `/verify`) imports `@noble/curves@1.6.0/ed25519` and
-`@noble/hashes@1.5.0/blake3` from `https://esm.sh` and reproduces the
-exact preimage in JavaScript, so a receipt or a signed message you
-paste verifies its own signature locally without the page calling back
-to the responder. The CSP header is configured to allow esm.sh in
-both `script-src` and `connect-src` (see
-`crates/emem-api-rest/src/lib.rs` `security_headers`); the page falls
-back to `POST /v1/verify_receipt` automatically if the noble libs
-fail to load (CDN slowdown, blocked egress) and labels itself
-accordingly.
-
-### Driving every primitive against a local server
-
-Once `emem-server` is up on `:5051`, this sequence touches every
-agent-facing primitive in roughly the order an integration would:
-
-```
-BASE=http://127.0.0.1:5051
-JQ='jq -c'
-
-# 1. Discover what the responder thinks it is.
-curl -sS $BASE/health | $JQ
-curl -sS $BASE/v1/manifests | $JQ
-curl -sS $BASE/v1/grid_info | $JQ '.cell_kind, .pitch_m'
-
-# 2. Geocode + recall.
-CELL=$(curl -sS -X POST $BASE/v1/locate \
-  -H 'content-type: application/json' \
-  -d '{"q":"Bengaluru"}' | jq -r '.cell64')
-echo "cell=$CELL"
-curl -sS -X POST $BASE/v1/recall \
-  -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"band\":\"geotessera\"}" | $JQ
-
-# 3. Compare two cells on a shared band.
-curl -sS -X POST $BASE/v1/compare \
-  -H 'content-type: application/json' \
-  -d "{\"cell_a\":\"$CELL\",\"cell_b\":\"$CELL\",\"band\":\"geotessera\"}" | $JQ
-
-# 4. Trajectory across tslots.
-curl -sS -X POST $BASE/v1/trajectory \
-  -H 'content-type: application/json' \
-  -d "{\"cell\":\"$CELL\",\"band\":\"geotessera\",
-       \"from_unix\":1704067200,\"to_unix\":1735689599}" | $JQ
-
-# 5. Verify any one of those receipts offline.
-curl -sS -X POST $BASE/v1/verify_receipt \
-  -H 'content-type: application/json' \
-  -d @/tmp/receipt.json | $JQ
-```
-
-If any step returns 500 with `MaterializeMiss`, set
-`EMEM_AUTO_MATERIALIZE=1` and re-run; if a band has no materializer
-the response will instead be a clean `bands_with_no_history` list.
-Empty results that do not surface either signal are a regression.
-
-### Working with the live demo run
-
-`emem-livedemo` is the canonical "show me everything" run. It writes
-a directory under `var/demos/<UTC>/` with one JSON file per step
-plus a `trace.json` index, and the server exposes them at
-`GET /v1/demos`, `GET /v1/demos/:run`, `GET /v1/demos/:run/:file`.
-
-```
-EMEM_DEMOS_DIR=$PWD/var/demos \
-./target/release/emem-livedemo http://127.0.0.1:5051
-
-# inspect
-curl -s http://127.0.0.1:5051/v1/demos | jq '.runs[-1]'
-ls var/demos/$(curl -s http://127.0.0.1:5051/v1/demos \
-  | jq -r '.runs[-1].run')
-```
-
-The directory contains `request.json`, `response.json`, and
-`receipt.json` for every step plus a `repro.curl` file you can
-literally pipe to `bash`. When you are debugging a wire shape
-regression, that's the fastest way to bisect — diff `trace.json`
-against the previous good run.
-
-### When the topic router misbehaves
-
-`/v1/ask` routes a natural-language question to one of 26 declared
-topics via `BAAI/bge-base-en-v1.5` (CPU ort by default). Pre-stage with
-`scripts/install-topic-model.sh` so the first request is not paying
-a 90-second cold-start. Force the keyword backend for tests with
-`EMEM_TOPIC_BACKEND=keyword`. Override the model path with
-`EMEM_TOPIC_MODEL_DIR=/path/to/bge-base-en-v1.5`. The routing check
-is `emem-ask-eval`. No CI job runs it, so run it by hand after a routing change:
-
-```
-./target/release/emem-ask-eval --base http://127.0.0.1:5051
-```
-
-Exit 0 means every corpus question routed to its expected topic
-and returned a signed receipt; non-zero exit prints the failing
-question and what the router chose instead.
-
-## Commit + PR rules
-
-- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `test:`,
-  `chore:`. No subject-line emoji. Imperative mood.
-- Never add a `Co-Authored-By: Claude ...` trailer.
-- Never `--no-verify` a pre-commit hook. If the hook fails, fix the
-  underlying issue and create a new commit.
-- A new endpoint must update both the OpenAPI builder
-  (`api-rest/src/lib.rs::openapi_json`) and the MCP tool list
-  (`emem-mcp/src/lib.rs`) in the same commit.
-- A new band, algorithm, or source must update `bands-v0.json`,
-  `algorithms-v0.json`, or `sources-v0.json` and add a registry test.
-- Receipts must round-trip: ed25519 signature over the tagged
-  length-prefixed blake3 preimage (v1). The check in
-  `emem-fact/tests/round_trip.rs` locks this.
-
-## Repo navigation
-
-| Looking for | File |
+| Job | What it runs |
 |---|---|
-| The route table | `crates/emem-api-rest/src/lib.rs` (grep `route(`) |
-| MCP tool catalog | `crates/emem-mcp/src/lib.rs` |
+| `fmt` | `cargo fmt --all --check` |
+| `clippy` | `cargo clippy --workspace --all-targets -- -D warnings` on current stable |
+| `test` | `cargo test --workspace --release` on Linux and macOS, with the network blocked and `EMEM_NO_NETWORK=1` |
+| `msrv` | `cargo build --workspace` on Rust 1.91 |
+| `audit` | `cargo audit` for security advisories |
+| `python-sdks` | The Python SDK tests |
+| `whitepaper` | `python3 scripts/render_whitepaper.py --check` |
+| `doc-lint` | `scripts/doc_lint.py` and other repository checks |
+
+Clippy in CI uses the current stable toolchain. Run `rustup update stable`
+before you run clippy, or a new lint can pass locally and fail in CI.
+Do not run it while a build runs.
+
+## Debug the topic router
+
+`/v1/ask` sends a question to one of 27 topics in
+`crates/emem-core/data/topics-v0.json`. The default backend (`ort`) uses
+the `BAAI/bge-base-en-v1.5` model on the CPU.
+
+| Variable | Effect |
+|---|---|
+| `EMEM_TOPIC_BACKEND` | `ort` (default), `model2vec` or `keyword`. Use `keyword` in tests: it loads no model. |
+| `EMEM_TOPIC_MODEL_DIR` | The directory that holds `model.onnx` and `tokenizer.json` |
+
+Run `scripts/install-topic-model.sh` once to download the model (about
+435 MB) before the first `/v1/ask` call. After a routing change, run the
+routing check by hand. No CI job runs it.
+
+```sh
+cargo run -p emem-cli --bin emem-ask-eval -- --base http://127.0.0.1:5051
+```
+
+Exit code 0 means that every question went to its expected topic and
+returned a signed receipt. On a failure, the tool prints the question and
+the topic that the router chose.
+
+## Record a demo run
+
+`emem-livedemo` takes a base URL and an output directory. The defaults
+are `http://localhost:5051` and `./var/demos/<UTC stamp>`.
+
+```sh
+./target/release/emem-livedemo http://127.0.0.1:5051
+curl -s http://127.0.0.1:5051/v1/demos | jq -c 'keys'   # ["count","root","runs"]
+```
+
+The directory has one JSON file for each step and a `trace.json` index.
+The server lists runs at `GET /v1/demos`. To find a wire-shape
+regression, compare `trace.json` with the one from the last good run.
+
+## Commit and open a pull request
+
+The full rules are in [CONTRIBUTING.md](../../CONTRIBUTING.md) and
+[AGENTS.md](../../AGENTS.md). In short:
+
+- Write the subject in sentence case, 72 characters or fewer. The body
+  says why.
+- Do not add a `Co-Authored-By` trailer for an AI tool.
+- Do not use `--no-verify`. If a hook fails, fix the cause.
+- A new endpoint updates the OpenAPI document and the MCP tool list in
+  the same commit.
+- A new band, algorithm or source updates its registry file in
+  `crates/emem-core/data/` and adds a registry test.
+- A change to receipt signing or canonical CBOR also updates
+  `docs/protocol.md` and the browser verifier. `cargo test -p emem-fact`
+  checks the round trip.
+
+## Find things in the code
+
+| Item | Location |
+|---|---|
+| Routes | `crates/emem-api-rest/src/lib.rs` (search `.route(`) |
+| MCP tools | `crates/emem-mcp/src/lib.rs` |
 | Cell64 encoding | `crates/emem-codec/src/geo.rs` |
-| CID derivation (canonical CBOR → blake3 → b32-nopad-lower) | `crates/emem-fact/src/cbor.rs` + `crates/emem-fact/src/cid.rs` |
-| Receipt preimage builder (v1, canonical) | `crates/emem-attest/src/lib.rs` (`receipt_preimage_v1`); signer wiring in `crates/emem-storage/src/server.rs` (`sign_receipt_v1_inner`) |
-| Merkle root + path verification | `crates/emem-attest/src/lib.rs` |
-| Lazy materialization plumbing | `crates/emem-storage/src/lib.rs` (`MaterializingStorage::materialize_many`) |
-| Physics solvers (heat, wave, AR(2)) | `crates/emem-api-rest/src/physics.rs` |
-| Topic router (ort + tokenizers BERT) | `crates/emem-api-rest/src/topic_router.rs` |
-| Geocoder layering (embedded → cache → Photon → Nominatim) | `crates/emem-api-rest/src/lib.rs` near `EMEM_NOMINATIM_BASE` |
+| Fact CID (canonical CBOR, BLAKE3, base32) | `crates/emem-fact/src/cbor.rs`, `crates/emem-fact/src/cid.rs` |
+| Receipt preimage | `crates/emem-attest/src/lib.rs` (`receipt_preimage_v1`); signer in `crates/emem-storage/src/server.rs` (`sign_receipt`) |
+| Merkle root and paths | `crates/emem-attest/src/lib.rs` |
+| Lazy materialization | `crates/emem-storage/src/lib.rs` (`materialize_many`) |
+| Physics solvers | `crates/emem-api-rest/src/physics.rs` |
+| Topic router | `crates/emem-api-rest/src/topic_router.rs` |
+| Geocoder order | `crates/emem-api-rest/src/lib.rs`, near `EMEM_NOMINATIM_BASE` |
 
-## Filing issues
+## Report a bug
 
-GitHub issues at `github.com/Vortx-AI/emem/issues`. Include:
+Open an issue at `github.com/Vortx-AI/emem/issues`. Include:
 
-- emem version (Cargo.toml workspace `version`); `rustc --version`.
-- Output of `curl -s http://127.0.0.1:5051/v1/manifests` so the active
-  manifest CIDs are pinned in the report.
-- Reproducer: the curl command, expected response, actual response.
+- The server version (`version` in `GET /health`) and `rustc --version`.
+- The output of `curl -s http://127.0.0.1:5051/v1/manifests`, so that the
+  registry CIDs are in the report.
+- The `curl` command, the expected response and the actual response.
 
-## Security disclosures
+Do not report a security problem in a public issue. Read
+[SECURITY.md](../../SECURITY.md). A running responder also serves
+`/.well-known/security.txt`, with the contact from `EMEM_TLS_CONTACT`.
 
-Out-of-band, not GitHub issues. See `SECURITY.md` and
-`/.well-known/security.txt` (served by the running responder under
-`EMEM_TLS_CONTACT`, default `mailto:avijeet@vortx.ai`).
-
-For deployment and runtime concerns see `docs/operators/operating.md`.
+For deployment, read [operating.md](../operators/operating.md).
