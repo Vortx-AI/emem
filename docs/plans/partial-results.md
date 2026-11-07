@@ -1,138 +1,207 @@
-# Partial results: the answer is the store, not a job queue
+# Partial results: the store holds the state, not a job queue
 
-> Checked against the code 2026-09-29: all four build steps ship. Two things
-> differ from the text below. `budget_ms` is no longer opt-in: a
-> `recall_many` or `recall_polygon` call that passes none gets 75% of the
-> gateway timeout (`default_fanout_budget_ms` in
-> `crates/emem-api-rest/src/lib.rs`); backfill keeps its own budget. And the `pending[]` states the code
-> emits are `materializing`, `upstream_failed` and `skipped`, not
-> `budget_exhausted`. `/v1/grid` answers under the same contract. The current
-> reference is the endpoint table in [docs/agents.md](../agents.md) and the
-> `/v1/backfill` entry in `/openapi.json`.
+This page is a design record. The owner signed off the design on
+16 July 2026, and all four build steps shipped the same day. The current
+reference for each route is [docs/agents.md](../agents.md) and
+`/openapi.json` on emem.dev.
 
-**Status: signed off by the owner 2026-07-16, build step 1 ships the
-same day: `recall_polygon` accepts `budget_ms` and answers a
-first-class partial 200 with a typed `pending[]` (`materializing` when
-the budget expired mid-fetch, the fetch detached so it persists;
-`upstream_failed` with the remedy stated), `converged`, `progress`,
-and a retry hint. All four build steps ship the same day: the same
-contract on `recall_many`; the preparer form of `emem_backfill` (pass
-`cells`, up to 64, same band and window, same contract); and the
-densification warmer, off by default, enabled by
-`EMEM_WARM_INTERVAL_SECS` over an operator-declared
-`$EMEM_DATA/warm_priority.json` re-read every pass, taking one
-budgeted bite per interval, which is exactly the never-pretend-to-be-
-synchronous honesty the roadmap required of it.**
+## Status on 7 November 2026
 
-## The problem, restated from the roadmap
+The code is in `crates/emem-api-rest/src/lib.rs`. The examples below ran
+on emem.dev on 7 November 2026.
 
-A cold polygon cannot finish inside the 40 second gateway: worst case
-is roughly 31 sequential upstream round trips for one cell, and
-`recall_polygon` runs 64 cells in waves. An agent handed 40 of 64
-cells plus a list of what is still materializing can proceed; a 504
-teaches it to stop calling emem. Bounding the materializer shrinks the
-window but does not change the shape.
+| Item | Status | Where |
+|---|---|---|
+| `budget_ms`, `pending[]`, `converged` on an area read | Ships | `POST /v1/recall_polygon`, MCP `emem_recall_polygon` |
+| The same contract on a cell list | Ships | `POST /v1/recall_many`, MCP `emem_recall_many` |
+| The same contract on a grid | Ships | `POST /v1/grid`, MCP `emem_grid` |
+| The preparer: backfill over a cell list | Ships | `POST /v1/backfill` with `cells`, MCP `emem_backfill` |
+| The densification warmer | Ships, off by default | `EMEM_WARM_INTERVAL_SECS` and `warm_priority.json` |
+| Job ids, `/v1/jobs/*`, server-side cursors | Not built, by design | See [What the design leaves out](#what-the-design-leaves-out) |
+| Progress over a stream (SSE) | Not built | See [What the design leaves out](#what-the-design-leaves-out) |
 
-## The insight the design turns on
+Four points differ from the original design:
 
-Materialization PERSISTS. Every cell a request warms is signed and
-stored before the response goes out, so the identical request, retried,
-returns strictly more cells from cache and strictly fewer from
-upstream. That makes convergence a property of the store, not of a job
-scheduler: there is nothing to enqueue, no job id to mint, no state to
-reap, and nothing that breaks when the responder restarts mid-way. The
-"resume token" agents ask for is the request they already hold.
+- `budget_ms` is not opt-in on `recall_polygon`, `recall_many` and
+  `grid`. A call with no `budget_ms` gets 75% of the transport timeout.
+  The timeout is `EMEM_TIMEOUT_SECS`, default 40 s, so the default
+  budget is 30,000 ms (`default_fanout_budget_ms`).
+- The preparer form of `/v1/backfill` has no default budget. Without
+  `budget_ms` it runs until the transport timeout.
+- `budget_exhausted` occurs only in the preparer. It means the cell hit
+  `max_facts` before the end of the window.
+- The design put one receipt on the area answer. `recall_polygon` and
+  `recall_many` sign one receipt per cell, under `by_cell.<cell>.receipt`.
+  `grid` signs one receipt that cites every fact in the grid.
 
-## The design
+## The problem
 
-### 1. One request knob
+A cold area read can need many upstream fetches for each cell.
+`recall_polygon` reads 64 cells by default (`max_cells`, 1 to 1024). Such a
+read cannot finish inside the 40 s transport timeout. A 504 gives the agent
+nothing. An agent that gets 40 of 64 cells and a list of the rest can
+continue.
 
-Area reads (`recall_polygon`, `recall_many`, and `emem_backfill` when
-the preparer lands) accept `budget_ms`, an optional soft compute
-budget. Absent, behaviour is unchanged. Present, the responder fills
-cells until the budget expires, then answers with what it has. The
-budget bounds materialization work, not response assembly; a fully
-warm request ignores it.
+## The idea: materialization persists
 
-### 2. The partial response is a first-class 200
+The responder signs and stores every fact that it fetches. It does this
+before it sends the response. Thus the same request, sent again, gets more
+cells from the cache and fewer from upstream.
 
-```jsonc
+So the store holds the progress. There is no job to queue, no job id, and
+no state to clean up. A restart of the responder loses nothing. The
+"resume token" is the request that the agent already holds.
+
+## The contract
+
+### One request field
+
+An area read accepts `budget_ms`, a soft budget for fetch work. The
+responder fills cells until the budget expires. Then it answers with the
+cells it has. The responder detaches a fetch that is still in flight. It
+does not stop it, so the fetch persists its fact when it completes. A fully warm request finishes before the budget
+matters.
+
+### A partial answer is a normal 200
+
+This `recall_polygon` call asked for NDVI at 4 cold cells in Western
+Australia with a 300 ms budget:
+
+```sh
+curl -s https://emem.dev/v1/recall_polygon -H 'content-type: application/json' -d '{
+  "polygon_bbox": {"min_lat": -21.31, "min_lng": 129.61, "max_lat": -21.29, "max_lng": 129.63},
+  "bands": ["indices.ndvi"], "max_cells": 4, "budget_ms": 300}'
+```
+
+The first answer, trimmed, on 7 November 2026:
+
+```json
 {
-  "facts": [ /* every fact that is ready, signed as always */ ],
-  "receipt": { /* binds exactly the returned facts, nothing more */ },
+  "facts_returned": 0,
   "converged": false,
+  "budget_ms": 300,
+  "budget_ms_defaulted": false,
+  "budget_expired": true,
+  "progress": {"ready": 0, "pending": 4},
   "pending": [
-    { "cell": "defi...", "band": "indices.ndvi",
-      "state": "materializing",           // closed set, below
-      "reason": "upstream fetch in flight" }
+    {"cell": "defi.zb30d.xEfA.cojA", "bands": ["indices.ndvi"], "state": "materializing",
+     "reason": "the budget expired while this cell's fetch was in flight; the fetch was detached, not aborted, so it persists on completion and the identical retry finds it warm"}
   ],
-  "progress": { "ready": 40, "pending": 24, "total": 64 },
   "retry": {
-    "how": "repeat the identical request; each retry returns strictly more from cache",
+    "how": "repeat the identical request; every retry returns strictly more from cache, because everything materialized persists",
     "suggested_after_ms": 4000
   }
 }
 ```
 
-The `pending[]` states are a closed set, append-only:
-`materializing` (an upstream fetch this request started),
-`budget_exhausted` (not attempted this pass), and
-`upstream_failed` (attempted, failed, will be retried; carries the
-typed upstream error). This folds the agent channel's W6 ask
-(retryable errors with a remedy) into the same shape: every pending
-entry IS the remedy, stated.
+The same request about 5 seconds later returned `converged: true`,
+`progress: {"ready": 4, "pending": 0}`, 4 facts and a receipt on each
+cell. Two more retries returned the same answer.
 
-### 3. What the receipt attests, said precisely
+The answer carries `budget_ms`, `progress`, `pending` and `retry` when the
+call passed `budget_ms` or did not converge. `grid` copies them only when
+it did not converge.
 
-The receipt binds the facts RETURNED, exactly as today, and nothing
-about `pending`. A pending entry is advisory and unsigned, because it
-is a statement about the responder's work queue, not about the world.
-In particular a pending cell is NOT a signed absence: absence means
-"the source was consulted and there is nothing there", signed;
-pending means "not consulted yet", unsigned. Conflating them would
-poison the absence semantics that recall relies on, so the design
-keeps them disjoint by type, not by convention.
+### The `pending[]` states
 
-### 4. Convergence is monotone, and stated
+Each pending entry names the cell, the bands, a state and a reason. The
+entry tells the agent what to do next.
 
-`converged: true` appears when `pending` is empty. Two properties hold
-by construction and are documented as guarantees: retries never lose
-ground (persistence), and the same request converges to the same fact
-set regardless of how many retries it took (content addressing). An
-agent's loop is therefore three lines: call, use `facts`, retry later
-if `converged` is false.
+| State | Where | Meaning |
+|---|---|---|
+| `materializing` | All four routes | The budget expired while a fetch for this cell was in flight. The fetch continues and persists. |
+| `upstream_failed` | All four routes | The fetch for this cell failed. The reason gives the upstream error. Retry later. |
+| `skipped` | `recall_polygon`, `recall_many`, `grid` | The materializer skipped a band, with a retryable `reason_class` such as `timeout`. |
+| `deferred` | `recall_polygon`, `recall_many`, `grid` | The cold-fetch limit held a band back. The next call fetches it. |
+| `budget_exhausted` | `/v1/backfill` preparer | The cell reached `max_facts` before the end of the window. The retry continues from the stored slots. |
 
-### 5. What this unlocks, in order
+A skip that a retry cannot fix goes to `skipped[]`, not to `pending[]`.
+Examples are an unknown band or a band with no materializer. Such an
+answer can have `converged: true`. On 7 November 2026 a call with the
+unknown band `elevation.copernicus_dem_glo30` returned `converged: true`,
+0 facts, and four `skipped[]` entries with `reason_class: unknown_band`.
+Read `skipped[]` before you trust `converged`.
 
-1. **The memory preparer**: `emem_backfill` gains the same
-   `budget_ms` + `pending` contract over a cell list times a window,
-   and "warm this area before I reason over it" becomes a loop over
-   one idempotent call. No new tool.
-2. **Scheduled densification**: the supply-side warmer is the
-   preparer on a timer with a declared priority list. Its honesty
-   requirement (never pretend to be synchronous) is exactly the
-   partial contract.
-3. **The fetch verbs stay out of the core 14**: with partiality
-   first-class, the core loop's `emem_recall` already communicates
-   cold-start honestly, and none of the fetch verbs needs promoting.
+### What the receipt attests
 
-### 6. What this deliberately does not do
+A receipt binds the facts that the answer returns. It says nothing about
+`pending`. A pending entry is advisory and unsigned. It describes the work
+of the responder, not the world.
 
-- No job ids, no `/v1/jobs/*` surface, no server-side cursors. The
-  store is the state; anything else is a second source of truth that
-  can disagree with it.
-- No streaming (SSE progress) in v1. The retry loop above is enough
-  for agents; a stream is ergonomics that can ride later without
-  changing the contract.
-- No change to single-cell recall. One cell either answers inside the
-  gateway or fails with today's typed error; partiality is an
-  area-read concept.
+A pending cell is not a signed absence. An absence says that the responder
+read the source and found nothing there, and the responder signs it. A
+pending entry says that the responder did not read the source yet, and
+nobody signs it. The two have different types, so an agent cannot confuse
+them.
 
-## Build order, once signed off
+### Convergence
 
-1. `budget_ms` + `pending[]` + `converged` on `recall_polygon`
-   (the surface whose 504 taught agents to leave).
+`converged` is `true` when `pending` is empty. Two properties follow from
+the design:
+
+- A retry never loses ground, because fetched facts persist.
+- The same request converges to the same fact set, however many retries
+  it took, because facts are content-addressed.
+
+The agent loop is: call, use the facts, and send the same request again
+while `converged` is `false`.
+
+## What the contract made possible
+
+### The preparer
+
+`/v1/backfill` with `cells` (1 to 64 entries) fills one band over one
+window at each cell, under the same contract. "Fill this area before I
+reason over it" is a loop over one idempotent call. It added no new tool.
+
+```sh
+curl -s https://emem.dev/v1/backfill -H 'content-type: application/json' -d '{
+  "cells": ["Mount Fuji", "35.36,138.73"], "band": "era5.t2m",
+  "start_unix": 1759276800, "end_unix": 1760486400,
+  "max_facts": 3, "budget_ms": 2000}'
+```
+
+On 7 November 2026 this returned `schema: emem.backfill_prepare.v1`,
+`converged: false`, and two `budget_exhausted` entries. Each cell wrote 3
+facts, the `max_facts` limit, before the end of the window.
+
+### The densification warmer
+
+The warmer runs the preparer on a timer over a priority list that the
+operator writes. It is off by default.
+
+| Setting | Default | Effect |
+|---|---|---|
+| `EMEM_WARM_INTERVAL_SECS` | 0 (off) | Seconds between passes. A value above 0 starts the warmer. |
+| `EMEM_WARM_PRIORITY` | `$EMEM_DATA/warm_priority.json` | The list of cells and bands. The warmer reads it again on each pass. |
+| `EMEM_WARM_BUDGET_MS` | 30000 | The budget for each entry in one pass. |
+| `EMEM_WARM_MAX_IO_PRESSURE` | 10 | A due pass waits while IO stall is above this percent. It waits for one interval at most. |
+
+For an entry without a window, the warmer recalls the newest reading.
+For an entry with a window, it runs the preparer. The warmer writes the
+time of the last pass to `$EMEM_DATA/warm_state.json`, so a restart does
+not skip or repeat a pass.
+The format of the list is in the comment on `spawn_warm_priority_loop`.
+
+### The fetch tools stay out of the core loop
+
+The core `emem_recall` reports a skipped or deferred band in its
+`materialize_notes[]`. Area reads report the same notes as `pending[]`. So
+no fetch tool had to join the core tool list.
+
+## What the design leaves out
+
+- Job ids, a `/v1/jobs/*` surface, and server-side cursors. The store is
+  the state. A second record of progress could disagree with it.
+- Progress over a stream (SSE). The retry loop is enough for agents.
+  A stream can come later without a change to the contract.
+- A change to single-cell recall. One cell answers inside the timeout or
+  fails with a typed error. Partial results apply to area reads only.
+
+## Build order, as signed off
+
+1. `budget_ms`, `pending[]` and `converged` on `recall_polygon`.
 2. The same contract on `recall_many`.
-3. `emem_backfill` grows the cell-list form: the preparer.
-4. The densification warmer, riding the preparer on a schedule.
-5. Docs flip in the same commits, as always.
+3. The cell-list form of `emem_backfill`: the preparer.
+4. The densification warmer, which runs the preparer on a schedule.
+5. Documentation in the same commits.
