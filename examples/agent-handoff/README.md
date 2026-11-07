@@ -1,47 +1,75 @@
 # A session checkpoint that outlives its agent
 
-Every other example in this repository hands over a geospatial fact.
-This one hands over what the long-horizon pitch actually promises: an
-agent's OWN state. Run 1 parks a checkpoint as one signed memory file;
-run 2, a different identity in a different process, resumes from it
-and verifies it trusted nobody, not even run 1.
+The other examples in this repository hand over a geospatial fact.
+This one hands over the state of an agent.
+Run 1 writes a checkpoint as one signed memory file.
+Run 2 uses a different identity in a different process.
+It reads the checkpoint, checks it, and continues the task.
+
+## What you need
+
+- The `ememdev` CLI with the signing extra. Install it from this clone with `pip install -e "sdks/emem-py[signing]"`.
+  The PyPI package `ememdev[signing]` 2.4.4 has the same `whoami` and `write` commands.
+- An `emem-server` release binary at `target/release/emem-server`. Build it once with `cargo build --release --bin emem-server`.
+- `curl` and `python3`. Port 5099 must be free, or set `PORT`.
+
+## Run it
 
 ```bash
-pip install -e "sdks/emem-py[signing]"     # the ememdev CLI
-cargo build --release --bin emem-server    # once
+pip install -e "sdks/emem-py[signing]"
+cargo build --release --bin emem-server
 ./examples/agent-handoff/run.sh
 ```
 
-The script boots a THROWAWAY responder with its own temp data dir and
-its own key, so it touches no shared node and no real identity, and it
-deletes everything on exit. Roughly thirty seconds end to end.
+The script writes, but only to a throwaway local responder.
+That responder has its own temporary data directory and its own key.
+The script does not touch emem.dev or a real identity, and it deletes everything on exit.
 
-## What actually happens
+We did not run `run.sh` end to end for this page, because the docs host has no Rust toolchain to build `emem-server`.
+On 7 November 2026 we checked its parts separately:
 
-1. **Run 1 parks state.** A checkpoint (step completed, next action,
-   findings, a resume hint) becomes one file under the agent's own
-   `/memories/by_attester/<pubkey8>/` namespace, written with
-   `ememdev write`: the CLI signs the create with the agent's local
-   ed25519 key, and the responder returns a `file_cid` (the blake3 of
-   the content) plus a signed receipt. What run 1 leaves behind is one
-   line: the path and the cid.
-2. **Run 2 resumes.** A different identity calls `emem_memory_view` on
-   that path, checks the returned `file_cid` against the one run 1
-   published (byte drift is impossible to miss: the cid is the
-   content), and sends the receipt to `/v1/verify_receipt`, which
-   checks the responder's ed25519 signature. Only then does it read
-   `next_action` and continue the task.
+| Part | Check on 7 November 2026 |
+|---|---|
+| `ememdev whoami` | Returns `pubkey_b32`, `pubkey_short` and `namespace_root`. A different `HOME` gives a different key. |
+| `ememdev write --path --kind --base-url --body-file` | All four flags exist in `ememdev write --help` (2.4.4). |
+| `emem_memory_view` on a note on emem.dev | Returns `file_cid`, `content` and `receipt`, as the script expects. |
+| `POST /v1/verify_receipt` with that receipt | Returns `signature_valid: true`. |
+
+## What you get
+
+The script prints each step and stops with an error if a check fails.
+
+1. Run 1 writes the state.
+   The checkpoint holds the completed step, the next action, the findings and a resume hint.
+   `ememdev write` signs the create with the local Ed25519 key of the agent.
+   The file goes under the namespace of that agent, `/memories/by_attester/<pubkey8>/`.
+   The responder returns a `file_cid` and a signed receipt.
+   Run 1 leaves one line behind: the path and the `file_cid`.
+2. Run 2 resumes with a different identity.
+   It calls `emem_memory_view` on the path and compares the returned `file_cid` with the one from run 1.
+   It sends the receipt to `POST /v1/verify_receipt`.
+   Only after both checks pass does it read `next_action` and continue.
 
 ## What this shows, and what it does not
 
-- The checkpoint survives compaction, crashes, model swaps, and
-  vendor changes, because it is not in anyone's context window: it is
-  a signed file a successor RESOLVES rather than a summary it
-  inherits.
-- The successor's trust is arithmetic: content id plus signature,
-  no shared credentials, no "the previous agent said so".
-- On the HOSTED node this namespace is world-readable (the roadmap's
-  honest limits say exactly how), so a checkpoint like this is shared
-  state, not private state. Private agent state belongs on a
-  self-hosted responder, like the throwaway one this script boots,
-  until owner-scoped reads ship.
+- The checkpoint is not in a context window. It is a signed file that a later agent reads back.
+  So it survives compaction, a crash, a model change or a vendor change.
+- `file_cid` is the first 16 bytes of the BLAKE3 hash of the file bytes, in lowercase base32.
+- The script compares two `file_cid` values that the responder returned. It does not hash the content itself.
+  `POST /v1/verify_receipt` is the responder checking its own signature.
+  Neither check is independent of the responder.
+- For an independent check, hash `content` on the client and compare it with `file_cid`.
+  Then verify the receipt on the client with `em.verify_receipt` from the Python SDK
+  (see [docs/quickstart.md](../../docs/quickstart.md)) or on the [`/verify`](https://emem.dev/verify) page.
+  On 7 November 2026 this Python matched `file_cid` for a note on emem.dev:
+
+  ```python
+  import base64, blake3
+  mine = base64.b32encode(blake3.blake3(body["content"].encode()).digest()[:16]).decode().rstrip("=").lower()
+  assert mine == body["file_cid"]
+  ```
+
+- On the hosted node, anyone can read `/memories/by_attester/`. Only the attester can write there.
+  So a checkpoint on emem.dev is shared state, not private state.
+  Keep private agent state on a self-hosted responder, as this script does, until owner-scoped reads ship.
+  [docs/roadmap.md](../../docs/roadmap.md) gives the details.
