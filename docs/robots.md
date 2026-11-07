@@ -145,9 +145,9 @@ Use these fields to judge how strong the verdict is:
 |---|---|
 | `n` | The number of past readings that the comparison uses. |
 | `percentile_ci` | The interval that this sample supports. |
-| `verdict_supported_at` | `band` when the interval fits inside the band that the verdict names. `none` when the interval crosses a band boundary, and then the verdict is `null`. |
+| `verdict_supported_at` | `band` when the interval fits inside the band that the verdict names. `direction` when the interval fits inside quiet, usual or busy, but crosses the boundary to a "much" tier. Then the verdict does not use "much". `none` when the interval crosses a band boundary, and then the verdict is `null`. |
 | `superlative_supported` | `true` when the whole interval is in the top tenth or the bottom tenth. Only then does the verdict use "much". |
-| `bounded_claim` | The strongest claim that the full interval supports. |
+| `bounded_claim` | The strongest claim that the full interval supports. `says` is `null` when the interval contains the median of the camera. |
 | `counted_higher_than` | The exact rank. It needs no interval. |
 | `detector_fn_id` | The detector. The baseline uses only readings from this detector, because a different model gives a different measurement. |
 
