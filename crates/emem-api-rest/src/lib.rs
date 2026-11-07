@@ -35193,7 +35193,9 @@ fn openapi_spec() -> JsonValue {
             "/v1/algorithms":        {"get":{"summary":"composition recipe registry (formulas that fuse band facts)","operationId":"emem_algorithms","responses":{"200":json_ok}}},
             "/v1/compare_bands":     {"post":{"summary":"per-band diff at one cell: scalar delta or vector cosine between band A and band B (optionally pinned to specific tslots), with optional consistency predicate","operationId":"emem_compare_bands","requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/CompareBandsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/coverage_matrix":   {"get":{"summary":"per-band facts_count + has_materializer + last_attested_at","operationId":"emem_coverage_matrix","responses":{"200":json_ok}}},
-            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","responses":{"200":json_ok}}},
+            "/v1/coverage":          {"get":{"summary":"JSON snapshot of where data lives (cells + lat/lng + counts)","operationId":"emem_coverage","parameters":[
+                    {"name":"limit","in":"query","required":false,"schema":{"type":"integer","minimum":0,"default":1000,"description":"cells per page. Values above EMEM_COVERAGE_MAX_CELLS (default 200000) are lowered to it."}}
+                ],"responses":{"200":json_ok,"503":{"description":"the storage index scan failed; retry later","content":{"application/json":{"schema":{"type":"object","properties":{"schema":{"type":"string","const":"emem.error.v1"},"code":{"type":"string","const":"cache_error"},"message":{"type":"string"}}}}}}}}},
             "/v1/coverage_map.svg":  {"get":{"summary":"SVG render of corpus density","operationId":"emem_coverage_map","responses":{"200":svg_ok}}},
             "/v1/fleet":             {"get":{"summary":"satellite/sensor lineage feeding each band","operationId":"emem_fleet","responses":{"200":json_ok}}},
             "/v1/substrates":        {"get":{"summary":"substrate profile registry: per contributor class, the admission rule (archive recomputability or complete OS execution trace) and the required trace layers; content-addressed by manifest CID","operationId":"emem_substrates","responses":{"200":json_ok}}},
@@ -65475,10 +65477,9 @@ fn coverage_scan_index_limit(limit: usize) -> usize {
 }
 
 /// Builds the `/v1/coverage` body from the cell of each scanned index entry.
-/// Keys that do not decode as a cell64 (for example note namespaces) have no
-/// position, so they are left out of both `cells` and `total_cells`. Before,
-/// they were counted in the total and then dropped from the page, so
-/// `?limit=1` could return zero cells.
+/// Keys that do not decode as a cell64, such as note namespaces, have no
+/// position. They are left out of `cells` and `total_cells`, so a page never
+/// holds fewer cells than `limit` while `total_cells` is larger.
 fn coverage_page<'a>(
     scanned_cells: impl Iterator<Item = &'a str>,
     limit: usize,
@@ -65537,6 +65538,18 @@ mod coverage_page_tests {
     use super::*;
 
     const FUJI: &str = "defi.zb592.nUkO.zEzE";
+
+    #[test]
+    fn openapi_lists_the_limit_parameter_and_the_scan_failure() {
+        let spec = openapi_spec();
+        let get = &spec["paths"]["/v1/coverage"]["get"];
+        assert_eq!(get["parameters"][0]["name"], "limit");
+        assert_eq!(
+            get["responses"]["503"]["content"]["application/json"]["schema"]["properties"]["code"]
+                ["const"],
+            serde_json::to_value(ErrorCode::CacheError).unwrap()
+        );
+    }
 
     #[test]
     fn scan_window_does_not_shrink_with_a_small_page() {
