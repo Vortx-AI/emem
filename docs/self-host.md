@@ -67,10 +67,11 @@ Without `--user`, the uid 65532 process cannot write to a directory that your ow
 
 ### Use Docker Compose
 
-[`docker-compose.yml`](https://github.com/Vortx-AI/emem/blob/main/docker-compose.yml) starts a node for the witness role in
-[Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the volume `emem-data`, mounted at `/data`
-(`EMEM_DATA=/data`). It declares `https://emem.dev` as its peer unless you set `EMEM_PEERS`. The declaration
-only lists the peer. The witness job does the co-signing (see [Federation](federation.md#8e-what-each-new-node-must-publish-before-it-counts-as-joined)).
+[`docker-compose.yml`](https://github.com/Vortx-AI/emem/blob/main/docker-compose.yml)
+starts a node for the witness role in [Federation](federation.md). It binds `127.0.0.1:5051` and stores data in the
+volume `emem-data`, mounted at `/data` (`EMEM_DATA=/data`). It declares `https://emem.dev` as its peer unless you set
+`EMEM_PEERS`. The declaration only lists the peer. The witness job does the co-signing (see
+[Federation](federation.md#8e-what-each-new-node-must-publish-before-it-counts-as-joined)).
 
 Run these commands from the root of a clone of the repository:
 
@@ -109,7 +110,8 @@ curl -sX POST http://localhost:5051/v1/recall \
 ```
 
 The reply has `facts` and a `receipt`. Each fact has a `memory_token` and a `signer_pubkey_b32`. On your node, the
-signer is the `responder_pubkey_b32` key from `/live`. A client that checks receipts must pin that key, not the key of emem.dev.
+signer is the `responder_pubkey_b32` key from `/live`. A client that checks receipts must pin that key, not the key
+of emem.dev.
 
 List the MCP tools:
 
@@ -237,8 +239,9 @@ Each default below comes from the code on 7 November 2026.
 
 The four edge variables accept values from 1 to 1000000. The TTL, combine and refinement passes are off by default.
 You can run each of them again with the same result. The TTL pass moves an expired path from
-`emem.memory_files` to `emem.memory_files_expired`. It does not delete the note bytes, which stay in `emem.memory_file_blobs`. The combine pass writes one `semantic` note at `.consolidated/<unix_ts>.md`. It
-marks each source note with `superseded_by`. Memory search needs the BGE model; without it, `/v1/memory/search`
+`emem.memory_files` to `emem.memory_files_expired`. It does not delete the note bytes, which stay in
+`emem.memory_file_blobs`. The combine pass writes one `semantic` note at `.consolidated/<unix_ts>.md`. It marks each
+source note with `superseded_by`. Memory search needs the BGE model; without it, `/v1/memory/search`
 returns HTTP 503.
 
 The refinement pass looks for facts at one cell, band and time slot that different attesters disagree about. For
@@ -343,14 +346,15 @@ loginctl enable-linger "$USER"   # keeps the unit running after you log out
 ```
 
 emem.dev does not use this unit. It runs the image with `docker run` under a system unit,
-[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service). That unit is for a large store (about
-98 GB). Read it for the stop timeout and the OOM settings, but do not copy it for a small node.
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service).
+That unit is for a large store (about 98 GB). Read it for the stop timeout and the OOM settings, but do not copy it
+for a small node.
 
 ## Run a Hugging Face Space
 
 The Space at <https://huggingface.co/spaces/vortx-ai/emem> runs the same image. Its source is in
-[`huggingface-space/`](https://github.com/Vortx-AI/emem/tree/main/huggingface-space). Click "Duplicate this Space" to run a copy in your own Hugging Face
-account. This is a quick way to test without a VM.
+[`huggingface-space/`](https://github.com/Vortx-AI/emem/tree/main/huggingface-space). Click "Duplicate this
+Space" to run a copy in your own Hugging Face account. This is a quick way to test without a VM.
 
 The Space pins an image digest, not `:latest`, so it can be older than emem.dev. On 7 November 2026 the Space
 reported version 2.4.2 at `/live`, and emem.dev reported 2.4.4. The Space also signs with its own key, and so does
@@ -369,5 +373,5 @@ your copy.
 
 ## Read more
 
-[Operate a public node](operators/operating.md) covers the process model, backup and restore, sled tuning, geocoder warmup and
-production incidents.
+[Operate a public node](operators/operating.md) covers the process model, backup and restore, sled tuning,
+geocoder warmup and production incidents.
