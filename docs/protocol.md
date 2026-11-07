@@ -894,9 +894,10 @@ has a `FactCid`, the responder signs it, and you can cite it like a
 Primary or Derivative fact.
 
 The responder writes the reason as one line of text. Most reason texts
-start with a short code and a colon. The MODIS texts ("no valid ...
-observation in ...") and the Hansen texts ("Hansen GFC v1.13 tile ...
-not present ...") do not. `reason_cid` is the content address of
+start with a short code and a colon. Three kinds of text do not: the
+MODIS texts ("no valid ... observation in ..."), the Hansen texts
+("Hansen GFC v1.13 tile ... not present ...") and the algorithm texts
+("algorithm '...': missing input bands ..."). `reason_cid` is the content address of
 that text (`reason_cid_for`, `crates/emem-api-rest/src/lib.rs`):
 
 ```text
@@ -908,18 +909,32 @@ can hash the text and compare it with `reason_cid`. The responder
 signed some absences before it stored reason text. For those, `reason` is
 `null`.
 
-Examples of reason codes in the code on 6 November 2026:
+The reason codes in `crates/emem-api-rest/src/lib.rs` on 7 November
+2026 are below. The code is the text before the first colon. The
+`nightlights` band is retired on emem.dev (`RETIRED_UPSTREAM_GONE_BANDS`),
+so emem.dev no longer emits `dmsp_ols_out_of_bounds`. Old absences
+with that code still verify.
 
 | Reason code | When the responder emits it |
 |---|---|
 | `copdem_coverage_gap` | Cop-DEM GLO-30 has no tile here, or gives 0 m or no data (open ocean). |
 | `esa_worldcover_no_tile`, `esa_worldcover_no_class` | ESA WorldCover has no tile here, or the pixel is the no-data value 0. |
+| `esa_cci_biomass_coverage_gap` | The cell is outside ESA CCI Biomass v7.0 coverage (-50° to +80° latitude, or no 10° tile). |
 | `jrc_gsw_unmapped`, `jrc_gsw_no_data` | The JRC Global Surface Water pixel is 255 (outside the mapped domain, or no valid observation). |
 | `koppen_no_data` | The Köppen-Geiger pixel is 0 (outside the land domain). |
 | `dmsp_ols_out_of_bounds` | The cell is outside the DMSP-OLS latitude range of -65° to +75°. |
 | `worldpop_empty_aoi` | WorldPop gives no positive value in the 1 km² window. |
+| `wdpa_no_match` | The Overpass query finds no protected-area polygon that contains the point. |
 | `no_detections`, `outside_window` | FIRMS finds no fire in the cell, or the time slot is outside its 24-hour window. |
 | `jrc_gfc2020_coverage_gap`, `jrc_tmf_coverage_gap` | The cell is outside the latitude band of the forest dataset. |
+| `jrc_gfc2020_tile_not_found` | The 10° JRC GFC2020 tile is not in the published tile list. |
+| `wri_gdm_coverage_gap`, `wri_gdm_no_hansen_loss` | The cell is outside the WRI driver dataset, or Hansen finds no loss event to attribute. |
+| `radd_coverage_gap`, `radd_no_alert` | The cell is outside the RADD humid-tropics area, or RADD has no alert here. |
+| `opera_dist_no_alert`, `opera_dist_no_alert_date` | OPERA DIST shows no disturbance, or a status with no alert date after 2020-12-31. |
+| `gmrt_coverage_gap`, `gmrt_not_implemented` | The cell is outside the GMRT bathymetry area, or the GMRT read path cannot serve this request. |
+| `out_of_bounds`, `before_record`, `nodata` | CHIRPS: the cell is outside ±50° latitude, the date is before 1981-01-01, or the pixel is -9999. |
+| `geotessera_no_tile` | Tessera publishes no embedding tile for this cell and year. |
+| `needs_backfill` | A `temporal_diff` read has no stored fact at the earlier time slot. The text names the `POST /v1/backfill` call. |
 
 The OpenAPI `Fact` schema also lists a typed `absence_reason` label
 (for example `outside_coverage` or `unavailable_capability`). That
