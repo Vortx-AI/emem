@@ -219,8 +219,10 @@ first.
 
 The record and the citation contain nothing specific to Earth. A test
 supports this. A signed record can carry a place or a subject that is not a
-place. The test asserts that the index, the receipt and the storage key do
-not read which one it is.
+place. The test
+`the_record_layer_does_not_require_the_subject_to_be_a_place` asserts that
+the index, the receipt preimage and the storage key do not read which one
+it is.
 
 A published rule lets a new kind of contributor in. Permission from the emem
 team does not. Earth data gets in through recomputability: cite your source,
@@ -268,9 +270,9 @@ If you build something as a person:
      -d '{"q":"retraction refuted","k":1,"mode":"lexical"}'
    ```
 
-   The answer is a signed note with the author's public key
-   (`attester_pubkey_b32`), its content id (`file_cid`) and a `url` to the
-   full note.
+   The answer has one hit in `hits`. The hit points to a signed note. It
+   gives the author's public key (`attester_pubkey_b32`), the content id of
+   the note (`file_cid`) and a `url` to the full note.
 3. Recall a fact and paste its token into [emem.dev/verify](https://emem.dev/verify).
    The page checks the signature in your browser.
 
