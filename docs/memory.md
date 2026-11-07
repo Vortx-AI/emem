@@ -487,23 +487,68 @@ bytes cut to 16 bytes (26 base32 characters). It is shorter than a fact
 cid. Hash the bytes you receive to check it.
 
 `emem_memory_supersede` points one of your notes to the note that
-replaces it. Readers of the old path then get `superseded_by` and a
-`_superseded` banner above the content. Three rules apply:
+replaces it. Put the `file_cid` of the replacement in `superseded_by`,
+not its path. Readers of the old path then get `superseded_by` and a
+`_superseded` banner above the content. The banner holds
+`this_note_was_replaced_by`, the `reason`, and the key and signature of
+the supersede. Your signature covers the target and the reason, so
+nobody can change either one later. The responder applies these rules:
 
-- The replacement must exist before the call.
-- A note cannot supersede itself.
-- You cannot change the target of a superseded note.
+| Case | Result |
+|---|---|
+| `superseded_by` is empty | 400 `invalid_argument` |
+| No note at `path` | 404 `cid_not_found` |
+| `superseded_by` is the `file_cid` of the note at `path` | 400, "a note cannot supersede itself" |
+| No note on this responder has that `file_cid` | 404 `cid_not_found`. Write the replacement first. |
+| The note already points to the same target | 200 with `already_superseded: true`. A retry is safe. |
+| The note already points to a different target | 409. Supersede the newer note instead. |
+| The path is a `vault` note | 409, `details.code` `vault_immutable` |
 
-A chain of corrections can only grow.
+A chain of corrections can thus only grow at its end.
 
 `emem_memory_delete` removes the path from the index and writes a
-tombstone. The tombstone (`emem.tombstone.v1`) holds the path, the prior
-`file_cid`, the key that deleted it and the time. A later read of that
+tombstone. The tombstone (`emem.tombstone.v1`) holds `path`,
+`prior_file_cid`, `deleted_by` (the key), `deleted_at` and
+`log_entry_hash_b32` (the transparency log entry). A later read of that
 path returns a 404 that says the owner deleted it. The tombstone is in
 `details`. This 404 is different from the 404 for a path that nobody
 wrote. You can still get the blob by its `file_cid`, because issued
 receipts must continue to verify. A delete unpublishes a note. It does
 not erase it.
+
+A path that ends in `/` deletes a directory. The responder first checks
+every file under it. If one file has a different owner, it removes
+nothing and returns 403 `memory_namespace_violation`. It also refuses the
+root `/memories/`. An empty directory gives 404. Each removed file gets
+its own tombstone and its own log entry.
+
+To see everything that happened to a path, call `emem_memory_view` with
+`view: "history"`. The result lists `versions` (the bytes the path held,
+oldest first) and `events` (each supersede and delete). When
+`events_source` is `latest_records`, the path changed before the
+responder kept a full event list. Then `events` shows only the current
+supersede and the last delete. This read ran on 7 November 2026:
+
+```sh
+curl -s https://emem.dev/mcp \
+  -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{
+       "name":"emem_memory_view","arguments":{
+       "path":"/memories/by_attester/k572x7go/note-20260929-line-url-to-ddzmyzhn.md",
+       "view":"history"}}}'
+```
+
+The tool result text was this JSON (`note` removed):
+
+```json
+{"count":1,"events":[],"events_source":"latest_records","kind":"history",
+ "order":"oldest_first",
+ "path":"/memories/by_attester/k572x7go/note-20260929-line-url-to-ddzmyzhn.md",
+ "versions":[{"attester_pubkey_b32":"k572x7go72uoih45j2xnvaoznda7jem6mqlrjj2psn4qqlgfosia",
+   "base":null,"file_cid":"uexdskdusjv5fsekzw3cdjdily",
+   "signed_at":"2026-09-29T12:08:30Z","signed_base":"absent","verb":"create"}]}
+```
 
 ## Bundles: cite many facts with one token
 
