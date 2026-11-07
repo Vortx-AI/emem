@@ -261,7 +261,7 @@ resolve into private, loopback, link-local or CGNAT space. It does not follow
 redirects. The gap between resolving a name and connecting to it is still
 open. The code documents it as a known limit, not as safe.
 
-#### Shipping state
+#### What is live
 
 The ladder, the checks and the gate are live. Enforcement is on by default
 in the code (`enlistment_enforcing` in `crates/emem-api-rest/src/lib.rs`).
@@ -518,7 +518,7 @@ emem refuses these, each for a stated reason:
 
 | Attack | State | Why |
 |---|---|---|
-| Serving wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
+| A node serves wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
 | Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain. At 02:29 UTC `head_is_witnessed_by_independent_operator` was `false`. That operator's freshest co-signature was 5 entries behind |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
@@ -606,7 +606,7 @@ credentials:
   bind the key to the name without asking either node;
 - `/.well-known/did.json`, so the signer resolves to a DID.
 
-That is the whole list. It is short on purpose. Witnessing is the one job
+That is the whole list. It is short on purpose. The witness job is the one job
 that gets stronger the less the witness holds. A bar that demands a corpus
 keeps out the parties whose independence is worth most. `geo.qa` meets this
 bar and has joined as a witness.
@@ -782,7 +782,7 @@ The witness job now samples 4 leaves per run (§8a, §9e item 1).
 
 Roles with different exposure. The Graph separates Indexers (stake and
 serve), Fishermen (dispute with a Proof of Indexing) and Arbitrators
-(decide). Slashing is 2.5% of self-stake. Without stake, the roles are still
+(decide). A slash takes 2.5% of self-stake. Without stake, the roles are still
 real. emem has a responder (writes facts), attesters (write notes), witnesses
 (co-sign heads), and a reputation leaderboard at `/v1/contributors` that no
 code path reads. Since September the witness job audits served bytes against
@@ -936,7 +936,7 @@ Listed, checked on 7 November 2026:
 | GHCR | `emem`, `emem-airgap`, `emem-encode` images |
 | Docker MCP catalog, Dify marketplace | listed (Dify at 2.2.0 on 2026-09-05; not checked again) |
 
-Missing:
+Not listed yet:
 
 - LlamaIndex. `sdks/llama-index-tools-emem` is at 2.4.4 and its tests run in
   CI. It is not on PyPI (404 on 7 November 2026) and not in
