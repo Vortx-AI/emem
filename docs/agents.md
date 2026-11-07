@@ -1125,8 +1125,10 @@ has an `as_of` block. An auditor can replay the query later and get the same
 bytes. `edges/recall` takes `as_of_tslot` only. `diff`, `compare` and
 `verify` take no time bound. On 7 November 2026, the `/openapi.json` schemas
 showed the bounds only for recall, `recall_polygon` and `trajectory`. The MCP
-schemas showed them for the first seven primitives. `/mcp/full` lists names
-and descriptions only. Get one schema with `emem_tools` and `{"name": "emem_state"}`.
+schemas showed them for the first seven primitives. A GET of `/mcp/full`
+lists names and descriptions only. A `tools/list` call to `/mcp/full`
+returns each schema, 12 tools to a page (follow `nextCursor`). To get one
+schema, call `emem_tools` with `{"name": "emem_state"}`.
 No published schema shows the bounds in a `memory_bundle` triple
 (`BundleTriple` in `crates/emem-primitives/src/memory_bundle.rs`).
 
@@ -1179,7 +1181,8 @@ server answers with 2025-11-25. The server also speaks the stateless
 revision 2026-07-28, which has no `initialize`. For that revision, send
 `server/discover` with the header `MCP-Protocol-Version: 2026-07-28`. On
 7 November 2026 its `supportedVersions` listed all five versions. A
-self-hosted node listens on port 5051 by default. Set `EMEM_BIND` to change it. Reads need no key.
+self-hosted node listens on port 5051 by default. Set `EMEM_BIND` to
+change it. Reads need no key.
 
 | Client | Config |
 |---|---|
