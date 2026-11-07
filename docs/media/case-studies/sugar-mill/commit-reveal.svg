@@ -1,21 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 600" width="640" height="600" role="img" aria-labelledby="t d">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 624" width="640" height="624" role="img" aria-labelledby="t d">
   <title id="t">Panel 4 commit-then-reveal timeline, 6 November 2026 (UTC)</title>
   <desc id="d">Seven steps from top to bottom. Before 20:29 each team puts the sha256 of its secret in the plan. At 20:29 a signed public note fixes the plan, the draw script, the tested file and both commitments. At 20:30 team A reveals its secret to team B. At 21:30 team B checks it against the commitment: it matches, and the hash is of the hex text. At 21:35 an addendum explains this rule and does not change the plan. Not yet done on 6 November 2026: team B reveals, then the draw script runs; later come the cards, the blind reads and the score. The draw script stops if a secret does not match its commitment.</desc>
   <style>
     text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #e6edf3; }
     .h { font-size: 20px; font-weight: 600; }
-    .sub { font-size: 15px; fill: #8b949e; }
+    .sub { font-size: 16px; fill: #8b949e; }
     .time { font-size: 16px; font-weight: 600; fill: #79c0ff; }
     .later { fill: #8b949e; }
     .lab { font-size: 16px; }
-    .note { font-size: 14px; fill: #8b949e; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 14px; fill: #ffa657; }
+    .note { font-size: 16px; fill: #8b949e; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 16px; fill: #ffa657; }
     .line { stroke: #8b949e; stroke-width: 2; }
     .dot { fill: #161b22; stroke: #e6edf3; stroke-width: 2; }
     .key { fill: #7ee787; }
     .wait { fill: #0d1117; stroke: #8b949e; stroke-width: 2; stroke-dasharray: 4 3; }
   </style>
-  <rect x="0" y="0" width="640" height="600" rx="8" fill="#0d1117"/>
+  <rect x="0" y="0" width="640" height="624" rx="8" fill="#0d1117"/>
 
   <text class="h" x="24" y="40">Panel 4, 6 November 2026 (UTC)</text>
   <text class="sub" x="24" y="64">Nothing is drawn before both secrets are revealed.</text>
@@ -57,5 +57,6 @@
 
   <text class="mono" x="24" y="526">seed = int(sha256("&lt;secret A&gt;|&lt;secret B&gt;")[:16], 16)</text>
   <text class="note" x="24" y="550">The draw script stops if a secret does not match its commitment.</text>
-  <text class="note" x="24" y="574">Green dot: the signed public note. Dashed: not yet done on 6 November 2026.</text>
+  <text class="note" x="24" y="574">Green dot: the signed public note.</text>
+  <text class="note" x="24" y="598">Dashed: not yet done on 6 November 2026.</text>
 </svg>
