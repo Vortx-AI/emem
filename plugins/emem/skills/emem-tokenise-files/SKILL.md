@@ -138,16 +138,20 @@ place of these.
    [`emem-multi-agent-handoff`](../emem-multi-agent-handoff/SKILL.md)
    describes.
 
-On 7 November 2026 at 00:49 UTC, step 3 printed:
+On 7 November 2026 at 02:45 UTC, the source of the example note was
+`README.md` at the root of the emem repository. Step 4 with that file
+printed:
 
 ```
 note    MATCH     file_cid=fucoti2h7r6plhxzd2m2cmtuve
 leaf    MATCH     row 3 'Quickstart' offset=5305 length=3727
 root    MATCH     path=4 steps root=fjh3xdiuj63byhevcoemfuslkqy5msuaeyfoizoj4kliwc46qljq
+unit    MATCH     blake3(file[5305:9032])
 ```
 
-Step 5 printed `sig VALID v2 verb=create`. `?row=Quickstart` returned
-the same row as `?row=3`.
+Step 3 printed the first three lines only. Step 5 printed
+`body MATCH`, then `sig VALID v2 verb=create` with the signer key
+`k572x7go...`. `?row=Quickstart` returned the same row as `?row=3`.
 
 | Line | What `check` makes sure of |
 |---|---|
@@ -162,8 +166,9 @@ the same row as `?row=3`.
 | 1 | One check printed `MISMATCH`. |
 | 2 | Bad input, for example a file that is not JSON. |
 
-With one hash in the audit path changed, the `root` line printed
-`MISMATCH` and the script exited with 1. A record from 28 September
+On 7 November 2026, one hash in the audit path of `row.json` was
+changed. The `root` line then printed `MISMATCH` and the script exited
+with 1. A record from 28 September
 2026 shows the same result for the `unit` line when one word of the
 source changed. The same record shows `check` passing on a published
 107-row index of the GPT-2 safetensors file
@@ -173,7 +178,9 @@ source changed. The same record shows `check` passing on a published
 
 The two `404` rows came back from live calls on 7 November 2026. The
 `409` and `422` rows come from the code in
-`crates/emem-api-rest/src/tree.rs`.
+`crates/emem-api-rest/src/tree.rs`. Read the specific code in
+`details.code`. For `row_not_found`, the top-level `code` is
+`invalid_argument`.
 
 | Status | `details.code` | Cause | What to do |
 |---|---|---|---|
@@ -198,7 +205,16 @@ leaf value alone. The `file_cid` is the first 16 bytes of
 `POST /v1/tree/path` calculates a path for rows that you send. It
 publishes nothing. Send `{"index": <i>, "leaves": [...]}` with base32
 leaf hashes, or `{"index": <i>, "chunks": [...]}` with
-`url`, `offset`, `length` and `hash` for each row.
+`url`, `offset`, `length` and `hash` for each row. This command sends
+two leaves from `row.json` of step 3:
+
+```sh
+jq -c '{index: 0, leaves: [.leaf_b32, .path[0].hash_b32]}' row.json | curl -s -X POST https://emem.dev/v1/tree/path -H 'content-type: application/json' -d @-
+```
+
+On 7 November 2026 it returned `leaves: 2`, one path step with
+`side: "right"`, and `root_b32`. A `hash` that is not base32 of 32
+bytes gives `400 invalid_argument`.
 
 ## Pitfalls
 
