@@ -430,7 +430,8 @@ the change, cite the two parents. A reader can then compute
 
 `emem_intent` with `"type": "did_change"` does the same job. It also needs
 `window`, two tslots such as `[20484, 20754]`, not dates. The diff answer is
-in `results[0].result`.
+in `results[0].result`. On 7 November 2026 it held only `delta_fact` and
+`receipt`, with no `phenology` block. To get that block, call `emem_diff`.
 
 The diff answer also has a `phenology` block. For the call above, on
 7 November 2026, it said that the two readings were 95 days apart in the
