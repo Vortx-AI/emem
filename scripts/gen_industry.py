@@ -124,7 +124,7 @@ def scene(spec):
         s.text(rcx + 48, y - 4, name, 14, INK, font=MONO, weight="bold")
         if sub:
             s.text(rcx + 48, y + 18, sub, 11, INK_SOFT, font=MONO)
-    s.text(rcx, cys[0] - 76, "acts on the receipt", 12, INK, font=MONO, anchor="middle")
+    s.text(rcx - 30, cys[0] - 58, "acts on the receipt", 12, INK, font=MONO)
 
     # ---- centre: the signed receipt (big lush lotus + ribbon) ------------
     s.lotus(CX, CY, LR)
