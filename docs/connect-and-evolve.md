@@ -147,8 +147,10 @@ This is a signed write. It needs your own Ed25519 key, and this page does
 not run it.
 
 Send a signed attestation envelope to `POST /v1/edges`. Its `edges[]`
-array must not be empty. The edge leaves go into the Merkle root that the
-signature covers. The answer gives `edge_cids` and `edge_count`. Each
+array must not be empty. The envelope must also have a `facts` array. For
+an envelope with only edges, send `"facts": []`. The edge leaves go into
+the Merkle root that the signature covers. The answer gives `fact_cids`,
+`edge_cids` and `edge_count`. Each
 signing key can write about 240 times a minute, with a burst of 60, by
 default. Above that rate the answer is HTTP 429 `rate_limited`.
 
