@@ -1423,8 +1423,8 @@ struct Cost {
 
 The exact preimage construction is one function per version in
 `crates/emem-attest/src/lib.rs`: `receipt_preimage_v1`, and
-`receipt_preimage_v2` for everything signed after 2026-08-05 (the live
-`GET /v1/verifier_spec` gives the same date). The signer
+`receipt_preimage_v2` for everything signed after 2026-08-05. The live
+`GET /v1/verifier_spec` gives the same date. The signer
 (`crates/emem-storage/src/server.rs`) and the verifier (`POST
 /v1/verify_receipt`) call the same function you would.
 

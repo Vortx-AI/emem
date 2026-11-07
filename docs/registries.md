@@ -182,8 +182,12 @@ On 7 November 2026, emem.dev returned these totals:
 | `GET /v1/coverage_matrix` | `totals.bands_with_materializer` | 69 |
 
 The cube layout must stay stable. A change must keep every later offset.
-For this reason, the AlphaEarth slot became `_reserved_512` when its no-key
-path closed. Nobody removed the slot.
+For this reason, the AlphaEarth slot (512 dims at offset 192) became
+`_reserved_512` when its no-key path closed. Nobody removed the slot. Later
+bands took parts of it. `air_quality` took 7 dims at 192 and `clay_v1` took
+384 dims at 199. `_reserved_128` (121 dims at 583) holds the rest, so
+`sentinel2_raw` still starts at 704. The `bands.rs` tests assert these
+offsets.
 
 ## emem-algorithms (algorithms-v0.json)
 
