@@ -113,8 +113,9 @@ signed fact later, also send `as_of_signed_at`.
 
 A past `as_of_signed_at` does not fetch new data on a miss. emem signs a
 fact when it fetches it, so a new fact can never fall inside a past
-bound. The answer names the reason `as_of_signed_at_in_the_past`. Use `as_of_tslot` to ask
-about an old observation.
+bound. The answer has `facts: []` and a `materialize_notes` entry with
+`status: "skipped"` and `reason: "as_of_signed_at_in_the_past"`. Use
+`as_of_tslot` to ask about an old observation.
 
 Compliance and incident reviews ask "what did you know, and when". This
 read answers that question directly.
