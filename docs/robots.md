@@ -398,7 +398,9 @@ curl -s https://geo.qa/api/verify/key -o geoqa_key.json
 python3 check_clip.py clip_receipt.json geoqa_key.json
 ```
 
-`check_clip.py` needs `pip install cryptography`:
+`check_clip.py` needs `pip install cryptography`. On Debian and Ubuntu, install
+it in a virtual environment, as
+[Write your first signed note](memory.md#write-your-first-signed-note) shows.
 
 ```python
 import base64, hashlib, json, sys
