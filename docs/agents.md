@@ -1916,7 +1916,8 @@ three writers can occupy an address: this responder, a device enrolled
 through the OS-trace gate, and a key that the operator lists. To add your
 own value at a place, use `POST /v1/derive` (MCP `emem_derive`). A
 derivation cites its parent facts and cannot overwrite a fact that other
-agents recall. The rule is in `put_attestation` in `crates/emem-storage/src/lib.rs`.
+agents recall. The rule is in `put_attestation` in
+`crates/emem-storage/src/lib.rs`.
 
 Other signed writes do have MCP tools: the memory verbs, `emem_derive` and
 the entity writes. If you send a memory verb or `emem_derive` without a
@@ -2095,8 +2096,8 @@ After that time, the next recall asks the upstream again. When the pixel is
 still empty, the responder signs a new Absence with a new `signed_at`. The
 `fact_cid` hashes `signed_at`, so it changes. The `reason_cid` stays the
 same. The older Absence still resolves by its cid: on 7 November 2026,
-`POST /v1/fetch` with `caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a`
-returned the Absence signed at 23:43:13 UTC on 6 November.
+`POST /v1/fetch` with
+`{"cid":"caeais3m5g2rq3legrkz5nrwukap6dndrmxvcrhi2p5wnnmgs35a"}` returned the Absence signed at 23:43:13 UTC on 6 November.
 
 An agent that cites an Absence `fact_cid` makes a claim that you can
 verify: no data exists for this cell, band and tslot. A `404` gives no
@@ -2137,9 +2138,9 @@ A band key that the registry does not know gets an error before any fetch.
 On 7 November 2026, a recall with `"bands":["foo.bar"]` returned HTTP 400
 with `code: "band_not_in_registry"`. Use `GET /v1/bands` for the valid keys.
 
-The 400 comes only when the registry knows none of the requested bands. If you mix known and
-unknown keys, recall returns 200 with the known facts. The unknown keys are
-in `unknown_bands` and in `materialize_notes` with `reason_class:
+The 400 comes only when the registry knows none of the requested bands.
+If you mix known and unknown keys, recall returns 200 with the known
+facts. The unknown keys are in `unknown_bands` and in `materialize_notes` with `reason_class:
 "unknown_band"`. On 7 November 2026, `copdem30m.elevation_mean` with
 `nosuch.band` gave one fact and `"unknown_bands":["nosuch.band"]`. Check
 `unknown_bands` before you read a missing fact as "no data".
