@@ -76,6 +76,17 @@ repository.
    ```
 
    It prints `VALID`, the `digest` it rebuilt and the `signer` key.
+   The digest changes with each answer. The output looks like this:
+
+   ```text
+   VALID
+   preimage_v2:  328 bytes
+   digest:       3ba3d0ff86ec0e63c873e94b3e73291dd50e07455e62ffcbf4d95389feae8cf1
+   signer:       777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka
+   primitive:    emem.recall
+   cells:        1
+   fact_cids:    1
+   ```
 
 3. Make sure that the signer is the emem.dev responder. Compare the key
    from step 2 with the published key:
@@ -94,7 +105,7 @@ repository.
      | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["valid"], d["preimage_blake3_hex"])'
    ```
 
-On 7 November 2026 at 02:50 UTC, step 2 printed `VALID` and step 4
+On 7 November 2026 at 03:22 UTC, step 2 printed `VALID` and step 4
 printed `True` with the same digest. The signer in step 2 and the key in
 step 3 were both `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 
@@ -105,7 +116,8 @@ python3 -c 'import json; d=json.load(open("recall.json")); d["receipt"]["served_
 python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py tampered.json
 ```
 
-The script prints `INVALID` and exits with status 1. [§7](#7-receipt)
+The script prints `INVALID` and a different digest, and exits with
+status 1. [§7](#7-receipt)
 tells which fields the signature covers and how to rebuild the digest
 yourself.
 
