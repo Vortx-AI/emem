@@ -509,8 +509,8 @@ The deferral does not change the cut-off that the verdict uses.
 | Request | What it returns |
 |---|---|
 | `GET /v1/algorithms/eudr_compliance@1` | Card for the per-cell rule: `inputs`, `formula`, `accuracy_band`, `citation` |
-| `GET /v1/algorithms/eudr_dds@1` | Card for the polygon step that wraps `eudr_compliance@1` |
-| `GET /v1/schemas/eudr_dds.json` | JSON Schema (draft 2020-12) of the response. It does not list every response field. |
+| `GET /v1/algorithms/eudr_dds@1` | Card for the polygon step that wraps `eudr_compliance@1`. Its `runtime_path` is `/v1/eudr_dds`. |
+| `GET /v1/schemas/eudr_dds.json` | JSON Schema (draft 2020-12) of the response. On 7 November 2026 it listed 15 top-level properties and required 5. The response body has 35 or more top-level fields. The top of this page names some that the schema omits. |
 | `GET /v1/cells/{cell64}/scene.png` | True-colour Sentinel-2 chip, 256 x 256 pixels, PNG |
 | `GET /v1/cells/{cell64}/scene.rgb` | The same chip as raw bytes, without PNG framing |
 | `GET /v1/scene.png?bbox=w,s,e,n` | True-colour Sentinel-2 chip cropped to a plot box in WGS 84, PNG |
