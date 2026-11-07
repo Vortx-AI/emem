@@ -22247,7 +22247,7 @@ async fn verifier_spec(State(s): State<AppState>) -> Json<JsonValue> {
                 "construction": "blake3_pipe",
                 "preimage": "blake3(\"emem.memory_write.v2|\" || verb || \"|\" || path || \"|\" || body_hash || \"|\" || base)",
                 "base": "the file_cid currently at `path`, or the literal `absent` when the path holds nothing (a create of a new path signs `absent`)",
-                "preimage_v1": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash), still accepted for create/str_replace/insert and refused for delete/rename",
+                "preimage_v1": "blake3(\"emem.memory_write|\" || verb || \"|\" || path || \"|\" || body_hash). Retired for new writes of every verb: a v1-signed write is refused with 401 reason v1_retired. Notes written with v1 before the retirement still verify when read.",
                 "which_was_signed": "memory_view's authorship block states preimage_version (1 or 2) and base for each note; verify against that one rather than trying both",
                 "source_of_truth": "emem_primitives::attester_preimage_v2 and attester_preimage, the functions the responder verifies against (verify_attester_versioned tries v2 first).",
                 "signed_bytes": "ed25519 signs the 32-byte blake3 digest, same as preimage_v1",
@@ -65591,6 +65591,22 @@ fn coverage_page<'a>(
 #[cfg(test)]
 mod reported_bug_tests {
     use super::*;
+
+    /// The write path refuses v1 for every verb (`v1_retired`), so the
+    /// verifier spec must not tell a signer that v1 still works for create.
+    #[test]
+    fn the_verifier_spec_says_v1_memory_writes_are_retired() {
+        let src = include_str!("lib.rs");
+        let line = src
+            .lines()
+            .find(|l| {
+                l.trim_start()
+                    .starts_with("\"preimage_v1\": \"blake3(\\\"emem.memory_write|")
+            })
+            .expect("caller_signed_objects.memory_write.preimage_v1 line");
+        assert!(line.contains("v1_retired"), "{line}");
+        assert!(!line.contains("still accepted"), "{line}");
+    }
 
     #[tokio::test]
     async fn a_get_only_path_is_not_told_to_use_post() {
