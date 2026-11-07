@@ -165,20 +165,24 @@ It has these fields:
 
 | Field | Meaning |
 |---|---|
-| `by_year` | List of `{"year", "cells"}` objects, one for each loss year, in ascending order |
+| `by_year` | List of `{"year", "cells"}` objects, one for each loss year above 0, in ascending order |
 | `after_cutoff_cells` | Cells with a loss year after `after_cutoff_year` |
 | `after_cutoff_year` | The year of `cut_off_date` in the request (2020 for the regulation date) |
 | `no_loss_cells` | Cells with loss year 0 (no loss) |
 | `unknown_cells` | Cells with no loss-year value, or a negative value |
 | `total_sampled_cells` | All sampled cells |
-| `cell_area_ha` | Area of one cell in hectares |
-| `after_cutoff_area_ha_sampled` | `after_cutoff_cells` times `cell_area_ha` (sampled area, not polygon area) |
+| `cell_area_ha` | Area of one cell in hectares, rounded to 6 decimals (0.009129 on 7 November 2026) |
+| `after_cutoff_area_ha_sampled` | `after_cutoff_cells` times the cell area, rounded to 4 decimals (sampled area, not polygon area) |
 | `basis` | Always `sampled_cells` |
+| `note` | Fixed text that repeats the rules in this section |
 | `signed_fact_cid` | CID of the signed histogram fact, or null if signing failed |
 | `parents_capped` | True if the plot had more than 1024 distinct loss-year facts |
 
 The endpoint signs the histogram as its own derived fact, `forest_change.lossyear_histogram`.
 That fact has `op: "histogram"` and `fn_key: "lossyear_histogram@1"`.
+Its `cell` is the plot centroid cell.
+Its `tslot_window` always spans the loss years 2001 to 2024 (tslots 31 and 54).
+Its `derivation.args` hold `plot_id`, `cutoff_year` and `n_sampled_cells`.
 Its `parents` cite the `forest_change.lossyear` facts of the cells, at most 1024, in CID order.
 The endpoint stores the fact and its parents, so each CID resolves at `/v1/facts/<cid>`.
 The response receipt includes the CID of the histogram fact, unless the receipt cap removes it
@@ -187,6 +191,8 @@ A signing error does not change the verdict. It only leaves `signed_fact_cid` nu
 
 The signed value has the year pairs, the four cell counts and `cutoff_year`.
 The same cells give the same value, so anyone can count the parents again and compare.
+Only cells with a loss-year fact become parents. A cell without that fact counts in `unknown_cells`.
+Thus, when `unknown_cells` is 0 and `parents_capped` is false, the parents cover every sampled cell.
 The fact also has `signed_at`, the time of signing.
 Thus each call signs a new fact with a new CID, even when the value does not change.
 
