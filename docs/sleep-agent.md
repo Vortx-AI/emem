@@ -58,7 +58,10 @@ Each pass has three steps.
      different attesters, and one attester that answered the same address
      from two different upstreams. A triple with a severity equal to or more than
      `EMEM_SLEEP_AGENT_MIN_SEVERITY` (default 0.3) is a candidate. A higher severity ranks the candidate
-     higher.
+     higher. The agent sends no `cell_prefix`, so the scan covers the
+     whole corpus. It asks for at most `EMEM_SLEEP_AGENT_TOPN` or 8
+     triples, whichever is larger. The server returns the highest
+     severities first (`client.rs`, `candidates.rs`).
    - Churn. The agent lists the notes of the configured kinds
      (`emem_memory_list_by_kind`). It groups them by a normalized path stem.
      The stem keeps the parent path. It cuts the last path part at its
@@ -71,7 +74,9 @@ Each pass has three steps.
      candidate. The agent does not read the version history of a note. It
      counts each note as one version (`history_len: 1` in `candidates.rs`).
      Thus only a group of two or more notes becomes a candidate, and
-     `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` has no effect today.
+     `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` has no effect today. When the
+     responder refuses a list for one kind, or a view for one note, the
+     agent skips it. The pass summary does not show the skip.
 
    The agent ranks candidates by a score (`candidates.rs`). A
    contradiction scores `1 + severity`, so at least 1.3 with the default
@@ -95,7 +100,10 @@ Each pass has three steps.
    `/memories/reconciled/<cell>/<band>`. The prompt gives the model only
    that path, not the values that disagree. The agent writes the result to
    that path as kind `semantic`, with no provenance trailer. Read such a
-   note as text from a model, not as a check of the facts.
+   note as text from a model, not as a check of the facts. The path has
+   no tslot. Two triples with the same cell and band but different tslots
+   therefore write to one path, and the later write becomes the current
+   version.
 
 After each pass, the agent prints a `PassSummary`. It shows the mode, the
 candidate counts by source, the merges written, the new CIDs, the spend and
