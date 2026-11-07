@@ -1,20 +1,18 @@
 # A trimmed receipt reports authentic data as forged
 
-> Checked 2026-09-29: both pieces of work shipped. The reproduction below, run
-> against emem.dev today, returns `valid: true` for the full receipt and, for
-> the trimmed one, `signature_valid: false` with `reason:
-> "receipt_reshaped_after_signing"` and a `failure_detail` naming the absent
-> `merkle_proof`, instead of an undifferentiated `signature_invalid`. The
-> OpenAPI `Receipt` schema and the Python SDK README state that a receipt is
-> byte-for-byte or nothing. The current reference is
-> [docs/protocol.md](../protocol.md) and `GET /v1/verifier_spec`.
+Status: both work items shipped. This page started as a plan. It now records
+the defect, the fix, and how to check the fix. The current reference for
+receipts is [docs/protocol.md](../protocol.md) and `GET /v1/verifier_spec`.
 
-Found in PR #18, reproduced against production 2026-08-11.
+PR #18 found the defect, and a check against emem.dev reproduced it on 11
+August 2026. A second check confirmed the fix on 29 September 2026. The reproduction below ran
+again on 7 November 2026 with the results shown.
 
-## The reproduction
+## Reproduce it
 
 ```python
 import json, urllib.request
+
 def post(p, b):
     r = urllib.request.Request("https://emem.dev" + p, data=json.dumps(b).encode(),
                                headers={"Content-Type": "application/json"})
@@ -24,62 +22,82 @@ rec  = post("/v1/recall", {"cell64": "defi.zb493.xuqA.zcb5f", "bands": ["indices
 full = rec["receipt"]
 trimmed = {k: v for k, v in full.items() if k != "merkle_proof"}
 
-post("/v1/verify_receipt", {"receipt": full})     # signature_valid True,  merkle_proof_valid True
-post("/v1/verify_receipt", {"receipt": trimmed})  # signature_valid False, merkle_proof_valid None
+post("/v1/verify_receipt", {"receipt": full})     # valid True, merkle_proof_valid True
+post("/v1/verify_receipt", {"receipt": trimmed})  # valid False, reason receipt_reshaped_after_signing
 ```
 
-## Why it happens, and why the cause is correct
+Results on 7 November 2026:
 
-2.0.0 moved receipts to `preimage_version: 2`, which binds the inclusion proof
-into the signature. That change was right and the CHANGELOG explains why: under
-v1 the signature covered a receipt's fields but not its proof, so an
-intermediary could delete `merkle_proof` wholesale and the receipt still
-verified, reporting itself valid with `merkle_proof_valid: null`. A downgrade
-with no trace.
+| receipt sent | `valid` | `signature_valid` | `merkle_proof_valid` | `reason` |
+|---|---|---|---|---|
+| full, unchanged | `true` | `true` | `true` | `null` |
+| `merkle_proof` removed | `false` | `false` | `null` | `receipt_reshaped_after_signing` |
+| `preimage_version` removed | `false` | `false` | `true` | `receipt_reshaped_after_signing` |
+| one character of a `fact_cids` entry changed | `false` | `false` | `null` | `signature_invalid` |
 
-The consequence nobody wrote down is that receipts are now byte-for-byte or
-nothing. Any SDK, wrapper or integration that reshapes a receipt, summarises it,
-or drops a field it considers redundant produces `signature_valid: false` on
-data that was never tampered with.
+For a reshaped receipt, `failure_detail` names the changed segment. It tells
+the caller to fix the serialiser and verify the original bytes again. For a
+tampered receipt, `failure_detail` says the rebuilt preimage does not match
+the signature.
 
-## Why it matters more than a normal false negative
+## Why the signature fails
 
-A false "forged" is worse here than a missed forgery. It teaches an agent to
-distrust the one thing that was actually provable, and it is indistinguishable
-on the wire from real tampering: `signature_valid: false` with
-`merkle_proof_valid: null` is exactly what a stripped proof looks like, because
-that is exactly what it is.
+Version 2.0.0 moved receipts to `preimage_version: 2`. The v2 preimage binds
+the inclusion proof into the signature. Under v1, the signature covered the
+receipt fields but not the proof. An intermediary could delete `merkle_proof`
+and the receipt still verified, with `merkle_proof_valid: null`. That was a
+silent downgrade, and v2 closes it.
 
-## Two pieces of work
+The result is that a receipt verifies byte for byte or not at all. An SDK or
+wrapper that drops, renames or summarises a field makes the signature fail.
+This is true when nobody tampered with the data.
 
-### 1. State the contract where an integrator will hit it
+## Why a false "forged" is a problem
 
-Receipts are byte-for-byte. Field-level reshaping invalidates the signature by
-design, not by accident. That belongs in `emem_verify_receipt`'s tool
-description, in the receipt schema in the OpenAPI, and in the SDK docs that
-hand receipts to callers.
+A false "forged" teaches an agent to distrust data that it can prove. Before
+the fix, a trimmed receipt and a tampered receipt gave the same answer:
+`signature_valid: false` and `merkle_proof_valid: null`. An integrator had no
+way to tell a serialiser bug from an attack.
 
-### 2. Make the failure legible
+## The two work items
 
-Today a trimmed receipt and a tampered one return the same shape. The verifier
-knows the difference: `preimage_version: 2` requires the proof segment, so an
-absent `merkle_proof` on a v2 receipt is a structural fault, not a signature
-mismatch. Say so. An integrator should read "the proof segment is absent, and
-v2 binds it" and go fix their serialiser, rather than read "forged" and go
-hunting an attacker.
+### 1. State the contract where an integrator reads it
 
-This is the same defect class this repo kept finding through 2026-08-10 and 11:
-a true answer that reads as a different, worse answer. Guard returning `allow`
-on an unresolvable citation. `checked: 1` reading as "verified". A core profile
-declaring 16 tools in the same body that returned 12. Each was correct and each
-misled.
+Shipped. These places now say that a receipt is byte for byte or nothing:
+
+- the `emem_verify_receipt` tool description (MCP, checked on 7 November 2026)
+- the `Receipt` schema in `GET /openapi.json`
+- the `receipt` field description in `crates/emem-mcp/src/lib.rs`
+- `sdks/emem-py/README.md` and `sdks/emem-ts/README.md`
+
+### 2. Make the failure clear
+
+Shipped in `crates/emem-api-rest/src/lib.rs` (search `reshaped_segment`).
+When the signature fails, the verifier finds the inclusion proof that this
+responder recorded for the first fact in `fact_cids`. It rebuilds the v2
+preimage with that proof. If the signature then verifies, something reshaped
+the receipt after signing, and `reason` is `receipt_reshaped_after_signing`. The changed
+segment is `preimage_version` when the receipt no longer says v2. Otherwise
+it is `merkle_proof`.
+
+Limits of this check:
+
+- It never accepts a receipt. `valid` and `signature_valid` stay `false`.
+- It works only when this responder holds the fact. For a receipt from
+  another responder, the answer stays `signature_invalid`.
+- A receipt changed in any other field fails the rebuilt preimage too. The
+  answer stays `signature_invalid`.
 
 ## What must not regress
 
-- A genuinely tampered receipt must still fail. Whatever distinguishes absence
-  from mismatch must not become a path that accepts a bad signature.
-- v0 and v1 receipts still verify under their own rules. The verifier selects
-  by `preimage_version`; do not collapse that.
-- `/v1/verify_receipt` and the in-browser verifier at `web/verify.html` must
-  agree, along with the byte-by-byte example in `docs/protocol.md`. AGENTS.md
-  pins those three as needing to stay in step.
+- A tampered receipt must still fail. The reshape check must never become a
+  path that accepts a bad signature.
+- Receipts with `preimage_version` 0 and 1 still verify under their own
+  rules. The verifier selects the rule from `preimage_version`.
+- `POST /v1/verify_receipt`, the in-browser verifier at `web/verify.html`,
+  and the byte-by-byte example in `docs/protocol.md` must agree.
+
+The same class of defect appeared several times in August 2026: a true answer
+that reads as a different, worse answer. Guard returned `allow` on a citation
+it could not resolve. Callers read `checked: 1` as "verified". A core profile
+declared 16 tools in a body that returned 12.
