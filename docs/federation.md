@@ -436,11 +436,12 @@ minute to minute. At 07:02 UTC on the same day,
 the same.
 
 The outbound direction also ran that day. `GET /v1/log/witnesses` on
-`https://geo.qa/emem` at 07:30 UTC showed that emem.dev's key
-(`k572x7go72uo...`) co-signed the geo.qa head at tree size 142 at 07:17 UTC,
+`https://geo.qa/emem` at 07:55 UTC showed that emem.dev's key
+(`k572x7go72uo...`) co-signed the geo.qa head at tree size 142 at 07:47 UTC,
 0 entries behind. geo.qa lists that key as `key_only`, because geo.qa holds
-no fresh enlistment evidence for it (`witness_tier`). So on geo.qa,
-`head_is_independently_witnessed` was `true` and
+no fresh enlistment evidence for it. Each row shows this in its `tier`
+field, and the totals show `witness_keys_by_tier` `{"key_only": 1}`.
+So on geo.qa, `head_is_independently_witnessed` was `true` and
 `head_is_witnessed_by_independent_operator` was `false`.
 
 #### Read the independent fields, not `head_is_witnessed`
