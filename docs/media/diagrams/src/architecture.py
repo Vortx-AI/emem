@@ -77,7 +77,7 @@ def arrow(y0, y1, cls="flow", m="a"):
 
 
 steps = [
-    ("2", "Look up", ("sans txt", 120, "sled cache on local disk"), [
+    ("2", "Look up", ("sans txt", 120, "redb fact store on local disk"), [
         ("sans txt", "A hit returns the stored fact at once."),
         ("sans txt", "A miss goes to step 3."),
     ]),
@@ -160,7 +160,7 @@ H = y + 4
 desc = (
     f"What answers when an agent calls emem.dev. Step 1, Call: REST has {n_v1} paths under /v1, MCP at POST /mcp "
     f"has {n_tools} tools, and both reach the same handlers. Steps 2 to 6 run inside one Rust binary, emem-server "
-    f"version {wk['version']}. 2 Look up: a sled cache on local disk; a hit returns the stored fact. "
+    f"version {wk['version']}. 2 Look up: a redb fact store on local disk; a hit returns the stored fact. "
     f"3 Fetch on a miss: {n_sources} sources in the registry, for example sentinel2.l2a through Planetary Computer "
     "STAC, copernicus.dem.30m as a COG on AWS open data, and open_meteo as a JSON API; HTTP range reads take only "
     f"the bytes needed. 4 Hash: canonical CBOR, and its BLAKE3 hash is the fact id, for example {FACT}. "

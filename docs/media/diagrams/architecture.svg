@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 1612" width="640" height="1612" role="img" aria-labelledby="t d">
   <title id="t">One binary fetches, hashes, signs and logs</title>
-  <desc id="d">What answers when an agent calls emem.dev. Step 1, Call: REST has 183 paths under /v1, MCP at POST /mcp has 116 tools, and both reach the same handlers. Steps 2 to 6 run inside one Rust binary, emem-server version 2.4.4. 2 Look up: a sled cache on local disk; a hit returns the stored fact. 3 Fetch on a miss: 46 sources in the registry, for example sentinel2.l2a through Planetary Computer STAC, copernicus.dem.30m as a COG on AWS open data, and open_meteo as a JSON API; HTTP range reads take only the bytes needed. 4 Hash: canonical CBOR, and its BLAKE3 hash is the fact id, for example qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq. 5 Sign: one Ed25519 responder key, 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka, signs a batch root of fact ids and a receipt for each read. 6 Log: each write appends to an RFC 6962 Merkle log; the signed tree head showed 3,250,469 entries at 12:22 UTC. 7 Answer: fact, receipt and token; anyone checks the receipt offline with the public key at /.well-known/emem.json. A signature shows who signed, not that the value is true. Live reads on 7 November 2026. 3 of the 46 sources name a GPU model sidecar that no longer runs.</desc>
+  <desc id="d">What answers when an agent calls emem.dev. Step 1, Call: REST has 183 paths under /v1, MCP at POST /mcp has 116 tools, and both reach the same handlers. Steps 2 to 6 run inside one Rust binary, emem-server version 2.4.4. 2 Look up: a redb fact store on local disk; a hit returns the stored fact. 3 Fetch on a miss: 46 sources in the registry, for example sentinel2.l2a through Planetary Computer STAC, copernicus.dem.30m as a COG on AWS open data, and open_meteo as a JSON API; HTTP range reads take only the bytes needed. 4 Hash: canonical CBOR, and its BLAKE3 hash is the fact id, for example qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq. 5 Sign: one Ed25519 responder key, 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka, signs a batch root of fact ids and a receipt for each read. 6 Log: each write appends to an RFC 6962 Merkle log; the signed tree head showed 3,250,469 entries at 12:22 UTC. 7 Answer: fact, receipt and token; anyone checks the receipt offline with the public key at /.well-known/emem.json. A signature shows who signed, not that the value is true. Live reads on 7 November 2026. 3 of the 46 sources name a GPU model sidecar that no longer runs.</desc>
   <defs>
     <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
       <path d="M0 0 L10 5 L0 10 z" fill="#8b949e"/>
@@ -47,7 +47,7 @@
   <circle class="ring" cx="64" cy="380" r="15"/>
   <text class="sans num" x="64" y="386" text-anchor="middle">2</text>
   <text class="sans term" x="92" y="387">Look up</text>
-  <text class="sans txt" x="212" y="387">sled cache on local disk</text>
+  <text class="sans txt" x="212" y="387">redb fact store on local disk</text>
   <text class="sans txt" x="92" y="419">A hit returns the stored fact at once.</text>
   <text class="sans txt" x="92" y="447">A miss goes to step 3.</text>
   <path class="flow" d="M64 466 V490" marker-end="url(#a)"/>
