@@ -53,9 +53,9 @@ We also made the emem calls that the agent needs, on the same day:
 
 | call | result on 7 November 2026 |
 |---|---|
-| `emem_locate` with `Helsinki Airport, Finland` | cell `defi.zb6ae.nihE.rAvo`, "Helsinki-Vantaan lentoasema (aerodrome)" |
-| `emem_recall` on that cell | elevation 49.94 m, surface-water recurrence 0 %, WorldCover class 30 (grassland) |
-| `emem_recall` with the place name | error `no_geocoder_match`: the name is ambiguous |
+| `emem_locate` with `Helsinki Airport, Finland` | `cell64` is `defi.zb6ae.nihE.rAvo`; `place_label` starts "Helsinki-Vantaan lentoasema (aerodrome)" |
+| `emem_recall` on that cell | in `facts[]`: `copdem30m.elevation_mean` 49.94 m, `surface_water.recurrence` 0 %, `esa_worldcover.lc_2021` 30 (grassland) |
+| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
 The model must call `emem_locate` first and then recall by `cell`.
