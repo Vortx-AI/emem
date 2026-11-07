@@ -81,6 +81,8 @@ matters, for example "A signature shows who signed. It does not show that the va
 ## Media that follows these rules
 
 Each row gives the question the image answers and the page that shows it. Paths are relative to `docs/media/`.
+PR #30, PR #32 and PR #33 rewrite the pages that will show five of the diagrams. This PR does not edit those
+pages, so the PRs can merge without a conflict. The description of PR #34 gives the embed line for each.
 
 | File | Question it answers | Page | Source |
 |---|---|---|---|
@@ -88,14 +90,14 @@ Each row gives the question the image answers and the page that shows it. Paths 
 | `diagrams/two-layers.svg` | Who may write a fact, and who may write a note? | `intro.md` | Hand-written SVG |
 | `diagrams/signed-note-write.svg` | What happens to an unsigned note write? | `intro.md` | Hand-written SVG |
 | `diagrams/time-filters.svg` | Which time filter selects which fact? | `intro.md` | Hand-written SVG |
-| `diagrams/agent-loop.svg` | What does an agent do with emem, step by step? | `agents.md`, embed in PR #30 | Hand-written SVG, values from one live ask |
-| `diagrams/data-flow.svg` | How does one pixel become a fact with a content id? | `developers/data-sources.md`, embed asked of PR #33 | `diagrams/src/data_flow.py`, bytes of one live fact |
-| `diagrams/architecture.svg` | What answers when an agent calls emem? | `developers/architecture.md`, embed asked of PR #33 | `diagrams/src/architecture.py`, five live reads |
-| `diagrams/address.svg` | What does a `cell64` tell you about a place, and what does it not? | `protocol.md` section 1.2, embed asked of PR #32 | `diagrams/src/address.py`, three live `locate` reads |
-| `diagrams/receipt-check.svg` | How do I check a receipt without trusting the server? | `protocol.md` receipt section, embed asked of PR #32 | `diagrams/src/receipt.py`, one live `recall` receipt checked offline |
+| `diagrams/agent-loop.svg` | What does an agent do with emem, step by step? | `agents.md` after PR #30 merges | Hand-written SVG, values from one live ask |
+| `diagrams/data-flow.svg` | How does one pixel become a fact with a content id? | `developers/data-sources.md` after PR #33 merges | `diagrams/src/data_flow.py`, bytes of one live fact |
+| `diagrams/architecture.svg` | What answers when an agent calls emem? | `whitepaper.md`; `developers/architecture.md` after PR #33 merges | `diagrams/src/architecture.py`, five live reads |
+| `diagrams/address.svg` | What does a `cell64` tell you about a place, and what does it not? | `whitepaper.md`; `protocol.md` section 1.3 after PR #32 merges | `diagrams/src/address.py`, three live `locate` reads |
+| `diagrams/receipt-check.svg` | How do I check a receipt without trusting the server? | `whitepaper.md`; `protocol.md` receipt section after PR #32 merges | `diagrams/src/receipt.py`, one live `recall` receipt checked offline |
 | `films/emem-fact-to-check.mp4` | Can another agent check a fact from a token, and does one changed character fail? | `start-here.md` | `films/src/emem-fact-to-check.html` |
 | `films/emem-note-write.mp4` | How does a refused note write become an accepted one? | `memory.md` | `films/src/emem-note-write.html` |
-| `films/emem-ndvi-season.mp4` | What does one signed `field_series` answer say, scene by scene? | `agents.md`, link asked of PR #30 | `films/src/emem-ndvi-season.html`, data from `season_data.py` |
+| `films/emem-ndvi-season.mp4` | What does one signed `field_series` answer say, scene by scene? | `agents.md` | `films/src/emem-ndvi-season.html`, data from `season_data.py` |
 | `stills/recall-one-cell.webp` | What does one recall return at one cell? | `agents.md` | `stills/src/recall_cell.py` |
 | `stills/similar-places.webp` | Which places look like Dubai from orbit? | `agents.md` | `stills/src/similar_places.py` |
 | `stills/ndvi-two-seasons.webp` | How does NDVI change over two seasons on one field? | `agents.md` | `stills/src/ndvi_season.py` |
