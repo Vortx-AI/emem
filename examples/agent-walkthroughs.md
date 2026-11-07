@@ -12,7 +12,7 @@ change the URL.
 
 ## What you get
 
-- One working command for each of eight common questions.
+- One working command for each of nine common questions.
 - The field to read in each response, and the output it gave on
   7 November 2026.
 - A table that tells you which call to make first.
@@ -77,6 +77,9 @@ curl -s -X POST https://emem.dev/v1/verify \
 # verdict true, evidence ["wc7jgs3lru3owdfpidlsdkusbdmojczcm746yjggggt4pmng3ira"]
 ```
 
+The claim uses `"tslot":0` because elevation is a static band. Its fact has
+tslot 0, as the `recall` response shows.
+
 `verdict` is `true` or `false`. `evidence` lists the fact ids that the
 verdict used. Read `evidence` before you report a `false`:
 
@@ -123,8 +126,7 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 Each neighbour names the band that gave its score. The `geotessera` band is a
 surface-texture embedding from Sentinel-1 and Sentinel-2. emem.dev no
 longer makes new vectors for it, so the index holds only the vectors that it
-already stored. You can
-get fewer neighbours than `k`, as here.
+already stored. You can get fewer neighbours than `k`, as here.
 
 Read `interpretation` before you say that two places are alike. It says that
 a high score does not mean a similar climate, biome or latitude.
@@ -183,11 +185,40 @@ answer and the ids of the facts it read. The answer gives the age of each
 reading. The answer shows 12 bands that match the question
 (`band_observations_summary.bands_shown`). The receipt cites every fact
 held at the cell, 763 at 07:55 UTC on 7 November 2026. This count grows
-as the cell gets new facts. Each entry in `band_observations_summary.bands` has its own
-`fact_cid`.
+as the cell gets new facts. Each entry in
+`band_observations_summary.bands` has its own `fact_cid`.
 
 Over MCP, `emem_tools` searches the full tool list when the tool you need is
 not in your list.
+
+## 9. Check a token that another agent gave you
+
+The token below is the Everest Base Camp fact from section 3.
+
+```bash
+curl -s -X POST https://emem.dev/v1/memory_token/resolve \
+  -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb53e.wUdA.rIhe:wc7jgs3lru3owdfpidlsdkusbdmojczcm746yjggggt4pmng3ira"}' \
+  > resolved.json
+jq '{band, value, unit, cell_matches}' resolved.json
+# band "copdem30m.elevation_mean", value 5258.5595703125, unit "m",
+# cell_matches true (7 November 2026)
+
+jq '{receipt}' resolved.json \
+  | curl -s -X POST https://emem.dev/v1/verify_receipt \
+      -H 'content-type: application/json' -d @- | jq '{valid, preimage_version}'
+# valid true, preimage_version 2 (7 November 2026)
+```
+
+`resolve` returns the signed fact body and a new receipt for it. If the
+token names a cell that is not the cell of the fact, `resolve` returns
+HTTP 409. If the responder does not hold the fact, it returns HTTP 404.
+Both codes came back on 7 November 2026.
+
+`verify_receipt` is the responder that checks its own receipt. It is not an
+independent check. For an independent check, use the Python SDK or
+[emem.dev/verify](https://emem.dev/verify), as
+[the quickstart](../docs/quickstart.md#verify-the-receipt) shows.
 
 ## Which call to make first
 
