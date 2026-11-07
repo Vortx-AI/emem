@@ -29,9 +29,9 @@ For a host with native Streamable HTTP, the config has one entry:
 `"type": "http"` is the MCP name of the Streamable HTTP transport. The URL itself is HTTPS.
 
 `/mcp` advertises the 18 core tools in `tools/list`, so the host registers about 75 KB of descriptors
-rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98 tools stay callable by name.
-`emem_tools` searches them and returns the schema of one tool. To register all 116 tools at the start, use
-`https://emem.dev/mcp/full`. It returns them in more than one page, so follow `nextCursor`.
+rather than about 346 KB for all 116. Both sizes are from 7 November 2026 (1 KB = 1024 bytes). The other 98
+tools stay callable by name. `emem_tools` searches them and returns the schema of one tool. To register all 116
+tools at the start, use `https://emem.dev/mcp/full`. It returns them in more than one page, so follow `nextCursor`.
 
 ### VS Code and GitHub Copilot
 
@@ -153,8 +153,9 @@ Every runtime uses the same loop. Each step names the REST route and the MCP too
 
 1. Discover. Call `tools/list`, or `emem_tools` in a session, or `GET /v1/agent_card`. Keep the result for the
    session. The card lists the tools, their JSON schemas, and trigger and anti-trigger phrases. `tools/list` on
-   `/mcp` returns the core tier only. Send `{"tier":"all"}` or use `/mcp/full` for every tool. `emem_tools` also
-   filters by the shape of the answer (`{"shape":"raster"}`) or by the job (`{"bundle":"robotics"}`).
+   `/mcp` returns the core tier only. Send `{"tier":"all"}` or use `/mcp/full` for every tool. Both return pages,
+   so follow `nextCursor`. `emem_tools` also filters by the shape of the answer (`{"shape":"raster"}`) or by the
+   job (`{"bundle":"robotics"}`). On 7 November 2026 these filters gave 6 and 15 matches.
 2. Name the object. `POST /v1/entity` (`emem_entity`) mints or returns one identity,
    `emem:entity:<entity_cid>`, so two agents refer to the same object. The body needs a `label` and an
    anchor. The anchor is `place`, `cell`, `lat` and `lng`, or `external_ids.anchor` for an object with no
@@ -307,8 +308,9 @@ curl -sS https://emem.dev/v1/memory_bundle/emem:bundle:pzcbww6am7hyzhcicblv3imqe
 
 One call takes at most 256 triples. The responder resolves each triple through recall. Then it hashes the `purpose`
 into `bundle_cid`. It also hashes the cell, band, resolved tslot and fact CID of each triple, in the order you sent.
-The same facts and the same purpose give the same `bundle_cid` on any responder. A triple resolves to the newest fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send
-`fact_cids` instead of `triples`.
+The same facts and the same purpose give the same `bundle_cid` on any responder. A triple resolves to the newest
+fact, so a newer fact gives a new `bundle_cid`. To bind exact facts, send `fact_cids` instead of `triples`. The
+256 limit applies to `fact_cids` too. More entries get 400 `invalid_argument`.
 
 Only the responder that made a bundle can resolve its token. Another responder answers 404. Paste the token at the
 responder that made it, or make the bundle again from the same input.
@@ -561,8 +563,9 @@ A citation that the node does not hold is an allow. It looks the same as a citat
 deny would punish an agent that cites across nodes.
 
 Add `?claim_gating=true` to also list measurable claims about a place that have no citation. For each claim, the
-verdict names the emem band that would answer it. This rule reports a missing citation, not a failed check. So it is off by default. On your own
-node, keep it off until you measure it on your own traffic with `--shadow` and `--report`.
+verdict names the emem band that would answer it. This rule reports a missing citation, not a failed check, so it
+is off by default. On your own node, keep it off until you measure it on your own traffic with `--shadow` and
+`--report`.
 
 ## Where emem fits in an agent's memory
 
