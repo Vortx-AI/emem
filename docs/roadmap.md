@@ -201,7 +201,7 @@ Two threads run through the list. The first is the substrate: memory
 that an agent can trust, carry between vendors and verify without a
 callback to the responder. The second is the worlds at
 [`/worlds`](https://emem.dev/worlds). They are not the product. They
-show that a memory can be generated and checkable at the same time.
+show that a generated memory can also be checkable.
 
 Each item must pass one test: does it make emem memories more trusted,
 portable or verifiable? A regulated business needs verifiable memory
@@ -392,7 +392,7 @@ estimator id, its input fact cids and its seed. Without these, it is
 structure that carries these three fields. That structure is the only
 work left before a band can use the class.
 
-#### What is not built
+#### What does not exist yet
 
 The `space.deep.v1` bands. The `entity.cid` address space can key a fact
 (`has_write_path` and the test `an_object_is_as_addressable_as_a_place`
@@ -900,7 +900,7 @@ one new thing: the signed receipt. `emem-langmem` signs its writes.
 | LangChain | `pip install emem-langmem` | `emem_langmem` |
 
 Do not run `pip install emem`. That PyPI name belongs to an unrelated
-package. The unscoped npm name `ememdev` is not published.
+package. Nobody has published the unscoped npm name `ememdev`.
 
 The Python package has a CLI, `ememdev`, with three commands: `whoami`,
 `sign` and `write`. Install `ememdev[signing]` to use it. The default key
@@ -944,7 +944,7 @@ Ships:
 
 - The `robot.fleet.v1` profile in `crates/emem-core/data/substrates-v0.json`.
 - The `emem.os_trace.v1` record in `emem-trace`. It defines what a robot
-  must capture for its writes to be admitted: syscalls, scheduler, memory,
+  must capture before the responder admits its writes: syscalls, scheduler, memory,
   sensor bus, energy, thermal and on-device inference.
 - A two-vendor HTTP example in `examples/fleet-memory/`.
 
@@ -984,7 +984,7 @@ model: reads are open, writes need an Ed25519 signature.
 
 `.github/workflows/publish-smithery.yml` pushes an external release to
 Smithery on every release. The listing points at the hosted server, not
-at a copy. The step skips when no Smithery key is configured.
+at a copy. The step skips when the repository has no Smithery key.
 
 Open: mcp.so, glama.ai, PulseMCP and awesome-mcp-servers. Each needs a
 human account or a pull request. Use
@@ -1026,7 +1026,7 @@ not resolve. On its first run it found eight broken source links and one
 integrations row that pointed at a missing example directory.
 
 Files older than the gate are on a burn-down list in the script. A file
-on the list may only shrink. On 7 November 2026 one file was left:
+on the list may only shrink. On 7 November 2026 one file remained:
 `docs/plans/v0.0.8-and-v0.0.9.md`, with 37 dashes.
 
 Open: a check that parses every token example in the docs.
@@ -1315,16 +1315,16 @@ layouts it points to v2 sections 3 and 6.
 
 | item | status on 7 November 2026 |
 |---|---|
-| Memory API with receipts | Ships. Simple `add` / `search` calls and a public benchmark result are not done. |
-| Memory passport | Ships for one responder. A profile to move bundles between vendors is not written. |
+| Memory API with receipts | Ships. Simple `add` / `search` calls and a public benchmark result do not exist yet. |
+| Memory passport | Ships for one responder. No profile exists yet to move bundles between vendors. |
 | Typed identity kinds | Not built. `kind` is free text. |
-| Signed state for A2A work | A2A endpoint and signed card ship. Card attestations are not built. |
-| Open evaluation | Single-node results ship. Scaling and comparison results are not done. |
+| Signed state for A2A work | A2A endpoint and signed card ship. Card attestations do not exist yet. |
+| Open evaluation | Single-node results ship. Scaling and comparison results do not exist yet. |
 | A second substrate | Not built. Earth observation over cell64 is the only one. |
-| Cell build graph | One step ships. Multi-step signed derivations are not built. |
-| Re-runnable derivations | Not built. `code_cid` is recorded, not run. |
-| Derivations found by place | Ships. A reverse-lineage index is not built. |
-| Audit trail profile | Bi-temporal recall ships. The profile is not written. |
+| Cell build graph | One step ships. Multi-step signed derivations do not exist yet. |
+| Re-runnable derivations | Not built. The responder records `code_cid` but does not run it. |
+| Derivations found by place | Ships. A reverse-lineage index does not exist yet. |
+| Audit trail profile | Bi-temporal recall ships. The profile does not exist yet. |
 
 #### A memory API that returns a receipt
 
@@ -1344,7 +1344,7 @@ a LongMemEval-S style test against a running responder. The repository
 has only a sample of about 15 items
 (`crates/emem-scorecard/data/sample-longmemeval.jsonl`).
 [benchmarks.md](benchmarks.md) says that a sample score is not the
-published result. No full LongMemEval or LoCoMo result is published.
+published result. The project has published no full LongMemEval or LoCoMo result.
 
 #### A memory passport
 
@@ -1359,7 +1359,7 @@ These parts ship:
   receipt for each item.
 - A response in which all tokens resolve has
   `Cache-Control: public, max-age=31536000, immutable`. A batch with a
-  failure is not cached, because the fact can arrive later.
+  failure has no such header, because the fact can arrive later.
 - [examples/agent-handoff/](https://github.com/Vortx-AI/emem/tree/main/examples/agent-handoff)
   stores a checkpoint as one signed memory file on a local responder. A
   second identity checks the content id and the receipt, then continues
@@ -1415,7 +1415,7 @@ These parts ship:
 - [benchmarks.md](benchmarks.md) gives dated latency and throughput
   results from one node, with the method next to each number.
 
-These results are not done:
+These results do not exist yet:
 
 - Results for more than one node.
 - Storage for each fact.
@@ -1464,8 +1464,8 @@ Open items:
 - A lineage graph that one call can walk.
 - A target language, so that a cell builds like a Bazel or Nix package
   and other trust domains can check the build.
-- Values typed as artifacts, so that a mesh is signed and cited like an
-  NDVI reading. The band stays the type field of an observation.
+- Values typed as artifacts, so that a responder signs a mesh and agents
+  cite it like an NDVI reading. The band stays the type field of an observation.
 - Derivation discovery. Rules stay declared and signed. The planner
   learns which chain applies at a cell, and answers `prove(goal)` with an
   artifact and its validity chain.
@@ -1489,7 +1489,7 @@ the derived value again from the raw source bytes.
 
 `POST /v1/inferences` (MCP `emem_inferences`) ships. It reads the
 registered derivations within a radius of a point, nearest first. Each
-result is typed as derivative and names its attester. A trust policy
+result has the type derivative and names its attester. A trust policy
 decides which keys it admits, and the response states the policy. By
 default it admits keys that an organisation vouched for. `/v1/ask` and
 `/v1/locate` point to vouched derivations inside the place in the
@@ -1497,7 +1497,7 @@ default it admits keys that an organisation vouched for. `/v1/ask` and
 an agent at the same place can cite a peer's derivation and not compute
 it again. `recall` never returns a derivation.
 
-The open item is a reverse-lineage index: "what is built on this parent
+The open item is a reverse-lineage index: "what depends on this parent
 `fact_cid`". When an upstream source changes, the index shows which
 derived facts are now stale. This is the sensor term of change
 attribution in practice.

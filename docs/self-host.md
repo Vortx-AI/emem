@@ -133,7 +133,7 @@ Each default below comes from the code on 6 November 2026.
 | `EMEM_BIND` | `0.0.0.0:5051`; `127.0.0.1:5051` when TLS is on | The plain HTTP listener. Give `host:port`, not only a host. |
 | `EMEM_DATA` | `./var/emem` (image: `/var/emem`) | The data directory. `:memory:` keeps the store in RAM only, and the node loses it at exit. |
 | `EMEM_TLS_DOMAINS` | unset | Comma-separated domains. When set, the node gets certificates from Let's Encrypt and serves TLS. |
-| `EMEM_TLS_BIND` | `0.0.0.0:443` | The TLS listener. Used only when `EMEM_TLS_DOMAINS` is set. |
+| `EMEM_TLS_BIND` | `0.0.0.0:443` | The TLS listener. The node uses it only when `EMEM_TLS_DOMAINS` has a value. |
 | `EMEM_TLS_CONTACT` | unset | Your ACME contact, for example `mailto:ops@example.com`. With TLS on, the node does not start without it. |
 | `EMEM_TLS_STAGING` | unset | `1` uses the Let's Encrypt staging directory. |
 | `EMEM_AUTO_MATERIALIZE` | on | `0` or `false` stops the node from reading the archives on a miss. It then serves only what it holds. |
@@ -210,7 +210,7 @@ are absent.
 A comment says that this is not the operator of the node. Set `EMEM_CONTACT` so that reports about your node come to
 you.
 
-> Until 2026-08-27 these values were fixed in the binary. A self-hosted node then published the company and e-mail of
+> Until 2026-08-27 the binary had these values built in. A self-hosted node then published the company and e-mail of
 > the project author as its security contact. If your build is older, check your `/.well-known/security.txt`.
 
 ### Replace `/privacy` and `/terms`
