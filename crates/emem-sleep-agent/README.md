@@ -70,8 +70,11 @@ It links no emem crate, and no other crate depends on it.
 
 On 7 November 2026, `POST https://emem.dev/v1/memory_contradictions` with
 `{"min_severity":0.3,"limit":8}` returned 8 contradictions. It scanned
-44,682 keys. The band in the first result was
-`overture.transportation.road_length_m`.
+44,702 keys. The band in the first result was
+`overture.transportation.road_length_m`. The response had
+`scan_truncated: true` and a `resume_after` key, so it was a partial view.
+The agent does not send `resume_after`. Each pass reads only the first
+page.
 
 This crate adds an LLM step on top of the deterministic refinement loop
 (`EMEM_REFINEMENT_ENABLED`). That loop draws a `disagrees_with` edge for
@@ -143,7 +146,7 @@ before you trust this route.
 | `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | read into the config, but no write sends it |
 
 The agent checks the budget before each LLM call. It starts no new call
-after the estimated spend reaches the limit. The last call can go over
+after the estimated spend reaches the limit. The last call can exceed
 the limit. The cost is an estimate from the
 token counts that the endpoint reports, at $0.50 per million input tokens
 and $1.50 per million output tokens. The `/v1/ask` route reports a cost
