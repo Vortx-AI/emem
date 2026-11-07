@@ -211,151 +211,197 @@ world again.
 
 ### Change attribution: why did this place's readout move
 
-- **A change-attribution primitive.** When the readout at a pinned
-  reference moves between two visits, the move is not one event. It
-  decomposes as `Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε`: the
-  world changed, the instrument changed, the pixels moved, the model
-  changed, noise. Only the first term is about the world, and a memory
-  that cannot tell them apart either raises false alarms (a sensor swap
-  read as a wildfire) or hides real events (a flood read as a
-  registration error). What ships today pins most of that ledger by
-  construction: an embedding fact carries its encoder checkpoint and its
-  versioned recipe, so a model swap can never pose as change on the
-  ground; bi-temporal recall keeps "the world changed" and "what the
-  memory knew changed" as separate bounds; every change points at a
-  specific immutable fact by cid; and the receipt makes whatever split
-  is computed checkable by a third party. What does not exist is the
-  split itself: `emem_diff` returns a raw delta (`nd.delta@1`),
-  and `state_diff` returns residual, L2, and cosine. Nothing splits a delta among the terms.
-  Ships as of 2026-07-16, the LEDGER: `POST /v1/change_attribution`
-  (tool `emem_change_attribution`, registry key `change_attribution@1`)
-  reports per-term evidence for one cell, the observed Tessera
-  year-over-year change, the label-free index pairs with their raw
-  deltas, the sources each visit was observed through, the encoder
-  pinning proof, and the scene class per visit, every item carrying its
-  fact cids under a signed receipt, with `split` explicitly null and an
-  in-band note saying why. The ledger also persists: each run stores
-  itself as a derivative fact and returns its own `emem:fact:` token,
-  so an attribution is cited and dereferenced like any reading. Open:
-  the estimator and the calibrated cross-encoder and cross-sensor
-  stability model the numeric split needs.
-- **The inputs are fields, not points.** Attribution over an area needs
-  the native-resolution raster surface further down this page; the two
+When the readout at a pinned reference moves between two visits, the
+move has several causes. It decomposes as
+`Δz = Δ_env + Δ_sensor + Δ_geo + Δ_encoder + ε`. The terms are: the
+world changed, the instrument changed, the pixels moved, the model
+changed, and noise. Only the first term is about the world. A memory
+that cannot separate the terms gives false alarms, such as a sensor
+swap read as a wildfire. It also hides real events, such as a flood
+read as a registration error.
+
+What ships pins most of these terms by construction:
+
+- An embedding fact carries its encoder checkpoint and its versioned
+  recipe. A model swap therefore cannot look like change on the ground.
+- Bi-temporal recall keeps "the world changed" apart from "what the
+  memory knew changed".
+- Each change points at one immutable fact by its cid.
+- The receipt lets a third party check any split that a reader computes.
+
+`emem_diff` returns a raw delta (`nd.delta@1`). `POST /v1/state_diff`
+returns the residual, L2 and cosine between two vintages. Neither
+splits a delta among the terms.
+
+The ledger shipped on 2026-07-16. `POST /v1/change_attribution` (MCP
+tool `emem_change_attribution`, registry key `change_attribution@1`)
+takes one cell and reports evidence for each term:
+
+| term | what the ledger reports |
+|---|---|
+| observed | The Tessera year-over-year embedding change, and the raw deltas of NDVI, NBR and NDWI between the two most recent visits. |
+| env | The same index pairs, with both fact cids. The ledger reports them and does not weigh them. |
+| sensor | The source scheme and id of each visit, and whether they match. |
+| geo | Not estimated. No registration residual surface exists. |
+| encoder | Pinned: both Tessera vintages are slices of one signed fact, so one recipe made both. |
+| noise | The Sentinel-2 scene class (`s2.scl`) at each visit, so a cloud flip is visible. |
+
+Every item carries its fact cids under a signed receipt. The `split`
+field is null, and an in-band note says why. The responder also stores
+each ledger as a derivative fact under its own key and returns an
+`emem:fact:` token for it. A reader cites and resolves an attribution
+like any other reading. Source:
+[`change_attribution.rs`](https://github.com/Vortx-AI/emem/blob/main/crates/emem-api-rest/src/change_attribution.rs).
+
+emem.dev retires the `geotessera` band family (`EMEM_RETIRED_BANDS`).
+There, the ledger can report an embedding change only at a cell that
+already stores a Tessera fact. The index evidence does not depend on
+Tessera.
+
+Still open:
+
+- The numeric split. It needs an estimator and a calibrated
+  cross-encoder and cross-sensor stability model. This responder has
+  neither.
+- Attribution over an area. It needs fields, not points: the
+  native-resolution raster surface further down this page. The two
   items share one keystone.
 
 ### Space, and the first substrate someone else built for
 
-`space.deep.v1` and the `entity.cid` address space were registered on
-2026-08-11 from our own reasoning about what a subject with no latitude
-needs. Two days later `dpwotikn` published a fourteen-message handoff
-(`pqbrf5vlpjxan44peptluk4hnq`) from a working neuromorphic detector for
-resident space objects on a 0.8 m optical station, having built against
-the registry rather than asking us to change it. Most of what follows is
-theirs.
+We registered `space.deep.v1` and the `entity.cid` address space on
+2026-08-11. We designed them from our own idea of what a subject with no
+latitude needs. Two days later, `dpwotikn` published a fourteen-message
+handoff (`pqbrf5vlpjxan44peptluk4hnq`). It came from a working
+neuromorphic detector for resident space objects (RSO) on a 0.8 m
+optical station. They built against the registry and did not ask us to
+change it. Most of this section reports their work.
 
-**What they establish.** Their detector beats the published reference
-event-based SSA detector on its own public corpus, mean F1 0.207 to
-0.412, seven wins to two losses with one tie, Wilcoxon p = 0.043, at
-about a fortieth of the cost per window. The number that matters to a
-memory protocol rather than to a telescope: signing every fact cost
-0.0669 ms, **0.167 percent of a 40 ms frame budget**, entirely off the
-hot path, and 399 of 399 facts verified offline. Provenance is not what
-makes a real-time pipeline miss its deadline.
+#### What their results show
 
-**What they get wrong, stated first because they stated it first.** Five
-of ten public recordings fail. On background-only sky the bright branch
-fires 0.775 false detections per window, and roughly 37 percent of those
-are real unlabelled stars, so the genuine rate is nearer 0.485, which is
-still not deployable. p95 latency exceeds a 40 ms budget on 11.8 percent
-of 1280x720 windows. And their headline mechanism, a polarity matched
-filter, does not transfer: the discriminating contrast has the opposite
-sign on six of ten recordings.
+Their detector beats the published reference event-based SSA detector
+on that detector's own public corpus:
 
-**The finding that changes our design, not theirs.** They tried a generic
-motion-coherence gate against the false alarms and it failed, because
-every setting that suppressed the stars destroyed recall on the target.
-Their conclusion is the right one and it is an argument for the substrate
-rather than a caveat about it: the fix is not a better gate, it is a
-**prior**, a signed expected star field the detector can subtract. That
-is what a materialiser is, and we already have the machinery for exactly
-this on the Earth side.
+| measure | value |
+|---|---|
+| mean F1 | 0.412, against 0.207 for the reference |
+| recordings | seven wins, two losses, one tie |
+| Wilcoxon p | 0.043 |
+| cost per window | about one fortieth of the reference |
+| cost to sign one fact | 0.0669 ms, 0.167 percent of a 40 ms frame budget, off the hot path |
+| offline verification | 399 of 399 facts |
 
-So the highest-value thing we can build for this substrate is not a
-feature of it, it is three materialisers, and they are open:
+The signing cost is the number that matters to a memory protocol.
+Provenance does not make a real-time pipeline miss its deadline.
 
-- **`sky.stars`** from Gaia DR3, static per pointing. Their single
-  highest-value ask, and the one that turns their worst failure mode into
-  a solved one.
-- **`sky.catalog_rso`** from TLE plus SGP4, per tslot: what is expected
-  to be in this pointing right now.
-- **`sky.illumination`**, derived geometry: whether an object could be
-  lit at all.
+#### What fails, as they reported it
 
-**The prior art, from their own adversarial review.** They ran three
-reviews specifically to find what is not new and adopted all three
-verdicts, which is worth carrying because it protects our framing as much
-as theirs. Event-based SSA is a populated field (Cohen et al. 2019;
-Afshar et al. 2020, IEEE Sensors Journal 20(24):15117-15132, who also
-published the EBSSA corpus their detector is scored on). Cryptographic
-provenance for space data is not new either: NASA stated the
-auditable-provenance requirement in 2019 (Murakami et al., AIAA SciTech).
+- Five of ten public recordings fail.
+- On background-only sky, the bright branch gives 0.775 false
+  detections per window. About 37 percent of those are real stars with
+  no label, so the true rate is near 0.485. That is still too high to
+  deploy.
+- p95 latency is above the 40 ms budget on 11.8 percent of 1280x720
+  windows.
+- Their main mechanism, a polarity matched filter, does not transfer.
+  The contrast that separates targets has the opposite sign on six of
+  ten recordings.
 
-The fact in that review most relevant to this protocol: **the CCSDS
-Tracking Data Message, which carries tracking observations between
-operators, defines no signature, digest or provenance field** (CCSDS
-503.0-B-2 Cor. 1, 2020). That is the gap a signed substrate addresses,
-and it is a real standard rather than an argument. They also warn against
-a conflation we should avoid making: CCSDS 355.0-B-2 SDLS is link-layer
-security and is not data provenance, so it must never be cited as prior
-art for it.
+#### The finding that changes our design
 
-Their surviving claim is narrow and correctly worded, and we adopt their
-wording rather than a broader one: the first provenance chain reaching
-the raw sensor window rather than stopping at the reduced observation,
-and the first applied to neuromorphic event data. They also retracted a
-"without trusting the producer" claim after a review found it false at
-the capture boundary, which is the same boundary our own device gate
-stops at.
+They tried a generic motion-coherence gate against the false alarms.
+It failed: every setting that removed the stars also removed the
+target. Their conclusion is that the fix is a prior, not a better gate.
+The detector needs a signed expected star field that it can subtract. A
+materializer makes exactly that kind of prior, and emem already does
+this for Earth bands.
 
-**Answered since.** Their blocker was the `emem.os_trace.v1` digest
-constructions, which existed only in this responder's rejection messages
-while the registry described device profiles as pinned for device makers
-to build against. `GET /v1/verifier_spec` now carries
-`os_trace_v1_device_side` with all three constructions and a known-good
-fixture that our own verifier checks in-process. Their address-space
-question is answered too: sky pointings and orbital buckets are neither a
-new namespace nor a second resolver, they are anchors, and
-`ExternalIds.anchor` mints an identity from one with no place involved.
+So the most useful work for this substrate is three materializers. None
+of them exists yet:
 
-**Shipped from their C1.** `provenance_class: estimator` now exists as
-declarable vocabulary: a quantity FITTED from data and re-runnable, which
-is the gap between `deterministic_index` (a closed formula that
-reproduces bit-for-bit) and `model_output` (trained weights that do not
-reproduce at all). A fitted threshold, a per-sensor background rate or an
-estimated operating point is neither, and registering them as
-`model_output` discards re-runnability, which is the property worth
-publishing. No shipped band was relabelled into it, asserted by a test,
-because nothing in the Earth corpus is a fitted-but-re-runnable quantity
-and adopting it now would be renaming facts to fit a new word.
+| band | source | what it gives |
+|---|---|---|
+| `sky.stars` | Gaia DR3, static per pointing | The expected star field. This is their main request, and it addresses their worst failure. |
+| `sky.catalog_rso` | TLE plus SGP4, per tslot | The objects expected in this pointing now. |
+| `sky.illumination` | derived geometry | Whether sunlight can reach an object. |
 
-I told them this was not a same-day change because it would move
-`bands_cid`, which every receipt commits to. Measured, the cid is
-byte-identical: the manifest hashes the registry DATA, an unused variant
-appears nowhere in it, and the real cost was four exhaustive match arms
-in one file. That is the third cost in this section I asserted from the
-shape of the design rather than reading it, so the cid is now pinned by a
-test: a future class that genuinely does move it is a wire change, and
-that is where it gets noticed.
+#### Prior art, from their own review
 
-Still owed by the class: a band claiming it owes its estimator id, its
-input fact cids and its seed, or it is `model_output` with a better name.
-The structure carrying those three is theirs to shape, by their own
-offer, and is the only thing between the class and a usable block.
+They ran three reviews to find what is not new, and they adopted all
+three results. This protects our framing and theirs.
 
-**Still not built, and the honest order.** The `entity.cid` write path.
-Their traces will verify before their subjects can be keyed, so a
-telescope can prove how it ran and still have nowhere to put the reading.
-That is the keystone for every non-geographic substrate and it is next.
+- Event-based SSA is an active field (Cohen et al. 2019; Afshar et al.
+  2020, IEEE Sensors Journal 20(24):15117-15132). Afshar et al. also
+  published the EBSSA corpus that scores their detector.
+- Cryptographic provenance for space data is not new. NASA stated the
+  requirement for auditable provenance in 2019 (Murakami et al., AIAA
+  SciTech).
+- The CCSDS Tracking Data Message carries tracking observations between
+  operators. It defines no signature, digest or provenance field (CCSDS
+  503.0-B-2 Cor. 1, 2020). A signed substrate addresses this gap.
+- CCSDS 355.0-B-2 SDLS is link-layer security, not data provenance. Do
+  not cite it as prior art for provenance.
+
+Their remaining claim is narrow, and we use their words. It is the
+first provenance chain that reaches the raw sensor window, not only the
+reduced observation. It is also the first for neuromorphic event data. They
+withdrew a claim of "without trusting the producer". A review found it
+false at the capture boundary. Our own device gate stops at the same
+boundary.
+
+#### What we answered
+
+- Their blocker was the digest constructions of `emem.os_trace.v1`.
+  These existed only in rejection messages, while the registry said
+  that device makers could build against the pinned profiles.
+  `GET /v1/verifier_spec` now has `os_trace_v1_device_side` (live on
+  7 November 2026). It gives all three constructions and a known-good
+  fixture that our verifier checks in-process.
+- Sky pointings and orbital buckets are not a new namespace and not a
+  second resolver. They are anchors. `ExternalIds.anchor` mints an
+  identity from an anchor with no place.
+
+#### What shipped from their C1 item
+
+`provenance_class: estimator` is now a class that a band can declare.
+It is for a quantity fitted from data that can run again. That sits
+between `deterministic_index` (a closed formula that reproduces bit for
+bit) and `model_output` (trained weights that do not reproduce). A
+fitted threshold, a background rate per sensor or an estimated
+operating point is neither. Registered as `model_output`, it would lose
+the property that it can run again.
+
+No shipped band uses the class. A test asserts this
+(`estimator_is_available_and_unclaimed` in
+[`bands.rs`](https://github.com/Vortx-AI/emem/blob/main/crates/emem-core/src/bands.rs)).
+Nothing in the Earth corpus is a fitted quantity that can run again, so
+a relabel would only rename facts.
+
+We first told them that the class needed a version, because it would
+move `bands_cid`, and every receipt commits to that value. We measured
+it, and the cid did not change. The manifest hashes the registry data,
+and a class that no band uses does not appear in that data. The real
+cost was four match arms in one file. A test now pins the cid
+(`the_bands_manifest_cid_is_unchanged_by_the_class_vocabulary`). If a
+future class does move it, that is a wire change, and the test shows
+it.
+
+The class still needs one thing. A band that declares it must give its
+estimator id, its input fact cids and its seed. Without these, it is
+`model_output` with a different name. dpwotikn offered to design the
+structure that carries these three fields. That structure is the only
+work left before a band can use the class.
+
+#### What we have not built
+
+The `entity.cid` write path. The substrate registry admits a profile as
+`active` only on an address space that this build can key a fact by,
+and today that is `geo.cell64` alone. The `entity.cid` profiles are
+candidates for builders, not open for ingest
+([`substrates-v0.json`](https://github.com/Vortx-AI/emem/blob/main/crates/emem-core/data/substrates-v0.json)).
+A telescope can prove how it ran, but it has no place to store the
+reading. This is the keystone for every substrate that is not
+geographic, and it is next.
 
 ### Every number in a published algorithm says where it came from
 
