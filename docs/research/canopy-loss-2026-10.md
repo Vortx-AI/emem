@@ -46,10 +46,10 @@ are replicated:
 The later memory detectors pool higher but disagree too much across forests to be called better. A second reference,
 JRC TMF, marked too few of the cells as lost to judge any method.
 
-The record also bounds these rules. Their wins are pooled. Take only the sites with both loss and stable forest.
+The record also bounds these rules. Their wins come from pooled scores. Take only the sites with both loss and stable forest.
 Site by site, each rule beats the registry rule at 44% to 80% of them (sections 5.7 and 5.9). Where clearing took half
 the cell or more, they find 91% of the 400 m cells, as the registry rule does. Where clearing took 5 to 10%, they find
-only 20%. Combining them does not help, because they miss the same small clearings. The cloud screen helped detectors
+only 20%. A combination of them does not help, because they miss the same small clearings. The cloud screen helped detectors
 that compare single passes or read percentiles in 7 of 12 tests and never hurt them. It never helped the rule that
 waits for a drop to hold. Sub-pixel rules beat the registry rule in two experiments (sections 5.8 and 5.12) and failed
 to beat it in two (sections 5.5 and 5.6). The cell-size test read 200 m cells instead of 400 m and scored both on the
@@ -76,7 +76,7 @@ one signed `field_series` response per index (NDVI and NBR) over 1 January 2023 
 Sentinel-2 L2A scenes spread evenly in time. The lab asked for 96 scenes; the server's budget of 12,000 cell-scenes
 per request caps 144 cells at 83. In the first two MCC experiments (sections 5.5 and 5.6), each site kept 63 to 83
 clear passes. Each cell's row per pass gives its median and its 10th and 90th percentiles over pixels the scene
-classification left clear. Passes `field_series` marks suspect are left out.
+classification left clear. The lab leaves out passes that `field_series` marks suspect.
 
 **Reference.** Hansen Global Forest Change v1.13 loss year and 2000 tree cover (Landsat, 30 m), read for the same box
 through `band_raster` (`forest_raster@1`), and decoded from emem's canonical grid encoding.
@@ -1023,13 +1023,13 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
   `lab:seasonal_canopy_loss@1`: pooled over eight and six disjoint sets of forests, they beat the registry rule by
   +0.12 and +0.15 MCC (section 5.21). The strict status rule reads them not replicated after one tie (section 5.13).
   Read a silence as "no large loss seen", not as "no loss". The three quiet rules include seasonal NBR. They find
-  nine in ten cells where half the forest went. They find one in five where 5 to 10% was cleared (section 5.9).
+  nine in ten cells where half the forest went. They find one in five where clearing took 5 to 10% (section 5.9).
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
   frontiers.
 - In snowy boreal forest, do not trust any of them (section 5.11).
 - `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.21). It is the one method above
   the registry rule in every climate class it ran in (section 5.18, post hoc).
-- The later memory detectors pool higher but are not shown better, because their forests disagree (I² 96 to 99%,
+- The later memory detectors pool higher, but no test shows them better, because their forests disagree (I² 96 to 99%,
   section 5.21). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.
@@ -1043,8 +1043,8 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
   so the scores leave out smaller clearings.
 - Hansen is annual and Landsat-based; detection dates are compared with a year, not a day.
 - Site sets were chosen by hand for known activity; pooled scores weight sites by their labelled cells.
-- Two sites, Merauke and Menabe, failed to load in the sub-cell experiment and again in the scaled one. They are
-  reported as unscored, not dropped silently.
+- Two sites, Merauke and Menabe, failed to load in the sub-cell experiment and again in the scaled one. The report
+  lists them as unscored and does not drop them silently.
 - The rules were written or parameterised by people; the search explored settings, not new rule families.
 - Pooling weights each site by its labelled cells, so a site with many loss cells (Bosawas, 135) moves the pooled score
   more than a site with five. Section 5.7 reports per site for that reason.
@@ -1059,9 +1059,9 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
 - The strict status rule turned a single tie into not replicated. Since 29 October a random-effects meta-analysis
-  decides status (rule v2, section 5.21), and the strict verdicts are printed beside it. Rule v2 was adopted after
-  the experiments it judges had been seen, so every status is exploratory ([program](program.md#2-the-unit-of-research-is-an-experiment-held-in-emem-memory), section 2).
-- Before rule v2, the strict rule was tightened once, after the third replication (section 5.8). That change only
+  decides status (rule v2, section 5.21), and the strict verdicts appear beside it. The lab adopted rule v2 after
+  it saw the experiments that the rule judges, so every status is exploratory ([program](program.md#2-the-unit-of-research-is-an-experiment-held-in-emem-memory), section 2).
+- Before rule v2, the lab tightened the strict rule once, after the third replication (section 5.8). That change only
   demoted.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
 - Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
