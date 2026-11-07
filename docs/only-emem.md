@@ -144,8 +144,12 @@ The signature covers the `emem.memory_write.v2` preimage
 blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash || "|" || base)
 ```
 
-`base` is the `file_cid` that the write replaces. Thus a signature copied
-from the public log cannot write again after the file changes. The
+`base` is the `file_cid` that the write replaces, or the literal `absent`
+for a new path (`BASE_ABSENT`). Thus a signature copied from the public
+log cannot write again after the file changes. Since 5 November 2026 the
+responder refuses the old v1 preimage, which has no `base`, for every
+write (`reason` `v1_retired`). Old v1 notes still verify when you read
+them. The
 `file_cid` changes when one byte of the note changes. A reader can check
 who wrote a note and that nobody changed it after.
 
