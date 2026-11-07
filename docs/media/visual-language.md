@@ -160,9 +160,9 @@ current head. It uses only the standard library and makes read-only calls:
 
     python3 docs/media/stills/src/recheck.py
 
-On 7 November 2026 at 15:29 UTC, 71 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
+On 7 November 2026 at 15:41 UTC, 71 tokens resolved and 0 values differed. The tree root, leaf and 107 rows
 matched, and `trace_verify` still gave `admit`. The head of 3,248,898 entries in `log-proof.webp` extended to
-the current head of 3,253,031 entries with an 18-hash consistency proof.
+the current head of 3,253,062 entries with an 18-hash consistency proof.
 
 Check one film frame before a full render. This command writes a PNG of the frame at 25 s:
 
