@@ -2226,8 +2226,12 @@ listed these tempos:
 | `medium` | 30 days | `modis.burned_area_monthly` |
 | `composite16day` | 16 days | `modis.ndvi_mean` |
 | `composite8day` | 8 days | `modis.lst_day_8day`, `modis.et_8day` |
-| `fast` | 1 day | `s2.B04` and the other Sentinel-2 bands |
+| `fast` | 1 day | `s2.B04`, `indices.ndvi`, `power.t2m`, `firms.active_fires` |
 | `ultrafast` | 1 hour | `weather.temperature_2m` |
+
+On that date, 43 of the 113 bands had the `fast` tempo. They include
+the Sentinel-2 bands, the spectral indices, the NASA POWER daily bands
+and FIRMS fires.
 
 Read `GET /v1/data_availability` before you select a tslot or a
 backfill window. It gives the tempo and the history range of each band.
