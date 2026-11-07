@@ -9,7 +9,7 @@ The new files follow [visual-language.md](visual-language.md).
 
 | README line (7 November 2026) | Now | Proposed | Why |
 |---|---|---|---|
-| 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id and that the receipt verifies. The film shows both with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. |
+| 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id (point 1) and that the receipt verifies (point 2). The film shows point 2 with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. A second film for point 1 is below the markup. |
 | 225, under the paragraph about `emem-guard` | `docs/media/readme/04-guard.gif` (231,519 bytes, a screen recording) | `docs/media/stills/guard-check.webp` (184,624 bytes) | The paragraph says that the guard answers allow or deny with a reason and a `fix`. It also says that a stricter claim rule is off by default. The still shows live verdicts on one Table Mountain fact: allow, then deny `PROV_VALUE` with `correct_value`. An uncited number passes by default and fails with `claim_gating=true`. |
 | 264, under "One record, many readers" | `docs/media/readme/11-two-agents.gif` (1,072,956 bytes, a screen recording of two Claude sessions) | `docs/media/stills/bundle-handoff.webp` (228,238 bytes) | The paragraph says that agent A hands over one bundle line and agent B resolves it and checks the signature. The still shows that handoff with live reads. A bundle from 23 September 2026 resolves on 7 November 2026 to four facts in Bengaluru. Each receipt is valid. One changed character in a fact id makes the bundle receipt fail. |
 | 285, before "Earth is the first corpus, not the limit" | `docs/media/readme/10-research.gif` (1,263,818 bytes, a screen recording of a Claude session) | `docs/media/stills/ask-trail.webp` (228,282 bytes) | The caption says that every number in the answer is a signed record. The still shows one live `/v1/ask` answer: NDVI 0.79 in Central Park. It also shows the four reasoning stages, the three signed facts and the checks. The still is not a Claude session, so the caption at line 287 must change too (text below). |
@@ -18,6 +18,16 @@ The new files follow [visual-language.md](visual-language.md).
 
 ```html
 <a href="docs/media/films/emem-fact-to-check.mp4"><img src="docs/media/films/emem-fact-to-check-poster.webp" alt="Film, 33 seconds, silent. Mount Fuji becomes the cell defi.zb592.nUkO.zEzE. emem signs one fact there: copdem30m.elevation_mean 3539.04 m. Agent A passes the emem:fact token to Agent B. Agent B resolves it and verify_receipt returns valid. One changed character in the receipt gives signature_invalid. Live calls to emem.dev on 7 November 2026." width="720"></a>
+```
+
+`docs/media/films/emem-one-byte.mp4` (33 seconds, 1080 by 960) shows point 1 at line 213. It draws the 743 bytes
+of the Mount Fuji elevation fact. One changed bit in the value gives a new id, and emem.dev does not hold that id.
+`docs/whitepaper.md` section 5 already shows it. To show point 1 before point 2, put this film at line 211 and the
+film above after line 219. To keep one film, use the one above.
+
+```html
+<a href="docs/media/films/emem-one-byte.mp4"><img src="docs/media/films/emem-one-byte-poster.webp" alt="Film, 33 seconds, silent. A grid of 743 squares, one for each byte of the Mount Fuji elevation fact, hashes with BLAKE3 to the id qejpz7cg. One changed bit in the 4-byte value turns 3539.0422 m into 3539.0420 m; both round to 3539.04 m. The new bytes hash to 26zhvwvf, and 49 of the 52 characters differ. On emem.dev the old id returns the same 743 bytes and the new id returns 404 cid_not_found. Live reads on 7 November 2026." width="540"></a>
+<br><sub>Silent, 33 seconds. <a href="docs/media/films/emem-one-byte.webm">WebM</a>.</sub>
 ```
 
 ## Markup for the swap at line 225
