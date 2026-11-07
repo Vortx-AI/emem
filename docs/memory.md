@@ -1018,19 +1018,23 @@ different claim from "this is true".
 `estimator`. The responder refuses `direct_sensor` and
 `deterministic_index`, because it did not compute the value.
 
-There is one narrow exception. It applies when both conditions are true:
+There is one narrow exception. It applies only when the call pins a
+`code_cid` and the parent values are numbers. The responder then tries
+two ways to get the value again:
 
-- `op` is a pure scalar function that the responder knows: `delta`
-  (`inputs[1] - inputs[0]`), `mean` or `sum`.
-- The call pins a `code_cid`.
+1. If `op` is `delta` (`inputs[1] - inputs[0]`), `mean` or `sum`, it
+   applies that op to the parent values in your signed order.
+2. If not, and `fn_key` is the key of a registry algorithm with an
+   `evaluation` expression, it evaluates that expression. The expression
+   reads the parent values by band name. On 7 November 2026, 74 of the
+   172 algorithms in `crates/emem-core/data/algorithms-v0.json` have one.
 
-The responder then runs that op again over the cited parent facts. It
-evaluates the op. It never runs your code. If it gets your value, it
-records the derivation as `deterministic_index`. A `recomputation`
-block names the rule, its ULP tolerance and the measured gap. For `mean`
+It evaluates the op or the expression. It never runs your code. If
+it gets your value, it records the derivation as
+`deterministic_index`. A `recomputation` block names the rule, its ULP tolerance and the measured gap. For `mean`
 and `sum` over more than two parents, the window is 4 ULP. If you need
-the same bits, require `ulp_gap == 0`. On a mismatch, or for any other
-op, the class stays as you sent it, with a note.
+the same bits, require `ulp_gap == 0`. On a mismatch, or when neither way
+applies, the class stays as you sent it, with a note.
 
 ### Rule 2: you must sign it, and the refusal shows how
 
@@ -1046,6 +1050,50 @@ the v1 form, with no `base`:
 ```text
 sig = ed25519(blake3("emem.memory_write|derive|/v1/derive|" || body_hash))
 ```
+
+`body_hash` covers the first ten fields in the table below, in that
+order. The 401 response shows the exact encoding in
+`details.how_to_sign`.
+
+| Field | Required | Rule |
+|---|---|---|
+| `fn_key` | yes | Your recipe name, for example `same_doy_ndvi_delta@1`. The responder never runs it. |
+| `inputs` | yes | Parent tokens `emem:fact:<cell64>:<fact_cid>`. 1 to 1,024. Your signature covers the order. |
+| `cell` | yes | A cell64 to anchor the derived fact. |
+| `band` | yes | The band that the value is about. |
+| `tslot_window` | yes | `[start, end]`, inclusive. `start` must not be after `end`. |
+| `op` | yes | For example `delta`, `mean`, `sum`, `trend`. |
+| `value` | yes | Any JSON value. |
+| `confidence` | yes | A finite number from 0 to 1. |
+| `provenance_class` | yes | `model_output`, `human_curated` or `estimator`. |
+| `code_cid` | no | BLAKE3 of your code. The responder records it and never fetches it. |
+| `attester` | no | `{pubkey_b32, sig_b32}`. Without it, the responder refuses the call and gives the digest. |
+| `budget_ms` | no | A time limit, clamped to 100 to 30,000 ms. Not signed. |
+
+The responder checks the body before it checks the signature. Thus an
+unsigned body with a bad field gets the field error, not the 401. Fix
+the field errors first. The 401 comes only for a body that is
+otherwise valid.
+
+| Status | `details.code` | Cause |
+|---|---|---|
+| 400 | `derive_invalid_argument` | `fn_key`, `cell`, `band` or `op` is empty. |
+| 400 | `derive_invalid_cell` | `cell` is not a cell64. |
+| 400 | `derive_no_inputs`, `derive_too_many_inputs` | `inputs` is empty, or has more than 1,024 tokens. Cite a bundle instead. |
+| 400 | `derive_invalid_tslot_window`, `derive_invalid_confidence` | The window is out of order, or `confidence` is outside 0 to 1. |
+| 400 | `derive_provenance_class_refused` | `direct_sensor`, `deterministic_index` or an unknown class. |
+| 400 | `derive_input_unparseable` | A token in `inputs` is not an `emem:fact:` token. |
+| 404 | `derive_parent_unresolved` | The responder does not hold that parent fact. |
+| 409 | `derive_parent_cell_mismatch` | The token names a cell that is not the cell of the fact. |
+| 401 | `derive_attestation_required` | No `attester` block. |
+| 401 | `derive_attestation_invalid` | Bad key, or the signature does not verify. The message gives the digest that the responder expected. |
+
+A derivation is idempotent for each pair of attester and body. If you
+send the same signed body again, you get the same token with
+`deduplicated: true`. Thus a retry after a timeout is safe. With
+`budget_ms`, a slow registration returns 202 with `status: "pending"`
+and completes in the background. Send the same body again to get the
+token.
 
 ### Rule 3: default reads never return a derived fact
 
