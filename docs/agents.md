@@ -688,7 +688,7 @@ verb is an existing route.
 | `trace` | `derivation.fn_key` and `sources[]` in the fact body. The formulas are at `/v1/algorithms`. |
 | `competing` | `POST /v1/memory_contradictions` |
 | `cite` and `resolve` | `POST /v1/memory_token`, `POST /v1/memory_token/resolve` |
-| `evolve` | `POST /v1/attest`. A new fact gets a `supersedes` edge. emem deletes nothing. |
+| `evolve` | `POST /v1/attest`. A new fact gets a `supersedes` edge. emem deletes nothing. Most keys cannot write a fact; see [Writes that MCP does not carry](#writes-that-mcp-does-not-carry). |
 
 Recall takes two filters. `deterministic: true` keeps only facts that anyone
 can compute again from the cited raw source. `provenance: [...]` selects
@@ -730,7 +730,8 @@ contradictions. This table gives the other operations.
 |---|---|---|
 | Read a place as a table | `grid` | `POST /v1/grid` |
 | Search for a pattern over a region | `hunt` | `POST /v1/hunt` |
-| Write a signed fact | `attest` | `POST /v1/attest` |
+| Write a signed fact (admitted keys only) | `attest` | `POST /v1/attest` |
+| Write a signed value over facts (any key) | `derive` | `POST /v1/derive` |
 | Compare two places | `compare` | `POST /v1/compare` |
 | Record a task outcome | `reviews` | `POST /v1/reviews` |
 | Read the embedding of one encoder | `state` with `view: "encoder"` | `POST /v1/state` |
@@ -991,8 +992,8 @@ The source has 27 data connectors and 8 utility modules in
 `crates/emem-fetch/src/`. The minimum Rust version is 1.91.
 
 Reads need no key. Writes to notes (the `emem_memory_*` verbs) are MCP only.
-A signed fact write is REST only (`POST /v1/attest`). It needs an Ed25519
-secret, and an LLM host cannot keep that secret safe.
+A signed fact write is REST only (`POST /v1/attest`), and most keys cannot
+make one. See [Writes that MCP does not carry](#writes-that-mcp-does-not-carry).
 
 ---
 
@@ -1389,7 +1390,19 @@ schemas are in `crates/emem-mcp/src/lib.rs`.
 
 There is no MCP tool for `POST /v1/attest` or `POST /v1/attest_cbor`.
 These routes take an attestation that you sign with your own Ed25519
-key, from a process that you control. Other signed writes do have MCP
+key, from a process that you control. The MCP tool call carries JSON only,
+and `/v1/attest_cbor` takes canonical CBOR bytes.
+
+By default, the responder keeps the fact plane closed. An attestation whose facts have an
+address (cell, band, tslot) gets HTTP 403 with code `level_too_low`, and
+the message starts with `fact_plane_closed`. Only three writers can
+occupy an address: this responder, a device enrolled through the OS-trace
+gate, and a key that the operator lists. To add your own value at a place,
+use `POST /v1/derive` (MCP `emem_derive`). A derivation cites its parent
+facts and cannot overwrite a fact that other agents recall. The rule is in
+`put_attestation` in `crates/emem-storage/src/lib.rs`.
+
+Other signed writes do have MCP
 tools: the memory verbs, `emem_derive` and the entity writes. If you send
 a memory verb or `emem_derive` without a signature, the 401 answer gives
 you the exact digest to sign. For key generation and signing, see
