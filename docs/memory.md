@@ -805,6 +805,19 @@ On 7 November 2026, a call with only `as_of_signed_at` returned an
 When you set both, a fact must pass both. When you set neither, the
 read returns the current state.
 
+Send `as_of_signed_at` in UTC with a `Z` suffix, for example
+`2026-10-01T00:00:00Z`. The filter compares the bound and `signed_at`
+as text. It does not convert a UTC offset. The responder accepts an
+offset such as `+09:00`, but it reads the local clock time as UTC.
+On 7 November 2026 at the Mount Fuji cell, the bound
+`2026-09-28T20:00:00+09:00` (11:00 UTC) returned a PM2.5 fact signed at
+`2026-09-28T11:05:40Z`. The bound `2026-09-28T11:00:00Z` returned no
+facts.
+
+If two facts at one address have the same `signed_at`, the read
+returns the fact with the higher `fact_cid` in text order. Every
+responder makes the same choice.
+
 ### Example: what emem knew on 1 October 2026
 
 This read ran on 7 November 2026. It asks for PM2.5 at the cell of
@@ -838,8 +851,9 @@ held 326 facts without the bound and that the bound removed all of them.
 
 | Case | Result |
 |---|---|
-| `as_of_tslot` is lower than `tslot` | 400 `invalid_argument`, message starts with `invalid_temporal_bound:` |
-| `as_of_signed_at` is not valid RFC 3339 | 400 `invalid_argument`, message starts with `invalid_signed_at_format:` |
+| You set `tslot` and `as_of_tslot`, and `as_of_tslot` is lower | 400 `invalid_argument`, message starts with `invalid_temporal_bound:` |
+| `as_of_signed_at` does not have the form `YYYY-MM-DDTHH:MM:SS`, then optional fractional seconds, then `Z`, `+HH:MM` or `-HH:MM` | 400 `invalid_argument`, message starts with `invalid_signed_at_format:` |
+| `as_of_signed_at` has an offset other than `Z` | accepted, but compared as text without conversion (see above) |
 | The filter removes every fact | 200 with `temporal_advice`. Zero facts is a valid answer to "what did emem know then". |
 | `recall` with `as_of_signed_at` in the past | no fetch on a miss. The responder signs a new fact with the current time, so it cannot pass the filter. `materialize_notes` gives `reason: as_of_signed_at_in_the_past`. |
 
