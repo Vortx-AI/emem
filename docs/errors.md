@@ -35,6 +35,7 @@ On this page:
 | [Memory and entity write refusals](#memory-and-entity-write-refusals) | Fix a refused signed write. |
 | [Derivation refusals](#derivation-refusals-post-v1derive) | Fix a refused `POST /v1/derive`. |
 | [Other route codes](#other-route-codes) | Find a `details.code` from another route. |
+| [Refusals from the comparison and region reads](#refusals-from-the-comparison-and-region-reads) | Fix a refused diff, comparison, region or similarity read. |
 | [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks) | Handle errors from `/mcp` and `/a2a/tasks`. |
 | [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text, proxy, `/splats` and OAuth bodies. |
 | [Routes that only a self-hosted node answers](#routes-that-only-a-self-hosted-node-answers) | Understand a 501 from emem.dev. |
@@ -496,6 +497,37 @@ did not send a 2xx status. `too_large` means it sent more than the cap:
 The top-level code of all these routes follows one rule in `range_hash::refuse`.
 HTTP 502 gives `source_fetch_failed`. Every other status gives
 `invalid_argument`, also 422, 500, 501 and 503. Branch on `details.code`.
+
+## Refusals from the comparison and region reads
+
+These reads send a top-level code with no `details.code`. Branch on `code`
+and the HTTP status. The message says which check failed. We caused each row
+marked "live" on emem.dev on 7 November 2026. The other rows come from the
+code in `crates/emem-primitives/src/` and `post_*` handlers in `lib.rs`.
+
+| Route | Cause | HTTP | `code` |
+|---|---|---|---|
+| `/v1/diff` | No `tslot_a` or `date_a`, or no `tslot_b` or `date_b` (live). | 400 | `invalid_argument` |
+| `/v1/diff` | A `date_a` or `date_b` is not `YYYY-MM-DD` (live). | 400 | `invalid_argument` |
+| `/v1/diff` | `tslot_a` and `tslot_b` are equal, so the delta is always zero (live). | 400 | `invalid_argument` |
+| `/v1/diff` | No fact at one of the two tslots (live). Call `/v1/trajectory` to list the tslots that hold facts. | 404 | `cid_not_found` |
+| `/v1/compare_bands` | You sent a tslot, and no fact is at that tslot (live). | 404 | `cid_not_found` |
+| `/v1/compare_bands` | You did not send a tslot, and the band has no fact at the cell. This is not an error (live, also for an unknown band). The response has `bands_with_no_history` with `reason` `EmptyHistory`, and `metric` is null. | 200 | none |
+| `/v1/compare_bands` | One value is a scalar and one is a vector. Or two vectors have different lengths, or they come from two different vector bands. | 400 | `invalid_argument` |
+| `/v1/diff`, `/v1/compare_bands` | A fact is not a primary fact, or its value is not a number or a vector. | 500 | `internal` |
+| `/v1/compare_same_doy` | `doy` is not in 1 to 366 (live), or `years` is empty. | 400 | `invalid_argument` |
+| `/v1/query_region` | The body has no `geometry` and no `bbox` (live). | 400 | `invalid_argument` |
+| `/v1/query_region` | The `bbox` array has a value that is not finite, or it is not `[west, south, east, north]` with west <= east and south <= north (live). Or it samples zero cells. | 400 | `invalid_argument` |
+| `/v1/query_region` | A `geometry` string in the form `bbox:lon_min,lat_min,lon_max,lat_max` is bad. It does not have 4 numbers (live), a latitude or longitude is out of range, or a minimum is more than its maximum. Split a box that crosses the antimeridian into two. | 400 | `invalid_cell` |
+| `/v1/query_region` | A `geometry` covers more than 4096 cells. This applies to a `cells:` list and to a `bbox:` string. | 400 | `invalid_cell` |
+| `/v1/query_region` | A `geometry` starts with `{`. The route does not read GeoJSON. Send a `bbox` or a `cells:` list. | 400 | `invalid_cell` |
+| `/v1/find_similar` | The responder holds no vector for the key in that band. The message tells you which bands the cell has. | 404 | `cid_not_found` |
+| `/v1/find_similar` | An `inline:` vector has a value that is not a number, or it has more than 16384 values. | 400 | `invalid_argument` |
+
+The same bad box gets two codes. A `bbox` array gets `invalid_argument`. A
+`bbox:` string in `geometry` gets `invalid_cell`. A `bbox` array with a
+value that is not a number fails before the handler runs. It gets 400
+`invalid_argument` with `details.deserializer_error` (live).
 
 ## JSON-RPC errors from `/mcp` and `/a2a/tasks`
 
