@@ -743,6 +743,11 @@ pointer row that points into the source of the note writes its URL as
 `·`, and that row hashes with an empty URL. A pointer row with no hash
 commits 32 zero bytes.
 
+A `directory.v1` row is `| path | url | bytes | hash |`. Its leaf uses
+offset 0 and the file size as the length. The `chunk_hash` is
+`blake3(path \n bytes \n hash)`, where `hash` is the cell text, for
+example `blake3:<hex>`.
+
 ### Example: check one row of a pointer note
 
 On 7 November 2026, `amii4tnpkfoofsyzrbbs2vxsj4` was a `pointer.v1`
@@ -789,13 +794,18 @@ source and compare them with the row.
 | 409 | `root_mismatch` | The `root:` of the note is not the root of its rows. The response gives both roots and no path. |
 | 404 | `row_not_found` | No row has that index or label. The response gives the row count. |
 
+The top-level `code` is `invalid_argument` for every row except
+`cid_not_found`, so branch on `details.code`. The two 404 rows and the
+400 below ran on 7 November 2026.
+
 ### Paths over rows that you hold
 
 `POST /v1/tree/path` builds the same path without a note. Send `index`
 and exactly one of `leaves` (base32 leaf hashes) or `chunks` (objects
 with `url`, `offset`, `length`, `hash`). The limit is 1,048,576 leaves.
 The response gives `leaf_b32`, `path` and `root_b32`. Bad input gets a
-400. This route reads no signed note. Its root proves nothing until you
+400. Unlike a note row, each chunk needs a 52-letter base32 `hash`. A
+chunk without one gets a 400, not 32 zero bytes. This route reads no signed note. Its root proves nothing until you
 compare it with a root that an author signed.
 
 ## Time filters on reads (bi-temporal)
