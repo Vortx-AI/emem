@@ -408,10 +408,10 @@ The deploy unit `deploy/systemd/emem-server.service` does not set `EMEM_EUDR_TIM
 ## Compliance position
 
 EUDR Article 2(4) defines forest by canopy, height and area, **not by data source**.
-Bourgoin et al. 2026 name JRC GFC2020 with Hansen as the baseline that the Commission
-expects. This baseline is not binding.
-The `eudr_compliance@1` verdict uses this baseline because it gives the strongest audit
-position today.
+Bourgoin et al. 2026 name JRC GFC2020 as the baseline that the Commission expects.
+This baseline is not binding, and an operator can use a different baseline that it can defend.
+The `eudr_compliance@1` verdict uses JRC GFC2020 as the forest baseline and Hansen for the loss year.
+This choice gives the strongest audit position today.
 The `visual_evidence` block is extra evidence in support.
 It does not change the strict pass or fail verdict.
 
@@ -436,10 +436,14 @@ Both disclaimers state the limits of the Earth-observation verdict.
 ### Application timeline
 
 The deforestation cut-off is 31 December 2020 (Article 1(2)). It does not change.
+The verdict uses this date by default.
+For a what-if audit, send a different `cut_off_date`; `cut_off_year_applied` gives the year that ran.
 Regulations (EU) 2024/3234 and 2025/2650 moved the start of the obligations.
 For large operators they apply from 30 December 2026.
 For micro and small enterprises they apply from 30 June 2027.
-The `regulation_status_note` field in the response gives the current position.
+The `regulation_status_note` field in the response states these dates.
+The text does not change between calls.
+It gives the position on 1 June 2026, so check EUR-Lex for later changes.
 The deferral does not change the cut-off that the verdict uses.
 
 ## Related endpoints
