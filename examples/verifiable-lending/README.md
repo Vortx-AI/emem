@@ -43,16 +43,16 @@ lng 77.6245 (Koramangala, Bengaluru). Its cell is `defi.zb493.hufo.zccc6`.
 | step | call | result on 7 November 2026 |
 |---|---|---|
 | 1. Find the parcel address | `POST /v1/locate` with `lat`, `lng` | `cell64` `defi.zb493.hufo.zccc6` |
-| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialised; 29 facts and 29 receipt `fact_cids` at 09:18 UTC (this count grows with new readings) |
+| 2. Recall signed facts | `POST /v1/recall` with 14 bands | 14 of 14 bands materialised; 35 facts and 35 receipt `fact_cids` at 12:04 UTC (this count grows with new readings) |
 | 3. Apply published algorithms | `GET /v1/algorithms/<key>` | `vegetation_class_from_ndvi@1` gives `bare`; `flood_risk@2` gives 0.0244 (low); both agree with the responder |
 | 4. Write two memos | none | a naive memo and a grounded memo with the same numbers |
 | 5. Get two verdicts | `POST /v1/guard/verdict?shape=native` | naive: `deny` `CLAIM_UNGROUNDED`; grounded: `allow`, 5 citations, 5 `fact_cids` |
 | 6. Print findings | none | computed from the responses, not written before the run |
 
 In step 2 the recall returns every signed fact for those bands at the cell,
-oldest first. At 09:18 UTC on 7 November 2026 that was 29 facts. Weather bands
-had 5 readings each, and NDVI, MODIS NDVI and radar had 2 each. The script
-prints only the newest fact for each band. The receipt covers all 29.
+oldest first. At 12:04 UTC on 7 November 2026 that was 35 facts. Weather bands
+had 7 readings each, and NDVI, MODIS NDVI and radar had 2 each. The script
+prints only the newest fact for each band. The receipt covers all 35.
 
 Two agents that locate the same point get the same `cell64`. So two memos about
 the parcel refer to one parcel.
