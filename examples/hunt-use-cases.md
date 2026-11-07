@@ -42,7 +42,7 @@ All values below come from calls to `https://emem.dev` on 7 November 2026. When 
 ```bash
 curl -sS -X POST https://emem.dev/v1/hunt \
   -H 'content-type: application/json' \
-  -d '{"event":"algal_bloom","region":"Lake Erie"}'
+  -d '{"event":"algal_bloom","region":"Lake Erie"}' | jq .
 ```
 
 The algorithm is `algal_bloom_chlorophyll_ndci@1`. The hunt ranks cells by `indices.ndvi`, highest first. The gate keeps only cells with `indices.ndwi > 0`, which are water. Without the gate, green shoreline vegetation would rank above the lake.
@@ -101,7 +101,10 @@ How to cite it: quote the hotspot's `fact_cid` and the `algorithm_key`. Quote `r
 ```bash
 curl -sS -X POST https://emem.dev/v1/hunt \
   -H 'content-type: application/json' \
-  -d '{"event":"deforestation","region":"Borneo"}'
+  -d '{"event":"deforestation","region":"Borneo"}' \
+  | jq '{sampled: .ranking.cells_sampled, rerank: .embedding_rerank.applied, hotspots: [.hotspots[] | "\(.cell64) \(.value)"]}'
+# 7 November 2026: sampled 64, rerank true, 8 hotspots,
+# the second "defi.zb3d8.sulo.ze9cf -0.702048417132216"
 ```
 
 The algorithm is `deforestation_alert_ndvi_drop@1`. Its formula from `/v1/algorithms`:
@@ -117,8 +120,10 @@ A low NDVI alone does not prove forest loss. Check the baseline at each hotspot 
 ```bash
 curl -sS -X POST https://emem.dev/v1/recall \
   -H 'content-type: application/json' \
-  -d '{"cell":"defi.zb3d8.sulo.ze9cf","bands":["hansen.tree_cover_2000"]}'
-# facts[0]: band hansen.tree_cover_2000, value 0, fact_cid g2pp3pf5xautw2qugfkmzbdpwqxitrx5ktxudg5hdluby7aseprq
+  -d '{"cell":"defi.zb3d8.sulo.ze9cf","bands":["hansen.tree_cover_2000"]}' \
+  | jq '.facts[0] | {band, value, fact_cid}'
+# {"band": "hansen.tree_cover_2000", "value": 0,
+#  "fact_cid": "g2pp3pf5xautw2qugfkmzbdpwqxitrx5ktxudg5hdluby7aseprq"}
 ```
 
 This cell was the second hotspot (NDVI -0.702). Its tree cover in 2000 was 0 %, below the 30 % baseline. The full algorithm returns null for this cell, so it is not a deforestation alert.
@@ -132,7 +137,9 @@ Give the country in the region name. On 7 November 2026, `"Punjab"` alone resolv
 ```bash
 curl -sS -X POST https://emem.dev/v1/hunt \
   -H 'content-type: application/json' \
-  -d '{"event":"crop_stress","region":"Punjab, India"}'
+  -d '{"event":"crop_stress","region":"Punjab, India"}' \
+  | jq '{region: .place_resolved.label, sampled: .ranking.cells_sampled, hotspots: [.hotspots[] | "\(.cell64) \(.value)"]}'
+# 7 November 2026: region "Punjab (state), India", sampled 39, 8 hotspots
 ```
 
 The region resolved to `Punjab (state), India`, with a bounding box from Nominatim (`region_resolution: "polygon_bbox_from_locate"`). The hunt sampled 39 cells.
@@ -150,7 +157,9 @@ To look for a salinity signal at the same places, run the salinity hunt over the
 ```bash
 curl -sS -X POST https://emem.dev/v1/hunt \
   -H 'content-type: application/json' \
-  -d '{"event":"soil_salinity","region":"Punjab, India"}'
+  -d '{"event":"soil_salinity","region":"Punjab, India"}' \
+  | jq '{band: .ranking.primary_band, sampled: .ranking.cells_sampled, hotspots: [.hotspots[] | .cell64]}'
+# 7 November 2026: band "s2.B04", sampled 39, 8 hotspot cells
 ```
 
 This hunt ranks by red reflectance `s2.B04`, highest first. The full `soil_salinity_index@1` formula also uses B11, B12 and soil organic carbon. On 7 November 2026, three cells were in the top eight of both hunts: `defi.zb558.wUte.jaco`, `defi.zb55a.zfced.kifO` and `defi.zb55a.zfced.mEma`.
@@ -168,7 +177,9 @@ How to cite it: quote each hotspot `fact_cid` with its algorithm key. Keep the t
   ```bash
   curl -sS -X POST https://emem.dev/v1/hunt \
     -H 'content-type: application/json' \
-    -d '{"event":"crop_stress","polygon_bbox":{"min_lat":30.56,"max_lat":31.018,"min_lng":75.356,"max_lng":76.323}}'
+    -d '{"event":"crop_stress","polygon_bbox":{"min_lat":30.56,"max_lat":31.018,"min_lng":75.356,"max_lng":76.323}}' \
+    | jq '{sampled: .ranking.cells_sampled, hotspots: (.hotspots | length)}'
+  # {"sampled": 9, "hotspots": 8} (7 November 2026)
   ```
 - `oil_slick` has no algorithm. The hunt returns `status: "not_yet_implemented"` and two `closest_algorithms`: `flood_extent_sar_threshold@1` (Sentinel-1 backscatter) and `water_turbidity_red_band@1`. These are not slick detectors. Use their results only as candidates.
 - The embedding rerank needs Tessera vectors for at least 3 candidate cells. emem.dev no longer fetches new Tessera vectors, so the rerank uses only stored vectors. When the rerank does not run, `embedding_rerank.applied` is `false` and `reason` is one of `too_few_tessera_vectors`, `skipped_for_slow_primary_band` or `disabled_by_env`. Read this field before you say that the hunt ranked hotspots by coherence.
