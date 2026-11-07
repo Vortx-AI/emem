@@ -1228,6 +1228,12 @@ On 7 November 2026 it answered 200 with `plan`, `results` and
 a CFL stability check. `jepa_predict` is a constrained AR(2) seasonal NDVI
 predictor with fixed coefficients. It is arithmetic, not a learned model.
 
+`cell` (or `coastal_cell`) also takes a place name, and `place` is an
+alias of it. The route then runs `/v1/locate` first. On 7 November 2026,
+`/v1/jepa_predict` with `{"place": "Mount Fuji"}` and `/v1/heat_solve`
+with `{"cell": "Mount Fuji"}` both answered 200 for cell
+`defi.zb592.nUkO.zEzE`.
+
 #### Routes for algorithms that the formula engine cannot run
 
 On 7 November 2026, the registry marked 88 of its 172 algorithms
