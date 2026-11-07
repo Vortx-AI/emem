@@ -69,7 +69,6 @@ GENERATED_DIRS = {"docs/book/"}
 LEGACY_DASHES = {
     "docs/developers/data-sources.md": 47,
     "docs/plans/v0.0.8-and-v0.0.9.md": 37,
-    "docs/developers/architecture.md": 19,
 }
 
 DASH = re.compile(r"[–—]")

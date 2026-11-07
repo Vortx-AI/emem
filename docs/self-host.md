@@ -81,8 +81,8 @@ All state is under `EMEM_DATA`. The binary default is `./var/emem`. The image se
 | Path | What it holds |
 |---|---|
 | `identity.secret.b32` | The Ed25519 secret key of the responder. The node makes it on the first start. |
-| `facts.redb` | The hot store of signed facts. |
-| `cache.sled/` | Memory notes, attesters, fact proofs and other small indexes. |
+| `facts.redb` | The hot store of signed facts and their Merkle proofs. |
+| `cache.sled/` | Memory notes, attesters and other small indexes. Older fact proofs stay here until the backfill copies them to `facts.redb`. |
 | `log/` | The append-only Merkle log of attestations. |
 | `tile_store/` | Local copies of the static forest rasters, up to `EMEM_TILE_STORE_GB` gigabytes (default 40). `0` turns it off. |
 | `geocoder.sled/` | The cache of place-name lookups and Overture division polygons. |
