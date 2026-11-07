@@ -1,65 +1,108 @@
-# Listing emem-guard: verified venues and ready-to-fire submissions
+# emem-guard listings from release 2.1.0
 
-> A dated record from 2.1.0 (2026-08-10 and 11), kept as written. Checked
-> 2026-09-29 against each venue's README on its default branch: of the eleven
-> venues this file sent sessions to, only `inference-gateway/awesome-a2a` lists
-> emem (as `emem`, linking emem.dev); none of the three security lists carries
-> the emem-guard line. The guard itself is `crates/emem-guard`, with the
-> `--audit` flag the drafted lines cite, and is described in
-> [docs/security.md](../security.md) and the crate README.
+This page is a record. On 10 and 11 August 2026, release 2.1.0 added
+`emem-guard`, a verdict server. The maintainers then planned where to list
+it, and drafted the entry lines, PR text and announcement posts. The
+drafts are in [Drafts from August 2026](#drafts-from-august-2026), as
+written then.
 
-2.1.0 added `emem-guard`, and that is a different product category from
-everything emem has been listed under so far. The existing listings
-(`registry_claude.md`) are geospatial and MCP-catalogue lists, which were
-right for a memory protocol and are the wrong shelf for a verdict server.
-This document is the guard-era target list: where emem-guard belongs, the
-exact line to add, and the PR text, one section per venue.
+We checked each venue and each guard fact again on 7 November 2026.
+We used the GitHub API, crates.io and the live `https://emem.dev` routes. The general listing log is
+[`registry_claude.md`](../../registry_claude.md).
 
-Every venue below was checked against its own README and CONTRIBUTING
-before it was written down: the section it goes in, the entry format, the
-ordering rule, and the submission mechanism. Three candidate venues were
-checked and rejected, and the reason is recorded rather than dropped,
-because the next person to look will otherwise check them again.
+## State of each venue on 7 November 2026
 
-## Status of each target
+The August plan had nine venues in a first wave and ten targets in a
+second wave. Four targets are in both lists. This table holds all 15.
+A search for `emem` and for the author `avijeetsingh1` in each repository
+found the issues and PRs below, and no others.
 
-| Venue | Section | Mechanism | Verdict |
-|---|---|---|---|
-| [tamish560/awesome-mcp-security](https://github.com/tamish560/awesome-mcp-security) | Firewalls and Guardrails | PR | **submit** |
-| [ottosulin/awesome-ai-security](https://github.com/ottosulin/awesome-ai-security) | Input/Output Guardrails | PR | **submit** |
-| [efij/awesome-claude-code-security](https://github.com/efij/awesome-claude-code-security) | Hooks and Guardrails | PR (from a fork) | **submit** |
-| [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | Security | web issue form | **human only, see below** |
-| [enguard-ai/awesome-ai-guardrails](https://github.com/enguard-ai/awesome-ai-guardrails) | Organisations/Companies | PR | optional, weak fit |
-| [fuzzylabs/awesome-secure-mcp-servers](https://github.com/fuzzylabs/awesome-secure-mcp-servers) | Community | issue, then their scan | ask to be scanned |
-| [bh-rat/awesome-mcp-enterprise](https://github.com/bh-rat/awesome-mcp-enterprise) | Security & Governance | issue, then PR | **does not qualify** |
-| [ant-research/awesome-mllm-guardrails](https://github.com/ant-research/awesome-mllm-guardrails) | n/a | PR | **wrong list** |
-| [rust-unofficial/awesome-rust](https://github.com/rust-unofficial/awesome-rust) | n/a | PR | **hold** |
+| Venue | August plan | State on 7 November 2026 |
+|---|---|---|
+| [inference-gateway/awesome-a2a](https://github.com/inference-gateway/awesome-a2a) | Second wave, A2A | Listed. PR #7 merged on 17 August 2026. The README lists `emem`, linked to emem.dev. |
+| [ottosulin/awesome-ai-security](https://github.com/ottosulin/awesome-ai-security) | Submit a PR | PR #382 open since 11 August 2026, with no comment or review. |
+| [efij/awesome-claude-code-security](https://github.com/efij/awesome-claude-code-security) | Submit a PR from a fork | Issue #27 open since 11 August 2026, with no comment. It is an issue, not the PR that the plan names. |
+| [tamish560/awesome-mcp-security](https://github.com/tamish560/awesome-mcp-security) | Submit a PR | Not filed. No issue or PR found. |
+| [hesreallyhim/awesome-claude-code](https://github.com/hesreallyhim/awesome-claude-code) | A person files it through the web issue form | Not filed. |
+| [enguard-ai/awesome-ai-guardrails](https://github.com/enguard-ai/awesome-ai-guardrails) | Optional, weak fit | Not filed. |
+| [fuzzylabs/awesome-secure-mcp-servers](https://github.com/fuzzylabs/awesome-secure-mcp-servers) | Ask for a scan of `https://emem.dev/mcp` | Not filed. |
+| [bh-rat/awesome-mcp-enterprise](https://github.com/bh-rat/awesome-mcp-enterprise) | Does not qualify | Not filed, as planned. |
+| [ant-research/awesome-mllm-guardrails](https://github.com/ant-research/awesome-mllm-guardrails) | Wrong list | Not filed, as planned. |
+| [rust-unofficial/awesome-rust](https://github.com/rust-unofficial/awesome-rust) | First held, then marked as filed | Not filed. No issue or PR found. |
+| [pab1it0/awesome-a2a](https://github.com/pab1it0/awesome-a2a) | Second wave, A2A | Not filed. |
+| [ai-boost/awesome-a2a](https://github.com/ai-boost/awesome-a2a) | Second wave, A2A | Not filed. |
+| [wong2/awesome-mcp-servers](https://github.com/wong2/awesome-mcp-servers) | Second wave, MCP | Not filed. |
+| [appcypher/awesome-mcp-servers](https://github.com/appcypher/awesome-mcp-servers) | Second wave, MCP | Not filed. The owner archived the repository, so it takes no new entries. |
+| [capizziemanuele/useful-geospatial-tools](https://github.com/capizziemanuele/useful-geospatial-tools) | Second wave, geospatial | Not filed. The last push was on 22 July 2024. |
 
----
+## What the August record said that is not true now
 
-## 1. tamish560/awesome-mcp-security
+| August text | State on 7 November 2026 |
+|---|---|
+| Ten sibling sessions are running, one for each second-wave target. | Three of the ten targets have a trace: PR #382, issue #27 and the merged A2A PR. The other seven have no issue or PR. |
+| The awesome-rust submission is in. | No issue or PR names emem in that repository. |
+| emem has 52 GitHub stars. | `Vortx-AI/emem` has 89 stars. |
+| `https://emem.dev/release.png` serves the 2.1.0 card. | It serves the current card. Its bytes are the same as `web/release-2.4.4.png`, not `web/release-2.1.0.png`. |
+| The guard denies with `PROV_SIG`, `PROV_BYTES` and `PROV_DRIFT`. | These three codes still exist. The contract now lists seven codes (see below). |
 
-The closest fit of any list found. It has a **Firewalls and Guardrails**
-section whose existing entries are proxies and policy engines, and no entry
-in it evaluates whether a cited claim still holds.
+The venue rules that we checked again still hold.
+The `hesreallyhim/awesome-claude-code` CONTRIBUTING file still asks for the
+web issue form and says "Do not open a PR". Its bar is a repository at
+least 14 days old with active development, or 100 stars. The
+`rust-unofficial/awesome-rust` bar is still 50 GitHub stars or 2000
+crates.io downloads. At 89 stars, emem clears it. We did not check the
+rules of the other venues again.
 
-`CONTRIBUTING.md` requires the format `- [owner/repo](https://github.com/owner/repo) - Description. By
-Author/Org.`, alphabetical order within the section, one or two sentences,
-and explicitly excludes marketing language. Review is 3 to 5 days.
+## Guard facts that the drafts cite
 
-**File:** `README.md` · **Section:** Firewalls and Guardrails · sort under `V`
+The drafts make claims about `emem-guard`. This table gives each claim
+and its state on 7 November 2026. The live contract is
+`GET https://emem.dev/.well-known/emem-guard.json`.
+
+| Claim | State on 7 November 2026 | Source |
+|---|---|---|
+| Nine checkpoints | True. The contract lists nine routes. emem.dev hosts seven. `/verdict/anthropic-hook` and `/verdict/claude-code` run only on a node that you run. | Live contract |
+| Deny codes | Seven: `PROV_SIG`, `PROV_BYTES`, `PROV_DRIFT`, `GEO_ZONE`, `PROV_VALUE`, `CLAIM_UNGROUNDED`, `POLICY_MODULE`. | Live contract |
+| Reason line `EMEM-GUARD DENY <CODE> token=... fix=... leaf=...` | True. | Live contract, `reason_grammar` |
+| A citation that the node does not hold is never a denial | True. | Live contract, `never_denies_on` |
+| The verdict log and `emem-guard --audit` | True on a node that you run. emem.dev keeps no verdict log. `/log/head` and `/log/entries` are in `not_served_here`. | Live contract |
+| Flags `--audit`, `--shadow`, `--report`, `--module`, `--signed-module`, `--conformance` | True. | `crates/emem-guard/src/bin/emem-guard.rs` |
+| `--conformance` runs twelve checks | True. | `CHECKS` in `crates/emem-guard/src/conformance.rs` |
+| A `fast` module that exceeds 50 ms three times can no longer block | True. | `FAST_BUDGET` and `FAST_STRIKES` in `crates/emem-guard/src/module.rs` |
+| Apache-2.0, built with `cargo build --release -p emem-guard` | True. The workspace licence is Apache-2.0. | `Cargo.toml` |
+| Not yet used by a live organisation | The crate README still says so. | `crates/emem-guard/README.md` |
+| `emem`, `emem-guard` and `emem-core` are not on crates.io | True for all three. | crates.io API |
+| `https://emem.dev/release-2.1.0.png` returns 404 | True. | Live GET |
+| `https://emem.dev/guard` and the A2A routes answer | True. `/guard`, `/.well-known/agent-card.json` and `/v1/a2a/skills?q=elevation` return 200. | Live GET |
+
+## Next steps
+
+A person must do these steps. On 7 November 2026, nobody had done them.
+
+1. Ask for a review on [ottosulin/awesome-ai-security#382](https://github.com/ottosulin/awesome-ai-security/pull/382).
+2. Change [efij/awesome-claude-code-security#27](https://github.com/efij/awesome-claude-code-security/issues/27) into a PR from a fork, because the venue asks for one.
+3. File `hesreallyhim/awesome-claude-code` through the web issue form. Do not use an agent or the `gh` CLI.
+4. Send the PR to `tamish560/awesome-mcp-security`.
+5. Send the `rust-unofficial/awesome-rust` PR. Say in it that emem is not on crates.io.
+6. Before you use a draft, update its facts from the table above. The deny codes and the card changed.
+
+## Drafts from August 2026
+
+The text in this section is as the maintainers wrote it in August 2026. We
+did not edit it. Some facts in it changed; the tables above give the
+current state.
+
+### tamish560/awesome-mcp-security
+
+Section: Firewalls and Guardrails. Entry line, PR title and PR body:
 
 ```markdown
 - [Vortx-AI/emem](https://github.com/Vortx-AI/emem/tree/main/crates/emem-guard) - emem-guard answers allow/deny on a transcript by re-resolving the signed observations it cites, denying on a failed signature, changed bytes, or drift past a band threshold. Every verdict is ed25519-signed and hash-chained into an append-only log that `emem-guard --audit` re-checks without trusting the node that issued it. By Vortx AI.
 ```
 
-**PR title**
-
 ```
 Add Vortx-AI/emem to Firewalls and Guardrails
 ```
-
-**PR body**
 
 ```markdown
 Adding `emem-guard` under Firewalls and Guardrails.
@@ -101,28 +144,17 @@ indistinguishable from a token minted by another responder. The engine and
 server are tested but have not yet been pointed at a live organisation.
 ```
 
----
+### ottosulin/awesome-ai-security
 
-## 2. ottosulin/awesome-ai-security
-
-Section 18, **Input/Output Guardrails**, currently NeMo-Guardrails and
-llm-guard: both classify text. Same gap as above. Entry style in this list is
-a bare name, a dash, and a lowercase description with no trailing period.
-Contribution is "create a PR or contact me @ottosulin".
-
-**File:** `README.md` · **Section:** Input/Output Guardrails
+Section: Input/Output Guardrails. Entry line, PR title and PR body:
 
 ```markdown
 - [emem-guard](https://github.com/Vortx-AI/emem/tree/main/crates/emem-guard) - allow/deny verdict server for claims about the physical world; every verdict is ed25519-signed and hash-chained into an offline-auditable log, and one engine answers Anthropic Inference hooks, Claude Code hooks, MCP tools/call, OpenAI-shaped, CloudEvents and OPA-style inputs
 ```
 
-**PR title**
-
 ```
 Add emem-guard to Input/Output Guardrails
 ```
-
-**PR body**
 
 ```markdown
 Both current entries in this section evaluate the *text* of a message.
@@ -147,35 +179,17 @@ Happy to move it to Agent Runtime Security or MCP Security if you would rather
 file it there.
 ```
 
----
+### efij/awesome-claude-code-security
 
-## 3. efij/awesome-claude-code-security
-
-Section 4 is literally **Hooks and Guardrails**, and emem-guard ships two
-Claude-specific checkpoints: `POST /verdict/anthropic-hook` for Inference
-hooks in a Claude Enterprise org, and `POST /verdict/claude-code` for client
-hooks on the Platform API, Bedrock and Vertex, which Inference hooks cannot
-see. That second one is the entry's reason to exist.
-
-`CONTRIBUTING.md` requires `- [Title](https://example.com/tool) - description.` at 15 to 30 words,
-capitalised, ending in a period, alphabetical within the category, one
-resource per line, submitted from a fork. Review target is two weeks.
-
-**File:** `README.md` · **Section:** 🪝 Hooks and Guardrails · sort under `e`
+Section: Hooks and Guardrails. Entry line (21 words), PR title and PR body:
 
 ```markdown
 - [emem-guard](https://github.com/Vortx-AI/emem/tree/main/crates/emem-guard) - Self-hosted verdict server for Claude Code hooks and Anthropic Inference hooks; signs and hash-chains every allow/deny so decisions stay auditable offline.
 ```
 
-(21 words, inside the 15 to 30 range.)
-
-**PR title**
-
 ```
 Add emem-guard to Hooks and Guardrails
 ```
-
-**PR body**
 
 ```markdown
 **Category:** 🪝 Hooks and Guardrails
@@ -209,130 +223,43 @@ blocks anything. The engine and server are tested but have not yet been
 pointed at a live organisation.
 ```
 
----
+### hesreallyhim/awesome-claude-code
 
-## 4. hesreallyhim/awesome-claude-code: Avijeet has to file this one
+Two separate web-form submissions. Submission A goes in Security.
 
-**Do not send an agent at this.** `CONTRIBUTING.md` says
-`ALL RECOMMENDATIONS MUST BE MADE USING THE WEB UI ISSUE FORM TEMPLATE`,
-`Do not open a PR`, states that submission via the `gh` CLI is not possible,
-and asks that recommendations come from humans rather than AI agents. Filing
-it any other way is a defensible reason for the maintainer to close it.
+```text
+emem-guard, a self-hosted server that answers Claude Code hooks and
+Anthropic Inference hooks with allow or deny. It checks whether the
+observations a transcript cites still resolve to the bytes they were signed
+over, and signs and hash-chains every verdict into a log you can audit
+offline with `emem-guard --audit`.
+```
 
-Form: <https://github.com/hesreallyhim/awesome-claude-code/issues/new?template=recommend-resource.yml>
+Submission B is for emem itself and goes in Memory & Context Persistence.
 
-Eligibility is met on the first branch of the rule: the repository is far
-older than 14 days and shows active development. It does not meet the
-100-star alternative (52 at the time of writing), which is fine, the criteria
-are `OR`.
+```text
+emem, memory that outlives the context window. An agent keeps one
+`emem:fact:` token instead of a paraphrase; after compaction, a handoff, or
+a model swap, the token resolves to the byte-identical signed record and the
+signature still checks. Reads need no key or account. MCP endpoint at
+`https://emem.dev/mcp`.
+```
 
-One resource per submission, so it is two separate submissions, filed apart:
+### enguard-ai/awesome-ai-guardrails
 
-**Submission A, Security**
-
-> emem-guard, a self-hosted server that answers Claude Code hooks and
-> Anthropic Inference hooks with allow or deny. It checks whether the
-> observations a transcript cites still resolve to the bytes they were signed
-> over, and signs and hash-chains every verdict into a log you can audit
-> offline with `emem-guard --audit`.
-
-**Submission B, Memory & Context Persistence** (this is emem itself, not the
-guard, and it is arguably the better of the two: the section exists for
-exactly this problem)
-
-> emem, memory that outlives the context window. An agent keeps one
-> `emem:fact:` token instead of a paraphrase; after compaction, a handoff, or
-> a model swap, the token resolves to the byte-identical signed record and the
-> signature still checks. Reads need no key or account. MCP endpoint at
-> `https://emem.dev/mcp`.
-
----
-
-## 5. enguard-ai/awesome-ai-guardrails, optional
-
-A table-shaped list built mainly around guard *models* and datasets. emem-guard
-is neither, so it fits only the Organisations/Companies → Open Source table.
-Low cost, low return. Row, matching the `name | scope | "description"` shape:
+A row for the Organisations/Companies, Open Source table:
 
 ```
 | emem-guard | all | "Signed allow/deny verdicts on claims about the physical world, with a hash-chained log." |
 ```
 
-## 6. fuzzylabs/awesome-secure-mcp-servers, ask to be scanned
+### Announcement posts
 
-Entries here are servers that have been through their `mcp-scan` pipeline and
-carry a security score, and the README documents no self-submission path.
-The move is an issue asking for `https://emem.dev/mcp` to be added to the scan
-queue, not a PR that adds a row with a score nobody computed. Worth doing:
-the list is small (16 servers) and the scored-server framing suits a server
-whose whole argument is that its claims are checkable.
-
-## 7. bh-rat/awesome-mcp-enterprise, does not qualify, do not submit
-
-Its listing-proposal template requires at least two of four proofs: named
-customers, verifiable compliance (SOC 2 / ISO 27001 / HIPAA), 6+ months GA,
-or two documented production deployments. emem-guard's own README says the
-engine and server "have not yet been pointed at a live organisation," so it
-meets none of the four. Revisit after the first design partner is live and
-the conformance suite is green.
-
-## 8. ant-research/awesome-mllm-guardrails, wrong list
-
-It catalogues guard models, jailbreak attacks, moderation datasets and safety
-benchmarks. emem-guard is infrastructure and classifies nothing. Submitting
-would be noise.
-
-## 9. rust-unofficial/awesome-rust, hold
-
-The list is for published, used crates, and `emem` does not exist on
-crates.io (checked: `crates.io/api/v1/crates/emem` returns
-`crate 'emem' does not exist`). Publish `emem-guard` and `emem-core` first,
-then this becomes a reasonable submission. Until then it would be declined on
-the obvious ground.
-
----
-
-## The photo
-
-`web/release-2.1.0.png`, 1200×630, is the 2.1.0 card. Two of the three places
-it needs to be are already done:
-
-- **GitHub release v2.1.0**: attached, present in the release body.
-- **Public URL**: served at <https://emem.dev/release.png> (and
-  `/release.svg`), from `web/release-current.png`, which is byte-identical to
-  `web/release-2.1.0.png`. That is the URL to hand to anything that needs to
-  fetch the card.
-
-  Note that `https://emem.dev/release-2.1.0.png` is **404** and always will be:
-  the route is `/release.png`, and the versioned file is the archive copy, not
-  a served path. Do not paste the versioned URL into a post.
-
-- **Still to do**: the social posts below. Every one of them takes an image,
-  and the card is the right one: it names the version, the two headline
-  changes, and one limit, which is the tone the rest of the project keeps.
-
-Do **not** add the card to `README.md`. The README opens with
-`web/emem-strip.png`, which explains the protocol; a release card above it
-would date the page at every version bump.
-
----
-
-## Announcement copy
-
-Same facts everywhere, sized to each venue. All of it is checkable against
-`GET /.well-known/emem-guard.json` and the README, which is deliberate: the
-claim these posts make is that claims should be checkable.
-
-### Show HN
-
-**Title** (Show HN titles must not be editorialised, and 80 characters is the
-practical ceiling):
+Show HN title and body:
 
 ```
 Show HN: Emem-guard, a signed allow/deny server for claims about the world
 ```
-
-**Body**
 
 ```text
 Anthropic's Inference hooks hold every governed prompt for an allow or deny
@@ -377,10 +304,7 @@ cargo build --release -p emem-guard && ./target/release/emem-guard
 https://github.com/Vortx-AI/emem  ·  https://emem.dev/guard
 ```
 
-### Lobsters
-
-Tags `ai`, `security`, `rust`. Lobsters wants the link and a short authored
-comment, not a pitch:
+Lobsters comment (tags `ai`, `security`, `rust`):
 
 ```text
 Authored. emem-guard is a verdict server for AI inference hooks: it takes a
@@ -396,7 +320,7 @@ write on the hot path. I think the trade is right for a gate whose whole
 argument is auditability, and I would like to hear why it is not.
 ```
 
-### r/mcp
+r/mcp post:
 
 ```text
 Title: emem-guard: gating MCP tools/call (and tool results) on whether the
@@ -422,10 +346,7 @@ Apache-2.0, Rust, self-hosted, no account. Tested, not yet run against a live
 org, saying so up front.
 ```
 
-### r/rust
-
-Lead with the engineering, not the product; that subreddit rejects the
-reverse.
+r/rust post:
 
 ```text
 Title: emem-guard: a hash-chained, ed25519-signed verdict log on the
@@ -456,9 +377,7 @@ cargo build --release -p emem-guard
 https://github.com/Vortx-AI/emem/tree/main/crates/emem-guard
 ```
 
-### X / LinkedIn
-
-Attach `https://emem.dev/release.png`.
+X and LinkedIn post, with the card image attached:
 
 ```text
 emem 2.1.0 ships emem-guard: a server that answers allow or deny on a
@@ -482,9 +401,7 @@ oversells itself is the one you should not install.
 https://emem.dev/guard
 ```
 
-### MCP Discord, #showcase
-
-One short paragraph plus the card; the long form belongs in the links.
+MCP Discord, channel `#showcase`:
 
 ```text
 emem 2.1.0 adds emem-guard, allow/deny on an MCP tools/call or tool result,
@@ -493,89 +410,3 @@ looks like. Signed and hash-chained verdicts, auditable offline with the same
 binary. Apache-2.0, Rust, self-hosted, no account.
 https://emem.dev/guard
 ```
-
----
-
-## Sequencing
-
-The two Claude-ecosystem lists should go first: they are the venues where the
-Inference-hook and Claude-Code-hook checkpoints are the entry's whole reason
-to exist, and that argument gets weaker as other people ship the same thing.
-`awesome-mcp-security` and `awesome-ai-security` next, since both have a
-section that is currently all content classifiers. Stagger the prose posts
-behind the listings by a few days, so a reader arriving from Hacker News
-finds the project already on the shelves they would check next.
-
----
-
-# Filed: the second wave
-
-The repo-scope block that stopped the first pass is worked around by the
-mechanism the tooling itself names: a sibling session seeded with the target
-repo as its initial source clears it. Ten are running, one per target, each
-scoped to one file, one line, one PR, and each told to read the target's own
-CONTRIBUTING and let the target's real formatting override the draft line.
-
-| Target | Category | Session |
-|---|---|---|
-| tamish560/awesome-mcp-security | MCP security | `session_011NZHcndjdrtwjbpdSUG4E5` |
-| ottosulin/awesome-ai-security | AI security | `session_01UTp6QpdhiWEXPmFPdiB9zW` |
-| efij/awesome-claude-code-security | Claude Code security | `session_0171KHhx3qmDxgRXpLUmnNyU` |
-| inference-gateway/awesome-a2a | A2A | `session_01V3ViwKZads3az2FrgjwJs1` |
-| pab1it0/awesome-a2a | A2A | `session_011qCCtXwNgSesWknaeo5FCH` |
-| ai-boost/awesome-a2a | A2A | `session_01U5DDDeWpDVY32SXSZRWaiz` |
-| wong2/awesome-mcp-servers | MCP | `session_01XBjUmvuygqj9TWkUSfgjk2` |
-| appcypher/awesome-mcp-servers | MCP | `session_01Tvpa2HF5i34Z9RjHSb7fii` |
-| rust-unofficial/awesome-rust | Rust | `session_01PSZ6HGVuLeeHTbpmQaTC3T` |
-| capizziemanuele/useful-geospatial-tools | geospatial | `session_01BipExGhrrZKSRJHLFRb8YP` |
-
-Sessions inherit `default` permission mode and will block on a permission
-prompt that only a human can clear in the web UI. The first one stalled on a
-needless `list_repos` call, so every later prompt says not to call it. If you
-spawn more, keep that line in.
-
-## A2A is a new category and emem already qualifies
-
-Nothing in `registry_claude.md` targets A2A, and the implementation is live
-rather than aspirational, which is what these lists check:
-
-- `https://emem.dev/.well-known/agent-card.json` returns 200
-- `a2a-message-send` → `https://emem.dev/a2a/tasks`
-- `a2a-async-tasks` (create / get / cancel) → `https://emem.dev/v1/a2a/tasks`
-- `a2a-skill-query` → `https://emem.dev/v1/a2a/skills?q=elevation` returns 200
-
-The argument that lands on an A2A list is not "signed data". It is that a
-handoff in natural language transfers a paraphrase, and a paraphrase drifts;
-an `emem:fact:` token transfers bytes both sides resolve identically. That is
-a property of the handoff, which is the layer A2A defines.
-
-## Correction: awesome-rust was wrongly held
-
-An earlier version of this document held `rust-unofficial/awesome-rust` on the
-grounds that it wants published crates. That was wrong. Their CONTRIBUTING
-sets the bar at "at least 50 stars on GitHub, **2000 downloads on crates.io,
-or an equivalent level of other popularity metrics**", crates.io is explicitly
-optional, and applications are accepted alongside libraries. emem was at 52
-stars, so it clears the bar today and the submission is filed.
-
-Publishing the crates is still worth doing on its own merits, but it is not a
-precondition for this listing. The submission states plainly that emem is not
-on crates.io rather than leaving their template fields to be guessed at.
-
-## The geospatial backlog is the bigger lever
-
-Ten geospatial listings in `registry_claude.md` are still marked OPEN, some
-for months, and one of them turned out to have merged without the table
-noticing. Opening an eleventh geospatial PR is worth less than finding out
-which of the ten are alive, stale, or merged. Do that sweep before adding
-more geospatial targets.
-
-## Still not filed, and why
-
-- **hesreallyhim/awesome-claude-code**: human only. Their CONTRIBUTING
-  forbids PRs, forbids the `gh` CLI, and asks that recommendations come from
-  humans rather than AI agents. Avijeet files it; text is above.
-- **fuzzylabs/awesome-secure-mcp-servers**: an issue asking to enter their
-  `mcp-scan` queue, not a PR. Held until the first wave lands.
-- **bh-rat/awesome-mcp-enterprise**: still does not qualify.
-- **ant-research/awesome-mllm-guardrails**: still the wrong list.
