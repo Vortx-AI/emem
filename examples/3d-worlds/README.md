@@ -15,8 +15,9 @@ from a fact with a `fact_cid`, and you can check that fact at
 | Node 22 or later, Chromium and ffmpeg, only for `capture.mjs` and the JS tests | Committed scene data in [`scenes/`](scenes/), so you can render with no network |
 
 On 7 November 2026 we ran every Python command on this page against
-emem.dev. Node and Chromium are not on our test host, so the `node` commands
-did not run. This page marks each of them.
+emem.dev. We also ran the JS selftest with Node 24.19.0. Chromium is not on
+our test host, so the commands that need it did not run. This page marks each
+of them.
 
 These worlds are *sparse*: one splat for each signed cell, with no
 interpolation. The *dense* counterpart is the hosted demo at
@@ -85,8 +86,9 @@ and quaternions. The JS and the Python exporter must both match it to 1e-6:
 cd examples/3d-worlds
 python3 make_splats.py --selftest
 # selftest ok: 1213 checks
-node -e "console.log(require('./splat-math.js').selftest('./test/golden-scene.json'), 'checks')"   # not run: needs Node
-node test/render-checks.mjs     # pixel checks for gaussian profile and sort order; not run: needs Node
+node -e "console.log(require('./splat-math.js').selftest('./test/golden-scene.json'), 'checks')"
+# 1217 checks
+node test/render-checks.mjs     # pixel checks for gaussian profile and sort order; not run: needs Chromium
 ```
 
 ## Change a template
@@ -298,7 +300,7 @@ captured GIFs stay byte-for-byte reproducible.
 The world GIFs in `docs/media/` come from these templates. [`capture.mjs`](capture.mjs)
 renders them in headless Chromium with no other dependencies. It needs Node
 22 or later. These commands did not run on our test host, because it has no
-Node or Chromium:
+Chromium:
 
 ```bash
 cd examples/3d-worlds
