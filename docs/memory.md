@@ -443,6 +443,11 @@ nothing is there. What counts as the body depends on the verb:
 | `rename` | the **new_path** | the **old_path** string | `absent` (new_path must be empty) |
 | `supersede` | the note marked stale | `"<superseded_by>\|<reason>"` | current `file_cid` |
 
+The responder removes spaces at the start and end of each path before it
+builds the digest. It does the same for `superseded_by`. It uses `reason`
+as sent, and a missing `reason` counts as empty text. It hashes
+`file_text` as sent, with no change.
+
 You do not have to build this digest yourself. Send the write without
 `attester`. The refusal holds `details.how_to_sign`, which gives
 three things:
@@ -476,9 +481,10 @@ them. `POST /v1/derive` still uses the v1 form with `verb = "derive"`
 
 `rename` is the only verb whose signature binds two paths. The preimage
 `path` is the destination. The `body_hash` is the hash of the source
-path. One signature therefore allows one specific move. When the source is
-also under `by_attester`, the responder also checks that the key owns
-the source. If not, it refuses with 403 `memory_namespace_violation`
+path. One signature therefore allows one specific move. The responder
+applies the owner rules below to both paths. When the source is under
+`by_attester`, the key must also match the prefix of the source. If not,
+the responder refuses with 403 `memory_namespace_violation`
 (`reason: source_namespace`).
 
 Who may write where:
