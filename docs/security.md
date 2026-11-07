@@ -68,8 +68,8 @@ deploy state. It hashed the HTML and matched commits by hand. It reached a
 wrong result two times. This endpoint published the answer the whole time,
 but no page told an agent where to look.
 
-`GET /v1/discover` gives the path of this document under
-`fanout.operator_attestation`.
+`GET /v1/discover` gives the path of the attestation file,
+`/.well-known/emem.json`, under `fanout.operator_attestation`.
 `scripts/deploy_drift.py --require-head` in this repository compares it to a
 local checkout.
 
@@ -343,7 +343,9 @@ keys. On that day `independent_operator_domains` named one operator, `eudr.dev`.
 
 If you pinned a head earlier, add `at_or_after=<your tree_size>`. The
 response then has a `nearest_witnessed` block. It gives the nearest co-signed
-head at or after your size, with an independent key first. It also gives a
+head at or after your size. It prefers a head that a key other than this
+node's own `self_operator` key co-signed. A free `key_only` key counts for
+this choice, so the chosen head is not always from an independent operator. It also gives a
 consistency proof from your size to that head. Check each witness signature,
 then check the proof
 ([protocol §9.6.2.1](./protocol.md#9621-check-a-witness-co-signature-by-hand)).

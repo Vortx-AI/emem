@@ -198,8 +198,8 @@ codes. The next subsection names them and says what you get instead.
 | `canonical_encoding_divergence` | -18 | The CBOR sent is not deterministic per RFC 8949 section 4.2.1. | Encode with sorted map keys and shortest-form integers. |
 | `source_fetch_failed` | -19 | An upstream fetch failed at the transport (non-2xx, DNS, timeout, bad JSON) before the upstream gave an answer. On a place lookup this means the geocoder is down, not that the place is absent. | Retry with backoff. |
 | `source_format_mismatch` | -20 | The fetched bytes do not match the declared format. | Report it; the provider may have changed format. |
-| `compute_timeout` | -21 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). HTTP 504; `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the call budget`. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
-| `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | Slow down. `/v1/limits` publishes the windows. |
+| `compute_timeout` | -21 | The request ran past the transport budget (default 40 s, `EMEM_TIMEOUT_SECS`). HTTP 504; `details.budget_secs` gives the budget. Over MCP the same cause reads `exceeded the <N>s call budget`, with the budget in seconds. | Send a smaller input, or retry. A band read that passes the 14 s dispatch cap keeps running. A retry often finds the value ready. |
+| `compute_quota_exceeded` | -22 | You used all of a per-key, per-day compute quota. | No route sends this code today (see [Codes that no route sends](#codes-that-no-route-sends)). |
 | `rate_limited` | -23 | Too many requests. Per IP the default is 600 per minute with a burst of 120. Memory writes also have a per-attester backstop (`details.code: write_rate_limited`). | Honour `Retry-After` (seconds) or `details.retry_after_s`. |
 | `cache_error` | -24 | The responder's store returned an internal error. | Retry once. |
 | `invalid_argument` | -25 | A field is syntactically valid but semantically wrong, or the body did not match the route's schema (`details.deserializer_error` names the field). Also the top-level code for most route refusals below. | Read `message` and `details`; the request shape is in `/openapi.json`. |
@@ -263,7 +263,8 @@ The fact plane also refuses with `level_too_low` (HTTP 403). This occurs
 when a key that the fact plane does not admit tries to write a fact at a
 `(cell, band, tslot)` address. The signature verified, but the key does not
 have the tier. The message starts with `LevelTooLow: fact_plane_closed:` and
-names `POST /v1/derive` as the route to add a value. `details` is empty.
+names `POST /v1/derive` as the route to add a value. The body has no
+`details` field.
 
 ## Derivation refusals (`POST /v1/derive`)
 
@@ -325,7 +326,7 @@ These routes also put a route code in `details.code`. The top-level code is
 | `/v1/ocr` | `ocr_unavailable` | 501 | The node has no OCR engine. emem.dev has one on 7 November 2026. |
 | `/v1/ocr` | `not_an_image`, `ocr_failed` | 422 | The bytes are not PNG, JPEG, TIFF, WebP, GIF or BMP, or tesseract failed on them. |
 | `/v1/ocr` | `busy` | 503 | The responder closed its OCR pool. A normal request waits for one of 2 OCR slots. |
-| `/v1/lab_report_parse`, `/v1/land_record_parse` | `invalid_argument`, `too_large` | 400 | The body has none of `text`, `ocr`, `url` and `image_b64`, `ocr.text` is missing, or the text is too long. |
+| `/v1/lab_report_parse`, `/v1/land_record_parse` | `invalid_argument`, `too_large` | 400 | The body has none of `text`, `ocr`, `url` and `image_b64`. Or `ocr.text` is missing, or the text is too long. |
 | `/v1/lab_report_parse`, `/v1/land_record_parse` | `ocr_receipt_invalid`, `text_hash_mismatch` | 422 | The `ocr` object is not a receipt that this responder signed, or `ocr.text` does not hash to `ocr.text_blake3_b32`. |
 | `/v1/decide` | `invalid_argument` | 400 | The body is over 32 KiB, has no `state`, has 0 or more than 8 questions, or `state` is over 8000 characters. |
 | `/v1/decide` | `busy`, `model_unavailable` | 503 | The responder closed its decision pool, or the model did not answer. |
@@ -333,8 +334,8 @@ These routes also put a route code in `details.code`. The top-level code is
 The fetch codes of `/v1/range_hash` (`url_refused`, `unresolvable`,
 `too_many_redirects`, `redirect_refused`, `fetch_failed`) also come from
 `/v1/read`, from `/v1/ocr` with a `url`, and from the two parse routes with a
-`url`. These routes share one fetcher. `/v1/read` and `/v1/ocr` add two 502
-codes. `upstream_status` means the upstream did not send a 2xx status.
+`url`. These routes share one fetcher. `/v1/read`, `/v1/ocr` and the parse
+routes with a `url` add two 502 codes. `upstream_status` means the upstream did not send a 2xx status.
 `too_large` means it sent more than the cap: 4 MiB for `/v1/read`, 8 MiB for
 `/v1/ocr`.
 
@@ -360,9 +361,9 @@ with `isError: true`, and the number is the negative of the protocol code
 | Code | HTTP | When |
 |---|---|---|
 | -32600 | 200 | The body is not valid JSON-RPC. `id` is `null`. |
-| -32601 | 200 | The method does not exist. |
+| -32601 | 200 (404 when the request sends `MCP-Protocol-Version: 2026-07-28`) | The method does not exist. |
 | -32602 | 200 | The tool name is unknown (the message names close matches), or the arguments have the wrong type. `tasks/get` and `tasks/result` also send it for a missing or unknown `taskId`. |
-| -32603 | 200 | The responder could not serialize its own answer. |
+| -32603 | 200 | The responder could not serialize its own answer, or a tool task panicked or stopped before it finished. |
 | -32000 | 403 | The `Origin` header is not on the allowlist, and the call can write. Unlisted origins can call the handshake, the listings and read-only tools. Operators add origins with `EMEM_MCP_ALLOWED_ORIGINS`. |
 | -32000 | 200 | The task registry is full of running tasks. Retry later, or call the tool without a task. A REST error whose `code` is not one of the 27 also comes back as -32000. |
 | -32002 | 200 | You called `tasks/result` before the task finished. Poll `tasks/get` first. |
@@ -376,7 +377,7 @@ with `isError: true`, and the number is the negative of the protocol code
 |---|---|---|
 | -32009 | 400 | The `A2A-Version` header names a version other than 0.3 or 1.0. No header means 0.3. |
 | -32601 | 200 | This endpoint does not have the method (`data.supported` lists the methods). Or the skill answers only over HTTP (`data.call_it_here` gives the URL). |
-| -32602 | 200 | The skill refused the call. `data.mcp_error_code` carries the tool error number. |
+| -32602 | 200 | The skill refused the call, and `data.mcp_error_code` carries the tool error number. A bad request shape also causes it. The message has no parts, or no skill and no question. Or a text part for a structured skill is not JSON, or the text names no confident place. These refusals have no `data.mcp_error_code`. |
 | -32001 | 200 | The task id is unknown. Tasks stay in memory only, so a restart clears them. Send the task again. |
 | -32000 | 200 | The responder could not start a background task for the call. |
 
@@ -400,8 +401,10 @@ curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
 
 ## Responses that are not `emem.error.v1`
 
-Some routes send a smaller JSON body. It has a `code`, but no `schema`, and
-sometimes `error` in place of `message`.
+Some routes send a smaller JSON body. It has a `code`, and sometimes `error`
+in place of `message`. Most of these bodies have no `schema`. The
+`/postcard` bodies are the exception: `painting` carries
+`emem.postcard_pending.v1`, and the two 502 bodies carry `emem.error.v1`.
 
 | Route | `code` | HTTP | Meaning |
 |---|---|---|---|
@@ -447,11 +450,15 @@ Two of them have no `code` field, so branch on the HTTP status.
 | Case | HTTP | Body |
 |---|---|---|
 | The path is not on the allowlist. | 404 | `error`, `fronted` (allowed paths), `fronted_trees` (allowed prefixes), `why`. No `code`. |
-| The service answered with a 5xx status. | 502 | `code: "upstream_failed"`, `upstream_status`, `upstream_body` (first 512 bytes), `fronted_by`, `note`. The `x-emem-upstream-status` header repeats the upstream status. |
+| The service answered with a 5xx status. | 502 | `error`, `code: "upstream_failed"`, `upstream_status`, `upstream_body` (first 512 bytes), `fronted_by`, `note`. The `x-emem-upstream-status` header repeats the upstream status. |
 | The service did not answer. | 502 | `error`, `detail` (the transport error), `note`. No `code`. |
 
 A 4xx status from the service comes back unchanged, with the body of the
-service. On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
+service. Three other failures send a bare status with no body:
+
+- 500: the proxy cannot build its HTTP client.
+- 405: the method is not GET or POST.
+- 502: the proxy cannot read the body that the service sent. On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
 `POST /v1/perception/health` gave the 405 of the service.
 
 ## Routes that only a self-hosted node answers

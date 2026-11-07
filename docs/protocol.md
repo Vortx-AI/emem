@@ -646,11 +646,15 @@ responder itself signs derivatives with these `op` and `fn_key` values
 | `op` | `fn_key` | made by |
 |---|---|---|
 | `attribution_ledger` | `change_attribution@1` | `change_attribution.rs` (the change ledger) |
-| `delta` | `nd.delta@1` | `emem-primitives/src/diff.rs` |
 | `index_series` | the series recipe | `field_series.rs` |
 | `rain_series` | the series recipe | `rain_series.rs` |
 | `band_raster`, `dem_raster`, `forest_raster`, `embedding_raster`, `raster_bundle`, `band_cube`, `median_composite` | `<op>@1`, except `s2_median_composite@1` | `band_raster.rs` |
 | `histogram` | `lossyear_histogram@1` | `lib.rs` (forest loss by year) |
+
+`/v1/diff` also builds a derivative with `op` `delta` and `fn_key`
+`nd.delta@1` (`emem-primitives/src/diff.rs`). It returns that
+derivative unsigned as `delta_fact`. The `emem.diff` receipt covers only
+the two parent CIDs.
 
 A caller-registered derivative (`POST /v1/derive`, below) carries the
 `op` and `fn_key` that the caller sent.
@@ -758,11 +762,14 @@ only when the caller sends a `code_cid` and one of these is true:
 | `op` is `delta`, `mean` or `sum`, and every parent value is a number | runs the op over the parent values (`delta` is `inputs[1] - inputs[0]`) | exact float equality. `mean` and `sum` over more than two parents allow 4 ULP |
 | `fn_key` names a registered algorithm that has an `evaluation` tree | evaluates that tree over the parents, keyed by band | exact float equality |
 
-On a match, the stored provenance becomes `deterministic_index`.
+The fact has no separate provenance field. On a match, the responder
+writes `deterministic_index` to
+`derivation.args.recomputation.effective_provenance_class`.
 `derivation.args.provenance_class` keeps the class that the caller
-declared, because the caller signed it. The responder writes its result in `derivation.args.recomputation`
-(`verified`, `rule`, `ulp_gap`, `ulp_tolerance`). Thus the `fact_cid`
-covers it. On no match, or for any other op, the value stays as the
+declared, because the caller signed it. The `recomputation` map holds
+these keys in this order: `verified`, `op`, `recomputed_via`,
+`responder_recomputed`, `effective_provenance_class`, `recomputed_at`,
+`rule`, `ulp_gap`, `ulp_tolerance`. The `fact_cid` covers it. On no match, or for any other op, the value stays as the
 caller declared it. Without a `code_cid`, the responder does no
 arithmetic.
 
@@ -771,7 +778,8 @@ signed the derive preimage, not the fact body. A fact that names the
 caller as `signer` would be a forgery. The responder records the
 signature of the caller inside `derivation.args`. Thus the `fact_cid`
 covers it, and the signature of the responder covers the `fact_cid`.
-`derive_core` stores the `args` keys in alphabetical order:
+`derive_core` stores the top-level `args` keys in alphabetical order.
+The nested `recomputation` map keeps the order given above:
 
 ```jsonc
 "derivation": {
@@ -784,7 +792,7 @@ covers it, and the signature of the responder covers the `fact_cid`.
     "inputs": ["emem:fact:...", "..."],  // the parent tokens as submitted
     "preimage": "blake3(\"emem.memory_write|derive|/v1/derive|\" || body_hash)",
     "provenance_class": "model_output",  // as the caller declared it
-    // "recomputation": { "verified", "rule", "ulp_gap", "ulp_tolerance" }
+    // "recomputation": { "verified", "op", ..., "ulp_tolerance" }
     //   present only when the responder ran the arithmetic again
     "submitted_via": "emem.derive.v1"
   }
@@ -879,8 +887,8 @@ and resolution. It does not become part of the shared default reads.
 
 | Index | Key | Used by |
 |---|---|---|
-| `emem.derived_by_attester` | attester key, then cell and band | `POST /v1/derived` |
-| `emem.derived_by_cell` | cell, `fn_key`, `signed_at`, attester key | `/v1/inferences`, and the `research_nearby` pointers |
+| `emem.derived_by_attester` | attester key, cell, band, then `fact_cid` | `POST /v1/derived` |
+| `emem.derived_by_cell` | a 0.1 degree tile prefix, then cell, `fn_key`, `signed_at`, attester key | `/v1/inferences`, and the `research_nearby` pointers |
 | `emem.derived_by_body_hash` | attester key and body hash | the idempotency rule below |
 
 `/v1/ask` and `/v1/locate` read `emem.derived_by_cell` and can attach a
@@ -1341,15 +1349,17 @@ before it stores anything.
    (`VerifyingKey::from_bytes`).
 7. `verify_strict` must accept the signature over the message of the
    rule for this version (v1 preimage, or the v0 hash).
-8. If the batch has a primary fact or an absence, the fact-plane
-   policy must admit the attester (`FactPlanePolicy::admits`). It
-   admits the responder's own key, an enrolled device and a key in
-   `EMEM_FACT_PLANE_WRITERS`. `EMEM_FACT_PLANE_OPEN=1` admits every
-   key. A batch of derivative facts only skips this step.
+8. This step applies when the batch has a primary fact or an absence.
+   The attester must be an enrolled device, or `FactPlanePolicy::admits`
+   must accept it. `admits` accepts the responder's own key and a key in
+   `EMEM_FACT_PLANE_WRITERS`. With `EMEM_FACT_PLANE_OPEN=1` it accepts
+   every key. A batch of derivative facts only skips this step.
 
 If one of steps 1 to 7 fails, storage refuses the write with
-`StorageError::AttestationInvalid`. The `From<StorageError>` mapping in
-the same file gives the error code (`crates/emem-core/src/error.rs`):
+`StorageError::AttestationInvalid`. `StorageError::wire_code` in
+`crates/emem-storage/src/lib.rs` gives the error code
+(`crates/emem-core/src/error.rs`). `From<StorageError> for ApiError` in
+`crates/emem-api-rest/src/lib.rs` maps that code to an HTTP status:
 
 | Failed check | Error code | HTTP |
 |---|---|---|
@@ -2400,8 +2410,8 @@ values from the responses, BLAKE3 and Ed25519.
    root can be different from the root you checked in step 3.
 5. Compute `leaf = blake3(0x00 || entry_hash)`. It must equal
    `leaf_hash_b32`.
-6. Walk `audit_path_b32` from the leaf to the root with the RFC 6962
-   rule below. The result must equal the STH `root_b32`.
+6. Walk `audit_path_b32` from the leaf to the root with the rule
+   below (RFC 9162 §2.1.3.2). The result must equal the STH `root_b32`.
 7. Optional: get the entry bytes with
    `GET /v1/log/entries?start=<leaf_index>&end=<leaf_index+1>`. Then
    `blake3(entry_cbor_b32 decoded)` must equal `entry_hash`. For an
@@ -2467,7 +2477,7 @@ this check gives it nothing.
    `second_root_b32` and `consistency_proof_b32`.
 4. Do not trust `first_root_b32` from the answer. Use the root from the
    STH that you kept.
-5. Run the RFC 6962 §2.1.2 algorithm below. It rebuilds the old root and
+5. Run the algorithm below (RFC 9162 §2.1.4.2). It rebuilds the old root and
    the new root from the proof. The old root must equal your kept root.
    The new root must equal the root of the step 2 STH.
 
@@ -2756,7 +2766,7 @@ key. `/v1/verifier_spec` lists every segment.
 | `emem.range_hash.v1` | `POST /v1/range_hash` | url, u64_be offset, u64_be length, blake3 (32 raw bytes), etag or `absent`, fetched_at, responder_pubkey, fetched_url |
 | `emem.read.v1` | `POST /v1/read` | url, fetched_url, body_blake3, body_sha256, etag or `absent`, text_blake3, fetched_at, responder_pubkey |
 | `emem.ocr.v1` | `POST /v1/ocr` | image_blake3, source url or `upload`, lang, engine version line, text_blake3, read_at, responder_pubkey |
-| `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map), which is how the response carries it |
+| `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map). The response carries it in that form |
 | `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
 
 The fetching routes share one set of egress bounds:
@@ -2865,6 +2875,7 @@ Over it, the route returns `429` with `code: range_hash_quota` (see
 [errors.md](errors.md)).
 
 <a id="ememtree"></a>
+
 ### 9.8 Merkle trees inside notes (emem:tree)
 
 In short: a `pointer.v1` or `directory.v1` note lists rows (file chunks
@@ -2891,7 +2902,8 @@ or the row label (a pointer's chunk label, a directory's path). Without
 Unlike §9.6, this tree has no leaf and node domain separation. When the
 root that a note states does not match its rows, the route refuses with
 `root_mismatch` and gives no path. A note of another kind gets
-`not_a_tree`. `POST /v1/tree/path` computes the same path over leaves or
+`not_a_tree`. A tree note with no row that parses gets `no_rows` (422).
+A `row` that the table does not hold gets `row_not_found` (404). `POST /v1/tree/path` computes the same path over leaves or
 chunks that the caller holds.
 
 ---

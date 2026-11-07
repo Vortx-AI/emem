@@ -20,6 +20,9 @@ before the binary uses it.
   `bands_cid`, `registry_cid`, `schema_cid` and `sources_cid`.
 - The `emem-server` binary embeds the JSON files at compile time. To change a
   manifest, edit the JSON and rebuild. There is no runtime override.
+- Band and algorithm keys are the names that agents send, so pin them.
+  URLs, weights and thresholds inside a manifest can change with a new
+  manifest CID.
 - The tenth JSON file, `climate_archetype_centroids_v1.json`, is seed data
   for one algorithm. It is not a manifest and has no CID.
 
@@ -32,7 +35,7 @@ manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest) )[..32] 
 The code is `manifest_cid` in `crates/emem-core/src/manifest.rs`.
 `canonical_cbor` is the output of `ciborium::ser::into_writer` for the
 parsed Rust struct. The bytes follow the struct field order, not the JSON key
-order. Thus you cannot get the CID from the JSON file alone.
+order. A CBOR encoding of the JSON as written gives a different CID.
 [Protocol §12](protocol.md#12-conformance-gates-the-four-cids) shows how to
 reproduce `bands_cid`.
 
@@ -120,6 +123,7 @@ Per-band fields (struct `bands::Band`):
 | `offset` | yes | stable offset in the 1792-D cube |
 | `dims` | yes | dimension count (for example 128 for `geotessera`) |
 | `tempo` | yes | one of 7 `Tempo` variants |
+| `provenance_class` | no | how the source makes the band's values (one of 7 `ProvenanceClass` variants); default `unclassified` |
 | `privacy` | yes | one of 4 `PrivacyClass` variants |
 | `description` | no | one paragraph for `/v1/bands` |
 | `units` | no | physical units of a scalar band |
@@ -129,9 +133,12 @@ Per-band fields (struct `bands::Band`):
 | `references` | no | citation and document URLs, one per line |
 | `dimensions[]` | no | per-slot breakdown for a multi-dim band |
 | `scalar_keys[]` | no | dotted keys that agents send to `/v1/recall` (for example `indices.ndvi`) |
+| `scalar_units` | no | map from a scalar key to its unit; left out of the CBOR when empty |
 
-The optional text fields (`description`, `interpretation`, `pitfalls`,
-`references`) are part of the `Band` struct. A change to them changes
+Every field in this table is part of the `Band` struct and serializes into
+`bands_cid`. This includes `provenance_class`, `scalar_units` and the
+optional text fields (`description`, `interpretation`, `pitfalls`,
+`references`). A change to them changes
 `bands_cid`. The `_note` in `bands-v0.json` says otherwise; the code is the
 authority ([protocol §12](protocol.md#12-conformance-gates-the-four-cids)).
 
@@ -372,8 +379,8 @@ The validator applies four rules to a `multimodal` block. A
 | R3 | a non-empty `variance_sources` list has at least one band that is not `Static` (fusion method `none` is exempt) |
 | R4 | `priority_chain[0]` is the tier of `anchor_band` |
 
-R2 stops a "10 m flood risk" algorithm from using an `era5.*` input as its
-anchor. Coarse physics algorithms (SPI on POWER precipitation, GDD on POWER
+R2 stops a "10 m flood risk" algorithm from using only `era5.*` inputs as
+its variance sources. R4 is the rule that checks the tier of the anchor. Coarse physics algorithms (SPI on POWER precipitation, GDD on POWER
 temperature) declare their true, larger resolution.
 
 For an `inference` block, I1 requires that `tier` is not `Absence` and that
@@ -492,6 +499,7 @@ The validator rejects two schemes with the same name. An empty
 
 `template.rs` resolves these template variables: `{cell64}`, `{tslot}`,
 `{year}`, `{month}`, `{day}`, `{channel}`, `{lat_band}`, `{lon_band}`,
+`{lat_top10}`, `{lon_left10}`, `{hansen_lat_band}`, `{hansen_lon_band}`,
 `{tile_id}`, `{bbox_csv}`, `{lat_center}` and `{lon_center}`. Values in the
 caller's `vars` override the built-in values.
 

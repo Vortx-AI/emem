@@ -114,7 +114,8 @@ anything. Writes have tiers by what they can reach, never by who is asking
   code now keeps `fact_proofs` and the multi-attester index in a redb file
   (`facts.redb`). A background job copies the old sled rows across.
   `EMEM_HOT_BACKEND=sled` rolls this back. The header of `emem-sled-slim` has
-  the measurement.
+  the measurement. The server still opens the sled store at boot. The cold
+  open stays until both backfills finish and an operator slims the store.
 - Legacy alias rows stay unattributed. There were 251 such rows on
   14 September 2026. They rank below any attributed row and carry a label. An
   operator can assert the true ones again under the responder key to remove
