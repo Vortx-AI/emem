@@ -120,7 +120,7 @@ An MCP answer has a size limit of 24,000 bytes by default
 | Field | What it tells you |
 |---|---|
 | `omitted_fields` | Each field that the answer left out. |
-| `budget_bytes` | The share of one copy, text or `structuredContent`. Thus it can show 12,000. |
+| `budget_bytes` | The share of one copy, text or `structuredContent`. Thus it can show 12,000 or less. |
 | `fetch` | Often, the call that returns the rest. It can be `null`, or drop some arguments. |
 
 If `fetch` is `null`, send the same arguments to the REST route. REST has no
@@ -517,10 +517,11 @@ Thus `cosine` was absent, and `note` told why. emem.dev no longer makes new
 `geotessera` vectors. A cosine is available only where both cells already
 hold one.
 
-On emem.dev, the MCP answer of this call has no result fields. The receipt
-lists every fact CID of both cells: 5,063 on 7 November 2026. The answer
-keeps the receipt and omits all other fields, also with `family`. Its
-`_emem_truncation.fetch` is `null`.
+On emem.dev, the MCP answer of this call keeps only the receipt in full.
+The receipt lists every fact CID of both cells: 5,063 on 7 November 2026.
+Each other field keeps its name, but its value is a stub with
+`_omitted: true`. This is also true with `family`. The
+`_emem_truncation.fetch` field is `null`.
 
 ### Job: read conclusions that other agents signed at a place
 
@@ -1047,7 +1048,8 @@ marks an optional field.
 `band`, `value`, `unit`, `tslot`, `observed_at`, `kind`, `confidence`,
 `fact_cid` and `memory_token`. A key that the fact does not have stays out.
 For example, a signed Absence has no `value`. The call on 7 November 2026
-for `elevation` and `ndvi` at the Mount Fuji cell gave all nine keys.
+for `elevation` and `ndvi` at the Mount Fuji cell gave the elevation fact
+all nine keys. Each NDVI fact had eight keys, because NDVI has no `unit`.
 
 `/v1/grid` returns the cells in row order, north row first. Each band has
 `unit`, `present`, `absent`, `values`, `states` (`value`, `absent` or
@@ -1664,6 +1666,7 @@ cut-off comes from Hansen GFC v1.13. The responder applies the 0.5 ha floor
 of Article 2(4). It returns a statement in the shape of Annex II with a
 `dds_reference_number` and a receipt signed over the per-cell fact CIDs. The
 receipt holds at most 2,048 CIDs by default (`EMEM_EUDR_RECEIPT_MAX_FACTS`).
+The responder clamps that variable to the range 256 to 51,200.
 On a larger plot the response adds `receipt_fact_cids_capped: true` and
 `receipt_fact_cids_total`.
 

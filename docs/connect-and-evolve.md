@@ -61,7 +61,7 @@ curl -s -X POST https://emem.dev/v1/edges/recall \
   | jq '{direction, edges: (.edges|length), hint: .agent_hint}'
 ```
 
-On 7 November 2026 this fact had no edges. The answer was
+On 7 November 2026 this fact had no edges, with or without `pred`. The answer was
 `direction: "out"`, `edges: 0` and an `agent_hint` that says "no relation
 known". An empty list means that no edge exists. It is not a failure.
 
@@ -149,8 +149,9 @@ signature covers. The answer gives `edge_cids` and `edge_count`.
 An edge has no `(cell, band, tslot)` address. Thus a caller can sign an
 edge with its own key. For example, a second agent can record that it
 disagrees with a fact from the first agent. Do not use the steps for a
-signed note here, because a note signs a different digest. The envelope and its preimage
-are in [protocol section 6](protocol.md#6-attestation-envelope). The worked example in
+signed note here, because a note signs a different digest. The envelope
+and its preimage are in
+[protocol section 6](protocol.md#6-attestation-envelope). The worked example in
 [examples/connect-and-evolve.md](../examples/connect-and-evolve.md) reads
 edges back and describes this write.
 
@@ -200,7 +201,7 @@ run writes no new edges.
 | `EMEM_REFINEMENT_INTERVAL_SECS` | 86400 (one day) | Time between runs. Minimum 1. |
 | `EMEM_REFINEMENT_MIN_SEVERITY` | 0.5 | Lower severities make no edge. Range 0 to 1. |
 | `EMEM_REFINEMENT_CELL_PREFIX` | none | Limits the scan to cells with this cell64 prefix. |
-| `EMEM_REFINEMENT_MAX_PAIRS` | 1 | Pairs written for each contradiction. |
+| `EMEM_REFINEMENT_MAX_PAIRS` | 1 | Pairs written for each contradiction. Minimum 1. |
 
 The fact plane admits few attesters: the responder, enrolled devices and
 an operator allow list. Thus on a corpus with one responder, the loop has
@@ -209,8 +210,8 @@ few contradictions to act on.
 ## Edges across responders
 
 Today the edges and the refinement loop work inside one responder. Each
-edge and each contradiction has a signature and a content id. Thus a federation of
-responders could, in a later version, cite edges from each other and
+edge and each contradiction has a signature and a content id. Thus a
+federation of responders could, in a later version, cite edges from each other and
 record disagreement across hosts. This does not ship.
 
 What federation ships today is mutual witnessing of transparency log
