@@ -49,6 +49,12 @@ On 7 November 2026 it returned `jrc_gfc2020.forest_2020` 0,
 `forest_change.lossyear` 0 and `forest_change.treecover2000` 20. The MCP
 tools `emem_locate` and `emem_recall` take the same bodies.
 
+For a Point, the statement samples one cell in a box of 0.0001 degrees
+around the point. That cell can be a neighbour of the cell from
+`locate`. On 7 November 2026 the statement read `defi.zb44d.zae9f.bujI`.
+The warm-up still helps, because it loads the source tiles, and
+neighbour cells share them.
+
 ## Step 2: send the request
 
 ```sh
@@ -175,7 +181,7 @@ empty when the statement is signable.
 ### Result on 7 November 2026
 
 The Point plot in step 2 (cocoa, Côte d'Ivoire) returned this at
-01:06 UTC:
+01:06 UTC. A second call at 03:31 UTC returned the same values:
 
 ```json
 {"verdict": "pass", "signable": true, "review_required": false,
@@ -232,8 +238,10 @@ each cid behind `per_cell_rows_cid`.
 - Send `per_cell_offset` to page the rows in canonical order, one inline
   cap at a time. Follow `per_cell_next_offset` until it is `null`.
 - `per_cell_rows_cid` is a BLAKE3 hex over one line for each sampled
-  cell: `<cell>|<verdict>|<fact_cids joined by ,>` and a newline. The
-  joined pages give the same hash. The receipt does not sign this hash,
+  cell: `<cell>|<verdict>|<fact_cids joined by ,>` and a newline. Use
+  the number in `verdict` (for example `1`), not the text in `label`.
+  The joined pages give the same hash. On 7 November 2026 the hash of
+  the one row in step 3 matched `per_cell_rows_cid`. The receipt does not sign this hash,
   but it signs the fact cids in it.
 - `sampled_polygon_fraction` is the coverage (sampled area over polygon
   area). Do not use the number of rows as coverage.
