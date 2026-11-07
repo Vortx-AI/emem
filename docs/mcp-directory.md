@@ -48,6 +48,12 @@ This loop is the reason for the rest of the server.
 5. `emem_memory_token_resolve` turns the line back into the byte-identical signed body.
 6. `emem_verify_receipt` checks the Ed25519 receipt without trust in the responder.
 7. `emem_memory_contradictions` shows where signed sources disagree at the same address.
+8. `emem_guard_verdict` checks a draft before you send it. Each citation must resolve, and each measured
+   value must have a citation. The result is `allow` or `deny`, with a machine-readable `fix`.
+
+On emem.dev, step 8 is advisory: it blocks nothing, and the reply has `advisory: true`. To enforce the
+verdict, run your own node. emem.dev gives these 8 steps in this order in the `loop` field of `emem_tools`
+(7 November 2026).
 
 The claim is narrow. The same token resolves to the same bytes for everyone, and the receipt verifies
 without trust in the server.
@@ -104,6 +110,15 @@ Add the remote endpoint to your MCP client:
     }
   }
 }
+```
+
+To make sure that the endpoint answers, ask for the tool list. This command needs `curl` and `jq`. On
+7 November 2026 it printed `18`.
+
+```sh
+curl -s https://emem.dev/mcp -H 'content-type: application/json' \
+  -H 'accept: application/json, text/event-stream' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
 ```
 
 To register the whole catalog, use `https://emem.dev/mcp/full` instead. It is the same server with the same
