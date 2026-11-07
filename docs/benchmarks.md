@@ -243,8 +243,9 @@ prose. So a test can check them.
   a text `reason` that starts with a connector code, and a `reason_cid`. See
   [Signed Absence](agents.md#signed-absence). The backfill path adds two
   skip states: `no_auto_materializer_registered` and `present_only`.
-- Request errors. Each has a code, for example `invalid_argument`,
-  `band_not_in_registry`, `invalid_temporal_bound` and
+- Request errors. Each has a code, for example `invalid_argument` and
+  `band_not_in_registry`. For a bad time filter, the code is
+  `invalid_argument` and the message starts with `invalid_temporal_bound` or
   `invalid_signed_at_format`. The message gives the accepted values.
 - Process. A watchdog (`deploy/systemd/emem-watchdog.service`) restarts the
   responder when its runtime stops. Receipts are content-addressed, so a
