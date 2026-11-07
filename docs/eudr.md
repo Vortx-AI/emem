@@ -361,12 +361,14 @@ The deferral does not change the cut-off that the verdict uses.
 | `GET /v1/schemas/eudr_dds.json` | JSON Schema (draft 2020-12) of the response. It does not list every response field. |
 | `GET /v1/cells/{cell64}/scene.png` | True-colour Sentinel-2 chip, 256 x 256 pixels, PNG |
 | `GET /v1/cells/{cell64}/scene.rgb` | The same chip as raw bytes, without PNG framing |
+| `GET /v1/scene.png?bbox=w,s,e,n` | True-colour Sentinel-2 chip cropped to a plot box in WGS 84, PNG |
 
-All five requests returned 200 on 7 November 2026.
+All six requests returned 200 on 7 November 2026.
 
 ### Read a scene chip
 
-Both scene requests use one pipeline and send the same `x-emem-scene-*` headers.
+The three scene requests use one pipeline and send the same `x-emem-scene-*` headers.
+Only `.rgb` sends `x-emem-scene-width` and `x-emem-scene-height`, because a PNG holds its own size.
 If you send no `max_cloud`, `datetime` or `at`, the handler tries up to three searches:
 
 | Step | Cloud cap | Window before now | `x-emem-scene-fallback` header |
@@ -376,8 +378,16 @@ If you send no `max_cloud`, `datetime` or `at`, the handler tries up to three se
 | 3 | 60 % | 365 days | `relaxed_cloud` |
 
 If you send `max_cloud` or a window, the handler tries one search only.
+That search uses a 20 % cap if you send no `max_cloud`.
+It uses the last 90 days if you send no window.
 The `at=<date>` parameter sets a window of 7 days that ends at that date.
 If no search finds a scene, the handler returns 404 `no_clear_scene` with a `tried` list.
+If a fetch from the upstream fails, it returns 502 `scene_upstream_failed`.
+
+The bbox request reads at 10 m and crops the scene to your box.
+Each side is at least 32 and at most 1024 pixels, so the box can be about 10 km wide.
+A larger box gets 400 with the size it would need.
+On 7 November 2026, `bbox=138.72,35.35,138.74,35.37` near Mount Fuji returned a PNG of 182 x 222 pixels.
 
 The `.rgb` body is `width x height x 3` bytes: 8-bit R, G and B values, one pixel after the next.
 Read the size from `x-emem-scene-width` and `x-emem-scene-height`.
