@@ -214,7 +214,7 @@ rebuilds the preimage and checks the Ed25519 signature in the tab.
 3. If the band comes from other bands, add a recipe to
    `crates/emem-core/data/functions-v0.json`.
 4. Connect a materializer. Inline materializers are in
-   `crates/emem-api-rest/src/lib.rs` (search for `fn materialize_`).
+   `crates/emem-api-rest/src/lib.rs` (search for `async fn materialize_`).
    A larger connector gets its own module in `crates/emem-fetch/src/`.
 5. Add the band key to `all_materializable_bands` in the same file. If
    the key is not there, `/v1/bands`, `/v1/materializers` and

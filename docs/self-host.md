@@ -95,7 +95,7 @@ curl -sX POST http://localhost:5051/v1/recall \
 ```
 
 The reply has `facts` and a `receipt`. Each fact has a `memory_token` and a `signer_pubkey_b32`. On your node, the
-signer is the key from `/live`. A client that checks receipts must pin that key, not the key of emem.dev.
+signer is the `responder_pubkey_b32` key from `/live`. A client that checks receipts must pin that key, not the key of emem.dev.
 
 List the MCP tools:
 

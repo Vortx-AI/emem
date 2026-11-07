@@ -421,14 +421,18 @@ returned:
 | `current_tree_size` | 3,245,740 |
 | `count` (co-signatures) | 49,589 |
 | `independent_witness_count` | 112 keys |
+| `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
 | `independent_operator_count` | 1 |
 | `independent_operator_domains` | `eudr.dev` |
 | `freshest_independent_operator_entries_behind` | 5 |
 | `head_is_witnessed_by_independent_operator` | `false` |
 | `head_is_independently_witnessed` | `false` |
 
-The lag changes from minute to minute. An earlier read on the same day
-gave 108 entries behind.
+Thus nearly all witness keys have no vouching. The lag changes from
+minute to minute. At 07:02 UTC on the same day,
+`freshest_independent_operator_entries_behind` was 23 and
+`freshest_independent_witness_entries_behind` was 2. The tier counts were
+the same.
 
 #### Read the independent fields, not `head_is_witnessed`
 
@@ -443,12 +447,17 @@ node's own co-signature was 0 or 1 entry behind the head each time.
 The fields that bear on split view leave out `self_witness_pubkey_b32`.
 Of these, read `head_is_witnessed_by_independent_operator` and
 `freshest_independent_operator_entries_behind` first. They count only
-`org_vouched` witnesses, whose operator domain has DNS or well-known
-evidence. `head_is_independently_witnessed` and `independent_witness_count`
+`org_vouched` witnesses. An `org_vouched` key has DNS TXT or well-known
+evidence for its operator domain, and that evidence is younger than 30 days.
+A key under one of the node's own domains (`EMEM_TLS_DOMAINS` or the public
+origin host) is `self_operator`, not `org_vouched`.
+`head_is_independently_witnessed` and `independent_witness_count`
 count any key that is not the node's own. Keys cost nothing to make, so
-those two fields do not count parties (`crates/emem-api-rest/src/lib.rs`).
+those two fields do not count parties (`witness_tier` in
+`crates/emem-api-rest/src/lib.rs`).
 
 `scripts/external_witness_lag.py` alarms when no other key witnesses the log.
+It does not check for a vouched operator.
 It reads the co-signature list, not the operator fields. It drops each key
 that you give with `--self-key` and checks the freshest of the rest. Give it
 every key your host signs with, or it counts them as independent.
@@ -501,7 +510,7 @@ emem refuses these, each for a stated reason:
 | Attack | State | Why |
 |---|---|---|
 | Serving wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
-| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_witnessed_by_independent_operator` was `false` (that operator's freshest co-signature was 5 entries behind at 02:29 UTC) |
+| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain. At 02:29 UTC `head_is_witnessed_by_independent_operator` was `false`. That operator's freshest co-signature was 5 entries behind |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
 The answer to sybil writes is not an identity gate. That gate would cost the

@@ -112,8 +112,8 @@ yet.
 ### A place name in one language can resolve to the wrong place
 
 Gazetteer labels come back in the local script. So `Munich` against
-`München`, and `Osaka` against `大阪市`, once scored zero against the
-confidence floor, and locate refused them. The floor now also checks the
+`München`, and `Osaka` against `大阪市`, once scored zero. That score was
+below the confidence floor, and locate refused them. The floor now also checks the
 alternate names of a place. On 7 November 2026 these ten names all
 resolved to the correct city with `is_high_confidence` true: `Munich`,
 `Osaka`, `Nuremberg`, `Florence`, `Gothenburg`, `Kazan`, `Copenhagen`,
@@ -979,7 +979,8 @@ Ships:
   responder admits its writes: `syscall`, `scheduler`, `memory`,
   `sensor_bus`, `energy`, `thermal` and `inference`.
 - The `emem.os_trace.v1` record in `emem-trace`. It carries those layers
-  in chained trace segments, and the device signs the whole record.
+  in chained trace segments. The device signs a tagged preimage of the
+  schema, device, profile, window, trace root and outputs.
 - A two-vendor HTTP example in `examples/fleet-memory/`.
 
 Not built: the edge encoder that makes trace windows on the robot,
@@ -1279,8 +1280,8 @@ v1: blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)
 ```
 
 A new write needs v2 for every verb. Since 2026-11-05 the responder
-refuses a v1 signature with `reason: v1_retired`, because v1 binds no
-`base`, so anyone can replay a signature from the public log. Old v1
+refuses a v1 signature with `reason: v1_retired`. V1 binds no `base`, so
+anyone can replay a v1 signature from the public log. Old v1
 notes still verify when an agent reads them (`crates/emem-api-rest/src/lib.rs`,
 test `a_v1_write_signature_is_refused_for_every_verb`).
 
@@ -1697,7 +1698,7 @@ The items are in the order of build priority.
 | # | Item | Status on 7 November 2026 |
 |---|---|---|
 | 1 | Chain the receipt to the transparency log | Ships |
-| 2 | Governed witnesses and client gossip | Partly ships: witnesses of one independent operator co-sign the head |
+| 2 | Governed witnesses and client gossip | Partly ships: one witness key of one independent operator co-signs the head |
 | 3 | `emem:a2a-envelope:v1`, one verifiable message object | Not built |
 | 4 | Signed conversation structure | Not built |
 | 5 | Edge authority, separate from edge authorship | Not built |
@@ -1728,9 +1729,9 @@ the proof. Receipts written before the field existed do not have it. See
 
 #### 2. Governed witnesses and client gossip: partly ships
 
-The log proves that this responder's tree grew consistently. Witnesses
-of one independent operator (`independent_operator_count` 1 on
-7 November 2026) co-sign the emem.dev head. Cross-witnessing with
+The log proves that this responder's tree grew consistently. One
+witness key, vouched by one independent operator (`eudr.dev`), co-signs
+the emem.dev head (`independent_operator_count` 1 on 7 November 2026). Cross-witnessing with
 `geo.qa` started on 2026-09-02 and first worked in both directions on
 2026-09-05. These parts are still missing:
 

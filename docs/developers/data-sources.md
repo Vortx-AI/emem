@@ -134,7 +134,10 @@ signs an Absence: with or without a token, the recall gets an error (`lib.rs`,
 ## Materializers in emem-api-rest
 
 Some upstreams have no module in `emem-fetch`. The materializer in `crates/emem-api-rest/src/lib.rs`
-calls the JSON API itself. To find them all, search that file for `fn materialize_`. Most are `async`; `materialize_algorithm_band` is not.
+calls the JSON API itself. To find them all, search that file for `async fn materialize_`. Add
+`materialize_algorithm_band`, which is not `async`. Other `fn materialize_` names, such as
+`materialize_budget_per_min`, `materialize_share` and `materialize_inflight`, are helpers, not
+materializers.
 
 | Function | Upstream | Bands |
 |---|---|---|
@@ -301,8 +304,14 @@ path of that file. Without it, the node signs nothing and the recall gets an err
 the variable. The node does not sign an Absence, because the cell itself is not empty.
 
 Pixel value 0 means no Hansen loss event. The node signs an Absence with reason
-`wri_gdm_no_hansen_loss`. On 7 November 2026, emem.dev gave a Primary fact with class 6 at
-Novo Progresso, Brazil.
+`wri_gdm_no_hansen_loss`. On 7 November 2026, emem.dev gave a Primary fact with class 6 near
+Novo Progresso, Brazil, at cell `defi.zb3af.zedd6.gEdE` (-7.0375, -55.4186):
+
+```sh
+curl -s https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb3af.zedd6.gEdE","bands":["wri_gdm.driver_class"]}' \
+  | jq '.facts[0].value'
+```
 
 ### ftw.rs: field boundaries
 

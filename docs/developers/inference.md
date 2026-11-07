@@ -83,10 +83,12 @@ field shows why. The responder signed the centre fact on 28 May 2026,
 and the neighbour facts on 7 November 2026. Thus the 15.46 K range in the stencil
 is a difference in time, not in space.
 
-The solver reads the newest cached fact at each of the 9 cells
-(`tslot` not set). It does not check that the 9 facts come from the same
-8-day composite. Compare the dates in `neighborhood_signed_at` before you
-use `delta_k`.
+The solver recalls each of the 9 cells with no `tslot`. A cell with no
+fact gets a fetch first. The solver does not check that the 9 facts come from the
+same 8-day composite. `neighborhood_signed_at` gives the time when the
+responder signed each fact, not the composite date. A different signing
+date suggests a different composite, but does not prove it. Compare those
+dates before you use `delta_k`.
 
 ## `/v1/wave_solve`: 1D shallow water
 
