@@ -72,8 +72,8 @@ jq '{cells_sampled, facts_returned, area_km2, converged, coverage_fraction,
      is_exhaustive, pending: (.pending | length), source: .polygon_bbox.source}' poly.json
 ```
 
-On 6 November 2026 this call returned 200 with 16 cells sampled, 16
-facts, `area_km2` 120.05, `coverage_fraction` 0.0000133,
+On 6 and 7 November 2026 this call returned 200 with 16 cells sampled,
+16 facts, `area_km2` 120.05, `coverage_fraction` 0.0000133,
 `converged: true` and no pending entries.
 
 The two limits:
@@ -88,19 +88,34 @@ The two limits:
 | Field | Meaning |
 |---|---|
 | `cells_sampled` | The number of cells that the call read. |
-| `coverage_fraction` | The part of the area that the sample covers. |
+| `native_grid_cells_in_polygon` | The number of 10 m cells in the area. |
+| `coverage_fraction` | `cells_sampled` divided by `native_grid_cells_in_polygon`. |
 | `is_exhaustive` | `true` only when the sample covers every cell in the area. |
 | `converged` | `false` when the time budget ran out before all fetches finished. |
 | `pending` | One typed entry for each fetch that did not finish. |
-| `polygon_bbox.source` | Where the extent came from. |
+| `polygon_bbox.source` | Where the extent came from. See the next table. |
 
 A sample is not the area. Sixteen cells over 120 km² is a sample.
 Report it as a sample.
 
-When you send a `place`, read `polygon_bbox.source`. The value
-`centre_cell_bbox` tells you that the geocoder found no polygon. The
-call then fell back to one cell. Say so. Do not present a one-cell
-answer as a regional answer.
+When you send a `place`, read `polygon_bbox.source`:
+
+| `polygon_bbox.source` | Where the extent came from |
+|---|---|
+| `request_polygon_bbox` | The `polygon_bbox` that you sent. |
+| `request_polygon_geojson` | The bounds of the `polygon_geojson` that you sent. |
+| `nominatim_boundingbox` | The bounding box that the Nominatim geocoder returned for the place. |
+| `wide_bbox_table` | A built-in table of large regions. |
+| `overture_division_area` | An Overture administrative boundary. |
+| `geocoder` | A geocoder that the server does not name. |
+| `centre_cell_bbox` | No extent. The geocoder found only a point, so the call read one cell. |
+
+For `centre_cell_bbox`, tell the user that the answer is for one cell.
+Do not present a one-cell answer as a regional answer.
+
+On 7 November 2026, `"place": "Cubbon Park, Bengaluru"` with
+`max_cells` 4 returned `nominatim_boundingbox`, `area_km2` 1.64 and 4
+facts.
 
 ## Step 4: handle a partial answer
 
@@ -137,7 +152,7 @@ jq '[.by_cell[].facts[] | select(.band == "copdem30m.elevation_mean" and .value 
       else {count: length, mean: (add / length), min: min, max: max} end' poly.json
 ```
 
-On 6 November 2026 this filter gave 16 values, a mean of 906.7 m, a
+On 6 and 7 November 2026 this filter gave 16 values, a mean of 906.7 m, a
 minimum of 885.1 m and a maximum of 940.7 m.
 
 Each cell `facts[]` can hold several readings of one band, oldest
@@ -181,7 +196,7 @@ jq -c '{receipt: .by_cell | to_entries[0].value.receipt}' poly.json \
   | jq -c '{valid, signature_valid, merkle_proof_valid}'
 ```
 
-On 6 November 2026 both commands ran. The check returned `true` for all
+On 6 and 7 November 2026 both commands ran. The check returned `true` for all
 three fields. To check offline, use
 [`emem-verify-receipt`](../emem-verify-receipt/SKILL.md).
 
