@@ -743,80 +743,133 @@ requires.
 
 ### Tenancy: closing the memory layer before scaling ingest
 
-This is the precondition for everything on the supply side. A shared
-memory that any caller can write is a memory any caller can poison, and
-that gate has to hold before bulk ingest or a per-tenant enterprise layer
-is safe to build.
+Bulk ingest and a per-tenant enterprise layer need a closed memory layer
+first. If any caller can write to shared memory, any caller can poison it.
 
-What ships today (2026-07-14): the global namespace is closed to
-unauthenticated writes. Every `memory_create` / `str_replace` / `insert`
-/ `delete` / `rename` requires a valid ed25519 `attester` block
-(`RequireAll` is the release default; an operator can re-open for the
-unattested Anthropic memory-tool contract with `EMEM_MEMORY_OPEN=1`).
-Attested writes default to the caller's own
-`/memories/by_attester/<pubkey8>/...` space, the shortcode is bound to the
-signing key, and the `vault` kind seals bytes under a capability so its
-reads are gated. This closes the memory-poisoning vector: an anonymous
-caller can no longer plant a `kind=semantic` file that surfaces in another
-agent's `memory_search`.
+| item | status on 7 November 2026 |
+|---|---|
+| Writes to the global namespace need a signature | Ships (since 2026-07-14) |
+| Writes to `/memories/by_attester/<pubkey8>/` need that key | Ships |
+| `vault` entries sealed at rest | Ships, but the operator can open them |
+| Owner-scoped reads | Not built; the live intent registry says "not served" |
+| Per-tenant isolation of memory notes | Not built |
 
-What is open, and gates the enterprise story:
+#### Signed writes
 
-- **Owner-scoped reads.** Reads, listing, and search currently carry no
-  caller identity, so the flat namespace is a shared commons and even the
-  per-attester namespace is world-readable. Real confidentiality needs a
-  caller-identity channel threaded through the read path so a private
-  namespace returns only to its owner. This is the gate for two stories,
-  not one: per-tenant ingest, and private agent memory. Until it ships,
-  private agent state belongs in a local store or on a self-hosted
-  responder; the hosted commons is world-readable, and the vault is
-  openable by the operator, not by the caller.
-- **Per-tenant isolation.** The four-tuple `Scope {user_id, agent_id,
-  run_id, org_id}` already scopes geospatial facts; extending the same
-  scope to the memory-file layer is the multi-tenant primitive the private
-  ingest layer below is built on.
+In a release build, every `memory_create`, `str_replace`, `insert`,
+`delete` and `rename` needs a valid Ed25519 `attester` block. This is
+the `RequireAll` policy in `crates/emem-api-rest/src/lib.rs`. An operator
+can change it with an environment variable:
+
+| variable | effect |
+|---|---|
+| `EMEM_MEMORY_REQUIRE_ATTESTER=1` | Forces `RequireAll`. It wins over the other two. |
+| `EMEM_MEMORY_OPEN=1` | Opens the global namespace to unsigned writes. The Anthropic memory-tool contract sends unsigned writes. |
+| `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1` | Unsigned `create`, `str_replace` and `insert` pass; `delete` and `rename` need a signature. |
+
+A signed write goes to `/memories/by_attester/<pubkey8>/...` by default.
+The signing key fixes the short code. That sub-tree always needs
+the key, whatever the policy. So an anonymous caller cannot plant a
+`kind=semantic` note that appears in the `memory_search` of another agent.
+
+The responder seals a `vault` entry with an AEAD key. It derives that
+key from its own Ed25519 secret, and `vault_capability` is a signature
+under the responder key. So the operator can open a vault entry, and the
+writing agent cannot. A vault entry never enters the search index.
+
+#### Owner-scoped reads: not built
+
+Reads, lists and search carry no caller identity. The flat namespace and
+every `by_attester` namespace are readable by everyone. A private
+namespace needs a caller identity on the read path. Per-tenant ingest
+and private agent memory both depend on it.
+
+The live intent registry (`GET /v1/intents`, need "I need memory that is
+private to me") gives `coverage: not_served`. Its reason: a third party
+must be able to check a claim without trust in the writer, and a private
+read prevents that. Until this changes, keep private agent state in a
+local store or on a self-hosted responder.
+
+#### Per-tenant isolation: not built
+
+`Scope {user_id, agent_id, run_id, org_id}` in
+`crates/emem-fact/src/scope.rs` already scopes geospatial facts. A read
+with a scope gets only the facts of that tenant. The scope filters
+results; it does not control access. The plan is to add the same scope
+to memory notes. The private ingest layer in the next section builds on
+it.
 
 ### The supply side: filling the corpus
 
-Separate demand from supply, because they have different answers. On the
-demand side, meaning agents reading and citing emem, MCP plus REST plus
-OpenAPI is the right surface and is good enough; the work there is
-ergonomics, not more protocols. The supply side, meaning getting the
-world's observations into signed facts, is the real bottleneck, and the
-corpus numbers show it: coverage is deep in a few bands and empty in the
-tail because everything materializes lazily, one place at a time, from
-slow upstream sources. A cold place can burn the per-source timeout and
-return a signed hole instead of a value.
+Demand and supply need different work. On the demand side, agents read
+and cite emem through MCP, REST and OpenAPI. That surface is enough;
+the remaining work is ergonomics. The supply side is the bottleneck: the
+observations of the world must become signed facts.
 
-- **A geospatial database tokeniser.** Point emem at a table that has a
-  geometry, a PostGIS column or a lat/lng pair, and each row maps to a
-  `cell64` and becomes a signed, citeable fact. Bulk ingest fills the
-  corpus orders of magnitude faster than per-cell materialization and
-  removes the cold-start timeout, because the data is already local and
-  indexed. Three constraints keep it honest: it is geospatial only, a row
-  without a geometry is not Earth memory and does not belong here; it runs
-  as a private, per-tenant ingest under [geo.qa](https://geo.qa), not on
-  the public commons, which is the tenancy work above at scale; and the
-  signature attests ingestion, not truth. Tokenising a row signs "this
-  responder ingested these bytes, from this source, at this time" and
-  carries the `human_curated` or `model_output` provenance class with its
-  in-band caution. It gives tamper-evidence, ingestion provenance, and
-  cross-agent citability. It does not give ground truth, and the claim
-  will not outrun the receipt. The primitive underneath is "tabular geo
-  source in, signed facts out," so one engine serves Postgres first,
-  Snowflake next, and a plain CSV or Parquet path (which covers Excel
-  exports) as a mode rather than a separate product.
-- **Scheduled densification for priority areas.** Ships as of
-  2026-07-16, exactly the shape this bullet predicted: partial results
-  settled first, and the warmer is a cell list on `emem_backfill` plus
-  a schedule. The preparer form takes up to 64 cells across a band and
-  window under the partial-results contract, and the warmer loops it
-  every `EMEM_WARM_INTERVAL_SECS` over `$EMEM_DATA/warm_priority.json`
-  (re-read each pass, so the list edits without a restart), one
-  budgeted bite per interval, never pretending to be synchronous. Off
-  by default; coverage grows where an operator declared it matters,
-  and convergence is the store filling up. Open: declaring areas as
-  bboxes rather than cell lists, once the sampling helper is shared.
+Facts materialize lazily, one place at a time, from slow upstreams. So a
+few bands have deep coverage and the tail is empty (see
+[The corpus is small and uneven](#the-corpus-is-small-and-uneven)). A
+cold place can use all of the per-source timeout and return a `skipped`
+note in place of a value.
+
+| item | status on 7 November 2026 |
+|---|---|
+| Geospatial database tokeniser | Not built |
+| Scheduled densification (the warmer) | Ships (since 2026-07-16); runs on emem.dev |
+| Warmer areas as bounding boxes | Not built |
+
+#### Geospatial database tokeniser: not built
+
+The plan: point emem at a table with a geometry, a PostGIS column or a
+latitude and longitude pair. Each row maps to a `cell64` and becomes a
+signed fact that agents can cite. Bulk ingest fills the corpus much
+faster than one cell at a time. It also removes the cold-start timeout,
+because the data is already local and indexed.
+
+Three limits apply:
+
+- Geospatial only. A row with no geometry is not Earth memory and does
+  not go here.
+- Private, per-tenant ingest under [geo.qa](https://geo.qa), not on the
+  public commons. This needs the tenancy work above.
+- The signature attests ingestion, not truth. It says "this responder
+  ingested these bytes, from this source, at this time". The fact
+  carries the `human_curated` or `model_output` provenance class and its
+  caution.
+
+So a tokenised row gives tamper evidence, ingestion provenance and a
+citation that other agents can resolve. It does not give ground truth.
+One engine takes a tabular geo source and gives signed facts. Postgres
+comes first, then Snowflake. CSV and Parquet (which cover Excel exports)
+are a mode of the same engine.
+
+#### Scheduled densification: ships
+
+The warmer is `spawn_warm_priority_loop` in
+`crates/emem-api-rest/src/lib.rs`. It is off by default. Set
+`EMEM_WARM_INTERVAL_SECS` above 0 to start it. Each pass reads the list
+again from `EMEM_WARM_PRIORITY` (default `$EMEM_DATA/warm_priority.json`),
+so you can edit the list without a restart.
+
+Each entry has `cells`, `bands` or `band`, and an optional `start_unix`
+and `end_unix`. A cell can be a `cell64`, a place name or a `lat,lng`
+pair.
+
+- An entry with no window gets the same recall that a visitor sends.
+- An entry with a window goes to the backfill preparer, the `cells` form
+  of `emem_backfill`. That form takes 1 to 64 cells.
+
+Each entry gets `EMEM_WARM_BUDGET_MS` (default 30000) per pass. Work that
+does not finish continues in the background, and the next pass continues
+from there. [operating.md](operators/operating.md) lists all warmer
+variables.
+
+emem.dev runs the warmer every 21600 seconds (6 hours) on
+`config/warm_priority.json` (`deploy/systemd/emem-server.service`). On
+7 November 2026 that file had 1 entry: 24 cells and 5 bands.
+
+Not built: an entry cannot declare its area as a bounding box. It must
+list cells.
 
 ### Client surfaces, ranked by leverage
 
