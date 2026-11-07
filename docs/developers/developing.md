@@ -208,12 +208,16 @@ rebuilds the preimage and checks the Ed25519 signature in the tab.
 1. Make a file `crates/emem-fetch/src/<source>.rs`.
 2. Declare the module in `crates/emem-fetch/src/lib.rs`.
 3. For COG or GeoTIFF data, use the range-read helpers in `cog.rs`. For
-   STAC catalogues, use `stac.rs`. The per-upstream timeout is 30 seconds;
+   STAC catalogues, use `stac.rs`. The per-upstream timeout is 14 seconds;
    `EMEM_MATERIALIZER_TIMEOUT_SECS` changes it.
 4. Add the source to `crates/emem-core/data/sources-v0.json`, so that it
-   shows in `/v1/sources` and in `sources_cid`.
-5. Describe the source in [data-sources.md](data-sources.md): licence,
-   native resolution, update cadence, primary URL and any mirror.
+   shows in `/v1/sources` and in `sources_cid`. Give the scheme's tempo
+   and native resolution there, and the licence of each provider.
+5. Add a row for the module to the connector table in
+   [data-sources.md](data-sources.md).
+
+[data-sources.md](data-sources.md#add-a-connector) gives all eight steps,
+with the band, materializer and function registry entries.
 
 ## Add a primitive
 

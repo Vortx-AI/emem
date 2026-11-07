@@ -67,7 +67,6 @@ GENERATED_DIRS = {"docs/book/"}
 # The burn-down list: pre-gate dash debt, pinned so it can only shrink.
 # Every entry is (file, max allowed dashes). Fix a file, delete its row.
 LEGACY_DASHES = {
-    "docs/developers/data-sources.md": 47,
     "docs/plans/v0.0.8-and-v0.0.9.md": 37,
 }
 
