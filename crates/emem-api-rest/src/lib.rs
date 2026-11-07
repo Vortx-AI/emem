@@ -35209,7 +35209,7 @@ fn openapi_spec() -> JsonValue {
             "/v1/hunt":              {"post":{"summary":"hunter-mode event discovery: pick an event keyword (algal_bloom, deforestation, flood_extent, wildfire, urban_heat_island, methane_plume, landslide, drought, soil_salinity, crop_stress, water_turbidity, oil_slick) plus a region (free-text or polygon_bbox); returns the top 8 ranked hotspots with cell64, primary-band value, fact_cid, and scene URL. Algal-bloom and water-turbidity ranks are NDWI-gated; UHI uses a slow-band fan-out cap. Tessera embedding rerank fires when ≥3 cells have geotessera vectors, otherwise the response falls back to primary-scalar order with the reason exposed. Oil-slick is honestly not-yet-implemented; closest available physics are flood_extent_sar_threshold@1 and water_turbidity_red_band@1.","operationId":"emem_hunt","tags":["hunter"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/HuntReq"}}}},"responses":{"200":json_ok}}},
             "/v1/eudr_dds":          {"post":{"summary":"EUDR Due Diligence Statement: polygon-in, signed Annex II envelope out. Per Regulation (EU) 2023/1115, Article 2(4) forest definition (>10% canopy, >0.5 ha, >5 m height, excluding agricultural use), Article 2(28) geolocation rule (POINT ≤4 ha non-cattle, POLYGON >4 ha or cattle), Article 9 + Annex II envelope shape. Each plot's verdict combines JRC GFC2020 baseline + Hansen GFC v1.13 loss-year + (when wired) WRI Sims 2025 driver attribution + RADD SAR fallback. Set `request_visual_evidence: true` on any plot to attach a Sentinel-2 NDVI + Sentinel-1 VV-backscatter annual timeline from 2020 through the current year (+ per-cell scene.png URLs) as compliance-grade visual evidence, under its own 60 s budget (EMEM_EUDR_VISUAL_BUDGET_SECS): a first-time plot whose timeline does not finish returns its verdict with `visual_evidence.verdict: \"incomplete\"`, and a repeat fills it in from what was stored. Each plot also carries a `loss_year_histogram`: the per-year distribution of Hansen loss-year over the plot's sampled cells (calendar years, plus `after_cutoff_cells`), emitted as its own signed `forest_change.lossyear_histogram` derivative whose CID is folded into the receipt, so the loss-year breakdown is a verifiable figure, not an unsigned sample (weight by the plot's `sampled_polygon_fraction` to extrapolate to the full polygon). The endpoint honestly excludes Article 9(1)(b) legality (land tenure, FPIC, country-of-origin laws); the response surfaces a structured `legality_disclaimer`. Response includes an ed25519-signed `receipt` over the per-cell fact_cids (the first EMEM_EUDR_RECEIPT_MAX_FACTS by cid when there are more, disclosed as `receipt_fact_cids_capped` and `receipt_fact_cids_total`); verifiable offline at `/verify` (or `/v1/verify_receipt`). Every sampled cell's facts decide the verdict and are stored, because each plot's `per_cell_rows_cid` addresses all of them, inlined or not (`facts_computed` vs `facts_persisted`, per plot and in total); every fact_cid in the response, and every one behind `per_cell_rows_cid`, resolves at /v1/facts/<cid>.","operationId":"emem_eudr_dds","tags":["eudr"],"requestBody":{"required":true,"content":{"application/json":{"schema":{"$ref":"#/components/schemas/EudrDdsReq"}}}},"responses":{"200":json_ok}}},
             "/v1/attest":            {"post":{"summary":"Submit a signed attestation (JSON). FACT PLANE IS CLOSED BY DEFAULT: an attestation whose facts occupy an address (cell, band, tslot) is accepted only from this responder's own key, a device enrolled through the OS-trace gate, or a key the operator lists; any other verified signature is refused 403 level_too_low. Derivations and edges take no address and are accepted from any T1 key (see /v1/derive). Body carries a batch envelope: `batch_root` (the 32-byte BLAKE3 merkle root over the per-fact CIDs, serialized as a 32-element array of byte integers, NOT a hex string), `attester`, `attester_key_epoch`, `registry_cid`, `schema_cid`, `attested_at`, `signature`, and `facts[]` (each is a tagged variant carrying `kind` plus cell, band, tslot, value, and per-fact metadata). `preimage_version` selects the rule for both the root and the signature. Set it to 1 for new writes: leaves and nodes take the 0x00/0x01 prefixes, a duplicate leaf is refused, and the signature is ed25519 over the domain-separated attestation preimage (GET /v1/verifier_spec, `preimage_v1`). Omitted or 0 is the legacy v0 rule, still accepted: unprefixed merkle hashing and ed25519 over blake3(batch_root||registry_cid||schema_cid). The responder rejects facts that don't hash into the named batch_root, and rejects the envelope if the signature does not verify against the attester pubkey under the corresponding ed25519 key.","operationId":"emem_attest","requestBody":{"required":true,"content":{"application/json":{"schema":{"type":"object","required":["batch_root","attester","attester_key_epoch","registry_cid","schema_cid","signature","attested_at","facts"],"properties":{"batch_root":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte BLAKE3 merkle root over the per-fact CIDs, as a 32-element array of byte integers (serde [u8;32]). A hex string is NOT accepted."},"attester":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":32,"maxItems":32,"description":"32-byte ed25519 attester pubkey, as a 32-element array of byte integers (serde [u8;32]). NOT a base32 string, despite base32 being the spelling everywhere else on this responder: these bytes sit inside the canonical CBOR that fact_cid hashes, so the wire form cannot be changed without moving every content address ever issued. Convert with base64.b32decode(pubkey_b32.upper()+'='*((8-len(pubkey_b32)%8)%8))."},"signature":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":64,"maxItems":64,"description":"ed25519 signature over the preimage `preimage_version` selects (v1: the domain-separated attestation preimage; v0: blake3(batch_root||registry_cid||schema_cid)), as a 64-element array of byte integers (serde [u8;64]). Same reason as `attester`: not a base32 string."},"attester_key_epoch":{"type":"integer","minimum":0,"description":"Key rotation epoch of `attester` (u32)."},"registry_cid":{"type":"string","description":"CID of the function-registry version in force. Signed: part of the preimage."},"schema_cid":{"type":"string","description":"CID of the CDDL schema profile in force. Signed: part of the preimage."},"attested_at":{"type":"string","description":"ISO 8601 wall clock at submission. Not signed."},"preimage_version":{"type":"integer","enum":[0,1],"default":0,"description":"Signature-preimage and merkle rule. 1 for new writes; 0 or omitted is the legacy v0 rule."},"scope":{"type":"object","description":"Optional multi-tenant scope. An index hint only: not in batch_root and not signed."},"edges":{"type":"array","items":{"type":"object"},"description":"Optional temporal edges. Each edge's blake3(canonical_cbor(edge)) joins the leaf set before sorting, so the signature covers them."},"facts":{"type":"array","items":{"type":"object","required":["kind","cell","band","value"],"properties":{"kind":{"type":"string","enum":["primary","derivative","absence"],"description":"Tagged fact variant; required. `primary` = direct observation, `derivative` = deterministic function over parent facts, `absence` = signed confirmed-absence."},"cell":{"type":"string"},"band":{"type":"string"},"tslot":{"type":"integer"},"value":{},"signed_at":{"type":"string"},"privacy_class":{"type":"string"}}}}}}}}},"responses":{"200":json_ok}}},
-            "/v1/attest_cbor":       {"post":{"summary":"submit signed attestation (canonical CBOR)","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"Canonical CBOR, not JSON: the bytes are the signature preimage, so any re-encoding invalidates the attestation.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"canonical-CBOR AttestationEnvelope"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
+            "/v1/attest_cbor":       {"post":{"summary":"Submit a signed attestation (CBOR). The body is the CBOR encoding of the same Attestation that POST /v1/attest takes as JSON, with the same fields, write gate, per-key rate limit and `preimage_version` rule. The responder decodes the body, recomputes batch_root from the canonical CBOR of each decoded fact and edge, and checks the signature over the preimage built from batch_root, registry_cid and schema_cid. The request bytes are not the preimage: two encodings that decode to the same Attestation verify alike. A body that does not decode returns 400 canonical_encoding_divergence. Returns {cids, count}.","operationId":"emem_attest_cbor","requestBody":{"required":true,"description":"CBOR, not JSON. Fields and byte-array forms as in the /v1/attest JSON schema.","content":{"application/cbor":{"schema":{"type":"string","format":"binary","description":"CBOR-encoded Attestation"}}}},"responses":{"200":json_ok,"400":json_bad_request}}},
             // A2A surface. Absent from this spec until 2026-08-05, which
             // meant the agent-to-agent front door the .well-known descriptor
             // advertises could not be discovered by anything reading the
@@ -90346,6 +90346,53 @@ mod tests {
         let summary = post["summary"].as_str().unwrap();
         assert!(summary.contains("preimage_version"), "{summary}");
         assert!(summary.contains("verifier_spec"), "{summary}");
+    }
+
+    /// The `/v1/attest_cbor` spec said the request bytes are the signature
+    /// preimage, so any re-encoding invalidates the attestation. The handler
+    /// decodes the body into an `Attestation` and the signature covers
+    /// batch_root, registry_cid and schema_cid, so two encodings that decode
+    /// alike verify alike.
+    #[test]
+    fn attest_cbor_signature_does_not_cover_the_request_bytes() {
+        let att = Attestation {
+            facts: vec![],
+            edges: vec![],
+            batch_root: [7u8; 32],
+            attester: emem_core::AttesterKey([1u8; 32]),
+            attester_key_epoch: emem_core::KeyEpoch(0),
+            registry_cid: emem_fact::RegistryCid::new("r"),
+            schema_cid: emem_fact::SchemaCid::new("s"),
+            signature: emem_core::Signature([0u8; 64]),
+            attested_at: "2026-11-07T00:00:00Z".into(),
+            scope: None,
+            preimage_version: 1,
+        };
+        let mut in_order = Vec::new();
+        ciborium::ser::into_writer(&att, &mut in_order).unwrap();
+        let ciborium::value::Value::Map(mut entries) =
+            ciborium::value::Value::serialized(&att).unwrap()
+        else {
+            panic!("an Attestation encodes as a CBOR map");
+        };
+        entries.reverse();
+        let mut reversed = Vec::new();
+        ciborium::ser::into_writer(&ciborium::value::Value::Map(entries), &mut reversed).unwrap();
+        assert_ne!(in_order, reversed);
+        let a: Attestation = ciborium::de::from_reader(in_order.as_slice()).unwrap();
+        let b: Attestation = ciborium::de::from_reader(reversed.as_slice()).unwrap();
+        assert_eq!(
+            serde_json::to_value(&a).unwrap(),
+            serde_json::to_value(&b).unwrap()
+        );
+
+        let summary = openapi_spec()["paths"]["/v1/attest_cbor"]["post"]["summary"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(!summary.contains("re-encoding invalidates"), "{summary}");
+        assert!(summary.contains("/v1/attest"), "{summary}");
+        assert!(summary.contains("preimage_version"), "{summary}");
     }
 
     /// `bands` means the same thing on every tool, so it must accept the same
