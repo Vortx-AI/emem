@@ -501,15 +501,16 @@ Two groups of code make live facts.
 
 | Group | Modules |
 |-------|---------|
-| Data sources | `chirps`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `opera_dist`, `overture`, `parcels`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers` |
+| Data sources | `chirps`, `copernicus_dem`, `dmsp_ols`, `esa_cci_biomass`, `esa_worldcover`, `firms`, `ftw`, `gmrt`, `hansen_gfc`, `jrc_gfc2020`, `jrc_gsw`, `jrc_tmf`, `koppen`, `opera_dist`, `overture`, `radd_alerts`, `terraclimate`, `wdpa`, `worldpop`, `wri_gdm_drivers` |
 | Places and boundaries | `admin1`, `admin2`, `admin3`, `countries`, `geonames`, `pois`, `wikidata` |
 | Scene search | `stac` (Element84 and Microsoft Planetary Computer, input to the Sentinel materializers) |
-| Support | `cache_window`, `cog`, `connectors`, `latency`, `proj`, `template`, `tile_store`, `lib` |
+| Support | `cache_window`, `cog`, `connectors`, `latency`, `parcels`, `proj`, `template`, `tile_store`, `lib` |
 
 In the support group, `cache_window` joins fetches that are in flight.
 `cog` is a pure-Rust COG range reader (Deflate, LZW, predictors 1 to 3,
 8, 16 and 32-bit little-endian). `proj` converts WGS84 to UTM, and
-`tile_store` keeps local raster copies.
+`tile_store` keeps local raster copies. `parcels` removes overlaps and
+duplicates from a set of field polygons.
 
 **Inline materializers in `emem-api-rest/src/lib.rs`** also make live
 facts. They live in the router crate. This is design debt. The
@@ -523,15 +524,20 @@ Examples are `materialize_ornl_modis_band`, `materialize_power_band`,
 `materialize_jrc_gsw_layer`, `materialize_esa_worldcover_2021` and
 `materialize_koppen`.
 
-`sources-v0.json` declares 46 source schemes. On 7 November 2026, ten
-of them feed no band in `GET /v1/materializers`:
+`sources-v0.json` declares 46 source schemes. On 7 November 2026, no
+connector or materializer reads 12 of them:
 
 - `dynamic_world.v1`, `openet.30m.daily`, `tropomi.s5p.ch4`,
   `tropomi.s5p.no2` and `viirs.dnb.monthly`.
+- `sentinel1.grd.iw` and `sentinel1.grd.iw.vh`. The node reads
+  Sentinel-1 VV from `sentinel_s1_rtc_mpc` only.
 - `ghsl.builtup.r2023a` and `ghsl.population.r2023a`.
 - `model.prithvi_eo2_300m_tl`, `model.clay_v1_5` and
   `model.galileo_v1`. These needed the GPU sidecar, which no longer
   runs (see `GpuSidecar` above).
+
+[data-sources.md](data-sources.md#declared-schemes-that-no-code-reads)
+gives the reason for each.
 
 A recall of a band with no materializer returns no fact. Its
 `materialize_notes[]` entry has `status:"skipped"`, and the node signs

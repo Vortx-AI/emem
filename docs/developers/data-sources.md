@@ -176,8 +176,8 @@ When you retire a family, you retire its children: `geotessera` also retires `ge
 
 ## Declared schemes that no code reads
 
-These schemes are in `sources-v0.json`, but no Rust code in `crates/` reads them. The reasons date
-from May 2026.
+These 12 schemes are in `sources-v0.json`, but no connector or materializer in `crates/` reads them
+(code on 7 November 2026). The first five reasons date from May 2026.
 
 | Scheme | Why no code reads it |
 |---|---|
@@ -186,6 +186,8 @@ from May 2026.
 | `tropomi.s5p.ch4`, `tropomi.s5p.no2` | They are NetCDF, not COG. The node has no NetCDF decoder. |
 | `viirs.dnb.monthly` | Every upstream path needs a NASA Earthdata login. |
 | `sentinel1.grd.iw`, `sentinel1.grd.iw.vh` | The node reads VV from `sentinel_s1_rtc_mpc` only. |
+| `ghsl.builtup.r2023a`, `ghsl.population.r2023a` | No GHSL connector exists. A recall of `ghsl` gets `reason_class` `unknown_band`. |
+| `model.prithvi_eo2_300m_tl`, `model.clay_v1_5`, `model.galileo_v1` | They needed the GPU sidecar, which no longer runs. See [Retired bands](#retired-bands). |
 
 ## Notes on each connector
 
