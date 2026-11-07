@@ -110,6 +110,11 @@ attester = signer.attester_block("create", path, body)
 # POST {path, file_text, kind, attester} to /mcp emem_memory_create.
 ```
 
+Every block is signed with the v2 preimage, which binds `base`: the `file_cid`
+now at the path. A `create` with no `base` signs `absent`, for a new path. To
+overwrite a note, pass `base=<its file_cid>` (`ememdev write --base`). The
+other verbs change a note that exists, so they need `base`.
+
 `str_replace` and `insert` sign the whole file *after* the edit, and `rename`
 binds both ends of the move (`signer.rename_attester_block(old, new)`); see the
 `ememdev.signing` docstring for the per-verb body rule. A write into another

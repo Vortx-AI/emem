@@ -11,6 +11,8 @@
 //!             --observed-at 2026-08-20T09:00:00Z
 //! ```
 
+#![forbid(unsafe_code)]
+
 use std::path::PathBuf;
 
 use ed25519_dalek::SigningKey;
@@ -834,8 +836,9 @@ a path, for a platform that mounts secrets but cannot set an environment.
 The node REFUSES to create its identity inside --output: that file holds the
 private seed, and the output directory is the one that leaves the machine.
 
-Writes one <name>.<node>.custody.json per payload, plus run.<node>.json. Every
-output carries the node's short key, so several nodes can share one output
+Writes one <name>.<node>.<time>.custody.json per payload, plus
+run.<node>.<time>.json. Every output carries the node's short key and the
+observation time, so several nodes and several runs can share one output
 mount without overwriting each other. The payload itself never leaves: only
 the record does.";
 

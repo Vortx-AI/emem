@@ -15,6 +15,8 @@
 //! same node, and it never creates one: an identity conjured by a sidecar is a
 //! key nobody meant to exist.
 
+#![forbid(unsafe_code)]
+
 use std::path::{Path, PathBuf};
 
 use ed25519_dalek::SigningKey;

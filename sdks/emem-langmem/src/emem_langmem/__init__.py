@@ -1,11 +1,16 @@
 """LangChain BaseStore backed by emem.dev.
 
-A LangGraph agent gets verifiable, ed25519-signed agent memory in one
-line, plus the key it signs with:
+An agent gets ed25519-signed key-value memory from one constructor and
+the key it signs with:
 
     from emem_langmem import EmemStore
     store = EmemStore(base_url="https://emem.dev", signing_key=SEED)
-    graph = StateGraph(...).compile(store=store)
+    store.mset([(("notes", "harvest"), b"cut on 2 Nov")])
+
+`EmemStore` is a `langchain_core.stores.BaseStore`. It is not a
+`langgraph.store.base.BaseStore`: it has no `put`, `get` or `search`,
+so do not pass it to `StateGraph.compile(store=...)`. Call it from a
+node or a tool instead.
 
 `SEED` is a raw 32-byte ed25519 seed the caller owns and persists. It
 does two things. It signs every write, which the responder requires:

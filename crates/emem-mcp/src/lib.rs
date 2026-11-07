@@ -916,7 +916,7 @@ const SCHEMA_REASON: &str = r#"{"type":"object","required":["q"],"properties":{
 const SCHEMA_TOOLS: &str = r#"{"type":"object","properties":{
 "name":{"type":"string","description":"Return the full descriptor for exactly this tool (input schema, runnable example, annotations), e.g. `emem_ndvi`. Use this when you already know the name and want its schema without loading the whole catalog. It SHORT-CIRCUITS: when `name` is set every other argument here is ignored, so `{name, q}` is not a search within one tool. A name this responder does not carry is not an error status, you get a body with `did_you_mean` holding up to five names that share a substring with what you asked for."},
 "q":{"type":"string","description":"Free-text filter over tool names, titles and trigger text, e.g. `ndvi`, `cloud`, `flood`, `verify`, `token`. Plain lowercased substring over name + title + description + trigger text, not fuzzy and not stemmed: `ndvi` hits, `vegetation index` only hits tools that spell that phrase. Combines with `shape`/`bundle`/`category`/`tier` as AND, so an over-narrow combination answers with an empty catalog rather than an error."},
-"shape":{"type":"string","enum":["scalar","timeseries","raster","geometry","vector","identity","token","proof","plan","file","catalog"],"description":"Filter by what the answer looks like, which is usually the real question. `scalar` is one number at one address; `raster` is a gridded field over an area; `timeseries` is a value per timestep; `vector` is a learned embedding; `identity` is a canonical name for a thing; `token` is a citation handle; `proof` checks one."},
+"shape":{"type":"string","enum":["scalar","timeseries","raster","geometry","vector","prose","reading","identity","token","proof","plan","file","catalog"],"description":"Filter by what the answer looks like, which is usually the real question. `scalar` is one number at one address; `raster` is a gridded field over an area; `timeseries` is a value per timestep; `vector` is a learned embedding; `prose` is a model-written narrative over cited facts; `reading` is text read from a document or image; `identity` is a canonical name for a thing; `token` is a citation handle; `proof` checks one."},
 "bundle":{"type":"string","enum":["tokenisation","verification","agent_to_agent","long_horizon","robotics","satellites","agriculture","forestry","climate_risk"],"description":"Filter by the job you are doing. Call with no arguments first to see each bundle and its size."},
 "category":{"type":"string","enum":["read","write","verify","introspect","plan"],"description":"Filter to one category. This is about the shape of the job, NOT about safety: {TOOL_SIDE_EFFECT} tools outside `write` declare `readOnlyHint: false` because reading a cold address can materialise or mint as a side effect, so `category: \"read\"` is not a safe-tools filter. Read each result's `annotations.readOnlyHint` for that."},
 "tier":{"type":"string","enum":["core","extended","all"],"description":"Which slice to list. Defaults to `all`, so this tool shows the whole surface even when the endpoint advertises only the core loop, and an `extended` tool you find here is callable by name through tools/call whether or not your host listed it. Pass `core` to see only what a default connection advertises."}
@@ -3652,6 +3652,24 @@ mod tests {
                 shapes.len()
             );
         }
+    }
+
+    /// The `shape` enum in emem_tools' input schema listed 11 of the 13
+    /// shapes, so a caller following the schema could not ask for `prose`
+    /// or `reading`, which the filter accepts.
+    #[test]
+    fn tools_shape_enum_is_every_shape() {
+        let schema: serde_json::Value = serde_json::from_str(SCHEMA_TOOLS).unwrap();
+        let mut advertised: Vec<&str> = schema["properties"]["shape"]["enum"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|v| v.as_str().unwrap())
+            .collect();
+        let mut shapes: Vec<&str> = TOOL_SHAPES.iter().map(|(s, _, _)| *s).collect();
+        advertised.sort_unstable();
+        shapes.sort_unstable();
+        assert_eq!(advertised, shapes);
     }
 
     #[test]

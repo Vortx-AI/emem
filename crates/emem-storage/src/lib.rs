@@ -203,11 +203,9 @@ pub struct AsOfBound {
     /// facts with `tslot <= t` survive the filter.
     pub valid_time: Option<u64>,
     /// Upper bound on a fact's `signed_at` (transaction-time). RFC 3339
-    /// string; lexicographic comparison is safe because RFC 3339 / ISO
-    /// 8601 strings sort correctly when truncated to the same precision.
-    /// The primitive layer parses the caller's input with [`chrono`] /
-    /// the time crate to reject malformed strings BEFORE constructing
-    /// this bound — by the time a value lands here it has been validated.
+    /// string, any offset. [`AsOfBound::fact_passes`] compares it as an
+    /// instant, because text order is wrong across offsets. The primitive
+    /// layer rejects malformed strings BEFORE constructing this bound.
     pub transaction_time: Option<String>,
 }
 
@@ -230,8 +228,9 @@ impl AsOfBound {
 
     /// Whether the fact passes both predicates. `valid_time` is checked
     /// purely on `fact.tslot`; `transaction_time` is checked on the
-    /// fact's `signed_at` string via lexicographic comparison, which
-    /// is order-correct for normalised RFC 3339 timestamps.
+    /// fact's `signed_at` as an instant, so a bound with a `+05:30`
+    /// offset or fractional seconds compares by time, not by text. If
+    /// either side does not parse, the two strings are compared as text.
     pub fn fact_passes(&self, fact: &Fact) -> bool {
         let (tslot, signed_at) = match fact {
             Fact::Primary(p) => (p.tslot, p.signed_at.as_str()),
@@ -250,12 +249,85 @@ impl AsOfBound {
             }
         }
         if let Some(tt) = self.transaction_time.as_deref() {
-            if signed_at > tt {
+            let later = match (rfc3339_instant(signed_at), rfc3339_instant(tt)) {
+                (Some(fact_at), Some(bound_at)) => fact_at > bound_at,
+                _ => signed_at > tt,
+            };
+            if later {
                 return false;
             }
         }
         true
     }
+}
+
+/// `(unix seconds, nanoseconds)` of an RFC 3339 timestamp, with its
+/// offset applied. `None` when the text is not RFC 3339.
+fn rfc3339_instant(s: &str) -> Option<(i64, u32)> {
+    let b = s.as_bytes();
+    if b.len() < 20
+        || b[4] != b'-'
+        || b[7] != b'-'
+        || !matches!(b[10], b'T' | b't' | b' ')
+        || b[13] != b':'
+        || b[16] != b':'
+    {
+        return None;
+    }
+    let num = |from: usize, to: usize| -> Option<i64> {
+        let part = s.get(from..to)?;
+        if !part.bytes().all(|c| c.is_ascii_digit()) {
+            return None;
+        }
+        part.parse().ok()
+    };
+    let (year, month, day) = (num(0, 4)?, num(5, 7)?, num(8, 10)?);
+    let (hour, min, sec) = (num(11, 13)?, num(14, 16)?, num(17, 19)?);
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) || hour > 23 || min > 59 || sec > 60 {
+        return None;
+    }
+    let mut i = 19;
+    let mut nanos: u32 = 0;
+    if b.get(i) == Some(&b'.') {
+        let start = i + 1;
+        i = start;
+        while i < b.len() && b[i].is_ascii_digit() {
+            i += 1;
+        }
+        if i == start {
+            return None;
+        }
+        for (k, &d) in b[start..i].iter().take(9).enumerate() {
+            nanos += u32::from(d - b'0') * 10u32.pow(8 - k as u32);
+        }
+    }
+    let offset_s = match &s[i..] {
+        "Z" | "z" => 0,
+        tz if tz.len() == 6
+            && matches!(tz.as_bytes()[0], b'+' | b'-')
+            && tz.as_bytes()[3] == b':' =>
+        {
+            let off = num(i + 1, i + 3)? * 3600 + num(i + 4, i + 6)? * 60;
+            if tz.as_bytes()[0] == b'-' {
+                -off
+            } else {
+                off
+            }
+        }
+        _ => return None,
+    };
+    // Days from the civil date (Howard Hinnant's algorithm).
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = (month + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + day - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    let days = era * 146_097 + doe - 719_468;
+    Some((
+        days * 86_400 + hour * 3600 + min * 60 + sec - offset_s,
+        nanos,
+    ))
 }
 
 /// The lazy-materialization storage facade. Composes cache + fetch + log.
@@ -2310,6 +2382,45 @@ mod multi_attester_tests {
             let (att, _) = build_signed(vec![mk_ndvi_fact(good, 100, 0.5, pk)], [3u8; 32]);
             verify_attestation(&att).unwrap_or_else(|e| panic!("{good:?} must write: {e}"));
         }
+    }
+
+    /// A fact signed at 2026-05-28T00:00:00Z. A bound of
+    /// 2026-05-28T03:00:00+05:30 is 2026-05-27T21:30:00Z, before the fact,
+    /// though its text sorts after it. The filter must follow the instant.
+    #[test]
+    fn as_of_signed_at_with_an_offset_compares_by_instant() {
+        let fact = mk_ndvi_fact("defi.zb294.qokO.xAxe", 100, 0.5, [7u8; 32]);
+        let bound = |tt: &str| AsOfBound {
+            valid_time: None,
+            transaction_time: Some(tt.into()),
+        };
+        for (tt, passes) in [
+            ("2026-05-28T03:00:00+05:30", false),
+            ("2026-05-28T05:30:00+05:30", true),
+            ("2026-05-27T20:00:00-04:00", true),
+            ("2026-05-27T19:59:59-04:00", false),
+            ("2026-05-28T00:00:00Z", true),
+            ("2026-05-27T23:59:59.999Z", false),
+            ("2026-05-28T00:00:00.001+00:00", true),
+        ] {
+            assert_eq!(bound(tt).fact_passes(&fact), passes, "bound {tt}");
+        }
+    }
+
+    #[test]
+    fn rfc3339_instant_matches_known_epochs() {
+        assert_eq!(rfc3339_instant("1970-01-01T00:00:00Z"), Some((0, 0)));
+        assert_eq!(
+            rfc3339_instant("2026-05-28T00:00:00Z"),
+            Some((1_779_926_400, 0))
+        );
+        assert_eq!(
+            rfc3339_instant("2026-05-28T05:30:00.25+05:30"),
+            Some((1_779_926_400, 250_000_000))
+        );
+        assert_eq!(rfc3339_instant("2026-05-28"), None);
+        assert_eq!(rfc3339_instant("2026-05-28T00:00:00"), None);
+        assert_eq!(rfc3339_instant("2026-05-28T00:00:00+0530"), None);
     }
 
     fn build_signed(facts: Vec<Fact>, secret: [u8; 32]) -> (Attestation, [u8; 32]) {

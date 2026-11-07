@@ -149,10 +149,11 @@ def _build_attester(signer, args: argparse.Namespace) -> dict:
     body = _read_body(args)
     if verb == "delete" and body:
         raise SystemExit("delete carries no body; drop --body/--body-file/--stdin")
-    if verb == "delete" and not args.base:
+    if verb != "create" and not args.base:
         raise SystemExit(
-            "delete is refused under the v1 preimage; pass --base <file_cid now at --path> "
-            "(GET the note with Accept: application/json and read file_cid)"
+            f"{verb} changes a note that exists, so it must be signed against it; pass "
+            "--base <file_cid now at --path> (GET the note with Accept: application/json "
+            "and read file_cid)"
         )
     if verb in ("create", "str_replace", "insert") and not body and not args.allow_empty:
         raise SystemExit(
@@ -185,7 +186,7 @@ def _cmd_write(args: argparse.Namespace) -> int:
     if not body and not args.allow_empty:
         raise SystemExit("write needs a body; pass --body/--body-file/--stdin or --allow-empty")
     file_text = body.decode("utf-8")
-    attester = signer.attester_block("create", args.path, body)
+    attester = signer.attester_block("create", args.path, body, base=args.base)
     result = _post_memory_create(args.base_url, args.path, file_text, args.kind, attester)
     print(json.dumps(result, indent=2))
     return 0
@@ -223,8 +224,8 @@ def main(argv: Optional[list] = None) -> int:
     p_sign.add_argument("--old-path", help="rename only: the source path")
     p_sign.add_argument(
         "--base",
-        help="the file_cid now at --path, which a delete must name (signs v2); "
-        "'absent' for a new path",
+        help="the file_cid now at --path. delete, str_replace and insert must name "
+        "it; create defaults to 'absent' (a new path)",
     )
     _add_body_args(p_sign)
 
@@ -234,6 +235,10 @@ def main(argv: Optional[list] = None) -> int:
     p_write.add_argument("--path", required=True)
     p_write.add_argument("--kind", default="resource")
     p_write.add_argument("--base-url", default="https://emem.dev")
+    p_write.add_argument(
+        "--base",
+        help="to overwrite a note, the file_cid now at --path; omit for a new path",
+    )
     _add_body_args(p_write)
 
     args = parser.parse_args(argv)

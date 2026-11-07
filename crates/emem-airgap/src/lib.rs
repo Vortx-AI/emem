@@ -61,6 +61,8 @@
 //! the last party that can notice corruption while there is still a second
 //! copy of the payload to check against.
 
+#![forbid(unsafe_code)]
+
 use serde::{Deserialize, Serialize};
 
 mod custody;

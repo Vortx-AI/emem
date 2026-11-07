@@ -103,9 +103,9 @@ run docker run --rm --network none \
 say "what you have now"
 cat <<EOF
   $WORK/out/
-    frame_001.tif.<node>.custody.json   signed, verifies on its own
-    join_request.<node>.json            carry this out to be endorsed
-    run.<node>.json                     what the run did, and every skip
+    frame_001.tif.<node>.<time>.custody.json   signed, verifies on its own
+    join_request.<node>.json                   carry this out to be endorsed
+    run.<node>.<time>.json                     what the run did, and every skip
 
   The payload never left $WORK/in. Only the record did.
 

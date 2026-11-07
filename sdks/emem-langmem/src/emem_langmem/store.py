@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Iterator, Sequence
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
@@ -42,7 +43,7 @@ from typing import Optional, Union
 import httpx
 from langchain_core.stores import BaseStore
 
-from emem_langmem.signing import EmemSigner, coerce_signer
+from emem_langmem.signing import BASE_ABSENT, EmemSigner, coerce_signer
 
 # LangChain BaseStore is generic over (K, V); we standardise on
 # (path-string, opaque-bytes) — the most flexible shape for downstream
@@ -91,8 +92,13 @@ def _key_to_path(
     A string that already starts with `/` is an absolute emem path and is
     returned untouched, so a caller can still reach outside `root`.
     """
-    if isinstance(key, tuple) and len(key) == 2 and not isinstance(key[0], str):
+    if isinstance(key, tuple) and len(key) == 2 and isinstance(key[1], str):
         namespace, k = key
+        # A bare string is a one-segment namespace. Without this, the
+        # README's own example `("notes", "harvest")` raised TypeError,
+        # because a str is a Sequence of characters, not of segments.
+        if isinstance(namespace, str):
+            namespace = (namespace,)
         return _path_from_namespace(namespace, k, root)
     if isinstance(key, str):
         if key.startswith("/"):
@@ -248,23 +254,51 @@ class EmemStore(BaseStore[_K, _V]):
             out.append(_decode_value(resp.get("content")))
         return out
 
+    def _create_base(self, path: str) -> Optional[str]:
+        """The v2 `base` for a signed create: the note's file_cid when one
+        is there (an overwrite), else BASE_ABSENT. None when unsigned."""
+        if self.signer is None:
+            return None
+        try:
+            view = self._mcp_call("emem_memory_view", {"path": path})
+        except EmemStoreError as e:
+            if _is_missing(e):
+                return BASE_ABSENT
+            raise
+        return self._delete_base(view) or BASE_ABSENT
+
+    async def _acreate_base(self, path: str) -> Optional[str]:
+        if self.signer is None:
+            return None
+        try:
+            view = await self._mcp_call_async("emem_memory_view", {"path": path})
+        except EmemStoreError as e:
+            if _is_missing(e):
+                return BASE_ABSENT
+            raise
+        return self._delete_base(view) or BASE_ABSENT
+
     def mset(self, key_value_pairs: Sequence[tuple[_K, _V]]) -> None:
+        """Write each pair. A signed store first reads each key's current
+        file_cid to sign as the v2 base, so it makes two calls per key."""
         for k, v in key_value_pairs:
             # Anthropic memory-tool spec field name is `file_text`, not
             # `content`, confirmed against the emem responder which
             # returns `tool error (-32602): missing field 'file_text'`
             # when the wrong field is sent.
             file_text = _encode_value(v)
+            path = self._path(k)
             self._mcp_call(
                 "emem_memory_create",
                 self._write_args(
                     "create",
-                    self._path(k),
+                    path,
                     # The responder hashes `file_text.as_bytes()`, so the
                     # signature covers the encoded string, not `v`. These
                     # differ whenever `v` was base64-wrapped.
                     file_text.encode("utf-8"),
                     {"file_text": file_text, "kind": self.default_kind},
+                    self._create_base(path),
                 ),
             )
 
@@ -289,10 +323,19 @@ class EmemStore(BaseStore[_K, _V]):
             self._mcp_call("emem_memory_delete", self._write_args("delete", path, b"", {}, base))
 
     def yield_keys(self, *, prefix: Optional[str] = None) -> Iterator[_K]:
-        path = self._path(prefix) if prefix else self.root
-        resp = self._mcp_call("emem_memory_view", {"path": path})
-        for entry in _walk_view(resp):
-            yield entry
+        path = _folder(self._path(prefix) if prefix else self.root)
+        offset = 0
+        while True:
+            try:
+                resp = self._mcp_call("emem_memory_view", _listing_args(path, offset))
+            except EmemStoreError as e:
+                if _is_missing(e):
+                    return
+                raise
+            yield from _walk_view(resp)
+            offset = _next_listing_offset(resp, offset)
+            if offset is None:
+                return
 
     # ---------- BaseStore async surface ----------
 
@@ -315,13 +358,15 @@ class EmemStore(BaseStore[_K, _V]):
             # See note on mset: field is `file_text`, and the signature
             # covers the encoded string the responder hashes.
             file_text = _encode_value(v)
+            path = self._path(k)
             await self._mcp_call_async(
                 "emem_memory_create",
                 self._write_args(
                     "create",
-                    self._path(k),
+                    path,
                     file_text.encode("utf-8"),
                     {"file_text": file_text, "kind": self.default_kind},
+                    await self._acreate_base(path),
                 ),
             )
 
@@ -345,10 +390,22 @@ class EmemStore(BaseStore[_K, _V]):
             )
 
     async def ayield_keys(self, *, prefix: Optional[str] = None) -> AsyncIterator[_K]:
-        path = self._path(prefix) if prefix else self.root
-        resp = await self._mcp_call_async("emem_memory_view", {"path": path})
-        for entry in _walk_view(resp):
-            yield entry
+        path = _folder(self._path(prefix) if prefix else self.root)
+        offset = 0
+        while True:
+            try:
+                resp = await self._mcp_call_async(
+                    "emem_memory_view", _listing_args(path, offset)
+                )
+            except EmemStoreError as e:
+                if _is_missing(e):
+                    return
+                raise
+            for entry in _walk_view(resp):
+                yield entry
+            offset = _next_listing_offset(resp, offset)
+            if offset is None:
+                return
 
     # ---------- lifecycle ----------
 
@@ -372,11 +429,48 @@ class EmemStore(BaseStore[_K, _V]):
 # ---------- helpers ----------
 
 
+def _folder(path: str) -> str:
+    """The responder lists a folder only when the path ends with `/`.
+    Without it, the path is read as a note and a folder gives not_found."""
+    return path if path.endswith("/") else path + "/"
+
+
+def _listing_args(path: str, offset: int) -> dict:
+    return {"path": path, "offset": offset} if offset else {"path": path}
+
+
+def _is_missing(error: Exception) -> bool:
+    return "not_found" in str(error).lower()
+
+
+def _next_listing_offset(resp: dict, offset: int) -> Optional[int]:
+    """A listing longer than the MCP byte budget is cut, and the cut is
+    recorded in `_emem_truncation`. The `entries` stub there names the
+    index where the next page starts."""
+    note = resp.get("_emem_truncation")
+    if not isinstance(note, dict):
+        return None
+    for dropped in note.get("omitted_fields") or []:
+        if not isinstance(dropped, dict) or dropped.get("field") != "entries":
+            continue
+        stub = dropped.get("stub")
+        nxt = stub.get("_next_offset") if isinstance(stub, dict) else None
+        # A cursor that does not advance would loop for ever.
+        if isinstance(nxt, int) and nxt > offset:
+            return nxt
+    return None
+
+
+# Every path under a signed namespace contains `by_attester`, so a plain
+# not_found on such a path is not about the attester block.
+_ATTESTER_WORD = re.compile(r"(?<!by_)attester")
+
+
 def _is_attestation_error(message: object) -> bool:
     """The responder's typed `memory_attestation_*` details are dropped
     by the MCP layer, which forwards only the message text. Every one of
     those messages names the `attester` block, so that is the marker."""
-    return isinstance(message, str) and "attester" in message.lower()
+    return isinstance(message, str) and bool(_ATTESTER_WORD.search(message.lower()))
 
 
 def _attestation_hint(signer: Optional[EmemSigner]) -> str:
@@ -389,8 +483,8 @@ def _attestation_hint(signer: Optional[EmemSigner]) -> str:
             "unattested, the operator has to run the responder with EMEM_MEMORY_OPEN=1."
         )
     return (
-        f" This EmemStore signed the write with pubkey {signer.pubkey_short!r} and the "
-        f"responder still rejected it. Check the path is under {signer.namespace_root}/ "
+        f" This EmemStore signs with pubkey {signer.pubkey_short!r} and the "
+        f"responder rejected the call. Check the path is under {signer.namespace_root}/ "
         "(another key's namespace is refused), and that this is the key that namespace "
         "belongs to."
     )
