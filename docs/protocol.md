@@ -2545,8 +2545,8 @@ removes duplicate leaves to prevent that attack.
 - Leaf: `blake3(0x00 || entry_hash)`. Node: `blake3(0x01 || left || right)`.
 - The leaves come from `AttestationLog::leaf_hashes()` in append order.
 
-Three read-only endpoints serve the tree. They do not change state. You
-do not have to trust the responder, because each proof verifies offline.
+Three read-only endpoints serve the tree. You do not have to trust the
+responder, because each proof verifies offline.
 
 - `GET /v1/log/sth` returns a **Signed Tree Head** (STH) inside `sth`.
   A `note` and a `spec` link come next to it: `{sth: {tree_size, root_b32,
@@ -2763,7 +2763,7 @@ For this reason `GET /v1/log/witnesses` puts each witness key in a tier:
 | tier | meaning |
 |---|---|
 | `key_only` | The signature verifies. emem knows nothing more. |
-| `org_vouched` | Recent DNS TXT or well-known evidence under a domain, from `GET /v1/enlist`. |
+| `org_vouched` | DNS TXT or well-known evidence under a domain, less than 30 days old, from `GET /v1/enlist`. |
 | `self_operator` | The key of this node, or a key that its own domains vouch for. |
 
 `independent_operator_count` counts distinct `org_vouched` domains, not
@@ -2778,8 +2778,8 @@ a job. Thus
 every `key_only` key, and keys cost nothing. Use
 `head_is_witnessed_by_independent_operator`. It is true only when an
 `org_vouched` domain other than this node's own signed the current head.
-On 7 November 2026 it was `false`. `independent_operator_count` was 1,
-and `independent_witness_count` was 112 keys.
+On 7 November 2026 at 07:05 UTC it was `false`. `independent_operator_count`
+was 1, and `independent_witness_count` was 112 keys.
 
 ##### 9.6.2.1 Check a witness co-signature by hand
 
@@ -2911,7 +2911,8 @@ A delete writes one delete entry for each path that it removes:
 The signature is the one from the delete request. It covers the verb
 `delete`, `signed_path`, blake3 of the empty body and `base`. In a
 directory delete, `signed_path` is the directory and `path` is one file
-that the delete removed. The delete response contains `log_entries`.
+that the delete removed. `prior_file_cid` is CBOR `null` when the server
+had no file id for the path. The delete response contains `log_entries`.
 The tombstone of the path and its `memory_history` event give the entry
 as `log_entry_hash_b32`. Deletes from before this feature have no entry.
 
@@ -2923,7 +2924,8 @@ as `log_entry_hash_b32`. Deletes from before this feature have no entry.
 `GET /v1/log/inclusion?entry_hash=` also accepts the content hash of a
 note (blake3 of its bytes) and then answers
 `matched: "memory_note_content"`. Writes from before this feature have
-no entry. An entry added now would record the time of logging, not the
+no entry. If the log append fails, the server logs the failure and the
+write or delete still stands, without an entry. An entry added now would record the time of logging, not the
 time of writing.
 
 `GET /v1/log/entries?summary=1` serves one light row per entry, not its
