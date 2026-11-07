@@ -98,17 +98,31 @@ The paths come from `MaterializingStorage::rooted` in `crates/emem-storage/src/l
 
 ## Build from source
 
+Install these tools first:
+
+| Tool | Why |
+|---|---|
+| Rust 1.91 or later | The workspace MSRV. |
+| `g++` | `ort-sys` and `esaxx-rs` compile C++ code. |
+| `make` | `tikv-jemalloc-sys` runs the `configure` and `make` of jemalloc. |
+| `protobuf-compiler`, `libprotobuf-dev` | `lance-encoding` needs `protoc` and the protobuf well-known types. |
+| `mdbook` 0.5.2 | The binary embeds the rendered docs site from `docs/book/`. |
+| glibc 2.38 or later | `ort-sys` links symbols that glibc 2.36 does not have. |
+
 ```bash
 git clone https://github.com/Vortx-AI/emem.git
 cd emem
+mdbook build docs && rm -f docs/book/book.toml
 cargo build --release --bin emem-server
 ./target/release/emem-server
 ```
 
-The binary listens on `0.0.0.0:5051` and stores data in `./var/emem`. You need Rust 1.91 or later (the workspace
-MSRV), about 12 GB of free disk for `target/`, and about 4 GB of RAM. A first build takes about 5 minutes. A build
-after a small change takes about 30 seconds. The image build also needs `g++`, `make`, `protobuf-compiler` and
-`libprotobuf-dev`; install them if the build stops in `ort-sys`, `lance-encoding` or `tikv-jemalloc-sys`.
+The `mdbook` step must come first. Without `docs/book/`, `cargo build` stops with an `include_dir!` error. The `rm`
+step keeps the mdbook configuration out of the served site. The `Dockerfile` does the same two steps.
+
+The binary listens on `0.0.0.0:5051` and stores data in `./var/emem`. `Cargo.lock` lists 737 packages (7 November
+2026), so the first build takes much longer than later builds. [Develop emem](developers/developing.md) has the
+full build and test workflow.
 
 ## Environment variables
 
