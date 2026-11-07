@@ -40,14 +40,14 @@
 <text x="75" y="246" class="h" font-size="13.5">the cited source and recompute the value. Publishes</text>
 <text x="75" y="264" class="h" font-size="13.5">declared lineage (processing baseline, BLAKE3 register).</text>
 <rect x="75" y="281" width="150" height="26" rx="13" fill="#d59a2a"/>
-<text x="150" y="299" text-anchor="middle" class="h" font-size="13" font-weight="bold" fill="#fff">DRIFT ANCHOR</text>
+<text x="150" y="299" text-anchor="middle" class="h" font-size="13" font-weight="bold" style="fill:#fff">DRIFT ANCHOR</text>
 <text x="238" y="299" class="h dim" font-size="12">moves only when the world moves</text>
 
 <!-- operator constellation -->
 <rect x="55" y="360" width="390" height="270" rx="14" fill="#faf7ee" stroke="#2f5e86" stroke-width="2.5"/>
-<text x="75" y="391" class="h" font-size="19" font-weight="bold">The operator constellation</text>
+<text x="75" y="391" class="h" font-size="19" font-weight="bold">Operator satellites</text>
 <rect x="315" y="374" width="112" height="24" rx="12" fill="#2f5e86"/>
-<text x="371" y="391" text-anchor="middle" class="m" font-size="10.5" fill="#fff">orbital.satellite.v1</text>
+<text x="371" y="391" text-anchor="middle" class="m" font-size="10.5" style="fill:#fff">orbital.satellite.v1</text>
 <text x="75" y="415" class="h" font-size="13.5">An operator's own spacecraft is not an archive.</text>
 <text x="75" y="433" class="h" font-size="13.5">It is a device: respected as a contributor,</text>
 <text x="75" y="451" class="h" font-size="13.5" font-weight="bold">refused on its word alone.</text>
@@ -88,8 +88,8 @@
 
 <!-- drift scoring chip -->
 <rect x="580" y="385" width="420" height="52" rx="26" fill="#d59a2a" opacity="0.13" stroke="#d59a2a" stroke-width="1.5"/>
-<text x="790" y="407" text-anchor="middle" class="h" font-size="13.5" font-weight="bold">every admitted device claim is scored against the anchor</text>
-<text x="790" y="425" text-anchor="middle" class="h" font-size="12.5">consistent · tension · contradicted, and tension is surfaced, never silently dropped</text>
+<text x="790" y="407" text-anchor="middle" class="h" font-size="13.5" font-weight="bold">the rule that scores a device claim against the anchor ships</text>
+<text x="790" y="425" text-anchor="middle" class="h" font-size="12.5">consistent · tension · contradicted; the write path does not call it yet (see gaps)</text>
 
 <!-- memory -->
 <rect x="580" y="460" width="420" height="245" rx="14" fill="#faf7ee" stroke="#4f8a3d" stroke-width="2.5"/>
@@ -152,17 +152,17 @@
 <text x="80" y="814" class="h" font-size="14" style="fill:#f3eee2">to re-check them, trust by authority fails and arithmetic remains: content addresses, signatures,</text>
 <text x="80" y="834" class="h" font-size="14" style="fill:#f3eee2">inclusion proofs, and an anchor no single participant controls. Forging one number means</text>
 <text x="80" y="854" class="h" font-size="14" style="fill:#f3eee2">simulating a whole causally consistent execution and beating an archive anyone can recompute.</text>
-<text x="80" y="886" class="h" font-size="14" font-style="italic" fill="#d59a2a">Is this worth it, or just the obvious? The obvious part is signing data. The earned part is</text>
-<text x="80" y="906" class="h" font-size="14" font-style="italic" fill="#d59a2a">refusing signed data without execution evidence, and anchoring it to a record no one owns.</text>
-<text x="80" y="938" class="h" font-size="12.5" fill="#b5ad9c">Honest cost, measured against our own interest: a token spends ~5.8x the context of the bare</text>
-<text x="80" y="956" class="h" font-size="12.5" fill="#b5ad9c">number. It pays only where a claim must outlive its author and be checked without trust.</text>
-<text x="80" y="980" class="m" font-size="11" fill="#b5ad9c">not memory. evidence of what actually happened.</text>
+<text x="80" y="886" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">Signing data is the easy part. The harder part is to refuse signed device data that has no</text>
+<text x="80" y="906" class="h" font-size="14" font-style="italic" style="fill:#d59a2a">execution evidence, and to check it against a record that no participant owns.</text>
+<text x="80" y="938" class="h" font-size="12.5" style="fill:#b5ad9c">Cost, measured on 11 August 2026: one token uses about 9.5x the LLM tokens of the bare value;</text>
+<text x="80" y="956" class="h" font-size="12.5" style="fill:#b5ad9c">a bundle of up to 256 uses 23 in total. Use it where a claim must outlive its author.</text>
+<text x="80" y="980" class="m" font-size="11" style="fill:#b5ad9c">emem keeps the evidence of what ran, with the value it produced.</text>
 
 <rect x="935" y="730" width="610" height="262" rx="14" fill="#faf7ee" stroke="#5c564b" stroke-width="1.8" stroke-dasharray="6 5"/>
 <text x="960" y="765" class="h" font-size="17" font-weight="bold" letter-spacing="2">HONEST GAPS · COMING SOON</text>
 <g class="h" font-size="13.5">
-<text x="960" y="794">· hosted trace writes: the os_trace field on POST /v1/attest,</text>
-<text x="972" y="812">with an authenticated enrollment surface</text>
+<text x="960" y="794">· a first production trust anchor: enrollment refuses every call</text>
+<text x="972" y="812">today; drift scoring is not yet wired into the write path</text>
 <text x="960" y="836">· a freshness nonce, so a window cannot be replayed</text>
 <text x="960" y="860">· hardware quotes (TPM / DICE) as one more evidence layer</text>
 <text x="960" y="884">· traced derivations: device derivatives are refused today, on purpose</text>
@@ -172,5 +172,5 @@
 <text x="972" y="974">makes every replica byte-identical, the uplink is the open part</text>
 </g>
 
-<text x="800" y="1022" text-anchor="middle" class="h dim" font-size="11.5">emem 2.0.0 · diagram 39 · every box above is shipped code or listed as a gap · docs/plans/encoder-substrates.md</text>
+<text x="800" y="1022" text-anchor="middle" class="h dim" font-size="11.5">diagram 39 · checked against the code on 7 November 2026 · every box is shipped code or a listed gap · docs/plans/encoder-substrates.md</text>
 </svg>
