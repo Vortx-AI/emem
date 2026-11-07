@@ -228,7 +228,8 @@ From zero to a signed, cite-able answer in three calls:
 
 The still above is one live `recall` with eight named bands, drawn by
 [`stills/src/recall_cell.py`](media/stills/src/recall_cell.py). Each fact
-keeps its own source and `observed_at`. Before the named recall, a recall
+keeps its own source and `observed_at`. Contains modified Copernicus
+Sentinel data 2026. Before the named recall, a recall
 at this cell with no `bands` list returned two facts. A bare recall returns
 only what is already stored, so name the bands that you need.
 
@@ -507,6 +508,7 @@ inline from cosine via a TurboQuant rotation (seed
 
 The still above is one live `find_similar` answer, drawn by
 [`stills/src/similar_places.py`](media/stills/src/similar_places.py).
+Contains modified Copernicus Sentinel data 2024.
 `GET /v1/bands` lists the `geotessera` materializer as retired. But on
 7 November 2026, a `find_similar` call with the key `Tromso` signed a new
 vector for the seed cell. The answer showed it in `materialize_notes` with
@@ -645,7 +647,8 @@ The still above is one `field_series` answer for a box of about 500 m by 440 m.
 It came from the call below on 7 November 2026. The signature shows who
 computed the series. It does not show which crop grew there.
 [`stills/src/ndvi_season.py`](media/stills/src/ndvi_season.py) draws it
-from the saved responses.
+from the saved responses. Contains modified Copernicus Sentinel data
+2024-2025.
 
 ```sh
 curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/json' \
@@ -914,7 +917,8 @@ addresses, not signatures. The responder computes the scored values for
 the answer and does not sign them as facts.
 [`stills/src/fetch_ask.py`](media/stills/src/fetch_ask.py) saves the
 responses and [`stills/src/ask_trail.py`](media/stills/src/ask_trail.py)
-checks them and draws the image.
+checks them and draws the image. Contains modified Copernicus Sentinel
+data 2026.
 
 ```bash
 curl -s -X POST https://emem.dev/v1/ask \

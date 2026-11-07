@@ -36,6 +36,7 @@ The new files follow [visual-language.md](visual-language.md).
 
 ```html
 <img src="docs/media/stills/ask-trail.webp" alt="One live call to POST /v1/ask on 7 November 2026: what is the NDVI in Central Park, New York? The answer is NDVI 0.79. Four reasoning stages (located, routed, recalled, scored) each have an address that commits to the stage before it. The recall found three signed Sentinel-2 NDVI facts: 0.60, 0.88 and 0.79; the answer quotes the newest. The receipt is valid, all four stage addresses recompute, and one changed byte moves an address." width="540">
+<br><sub>Contains modified Copernicus Sentinel data 2026.</sub>
 ```
 
 Put this caption at line 287, in place of its first sentence. "One live answer from `/v1/ask`: the number, the stages that reached it, and the signed facts under it." Keep the video link.
@@ -73,18 +74,21 @@ Markup for line 291:
 
 ```html
 <img src="docs/media/stills/ndvi-two-seasons.webp" alt="One signed field_series answer for a farm box near Ames, Iowa, from live emem.dev calls on 7 November 2026. Median NDVI of 17 clear Sentinel-2 scenes from February 2024 to November 2025 has two summer peaks. True-colour crops: 1 August 2024, NDVI 0.88, and 22 October 2024, NDVI 0.26. Eight cloudy scenes are marked as left out." width="540">
+<br><sub>Contains modified Copernicus Sentinel data 2024-2025.</sub>
 ```
 
 Markup for line 90:
 
 ```html
 <img src="docs/media/stills/recall-one-cell.webp" alt="One recall at a Lake Geneva cell, from live emem.dev calls on 7 November 2026. Eight signed facts from six sources, oldest first: climate class Cfb, elevation 368 m, water occurrence 98 percent, land cover permanent water, NDVI 0.055 on a water pixel, NDWI 0.226, precipitation 0 mm, air temperature 9.9 degrees C. Three are recomputable from the source. One receipt covers all eight; signature valid." width="540">
+<br><sub>Contains modified Copernicus Sentinel data 2026.</sub>
 ```
 
 Markup for line 266:
 
 ```html
 <img src="docs/media/stills/a2a-exchange.webp" alt="Three live A2A steps against emem.dev on 7 November 2026. The agent card (emem 2.4.4, A2A 1.0, 18 skills listed of 119) has a valid EdDSA signature. One message/send, 'what is the elevation of Table Mountain?', returns a completed task answered by emem_ask: 1069.01 m from the Copernicus DEM. The receipt in the task checks valid offline; with one character of the fact id changed, it fails." width="540">
+<br><sub>Contains modified Copernicus Sentinel data 2024.</sub>
 ```
 
 ## Orbit GIFs of the 3D worlds
