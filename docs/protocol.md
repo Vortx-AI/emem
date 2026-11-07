@@ -1516,7 +1516,9 @@ co-signatures also share the per-key write rate limit.
 
 You can ask for an inclusion proof by fact: `?fact_cid=` finds the log
 entry through the fact's stored proof. A fact that this responder did not
-sign, or that has no stored proof, returns 404 `CidNotFound`.
+sign, or that has no stored proof, returns 404 `cid_not_found`. An older
+fact also returns it while the responder still builds its batch-root index
+after a restart. Retry it after a few minutes.
 
 ![The Mount Fuji elevation fact, 3539.04 m, is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 bars shows its audit path: each bar is one hash, covering from 1 entry at the bottom to 2,097,152 entries at the top. The root computed from them matches the signed tree head of size 3,248,898, and the Ed25519 signature is valid. One character changed in hash 10 gives a different root, and inclusion is invalid. Below, a 14-hash consistency proof links the head of size 3,248,892 (09:28:13 UTC) to the head of size 3,248,898 (09:28:53 UTC): valid.](media/stills/log-proof.webp)
 
