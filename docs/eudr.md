@@ -279,6 +279,10 @@ The block has the schema id `emem.visual_evidence.v2`. It contains these parts:
   Radar searches only the Microsoft Planetary Computer `sentinel-1-rtc` collection.
   It has no second catalogue, and `EMEM_S2_CATALOGUES` does not apply to it.
   If a search fails, the ladder stops with an error and skips the later steps.
+  A rate limit from a catalogue (HTTP 429, or a 403 that says "rate limit") pauses that catalogue for this process.
+  The pause lasts for the `Retry-After` value (1 to 900 s), or 60 s when the reply has none.
+  During the pause, a Sentinel-1 search fails at once with `stac cooling down`.
+  A Sentinel-2 search goes to the next catalogue in `EMEM_S2_CATALOGUES`.
   The signed fact has band `sentinel1_raw` and holds VV in dB (`10 × log10` of the linear value).
   Its `tslot` is the day of the scene, not the July-1 anchor.
   Its derivation is `sentinel1_rtc_vv_db@1`. The arguments end with the half-width in days
