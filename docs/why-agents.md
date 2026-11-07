@@ -143,7 +143,7 @@ facts about the physical world.
 
 ## Signatures make a planted record traceable
 
-[MINJA](https://arxiv.org/abs/2503.03704) (NeurIPS 2025) is a paper on
+[MINJA](https://arxiv.org/abs/2503.03704) (a NeurIPS 2025 poster) is a paper on
 memory injection attacks. Through queries alone, it planted false records
 in the memory of LLM agents. The average injection success rate was
 98.2%. On average, the planted records then changed the agent's answer
