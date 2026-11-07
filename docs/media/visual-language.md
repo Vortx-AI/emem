@@ -62,10 +62,11 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 
 - Silent. Each scene shows its sentence on screen, so no sound is necessary.
 - Render frame by frame from an HTML page with `window.film.seek(t)`. Do not record a screen. The pages and the
-  renderer are in [films/src/](films/src/). Run `python film.py --help` there for the commands.
+  renderer are in [films/src/](films/src/). Run `python3 film.py --help` there for the commands.
 - Ship one MP4 (H.264) of 2 MB or less and a WebP poster of 300 KB or less. Do not add a WebM copy unless a page
   needs it. One format keeps the repository small.
-  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. On a phone, a 720 px poster and a 1080 px poster both fill the screen width.
+  The films are 1080 by 960 px. A poster is 1080 or 720 px wide. On a phone, a 720 px poster and a 1080 px
+  poster both fill the screen width.
 - On a docs page, show the poster and link it to the MP4.
   When a still of the same data is directly above, give text links only, so the page does not show the
   same picture twice. `agents.md` does this for `emem-ndvi-season.mp4`.
@@ -103,15 +104,15 @@ no text may be smaller than 9.9 px. On a still drawn 800 px wide, that is 22 px.
 its drawn size, after the view box scales it. To measure every still, run its renderer and read the smallest text.
 This needs Playwright:
 
-    python docs/media/stills/src/text_floor.py
+    python3 docs/media/stills/src/text_floor.py
 
-On 7 November 2026 at about 18:25 UTC, all 26 stills passed. The phone copies of the hero and `what-crosses` have their smallest
-text at 12.0 px. All other stills have theirs at 9.9 px.
+On 7 November 2026 at about 18:25 UTC, all 26 stills passed. The phone copies of the hero and `what-crosses` have
+their smallest text at 12.0 px. All other stills have theirs at 9.9 px.
 
 The same floor applies to a film. A film is 1080 px wide, so its text must be 30 px or more. The film check seeks
 each page every 0.5 s. It measures all text that is on screen and at least half opaque:
 
-    python docs/media/films/src/text_floor.py
+    python3 docs/media/films/src/text_floor.py
 
 On 7 November 2026, the first run found text of 22 to 29 px in all five films, as small as 7.3 px on a phone.
 All text is now 30 px or more, and `film.py` drew the five films again.
@@ -207,14 +208,14 @@ data files.
 Draw a still from its saved data. The output is byte-identical to the committed file, for example for
 `guard-check.webp` on 7 November 2026:
 
-    python docs/media/stills/src/guard_check.py /tmp/guard-check.webp
+    python3 docs/media/stills/src/guard_check.py /tmp/guard-check.webp
 
 Check that the stills and films still match emem.dev. This command resolves every fact and bundle token in their
 saved data and compares each live value with the saved copies. It reads the file and device tokens of
 `what-crosses.webp` again. It gets the CBOR bytes of the facts in `wire-forms.webp` and the one-byte film again
 and compares them with the saved files. It resolves the descriptor token of `citation-cost.webp` again and
-compares the fact id, cell and value with the saved answer. Then it proves offline that the log head in `log-proof.webp` is a prefix
-of the current head. It uses only the standard library and makes read-only calls:
+compares the fact id, cell and value with the saved answer. Then it proves offline that the log head in
+`log-proof.webp` is a prefix of the current head. It uses only the standard library and makes read-only calls:
 
     python3 docs/media/stills/src/recheck.py
 
@@ -226,14 +227,14 @@ has 18 hashes.
 
 Check one film frame before a full render. This command writes a PNG of the frame at 25 s:
 
-    xvfb-run -a -s "-screen 0 1280x1280x24" python docs/media/films/src/film.py \
+    xvfb-run -a -s "-screen 0 1280x1280x24" python3 docs/media/films/src/film.py \
       docs/media/films/src/emem-fact-to-check.html fact /tmp --size 1080x960 --stills 25
 
 The season film reads `films/src/season-data.js`. `fetch_season.py` gets one true-colour crop per scene of the
 saved `field_series` answer. It does not save a crop from another scene. `season_data.py` (needs `pyproj`) writes the
 data file from the saved responses.
 
-Remove `--stills 25` and add `--poster 25.5` to render the MP4 and the poster. Add `--webm` for a WebM copy. A full render takes about
-8 minutes on a GPU host. Check the text of a diagram:
+Remove `--stills 25` and add `--poster 25.5` to render the MP4 and the poster. Add `--webm` for a WebM copy.
+A full render takes about 8 minutes on a GPU host. Check the text of a diagram:
 
-    python docs/media/diagrams/src/check_text.py docs/media/diagrams/fact-chain.svg
+    python3 docs/media/diagrams/src/check_text.py docs/media/diagrams/fact-chain.svg
