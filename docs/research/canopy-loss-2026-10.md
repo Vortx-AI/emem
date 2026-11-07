@@ -951,8 +951,10 @@ cell's median, which every rule except the two sub-pixel ones reads. That is why
 rules, which wait for the median to fall, while the single-difference registry rule kept recall by alarming often.
 The sub-pixel readings (the 10th percentile, the share of green pixels) were the program's answer to this. Neither
 beat the baseline at scale or on the seven fresh forests, and on those the 10th-percentile rule scored below zero.
-Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area; the next step is a finer
-cell or the raster itself (section 7).
+They won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
+Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area. Section 5.10 tested a
+finer cell. At 200 m every detector found more of the lost pixels. The 10th-percentile rule gained with an interval
+clear of zero. No detector in this paper reads the raster itself.
 
 ### 6.3 What the first win was
 
@@ -999,14 +1001,17 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 ### 6.6 What an agent should do with this
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
-  `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.21). Read a silence as "no large
-  loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
-  twentieth did.
+  `lab:seasonal_canopy_loss@1`: pooled over eight and six disjoint sets of forests, they beat the registry rule by
+  +0.12 and +0.15 MCC (section 5.21). The strict status rule reads them not replicated after one tie (section 5.13).
+  Read a silence as "no large loss seen", not as "no loss". They find nine in ten cells where half the forest went,
+  and one in five where a twentieth did.
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
   frontiers.
 - In snowy boreal forest, do not trust any of them (section 5.11).
-- `lab:memory_mv_fusion@2` won the one experiment it has entered; wait for its next.
+- `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.21). It is the one method above
+  the registry rule in every climate class it ran in (section 5.18, post hoc).
+- The version-2 memory detectors pool higher but are not shown better, because their forests disagree (I² 96 to 99%,
+  section 5.21). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.
 - Do not use a rule whose status is mixed on the strength of its best result.
@@ -1015,10 +1020,12 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 ## 7. Limitations
 
-- Cells are 400 m and the loss label needs 5% of a cell; smaller clearings are outside what was scored.
+- Cells are 400 m in every experiment except the cell-size test (section 5.10). The loss label needs 5% of a cell,
+  so the scores leave out smaller clearings.
 - Hansen is annual and Landsat-based; detection dates are compared with a year, not a day.
 - Site sets were chosen by hand for known activity; pooled scores weight sites by their labelled cells.
-- Two of 21 sites failed to load in the sub-cell experiment and are reported as unscored, not dropped silently.
+- Two sites, Merauke and Menabe, failed to load in the sub-cell experiment and again in the scaled one. They are
+  reported as unscored, not dropped silently.
 - The rules were written or parameterised by people; the search explored settings, not new rule families.
 - Pooling weights each site by its labelled cells, so a site with many loss cells (Bosawas, 135) moves the pooled score
   more than a site with five. Section 5.7 reports per site for that reason.
@@ -1032,9 +1039,11 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.21); its verdicts are kept as
-  registered, and a meta-analysis is reported beside them.
-- The status rule was tightened after the third replication (section 5.13). The change only demotes.
+- The strict status rule turned a single tie into not replicated. Since 29 October a random-effects meta-analysis
+  decides status (rule v2, section 5.21), and the strict verdicts are printed beside it. Rule v2 was adopted after
+  the experiments it judges had been seen, so every status is exploratory ([program](program.md#2-the-unit-of-research-is-an-experiment-held-in-emem-memory), section 2).
+- Before rule v2, the strict rule was tightened once, after the third replication (section 5.8). That change only
+  demoted.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
 - Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
@@ -1051,6 +1060,12 @@ Every artefact is in emem memory under the lab's key and readable with `memory_v
 | canopy-loss-scaled-2024-2025 | `research/experiments/canopy-loss-scaled-2024-2025-2026-10-29/plan.md` (`ls7ckvg4tkwnxafpo3q2bgkktu`) | `.../result.md` | `emem:fact:defi.zb391.mAfO.zcb6f:mw6r3fd4cwvn6giqrk43a6hj4fnaklsku5fk3nsie7azsqinal3a` |
 | canopy-loss-mcc-replication-2024-2025 | `research/experiments/canopy-loss-mcc-replication-2024-2025-2026-10-29/plan.md` (`phqhgqyqikkb3ezjfubwafmugq`) | `.../result.md` (`xwdaqkz4trxnlgxlbinf7ll6pe`) | `emem:fact:defi.zb4c5.zf90f.zedcb:qalxjsyhyianw5rd52geunqd25o3wxb5pwlqy56rumpkyrvd4gea` |
 | canopy-loss-third-replication-2024-2025 | `research/experiments/canopy-loss-third-replication-2024-2025-2026-10-29/plan.md` (`c73ovt5juw6ebmjsuista46624`) | `.../result.md` (`sioynhojljozkjwzrha7wczlym`) | `emem:fact:defi.zb3b0.pebO.gIfo:dd6xcxxyybclpofvfmgnsyr7xqeygj27tedngpmoz7iwqtk3i3fq` |
+
+The table lists the first seven experiments. Each later section names its own plan: section 5.10
+(`w5sfgf4sczudavcmkgaj7x564a`), 5.11 (`w54isezafoxudzsqffpcbazcbu`), 5.12 (`2qi3f5hui526dvsoiz7ryv5voy`), 5.13
+(`s6ld3nyqfaeekcoaotbxl2geny`), 5.14 (`nppiqq7e6wznwzwpa4kfxuvele`), 5.15 (`mmsumwdn3d4ohgiiqiih4tnnbm`) and the
+completed replication in 5.21 (`u24aifkusddf2zyyhoyhvygwtm`). The method selections of sections 5.19 and 5.20 name
+their experiments by key.
 
 The lab's code (`agents/lab.py`, the experiment runner and their tests) is in the emem-world repository, which stays
 private until peer review; the plans, results, proposals and signed records it wrote are public in emem memory now.
