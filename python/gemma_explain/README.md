@@ -2,7 +2,7 @@
 
 This directory holds `explain_sidecar.py`, a small Python HTTP service. It
 takes an emem `/v1/ask` response and rewords it as plain prose for a
-non-expert. The prose is not signed and is not a fact. The signed answer
+non-expert. Nobody signs the prose, and it is not a fact. The signed answer
 stays the `/v1/ask` receipt and its `fact_cids`.
 
 You need this page if you operate an emem node and want `POST /v1/explain`
@@ -64,8 +64,8 @@ returns HTTP 200 with `"available": false` and the signed `source`. Source:
 The sidecar does not send the full response. It sends only these fields:
 `place_resolved`, `answer`, `band_observations_summary`,
 `algorithm_outcomes_summary`, `caveats`, `routed_to` and the count of
-`fact_cids`. The system prompt asks for 2 to 4 sentences. It tells the model to use
-only the given numbers and to say "not measured" when a reading is absent.
+`fact_cids`. The system prompt asks for 2 to 4 sentences. It tells the
+model to use only the given numbers and to say "not measured" when a reading is absent.
 Temperature is 0.
 
 The model cannot recall, resolve or verify anything, and nothing checks
@@ -81,9 +81,11 @@ its prose against the facts. To check a draft against its citations, use
 | `gemma` (default) | OpenAI-style `/v1/chat/completions` at `EMEM_EXPLAIN_GEMMA_BASE` | returns the deterministic answer, `degraded: true` |
 | `bedrock` | Amazon Bedrock Converse API, called from this process | returns the deterministic answer, `degraded: true` |
 | `none` | no model | always the deterministic answer |
-| any other value | Cosmos chat service at `EMEM_EXPLAIN_COSMOS_BASE` | returns `{"error": ...}`, no fallback |
+| any other value | Cosmos chat service at `EMEM_EXPLAIN_COSMOS_BASE` | returns HTTP 200 with `{"error": ...}`, no fallback |
 
 We checked each failure path on 7 November 2026 with no backend running.
+With `gemma`, the answer has `"degraded": true` and a `degraded_reason`
+that names the connection error.
 
 Point the `gemma` backend at the llm shim in
 `python/llm_shim/openai_bedrock_shim.py` (see its

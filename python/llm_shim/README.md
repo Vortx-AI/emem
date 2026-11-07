@@ -78,10 +78,12 @@ The shim has no authentication. Bind it to a loopback address only.
 5. After a Bedrock answer, the shim adds the cost to the spend file and
    stores the answer in the cache. It does not cache fallback answers.
 
-The answer always names `LLM_SHIM_MODEL` in `model`, whatever model name
-the caller sent. A Bedrock answer also carries `x_budget_spent_usd`,
-`x_budget_cap_usd`, `x_latency_ms` and `x_cache`. Its value is `miss`, or
-`bypass (temperature above cache limit)`.
+A Bedrock answer names `LLM_SHIM_MODEL` in `model`, whatever model name
+the caller sent. It also carries `x_budget_spent_usd`, `x_budget_cap_usd`,
+`x_latency_ms` and `x_cache`. The value of `x_cache` is `miss`, or
+`bypass (temperature above cache limit)`. A fallback answer keeps the
+`model` value that the fallback endpoint sent. In our test on
+7 November 2026, the stub fallback sent `"model": "fake-local"`.
 
 | case | HTTP status | body |
 |---|---|---|
