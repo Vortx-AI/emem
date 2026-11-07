@@ -810,9 +810,11 @@ declared, because the caller signed it. When the responder recomputes,
 the `recomputation` map holds these keys in this order: `verified`, `op`,
 `recomputed_via`, `responder_recomputed`, `effective_provenance_class`,
 `recomputed_at`, `rule`, `ulp_gap`, `ulp_tolerance`. When the caller sent
-a `code_cid` but the responder cannot recompute the op, the map is
-`{verified: false, reason}`. The `reason` is `op_not_tier1_pure` or
-`parent_values_not_all_scalar`. The `fact_cid` covers the map. On no
+a `code_cid` but the responder cannot recompute the op, the CBOR map in
+the fact is `{verified: false, reason}`. The `reason` is
+`op_not_tier1_pure` or `parent_values_not_all_scalar`. The JSON
+`recomputation` in the response has more keys: `verified`, `op`,
+`reason`, `tier1_pure_ops` and `note`. The `fact_cid` covers the CBOR map. On no
 match, or for any other op, the value stays as the caller declared it.
 Without a `code_cid`, the responder does no arithmetic.
 
@@ -2794,9 +2796,10 @@ This check shows that a key signed a `(tree_size, root)` pair, and that
 the pair is a prefix of the current signed head. It does not show that
 the key is independent of the responder. You decide that in step 5.
 
-1. Get co-signatures: `curl -s 'https://emem.dev/v1/log/witnesses?limit=5'`.
-   To get the co-signatures for one size, add `&tree_size=<n>`. The
-   `limit` still applies (default 20, maximum 200), so set it higher.
+1. Get co-signatures: `curl -s 'https://emem.dev/v1/log/witnesses?limit=200'`.
+   Use the maximum `limit`. A short list can have no `org_vouched` row,
+   and step 4 needs one. To get the co-signatures for one size, add
+   `&tree_size=<n>`. The `limit` still applies (default 20, maximum 200).
 2. For each row, rebuild the digest. Use the `PreimageV1` rules of §7.1
    with domain `emem.translog.witness.v1` and three segments.
    `tree_size` is 8 bytes big-endian. `root` and `witness_pubkey` are the
@@ -2881,6 +2884,11 @@ was the `self_operator` row for the current head, 3,247,662. The
 `org_vouched` row was at 3,247,643, 19 entries behind. Its consistency
 proof to 3,247,662 gave CONSISTENT. The eudr.dev document still listed
 the key with the same role and `legal_name`.
+
+At 07:55 UTC, `limit=5` gave no `org_vouched` row on some calls. With
+`limit=200`, all 200 rows were VALID: 141 `self_operator`, 35
+`org_vouched` and 24 `key_only`. The step 4 `jq` command selected an
+`org_vouched` row at 3,247,774.
 
 #### 9.6.3 Memory writes in the log
 
@@ -2986,7 +2994,8 @@ went together. It never says that the content is true. All use the
 same PreimageV1 construction as the STH (§9.6), under the responder
 key. In each domain, the first segment has tag 1, and each next
 segment adds 1 to the tag. `GET /v1/verifier_spec` lists the segments
-of four domains under `other_signed_objects`. It does not list
+of four of the five domains in this table under `other_signed_objects`.
+It does not list
 `emem.doc_parse.v1`. For that domain, use this table, the
 `receipt.preimage` text in each parse response, or `doc_tag` in
 `crates/emem-api-rest/src/reader.rs`.
@@ -2999,8 +3008,8 @@ of four domains under `other_signed_objects`. It does not list
 | `emem.doc_parse.v1` | `POST /v1/lab_report_parse`, `POST /v1/land_record_parse` | kind (`lab_report_parse@1` or `land_record_parse@1`), text_blake3, result_blake3, parser (`doc_parse@1`), parsed_at, responder_pubkey. result_blake3 is blake3 over the `result` object serialised as compact JSON with keys in sorted order (serde_json's default map). The response carries it in that form |
 | `emem.decide.v1` | `POST /v1/decide` | blake3(request body), model id, blake3(answers json), decided_at, responder_pubkey |
 
-The routes that fetch a URL (`range_hash`, `read`, and `ocr` with
-`url`) share one set of egress bounds:
+The routes that fetch a URL (`range_hash`, `read`, and `ocr` or a parse
+route with `url`) share one set of egress bounds:
 
 - https on port 443 only
 - no IP literals or local names
@@ -3019,11 +3028,18 @@ defaults in the code (`range_hash.rs`, `reader.rs`, `decide.rs`):
 | `range_hash` | 16 MiB per call (`EMEM_RANGE_HASH_MAX_BYTES`, at most 256 MiB) | 500 | `EMEM_RANGE_HASH_DAILY_QUOTA` |
 | `read` | 4 MiB of body, 200,000 characters of text | 500 | `EMEM_READ_DAILY_QUOTA` |
 | `ocr`, and a parse route with `url` or `image_b64` | 8 MiB of image | 200 | `EMEM_OCR_DAILY_QUOTA` |
-| a parse route with `text` | 800,000 bytes of text | 2000 | `EMEM_DOC_PARSE_DAILY_QUOTA` |
+| a parse route with `text` | see the text cap below | 2000 | `EMEM_DOC_PARSE_DAILY_QUOTA` |
+| a parse route with a signed `ocr` object | see the text cap below | none | none |
 | `decide` | 32 KiB of request body | 2000 | `EMEM_DECIDE_DAILY_QUOTA` |
 
-Over a quota, the route returns `429` with `Retry-After: 86400` and a
-`<route>_quota` code ([errors.md](errors.md)).
+A parse route has one text cap for each input. If the text is longer
+than 800,000 bytes, the route returns `400` with code `too_large`. The
+text can come from `text`, from `ocr.text`, or from OCR of an image.
+
+Over a quota, the route returns `429` with `Retry-After: 86400`. The
+code is `range_hash_quota`, `read_quota`, `ocr_quota`, `doc_parse_quota`
+or `decide_quota` ([errors.md](errors.md)). A parse route that runs OCR
+counts against `ocr_quota`.
 
 `/v1/ocr` runs Tesseract. `/v1/decide` reads the first-token
 probabilities of the node's local open-weights model over the option
@@ -3547,8 +3563,8 @@ depends on its provenance class. If an audited decision rests on a
 fact, this difference can have legal weight.
 
 The classes are `ProvenanceClass` in `crates/emem-core/src/bands.rs`.
-Each fact in a read carries a `provenance` block with the class. This
-block came from `POST /v1/recall` for `elevation` at Mount Fuji on
+Each fact in a read carries the class in `band_metadata.provenance`.
+This block came from `POST /v1/recall` for `elevation` at Mount Fuji on
 7 November 2026:
 
 ```json
