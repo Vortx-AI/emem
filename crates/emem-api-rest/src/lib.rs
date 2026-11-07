@@ -41060,10 +41060,11 @@ const DERIVE_SIGNATURE_ATTESTS: &str =
      responder stored it. It does NOT attest that the value is true: the responder did not \
      recompute it THIS TIME. The parents are checked to exist here, so the lineage is real even \
      though the arithmetic over it is the caller's claim. Recomputation is available and was not \
-     used: pin a `code_cid` and use a tier-1 pure op (delta, sum) and this responder will re-run \
-     the arithmetic over the cited parents and award deterministic_index on an exact match. \
-     `mean` is excluded because f64 division after accumulation lands a representable step away \
-     from any other implementation's, so it cannot be reproduced and is not pretended to be.";
+     used: pin a `code_cid` and use a tier-1 pure op (delta, mean, sum) and this responder will \
+     re-run the arithmetic over the cited parents and award deterministic_index on a match. \
+     `delta` must match exactly. `mean` and `sum` over more than two parents may differ by at \
+     most 4 ULP, because no summation order is specified; the response reports the measured \
+     `ulp_gap`.";
 
 /// The sentence the responder's signature supports when GC-1 tier-1
 /// recomputation succeeded: the responder did not merely store the claim, it
@@ -41100,10 +41101,6 @@ const GC1_TIER1_PURE_OPS: &[&str] = &["delta", "mean", "sum"];
 /// see for themselves.
 const REDUCTION_ULP_TOLERANCE: u64 = 4;
 
-/// Distance between two f64s counted in representable steps.
-///
-/// Bit-pattern comparison rather than a relative epsilon, so the window means
-/// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
 /// Does the reduction window apply to this recomputation?
 ///
 /// ONLY `mean` and `sum` over more than two parents. This boundary is the
@@ -41126,6 +41123,10 @@ fn is_reduction_op(op: &str, n_parents: usize) -> bool {
     matches!(op, "mean" | "sum") && n_parents > 2
 }
 
+/// Distance between two f64s counted in representable steps.
+///
+/// Bit-pattern comparison rather than a relative epsilon, so the window means
+/// the same thing at 1e-9 as at 1e9 and does not silently widen with magnitude.
 fn ulps_between(a: f64, b: f64) -> u64 {
     if a == b {
         return 0;
@@ -62135,6 +62136,11 @@ impl MaterializeOutcome {
 fn classify_skip_reason(reason: &str) -> (&'static str, bool) {
     if reason.starts_with(BUDGET_DEFERRED) {
         ("deferred", true)
+    } else if reason.starts_with("topic_name_used_as_band") {
+        // A topic key such as `vegetation_condition.ndvi` is not in the band
+        // registry. The note lists the topic's real bands, and every retry of
+        // the same key gets the same note, so it is an unknown band.
+        ("unknown_band", false)
     } else if reason.contains("retired") {
         ("retired", false)
     } else if reason.contains("not a geo-aperture cell") {
@@ -99243,6 +99249,13 @@ mod tests {
             ("no_data", false),
             "a no-data pixel in the newest scene reads the same on retry"
         );
+        assert_eq!(
+            classify_skip_reason(
+                "topic_name_used_as_band: 'vegetation_condition.ndvi' looks like topic.dimension, not a real band."
+            ),
+            ("unknown_band", false),
+            "a topic key is not a band, and a retry returns the same note"
+        );
     }
 
     #[test]
@@ -104916,6 +104929,16 @@ mod tests {
     /// The pure-op semantics are PINNED, so a caller anywhere recomputes the
     /// same value. `delta` is `inputs[1] - inputs[0]` (signed order matters),
     /// `mean`/`sum` are over all inputs, and anything else is not tier-1.
+    #[test]
+    fn the_unrecomputed_sentence_names_every_recomputable_op() {
+        let ops = GC1_TIER1_PURE_OPS.join(", ");
+        assert!(
+            DERIVE_SIGNATURE_ATTESTS.contains(&format!("({ops})")),
+            "the sentence must list exactly the ops recompute_pure_op runs"
+        );
+        assert!(!DERIVE_SIGNATURE_ATTESTS.contains("excluded"));
+    }
+
     #[test]
     fn recompute_pure_op_is_pinned_and_order_sensitive() {
         assert_eq!(recompute_pure_op("delta", &[0.40, 0.54]), Some(0.54 - 0.40));
