@@ -490,7 +490,7 @@ statement for signature.
 
 ```sh
 BASE=https://emem.dev
-base64 -w0 report.png | jq -Rs '{image_b64: ., lang: "eng"}' \
+base64 < report.png | tr -d '\n' | jq -Rs '{image_b64: ., lang: "eng"}' \
   | curl -sf -X POST $BASE/v1/ocr -H 'content-type: application/json' -d @- > ocr.json
 jq '{ocr: .}' ocr.json \
   | curl -sf -X POST $BASE/v1/lab_report_parse -H 'content-type: application/json' -d @- \
@@ -531,7 +531,8 @@ the inclusion proof and the consistency proof offline.
 
 `GET /v1/log/witnesses` lists the co-signatures. Read
 `independent_operator_count` to know how many separate operators
-co-sign. On 7 November 2026 it was 1, for a tree of 3,245,134 entries.
+co-sign. On 7 November 2026 at 08:12 UTC it was 1, for a tree of
+3,248,329 entries. The tree grows all the time.
 
 ---
 
