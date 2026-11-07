@@ -405,9 +405,10 @@ in the JSON-RPC range -32768 to -32000. They come back in the top-level
 `error` object, not in `result`.
 
 The MCP endpoint applies one rule to a failed tool call. A code in that
-range is a protocol failure, so it goes to `error`. The tool name is
+range goes to `error`. Usually this is a protocol failure: the tool name is
 unknown, or the arguments do not deserialize, or the response did not
-serialize. Every other failure is a tool error. It comes back as a `result`
+serialize. Two tools also send -32000 there (see the table). Every other
+failure is a tool error. It comes back as a `result`
 with `isError: true`, and the number is the negative of the protocol code
 (-27 is `invalid_cell`).
 
@@ -419,8 +420,9 @@ with `isError: true`, and the number is the negative of the protocol code
 | -32601 | 200 (404 when the request sends `MCP-Protocol-Version: 2026-07-28`) | The method does not exist. |
 | -32602 | 200 | The tool name is unknown (the message names close matches), or the arguments have the wrong type. `tasks/get` and `tasks/result` also send it for a missing or unknown `taskId`. |
 | -32603 | 200 | The responder could not serialize its own answer, or a tool task panicked or stopped before it finished. |
-| -32000 | 403 | The `Origin` header is not on the allowlist, and the call can write. Unlisted origins can call the handshake, the listings and read-only tools. Operators add origins with `EMEM_MCP_ALLOWED_ORIGINS`. |
+| -32000 | 403 | The `Origin` header is not on the allowlist, and the call can write. Unlisted origins can call the handshake, the listings and read-only tools. Operators add origins with `EMEM_MCP_ALLOWED_ORIGINS`. An unlisted origin that sends a body that is not JSON-RPC also gets this 403, not -32600. |
 | -32000 | 200 | The task registry is full of running tasks. Retry later, or call the tool without a task. A REST error whose `code` is not one of the 27 also comes back as -32000. |
+| -32000 | 200 | `emem_cell_geojson` cannot decode the cell, or `emem_cell_scene_rgb` finds no scene or cannot read it. These come back in `error`, not as a tool error. The message gives the reason. |
 | -32002 | 200 | You called `tasks/result` before the task finished. Poll `tasks/get` first. |
 | -32022 | 400 | The `MCP-Protocol-Version` header names a version this responder does not support. `data.supported` lists the versions. |
 | -32020 | 400 | With header version `2026-07-28`, the `Mcp-Method` header or `_meta` protocol version disagrees with the body. |
@@ -446,9 +448,10 @@ gives the discovery document.
 
 We sent requests to emem.dev on 7 November 2026. Each gave the code and
 status in the tables. From `/mcp` we got -32600, -32601, -32602 (three
-causes), -32022, -32020, the 403 -32000 and the tool error -27. From
-`/a2a/tasks` we got -32009, -32001 and -32601. We did not cause -32603,
--32002, -32050 or the 200 -32000 live. Those rows come from the code in
+causes), -32022, -32020, the 403 -32000 and the tool error -27. We also
+got the 403 for a bad body, and the `emem_cell_scene_rgb` -32000. From `/a2a/tasks` we
+got -32009, -32001 and -32601. We did not cause -32603, -32002, -32050 or
+the task registry -32000 live. Those rows come from the code in
 `crates/emem-api-rest/src/lib.rs`.
 
 ```sh
