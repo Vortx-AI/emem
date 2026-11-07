@@ -219,11 +219,10 @@ answer from a healthy catalogue means there is no scene.
 The two catalogues give different DNs for the same scene. Element84 removed ESA's
 `BOA_ADD_OFFSET`, and Planetary Computer did not. Reflectance is `(DN + offset) * 1e-4`. The
 offset is -1000 for Planetary Computer scenes from processing baseline 04.00. For Element84 it is
-usually 0. Baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000. The code does not
-know the offset for items of 2022-02-27 and 2022-02-28, so the node refuses them
-(`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline when it
-needs one. Each fact's `derivation.args` ends with the catalogue
-and the offset.
+usually 0. Element84 baseline 04.00 items acquired from 2022-01-25 to 2022-02-26 still have -1000.
+The code does not know the offset for items of 2022-02-27 and 2022-02-28, so the node refuses
+them (`element84_dn_offset` in `stac.rs`). The node also refuses a scene that states no baseline
+when it needs one. Each fact's `derivation.args` ends with the catalogue and the offset.
 
 A single cell searches with `intersects: Point`, not `bbox`. A bbox search can match the next
 tile in an MGRS overlap zone. A read over many cells searches once for their bbox. It then keeps,
