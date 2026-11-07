@@ -243,7 +243,9 @@ Claude Code. Then the agent does these steps:
    This is the write.
 
 `signer_sign_write` signs `create`, `str_replace` and `insert`. For
-`POST /v1/derive`, use `signer_sign_digest`.
+`str_replace` and `insert`, `text` is the whole note after the edit,
+not only the changed part. `base` is the `file_cid` now at the path.
+For `POST /v1/derive`, use `signer_sign_digest`.
 
 After your first note, you can edit it, supersede it or delete it. Each
 of these is a signed write with its own body and `base`. The table in
