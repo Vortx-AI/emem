@@ -192,9 +192,11 @@ printed the same value.
 Two checks before you use a cell from `/v1/locate`:
 
 - Read `selected.is_high_confidence`. When it is `false`, `alternatives` lists the other candidates.
-- Do not calculate distance from the cell64 text. Cells near each other often start with the same bigrams. But a
-  cell 10 m north and a cell 1 km north of one origin can share the first two of four bigrams. For real
-  neighbours, use `neighborhood_cells` from the same `/v1/locate` response.
+- Do not calculate distance from the cell64 text. A cell64 has four parts. Cells near each other often share the
+  first parts, but cells far apart can share them too. On 7 November 2026, `/v1/locate` for 35.3606, 138.7274 gave
+  `defi.zb592.nemu.zEvE`. The cell 10 m north was `defi.zb592.netO.zEvE`, and the cell 1 km north was
+  `defi.zb592.romu.zEvE`. All three share the first two parts. For real neighbours, use `neighborhood_cells` from
+  the same `/v1/locate` response.
 
 ## Verify the receipt
 
