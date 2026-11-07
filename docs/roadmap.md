@@ -176,8 +176,11 @@ for disagreement between sources, and an offline refinement loop.
    Heads also go between responders, so that a split view cannot
    survive. `emem-witness.timer` co-signs the head of a peer every 15
    minutes. It spot-checks four sampled leaves under that head
-   (`EMEM_WITNESS_SAMPLES`, default 4). An independent witness co-signs
-   the emem.dev head. See [`federation.md`](federation.md) §8a.
+   (`EMEM_WITNESS_SAMPLES`, default 4). An independent witness also
+   co-signs the emem.dev head. On 7 November 2026 its newest co-signed
+   head was 15 entries behind the current head, so
+   `head_is_independently_witnessed` was false (`/v1/log/witnesses`).
+   See [`federation.md`](federation.md) §8a.
 2. Signed absence proofs. Today a responder signs an `Absence` statement
    when it has no value for a cell. An example is open ocean in the
    Copernicus DEM. The open item is a non-membership proof. A reader can
@@ -204,11 +207,11 @@ callback to the responder. The second is the worlds at
 [`/worlds`](https://emem.dev/worlds). They are not the product. They
 show that a generated memory can also be checkable.
 
-Each item must pass one test: does it make emem memories more trusted,
-portable or verifiable? A regulated business needs verifiable memory
-before it lets agents run on their own. Plausible answers become cheaper
-to generate. A measured, signed account of the physical world that an
-absent party can check does not. Each item below helps an agent use that
+Each item must make emem memories more trusted, portable or
+verifiable. A regulated business needs verifiable memory before it lets
+agents run on their own. Plausible answers get cheaper to generate. A
+measured, signed account of the physical world that an absent party can
+check does not get cheaper. Each item below helps an agent use that
 account, so that the agent does not observe the world again.
 
 ### Change attribution: why did this place's readout move
@@ -232,8 +235,9 @@ What ships pins most of these terms by construction:
 - The receipt lets a third party check any split that a reader computes.
 
 `emem_diff` returns a raw delta (`nd.delta@1`). `POST /v1/state_diff`
-returns the residual, L2 and cosine between two vintages. Neither
-splits a delta among the terms.
+returns the residual, L2 and cosine between two vintages. Its default
+`encoder` is `geotessera`, which emem.dev retires (see below). Neither
+endpoint splits a delta among the terms.
 
 The ledger shipped on 2026-07-16. `POST /v1/change_attribution` (MCP
 tool `emem_change_attribution`, registry key `change_attribution@1`)
