@@ -49,8 +49,9 @@ npx tsx emem_mcp_geospatial_agent.ts
    `MCPClient` of `@mastra/mcp`. It uses `/mcp/full` because `emem_hunt` is
    not one of the 18 core tools on `/mcp`.
 2. It makes a Mastra `Agent` with those tools and the `gpt-4.1-mini` model.
-3. It asks the agent to call `emem_hunt` with `event='algal_bloom'` and
-   `region='Lake Erie'`.
+3. It asks the agent to call `emem_emem_hunt` with `event='algal_bloom'`
+   and `region='Lake Erie'`. The prompt uses this name because the agent
+   sees the tool under it (see Notes).
 4. The agent reports each hotspot with its `cell64`, band values and
    `fact_cid`.
 
@@ -61,7 +62,9 @@ We ran the script on 7 November 2026 with Node.js 24.19.0 and npm 11.17.0.
 scripts of `esbuild` and `protobufjs` did not run. The script ran without
 them. We used a dummy OpenAI key, so the run stopped at the OpenAI error
 `Incorrect API key provided`. Before that error, `MCPClient` connected to
-emem and loaded the tools. `tsc --strict --noEmit` gave no errors.
+emem and loaded the tools. `tsc --strict --noEmit` gave no errors. We ran
+these checks again at 09:15 UTC with the current prompt. The results did
+not change.
 
 We did not see the agent answer, because that needs a real OpenAI key.
 
