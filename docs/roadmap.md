@@ -405,59 +405,84 @@ geographic, and it is next.
 
 ### Every number in a published algorithm says where it came from
 
-Added 2026-08-13 after dpwotikn, reading `/v1/algorithms` to build
-against it, noticed that `flood_risk@2` documents
-`dem_agreement_threshold_m` against the Copernicus DEM product spec and
-leaves `dem_agreement_penalty` bare. Their name for the mechanism is the
-useful part: "one parameter earned its citation, the neighbour inherited
-its credibility by adjacency."
+Status: shipped on 2026-08-13.
 
-It was not one algorithm. Eleven of nineteen parameters were bare, across
-seven, every one of them beside a documented sibling, including four in
-the triple-consensus entry.
+The problem came from dpwotikn, who read `/v1/algorithms` to build on it.
+In `flood_risk@2`, the parameter `dem_agreement_threshold_m` cites the
+Copernicus DEM product specification. The parameter beside it,
+`dem_agreement_penalty`, cites nothing. Their words for the risk: "one
+parameter earned its citation, the neighbour inherited its credibility by
+adjacency."
 
-Every parameter now declares a `basis` and the registry refuses to load
-without one. `literature` cites a source. `fitted` owes an `estimator`, a
-`corpus_cid` and a `held_out` score, and is refused without all three,
-because a fitted constant that cannot say what it was fitted with, on
-what, and how it scored out of sample is an asserted number wearing a
-method's clothes. `operational_default` says out loud that somebody chose
-the number.
+The problem was not in one algorithm only. Eleven of nineteen parameters,
+across seven algorithms, had no source. Each one stood beside a parameter
+that had a source.
 
-Most of ours are the third, and a test asserts that admission stays in
-use, because a rule where everyone writes `literature` is a rule that has
-stopped working. The honest position is that this registry contains more
-chosen numbers than derived ones, and that is now legible instead of
-implied.
+The fix is a rule in the loader (`crates/emem-core/src/algorithms.rs`).
+Each parameter must declare a `basis` in its `learned_from` entry. If a
+parameter has no `basis`, the registry does not load. The three values are:
 
-`fitted` is unused by us on purpose. Nothing in the Earth corpus is a
-fitted-but-re-runnable quantity, so claiming the basis would be renaming
-facts to fit a new word; it is vocabulary for a contributor who has one.
+| `basis` | What it means | What the loader requires |
+|---|---|---|
+| `literature` | The number comes from a published source. | Nothing more. |
+| `fitted` | The number comes from a fit to data. | `estimator`, `corpus_cid` and `held_out`. The loader refuses the entry if one is missing. |
+| `operational_default` | A person chose the number. | Nothing more. |
+
+The registry on 7 November 2026 (`crates/emem-core/data/algorithms-v0.json`)
+has 172 algorithms. Eight of them have parameters, 19 parameters in total:
+
+| `basis` | Parameters |
+|---|---|
+| `literature` | 8 |
+| `operational_default` | 11 |
+| `fitted` | 0 |
+
+So most parameters are choices, not derived values, and the registry now
+says so. The test `every_parameter_declares_a_basis` fails if no parameter
+uses `operational_default`. This stops the rule from turning into a habit of
+writing `literature` for every number.
+
+No parameter uses `fitted`. No Earth corpus value is a fitted value that a
+reader can run again, so the label would not be true. The value is there for
+a contributor who has a fitted parameter.
 
 ### One field, three vocabularies
 
-A substrate profile's `bands` list is source names. The bands manifest is
-keyed by slot. `earth.satellite.v0` declares `esa_worldcover`, which
-fills the `landcover` band; `sentinel2`, where the key is
-`sentinel2_raw`; and `copdem30m`, where the key is `cop_dem` and that
-spelling appears only inside `scalar_keys`. Equality, prefix and
-scalar-key matching each reject at least one real entry, so nothing
-validates this field and an invented band name in it would be served as
-capability.
+Status: open. Nothing checks the `bands` field of a substrate profile.
 
-Found on 2026-08-13 while trying to add exactly that validation, after
-putting seven proposed `nvs.*` keys into the field on `space.deep.v1` and
-noticing that a program reading `/v1/substrates` would have taken them
-for a capability list and got nothing from every one of them. The
-immediate fix was `proposed_bands`, so a candidate profile has a truthful
-place for bands it intends. The check is still missing.
+The `bands` list in a substrate profile uses source names. The bands
+manifest uses slot names. The two do not match by any simple rule. Three
+entries in `earth.satellite.v0` show this:
 
-Closing it properly means deciding which vocabulary the field speaks and
-renaming across every profile, or publishing the source-to-slot map the
-materialisers already embody so the two can be checked against each
-other. The second is more useful: that map exists in code today and
-nowhere a reader can fetch it, which is the same shape as the os_trace
-spec that cost a device maker a week.
+| Name in the profile `bands` list | Key in the bands manifest |
+|---|---|
+| `esa_worldcover` | `landcover` |
+| `sentinel2` | `sentinel2_raw` |
+| `copdem30m` | `cop_dem`, and only inside `scalar_keys` |
+
+Exact match, prefix match and `scalar_keys` match each reject at least one
+real entry. So the loader does not check this field
+(`crates/emem-core/src/substrates.rs`). If a profile lists a band name that
+does not exist, `/v1/substrates` serves it as if it were real.
+
+The maintainers found this on 2026-08-13, when they tried to add the
+check. They had put seven proposed `nvs.*` keys in the `bands` field of
+`space.deep.v1`. A
+program that reads `/v1/substrates` would take them as bands it can read,
+and every read would return nothing. The first fix was a new field,
+`proposed_bands`. A candidate profile now lists the bands it plans in that
+field. On 7 November 2026, `space.deep.v1` (status `candidate`) is the only
+profile that uses it.
+
+Two ways to close the gap:
+
+1. Choose one vocabulary for the field and rename it in every profile.
+2. Publish the source-to-slot map that the materializers use, so a reader
+   can check one list against the other.
+
+The second is more useful. The map is in the code today, but no endpoint
+serves it. A device maker lost a week on a similar gap, when the `os_trace`
+specification was in code only.
 
 ### Open validation: the measurements the claims still rest on
 
