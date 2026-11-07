@@ -41,7 +41,7 @@
 <text x="75" y="264" class="h" font-size="12.5">declared lineage (processing baseline, BLAKE3 register).</text>
 <rect x="75" y="281" width="150" height="26" rx="13" fill="#d59a2a"/>
 <text x="150" y="299" text-anchor="middle" class="h" font-size="13" font-weight="bold" style="fill:#fff">DRIFT ANCHOR</text>
-<text x="236" y="299" class="h dim" font-size="11.5">moves only when the world moves</text>
+<text x="236" y="299" class="h dim" font-size="11.5">moves with the world or baseline</text>
 
 <!-- operator constellation -->
 <rect x="55" y="360" width="390" height="270" rx="14" fill="#faf7ee" stroke="#2f5e86" stroke-width="2.5"/>
