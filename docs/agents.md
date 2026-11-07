@@ -2527,9 +2527,9 @@ same, even when another field has text. On 7 November 2026, a
 `{"texts":[...]}` body with `?shape=openai` gave `flagged: false` and
 `checked: 0`. The same body with `?shape=policy` gave `allow: true` and
 `checked: 0`. A body with `"messages":"oops"` and the 2000 m text in
-`input` also gave `checked: 0` with `?shape=openai`. The 2000 m text above, sent in the correct
-body for `mcp`, `cloudevent` and `policy`, gave a deny with `PROV_VALUE`
-in all three.
+`input` also gave `checked: 0` with `?shape=openai`. The 2000 m text
+above, sent in the correct body for `mcp`, `cloudevent` and `policy`,
+gave a deny with `PROV_VALUE` in all three.
 
 In the `openai` shape, branch on `flagged`, not on `categories`. Four
 `emem/*` categories map to four deny codes: `PROV_SIG`, `PROV_BYTES`,
