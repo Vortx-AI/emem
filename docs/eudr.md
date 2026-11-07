@@ -149,11 +149,23 @@ curl -s -o scene.png -D - \
 
 Operators can change both thresholds with environment variables.
 Use a lower value for audits with high stakes and a higher value for noisy regions.
+The responder clamps each value to its range.
+It uses the default when it cannot parse the value.
 
-| Signal | Default threshold | Env var | Source |
-|---|---|---|---|
-| NDVI drop vs 2020 baseline       | ≥ 0.15 | `EMEM_VISUAL_NDVI_DROP_THRESHOLD` | Pelletier et al. 2024 |
-| S1 VV backscatter drop vs 2020   | ≥ 3 dB | `EMEM_VISUAL_S1_DROP_DB_THRESHOLD` | Reiche et al. 2018 |
+| Signal | Default threshold | Env var | Range | Source |
+|---|---|---|---|---|
+| NDVI drop vs 2020 baseline       | ≥ 0.15 | `EMEM_VISUAL_NDVI_DROP_THRESHOLD` | 0.05 to 0.50 | Pelletier et al. 2024 |
+| S1 VV backscatter drop vs 2020   | ≥ 3 dB | `EMEM_VISUAL_S1_DROP_DB_THRESHOLD` | 1 to 10 dB | Reiche et al. 2018 |
+
+The two signals use different years:
+
+- NDVI breaches when the drop from the 2020 median reaches the threshold in any year.
+- S1 VV breaches only when the latest year drops from the 2020 median by the threshold.
+
+The block reports the values it used in `thresholds`.
+`metrics.ndvi_max_drop_vs_baseline` gives the largest NDVI drop.
+`metrics.ndvi_worst_year_over_year_drop` gives the largest drop from one year to the next.
+That second value is for information only; the verdict does not use it.
 
 The block carries its own `verdict`:
 
@@ -167,6 +179,13 @@ The block carries its own `verdict`:
 The schema enum for this `verdict` lists only the first three values.
 On 7 November 2026 it did not list `incomplete`, but the endpoint can return it.
 If you validate responses against the schema, allow `incomplete` in your validator.
+
+The block evaluates a signal only when the plot has a 2020 median and a latest reading for it.
+`verdict_basis` names the signals that the verdict uses: `ndvi_and_s1_vv`, `ndvi_only`,
+`s1_vv_only` or `neither`.
+`signals.s1_vv.why_not` gives the reason when the block did not evaluate S1 VV.
+Read `verdict_basis` before you quote `no_visual_deforestation`.
+With `ndvi_only`, only NDVI cleared the plot, because S1 VV did not run.
 
 ### Receipts
 
