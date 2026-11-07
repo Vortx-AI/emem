@@ -723,15 +723,16 @@ cp -r emem/plugins/emem/skills/emem-* .claude/skills/
 | `emem-verify-before-publish` | check a draft's citations and the numbers beside them |
 | `emem-device-traces` | resolve and re-verify a device's signed OS trace, and what enrolment admits today |
 
-The scripts need only Python 3. Their BLAKE3 and Ed25519 verification
-come from `emem_crypto.py`, which ships in each skill's `scripts/`
-directory, so any one skill copied on its own still runs.
+Seven skills ship scripts. The scripts need only Python 3. Each
+`scripts/` directory has its own copy of `emem_crypto.py`, which does
+the BLAKE3 and Ed25519 checks. Thus you can copy one skill on its own
+and its scripts still run.
 
-Each `SKILL.md` is readable directly in the repository under
-`plugins/emem/skills/<name>/SKILL.md`, and every one above is also
-served at `https://emem.dev/skills/<name>/SKILL.md`. The
-self-hosting procedure for the guard, as an agent-runnable skill, is
-`crates/emem-guard/SKILL.md`, also served by `GET /v1/guard/selfhost`.
+You can read each `SKILL.md` in the repository at
+`plugins/emem/skills/<name>/SKILL.md`. The site also serves each one at
+`https://emem.dev/skills/<name>/SKILL.md`. The procedure to self-host
+the guard is an agent-runnable skill at `crates/emem-guard/SKILL.md`.
+`GET /v1/guard/selfhost` also returns it.
 
 ## Discovery surface
 
@@ -742,16 +743,17 @@ self-hosting procedure for the guard, as an agent-runnable skill, is
 - `https://emem.dev/agents.md`: consumer-agent ontology + recipes
 - `https://emem.dev/verify`: in-browser receipt + authorship verifier;
   paste a fact CID, an `emem:` token, or a signed message path
-- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. `tools/list` advertises
-  the loop that the rest of the surface serves: ground a place, cite the fact
-  as `emem:fact:<cell64>:<fact_cid>`, hand that line to another agent, and let
-  them resolve it to the identical signed bytes and check the receipt without
-  trusting you. 116 tools in total (18 core, 98 extended);
-  `https://emem.dev/mcp/full` advertises all 116, and `tools/call` reaches every
-  tool by name from either, so the narrower list costs no capability. Call
-  `emem_tools` to map the surface, filter it by the shape of the answer you
-  need (`{"shape":"raster"}`) or by job (`{"bundle":"robotics"}`), or fetch one
-  tool's schema (`{"name":"emem_ndvi"}`).
+- `https://emem.dev/mcp`: JSON-RPC 2.0 MCP endpoint. `tools/list` shows
+  the core loop. You ground a place and cite the fact as
+  `emem:fact:<cell64>:<fact_cid>`. You hand that line to another agent.
+  That agent resolves it to the same signed bytes and checks the receipt,
+  with no need to trust you. On 7 November 2026 the server had 116 tools:
+  18 core and 98 extended. `https://emem.dev/mcp/full` lists all 116, 12
+  per page. `tools/call` runs any tool by name at either endpoint, so the
+  shorter list removes no tool. Call `emem_tools` to map the surface.
+  You can filter it by the shape of the answer (`{"shape":"raster"}`) or
+  by job (`{"bundle":"robotics"}`), or get one tool's schema
+  (`{"name":"emem_ndvi"}`).
 
 ## License
 
