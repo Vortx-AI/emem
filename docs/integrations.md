@@ -521,11 +521,30 @@ the check with no adapter.
 
 ### Read the verdict
 
-```
-EMEM-GUARD DENY PROV_BYTES token=emem:fact:<cell>:<cid> fix=remove_reference leaf=-
+The draft in the first example above has no citation, so the verdict is `allow` with `checked: 0`. This draft
+cites the South Mumbai elevation token but writes 50 m. The signed value is 10 m:
+
+```bash
+curl -sS -X POST https://emem.dev/v1/guard/verdict \
+  -H 'content-type: application/json' \
+  -d '{"texts":["South Mumbai elevation is 50 m (emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma)."]}' \
+  | jq '{action, code, fix, checked, reason}'
 ```
 
-Use the `fix` field in your code, not the prose:
+Response on 7 November 2026:
+
+```json
+{
+  "action": "deny",
+  "code": "PROV_VALUE",
+  "fix": "correct_value",
+  "checked": 1,
+  "reason": "EMEM-GUARD DENY PROV_VALUE token=emem:fact:defi.zb4d7.ze56c.zf24c:4qakixs4xcax3bm2ntlw6ue47bvg4ry5wwa7oog4h6kfp7lvk5ma fix=correct_value leaf=-"
+}
+```
+
+With 10 m in the draft, the same call returns `allow` with `checked: 1`. Use the `fix` field in your code, not the
+prose in `reason`:
 
 | `fix` | What to do |
 |---|---|
