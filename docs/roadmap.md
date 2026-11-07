@@ -477,7 +477,7 @@ entries in `earth.satellite.v0` show this:
 |---|---|
 | `esa_worldcover` | `landcover` |
 | `sentinel2` | `sentinel2_raw` |
-| `copdem30m` | `cop_dem`, and only inside `scalar_keys` |
+| `copdem30m` | `cop_dem` (`copdem30m` is only a prefix in its `scalar_keys`) |
 
 Exact match, prefix match and `scalar_keys` match each reject at least one
 real entry. So the loader does not check this field
@@ -1033,11 +1033,15 @@ The examples in `examples/` are config files, not packages. The plan is
 to publish installable integrations that the framework directories list.
 `emem-langmem` is on PyPI. `llama-index-tools-emem` and the n8n node
 `n8n-nodes-emem` (`integrations/n8n/`) are in the repo, but neither was
-on its registry on 7 November 2026.
+on its registry on 7 November 2026. CI runs the llama-index tests, but
+no workflow publishes that package. `publish-n8n-node.yml` publishes the
+n8n node on an `n8n-*` tag, and no such tag exists yet.
 
 #### Launch
 
-One launch, after the SDK publish and the registry listings. It leads
+The SDK publish is done. On 7 November 2026, `ememdev` on PyPI and
+`@vortxai/emem` on npm were both at 2.4.4. The launch waits for the
+registry listings. It leads
 with the claim that anyone can check: the same token resolves to the
 same bytes for anyone, and the receipt verifies offline. Planned assets:
 
