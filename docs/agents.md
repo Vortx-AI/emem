@@ -262,9 +262,10 @@ numbers gives HTTP 400 `invalid_argument`. See
 [Two forms of bbox](#two-forms-of-bbox).
 
 Over MCP on 7 November 2026, the 4-cell answer was about 18,900 bytes on the
-wire. Three calls gave 18,929 to 18,943 bytes. It had no `structuredContent`, so read it from the text. With
-`"max_cells": 16`, the MCP answer omitted `by_cell`, which holds the facts and
-the receipt of each cell. Its `fetch` body kept only `place`. For more than a
+wire. Three calls gave 18,929 to 18,943 bytes. It had no
+`structuredContent`, so read it from the text. With `"max_cells": 16`, the
+MCP answer omitted `by_cell`, which holds the facts and the receipt of each
+cell. Its `fetch` body kept only `place`. For more than a
 few cells, use the REST call with all your arguments.
 
 ### Job: get a grid of values over an area
@@ -728,8 +729,9 @@ fails. Read the note again and sign the new digest. A signature over the old
 v1 preimage gets `memory_attestation_invalid` with `reason` `v1_retired`,
 since 5 November 2026. All write error codes are in
 [Memory and entity write refusals](errors.md#memory-and-entity-write-refusals).
-These fields come from the code (`attester_recipe` in `crates/emem-api-rest/src/lib.rs`). The live
-`emem_memory_create` schema on 7 November 2026 names the same v2 preimage.
+These fields come from the code (`attester_recipe` in
+`crates/emem-api-rest/src/lib.rs`). The live `emem_memory_create` schema
+on 7 November 2026 names the same v2 preimage.
 On that day the unsigned curl call above gave this refusal on `/mcp` and on
 `/mcp/full`.
 
@@ -1560,9 +1562,9 @@ whose facts have an address (cell, band, tslot) gets HTTP 403 with code
 `level_too_low`, and the message starts with `fact_plane_closed`. Only
 three writers can occupy an address: this responder, a device enrolled
 through the OS-trace gate, and a key that the operator lists. To add your
-own value at a place, use `POST /v1/derive` (MCP `emem_derive`). A derivation cites its parent
-facts and cannot overwrite a fact that other agents recall. The rule is in
-`put_attestation` in `crates/emem-storage/src/lib.rs`.
+own value at a place, use `POST /v1/derive` (MCP `emem_derive`). A
+derivation cites its parent facts and cannot overwrite a fact that other
+agents recall. The rule is in `put_attestation` in `crates/emem-storage/src/lib.rs`.
 
 Other signed writes do have MCP tools: the memory verbs, `emem_derive` and
 the entity writes. If you send a memory verb or `emem_derive` without a
@@ -2022,10 +2024,10 @@ all its cells are within 2 points of the 10 % canopy threshold. Its cell
 had the label `not_in_scope`: JRC showed no forest there in 2020.
 
 The response puts one item for each plot in `per_plot_results`. Each item
-has `verdict`, `verdict_support` and `per_cell_rows_cid`. It is the BLAKE3 hex of one line for
-each sampled cell, in the form `<cell>|<verdict>|<fact_cids joined by ,>\n`.
-The responder stores the facts of each sampled cell, so each fact CID
-resolves.
+has `verdict`, `verdict_support` and `per_cell_rows_cid`. It is the BLAKE3
+hex of one line for each sampled cell, in the form
+`<cell>|<verdict>|<fact_cids joined by ,>\n`. The responder stores the
+facts of each sampled cell, so each fact CID resolves.
 
 - `per_cell_detail: "rows"` (the default) puts the rows in
   `per_cell_verdicts` of each plot. `"anchor"` leaves out the rows and keeps
@@ -2047,8 +2049,8 @@ curl -s -X POST https://emem.dev/v1/inferences \
 
 Each item in `inferences` has a `token` (an `emem:fact:` token), `fn_key`
 (the recipe, for example `outlook@1`), `value`, `confidence` and
-`distance_m`. It also gives the key, tier and nick of the attester. `parents` lists the signed measurements that
-the value came from.
+`distance_m`. It also gives the key, tier and nick of the attester.
+`parents` lists the signed measurements that the value came from.
 On 7 November 2026 this call returned 8 items.
 
 The response states its `trust_policy`. By default it admits only keys at

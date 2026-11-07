@@ -101,8 +101,9 @@ milliseconds. On 7 November 2026, a warm `POST /v1/recall` of `elevation` at
 Mount Fuji took about 26 ms end to end from a cloud host. The first read of a
 new place can take tens of seconds. Do not put emem inside a safety loop.
 [Machines that ask emem where they are](robots.md) has worked calls for a
-street robot, a sprayer, a harvester, an indoor arm and a satellite. The production truth workflow runs `scripts/example_check.py`
-against emem.dev each hour to check them again.
+street robot, a sprayer, a harvester, an indoor arm and a satellite. The
+production truth workflow runs `scripts/example_check.py` against emem.dev
+each hour to check them again.
 
 ## How agents talk to emem and to each other
 
@@ -376,14 +377,15 @@ release (7 September 2026) added these items:
 
 The receipt preimage last changed in 2.0.0, a major version for this reason.
 Under v1 the signature did not cover the inclusion proof. So a receipt
-reported itself valid when something deleted its proof in transit. Receipts signed
-under v0 and v1 still verify under their own rule. A verifier selects the
-rule from the `preimage_version` of the receipt.
+reported itself valid when something deleted its proof in transit.
+Receipts signed under v0 and v1 still verify under their own rule. A
+verifier selects the rule from the `preimage_version` of the receipt.
 
-Since 2.4.3 (10 October 2026), the proof in a receipt also names its fact, its
-batch size and its log entry. The signature does not cover these fields. They
-sit beside the signed fields, so older receipts still verify. The address space and the
-cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
+Since 2.4.3 (10 October 2026), the proof in a receipt also names its fact,
+its batch size and its log entry. The signature does not cover these fields.
+They sit beside the signed fields, so older receipts still verify. The
+address space and the cell64 grid did not change. See
+[CHANGELOG.md](../CHANGELOG.md).
 
 ## Limits
 
@@ -407,13 +409,14 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   [which devices can enrol a key](#which-devices-can-enrol-a-key)). The
   [staged plan](plans/encoder-substrates.md) describes the enrolment path.
 - Each benchmark has the mark SAMPLE, and nobody has replicated one
-  independently. The re-scoring by the emem team refuted several of its own headline claims
-  ([how emem compares](how-emem-compares.md)).
+  independently. The re-scoring by the emem team refuted several of its own
+  headline claims ([how emem compares](how-emem-compares.md)).
 - By default, every reader can read what an agent writes. Only a `vault`
   entry stays sealed against other callers (next item). The roadmap adds no
   other read isolation. emem isolates writes only. Under
-  `/memories/by_attester/<pubkey8>/`, the path names the owner. Elsewhere, the first attester that creates a path owns it. A legacy
-  record with no recorded author refuses writes from every key. The prefix
+  `/memories/by_attester/<pubkey8>/`, the path names the owner. Elsewhere,
+  the first attester that creates a path owns it. A legacy record with no
+  recorded author refuses writes from every key. The prefix
   `/memories/.well-known/` refuses API writes from every key. The operator
   puts files there out of band.
 - A seal protects an entry from other callers, not from the operator. The
