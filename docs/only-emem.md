@@ -46,7 +46,7 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   | jq '{corpus_scanned, scan_truncated, n: (.contradictions | length)}'
 ```
 
-On 7 November 2026 this call read 44,682 keys (`scan_truncated: false`) and
+On 7 November 2026 this call read 44,702 keys (`scan_truncated: false`) and
 found no contradictions. An empty `contradictions` list with a non-zero
 `corpus_scanned` means that the attesters agree. It is not a failed lookup.
 

@@ -203,7 +203,7 @@ curl -s -X POST https://emem.dev/v1/recall_polygon \
 The call sampled 4 cells in an area of 13.4 km². Read `cells_sampled`,
 `coverage_fraction` and `is_exhaustive` before you state an area total. You can
 also send `bbox` or `polygon_geojson` instead of `place`. Over MCP, the
-4-cell answer was 18,934 bytes on the wire. With `"max_cells": 16`, the MCP answer
+4-cell answer was 18,936 bytes on the wire. With `"max_cells": 16`, the MCP answer
 omitted `by_cell`, which holds the facts and the receipt of each cell. For more than a few cells, use
 the REST call.
 
@@ -222,7 +222,7 @@ curl -s -X POST https://emem.dev/v1/trajectory \
   -d '{"cell":"defi.zb592.nUkO.zEzE","band":"indices.ndvi","from_date":"2026-01-01","to_date":"2026-11-06"}'
 ```
 
-The `series` had 13 points, from tslot 20484 to tslot 20754. Trajectory reads
+The `series` had 16 points, from tslot 20484 to tslot 20754. Trajectory reads
 only facts that exist. It does not fetch new ones. Then compare two of the
 tslots:
 
@@ -385,8 +385,8 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"limit":3}'
 ```
 
-On 7 November 2026 the scan read 44,682 keys and returned 3 contradictions.
-It stopped before the end of the corpus (`scan_truncated: true`). Send the
+On 7 November 2026 the scan read 44,702 keys and returned 3 contradictions.
+Its time budget stopped it before the end of the corpus (`scan_truncated: true`). Send the
 `resume_after` value back to continue the scan. Add `cell_prefix` or `band` to
 narrow the scan. Each contradiction has a severity from 0 to 1 and the
 `fact_cid` of each side. Read `disagreement_scope` before you quote one:
@@ -444,7 +444,8 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 ```
 
 Read `neighbors` and `interpretation`. The score compares surface texture, not
-climate. emem.dev no longer makes new embeddings, so the index holds only the
+climate. `returned_k` can be lower than `requested_k`. On 7 November 2026,
+this call asked for 3 and returned 2. emem.dev no longer makes new embeddings, so the index holds only the
 vectors that it stored before. The default band is the 128-dimension
 `geotessera` vector. `mode` selects the scoring:
 
