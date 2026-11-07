@@ -149,12 +149,13 @@ share. The presets are `canyon`, `interlaken`, `semantic` and `carbon`.
 ```bash
 cd "$(git rev-parse --show-toplevel)/examples/3d-worlds"
 python3 make_splats.py --preset carbon --out out/rondonia
-# fetched 1024 cells, 2770 signed facts
-# wrote out/rondonia (.ply 33.5 KB, .splat 15.6 KB, 498 splats)
+# fetched 1024 cells, 2878 signed facts
+# wrote out/rondonia (.ply 40.7 KB, .splat 18.9 KB, 606 splats)
 ```
 
-On 7 November 2026 this run took 10 s. Only 498 of the 1,024 cells
-returned a biomass fact, so the world had 498 splats.
+On 7 November 2026 at 09:50 UTC this run took 9 s. Only 606 of the 1,024
+cells returned a biomass fact, so the world had 606 splats. This count can
+go up between runs. An earlier run on the same day gave 498.
 
 The command writes four files:
 
@@ -266,7 +267,7 @@ The committed receipts still verify. On 7 November 2026 we sent three
 receipts from `scenes/carbon.provenance.json` to `POST /v1/verify_receipt`,
 and all three returned `valid: true`. The committed carbon world has 848
 splats from 1,024 sampled cells, because the other cells have no biomass
-fact. A live run on 7 November 2026 gave 498 splats (see
+fact. A live run on 7 November 2026 gave 606 splats (see
 [Export signed splats](#export-signed-splats)). The committed files stay as
 baked.
 
