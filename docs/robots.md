@@ -1,6 +1,6 @@
 # Machines that ask emem where they are
 
-*We ran every call on this page against `https://emem.dev` on 6 November
+*We ran every call on this page against `https://emem.dev` on 7 November
 2026. The `production truth` workflow runs `scripts/example_check.py` every
 hour, and that script runs these calls again, except the call with a
 placeholder. If one stops working, the workflow fails.*
@@ -13,8 +13,8 @@ problems.
 
 Two properties matter more to a machine than to a person:
 
-- Every answer carries a signed receipt. A second machine can check the claim
-  of the first machine and does not have to trust it.
+- Every fact that a read returns has a signed receipt. A second machine can
+  check the claim of the first machine and does not have to trust it.
 - Every place has one address. Two machines that resolve "this field"
   separately get the same cell64. They do not get two descriptions that only a
   human can match.
@@ -52,13 +52,16 @@ not the default. The two modes give different evidence:
 | default | `live_frame` | `none` | No. The frame bytes are gone after the read. |
 | `detect_from_clip: true` | `retained_clip` | `recomputable_from_source` | Yes. `counted_from` gives `clip_s3_key`, `frame_index` and `clip_sha256`. |
 
-The receipt commits to the stored clip. Anyone who has the clip can run the
-detector again and get your number. A machine that must defend a decision later
+The receipt is at `parts[0].metadata.receipt`. The signer is `geoqa`, and the
+schema is `geoqa.clip.v1`. The receipt signs the clip: its SHA-256, the camera,
+the place and the capture time. It does not sign the count. Anyone who has the
+clip can run the detector again and get your number. A machine that must defend a decision later
 needs this second mode. On 29 October 2026, clip mode took no more time than
 the live frame. It took 0.8 s, 0.85 s, 0.88 s and 3.1 s at four London
 cameras, and the live-frame call took 2.9 s.
 
-On 6 November 2026, the call above took 1.2 s and counted 3 cars and 7 people.
+On 7 November 2026 at 01:34 UTC, the call above took 1.1 s. It counted
+7 cars, 11 people, 1 bus and 1 truck, from a camera 184 m away.
 The perception routes have a 120 s time limit (`EMEM_PERCEPTION_TIMEOUT_S`,
 clamped to 40..600). Most other routes have a 40 s limit. Past the limit, the
 server returns a typed 504. The limit is high because clip detection runs on a
@@ -87,10 +90,10 @@ nothing useful. An agent must tell these four states apart:
 
 An agent that waits for `{"car": 0}` waits forever.
 
-### Is 45 people a lot?
+### Compare a count with the past of the camera
 
-A count alone cannot answer that question. Most machines need the answer, not
-the count. The response has a `temporal_context` block next to `counts`. It
+A count alone does not tell you if the street is busy. Most machines need that
+judgement, not the count. The response has a `temporal_context` block next to `counts`. It
 compares the new count with past counts from the same camera.
 
 This excerpt comes from the London call above on 29 September 2026:
@@ -123,9 +126,15 @@ the same hour on other days. That is the comparison that you want.
 The response also has an `all_hours` comparison under `comparisons`, with a
 larger sample. `comparison_to_prefer` is `hour_of_day` or `null`. It is never
 `all_hours`. Traffic changes a lot through the day. A quiet reading at 3 a.m.
-looks low against all hours, but the street is not unusually empty. On 6
-November 2026, the same call returned `comparison_to_prefer: null`, with 142
-past readings for this hour.
+looks low against all hours, but the street is not unusually empty.
+
+The verdict can be `null`. This occurs when `percentile_ci` crosses a band
+boundary, so the reading fits in no one band. Then `why_no_verdict` gives the
+interval and `n`. On 7 November 2026, the call above returned `verdict: null`
+and `comparison_to_prefer: null`. The interval was [0.666, 0.799] over 166 past
+readings for this hour. `bounded_claim` still said "above this camera's
+median". In the same response, `people` had its own verdict, "much more crowded
+than usual", because its interval fit inside one band.
 
 Use these fields to judge how strong the verdict is:
 
@@ -133,7 +142,8 @@ Use these fields to judge how strong the verdict is:
 |---|---|
 | `n` | The number of past readings that the comparison uses. |
 | `percentile_ci` | The interval that this sample supports. |
-| `verdict_supported_at` | Present when the interval crosses a tier boundary. Then the verdict holds only for the direction. |
+| `verdict_supported_at` | `band` when the interval fits inside the band that the verdict names. `none` when the interval crosses a band boundary, and then the verdict is `null`. |
+| `superlative_supported` | `true` when the whole interval is in the top tenth or the bottom tenth. Only then does the verdict use "much". |
 | `bounded_claim` | The strongest claim that the full interval supports. |
 | `counted_higher_than` | The exact rank. It needs no interval. |
 | `detector_fn_id` | The detector. The baseline uses only readings from this detector, because a different model gives a different measurement. |
@@ -169,7 +179,7 @@ curl -s -X POST https://emem.dev/v1/terrain \
 The response has `centre_elevation_m`, a `slope` block, `ruggedness` and
 `topo_position`. The `slope` block gives the cell size. The top-level
 `input_fact_cids` lists the fact ids that the response used.
-On 6 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
+On 7 November 2026, this cell had a slope of 7.0 degrees (12.3 percent),
 computed with the Horn 1981 method.
 
 The `honest_note` field says which neighbourhood emem sampled, and at what
@@ -205,8 +215,11 @@ class is `model_output`, not a measurement.
 Each reading has `captured_at` and `age_s`. A wind speed is a decision input
 only while it is fresh. The newest value that emem holds is not always a
 current value. Check `age_s` before you act, so that the sprayer does not use a
-value from yesterday afternoon. On 6 November 2026, the wind speed at this cell
-was 2.6 m/s with `age_s: 1986`.
+value from yesterday afternoon. On 7 November 2026, the wind speed at this cell
+was 1.9 m/s with `age_s: 1375`.
+
+The weather and soil routes return a `fact_cid` for each band, but no receipt.
+To get a receipt, send the same cell and bands to `POST /v1/recall`.
 
 Soil is the other half of the decision. The soil route answers for the same
 cell:
@@ -217,7 +230,7 @@ curl -s -X POST https://emem.dev/v1/soil \
   -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
-At this cell, on 6 November 2026, all six SoilGrids bands came back as signed
+At this cell, on 7 November 2026, all six SoilGrids bands came back as signed
 absences (`kind: absence`, `value: null`). An absence is an answer. emem asked
 the source, and the source had no value for this point. Do not retry an
 absence. A read that timed out is different. It appears in `materialize_notes`
@@ -234,7 +247,7 @@ curl -s -X POST https://emem.dev/v1/trajectory \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","window":[20325,20690]}'
 ```
 
-The window is a pair of Unix epoch-day slots. On 6 November 2026, the `series`
+The window is a pair of Unix epoch-day slots. On 7 November 2026, the `series`
 had 25 points. Each point has its own `fact_cid` and `token`. Every point links
 back to the signed observation that it came from. A second machine can check
 any point again.
@@ -330,6 +343,6 @@ curl -s https://emem.dev/v1/agents
 ```
 
 The response lists every namespace that has written a note. emem finds them in
-the store. Nobody approves them. On 6 November 2026, the list had 260
+the store. Nobody approves them. On 7 November 2026, the list had 260
 namespaces. `key_status: proven_by_signature` means that at least one note from
 that namespace has a caller signature. `trust` is always `caller_decides`.
