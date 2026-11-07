@@ -284,10 +284,25 @@ verifies for this write, the encoding rules and a worked example.
 |---|---|---|---|
 | `memory_attestation_required` | `invalid_argument` | 401 | The write has no `attester` block. emem.dev refuses unsigned writes. |
 | `memory_attestation_invalid` | `bad_signature` | 401 | The key has a bad shape (`reason: bad_pubkey`) or the signature does not verify (`reason: bad_signature`). The message names the expected digest. Every verb verifies only the v2 preimage, `emem.memory_write.v2\|verb\|path\|body_hash\|base`. The responder refuses a v1 signature with `reason: v1_retired` (since 2026-11-05). |
-| `memory_namespace_violation` | `invalid_argument` | 403 | The path is in the `/memories/by_attester/<pubkey8>/` namespace of another key, or another key owns it, or it is under the reserved `/memories/.well-known/` prefix. |
-| `write_rate_limited` | `rate_limited` | 429 | The per-attester write backstop tripped. The defaults are 240 writes per minute with a burst of 60. |
+| `memory_namespace_violation` | `invalid_argument` | 403 | Your key may not change this path. `details.reason` says why. The table below lists the reasons. |
+| `write_rate_limited` | `rate_limited` | 429 | The per-attester write backstop tripped. The defaults are 240 writes per minute with a burst of 60 (`EMEM_WRITE_RATE_PER_MIN`, `EMEM_WRITE_RATE_BURST`). |
 | `vault_immutable` | `invalid_argument` | 409 | You sent an in-place edit to a sealed vault entry. Create the entry again instead. |
 | `vault_capability_invalid` | `bad_signature` | 403 | A `vault_capability` did not let you view that vault path. |
+
+A `memory_namespace_violation` refusal comes after the signature verified.
+The `details.reason` field names the ownership rule that failed.
+
+| `details.reason` | Cause |
+|---|---|
+| `reserved_namespace` | The path is under `/memories/.well-known/`. No key can write under that prefix. |
+| `namespace_mismatch` | The path is in the `/memories/by_attester/<pubkey8>/` namespace of another key. `details.expected_short` gives your own prefix. |
+| `owner_key_mismatch` | A different key that has the same 8-character prefix wrote this file. A file answers to the full key that wrote it. |
+| `vault_owner_mismatch` | Another key wrote this vault entry. Only that key can change or delete it. |
+| `open_namespace_owner_mismatch` | Another key created this file in the open namespace. |
+| `open_namespace_unowned_record` | The file is older than stored authorship, so it has no owner. It stays frozen while the operator requires signed writes. Copy it into your own namespace. |
+| `source_namespace` | A rename moves a file out of the namespace of another key. |
+| `root_directory_delete` | A directory delete named `/memories/` itself. |
+| `directory_holds_foreign_files` | A directory delete covers files that your key does not own. `details.foreign_files` gives the count and `details.example` one path. |
 
 The entity routes `/v1/entity` and `/v1/entity/alias` use a top-level code.
 They refuse with `level_too_low` (HTTP 403) when the key has not reached the
