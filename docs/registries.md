@@ -1,191 +1,232 @@
 # Registries
 
-Nine JSON manifests under `crates/emem-core/data/` form the content-addressed
-backbone of an emem responder. Each manifest's blake3 hash (over canonical
-CBOR) is the registry CID. Every signed receipt cites those CIDs, so a
-verifier can replay an algorithm against the exact manifest set in force at
-attestation time.
+A registry is a JSON manifest that tells the responder what a band, an
+algorithm, a function or a source is. Each registry has a content ID (its
+manifest CID). A receipt pins the manifest CIDs that were in force when the
+responder signed it. A verifier can then replay an algorithm against the same
+manifests.
 
-This document describes each manifest and the contract the validator enforces
-before the binary will start.
+This page lists each registry, its fields and the rules its validator enforces
+before the binary uses it.
 
-## Why content-addressed
+## Summary
 
-Nine manifests live under `crates/emem-core/data/`. They load via
-`include_str!()` at process start and their CIDs are derived from the
-canonical CBOR encoding of the parsed structures. When a manifest changes
-(new band, new algorithm version, new mirror), the CID changes. Old facts
-attested under the old CID still verify against the old manifest because
-the receipt pins the CID inline.
+- Nine JSON manifests are in `crates/emem-core/data/`. Two more registries
+  live in code: the land-cover taxonomy and the cell64 alphabet.
+- `GET /v1/manifests` returns the CID of the nine JSON manifests, plus
+  `registry_cid`. On 7 November 2026 `registry_cid` was equal to
+  `functions_cid`.
+- Each receipt carries four of these CIDs in `source_versions`:
+  `bands_cid`, `registry_cid`, `schema_cid` and `sources_cid`.
+- The `emem-server` binary embeds the JSON files at compile time. To change a
+  manifest, edit the JSON and rebuild. There is no runtime override.
+- The tenth JSON file, `climate_archetype_centroids_v1.json`, is seed data
+  for one algorithm. It is not a manifest and has no CID.
 
-A new responder can publish its own manifest CIDs (its own algorithm weights,
-its own provider ordering) without recompiling. Manifest keys are stable
-across publishers; URLs, weights, and thresholds are not.
-
-## Manifest CID rule
+## How to compute a manifest CID
 
 ```text
 manifest_cid = base32_nopad_lowercase( blake3( canonical_cbor(manifest) )[..32] )
 ```
 
-Implemented at `crates/emem-core/src/manifest.rs` (`fn manifest_cid`).
-`canonical_cbor` is what `ciborium::ser::into_writer` produces from the
-deserialised struct, so two implementations parsing the same JSON converge
-on the same CID as long as their structs share the same in-memory shape.
-The per-manifest `Manifest::validate` impl runs before the CID is taken, so
-a structurally invalid manifest never gets a CID. The loader panics at
-startup.
+The code is `manifest_cid` in `crates/emem-core/src/manifest.rs`.
+`canonical_cbor` is the output of `ciborium::ser::into_writer` for the
+parsed Rust struct. The bytes follow the struct field order, not the JSON key
+order. Thus you cannot get the CID from the JSON file alone.
+[Protocol §12](protocol.md#12-conformance-gates-the-four-cids) shows how to
+reproduce `bands_cid`.
 
-## The eleven manifests
+When a manifest changes (a new band, a new algorithm version, a new mirror),
+its CID changes. Old facts still verify, because their receipts pin the old
+CID.
 
-| Identifier              | File                                       | Struct (in `emem-core`)             | Count today | Role                                                        |
-|-------------------------|--------------------------------------------|-------------------------------------|-------------|-------------------------------------------------------------|
-| `emem-bands`            | `data/bands-v0.json`                       | `bands::BandRegistry`               | 43 slots    | 1792-D voxel layout: family, tempo, privacy per slot        |
-| `emem-algorithms`       | `data/algorithms-v0.json`                  | `algorithms::AlgorithmRegistry`     | 169         | composition recipes (solo / combined / embedding)           |
-| `emem-functions`        | `data/functions-v0.json`                   | `functions::FunctionRegistry`       | 23          | derivation functions (primary / derivative / negative)      |
-| `emem-sources`          | `data/sources-v0.json`                     | `sources::SourceRegistry`           | 46 schemes  | ordered providers per scheme                                |
-| `emem-topics`           | `data/topics-v0.json`                      | `topics::TopicRegistry`             | 27 topics   | `/v1/ask` routing (description + aliases + bands)           |
-| `emem-schema`           | `data/schema-v0.json`                      | `schema::SchemaRegistry`            | 8 fragments | CDDL fragments + pinned hash/sig/cid encoding               |
-| `emem-lcv1`             | `src/taxonomy.rs`                          | `taxonomy::Lcv1` + `LcvFamily`      | 64 leaves   | 8 families x 8 leaves land-cover taxonomy, u8 encoded       |
-| `emem-cell64-alphabet`  | `crates/emem-codec/src/alphabet.rs`        | `build_alphabet_v0()` (no struct)   | 65 536      | CVCV bigrams padded with `z<hex4>` synthetic suffix         |
-| `emem-substrates`       | `data/substrates-v0.json`                  | `substrates::SubstrateRegistry`     | 10 profiles | per contributor class: admission rule, required trace layers, grain |
-| `emem-device-platforms` | `data/device-platforms-v0.json`            | `device_platforms::DevicePlatformRegistry` | 16 platforms | whitelisted device platforms: family, root of trust, anchors, recognized encodings |
-| `emem-trace-encodings`  | `data/trace-encodings-v0.json`             | `trace_encodings::TraceEncodingRegistry`   | 8 encodings  | recognized capture toolchains: layers each may capture, tracer's own integrity |
+Each registry type has a `Manifest::validate` function. The parser calls it
+before anything takes the CID. The embedded registries load through
+`LazyLock`. If an embedded file fails to parse or validate, the process
+panics on first use (`"embedded bands-v0.json is malformed"`).
 
-The JSON+struct pairs are validated against `crate::manifest::Manifest`.
-`emem-lcv1` is a Rust enum. `emem-cell64-alphabet` is synthesised in code.
-The nine JSON-backed manifests are served with their CIDs by
-`GET /v1/manifests`; the two code-synthesised ones are pinned by the
-binary itself.
+Another operator can publish different manifests (other weights, another
+provider order). They edit the JSON files and build their own binary. Their
+registry CIDs then differ from emem.dev. Fact CIDs and receipt formats stay
+compatible.
 
-`emem-substrates` is the newest manifest: the substrate profile registry
-behind the encoder trust layer (`docs/plans/encoder-substrates.md`). One
-active profile (`earth.satellite.v0`, archive-recomputable, the drift
-anchor) and nine candidate device profiles, each pinning the OS trace
-layers a device of that class must present before its output is admitted.
-The satellite class appears twice on purpose: `earth.satellite.v0` is the
-open public archive, `orbital.satellite.v1` is an operator's own
-constellation writing under its own key, which makes it a device
-substrate with the trace rule like any other.
-It is served by `GET /v1/manifests` alongside `emem-device-platforms`
-and `emem-trace-encodings`, the two registries that say which hardware
-the trace rule will believe and which tracers a trace may name.
+## The registries
+
+Counts are from `crates/emem-core/data/` on 7 November 2026. On the same day,
+the `covers` object of the live `GET /v1/manifests` agreed. It gave
+algorithms 172, bands 43, device platforms 17, sources 46, substrates 18 and
+trace encodings 8.
+
+| Identifier | Source | Struct in `emem-core` | Count | Role |
+|---|---|---|---|---|
+| `emem-bands` | `data/bands-v0.json` | `bands::BandRegistry` | 43 slots | 1792-D voxel layout: family, tempo, privacy per slot |
+| `emem-algorithms` | `data/algorithms-v0.json` | `algorithms::AlgorithmRegistry` | 172 | composition recipes (solo, combined, embedding) |
+| `emem-functions` | `data/functions-v0.json` | `functions::FunctionRegistry` | 23 | derivation functions (primary, derivative, negative) |
+| `emem-sources` | `data/sources-v0.json` | `sources::SourceRegistry` | 46 schemes | ordered providers per scheme |
+| `emem-topics` | `data/topics-v0.json` | `topics::TopicRegistry` | 27 topics | `/v1/ask` routing (description, aliases, bands) |
+| `emem-schema` | `data/schema-v0.json` | `schema::SchemaRegistry` | 8 fragments | CDDL fragments and the pinned hash, signature and CID encoding |
+| `emem-substrates` | `data/substrates-v0.json` | `substrates::SubstrateRegistry` | 18 profiles | per contributor class: admission rule, required trace layers, grain |
+| `emem-device-platforms` | `data/device-platforms-v0.json` | `device_platforms::DevicePlatformRegistry` | 17 platforms, 7 families | admitted device platforms: family, root of trust, anchors, encodings |
+| `emem-trace-encodings` | `data/trace-encodings-v0.json` | `trace_encodings::TraceEncodingRegistry` | 8 encodings | known capture toolchains: the layers each can capture, the tracer's own integrity |
+| `emem-lcv1` | `src/taxonomy.rs` | `taxonomy::Lcv1`, `LcvFamily` | 64 leaves | 8 families x 8 leaves land-cover taxonomy, `u8` encoded |
+| `emem-cell64-alphabet` | `crates/emem-codec/src/alphabet.rs` | `build_alphabet_v0()` (no struct) | 65 536 | CVCV bigrams, padded with a `z<hex4>` suffix |
+
+The last two have no JSON file and are not in `GET /v1/manifests`. The binary
+pins them in code.
+
+### Substrates, device platforms and trace encodings
+
+`emem-substrates` is the substrate profile registry behind the encoder trust
+layer (`docs/plans/encoder-substrates.md`). On 7 November 2026 it had one
+`active` profile and 17 `candidate` profiles. The active profile is
+`earth.satellite.v0`: the open public archive, which anyone can recompute.
+Each candidate profile names the OS trace layers that a device of that class
+must present before the responder admits its output.
+
+The satellite class appears twice on purpose. `earth.satellite.v0` is the
+public archive. `orbital.satellite.v1` is an operator's own constellation
+that writes under its own key. That makes it a device substrate, and the
+trace rule applies to it.
+
+`emem-device-platforms` says which hardware the trace rule accepts.
+`emem-trace-encodings` says which tracers a trace can name.
 
 ## emem-bands (bands-v0.json)
 
-The 1792-D voxel layout. 43 bands sum to exactly 1792 dims, validated at
-load. Each band declares an `offset` and `dims`; the validator at
-`bands.rs` rejects any manifest where
-`bands[i].offset != sum(bands[0..i].dims)` or the total deviates from
-`total_dims`.
+The 1792-D voxel layout. The 43 bands sum to exactly 1792 dims. The validator
+in `bands.rs` rejects a manifest when any of these is true:
+
+- `bands[i].offset != sum(bands[0..i].dims)`
+- two bands have the same `key`
+- the sum of `dims` is not `total_dims`
 
 Top-level fields:
 
-| Field             | Meaning                                                                |
-|-------------------|------------------------------------------------------------------------|
-| `manifest`        | MUST equal `"emem-bands"`                                              |
-| `version`         | `"v0"`                                                                 |
-| `total_dims`      | `1792` (validator enforces sum-equality)                               |
-| `tempo_classes`   | `["static", "slow", "medium", "fast", "ultra_fast"]`                   |
+| Field | Meaning |
+|---|---|
+| `manifest` | MUST equal `"emem-bands"` |
+| `version` | `"v0"` |
+| `total_dims` | `1792` (the validator checks the sum) |
+| `tempo_classes` | `["static", "slow", "composite_16day", "composite_8day", "medium", "fast", "ultra_fast"]` |
 | `privacy_classes` | `["public", "aggregate_only", "l2_only_with_model_cid", "prohibited"]` |
-| `bands[]`         | physical-layout-ordered band records                                   |
+| `bands[]` | band records in physical layout order |
 
 Per-band fields (struct `bands::Band`):
 
-| Field             | Required | Description                                                     |
-|-------------------|----------|-----------------------------------------------------------------|
-| `key`             | yes      | stable wire band key (e.g. `"geotessera"`)                      |
-| `family`          | yes      | one of 14 `BandFamily` variants                                 |
-| `offset`          | yes      | byte-stable offset in the 1792-D cube                           |
-| `dims`            | yes      | dimension count (variable per band, e.g. 128 for `geotessera`)  |
-| `tempo`           | yes      | one of 5 `Tempo` variants                                       |
-| `privacy`         | yes      | one of 4 `PrivacyClass` variants                                |
-| `description`     | no       | one paragraph for `/v1/bands` self-explanation                  |
-| `units`           | no       | scalar bands' physical units                                    |
-| `value_range`     | no       | `[min, max]` for sanity-check                                   |
-| `interpretation`  | no       | how to read the value                                           |
-| `pitfalls`        | no       | gotchas an agent should know                                    |
-| `references`      | no       | newline-joined citation/doc URLs                                |
-| `dimensions[]`    | no       | per-slot breakdown for multi-dim bands                          |
-| `scalar_keys[]`   | no       | dotted keys agents pass to `/v1/recall` (e.g. `indices.ndvi`)   |
+| Field | Required | Description |
+|---|---|---|
+| `key` | yes | stable wire band key (for example `"geotessera"`) |
+| `family` | yes | one of 14 `BandFamily` variants |
+| `offset` | yes | stable offset in the 1792-D cube |
+| `dims` | yes | dimension count (for example 128 for `geotessera`) |
+| `tempo` | yes | one of 7 `Tempo` variants |
+| `privacy` | yes | one of 4 `PrivacyClass` variants |
+| `description` | no | one paragraph for `/v1/bands` |
+| `units` | no | physical units of a scalar band |
+| `value_range` | no | `[min, max]` for a sanity check |
+| `interpretation` | no | how to read the value |
+| `pitfalls` | no | known traps for an agent |
+| `references` | no | citation and document URLs, one per line |
+| `dimensions[]` | no | per-slot breakdown for a multi-dim band |
+| `scalar_keys[]` | no | dotted keys that agents send to `/v1/recall` (for example `indices.ndvi`) |
 
-The 14 `BandFamily` variants:
-`Foundation`, `Optical`, `Radar`, `Terrain`, `Climate`, `Soil`,
-`Vegetation`, `Landcover`, `Water`, `Human`, `Vision`, `Topology`,
-`Encoding`, `Reserved`.
+The optional text fields (`description`, `interpretation`, `pitfalls`,
+`references`) are part of the `Band` struct. A change to them changes
+`bands_cid`. The `_note` in `bands-v0.json` says otherwise; the code is the
+authority ([protocol §12](protocol.md#12-conformance-gates-the-four-cids)).
 
-The 5 `Tempo` variants and their slot duration:
+The 14 `BandFamily` variants are `Foundation`, `Optical`, `Radar`,
+`Terrain`, `Climate`, `Soil`, `Vegetation`, `Landcover`, `Water`, `Human`,
+`Vision`, `Topology`, `Encoding` and `Reserved`. On 7 November 2026 the
+cube used 13 of them. No slot used `Vision`.
 
-| Variant      | slot_seconds | Example bands                              |
-|--------------|--------------|--------------------------------------------|
-| `static`     | 0            | `cop_dem`, `koppen`, `topology`            |
-| `slow`       | 31_536_000   | `geotessera`, `overture`, `nightlights`    |
-| `medium`     | 2_592_000    | `terraclimate`, `climate`                  |
-| `fast`       | 86_400       | `sentinel2_raw`, `indices`, `air_quality`  |
-| `ultra_fast` | 3_600        | `weather` (MET Norway), `open_meteo`       |
+The 7 `Tempo` variants (`crates/emem-core/src/tslot.rs`, `slot_seconds`):
+
+| Variant | slot_seconds | Cube slots | Example bands |
+|---|---|---|---|
+| `static` | 0 | 12 | `cop_dem`, `koppen`, `topology` |
+| `slow` | 31 536 000 (365 days) | 19 | `geotessera`, `overture`, `nightlights` |
+| `composite_16day` | 1 382 400 | 0 | MODIS 16-day NDVI composites |
+| `composite_8day` | 691 200 | 0 | MODIS 8-day LST, ET, GPP, LAI composites |
+| `medium` | 2 592 000 (30 days) | 2 | `terraclimate`, `climate` |
+| `fast` | 86 400 | 10 | `sentinel2_raw`, `indices`, `air_quality` |
+| `ultra_fast` | 3 600 | 0 | materializer bands `weather.temperature_2m`, `weather.cloud_cover` |
 
 The 4 `PrivacyClass` variants:
 
-- `public`: unrestricted
-- `aggregate_only { min_res }`: must snap to >= `min_res` before serving
-- `l2_only_with_model_cid`: admissible only at conformance L2 with a model CID
-- `prohibited`: refuse to serve
+| Variant | Rule in the type | Cube slots on 7 November 2026 |
+|---|---|---|
+| `public` | no limit | 38 |
+| `aggregate_only { min_res }` | do not serve finer than `min_res` | 3 (`nightlights`, `ghsl`, `population`, all `min_res: 11`) |
+| `l2_only_with_model_cid` | serve only at conformance L2 with a model CID | 2 (`clay_v1`, `prithvi_eo2`) |
+| `prohibited` | do not serve | 0 |
 
-### Cube vs materializer surface
+emem.dev does not enforce these rules. The check function
+`permits_resolution` exists, but no serving path calls it, and no receipt
+carries `privacy_snapped`. See
+[protocol §10.1](protocol.md#101-permits_resolution).
 
-The 43 cube slots are the byte-stable layout pinned by `total_dims = 1792`.
-Materializer-wired band names (what shows up under `/v1/coverage_matrix`
-and `/v1/materializers`) are denser: 124 distinct keys today, because
-multi-dim cube slots fan out to several materializable subkeys (the
-`indices` slot expands to `indices.ndvi`, `indices.ndwi`, `indices.evi`,
-and so on; `geotessera` expands to per-year vintages plus `bin128` and
-`multi_year`).
+### Cube slots and materializer bands
 
-The cube layout is byte-stable: any change must preserve subsequent offsets.
-That is why the AlphaEarth slot was renamed `_reserved_512` rather than
-removed when its no-key path closed.
+The 43 cube slots are the stable layout that `total_dims = 1792` pins. The
+band names that materializers serve are a different, larger set. A
+multi-dim slot fans out to several keys. For example, the `indices` slot
+gives `indices.ndvi`, `indices.ndwi` and `indices.evi`.
+
+On 7 November 2026, emem.dev returned these totals:
+
+| Endpoint | Field | Value |
+|---|---|---|
+| `GET /v1/materializers` | `pagination.total` | 113 (each entry has a different `band`) |
+| `GET /v1/coverage_matrix` | `totals.bands_declared` | 94 |
+| `GET /v1/coverage_matrix` | `totals.bands_with_materializer` | 69 |
+
+The cube layout must stay stable. A change must keep every later offset.
+For this reason, the AlphaEarth slot became `_reserved_512` when its no-key
+path closed. Nobody removed the slot.
 
 ## emem-algorithms (algorithms-v0.json)
 
-172 composition recipes split across three kinds:
+172 composition recipes in three kinds:
 
-| Kind        | Count | What it composes                                                       |
-|-------------|-------|------------------------------------------------------------------------|
-| `solo`      | 29    | single band -> derived classification or scalar                        |
-| `combined`  | 114   | multi-band weighted composite (flagship: `flood_risk@2`, `water_consensus@1`) |
-| `embedding` | 29    | operations on an embedding: a foundation encoder's, or a field's seasonal memory |
+| Kind | Count | What it composes |
+|---|---|---|
+| `solo` | 29 | one band to a derived class or scalar |
+| `combined` | 114 | a weighted composite of several bands (for example `flood_risk@2`, `water_consensus@1`) |
+| `embedding` | 29 | operations on an embedding: a foundation encoder's, or a field's seasonal memory |
+
+74 of the 172 carry an `evaluation` AST. 8 carry a `parameters` block.
 
 ### Per-algorithm fields
 
 Struct `algorithms::Algorithm`:
 
-| Field                       | Required | Description                                                        |
-|-----------------------------|----------|--------------------------------------------------------------------|
-| `key`                       | yes      | versioned id, e.g. `"flood_risk@2"`                                |
-| `kind`                      | yes      | solo / combined / embedding                                        |
-| `domain`                    | no       | editorial routing tag (`"water"`, `"vegetation"`, ...)             |
-| `inputs[]`                  | yes      | declared inputs (band, role, weight, transform, unit, explanation) |
-| `formula`                   | yes      | plain-math source-of-truth string                                  |
-| `output`                    | yes      | `{kind: scalar|classification|vector, unit, range, values}`        |
-| `when_to_use`               | yes      | editorial agent-routing guidance                                   |
-| `primitive`                 | yes      | the REST call (or local op) that gathers inputs                    |
-| `deterministic`             | no       | default `true`; explicit `_deterministic_note` when `false`        |
-| `citation`                  | yes      | preferred peer-reviewed source                                     |
-| `frequency_of_calculation`  | no       | recommended re-computation cadence                                 |
-| `accuracy_band`             | no       | editorial confidence note                                          |
-| `multimodal`                | no       | `Multimodal` declaration (anchor band + tier chain)                |
-| `temporal_recipe`           | no       | per-window backfill                                                |
-| `evaluation`                | no       | `Expr` AST for in-process deterministic evaluation                 |
-| `inference`                 | no       | `InferenceTier` declaration (GPU-required algorithms)              |
-| `parameters`                | no       | typed tunable thresholds (see below)                               |
-| `learned_from`              | no       | citation provenance for tuned constants                            |
-| `prerequisites`             | no       | seed registries / centroid tables the algorithm depends on         |
+| Field | Required | Description |
+|---|---|---|
+| `key` | yes | versioned ID, for example `"flood_risk@2"` |
+| `kind` | yes | solo, combined or embedding |
+| `domain` | no | editorial routing tag (`"water"`, `"vegetation"`) |
+| `inputs[]` | yes | declared inputs (band, role, weight, transform, unit, explanation) |
+| `formula` | yes | the formula in plain math; the source of truth |
+| `output` | yes | `{kind: scalar, classification or vector, unit, range, values}` |
+| `when_to_use` | yes | editorial routing guidance for agents |
+| `primitive` | yes | the REST call (or local operation) that gathers the inputs |
+| `deterministic` | no | default `true`; a `_deterministic_note` explains a `false` |
+| `citation` | yes | preferred peer-reviewed source |
+| `frequency_of_calculation` | no | recommended recompute interval |
+| `accuracy_band` | no | editorial confidence note |
+| `multimodal` | no | `Multimodal` declaration (anchor band and tier chain) |
+| `temporal_recipe` | no | per-window backfill |
+| `evaluation` | no | `Expr` AST for deterministic evaluation in the process |
+| `inference` | no | `InferenceTier` declaration (algorithms that need a GPU) |
+| `parameters` | no | typed tunable thresholds (see below) |
+| `learned_from` | with `parameters` | where each parameter came from |
+| `prerequisites` | no | seed registries or centroid tables that the algorithm needs |
 
-### The `parameters` + `learned_from` + `prerequisites` contract
+### Parameters, learned_from and prerequisites
 
-The flagship composite algorithms (`flood_risk@2` and kin) carry their tunable constants as data, not as numeric
-literals inside the `formula` string. Three optional blocks make those
-constants discoverable, citable, and replaceable:
+Some composite algorithms keep their tunable constants as data, not as
+numbers inside `formula`. This is the `flood_risk@2` block, shortened:
 
 ```jsonc
 {
@@ -197,75 +238,105 @@ constants discoverable, citable, and replaceable:
   "learned_from": {
     "dem_agreement_threshold_m": {
       "value": 5.0,
+      "basis": "literature",
       "rationale": "Matches the typical Cop-DEM CE90 vertical accuracy ...",
-      "source": "ESA Copernicus DEM Product Specification Document, par 5.4 ..."
+      "source": "ESA Copernicus DEM Product Specification Document, §5.4 ..."
+    },
+    "dem_agreement_penalty": {
+      "value": 0.5,
+      "basis": "operational_default",
+      "rationale": "Down-weight applied to the elevation leg ..."
     }
   }
 }
 ```
 
-`parameters` is a `BTreeMap<String, serde_json::Value>` so a value can be a
-bare number, a string, or a `{value, learned_from, rationale}` sub-object.
-The Rust accessor `Algorithm::param_f64("consensus_threshold")` unwraps
-either shape: a bare number returns directly, an object falls back to
-`.get("value").as_f64()`. `Algorithm::param_str` does the same for strings;
-`Algorithm::param` returns the raw `Value` for callers that want the full
-provenance.
+`parameters` is a `BTreeMap<String, serde_json::Value>`. A value can be a
+number, a string, or a `{value, learned_from, rationale}` object.
+`Algorithm::param_f64("consensus_threshold")` reads both shapes. It returns
+a number directly, or it reads `.get("value").as_f64()` from an object.
+`Algorithm::param_str` does the same for strings. `Algorithm::param`
+returns the raw `Value`.
 
-`learned_from` is a free-form object that holds the citation, dataset, or
-PR-curve sweep the value came from. The validator does not require it; the
-audit value is voluntary. `/v1/algorithms` surfaces both blocks verbatim so
-an auditor can trace any number that is not physically obvious back to its
-source.
+The validator requires a `learned_from` entry with a `basis` for each key in
+`parameters`. These are the allowed values:
 
-`prerequisites` declares external seed data the algorithm depends on (the
-12-cell Köppen-Geiger archetype registry seeds `climate_archetype_triple@1`;
-see `crates/emem-core/data/climate_archetype_centroids_v1.json`). When the
-prerequisite is unavailable at request time, the dispatcher emits a
-structured Absence (`archetype_centroids_unavailable`) rather than crashing.
+| `basis` | Meaning | Extra fields the validator requires |
+|---|---|---|
+| `literature` | the value comes from a cited source | none |
+| `fitted` | someone fitted the value to data | `estimator`, `corpus_cid`, `held_out` |
+| `operational_default` | a person chose the value | none |
+
+A missing or unknown `basis` stops the manifest from loading.
+`/v1/algorithms` returns both blocks unchanged. An auditor can trace each
+number back to its source.
+
+`prerequisites` names external seed data. For example,
+`climate_archetype_triple@1` uses the 12-entry Köppen-Geiger archetype table in
+`crates/emem-core/data/climate_archetype_centroids_v1.json`. When that
+data is not available, the dispatcher returns a structured Absence
+(`archetype_centroids_unavailable`). It does not crash.
+
+### Other rules the validator enforces
+
+- No two algorithms have the same `key`.
+- `inputs[]` is not empty.
+- `output.kind` is `scalar`, `classification` or `vector`.
+- Rules R1 to R4 for a `multimodal` block, and I1 and I2 for an `inference`
+  block. See the next sections.
+
+The validator does not check that `deterministic` is true.
 
 ### Triple-encoder consensus algorithms
 
 The registry still declares seven triple-encoder algorithms
 (`clay_prithvi_tessera_triple_consensus@1`, `deforestation_triple@1` and
-five more), because the registry is content-addressed and old receipts cite
-it. They need the retired Clay and Prithvi encoders, so none of them runs
-here.
+five more). The registry is content-addressed and old receipts cite it, so
+they stay. They need the retired Clay and Prithvi encoders. None of them
+runs on emem.dev.
 
 ### Expr AST
 
-Some algorithms carry an in-process `evaluation` block, an `Expr` AST that
-the responder can reduce to a scalar once it has the input facts. 15 `Expr`
-variants cover every composition pattern in the registry that uses the AST:
+An `evaluation` block is an `Expr` AST. The responder reduces it to a scalar
+when it has the input facts. `Expr` has 22 variants. The JSON tag is `op`
+in snake case.
 
-| Variant         | Shape                                                          |
-|-----------------|----------------------------------------------------------------|
-| `Band`          | `{op:"band", band:"<key>"}` leaf lookup                        |
-| `Const`         | `{op:"const", value:<f64>}` leaf literal                       |
-| `Add`           | `{op:"add", terms:[...]}` pointwise sum                        |
-| `Sub`           | `{op:"sub", a:..., b:...}`                                     |
-| `Mul`           | `{op:"mul", terms:[...]}`                                      |
-| `Div`           | `{op:"div", a:..., b:...}` (`b==0` collapses to `None`)        |
-| `Linear`        | `{op:"linear", weights:{...}, bias:0.0}`                       |
-| `Clamp`         | `{op:"clamp", inner:..., lo:0.0, hi:1.0}`                      |
-| `Where`         | `{op:"where", cond:..., gt:5.0, then_:..., else_:...}`         |
-| `WeightedBlend` | `{op:"weighted_blend", primary:..., alt:..., alt_weight:...}`  |
-| `Abs`           | `{op:"abs", inner:...}`                                        |
-| `Sigmoid`       | `{op:"sigmoid", inner:...}`                                    |
-| `Relu`          | `{op:"relu", inner:...}`                                       |
-| `Max`           | `{op:"max", terms:[...]}`                                      |
-| `Min`           | `{op:"min", terms:[...]}`                                      |
+| Variant | Shape | Result |
+|---|---|---|
+| `Band` | `{op:"band", band:"<key>"}` | the sample for that band |
+| `Const` | `{op:"const", value:<f64>}` | a literal |
+| `Add` | `{op:"add", terms:[...]}` | sum |
+| `Sub` | `{op:"sub", a:..., b:...}` | `a - b` |
+| `Mul` | `{op:"mul", terms:[...]}` | product |
+| `Div` | `{op:"div", a:..., b:...}` | `a / b`; `None` when `b == 0` |
+| `Linear` | `{op:"linear", weights:{...}, bias:0.0}` | weighted sum plus `bias` |
+| `Clamp` | `{op:"clamp", inner:..., lo:0.0, hi:1.0}` | `inner` limited to `[lo, hi]` |
+| `Where` | `{op:"where", cond:..., gt:5.0, then_:..., else_:...}` | `then_` if `cond > gt`, else `else_` |
+| `WeightedBlend` | `{op:"weighted_blend", primary:..., alt:..., alt_weight:...}` | `(1 - w) * primary + w * alt`, with `w = alt_weight` clamped to `[0, 1]` |
+| `Abs` | `{op:"abs", inner:...}` | absolute value |
+| `Sigmoid` | `{op:"sigmoid", inner:...}` | `1 / (1 + exp(-inner))` |
+| `Relu` | `{op:"relu", inner:...}` | `max(0, inner)` |
+| `Max` | `{op:"max", terms:[...]}` | largest term |
+| `Min` | `{op:"min", terms:[...]}` | smallest term |
+| `Tanh` | `{op:"tanh", inner:...}` | `tanh(inner)` |
+| `Exp` | `{op:"exp", inner:...}` | `exp(inner)` |
+| `Sqrt` | `{op:"sqrt", inner:...}` | `sqrt(inner)`; `None` when `inner < 0` |
+| `Pow` | `{op:"pow", base:..., exp:...}` | `base ^ exp`; `None` when not finite |
+| `Log` | `{op:"log", inner:...}` | `ln(inner)`; `None` when `inner <= 0` |
+| `OrElse` | `{op:"or_else", primary:..., fallback:...}` | `primary` if it is a finite value, else `fallback` |
+| `ClassTable` | `{op:"class_table", inner:..., classes:[[t, v], ...], default:...}` | `v` of the first pair with `t > inner`, else `default` |
 
-Evaluation is pure: given `samples: HashMap<String, f64>`, the AST reduces
-to `Option<f64>`. A missing band collapses the whole expression to `None`
-(no silent zeros). Receipts surface this as
-`algorithm_outcomes[].skip_reason: "missing_input:<band>"`. The triple-
-consensus algorithms use the wider formula DSL (cosine over embedding
-vectors, `slice_latest`/`slice_prev`, `recall(...)` calls) rather than the
-scalar `Expr` AST; re-executability there comes from the formula string and
-the pinned `parameters` block, not from an inline AST.
+Evaluation is pure. Given `samples: HashMap<String, f64>`, the AST reduces to
+`Option<f64>`. A missing band makes the whole expression `None`, never a
+silent zero. Receipts show this as
+`algorithm_outcomes[].skip_reason: "missing_input:<band>"`.
 
-### Sensor tier and the 10 m delivery rule
+The triple-consensus algorithms do not use `Expr`. They use a wider formula
+language (cosine over embedding vectors, `slice_latest` and `slice_prev`,
+`recall(...)` calls). For them, the `formula` string and the pinned
+`parameters` block are what make the result repeatable.
+
+### Sensor tiers and the 10 m delivery rule
 
 `algorithms.rs` defines a `SourceTier` enum:
 
@@ -273,60 +344,73 @@ the pinned `parameters` block, not from an inline AST.
 S1 > S2 > Landsat > IoT > OtherSat > Static
 ```
 
-The validator enforces: any algorithm declaring
-`multimodal.delivery_resolution_m <= 10` MUST have at least one S1, S2, or
-Landsat band in `multimodal.variance_sources`. Coarse-physics algorithms
-(SPI on POWER precip, GDD on POWER temperature) declare honest large
-resolutions instead. This stops a `"10 m flood risk"` algorithm from
-cheating its anchor by swapping in an `era5.*` input.
+`SourceTier::for_band` maps a band key to a tier by its prefix:
 
-The `for_band` rules (string-prefix matching):
+| Band key | Tier |
+|---|---|
+| `sentinel1_raw`, `s1.*` | `S1` |
+| `s2.*`, `indices.*`, `geotessera*`, `prithvi_eo2*`, `galileo_base*`, `clay_v1*` | `S2` |
+| `landsat.*` | `Landsat` (no materializer on emem.dev) |
+| `iot.*` | `IoT` |
+| `modis.*`, `cams.*`, `marine.*`, `viirs.*` | `OtherSat` |
+| all other keys (`power.*`, `era5.*`, `soilgrids.*`) | `Static` |
 
-| Prefix                                              | Tier       |
-|-----------------------------------------------------|------------|
-| `sentinel1_raw`, `s1.*`                             | `S1`       |
-| `s2.*`, `indices.*`, `geotessera*`                  | `S2`       |
-| `landsat.*`                                         | `Landsat`  |
-| `iot.*`                                             | `IoT`      |
-| `modis.*`, `cams.*`, `marine.*`, `viirs.*`          | `OtherSat` |
-| everything else (`power.*`, `era5.*`, `soilgrids.*`, ...) | `Static`   |
+The validator applies four rules to a `multimodal` block. A
+`composite_inherit: true` block skips R1, R2 and R3.
+
+| Rule | Requirement |
+|---|---|
+| R1 | `anchor_band` is one of the `inputs[]` bands, or a `<composite>` reference |
+| R2 | if `delivery_resolution_m <= 10`, at least one `variance_sources` band is tier S1, S2 or Landsat |
+| R3 | a non-empty `variance_sources` list has at least one band that is not `Static` (fusion method `none` is exempt) |
+| R4 | `priority_chain[0]` is the tier of `anchor_band` |
+
+R2 stops a "10 m flood risk" algorithm from using an `era5.*` input as its
+anchor. Coarse physics algorithms (SPI on POWER precipitation, GDD on POWER
+temperature) declare their true, larger resolution.
+
+For an `inference` block, I1 requires that `tier` is not `Absence` and that
+`tier_chain[0]` equals `tier`. I2 requires `accuracy_band` when a GPU
+algorithm uses `degrade_with_tier_label` with a CPU step in its chain.
 
 ## emem-functions (functions-v0.json)
 
-23 derivation functions (20 primary, 2 derivative, 1 negative). Each
-declares which upstream sources it requires (by canonical scheme), how to
-derive the band value (formula, deterministically), and which band/index
-it writes.
+23 derivation functions. Each one names the upstream sources it needs (by
+scheme), how it derives the band value, and the band and index it writes.
 
-Three kinds (`functions.rs`):
-
-| Kind         | Count | What it produces                                                 |
-|--------------|-------|------------------------------------------------------------------|
-| `primary`    | 20    | A `PrimaryFact` directly from upstream sources                   |
-| `derivative` | 2     | A `DerivativeFact` from N parent fact CIDs (`op` in delta\|trend\|...)|
-| `negative`   | 1     | A `NegativeFact` (signed Absence with reason)                    |
+| Kind | Count | What it produces |
+|---|---|---|
+| `primary` | 20 | a `PrimaryFact` directly from upstream sources |
+| `derivative` | 2 | a `DerivativeFact` from parent fact CIDs (`op` is `delta` or `trend` in the file) |
+| `negative` | 1 | a `NegativeFact` (a signed Absence with a reason) |
 
 Per-function fields:
 
-| Field              | When                | Description                                                 |
-|--------------------|---------------------|-------------------------------------------------------------|
-| `key`              | always              | versioned id, e.g. `"nv.l2a@1"`                             |
-| `kind`             | always              | primary / derivative / negative                             |
-| `out_band`         | always              | output band key (must exist in band registry)               |
-| `out_index`        | multi-dim out_band  | slot index within `out_band.dims`                           |
-| `out_unit`         | always              | physical unit string                                        |
-| `sources[]`        | primary, negative   | upstream `SourceRequirement` (scheme + channels + tempo)    |
-| `parents_required` | derivative          | required parent count for ops like `delta`                  |
-| `parents_min`      | derivative          | minimum parent count for ops like `trend`                   |
-| `op`               | derivative          | one of `delta`, `mean`, `trend`, `rate`, `anomaly`          |
-| `formula`          | always              | human-readable formula string                               |
-| `deterministic`    | always              | MUST be `true`; non-deterministic functions are rejected    |
-| `reason_template`  | negative            | template for the `ReasonCid`'s source pointer               |
+| Field | When | Description |
+|---|---|---|
+| `key` | always | versioned ID, for example `"nv.l2a@1"` |
+| `kind` | always | primary, derivative or negative |
+| `out_band` | always | output band key |
+| `out_index` | multi-dim `out_band` | slot index in `out_band.dims` |
+| `out_unit` | always | physical unit string |
+| `sources[]` | primary, negative | upstream `SourceRequirement` (scheme, channels, tempo) |
+| `parents_required` | derivative | exact parent count, for an op like `delta` |
+| `parents_min` | derivative | minimum parent count, for an op like `trend` |
+| `op` | derivative | free string; the struct comment lists `delta`, `mean`, `trend`, `rate`, `anomaly` |
+| `formula` | always | readable formula string |
+| `deterministic` | always | MUST be `true` |
+| `reason_template` | negative | template for the source pointer of the `ReasonCid` |
 
-The validator refuses non-deterministic entries outright. The canonical
-channel of emem is deterministic by construction.
+The validator in `functions.rs` rejects a manifest when any of these is true:
 
-Examples (one per kind):
+- two functions have the same `key`
+- a function has `deterministic: false`
+- a `primary` or `negative` function has an empty `sources[]`
+- a `derivative` function has neither `parents_required` nor `parents_min`
+
+The validator does not check that `out_band` exists in the band registry.
+
+One example of each kind:
 
 ```jsonc
 {
@@ -356,107 +440,114 @@ Examples (one per kind):
 
 ## emem-sources (sources-v0.json)
 
-46 source-scheme entries. Each scheme has an ordered `providers[]` list; the
-dispatcher walks them in order and returns on the first 2xx. The receipt
-records which provider actually answered.
+46 source schemes. Each scheme has an ordered `providers[]` list. The
+dispatcher tries the providers in order and stops at the first 2xx. The
+receipt records which provider answered.
 
-Seven `ConnectorKind` variants (`sources.rs`):
+`ConnectorKind` (`sources.rs`) has 8 variants. The provider counts are from
+`sources-v0.json` on 7 November 2026.
 
-| Kind                 | What it handles                                                   |
-|----------------------|-------------------------------------------------------------------|
-| `gcs_cog`            | `gs://...` Cloud-Optimized GeoTIFF                                |
-| `https_cog_vsicurl`  | HTTPS COG with `Range` reads                                      |
-| `https_geotiff`      | plain HTTPS GeoTIFF download                                      |
-| `ipld_cid`           | content-addressed IPLD bundle (no network)                        |
-| `stac_pc`            | STAC API (Element84 anonymous, MS PC anonymous-with-SAS)          |
-| `https_json_api`     | plain JSON REST (Open-Meteo, NASA POWER, met.no, ORNL DAAC, ...)  |
-| `parquet_s3`         | anonymous S3 Parquet (Overture)                                   |
+| Kind | Providers | What it handles |
+|---|---|---|
+| `gcs_cog` | 2 | `gs://...` Cloud-Optimized GeoTIFF |
+| `https_cog_vsicurl` | 15 | HTTPS COG with `Range` reads |
+| `https_geotiff` | 2 | plain HTTPS GeoTIFF download |
+| `ipld_cid` | 0 | content-addressed IPLD bundle (no network) |
+| `stac_pc` | 9 | STAC API (Element84 anonymous, Microsoft Planetary Computer with SAS) |
+| `https_json_api` | 16 | plain JSON REST (Open-Meteo, NASA POWER, met.no, ORNL DAAC) |
+| `parquet_s3` | 1 | anonymous S3 Parquet (Overture) |
+| `gpu_sidecar` | 3 | retired foundation-model schemes only; no client ships |
 
-Per-source fields (struct `sources::SourceScheme`):
+Per-scheme fields (struct `sources::SourceScheme`):
 
-| Field                  | Description                                                |
-|------------------------|------------------------------------------------------------|
-| `scheme`               | unique key matching the function registry's `SourceRequirement.scheme` |
-| `providers[]`          | failover-ordered list; first 2xx wins                      |
-| `tempo`                | source's natural cadence string                            |
-| `native_resolution_m`  | metres at the source                                       |
+| Field | Description |
+|---|---|
+| `scheme` | unique key; matches `SourceRequirement.scheme` in the function registry |
+| `providers[]` | providers in failover order; the first 2xx wins |
+| `tempo` | natural cadence of the source, as a string |
+| `native_resolution_m` | resolution at the source, in metres |
 
 Per-provider fields (struct `sources::Provider`):
 
-| Field             | Description                                                |
-|-------------------|------------------------------------------------------------|
-| `id`              | provider id (e.g. `"gcs.public"`, `"aws.opendata"`)        |
-| `kind`            | one of the 7 `ConnectorKind` values                        |
-| `url_template`    | template with `{var}` interpolation                        |
-| `cid`             | static IPLD CID (only for `ipld_cid` kind)                 |
-| `auth`            | `"anonymous"`, `"earthdata_login"`, `"oauth2"`, `"firms_map_key"` |
-| `rate_limit_qps`  | soft hint                                                  |
-| `license`         | licence string (`"CC-BY-4.0"`, `"Copernicus open data"`, ...) |
+| Field | Description |
+|---|---|
+| `id` | provider ID (for example `"gcs.public"`, `"aws.opendata"`) |
+| `kind` | one of the 8 `ConnectorKind` values |
+| `url_template` | template with `{var}` interpolation |
+| `cid` | static IPLD CID (only for the `ipld_cid` kind) |
+| `auth` | string; the file uses `"anonymous"` (45), `"earthdata_login"` (2) and `"firms_map_key"` (1) |
+| `rate_limit_qps` | a soft limit |
+| `license` | licence string (`"CC-BY-4.0"`, `"Copernicus open data"`) |
 
-The validator rejects duplicate schemes and any scheme with an empty
-`providers[]`. Template variables resolved by `template.rs` include
-`{cell64}`, `{tslot}`, `{year}`, `{month}`, `{day}`, `{channel}`,
-`{lat_band}`/`{lon_band}`, `{tile_id}`, `{bbox_csv}`,
-`{lat_center}`/`{lon_center}`. Caller-supplied `vars` override built-ins.
+The validator rejects two schemes with the same name. An empty
+`providers[]` is valid. It declares the scheme with no provider. On 7 November 2026, one scheme had no provider:
+`openet.30m.daily`.
 
-See `data-sources.md` for the full inventory of which schemes have a wired
-connector and which are declared but deferred.
+`template.rs` resolves these template variables: `{cell64}`, `{tslot}`,
+`{year}`, `{month}`, `{day}`, `{channel}`, `{lat_band}`, `{lon_band}`,
+`{tile_id}`, `{bbox_csv}`, `{lat_center}` and `{lon_center}`. Values in the
+caller's `vars` override the built-in values.
+
+[Data sources](developers/data-sources.md) lists which schemes have a connector and which
+do not.
 
 ## emem-topics (topics-v0.json)
 
-27 topics for routing free-text questions through `/v1/ask` and the MCP
-`emem_ask` tool. 11 are fully wired today (every band the topic cites has
-a live materializer); the rest carry partial wiring or aspirational bands
-deferred for connector work.
+27 topics. They route free-text questions through `/v1/ask` and the MCP
+`emem_ask` tool. On 7 November 2026, 24 topics had a materializer for every
+band they cite (from `GET /v1/materializers`). Two topics,
+`nightlights` and `foundation_embedding`, had a materializer for none of
+their bands.
 
-Each topic carries:
+Each topic has these fields:
 
-- `description`: paragraph used to build a sentence-transformer embedding
-- `aliases[]`: short example phrases (also feed the embedding pool and
-  serve as substring fallback when the transformer is offline)
-- `bands[]`: the canonical bands `/v1/ask` recalls when this topic matches
-- `algorithms[]`: composition recipes from `algorithms-v0.json` to apply
+| Field | Use |
+|---|---|
+| `description` | a paragraph; the source of the sentence-transformer embedding |
+| `aliases[]` | short example phrases; they also feed the embedding pool and the substring fallback |
+| `bands[]` | the bands `/v1/ask` recalls when the topic matches |
+| `algorithms[]` | recipes from `algorithms-v0.json` to apply |
 
-Routing policy (`topics-v0.json._routing`):
+The validator rejects two topics with the same `key`, an empty
+`description`, and a topic with no bands and no algorithms.
 
-| Backend       | Behaviour                                                                |
-|---------------|--------------------------------------------------------------------------|
-| `ort`         | default. BAAI/bge-base-en-v1.5 (110 M params, 768-D, MTEB ~63), CLS-pooled, L2-normalised. Reads `tokenizer.json + model.onnx` from `EMEM_TOPIC_MODEL_DIR`. ~110 ms warm `/v1/ask` end-to-end on CPU. The crate uses `ort` + `tokenizers` directly; the older fastembed-rs wrapper has been removed. |
-| `model2vec`   | fallback. `minishlab/potion-base-8M` static-distillation token-lookup embedder (256-D, ~32 MB, sub-microsecond per query, no ONNX dep). |
-| `keyword`     | deterministic substring search over `aliases[]` + `key`. Selected by `EMEM_TOPIC_BACKEND=keyword`. Also runs as a precision pre-pass in front of the transformer paths. |
+The backends that route a question (`topics-v0.json` `_routing._backends`):
 
-Cosine threshold: `0.35` (override via `EMEM_TOPIC_THRESHOLD`). Max topics
-returned per question: 5.
+| Backend | Behaviour |
+|---|---|
+| `ort` | Default. BAAI/bge-base-en-v1.5 (110 M parameters, 768-D, MTEB about 63), CLS-pooled, L2-normalised. Reads `tokenizer.json` and `model.onnx` from `EMEM_TOPIC_MODEL_DIR`. About 110 ms warm for `/v1/ask` end to end on CPU. |
+| `model2vec` | Fallback. `minishlab/potion-base-8M`, a static token-lookup embedder (256-D, about 32 MB, no ONNX dependency). |
+| `keyword` | Deterministic substring search over `aliases[]` and `key`. Select it with `EMEM_TOPIC_BACKEND=keyword`. It also runs as a precision pass before the transformer backends. |
 
-The 0.35 threshold carries a `_threshold_learned_from` block in
-`topics-v0.json` that names the eval corpus
-(`tests/comprehensive/questions_v2.json`, 105 questions) and the
-PR-curve-sweep procedure that picked it. Re-derive against your own corpus
-by running the sweep with `EMEM_TOPIC_BACKEND=keyword
-EMEM_TOPIC_THRESHOLD=<x>` and picking the `x` that maximises precision at
-recall >= 0.80. This is the same provenance pattern as algorithm
-`parameters.learned_from` (see above).
+The cosine threshold is `0.35`. Change it with `EMEM_TOPIC_THRESHOLD`. A
+question gets at most 5 topics.
 
-Inverse queries the registry exposes:
+The threshold has a `_threshold_learned_from` block in `topics-v0.json`. It
+names the evaluation set (`tests/comprehensive/questions_v2.json`, 105
+questions) and the procedure. To derive the threshold for your own set, run a
+precision-recall sweep with `EMEM_TOPIC_BACKEND=keyword
+EMEM_TOPIC_THRESHOLD=<x>`. Pick the `x` that gives the highest precision at
+recall >= 0.80.
+
+The registry has two inverse lookups:
 
 - `topics_for_band(band_key) -> Vec<&Topic>`
 - `topics_for_algorithm(algo_key) -> Vec<&Topic>`
 
-Both are O(N) over the 27-topic list, small enough that no index is needed.
+Both scan the 27 topics. The list is small, so there is no index.
 
 ## emem-schema (schema-v0.json)
 
-The CDDL/JSON-fragment bundle the protocol's wire shapes are pinned against.
-Top-level fields:
+The bundle of CDDL and JSON fragments that pin the wire shapes.
 
-| Field           | Required | Description                                                |
-|-----------------|----------|------------------------------------------------------------|
-| `manifest`      | yes      | MUST equal `"emem-schema"`                                 |
-| `version`       | yes      | `"v0"`                                                     |
-| `fragments[]`   | yes      | one entry per wire shape                                   |
-| `hash`          | yes      | MUST equal `"blake3"`                                      |
-| `signature`     | yes      | MUST equal `"ed25519"`                                     |
-| `cid_encoding`  | yes      | `"base32-nopad-lowercase"`                                 |
+| Field | Required | Description |
+|---|---|---|
+| `manifest` | yes | MUST equal `"emem-schema"` |
+| `version` | yes | `"v0"` |
+| `fragments[]` | yes | one entry per wire shape |
+| `hash` | yes | MUST equal `"blake3"` |
+| `signature` | yes | MUST equal `"ed25519"` |
+| `cid_encoding` | yes | `"base32-nopad-lowercase"` |
 
 The 8 fragments:
 
@@ -464,116 +555,121 @@ The 8 fragments:
 Cell, Tslot, PrimaryFact, DerivativeFact, NegativeFact, Attestation, Receipt, Claim
 ```
 
-Per-fragment fields: `name`, `cid_alg: "blake3-32"`, `encoding:
-"canonical-cbor"`. The validator enforces `hash == "blake3"` and
-`signature == "ed25519"` and refuses an empty `fragments[]`.
+Each fragment has `name`, `cid_alg: "blake3-32"` and
+`encoding: "canonical-cbor"`. The validator checks `hash == "blake3"` and
+`signature == "ed25519"`. It rejects an empty `fragments[]`.
 
 ## emem-lcv1 (taxonomy.rs)
 
-The land-cover taxonomy. 64 leaves arranged as 8 families x 8 leaves,
-encoded in a `u8`:
+The land-cover taxonomy: 64 leaves in 8 families of 8 leaves. One class is
+one `u8`:
 
 ```text
-high 5 bits unused | family (3 bits) | leaf (3 bits)
+high 2 bits unused | family (3 bits) | leaf (3 bits)
 ```
 
 The 8 families:
 
-| Index | Variant         | Description                          |
-|-------|-----------------|--------------------------------------|
-| 0     | `VegClosed`     | Vegetation (closed canopy)           |
-| 1     | `VegOpen`       | Vegetation (open / shrub)            |
-| 2     | `CropAnnual`    | Cropland (annual)                    |
-| 3     | `CropPerennial` | Cropland (perennial / orchard)       |
-| 4     | `Built`         | Built / sealed                       |
-| 5     | `Bare`          | Bare / sparse                        |
-| 6     | `Water`         | Water (inland + coastal)             |
-| 7     | `Cryo`          | Snow / ice / wetland                 |
+| Index | Variant | Description |
+|---|---|---|
+| 0 | `VegClosed` | vegetation, closed canopy |
+| 1 | `VegOpen` | vegetation, open or shrub |
+| 2 | `CropAnnual` | cropland, annual |
+| 3 | `CropPerennial` | cropland, perennial or orchard |
+| 4 | `Built` | built or sealed |
+| 5 | `Bare` | bare or sparse |
+| 6 | `Water` | water, inland and coastal |
+| 7 | `Cryo` | snow, ice or wetland |
 
-Canonical class identifier: `"lcv-1.f<fam_idx>.l<leaf_idx>"`. Operators that
-prefer mnemonic labels publish a separate label manifest and reference its
-CID alongside the taxonomy CID.
+The class identifier is `"lcv-1.f<fam_idx>.l<leaf_idx>"`. An operator who
+wants readable labels can publish a separate label manifest. They then cite
+its CID next to the taxonomy CID.
 
 ## emem-cell64-alphabet
 
-The 65 536 bigrams that turn a 64-bit cell ID into a 4-chunk human-typeable
-text form. Each bigram is a CVCV pattern from
-`21 consonants x 10 vowels x 21 x 10 = 44 100` combinations, padded to the
-full 65 536 with `z<hex4>` synthetic suffixes.
+The 65 536 bigrams that turn a 64-bit cell ID into a text form of four
+chunks. Each bigram is a CVCV pattern. There are 21 consonants and 10 vowels
+(`aeiouAEIOU`), so `21 x 10 x 21 x 10 = 44 100` patterns. A `z<hex4>`
+suffix fills the rest of the 65 536.
 
-The alphabet is synthesised in code by `build_alphabet_v0()` at
-`crates/emem-codec/src/alphabet.rs`. The rebuild is deterministic from the
-consonant/vowel string constants in the same file.
+`build_alphabet_v0()` in `crates/emem-codec/src/alphabet.rs` builds the
+alphabet in code. The build is deterministic from the consonant and vowel
+constants in the same file. A change to this file changes every cell64.
 
-## Numbers at a glance
+## Counts and validator rules
 
-| Manifest                 | Count today  | Invariant the validator enforces                                  |
-|--------------------------|--------------|-------------------------------------------------------------------|
-| `emem-bands`             | 43 slots     | sum of `dims` == 1792; offsets contiguous; no dup keys            |
-| `emem-algorithms`        | 162          | no dup keys; deterministic flag honest; tier rule for <=10 m      |
-| `emem-functions`         | 23           | no dup keys; `deterministic == true` always; sources non-empty for primary/negative |
-| `emem-sources`           | 46 schemes   | no dup schemes; `providers[]` non-empty                           |
-| `emem-topics`            | 27 topics    | no dup keys                                                       |
-| `emem-schema`            | 8 fragments  | `hash == "blake3"` and `signature == "ed25519"`                   |
-| `emem-lcv1`              | 64 leaves    | 8 families x 8 leaves; u8 encoding                                |
-| `emem-cell64-alphabet`   | 65 536       | in-code CVCV builder, deterministic                               |
-
-For materializer surface (124 distinct band names), see
-`/v1/coverage_matrix` and `/v1/materializers` on a running responder.
+| Manifest | Count on 7 November 2026 | Rules the validator enforces |
+|---|---|---|
+| `emem-bands` | 43 slots | contiguous offsets; no duplicate keys; sum of `dims` == 1792 |
+| `emem-algorithms` | 172 | no duplicate keys; inputs not empty; output kind; `basis` per parameter; R1 to R4; I1, I2 |
+| `emem-functions` | 23 | no duplicate keys; `deterministic == true`; sources for primary and negative; parent count for derivative |
+| `emem-sources` | 46 schemes | no duplicate schemes |
+| `emem-topics` | 27 topics | no duplicate keys; description not empty; bands or algorithms not both empty |
+| `emem-schema` | 8 fragments | `hash == "blake3"`; `signature == "ed25519"`; fragments not empty |
+| `emem-substrates` | 18 profiles | see `substrates.rs` |
+| `emem-device-platforms` | 17 platforms | see `device_platforms.rs` |
+| `emem-trace-encodings` | 8 encodings | see `trace_encodings.rs` |
+| `emem-lcv1` | 64 leaves | 8 families x 8 leaves; `u8` encoding (Rust enum, no validator) |
+| `emem-cell64-alphabet` | 65 536 | built in code, deterministic |
 
 ## Publishing a new manifest
 
-1. Edit the JSON in `crates/emem-core/data/`.
-2. `cargo test -p emem-core` runs every `Manifest::validate` impl in the
-   crate tests. A malformed shape (offset gap, duplicate key,
-   non-deterministic function, empty providers) is rejected before the
-   build emits.
-3. Bump the in-file `version` field if the change is not byte-stable. The
-   validator does not gate on this; it is editorial.
-4. Recompile. The new CID is computed at process start. No code change is
-   required for the registry data itself.
-5. Existing facts under the old CID still verify because their attestations
-   pin the old CID. New attestations cite the new CID. There is no global
-   migration step.
+1. Edit the JSON file in `crates/emem-core/data/`.
+2. Run `cargo test -p emem-core`. The crate tests parse each embedded
+   manifest, which runs its `Manifest::validate`. A malformed manifest (an
+   offset gap, a duplicate key, a non-deterministic function) fails the
+   tests.
+3. Change the `version` field in the file if the change is not byte-stable.
+   The validator does not check this field.
+4. Rebuild the binary. It takes the new CID when it first parses the
+   manifest. The registry data needs no code change.
+5. Old facts still verify, because their receipts pin the old CID. New
+   receipts cite the new CID. There is no migration step.
 
-Operators running their own responder follow the same steps with their own
-JSON files. Fact CIDs and Receipt CIDs remain interoperable; the registry
-CID diverges, which is exactly what content-addressing is for.
+An operator who runs their own responder does the same steps with their own
+JSON files. Fact CIDs and receipt CIDs stay compatible. The registry CIDs
+differ, which is the purpose of content addressing.
 
 ## Looking up CIDs at runtime
 
-```text
-GET /v1/manifests
+```sh
+curl -s https://emem.dev/v1/manifests
 ```
 
-Returns a JSON map of `{ identifier -> cid }` for the eight manifests wired
-before `emem-substrates` (the ninth joins when its route lands). The
-four headline CIDs (`emem-bands`, `emem-algorithms`, `emem-sources`,
-`emem-schema`) are also embedded in every Receipt as `registry_cid` and
-`schema_cid`, so a verifier can replay an algorithm's evaluation against
-the same band manifest the responder used.
+This ran on 7 November 2026. It returned ten digests: `algorithms_cid`,
+`bands_cid`, `device_platforms_cid`, `functions_cid`, `registry_cid`,
+`schema_cid`, `sources_cid`, `substrates_cid`, `topics_cid` and
+`trace_encodings_cid`. It also returned a `covers` object with entry counts.
+`registry_cid` had the same value as `functions_cid`.
 
-A receipt that cites `algorithm_cid: "<cid>"` plus the input fact CIDs is
-self-contained: a third party with the same algorithm manifest can fetch
-the algorithm's `parameters`, walk the `evaluation` AST (or read the
-`formula` string), recall the cited bands, and re-execute. If they get the
-same number, the composition reproduces. These are re-executable
-algorithms.
+Each receipt pins four of these in `source_versions`: `bands_cid`,
+`registry_cid`, `schema_cid` and `sources_cid`. The signature covers them
+through the `0x06` segment ([protocol §7](protocol.md#7-receipt)). The
+receipt does not pin `algorithms_cid`.
+
+A receipt that cites an algorithm and its input fact CIDs gives a third party
+what they need to repeat the result. With the same algorithm manifest, they
+read the algorithm's `parameters`, walk the `evaluation` AST (or read
+`formula`), recall the cited bands, and compute again. If they get the same
+number, the composition reproduces.
 
 ## Where to read the code
 
-| Concern                          | File                                              |
-|----------------------------------|---------------------------------------------------|
-| `Manifest` trait + CID rule      | `crates/emem-core/src/manifest.rs`                |
-| `BandRegistry`                   | `crates/emem-core/src/bands.rs`                   |
-| `AlgorithmRegistry` + `Expr` AST | `crates/emem-core/src/algorithms.rs`              |
-| `Algorithm::param_f64` accessor  | `crates/emem-core/src/algorithms.rs` (`impl Algorithm`) |
-| Climate archetype seed           | `crates/emem-core/data/climate_archetype_centroids_v1.json` |
-| `FunctionRegistry`               | `crates/emem-core/src/functions.rs`               |
-| `SourceRegistry`                 | `crates/emem-core/src/sources.rs`                 |
-| `TopicRegistry`                  | `crates/emem-core/src/topics.rs`                  |
-| `SchemaRegistry`                 | `crates/emem-core/src/schema.rs`                  |
-| `Lcv1` + `LcvFamily`             | `crates/emem-core/src/taxonomy.rs`                |
-| `PrivacyClass`                   | `crates/emem-core/src/privacy.rs`                 |
-| `Tempo` + `Tslot`                | `crates/emem-core/src/tslot.rs`                   |
-| Alphabet builder                 | `crates/emem-codec/src/alphabet.rs::build_alphabet_v0()` |
+| Concern | File |
+|---|---|
+| `Manifest` trait and CID rule | `crates/emem-core/src/manifest.rs` |
+| `BandRegistry` | `crates/emem-core/src/bands.rs` |
+| `AlgorithmRegistry` and `Expr` AST | `crates/emem-core/src/algorithms.rs` |
+| `Algorithm::param_f64` | `crates/emem-core/src/algorithms.rs` (`impl Algorithm`) |
+| Climate archetype seed data | `crates/emem-core/data/climate_archetype_centroids_v1.json` |
+| `FunctionRegistry` | `crates/emem-core/src/functions.rs` |
+| `SourceRegistry` | `crates/emem-core/src/sources.rs` |
+| `TopicRegistry` | `crates/emem-core/src/topics.rs` |
+| `SchemaRegistry` | `crates/emem-core/src/schema.rs` |
+| `SubstrateRegistry` | `crates/emem-core/src/substrates.rs` |
+| `DevicePlatformRegistry` | `crates/emem-core/src/device_platforms.rs` |
+| `TraceEncodingRegistry` | `crates/emem-core/src/trace_encodings.rs` |
+| `Lcv1` and `LcvFamily` | `crates/emem-core/src/taxonomy.rs` |
+| `PrivacyClass` | `crates/emem-core/src/privacy.rs` |
+| `Tempo` and `Tslot` | `crates/emem-core/src/tslot.rs` |
+| Alphabet builder | `crates/emem-codec/src/alphabet.rs::build_alphabet_v0()` |
