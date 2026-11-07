@@ -218,6 +218,11 @@ ladder at `GET /v1/enlist` on 6 November 2026:
 | shared entity address space | `T3_declared` | `entity` and `entity_link` change what every agent resolves a name to |
 | fact plane | `T4_affiliated` | only three writers may write an address: the responder's materialiser, a device enrolled through the OS-trace gate, and a key in `EMEM_FACT_PLANE_WRITERS`. Storage refuses all others with 403 `level_too_low` |
 
+An earlier version of this row said that no caller could write a fact by
+any route. That was wrong: the three writers above can. The rule is in
+`crates/emem-storage/src/lib.rs`. On a test node, `EMEM_FACT_PLANE_OPEN=1`
+lets any signing key write facts, and the server says so at boot.
+
 Derivations and edges take no address. They stay open at T1.
 
 A tier records which check passed. It is never a score. `trust:
@@ -347,6 +352,8 @@ peer:
    record (§8d).
 3. Prove growth from the last head it co-signed, with `/v1/log/consistency`.
    The proof check is a port of `emem_attest::translog::verify_consistency`.
+   Before its first co-signature, it was checked against four served proofs
+   and one tampered proof.
 4. Co-sign the head.
 5. Spot-check custody (below). `EMEM_WITNESS_SAMPLES` sets the number of
    leaves, 4 by default.
@@ -363,7 +370,10 @@ so no peer knows them in advance. It re-hashes the bytes and proves inclusion
 against the head the route returns. Then it proves that head extends the
 co-signed head. A peer can ask that its entries stay private. For an origin
 in `~/.config/emem/entries_private.json`, the job checks inclusion only and
-does not read the entries. `geo.qa` asked for this on 2026-11-06. In September `/v1/log/inclusion` ignored `tree_size`, so the
+does not read the entries. `geo.qa` asked for this, because from
+2026-11-06 its node logs reads about a partner's private area.
+
+In September `/v1/log/inclusion` ignored `tree_size`, so the
 first draft failed every proof against the older root. On 6 November 2026 the
 route used `tree_size` and refused an unknown argument with 400.
 
@@ -390,7 +400,8 @@ On 2026-09-05 both directions worked. Outbound, emem.dev co-signed
 `https://geo.qa/emem` at tree size 72. The root was unchanged, the signer
 resolved to `did:web:geo.qa:emem`, and 4 sampled leaves re-hashed and proved.
 Inbound, an independent witness (`ttecxvf3drdt...`) co-signed emem.dev's log
-88 entries behind. The emem.dev tree then held 1,618,506 entries.
+88 entries behind. Of the last 200 co-signatures, 43 came from a key that
+emem.dev does not hold. The emem.dev tree then held 1,618,506 entries.
 
 On 6 November 2026 `GET /v1/log/witnesses` on emem.dev returned:
 
@@ -759,8 +770,10 @@ never scores, so the sentence was removed and the code stayed.
    assertion in it. The manifest needs three parts:
    - a `c2pa.hash.data` hard binding;
    - a `c2pa.actions` `created` entry with `digitalSourceType`;
-   - `COSE_Sign1` over an X.509 key on the C2PA trust list. C2PA has no hardware capture
-   attestation. emem's OS-trace substrate is the device half that it lacks.
+   - `COSE_Sign1` over an X.509 key on the C2PA trust list.
+
+   C2PA has no hardware capture attestation. emem's OS-trace substrate is
+   the device half that it lacks.
 
 ### 9d. Acceptors: where emem is listed, where it is missing, where it drifted
 
