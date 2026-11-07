@@ -19,7 +19,10 @@ cargo run --release --bin emem-server   # 0.0.0.0:5051
 
 Open `http://127.0.0.1:5051/v1/discover` to see the bootstrap document.
 An agent gets the same JSON. `emem-livedemo` runs every primitive and
-writes the signed receipts under `var/demos/<UTC>/`.
+writes the signed receipts under `var/demos/<UTC>/`. Its first write signs
+a fact with a new key, and a default node refuses it (`fact_plane_closed`).
+To see every step pass, start a test node with `EMEM_FACT_PLANE_OPEN=1`,
+as [Pick a binary](docs/developers/developing.md#pick-a-binary) shows.
 [docs/developers/developing.md](docs/developers/developing.md) has the
 setup details and the daily workflows.
 
@@ -73,8 +76,9 @@ in `data-sources.md` gives all ten steps. Three of them are easy to miss:
 3. Return `Ok(None)` for a real empty result and `Err` for an upstream
    failure. Never invent a default value.
 
-The `SourceConnector` trait in `crates/emem-fetch/src/connectors.rs` is the
-transport layer (HTTPS, GCS, IPLD). A new data source does not use it.
+The `SourceConnector` trait in `crates/emem-fetch/src/lib.rs` is the
+transport layer. The HTTPS, GCS and IPLD connectors that use it are in
+`connectors.rs`. A new data source does not use it.
 
 Test the parser offline with `cargo test -p emem-fetch <name>`. Put
 network tests in `crates/emem-fetch/tests/live_cog_fetch.rs`. They skip when
