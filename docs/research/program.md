@@ -137,7 +137,7 @@ interval of 1.8 to 8.6 m (Sen's rank-based interval on the Theil-Sen slope), ove
 the darkest tenth of a cell's pixels as another. Neither beat the registry rule at scale or on the seven forests of
 the MCC replication; after the cloud screen, both beat it on the ten of the third replication, where their best
 sites were managed forests with partial harvests. They have a mixed record. The quiet rules are the three that flag the
-least stable forest. Over all three MCC experiments, they found 91% of cells that lost half their forest or more.
+least stable forest. The paper's section 5.9 pools the three MCC experiments. There they found 91% of cells that lost half their forest or more.
 They found 20% of cells that lost 5 to 10%. So the cell-size experiment read the same detectors at 200 m,
 scored on the same Hansen pixels. Every detector found more of the lost forest, and the share of stable pixels
 flagged barely moved (paper, section 5.10).
@@ -263,8 +263,8 @@ all point the right way (version 2 over version 1, radar over optical alone, mem
 and none is decisive at six forests. False-discovery control across a forest's cells was too strict. And the stated
 5% false-alarm rate did not hold on real forests: 9.2% for the fused detector, 13.3% for optical alone. Real forests
 change in ways five remembered years do not hold, and some cells Hansen calls stable did lose canopy; until a second
-reference separates the two, the stated rate is a floor. The reader could not read four of the ten forests, because heavy
-reads met server timeouts and upstream errors (gap ledger).
+reference separates the two, the stated rate is a floor. The lab could not read four of the ten forests, because heavy
+reads met server timeouts (502) and upstream errors (400) (gap ledger).
 
 **Later results.** Three later experiments read more forests (paper, sections 5.14, 5.15 and 5.21). Under Hansen, on ten
 new forests, the memory detectors led, and the calibrated ones flagged 1.2 to 1.8% of stable cells against a stated 5%.

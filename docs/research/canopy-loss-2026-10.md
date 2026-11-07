@@ -15,11 +15,11 @@ before its data was read, every input is a signed emem token, and every method i
 Forest Change, an independent Landsat product.
 
 The first win, the lab's seasonal NDVI rule under F1, did not replicate, and F1 itself misled: it rewarded the
-registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. Under the Matthews correlation
-(MCC), registered in advance from the fourth experiment on, two rules beat the registry rule in each of the first
-four MCC experiments, on four disjoint sets of 19, 7, 10 and 8 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457,
-0.262 and 0.262, against 0.295, 0.145, 0.098 and 0.013) and the forest desk's held NDVI drop (0.356, 0.284, 0.202 and
-0.301). In the memory experiment that came next, on six forests (section 5.13), neither beat it. A rule found by a search and then fixed,
+registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. From the fourth experiment on,
+the lab registered the Matthews correlation (MCC) in advance. Two rules beat the registry rule in each of the first
+four MCC experiments, on four disjoint sets of 19, 7, 10 and 8 forests. The lab's seasonal NBR rule scored MCC 0.381, 0.457,
+0.262 and 0.262, against 0.295, 0.145, 0.098 and 0.013. The forest desk's held NDVI drop scored 0.356, 0.284, 0.202 and
+0.301. In the memory experiment that came next, on six forests (section 5.13), neither beat it. A rule found by a search and then fixed,
 `lab:seasonal_canopy_loss@1`, beat it in its next two tests, on 18 forests it had never seen. The
 seasonal NBR rule flags 1.2 to 4.6% of stable forest; the registry rule flags 46 to 62%. In managed forests a
 registered hypothesis held: the sub-pixel rules after a cloud screen scored best of all (MCC 0.389 for the
@@ -47,7 +47,7 @@ The later memory detectors pool higher but disagree too much across forests to b
 JRC TMF, marked too few of the cells as lost to judge any method.
 
 The record also bounds these rules. Their wins come from pooled scores. Take only the sites with both loss and stable forest.
-Site by site, each rule beats the registry rule at 44% to 80% of them (sections 5.7 and 5.9). Where clearing took half
+Two rules have site counts: the seasonal NBR rule and the held NDVI drop. Site by site, each beats the registry rule at 44% to 80% of them (sections 5.7 and 5.9). Where clearing took half
 the cell or more, they find 91% of the 400 m cells, as the registry rule does. Where clearing took 5 to 10%, they find
 only 20%. A combination of them does not help, because they miss the same small clearings. The cloud screen helped detectors
 that compare single passes or read percentiles in 7 of 12 tests and never hurt them. It never helped the rule that
@@ -127,7 +127,7 @@ site is scored by the variant with the best score on the other sites, so every s
 rule never saw.
 
 **Memory detectors.** From section 5.13 on, the lab also tests detectors that compare each pass with the cell's own
-remembered past, in five versions (`lab:memory_optical@1` to `lab:memory_hls_emp@5`). Sections 5.13 and 5.15 describe
+remembered past, in five versions (`lab:memory_optical@1` to `lab:memory_hls_emp@5`). Sections 5.13, 5.14, 5.15 and 5.20 describe
 them, and section 5.21 gives the status of each.
 
 ## 4. Protocol
@@ -136,7 +136,7 @@ Each experiment's plan was published as a signed note before any data was read, 
 the labels, every method's source hash and the deciding score. A method beats the registry baseline
 `deforestation_alert_ndvi_drop@1` when the 95% interval of its score minus the baseline's, from a paired bootstrap of
 2,000 resamples with a fixed seed, lies wholly above zero. The resampled unit is the cell, except in section 5.10
-(400 m blocks) and in sections 5.15, 5.19 and 5.20 (forests). Section 7 says why that matters. The first three
+(400 m blocks) and in sections 5.15, 5.18, 5.19 and 5.20 (forests). Section 7 says why that matters. The first three
 experiments registered F1 as the deciding score. The scaled experiment and every one since registered the Matthews
 correlation (MCC), for the reason in section 6.1.
 
@@ -970,7 +970,7 @@ cell's median, which every rule except the two sub-pixel ones reads. That is why
 rules, which wait for the median to fall, while the single-difference registry rule kept recall by alarming often.
 The sub-pixel readings (the 10th percentile, the share of green pixels) were the program's answer to this. Neither
 beat the baseline at scale or on the seven fresh forests, and on those the 10th-percentile rule scored below zero.
-After the cloud screen, they won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
+They won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
 Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area. Section 5.10 tested a
 finer cell. At 200 m every detector found more of the lost pixels. The 10th-percentile rule gained with an interval
 clear of zero. No detector in this paper reads the raster itself.
@@ -1064,7 +1064,7 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Before rule v2, the lab tightened the strict rule once, after the third replication (section 5.8). That change only
   demoted.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
-- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
+- Every interval in sections 5.1 to 5.14, except 5.10, resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 

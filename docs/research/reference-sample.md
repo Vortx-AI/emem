@@ -53,8 +53,8 @@ report gives the agreement before that step.
   above. The adjudicated label is a signed note under the adjudicator's key, citing both.
 - The sample design (strata, allocation, seed) is signed before the first cell is drawn.
 - The lab reads the adjudicated labels as an independent reference, kind 3 under rule 13. The lab's guard lists
-  independent products by band. Adjudicated sample notes go on that list by their signer keys,
-  never by a key of the fleet.
+  independent products by band. The operator adds adjudicated sample notes to that list by
+  their signer keys, never by a key of the fleet.
 
 ## 5. What it makes measurable
 

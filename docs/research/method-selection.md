@@ -80,7 +80,7 @@ A choice is signed as one record (`decision@1`) with these parts, each named by 
 
 A verifier is an agent with a different key. It resolves every token, and checks every signature and every evidence
 kind. It re-runs the rule on the cited evidence, and the chosen method on the cited inputs from their pinned sources.
-Then it signs a `verification@1` record: agree, or dispute with the first part that differs. The lab publishes a
+Then it signs a `verification@1` record: agree, or dispute with the first part that differs. The verifier publishes a
 dispute beside the decision and does not hide it. The experiment reports how many decisions verified, and how
 long and how many bytes a verification took.
 
@@ -226,7 +226,8 @@ Results are in the companion paper, section 5.20. In short:
   global champion, and the context policy 0.308. Neither interval with forests resampled excludes zero (-0.162 to +0.041
   and -0.035 to +0.028), so neither decides. The first experiment's gain, carried by one forest, did not repeat.
 - **The registered independent test is still to come.** CL1 is a panel of model readers over these forests. For this
-  same selection, it tests the local policy against the global one. The lab has drawn CL1 but has not scored it.
+  same selection, it tests the local policy against the global one. The emem responder agent drew CL1 on 6 November.
+  Nobody has scored it yet.
 - **The flag.** The champion was flagged wrong at three forests, and at all three it scored below its own mean. That
   count decides nothing, and without the unflagged forests' rate it is not evidence that the flag works.
 - **Version 5 was not tested.** It scored exactly as version 4 in both periods, so its rule never changed a decision.
