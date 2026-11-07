@@ -97,8 +97,8 @@ and a `next_steps` list with `try_longer_profile` and
 cell.
 
 The profile is short: 64 cells is about 610 m. Near shallow coasts the
-walk often does not reach 5 m of water. On 7 November 2026, every call
-that we tried on emem.dev returned 422. A cell near Waikiki, with
+walk often does not reach 5 m of water. On 7 November 2026, every coastal
+cell tried on emem.dev returned 422. A cell near Waikiki, with
 `n_offshore_cells: 64`, gave the land-locked rejection. Bondi Beach and
 Nazare gave `source_fetch_failed`, because a profile cell had no usable
 GMRT value.

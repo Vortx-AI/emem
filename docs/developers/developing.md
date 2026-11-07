@@ -8,7 +8,7 @@ rules that the repository enforces. For the system design, read
 [CONTRIBUTING.md](https://github.com/Vortx-AI/emem/blob/main/CONTRIBUTING.md).
 
 The numbers on this page come from the code and from `https://emem.dev`
-on 6 November 2026. The `curl` commands ran against `https://emem.dev`
+on 7 November 2026. The `curl` commands ran against `https://emem.dev`
 on that date. The `cargo` commands are the ones that CI runs on every
 pull request to `main` (`.github/workflows/ci.yml`).
 
@@ -69,7 +69,7 @@ The workspace has 19 member crates. A twentieth directory,
 | `emem-sleep-agent` | Opt-in agent that merges contradicted memory into new signed memory |
 
 Most of the code is in two places. `crates/emem-api-rest/src/lib.rs` is
-one file of about 108,000 lines (6 November 2026). It holds the router
+one file of about 108,000 lines (7 November 2026). It holds the router
 and every inline materializer. `crates/emem-fetch/src/` has 36 modules:
 one for each upstream source, plus helpers such as `cog.rs`, `stac.rs`
 and `proj.rs`. Most changes touch `emem-api-rest` and one of
@@ -133,7 +133,7 @@ H='content-type: application/json'
 
 # 1. What the responder is.
 curl -sS $BASE/health | jq -c '{version}'          # {"version":"2.4.4"}
-curl -sS $BASE/v1/manifests | jq -c 'keys'
+curl -sS $BASE/v1/manifests | jq -c 'keys'          # 10 registry CIDs and "covers"
 curl -sS $BASE/v1/grid_info | jq -c '.active_encoding.encoded_string_form'
 
 # 2. Find a place, then read its facts.
@@ -147,6 +147,7 @@ jq -c '{facts: (.facts|length), bands: (.bands_already_attested_at_cell|length)}
 # 3. Compare two cells.
 curl -sS -X POST $BASE/v1/compare -H "$H" \
   -d "{\"a\":\"$CELL\",\"b\":\"defi.zb592.nemu.zEvE\"}" | jq -c 'keys'
+# ["asymmetry_note","cosine","only_a","only_b","per_band","receipt","shared_bands"]
 
 # 4. A time series for one band.
 curl -sS -X POST $BASE/v1/trajectory -H "$H" \
