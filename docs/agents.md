@@ -277,16 +277,19 @@ curl -s -X POST https://emem.dev/v1/compare_same_doy \
   -d '{"cell":"defi.zb592.nUkO.zEzE","band":"indices.ndvi","doy":301,"years":[2025,2026]}'
 ```
 
-Each year in `included` has `method: "exact"` when a fact exists on that
-day. It has `method: "interpolated"` when the value comes from the facts
-before and after that day. The answer has no receipt and no `fact_cid`,
-also for `exact` years. Its `why` says to treat the values as derived.
-To cite a value, get the signed facts with `emem_trajectory`. The tool
-reads only facts that emem already holds. It does not fetch. Thus a year
-in `excluded` can mean that emem did not fetch that year yet. The
-responder does not extrapolate. The
-`phenology` text calls this tool roadmap, but the tool ran on emem.dev on
-7 November 2026.
+Each year in `included` has a `method`. `exact` means that a fact exists on
+that day. `interpolated` means that emem computed the value from the facts
+before and after that day. On 7 November 2026, both years above were
+`exact`: 0.0112 in 2025 and 0.0294 in 2026.
+
+The answer has no receipt and no `fact_cid`, also for `exact` years. Its
+`why` field says to treat the values as derived. To cite a value, get the
+signed facts with `emem_trajectory`.
+
+`emem_compare_same_doy` reads only the facts that emem holds. It does not
+fetch new facts and it does not extrapolate. Thus a year in `excluded` can
+mean that emem has not fetched that year yet. The diff `phenology` text
+calls this tool roadmap, but the tool ran on emem.dev on 7 November 2026.
 
 ### Job: read facts as they were on a date
 
