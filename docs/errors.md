@@ -79,6 +79,11 @@ The body is short. All error bodies have `schema: emem.error.v1`:
 {"code":"not_found","did_you_mean":[],"message":"no route matched /v1/no-such-route. ...","path":"/v1/no-such-route","schema":"emem.error.v1"}
 ```
 
+curl sends `Accept: */*`, so it gets JSON. A request with no `Accept`
+header gets an HTML page with the same 404 status. Python `urllib` sends no
+`Accept` header by default. Send `Accept: application/json` to get the JSON
+body.
+
 A path that exists, called with the wrong method, gives HTTP 405 with
 `code: method_not_allowed`. `/v1/errors` answers only `GET`:
 
@@ -233,8 +238,8 @@ Their codes are not in the enum.
 
 | Code | HTTP | When |
 |---|---|---|
-| `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. |
-| `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With `Accept: text/html`, the body is an HTML page. |
+| `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. With no `Accept` header, or an `Accept` header that contains `text/html`, the body is an HTML page with no `code`. |
+| `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With an `Accept` header that contains `text/html`, the body is an HTML page. With no `Accept` header, the body is JSON. |
 | `overloaded` | 503 | The server is at its cap of requests in flight. It refused the request at once and did not queue it. `Retry-After: 1`. |
 
 ## Memory and entity write refusals
