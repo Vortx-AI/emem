@@ -1121,9 +1121,9 @@ The memory text dataset has no index. `ds.list_indices()` returns nothing,
 so each semantic search scans all stored vectors. A comment in
 `crates/emem-primitives/src/memory_search/mod.rs` records 18,269 vectors
 and 2.2 s for one scan. The response field `via` says `lance_scan` for this
-path, or `lance_chunks` when the responder holds the chunked partition. Neither one
-is `ann`. The `find_similar` cell-embedding partitions do have a
-vector index (`lance_index.rs`). Cost grows with the corpus.
+path, or `lance_chunks` when the responder holds the chunked partition.
+Neither one is `ann`. The `find_similar` cell-embedding partitions do have
+a vector index (`lance_index.rs`). Cost grows with the corpus.
 
 #### Supersede: an author can now mark a note as replaced
 
@@ -1300,10 +1300,10 @@ Both versions are domain-separated, and the verb is in the preimage. So a
 signature cannot move to a different verb or path. What the binding does
 not have is the explicit length prefixes of `preimage_v1`.
 
-For v1, which old notes still carry, this has no cost. The verb comes from a closed set with no
-separator. `body_hash` is a fixed 32-byte digest at the end. So `path` is
-the only field of variable length, and the fixed fields mark its two
-ends. A `|` inside a path does not cause a collision.
+For v1, which old notes still carry, this has no cost. The verb comes
+from a closed set with no separator. `body_hash` is a fixed 32-byte digest
+at the end. So `path` is the only field of variable length, and the fixed
+fields mark its two ends. A `|` inside a path does not cause a collision.
 
 v2 adds `base` after `body_hash`, so v2 has two fields of variable
 length. The fixed 32-byte `body_hash` sits between them. No written
