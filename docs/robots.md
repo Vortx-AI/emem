@@ -54,7 +54,8 @@ not the default. The two modes give different evidence:
 
 The receipt is at `parts[0].metadata.receipt`. The signer is `geoqa`, and the
 schema is `geoqa.clip.v1`. The receipt signs the clip: its SHA-256, the camera,
-the place and the capture time. It does not sign the count. Anyone who has the
+the place and the capture time. It does not sign the count. To check it, see
+[Check a clip receipt](#check-a-clip-receipt-from-a-perception-read). Anyone who has the
 clip can run the detector again and get your number. A machine that must defend a decision later
 needs this second mode. On 29 October 2026, clip mode took no more time than
 the live frame. It took 0.8 s, 0.85 s, 0.88 s and 3.1 s at four London
@@ -335,6 +336,51 @@ in it: BLAKE3 over the preimage, then Ed25519. So a second robot can check the
 claim of the first robot with arithmetic, not trust. The page
 `https://emem.dev/verify` does the same check in a browser, with no call back
 to the server.
+
+### Check a clip receipt from a perception read
+
+`/v1/verify_receipt` checks emem receipts only. It does not accept the
+`geoqa.clip.v1` receipt from `/v1/perception/at`. On 7 November 2026 it
+returned 400 `invalid_argument`, because the field `request_id` is missing.
+Check a clip receipt offline instead:
+
+1. Write `payload` as JSON with sorted keys and no spaces.
+2. Make sure that the SHA-256 of these bytes is equal to `payload_sha256`.
+3. Get the geo.qa key from `https://geo.qa/api/verify/key`.
+4. Verify `signature_b64` with Ed25519 over the payload bytes, not over the hash.
+
+```bash
+curl -s -X POST https://emem.dev/v1/perception/at \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb64a.cEjo.zfa47","stages":["detect"],"detect_from_clip":true}' \
+  | jq '.parts[0].metadata.receipt' > clip_receipt.json
+curl -s https://geo.qa/api/verify/key -o geoqa_key.json
+python3 check_clip.py clip_receipt.json geoqa_key.json
+```
+
+`check_clip.py` needs `pip install cryptography`:
+
+```python
+import base64, hashlib, json, sys
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+r = json.load(open(sys.argv[1]))
+key = json.load(open(sys.argv[2]))["pubkey_b64"]
+msg = json.dumps(r["payload"], sort_keys=True, separators=(",", ":")).encode()
+assert hashlib.sha256(msg).hexdigest() == r["payload_sha256"], "payload hash differs"
+assert r["pubkey_b64"] == key, "receipt key is not the published key"
+Ed25519PublicKey.from_public_bytes(base64.b64decode(key)).verify(
+    base64.b64decode(r["signature_b64"]), msg)
+print("clip receipt OK:", r["payload"]["camera_id"], r["payload"]["captured_at"])
+```
+
+On 7 November 2026 at 01:35 UTC, the script printed `clip receipt OK` for a
+London camera. A failed check stops with an error. The key file also lists
+what each geo.qa schema binds. For `geoqa.clip.v1`, the signature does not
+bind the counts.
+The payload also holds `after`, the emem log head at signing time. It shows
+that the receipt is not older than that head. It does not show that the
+receipt is not newer.
 
 To see which other agents write here:
 
