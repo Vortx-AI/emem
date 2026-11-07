@@ -35,7 +35,7 @@ On this page:
 | [Memory and entity write refusals](#memory-and-entity-write-refusals) | Fix a refused signed write. |
 | [Derivation refusals](#derivation-refusals-post-v1derive) | Fix a refused `POST /v1/derive`. |
 | [Other route codes](#other-route-codes) | Find a `details.code` from another route. |
-| [Refusals from the comparison and region reads](#refusals-from-the-comparison-and-region-reads) | Fix a refused diff, comparison, region or similarity read. |
+| [Refusals from the history, comparison and region reads](#refusals-from-the-history-comparison-and-region-reads) | Fix a refused trajectory, diff, edge, contradiction, region or similarity read. |
 | [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks) | Handle errors from `/mcp` and `/a2a/tasks`. |
 | [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text, proxy, `/splats` and OAuth bodies. |
 | [Routes that only a self-hosted node answers](#routes-that-only-a-self-hosted-node-answers) | Understand a 501 from emem.dev. |
@@ -498,7 +498,7 @@ The top-level code of all these routes follows one rule in `range_hash::refuse`.
 HTTP 502 gives `source_fetch_failed`. Every other status gives
 `invalid_argument`, also 422, 500, 501 and 503. Branch on `details.code`.
 
-## Refusals from the comparison and region reads
+## Refusals from the history, comparison and region reads
 
 These reads send a top-level code with no `details.code`. Branch on `code`
 and the HTTP status. The message says which check failed. We caused each row
@@ -507,6 +507,10 @@ code in `crates/emem-primitives/src/` and `post_*` handlers in `lib.rs`.
 
 | Route | Cause | HTTP | `code` |
 |---|---|---|---|
+| `/v1/trajectory` | No `window` and not both `from_date` and `to_date` (live). | 400 | `invalid_argument` |
+| `/v1/trajectory` | A `from_date` or `to_date` is not `YYYY-MM-DD` (live). | 400 | `invalid_argument` |
+| `/v1/recall`, `/v1/trajectory`, `/v1/query_region`, `/v1/find_similar` | `as_of_signed_at` is not RFC 3339 (live). The message contains `invalid_signed_at_format`. | 400 | `invalid_argument` |
+| `/v1/recall` | You sent a `tslot` and an `as_of_tslot` that is less than it (live). The message contains `invalid_temporal_bound`. | 400 | `invalid_argument` |
 | `/v1/diff` | No `tslot_a` or `date_a`, or no `tslot_b` or `date_b` (live). | 400 | `invalid_argument` |
 | `/v1/diff` | A `date_a` or `date_b` is not `YYYY-MM-DD` (live). | 400 | `invalid_argument` |
 | `/v1/diff` | `tslot_a` and `tslot_b` are equal, so the delta is always zero (live). | 400 | `invalid_argument` |
@@ -521,8 +525,18 @@ code in `crates/emem-primitives/src/` and `post_*` handlers in `lib.rs`.
 | `/v1/query_region` | A `geometry` string in the form `bbox:lon_min,lat_min,lon_max,lat_max` is bad. It does not have 4 numbers (live), a latitude or longitude is out of range, or a minimum is more than its maximum. Split a box that crosses the antimeridian into two. | 400 | `invalid_cell` |
 | `/v1/query_region` | A `geometry` covers more than 4096 cells. This applies to a `cells:` list and to a `bbox:` string. | 400 | `invalid_cell` |
 | `/v1/query_region` | A `geometry` starts with `{`. The route does not read GeoJSON. Send a `bbox` or a `cells:` list. | 400 | `invalid_cell` |
+| `/v1/edges/recall` | `direction` is not `out` or `in` (live). | 400 | `invalid_argument` |
+| `/v1/edges/recall` | Direction `out` (the default) with an empty `subj` (live), or with `obj` also set (live). | 400 | `invalid_argument` |
+| `/v1/edges/recall` | Direction `in` with an empty `obj`, or with `subj` also set (live). The responder uses `in` when you send only `obj`. | 400 | `invalid_argument` |
+| `/v1/edges` (write) | The signed attestation has an empty `edges` array. | 400 | `invalid_argument` |
+| `/v1/memory_contradictions` | `min_severity` is not in 0 to 1 (live). | 400 | `invalid_argument` |
+| `/v1/memory_contradictions` | The window low value is more than the high value (live). POST sends `window_unix_s`; GET sends `window_lo` and `window_hi`. | 400 | `invalid_argument` |
 | `/v1/find_similar` | The responder holds no vector for the key in that band. The message tells you which bands the cell has. | 404 | `cid_not_found` |
 | `/v1/find_similar` | An `inline:` vector has a value that is not a number, or it has more than 16384 values. | 400 | `invalid_argument` |
+
+When a check is in a primitive, the message starts with `InvalidArgument:`.
+The trajectory window and date checks are in the handler, so their messages
+do not have this prefix.
 
 The same bad box gets two codes. A `bbox` array gets `invalid_argument`. A
 `bbox:` string in `geometry` gets `invalid_cell`. A `bbox` array with a
