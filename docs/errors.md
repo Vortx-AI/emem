@@ -12,6 +12,9 @@ There are three layers of codes:
 - Route codes in `details.code`. A route uses them to say which of its own
   checks refused the request. The top-level `code` is then one of the 27.
 
+The JSON-RPC endpoints `/mcp` and `/a2a/tasks` also send JSON-RPC error
+numbers. See [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks).
+
 The live catalogue is `GET /v1/errors` (schema `emem.errors.v1`). It lists the
 27 protocol codes with their MCP numbers, meanings and recovery steps. We
 checked this page against that endpoint and against the code on 7 November
@@ -333,6 +336,62 @@ codes. `upstream_status` means the upstream did not send a 2xx status.
 The top-level code of all these routes follows one rule in `range_hash::refuse`.
 HTTP 502 gives `source_fetch_failed`. Every other status gives
 `invalid_argument`, also 422, 500, 501 and 503. Branch on `details.code`.
+
+## JSON-RPC errors from `/mcp` and `/a2a/tasks`
+
+The two JSON-RPC endpoints have a fourth layer of codes. These are numbers
+in the JSON-RPC range -32768 to -32000. They come back in the top-level
+`error` object, not in `result`.
+
+The MCP endpoint applies one rule to a failed tool call. A code in that
+range is a protocol failure, so it goes to `error`. The tool name is
+unknown, or the arguments do not deserialize, or the response did not
+serialize. Every other failure is a tool error. It comes back as a `result`
+with `isError: true`, and the number is the negative of the protocol code
+(-27 is `invalid_cell`).
+
+`POST /mcp` (and `/mcp/full`):
+
+| Code | HTTP | When |
+|---|---|---|
+| -32600 | 200 | The body is not valid JSON-RPC. `id` is `null`. |
+| -32601 | 200 | The method does not exist. |
+| -32602 | 200 | The tool name is unknown (the message names close matches), or the arguments have the wrong type. `tasks/get` and `tasks/result` also send it for a missing or unknown `taskId`. |
+| -32603 | 200 | The responder could not serialize its own answer. |
+| -32000 | 403 | The `Origin` header is not on the allowlist, and the call can write. Unlisted origins can call the handshake, the listings and read-only tools. Operators add origins with `EMEM_MCP_ALLOWED_ORIGINS`. |
+| -32000 | 200 | The task registry is full of running tasks. Retry later, or call the tool without a task. A REST error whose `code` is not one of the 27 also comes back as -32000. |
+| -32002 | 200 | You called `tasks/result` before the task finished. Poll `tasks/get` first. |
+| -32022 | 400 | The `MCP-Protocol-Version` header names a version this responder does not support. `data.supported` lists the versions. |
+| -32020 | 400 | With header version `2026-07-28`, the `Mcp-Method` header or `_meta` protocol version disagrees with the body. |
+| -32050 | 200 | A model or perception service did not answer, or refused. When only the optional model reading fails, the code is in a `model_answer` field and the signed `answer` is still there. |
+
+`POST /a2a/tasks`:
+
+| Code | HTTP | When |
+|---|---|---|
+| -32009 | 400 | The `A2A-Version` header names a version other than 0.3 or 1.0. No header means 0.3. |
+| -32601 | 200 | This endpoint does not have the method (`data.supported` lists the methods). Or the skill answers only over HTTP (`data.call_it_here` gives the URL). |
+| -32602 | 200 | The skill refused the call. `data.mcp_error_code` carries the tool error number. |
+| -32001 | 200 | The task id is unknown. Tasks stay in memory only, so a restart clears them. Send the task again. |
+| -32000 | 200 | The responder could not start a background task for the call. |
+
+The agent card also lists -32002 `TaskNotCancelable`. No A2A path sends it.
+
+We sent requests to emem.dev on 7 November 2026. Each gave the code and
+status in the tables. From `/mcp` we got -32600, -32601, -32602 (three
+causes), -32022, -32020, the 403 -32000 and the tool error -27. From
+`/a2a/tasks` we got -32009, -32001 and -32601. We did not cause -32603,
+-32002, -32050 or the 200 -32000 live. Those rows come from the code in
+`crates/emem-api-rest/src/lib.rs`.
+
+```sh
+curl -s -X POST https://emem.dev/mcp -H 'content-type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_nope","arguments":{}}}'
+```
+
+```json
+{"error":{"code":-32602,"message":"Unknown tool: emem_nope. Did you mean emem_ndvi or emem_ocr? emem_tools lists the catalog."},"id":1,"jsonrpc":"2.0"}
+```
 
 ## Responses that are not `emem.error.v1`
 
