@@ -224,6 +224,8 @@ offline check ignores the `pubkey_b32` argument. To know that emem.dev signed th
 [`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). Read it one time and put it in your config.
 
 ```python
+from ememdev import Client
+
 EMEM_KEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"   # on 7 November 2026, key_epoch 0
 
 with Client() as em:
