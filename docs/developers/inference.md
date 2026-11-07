@@ -38,7 +38,7 @@ they start.
 | `hours_ahead` | default 6, maximum 168 |
 | `diffusivity_m2_per_s` | default `1.0e-6` |
 | stencil | 3 x 3 cells of `modis.lst_day_8day`: the centre and its 8 neighbours |
-| CFL | step chosen at 0.20, below the 0.25 stability limit |
+| time step | `hours_ahead` cut into equal steps of at most `0.20 · Δx² / α` (stability limit 0.25) |
 | step limit | 2 000 000 steps |
 | diagnostics | `stencil_diagnostic`, `imputed_neighbor_indices` |
 
@@ -47,9 +47,10 @@ Each step applies the 5-point Laplacian update:
     u_new = u + α·Δt·(N + S + E + W - 4·centre)/Δx²
 
 The 8 perimeter cells keep their values (Dirichlet). Only the centre
-cell changes. The stable time step is `0.20 · Δx² / α`, so a large α
-needs many steps. The step limit stops such a call from holding the
-handler for minutes. The 168 h limit exists because an 8-day MODIS
+cell changes. The largest stable time step is `0.20 · Δx² / α`. With
+the default α this step is about 211 days, so a normal call takes one
+step. A large α needs many steps. The step limit stops such a call from
+holding the handler for minutes. The 168 h limit exists because an 8-day MODIS
 composite is not a good start state for more than a week.
 
 When a neighbour cell has no usable fact, the solver uses the centre
@@ -66,7 +67,8 @@ The answer is in `forecast_k`, the centre temperature after
 `neighborhood_initial_k` gives the 9 start values in the order of
 `neighborhood_order`.
 
-Example, run on emem.dev on 7 November 2026 (HTTP 200, `n_steps` 1):
+Example, run on emem.dev on 7 November 2026 (HTTP 200, `n_steps` 1,
+`dt_seconds` 21600, which is the default 6 hours):
 
 ```sh
 curl -s https://emem.dev/v1/heat_solve \
@@ -98,6 +100,7 @@ use `delta_k`.
 | coastal boundary | hard wall (u = 0) |
 | wave speed | `c = √(g·h)`, with h at least 0.01 m |
 | CFL | 0.5 |
+| run length | wave travel time along the profile plus one `period_s`, at least 3 steps |
 | step limit | 200 000 steps |
 
 The solver rejects a profile as land-locked unless both of these are
@@ -106,9 +109,10 @@ true:
 - The offshore boundary cell is more than 5 m deep.
 - At least 50 % of the profile cells are more than 1 m deep.
 
-A land-locked profile returns HTTP 422 with `code: invalid_argument`.
-The `details` object has `error_kind: LandLockedProfile`, the measured
-GMRT depths in `depth_profile_m` and a `next_steps` list. The list has
+A land-locked profile returns HTTP 422. The body has `code: invalid_argument`,
+a `message` and a `details` object. `details` has `error_kind: LandLockedProfile`, the measured
+GMRT depths in `depth_profile_m` (offshore end first), the limits in
+`thresholds` and a `next_steps` list. The list has
 `try_longer_profile` and `try_different_cell`. The solver does not
 return a wave for an inland cell.
 
