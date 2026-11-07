@@ -35,7 +35,7 @@ On this page:
 | [Derivation refusals](#derivation-refusals-post-v1derive) | Fix a refused `POST /v1/derive`. |
 | [Other route codes](#other-route-codes) | Find a `details.code` from another route. |
 | [JSON-RPC errors](#json-rpc-errors-from-mcp-and-a2atasks) | Handle errors from `/mcp` and `/a2a/tasks`. |
-| [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text and proxy bodies. |
+| [Responses that are not `emem.error.v1`](#responses-that-are-not-ememerrorv1) | Handle quota, plain-text, proxy and OAuth bodies. |
 | [Routes that only a self-hosted node answers](#routes-that-only-a-self-hosted-node-answers) | Understand a 501 from emem.dev. |
 | [Deny codes from the guard](#deny-codes-from-the-guard) | Act on a guard `deny`. |
 | [Endpoints that help you recover](#endpoints-that-help-you-recover) | Find the live catalogues. |
@@ -380,6 +380,14 @@ These routes also put a route code in `details.code`. The top-level code is
 | `GET /v1/tree/{file_cid}` | `path_self_check_failed` | 500 | Top-level `internal`. The computed path did not fold to the root. Report it. |
 | `GET /v1/tree/{file_cid}` | none | 503 | Top-level `cache_error`, no `details`. The responder runs without a durable store, so it holds no notes. |
 | `POST /v1/tree/path` | `invalid_argument` | 400 | The body must have exactly one of `leaves` and `chunks`. Each hash must be 52 lowercase base32 characters (32 bytes). `index` must be in range, with at most 1048576 leaves. The message says which check failed. A body that is not JSON gets a [plain-text refusal](#plain-text-refusals-of-a-bad-request-body). |
+| `/v1/derived` | `derived_attester_required`, `derived_attester_malformed` | 400 | `attester_pubkey_b32` is missing, or it is not a 52-character base32 Ed25519 key. This read lists the derivations of one key only. |
+| `/v1/derived` | `derived_band_needs_cell` | 400 | You sent `band` without `cell`. Send `cell` too, or filter by band on your side. |
+| `/v1/derived` | none | 503 | Top-level `cache_error`, no `details`. The message starts with `derived_index_unavailable`. The responder has no durable store. |
+| `/v1/inferences` | `inferences_place_required`, `inferences_invalid_coordinates` | 400 | Send `cell`, or `lat` and `lng` together. The route does not take a place name. `lat` must be in [-90, 90] and `lng` in [-180, 180]. |
+| `/v1/inferences` | `inferences_invalid_cell`, `inferences_cell_latlng_disagree` | 400 | `cell` is not a cell64, or `cell` and `lat`/`lng` name different cells. Send one of them. |
+| `/v1/inferences` | `inferences_too_many_attesters`, `inferences_attester_malformed` | 400 | `attesters` names more than 64 keys, or one entry is not a 52-character base32 Ed25519 key. |
+| `/v1/inferences` | `inferences_unknown_tier` | 400 | `min_tier` is not one of `T0_anonymous` to `T5_corroborated`. The route also takes the short form `T4`, and upper or lower case. |
+| `/v1/inferences` | `inferences_invalid_radius`, `inferences_radius_too_wide` | 400 | `radius_m` is not in [0, 50000]. Or, near a pole, the circle touches more than 4096 index tiles. Send a smaller radius. |
 | `/v1/inferences` | `inferences_index_unavailable` | 503 | Top-level `cache_error`. The responder has no durable store, so it has no place index. Resolve derivations by token. |
 | `/v1/device_publish` | `device_key_malformed`, `device_key_invalid`, `signature_malformed`, `signature_invalid` | 400 | The device key or the device signature is bad. Only the device can sign its own listing decision. |
 | `/v1/a2a/tasks` | `a2a_skill_required`, `a2a_skill_unknown` | 400 | The `skill` field is empty, or it names no skill on the agent card. |
@@ -552,6 +560,33 @@ the service. Three other failures send a bare status with no body:
 On 7 November 2026, `GET /v1/perception/nope` gave the 404 body.
 `GET /v1/perception/clips/a%20b` also gave it, because a space breaks the
 segment rule. `POST /v1/perception/health` gave the 405 of the service.
+
+### Errors from the OAuth routes
+
+`POST /oauth/token` uses the OAuth 2.0 error body of RFC 6749: an `error`
+field and an `error_description` field. It has no `code` and no `schema`.
+Every refusal is HTTP 400.
+
+| `error` | Cause |
+|---|---|
+| `unsupported_grant_type` | `grant_type` is not `authorization_code` or `refresh_token`. |
+| `invalid_grant` | The `code` is missing, does not verify or has expired. Or `redirect_uri` does not match the code, or the PKCE S256 check failed. For a refresh, the `refresh_token` is missing, wrong or expired. |
+
+`GET /oauth/authorize` sends an `emem.error.v1` body with `invalid_argument`
+when `client_id` does not verify, or when the client did not register that
+`redirect_uri`. After
+those two checks pass, it sends a 302 redirect to your `redirect_uri`. A
+`response_type` other than `code` adds `error=unsupported_response_type` to
+that redirect. A `code_challenge_method` other than `S256` adds
+`error=invalid_request`. `POST /oauth/register` sends `invalid_argument`
+when `redirect_uris` has more than 10 entries, or an entry is empty or longer
+than 512 characters. These handlers are `oauth_token`, `oauth_authorize` and
+`oauth_register` in `crates/emem-api-rest/src/lib.rs`.
+
+On 7 November 2026, `POST /oauth/token` with `grant_type=password` gave
+`unsupported_grant_type`. With `grant_type=refresh_token&refresh_token=x` it
+gave `invalid_grant`. `GET /oauth/authorize?client_id=nope` gave the 400
+`invalid_argument` body.
 
 ## Routes that only a self-hosted node answers
 
