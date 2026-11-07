@@ -620,6 +620,19 @@ exact `/v1/backfill` body for the window read. Run it, then read again.
 
 `field_series` reads an area over time, one row per scene.
 
+<img src="media/stills/ndvi-two-seasons.webp" alt="Still from live emem.dev calls on 7 November 2026. A farm box near Ames, Iowa, of 2200 Sentinel-2 pixels. Two true-colour crops: 1 August 2024, median NDVI 0.88, and 22 October 2024, median NDVI 0.26. A chart of median NDVI with the p10 to p90 band for 17 clear scenes from February 2024 to November 2025, with two peaks in July and August. Eight cloudy scenes are marked as left out. The whole series has one token, emem:fact:defi.zb5dd.ze38f.nEzo:gutxcpc54gzyegyuvxr7dkevmixz5k7dnq3sfzckqocfpwbcixma, and verify_receipt returns valid." width="540">
+
+The still above is one `field_series` answer for a box of about 500 m by 440 m.
+It came from the call below on 7 November 2026. The signature shows who
+computed the series. It does not show which crop grew there.
+[`stills/src/ndvi_season.py`](media/stills/src/ndvi_season.py) draws it
+from the saved responses.
+
+```sh
+curl -s -X POST https://emem.dev/v1/field_series -H 'content-type: application/json' \
+  -d '{"bbox":[-93.700,42.000,-93.694,42.004],"start_date":"2024-01-01","end_date":"2025-12-31","index":"ndvi"}'
+```
+
 - `index`: `ndvi` (default), `ndwi`, `ndmi` (alias `lswi`), `evi`, `nbr`,
   `ndti` or `ndsi` (alias `mndwi`) from Sentinel-2. NDSI is green against
   shortwave infrared, B03 averaged onto B11's 20 m pixels: snow and open

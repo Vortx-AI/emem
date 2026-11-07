@@ -53,6 +53,14 @@ Do not use colour as the only signal. Write the word too, for example `valid` or
 - Ship an MP4 (H.264) and a WebM (VP9), each 2 MB or less, and a WebP poster of 300 KB or less.
 - On a docs page, show the poster and link it to the MP4. Give the WebM link next to it.
 
+## Stills
+
+- A still is 1080 px wide and 300 KB or less, in WebP. It uses the same colours, type and cards as a film.
+- Draw a still from saved live responses, not from typed values. Keep the responses and the script in
+  [stills/src/](stills/src/), so anyone can draw it again. The script checks that the values agree, for example
+  that the scene id in the image headers equals the scene id in the series row.
+- Sentinel-2 imagery carries the credit "Contains modified Copernicus Sentinel data" and the years.
+
 ## Captions and alt text
 
 The alt text states what the image shows, with the values. The caption says what the image does not prove when that
