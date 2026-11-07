@@ -71,6 +71,23 @@ The body is short. All error bodies have `schema: emem.error.v1`:
 {"code":"not_found","did_you_mean":[],"message":"no route matched /v1/no-such-route. ...","path":"/v1/no-such-route","schema":"emem.error.v1"}
 ```
 
+A path that exists, called with the wrong method, gives HTTP 405 with
+`code: method_not_allowed`. `/v1/errors` answers only `GET`:
+
+```sh
+curl -s -i -X DELETE https://emem.dev/v1/errors
+```
+
+The `allow` header and the `allow` body field both list the methods that
+the path answers. Here that is `GET`. Use `allow`. The `example` and
+`_legacy_message` fields always name a method that is not `GET`, `HEAD` or
+`OPTIONS`. On a path that answers only `GET`, they name `POST`, which is
+wrong. The `message` field is correct:
+
+```json
+{"allow":["GET"],"code":"method_not_allowed","message":"/v1/errors is a wired endpoint but does not answer DELETE. It accepts GET.","method_tried":"DELETE","schema":"emem.error.v1","...":"..."}
+```
+
 A malformed cell64 gives HTTP 400 with `code: invalid_cell`:
 
 ```sh
@@ -187,7 +204,7 @@ Their codes are not in the enum.
 | Code | HTTP | When |
 |---|---|---|
 | `not_found` | 404 | No route matches the path. `did_you_mean` suggests near paths. |
-| `method_not_allowed` | 405 | The path exists but not for that method. `allow` lists the methods it answers. |
+| `method_not_allowed` | 405 | The path exists but not for that method. The `allow` header and body field list the methods it answers. With `Accept: text/html`, the body is an HTML page. |
 | `overloaded` | 503 | The server is at its cap of requests in flight. It refused the request at once and did not queue it. `Retry-After: 1`. |
 
 ## Memory and entity write refusals
@@ -213,7 +230,7 @@ had no signature, `details.how_to_sign` carries the digest to sign, and its
 `code` is `entity_attestation_required`.
 
 The fact plane also refuses with `level_too_low` (HTTP 403). This occurs
-when a key that is not admitted tries to write a fact at a
+when a key that the fact plane does not admit tries to write a fact at a
 `(cell, band, tslot)` address. The signature verified, but the key does not
 have the tier. The message starts with `LevelTooLow: fact_plane_closed:` and
 names `POST /v1/derive` as the route to add a value. `details` is empty.
