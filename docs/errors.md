@@ -29,6 +29,7 @@ On this page:
 | [The error envelope](#the-error-envelope) | Read the shape of an `emem.error.v1` body. |
 | [How to branch on an error](#how-to-branch-on-an-error) | Write the client logic in the correct order. |
 | [Examples from emem.dev](#examples-from-ememdev) | Cause each common error with one command. |
+| [Skip notes on a successful recall](#skip-notes-on-a-successful-recall) | Read `reason_class` on a band that the responder did not fetch. |
 | [Protocol codes (27)](#protocol-codes-27) | Find a top-level `code` and its MCP number. |
 | [Codes from the router and the load layer](#codes-from-the-router-and-the-load-layer) | Handle 404, 405 and 503 before a handler runs. |
 | [Memory and entity write refusals](#memory-and-entity-write-refusals) | Fix a refused signed write. |
@@ -82,6 +83,7 @@ caller can branch on the code name without the number.
    no data at this cell. A retry gives the same answer.
 4. Read `materialize_notes` on a successful recall. A band that the
    responder skipped or could not fetch appears there, not in the error.
+   See [Skip notes on a successful recall](#skip-notes-on-a-successful-recall).
 
 ## Examples from emem.dev
 
@@ -215,6 +217,64 @@ succeeds, so read `result.isError`, not the JSON-RPC `error` field:
 curl -s -X POST https://emem.dev/mcp \
   -H 'content-type: application/json' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"emem_recall","arguments":{"cell":"not.a.cell"}}}'
+```
+
+## Skip notes on a successful recall
+
+A recall can return HTTP 200 and still fail to fetch a band. The responder
+then adds an entry to `materialize_notes[]` with `status: "skipped"`. The
+responder signs nothing for that band, and the entry is not an absence. A signed absence
+comes back as `status: "materialized"` with a `fact_cid`. The recall,
+polygon and find-similar routes use the same note shape.
+
+A per-band skip note has these keys: `band`, `status`, `reason`,
+`reason_class`, `retryable` and `absence` (always `false`). The `reason` is
+free text. Branch on `reason_class`. The function `classify_skip_reason` in
+`crates/emem-api-rest/src/lib.rs` makes the class from the reason text. It
+tests the rows of this table in order and takes the first match:
+
+| `reason_class` | `retryable` | What happened |
+|---|---|---|
+| `deferred` | `true` | The responder reached its limit of cold fetches per minute. The limit is `EMEM_MATERIALIZE_PER_MIN`, default 600. |
+| `retired` | `false` | This deployment withdrew the band. Another responder can still serve it. |
+| `not_geographic` | `false` | The cell is not a geographic cell, so no upstream can answer for it. |
+| `unknown_band` | `false` | This responder does not know the band key. |
+| `no_data` | `false` | Both input bands read zero at this pixel in the newest scene. A new overpass can change this. |
+| `upstream_gone` | `false` | A fixed upstream URL answered 404 or 410. The upstream moved or withdrew the data. |
+| `no_materializer` | `false` | This responder has no materializer for this band. |
+| `timeout` | `true` | The upstream did not answer in time. |
+| `upstream_error` | `true` | Any other upstream failure. |
+
+A `true` value means that a later call can succeed. A `false` value means
+that the same call to this responder gives the same skip.
+
+Two skip notes cover more than one band. They have `bands[]` in place of
+`band`, and they have no `absence` key:
+
+| `reason` | `reason_class` | When |
+|---|---|---|
+| `band_retired_at_this_responder` | `retired` | The request names a band in `EMEM_RETIRED_BANDS`. The responder does not try it. |
+| `as_of_signed_at_in_the_past` | none | `as_of_signed_at` is before the current time. A fact signed now cannot match that bound, so the responder fetches nothing. The note adds `as_of_signed_at` and `responder_now`. |
+
+To read a value from the past, use `as_of_tslot`, not `as_of_signed_at`.
+`as_of_tslot` bounds the observation time. `as_of_signed_at` bounds the
+signing time.
+
+The `ask` path can also send `status: "deferred"` with only `band` and
+`reason`. That entry means the call reached its cap on cold bands. Fetch
+the band with `POST /v1/recall`.
+
+We ran these two requests on 7 November 2026. Each gave HTTP 200 with
+`facts: []` and one note of the second table:
+
+```sh
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["nightlights"]}'
+
+curl -s -X POST https://emem.dev/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb4d9.pefa.zf619","bands":["weather.temperature_2m"],"as_of_signed_at":"2020-01-01T00:00:00Z"}'
 ```
 
 ## Protocol codes (27)
