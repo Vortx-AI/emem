@@ -293,8 +293,10 @@ derivative. Two states of one cell show what changed.
 Each item has its fact cids. The ledger says that no registration error
 estimate exists in this build. emem stores the ledger as a derived fact
 under the responder key, with its own `emem:fact:` token. A recall does
-not return it; you reach it through its token. Each call to
-`POST /v1/change_attribution` stores one such fact.
+not return it; you reach it through its token. A call to
+`POST /v1/change_attribution` stores a new ledger fact only when its inputs
+changed. The same inputs return the stored fact, the same token and
+`persistence: "existing_derivative_fact"`.
 
 The number does not ship: how much of the change comes from the world,
 and how much from the instrument, the registration or the encoder. The

@@ -454,6 +454,7 @@ Each refusal of this kind has `details.code`
 | `reserved_namespace` | The path is under `/memories/.well-known/`. |
 | `source_namespace` | A `rename` source is under the `by_attester` prefix of a different key. |
 | `root_directory_delete` | A directory `delete` names the root `/memories`. |
+| `directory_holds_foreign_files` | A directory `delete` covers a file that a different key owns. `details.foreign_files` gives the count, `details.example` names one. |
 
 The responder sets HTTP 403 for each reason. Over MCP each one arrives
 as `invalid_argument` (-25).
@@ -472,12 +473,19 @@ with `isError: true`, not an HTTP status. The text starts with
 
 Other tables on this page give the HTTP status that the responder sets
 for a memory error. Over MCP you do not see that status. You see the
-error name and its number. A 400, 401, 403, 409 or 422 arrives as
-`invalid_argument` (-25), except for a bad signature from the table
-above and a bad `vault_capability` on a read. Those two arrive as
-`bad_signature` (-15). A 404
-arrives as `cid_not_found` (-6). `GET /v1/errors` lists every name with
-its MCP number.
+error name and its number. The number comes from the error code, not
+from the HTTP status (`mcp_err` in `crates/emem-api-rest/src/lib.rs`).
+Most memory errors use the code `invalid_argument` (-25). A bad
+signature and a bad `vault_capability` on a read use `bad_signature`
+(-15). Most 404 errors use `cid_not_found` (-6). Two cases do not follow
+the status:
+
+- `row_not_found` from `GET /v1/tree` is a 404, but arrives as
+  `invalid_argument` (-25).
+- `derive_attestation_invalid` is a 401, and arrives as
+  `bad_signature` (-15).
+
+`GET /v1/errors` lists every name with its MCP number.
 
 The rate limit is a token bucket for each key. Unsigned writes share one
 bucket. The defaults are 240 writes a minute with a burst of 60. The

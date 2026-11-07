@@ -274,12 +274,18 @@ What ships:
 
 What does not ship:
 
-- There is no public enrolment route. The node operator enrols each device.
-- All 17 platforms in the registry have the status `candidate`, and every
-  trust anchor is provisional. So hardware-attested enrolment refuses all
-  devices until a vendor publishes an anchor.
-- emem records an operator-asserted enrolment as operator-asserted, and as
-  nothing more.
+- On emem.dev, no robot or industrial device can enrol today. The one admitted
+  anchor serves host profiles only.
+- `POST /v1/enroll_attested` is public. It admits only an attestation from an
+  anchor that is not provisional. On emem.dev, only the operator holds such
+  a key.
+- All 17 platforms have the status `candidate` (7 November 2026). Every
+  vendor anchor is provisional, so no device gets `platform_attested` today.
+  The one admitted anchor is the operator anchor `operator.vortx.v1` on
+  `generic.linux-host`. That platform serves the classes `execution`,
+  `database`, `codebase` and `model`, not `robot`.
+- Each enrolment states its tier: `platform_attested`, `operator_endorsed` or
+  `operator_asserted`. Read `endorsed_by` to see whose word it rests on.
 
 ## A satellite
 

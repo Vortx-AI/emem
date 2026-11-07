@@ -33,8 +33,8 @@ The verdict runs **`eudr_compliance@1`** on each cell, from two static COG basel
 | `forest_change.treecover2000`    | Hansen GFC v1.13 canopy fraction (%) at year 2000 |
 | `forest_change.lossyear`         | Hansen GFC v1.13 first-loss year as a **calendar year** (`0`=no loss, else `2001..=2025`); loss strictly after the cut-off year is the failure signal |
 
-The algorithm cards at `GET /v1/algorithms/eudr_compliance@1` and `eudr_dds@1` still name
-Hansen v1.12 (loss years `2001..2024`) on 7 November 2026.
+The algorithm card at `GET /v1/algorithms/eudr_compliance@1` still names
+Hansen v1.12 (loss years `2001..2024`) on 7 November 2026. The `eudr_dds@1` card names no Hansen version.
 That text comes from `crates/emem-core/data/algorithms-v0.json`, which did not change when the connector moved to v1.13.
 The connector in `crates/emem-fetch/src/hansen_gfc.rs` reads `GFC-2025-v1.13`.
 The `eudr_dds@1` card also writes the cut-off test as `>= 21`, the raw upstream byte.
