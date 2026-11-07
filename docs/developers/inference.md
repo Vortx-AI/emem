@@ -119,8 +119,7 @@ Nazare gave `source_fetch_failed`, because a profile cell had no usable
 GMRT value.
 
 This request runs, and shows the 422 rejection with its details. On
-7 November 2026 its profile had 44 cells, not 64. The last cell had
-The offshore end cell had
+7 November 2026 its profile had 44 cells, not 64. The offshore end cell had
 0 m depth, and 32 % of the cells were more than 1 m deep:
 
 ```sh
@@ -135,7 +134,7 @@ curl -s https://emem.dev/v1/wave_solve \
 |---|---|
 | `cell` (alias `place`) | required |
 | `band` | `indices.ndvi`, the only band |
-| `lookback_months` | default 6, 1 to 24 |
+| `lookback_months` | default 6, 1 to 24. It counts samples, not months. |
 | `forecast_horizon_months` | 1, the only value |
 | coefficients | α = 0.6, β = 0.3, γ = 0.1 |
 
@@ -143,11 +142,12 @@ The prediction is:
 
     pred = clamp(α · lag_12 + β · (last + trend) + γ · recent_mean, [-1.0, 1.0])
 
-`trend` is the least-squares slope through the NDVI samples in the
-lookback window. `recent_mean` is the mean of these samples. `lag_12` is
-the sample nearest to 12 months before the latest one, within one month.
-The solver looks for it only inside the lookback window. With the
-default lookback of 6 months there is no `lag_12`, so the α term uses
+The solver keeps the last `lookback_months` samples of the history.
+`trend` is the least-squares slope through these samples. `recent_mean`
+is their mean. `lag_12` is the sample nearest to 12 tslots before the
+latest one, within one tslot (`physics.rs`). For `indices.ndvi` a tslot
+is one day, so this is about 12 days, not 12 months. The solver looks for
+it only among the kept samples. When it finds none, the α term uses
 `recent_mean`. The response field `lag_12_used` shows which case
 applied.
 
@@ -173,6 +173,7 @@ curl -s https://emem.dev/v1/jepa_predict \
   -d '{"cell":"Mount Fuji"}'
 ```
 
-A lookback of 13 months or more lets the solver look for `lag_12`. It
-uses `lag_12` only when a sample exists at that month. At Mount Fuji on
+A larger lookback keeps more samples, so the solver has more samples in
+which to find `lag_12`. It uses `lag_12` only when a sample is within one
+tslot of that point. At Mount Fuji on
 7 November 2026, `"lookback_months": 13` still gave `lag_12_used` false.

@@ -107,8 +107,17 @@ Outside the workspace:
 Other crates build `emem-guard`, `emem-airgap`, `emem-encode`,
 `emem-scorecard` and `emem-sleep-agentd`.
 
-`emem-demo`, `emem-livedemo` and `emem-realdemo` write to the server.
-Run them against your own node, not against `https://emem.dev`.
+`emem-demo`, `emem-livedemo`, `emem-realdemo` and `emem-connect-demo`
+sign facts with a new key and write them to the server. Run them against
+your own node, not against `https://emem.dev`. A default node refuses
+facts from a key it does not know (`fact_plane_closed`). For the demos,
+start a test node with `EMEM_FACT_PLANE_OPEN=1`:
+
+```sh
+EMEM_DATA=:memory: EMEM_FACT_PLANE_OPEN=1 cargo run --release --bin emem-server
+```
+
+Do not set `EMEM_FACT_PLANE_OPEN=1` on a node that other people use.
 
 ## Run a local server
 

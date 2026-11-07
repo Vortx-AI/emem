@@ -412,16 +412,22 @@ Inbound, an independent witness (`ttecxvf3drdt...`) co-signed emem.dev's log
 88 entries behind. Of the last 200 co-signatures, 43 came from a key that
 emem.dev does not hold. The emem.dev tree then held 1,618,506 entries.
 
-On 7 November 2026 `GET /v1/log/witnesses` on emem.dev returned:
+On 7 November 2026 at 02:29 UTC, `GET /v1/log/witnesses` on emem.dev
+returned:
 
 | Field | Value |
 |---|---|
-| `current_tree_size` | 3,245,123 |
-| `count` (co-signatures) | 49,557 |
-| `independent_witness_count` | 112 keys (111 `key_only`, 1 `org_vouched`) |
+| `current_tree_size` | 3,245,740 |
+| `count` (co-signatures) | 49,589 |
+| `independent_witness_count` | 112 keys |
+| `independent_operator_count` | 1 |
 | `independent_operator_domains` | `eudr.dev` |
-| `freshest_independent_witness_entries_behind` | 190 |
+| `freshest_independent_operator_entries_behind` | 5 |
+| `head_is_witnessed_by_independent_operator` | `false` |
 | `head_is_independently_witnessed` | `false` |
+
+The lag changes from minute to minute. An earlier read on the same day
+gave 108 entries behind.
 
 #### Read the independent fields, not `head_is_witnessed`
 
@@ -432,8 +438,13 @@ key and an endpoint with witnessing. So `head_is_witnessed` answers "did
 anything sign this head", and it is almost always `true`. A node cannot catch
 itself showing two histories.
 
-The fields that bear on split view are `head_is_independently_witnessed` and
-the other `independent_*` fields. They leave out `self_witness_pubkey_b32`.
+The fields that bear on split view leave out `self_witness_pubkey_b32`.
+Of these, read `head_is_witnessed_by_independent_operator` and
+`freshest_independent_operator_entries_behind` first. They count only
+`org_vouched` witnesses, whose operator domain has DNS or well-known
+evidence. `head_is_independently_witnessed` and `independent_witness_count`
+count any key that is not the node's own. Keys cost nothing to make, so
+those two fields do not count parties (`crates/emem-api-rest/src/lib.rs`).
 `scripts/external_witness_lag.py` alarms on them. `emem-witness-lag.timer`
 runs it every 30 minutes. It exits 2 on a stale peer and 3 when no peer
 witnesses at all. The repairs differ, so the exit codes differ.
@@ -472,7 +483,7 @@ emem refuses these, each for a stated reason:
 | Attack | State | Why |
 |---|---|---|
 | Serving wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
-| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_independently_witnessed` was `false` (freshest independent co-signature 190 entries behind) |
+| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_witnessed_by_independent_operator` was `false` (that operator's freshest co-signature was 5 entries behind at 02:29 UTC) |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
 The answer to sybil writes is not an identity gate. That gate would cost the
@@ -880,7 +891,8 @@ because each fixed something already claimed. All five are live on 7 November
 MCP version header. These are the other two:
 
 - Witness independence. `head_is_witnessed` keeps its meaning, because peers
-  read it. Beside it are `head_is_independently_witnessed`,
+  read it. Beside it are `head_is_witnessed_by_independent_operator`,
+  `independent_operator_count`, `head_is_independently_witnessed`,
   `freshest_independent_witness_entries_behind`, `independent_witness_count`,
   `independent_cosignature_count` and `self_witness_pubkey_b32`, on the route
   and in the federation block. They count every stored row, not only the

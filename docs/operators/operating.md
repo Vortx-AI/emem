@@ -238,11 +238,13 @@ upstreams and background work. Each default comes from the code.
 | `EMEM_SPLATS_DIR` | `$EMEM_DATA/splats-site` | The static files that `/splats/` serves. The repository does not include them. If the directory is empty, `/splats/` gives 404. |
 | `RUST_LOG` | `info` | The log filter, for example `info,emem_storage=debug,rustls_acme=info`. |
 
-The binary reads more variables than these tables show. On 7 November 2026, the code read 201 `EMEM_` names. To
-list them:
+The binary reads more variables than these tables show. Some go through helper functions, and
+`EMEM_WARM_PRIORITY` uses `env::var_os`. A search for `env::var("EMEM_` misses them. So search for every quoted
+`EMEM_` name. On 7 November 2026 this gave 273 names. The list can also hold a quoted name that is not an
+environment variable.
 
 ```bash
-grep -rhoE 'env::var\("EMEM_[A-Z0-9_]+' crates | sort -u
+grep -rhoE '"EMEM_[A-Z0-9_]+"' crates | sort -u
 ```
 
 ## What is in the data directory
@@ -461,7 +463,9 @@ The schema CID pins the byte layout of a fact. Old facts keep their old `schema_
 
 These binaries are in `crates/emem-cli/src/bin/`. The first five run against a local node by default, port 5051.
 `EMEM_BASE_URL` changes the node. `emem-demo`, `emem-livedemo`, `emem-realdemo` and `emem-connect-demo` sign
-attestations with a new key and write them to the node. Run them only against your own node.
+attestations with a new key and write them to the node. Run them only against your own node. A default node
+refuses these writes (`fact_plane_closed`), so start a test node with `EMEM_FACT_PLANE_OPEN=1` for them. Do not set
+it on a node that other people use.
 
 | Binary | Output | Use |
 |---|---|---|

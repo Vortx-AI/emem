@@ -177,9 +177,11 @@ for disagreement between sources, and an offline refinement loop.
    survive. `emem-witness.timer` co-signs the head of a peer every 15
    minutes. It spot-checks four sampled leaves under that head
    (`EMEM_WITNESS_SAMPLES`, default 4). An independent witness also
-   co-signs the emem.dev head. On 7 November 2026 its newest co-signed
-   head was 15 entries behind the current head, so
-   `head_is_independently_witnessed` was false (`/v1/log/witnesses`).
+   co-signs the emem.dev head. On 7 November 2026 at 02:29 UTC, one
+   independent operator (`eudr.dev`) witnessed it. Its newest co-signed
+   head was 5 entries behind the current head, so
+   `head_is_witnessed_by_independent_operator` was false
+   (`/v1/log/witnesses`).
    See [`federation.md`](federation.md) §8a.
 2. Signed absence proofs. Today a responder signs an `Absence` statement
    when it has no value for a cell. An example is open ocean in the
@@ -1251,18 +1253,20 @@ v2: blake3("emem.memory_write.v2|" || verb || "|" || path || "|" || body_hash ||
 v1: blake3("emem.memory_write|" || verb || "|" || path || "|" || body_hash)
 ```
 
-The responder accepts v2 for every verb. It accepts v1 for `create`,
-`str_replace` and `insert` only.
+A new write needs v2 for every verb. Since 2026-11-05 the responder
+refuses a v1 signature with `reason: v1_retired`, because v1 binds no
+`base`, so anyone can replay a signature from the public log. Old v1
+notes still verify when an agent reads them (`crates/emem-api-rest/src/lib.rs`,
+test `a_v1_write_signature_is_refused_for_every_verb`).
 
 `base` is the `file_cid` now at `path`, or `absent` for a new path. It
-stops a replay of an old signature over newer content. The responder
-tries v2 first.
+stops a replay of an old signature over newer content.
 
 Both versions are domain-separated, and the verb is in the preimage. So a
 signature cannot move to a different verb or path. What the binding does
 not have is the explicit length prefixes of `preimage_v1`.
 
-For v1, this has no cost. The verb comes from a closed set with no
+For v1, which old notes still carry, this has no cost. The verb comes from a closed set with no
 separator. `body_hash` is a fixed 32-byte digest at the end. So `path` is
 the only field of variable length, and the fixed fields mark its two
 ends. A `|` inside a path does not cause a collision.
@@ -1708,8 +1712,8 @@ witnesses co-sign the emem.dev head, and they have done this since
 
 Do not read `head_is_witnessed` as proof of independent checks. The node's own
 write canary co-signs the head every 2 minutes, so that flag is almost always
-true. Read `head_is_independently_witnessed` and the other `independent_*`
-fields. See [federation.md](federation.md#read-the-independent-fields-not-head_is_witnessed).
+true. Read `head_is_witnessed_by_independent_operator` first. It counts
+only witnesses with a vouched operator domain. See [federation.md](federation.md#read-the-independent-fields-not-head_is_witnessed).
 
 What ships is append-only transparency against accidental or operator
 rewrites. It is not a globally consistent public history.
