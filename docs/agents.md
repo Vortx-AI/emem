@@ -410,6 +410,16 @@ curl -s -X POST https://emem.dev/v1/verify \
 ```
 
 Read `verdict` (`true`) and `evidence`, the `fact_cid` list behind the verdict.
+The answer also has a signed `receipt` and `cos_lat_weighting_applied`.
+`op` is one of `eq`, `ne`, `lt`, `le`, `gt`, `ge`, `in`, `ni`, `exists` or `absent`.
+
+The call above has no `tslot`, so emem checks every stored tslot of the band.
+The default mode is `fast`: emem reads only facts that it already holds.
+A `false` verdict with an empty `evidence` list means that emem holds no fact.
+It does not mean that the claim is false.
+On 7 November 2026, the same claim with `"tslot": 1` returned exactly that.
+To fetch a missing fact first, send `"mode": "resolve"` with a `tslot`.
+This comes from `crates/emem-primitives/src/verify.rs`.
 
 ### Job: cite one fact for another agent
 
