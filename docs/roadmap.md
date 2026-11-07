@@ -70,7 +70,7 @@ temperature band takes about 30 seconds per cell (its entry in
 `crates/emem-api-rest/src/lib.rs`). The default per-upstream timeout is
 14 seconds (`EMEM_MATERIALIZER_TIMEOUT_SECS`). So a cold read of that
 band can stop at the timeout with a `skipped` note. A hunter sweep reads
-that band at 8 cells by default (`EMEM_HUNTER_SLOW_BAND_CAP`, 1 to 32).
+that band at no more than 8 cells by default (`EMEM_HUNTER_SLOW_BAND_CAP`, 1 to 32).
 
 ### The fact corpus is for places, and memory notes are not private
 
@@ -500,7 +500,7 @@ Two ways to close the gap:
    can check one list against the other.
 
 The second is more useful. The map is in the code today, but no endpoint
-serves it. The same contributor lost a week on a similar gap: the
+serves it. A device maker lost a week on a similar gap: the
 `os_trace` specification was only in the code.
 
 ### Open validation: the measurements the claims still rest on
@@ -1619,8 +1619,8 @@ Two parts do not exist yet:
 
 #### A world that moves forward in time: not built
 
-Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and one step
-ahead (see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
+Nothing makes a world move forward. `/v1/jepa_predict` is a closed-form NDVI AR(2) model for one cell and a horizon of one month
+(`forecast_horizon_months` 1; see [Inference](developers/inference.md)). The learned dynamics head that emem served before did not do better
 than persistence on real NDVI (skill -0.064), and emem removed it.
 
 The design: a predictor with real skill makes a sequence of scene frames. Each frame is a signed forecast. It

@@ -984,13 +984,17 @@ because each fixed something already claimed. All five are live on 7 November
 MCP version header. These are the other two:
 
 - Witness independence. `head_is_witnessed` keeps its meaning, because peers
-  read it. Beside it are `head_is_witnessed_by_independent_operator`,
-  `independent_operator_count`, `head_is_independently_witnessed`,
-  `freshest_independent_witness_entries_behind`, `independent_witness_count`,
-  `independent_cosignature_count` and `self_witness_pubkey_b32`, on the route
-  and in the federation block. They count every stored row, not only the
-  returned page. On 2026-09-05 the declared key held 82 of the newest 100
-  rows.
+  read it. The two places that show witness state use different field names:
+
+  | Place | Independence fields |
+  |---|---|
+  | `GET /v1/log/witnesses` | `head_is_independently_witnessed`, `freshest_independent_witness_entries_behind`, `independent_witness_count`, `independent_cosignature_count`, `self_witness_pubkey_b32`, `independent_operator_count`, `independent_operator_domains`, `head_is_witnessed_by_independent_operator`, `freshest_independent_operator_entries_behind` |
+  | `federation.witnesses` in `/.well-known/emem.json` | `head_is_independently_witnessed`, `freshest_independent_witness_entries_behind`, `independent_witnesses`, `independence_note` |
+
+  The federation block has no operator fields and no cosignature count.
+  Read `/v1/log/witnesses` for the operator view. The route counts every
+  stored row, not only the returned page. On 2026-09-05 the declared key
+  held 82 of the newest 100 rows.
 - `live_perception.cameras_with_retained_clips` read upstream's
   `clips_retained`. Before, it counted only inside the returned camera page,
   which held `cameras_returned` of `camera_count` cameras (5 of 267 at

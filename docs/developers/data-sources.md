@@ -104,9 +104,11 @@ The others hold shared tools and embedded gazetteers.
 
 ### Modules with no open read path
 
-Two modules exist, but the node cannot read their data without a credential. For a cell inside
-the coverage, the recall gets an error and the node signs nothing. It signs an Absence only for a
-cell outside the coverage, or for a real "no alert" result.
+Two modules exist, but the node cannot read their data. For a cell inside the coverage, the
+recall gets an error and the node signs nothing. Only RADD signs an Absence, and only for a cell
+outside its belt (latitude more than 30 degrees from the equator, `radd_alerts.rs`). OPERA never
+signs an Absence: with or without a token, the recall gets an error (`lib.rs`,
+`materialize_opera_dist_band`).
 
 | Module | Upstream | Why there is no read |
 |---|---|---|

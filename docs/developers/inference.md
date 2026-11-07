@@ -47,8 +47,9 @@ Each step applies the 5-point Laplacian update:
     u_new = u + α·Δt·(N + S + E + W - 4·centre)/Δx²
 
 The 8 perimeter cells keep their values (Dirichlet). Only the centre
-cell changes. The largest stable time step is `0.20 · Δx² / α`. With
-the default α this step is about 211 days, so a normal call takes one
+cell changes. The scheme is stable while `α·Δt/Δx²` is 0.25 or less.
+The solver uses 0.20 as a safety margin, so its largest step is
+`0.20 · Δx² / α`. With the default α this step is about 211 days, so a normal call takes one
 step. A large α needs many steps. The step limit stops such a call from
 holding the handler for minutes. The 168 h limit exists because an 8-day MODIS
 composite is not a good start state for more than a week.
