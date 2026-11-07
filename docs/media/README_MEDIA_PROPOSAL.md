@@ -9,10 +9,20 @@ The new files follow [visual-language.md](visual-language.md).
 
 | README line (7 November 2026) | Now | Proposed | Why |
 |---|---|---|---|
+| 25, the image under the badges | `docs/media/readme/20-encode-decode.webp` (76,972 bytes, a drawing with no data; on a 360 px phone its labels are about 5 px high) | `docs/media/stills/what-crosses.webp` (218,024 bytes), with `docs/media/stills/what-crosses-phone.webp` (204,422 bytes) for narrow screens | The drawing and the table at line 40 say that the data stays at the source and a token crosses. The still shows this with three live tokens. One names a tensor of a GPT-2 weights file. One is an execution trace of an enrolled Linux host. One is the Mount Fuji fact. Each column says what stays, what crosses and which check passes. It also states the limits: the device is a Linux host, not a satellite or robot, and the device gate admits no hardware anchor yet. |
 | 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id (point 1) and that the receipt verifies (point 2). The film shows point 2 with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. A second film for point 1 is below the markup. |
 | 225, under the paragraph about `emem-guard` | `docs/media/readme/04-guard.gif` (231,519 bytes, a screen recording) | `docs/media/stills/guard-check.webp` (184,624 bytes) | The paragraph says that the guard answers allow or deny with a reason and a `fix`. It also says that a stricter claim rule is off by default. The still shows live verdicts on one Table Mountain fact: allow, then deny `PROV_VALUE` with `correct_value`. An uncited number passes by default and fails with `claim_gating=true`. |
 | 264, under "One record, many readers" | `docs/media/readme/11-two-agents.gif` (1,072,956 bytes, a screen recording of two Claude sessions) | `docs/media/stills/bundle-handoff.webp` (228,238 bytes) | The paragraph says that agent A hands over one bundle line and agent B resolves it and checks the signature. The still shows that handoff with live reads. A bundle from 23 September 2026 resolves on 7 November 2026 to four facts in Bengaluru. Each receipt is valid. One changed character in a fact id makes the bundle receipt fail. |
 | 285, before "Earth is the first corpus, not the limit" | `docs/media/readme/10-research.gif` (1,263,818 bytes, a screen recording of a Claude session) | `docs/media/stills/ask-trail.webp` (228,282 bytes) | The caption says that every number in the answer is a signed record. The still shows one live `/v1/ask` answer: NDVI 0.79 in Central Park. It also shows the four reasoning stages, the three signed facts and the checks. The still is not a Claude session, so the caption at line 287 must change too (text below). |
+
+## Markup for the swap at line 25
+
+```html
+<p align="center"><picture><source media="(max-width: 700px)" srcset="docs/media/stills/what-crosses-phone.webp"><img src="docs/media/stills/what-crosses.webp" alt="Three live examples from emem.dev on 7 November 2026. A file: the GPT-2 weights file stays; one tree token for the tensor h.3.attn.c_proj.bias crosses. Its leaf hash and 7 path hashes give the index root offline, and one changed bit fails. A device: the raw OS event logs of a Linux host stay, 13,870 events in 4 layers; one signed execution trace crosses. trace_verify returns admit, the key is operator endorsed, and no hardware anchor is admitted yet. An open archive: the Copernicus DEM tile stays; one fact token for Mount Fuji, 3,539.04 m, crosses. Its receipt and log entry verify offline, and one changed character fails." width="880"></picture></p>
+```
+
+Keep `20-encode-decode.webp` in the repository. The one-token hero in "Additions" (line 36) shows the same Mount
+Fuji fact in more detail. With this swap, that addition is optional.
 
 ## Markup for the swap at line 211
 

@@ -1,0 +1,45 @@
+{
+ "file_cid": "amii4tnpkfoofsyzrbbs2vxsj4",
+ "kind": "pointer.v1",
+ "leaf_b32": "74fibnb5rseoitabyvmv5igpjcctf4b3a46eddybqkd7x77gswpq",
+ "note_root_matches": true,
+ "path": [
+  {
+   "hash_b32": "37qzbb7m7v2j5jy2ddvy55bp5tzxgkpouo5ijmtjyb76z33kts5q",
+   "side": "left"
+  },
+  {
+   "hash_b32": "gracq5hlrgycrx5vd3ugeaxxaddr2vkl3mk3a3lza3tfk4rfqqwq",
+   "side": "right"
+  },
+  {
+   "hash_b32": "gnehjvovggvi6wzw2jezcsddy77rzm2scu2h2pgawji2h4cqv3pq",
+   "side": "right"
+  },
+  {
+   "hash_b32": "uo4fqjcxlrwswp5c7c7kxtezs3elcmf7jhd25uwzaty5geslrf7a",
+   "side": "right"
+  },
+  {
+   "hash_b32": "yl2fr44faiqc63xp4ux3653tfjcv7gdhdpfmxud3dajiykqbtkoq",
+   "side": "right"
+  },
+  {
+   "hash_b32": "iatxjo2l73vtorbdsmtynvvc46nt4e34nthqpnqosmvvkucxrjpa",
+   "side": "right"
+  },
+  {
+   "hash_b32": "2n2kkk66ccbjtvgki3lbx7cwhphszyhixj5tk6cj6n222myf3xhq",
+   "side": "right"
+  }
+ ],
+ "root_b32": "iwrj5zn26agrtpusdy2qvskarvqc27toftqfctju5zswh5r3f4kq",
+ "row": {
+  "index": 1,
+  "label": "tensor h.3.attn.c_proj.bias F32[768]"
+ },
+ "rows": 107,
+ "scheme": "leaf = blake3(url || u64_be offset || u64_be length || hash); node = blake3(left || right); an odd node is promoted unchanged",
+ "token": "emem:tree:amii4tnpkfoofsyzrbbs2vxsj4#row=1",
+ "verify": "h = leaf; for each step: h = side == left ? blake3(step.hash || h) : blake3(h || step.hash); accept if h == root_b32 and root_b32 is the `root:` of the author-signed note"
+}
