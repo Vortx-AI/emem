@@ -2442,7 +2442,8 @@ On 6 November 2026 these steps passed against emem.dev. The STH had
 That entry was leaf 2,463,431, with an audit path of 22 hashes. Its
 1,235 CBOR bytes hashed to the entry hash, and its `batch_root` was the
 receipt's Merkle root. On 7 November 2026 the same steps passed again
-for the same entry, at `tree_size` 3,243,767.
+for the same entry, at `tree_size` 3,243,767, and at 02:19 UTC at
+`tree_size` 3,245,735.
 
 The Claude Code plugin ships a verifier for steps 2, 3, 5 and 6. It
 needs no packages. The `inclusion` command checks the proof against the
@@ -2542,7 +2543,9 @@ A proof from size 4,096 (a power of two) to the same head also passed,
 with 10 hashes. A kept root with one changed character made the script
 stop with "old root differs". The plugin command
 `verify_log.py consistency old.json new.json cons.json` also checks both
-STH signatures. It gave VALID for the same three files.
+STH signatures. It gave VALID for the same three files. At 02:19 UTC
+both scripts passed again, from a head kept at 3,245,579 to 3,245,735,
+with a proof of 15 hashes.
 
 #### 9.6.2 Witnesses, and what they do not prove
 
@@ -2899,12 +2902,24 @@ or the row label (a pointer's chunk label, a directory's path). Without
 - a directory row's `hash` is `blake3(path "\n" size "\n" publisher_hash)`
   over `(url, 0, size)`
 
-Unlike §9.6, this tree has no leaf and node domain separation. When the
-root that a note states does not match its rows, the route refuses with
-`root_mismatch` and gives no path. A note of another kind gets
-`not_a_tree`. A tree note with no row that parses gets `no_rows` (422).
-A `row` that the table does not hold gets `row_not_found` (404). `POST /v1/tree/path` computes the same path over leaves or
-chunks that the caller holds.
+Unlike §9.6, this tree has no leaf and node domain separation.
+`POST /v1/tree/path` computes the same path over leaves or chunks that
+the caller holds.
+
+The route never gives a path to a root that it cannot rebuild from the
+note's rows. It refuses with these codes in `details.code`
+(`crates/emem-api-rest/src/tree.rs`):
+
+| status | `details.code` | cause |
+|---|---|---|
+| 404 | `cid_not_found` | No memory note has that `file_cid`. |
+| 422 | `not_a_tree` | The note is not `pointer.v1` or `directory.v1`. |
+| 422 | `no_rows` | The note is a tree kind, but no table row parsed. |
+| 409 | `root_mismatch` | The root that the note states does not match the tree over its rows. |
+| 404 | `row_not_found` | No row has that index or label. `details.rows` gives the row count. |
+
+On 7 November 2026, `GET /v1/tree/<unknown cid>` gave 404 with
+`code: cid_not_found`. [errors.md](errors.md) lists the same codes.
 
 ---
 
