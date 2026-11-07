@@ -81,6 +81,18 @@ The compose health check calls `curl`. The image does not contain `curl` (see th
 `Dockerfile`), so Docker can mark the container unhealthy while the node works. Check the node with `/live` from the
 host.
 
+To stop the compose node, give it 60 seconds:
+
+```bash
+docker compose down -t 60
+```
+
+The node closes `facts.redb` within its stop grace, `EMEM_STOP_GRACE_S` (default 60 seconds). The compose file
+sets no `stop_grace_period`, so without `-t` Docker kills the node after 10 seconds. The `facts.redb` close alone
+can wait up to 20 seconds (`EMEM_REDB_CLOSE_WAIT_S`). A kill during the close marks the file for recovery, and
+the next start can take many minutes on a large store. `down` keeps the `emem-data` volume. For `docker run -d`,
+use `--stop-timeout 60` (see [Operating](operators/operating.md)).
+
 ## Connect a client to your node
 
 Your node serves REST at `/v1/` and MCP at `/mcp`, on the same port. Point your client at
