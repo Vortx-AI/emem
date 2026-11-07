@@ -5,7 +5,8 @@ claim. It includes the weak parts. It helps you decide if an agent can read from
 emem, write to it, or cite it to a third party. If this page and the source
 code disagree, the source code is correct and this page has a bug.
 
-To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Do not
+To report a vulnerability, follow
+[SECURITY.md](https://github.com/Vortx-AI/emem/blob/main/SECURITY.md). Do not
 open a public issue for it.
 
 Two rules carry most of the model:
@@ -96,7 +97,7 @@ print("VALID")
 Segment lengths are u32 little-endian, but `key_epoch` itself is u32
 big-endian. `bands_cid` and `registry_cid` come from `manifests`, not from
 the attestation block. The tag order is `operator_attestation_tag` in
-`crates/emem-api-rest/src/lib.rs`. On 7 November 2026 at 07:39 UTC, this
+`crates/emem-api-rest/src/lib.rs`. On 7 November 2026 at 08:06 UTC, this
 script printed `VALID` on the live file.
 
 The commit is public, so you can read the source that made your answer. The
