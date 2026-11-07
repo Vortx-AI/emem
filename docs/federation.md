@@ -208,7 +208,7 @@ no payment in the ladder.
 
 The gate on a write depends on its reach, never on identity. The question is how far a write
 reaches, and what the writer proved in proportion to that reach. The live
-ladder at `GET /v1/enlist` on 6 November 2026:
+ladder at `GET /v1/enlist` on 7 November 2026:
 
 | Surface | Minimum tier | Why |
 |---|---|---|
@@ -312,9 +312,9 @@ the verify step it adds.
 ## 8. The four-node network, and anyone after that
 
 The owner decided these roles on 2026-09-02. The last column is what
-`scripts/verify_node.py` reported for each origin on 6 November 2026.
+`scripts/verify_node.py` reported for each origin on 7 November 2026.
 
-| Node | Planned role | State on 6 November 2026 |
+| Node | Planned role | State on 7 November 2026 |
 |---|---|---|
 | `emem.dev` | full node: materialisers and the write plane | meets the witness bar (5 of 5) |
 | `geo.qa/emem` | read replica and witness; writes under its own attester namespace | meets the witness bar (5 of 5) |
@@ -322,7 +322,7 @@ The owner decided these roles on 2026-09-02. The last column is what
 | `vrtx.ai` | read replica and witness; writes under its own attester namespace | no answer |
 | anyone else | read federation and witnessing; writes under their own namespace | see §8e |
 
-`eudr.dev` is not a node, but its domain vouches for one witness key. On 6
+`eudr.dev` is not a node, but its domain vouches for one witness key. On 7
 November 2026 `/v1/log/witnesses` listed it as the only independent operator
 domain.
 
@@ -403,15 +403,15 @@ Inbound, an independent witness (`ttecxvf3drdt...`) co-signed emem.dev's log
 88 entries behind. Of the last 200 co-signatures, 43 came from a key that
 emem.dev does not hold. The emem.dev tree then held 1,618,506 entries.
 
-On 6 November 2026 `GET /v1/log/witnesses` on emem.dev returned:
+On 7 November 2026 `GET /v1/log/witnesses` on emem.dev returned:
 
 | Field | Value |
 |---|---|
-| `current_tree_size` | 3,243,071 |
-| `count` (co-signatures) | 49,483 |
+| `current_tree_size` | 3,245,123 |
+| `count` (co-signatures) | 49,557 |
 | `independent_witness_count` | 112 keys (111 `key_only`, 1 `org_vouched`) |
 | `independent_operator_domains` | `eudr.dev` |
-| `freshest_independent_witness_entries_behind` | 8 |
+| `freshest_independent_witness_entries_behind` | 190 |
 | `head_is_independently_witnessed` | `false` |
 
 #### Read the independent fields, not `head_is_witnessed`
@@ -463,7 +463,7 @@ emem refuses these, each for a stated reason:
 | Attack | State | Why |
 |---|---|---|
 | Serving wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
-| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_independently_witnessed` was `false` (freshest independent co-signature 522 entries behind) |
+| Split view | closed by §8a, open until independent witnesses keep up | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and `head_is_independently_witnessed` was `false` (freshest independent co-signature 190 entries behind) |
 | Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
 
 The answer to sybil writes is not an identity gate. That gate would cost the
@@ -496,7 +496,7 @@ protocol fixes that.
    The well-known file proves only the first.
 3. Node identity in DNS. Done on 2026-09-05, both halves.
    `_emem-node.emem.dev` and `_emem-node.geo.qa` carry `v=emem1; k=<pubkey>`.
-   Each matches the key its node signs with (checked again on 6 November
+   Each matches the key its node signs with (checked again on 7 November
    2026).
 
    The record went up on 2026-09-02, and for three days nothing read it.
@@ -580,7 +580,7 @@ python3 scripts/verify_node.py --role resolver https://emem.dev
 
 The script prints each requirement and the node's answer. It exits non-zero
 when a node fails the witness bar. Run it before you add an origin to
-`EMEM_PEERS`. On 6 November 2026 the first command printed "all 5 met: joined
+`EMEM_PEERS`. On 7 November 2026 the first command printed "all 5 met: joined
 as witness", and the second printed "all 8 met: joined as resolver". The
 script checks only what a node publishes. It does not mean that peers fetch
 facts from that node.
@@ -780,7 +780,7 @@ never scores, so the docs lost the sentence and the code stayed.
 
 ### 9d. Acceptors: where emem is listed, where it is missing, where it drifted
 
-Listed, checked on 6 November 2026:
+Listed, checked on 7 November 2026:
 
 | Channel | State |
 |---|---|
@@ -793,11 +793,11 @@ Listed, checked on 6 November 2026:
 Missing:
 
 - LlamaIndex. `sdks/llama-index-tools-emem` is at 2.4.4 and its tests run in
-  CI. It is not on PyPI (404 on 6 November 2026) and not in
+  CI. It is not on PyPI (404 on 7 November 2026) and not in
   `run-llama/llama_index`, where LlamaHub lists from. Publish it, then open
   the upstream PR.
 - n8n. The node source is in `integrations/n8n` (`n8n-nodes-emem`). It is not
-  on npm (404 on 6 November 2026). Zapier needs their platform, so n8n comes
+  on npm (404 on 7 November 2026). Zapier needs their platform, so n8n comes
   first.
 - The C2SP and SCITT ecosystems. They can accept emem only after emem speaks
   their format (§9c items 1 and 2). After that, every running witness is a
@@ -806,9 +806,9 @@ Missing:
 A one-command node was on this list. `docker-compose.yml` now exists (§8e).
 
 Drifted. On 2026-09-05 this list had seven items. Fixes for four were in
-source that day, and the image built later. On 6 November 2026 they are live:
+source that day, and the image built later. On 7 November 2026 they are live:
 
-| Item | State on 6 November 2026 |
+| Item | State on 7 November 2026 |
 |---|---|
 | `/.well-known/emem-agents.json` served an empty list, because `config/` never reached the container and the handler turned "no file" into `{"agents": []}` | fixed: serves `count` 16, `source` `config`, `source_path` `config/emem-agents.json` |
 | a missing vouching file looked the same as vouching for nobody | fixed: `count`, `source` and `source_path` are served beside `agents`, and a load failure warns at startup |
@@ -851,7 +851,7 @@ preimages.
 | 11 | C2PA on rendered scenes | later |
 
 A survey of the live surface on 2026-09-05 added five fixes above item 6,
-because each fixed something already claimed. All five are live on 6 November
+because each fixed something already claimed. All five are live on 7 November
 2026. Three are in §9d: the vouching path and its count, the A2A card, and the
 MCP version header. These are the other two:
 
