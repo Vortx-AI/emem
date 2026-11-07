@@ -2,83 +2,94 @@
 
 ## emem ChatGPT App
 
-**Effective date:** 2026-08-27
+**Effective date:** 2026-08-27. **Last edited:** 2026-11-07.
 
-This summarises how the emem app behaves inside ChatGPT. The full policy for
-the hosted responder, which is the authority where the two differ, is at
-**https://emem.dev/privacy**.
+This page tells how the emem app behaves inside ChatGPT. The full policy for
+the hosted responder is at **https://emem.dev/privacy**. Where the two differ,
+the full policy is correct.
 
 ### What emem does
 
-emem is a query surface over a shared, verifiable memory, and it holds no user
-data of any kind. Seven of its eighteen tools here can sign NEW facts into emem's
-publicly readable store when a requested band is cold, so `readOnlyHint` is
-false on those seven; what gets written is derived from public
-Earth-observation sources and never from anything a user sent. It answers
-questions about real places from signed facts derived from open Earth
-observation data, and returns a receipt with every answer.
+emem is a query surface over a shared, verifiable memory. It holds no user
+data. It answers questions about real places with signed facts from open
+Earth-observation data. It returns a receipt with every answer.
 
-### What is sent to emem
+Seven of the eighteen tools in this app can sign NEW facts into the public
+store when a requested band is cold. On those seven tools, `readOnlyHint` is
+false. The responder makes these facts from public Earth-observation sources,
+never from data that a user sent.
 
-When a question names a real place, ChatGPT sends the place name, coordinates,
-or the question text to emem's public API. **No user identity, session, or
-account information is sent**, and emem has no way to ask for one: reads take
-no key and no account.
+### What ChatGPT sends to emem
+
+When a question names a real place, ChatGPT sends the place name, the
+coordinates or the question text to the public emem API. **ChatGPT sends no
+user identity, session or account information.** emem cannot ask for it:
+reads need no key and no account.
 
 ### What emem returns
 
-Signed facts with content-addressed identifiers and an ed25519 receipt that
-verifies offline against the key published at `/.well-known/emem.json`.
+emem returns signed facts with content-addressed identifiers and an ed25519
+receipt. The receipt verifies offline against the key published at
+`/.well-known/emem.json`.
 
-### What is logged, and for how long
+### What the responder logs, and for how long
 
-**This is the part an earlier version of this file got wrong.** It claimed emem
-retained nothing beyond the duration of the request. That was not accurate, and
-the correct statement is:
+**An earlier version of this file was wrong here.** It said that emem kept
+nothing after the request ended. That was not true. The correct statement
+follows.
 
-The hosted responder writes a server access log for every request, containing
-the method, path, GET query string, response status, duration, user-agent, and
-a **blake3-hashed, truncated IP** (8-byte base32, non-reversible). Retention is
-**30 days**, enforced by `systemd-journald`
-(`MaxRetentionSec=30day`), after which entries are vacuumed.
+The hosted responder writes a server access log for every request. Each entry
+holds these fields:
 
-The lawful basis is legitimate interests (operational health and abuse
-mitigation). No raw IP is stored.
+- method, path and GET query string
+- response status and duration
+- the user-agent, accept and traceparent headers
+- a **blake3-hashed, truncated IP** (8-byte base32, one-way)
+
+systemd-journald deletes entries after **30 days** (`MaxRetentionSec=30day`).
+The responder does not log POST request bodies. It never stores a raw IP.
+
+The lawful basis is legitimate interests: operational health and abuse
+mitigation.
 
 ### Cookies and analytics
 
-**None.** The site sets no cookies, no `localStorage`, no `sessionStorage`, and
-runs no third-party analytics. Google Analytics and its consent banner were
-removed; the Content-Security-Policy served with every page does not permit
-`googletagmanager.com` or `google-analytics.com`, so a reintroduction would be
-refused by the browser rather than merely regretted. None of this applies to
-the API surface this app uses, which serves no HTML at all.
+**None.** The site sets no cookies, no `localStorage` and no `sessionStorage`.
+It runs no third-party analytics. The operators removed Google Analytics and
+its consent banner. The Content-Security-Policy on every page does not allow
+`googletagmanager.com` or `google-analytics.com`. Thus the browser blocks
+these scripts if someone adds them again. The API surface that this app uses
+serves no HTML, so this section does not apply to it.
 
-### Agent-written memory (not used by this app)
+### Writes to shared memory
 
-emem also has a writable memory surface. **This app exposes two entries to it and
-both are gated.** `emem_entity` mints a shared object identity and
-`emem_entity_link` binds a phrasing to one; both change what other agents resolve
-a name to, so both require an ed25519 attester block signed by a keypair the
-caller generates locally. A ChatGPT user holds no such key, so both refuse with a
-403 that names the missing field. No user content reaches the store by any route.
-For completeness:
-anything an agent explicitly writes to the shared store elsewhere is
-world-readable and permanent unless sealed. See
-https://emem.dev/privacy for the full statement.
+emem also has a writable memory surface. **This app exposes two write tools,
+and both refuse a ChatGPT user.**
+
+- `emem_entity` makes a shared object identity.
+- `emem_entity_link` binds a phrasing to an identity.
+
+Both tools change what other agents resolve a name to. Thus both need an
+ed25519 attester block, signed with a keypair that the caller makes locally.
+A ChatGPT user has no such key, so both tools return a 403 that names the
+missing field. No user content gets into the store through this app.
+
+Anything that an agent writes to the shared store from another client is
+world-readable and permanent, unless the agent seals it. The full statement
+is at https://emem.dev/privacy.
 
 ### Third-party sharing
 
-emem does not share query data with any third party. When a request needs data
-emem does not yet hold, the responder fetches it from public open-data
-providers **on its own behalf**; your IP is not forwarded to them. The
-providers are listed at https://emem.dev/privacy.
+emem does not share query data with third parties. Sometimes a request needs
+data that emem does not hold yet. Then the responder gets it from public
+open-data providers **on its own behalf**. The responder does not send your IP
+to them. https://emem.dev/privacy lists the providers.
 
 ### Your rights
 
-Because emem holds no account and no identifier for you, there is no profile to
-access, export or erase. Requests about the hosted responder's logs can be sent
-to the contact below.
+emem holds no account and no identifier for you. Thus there is no profile to
+access, export or erase. Send questions about the hosted responder's logs to
+the contact below.
 
 ### Contact
 
