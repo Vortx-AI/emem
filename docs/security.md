@@ -316,15 +316,16 @@ The live response `note` still points to `head_is_independently_witnessed`.
 The code comments call `independent_witness_count` a number that "a swarm of
 fresh keys inflates at will".
 
-On 7 November 2026, `/v1/log/witnesses` reported:
+On 7 November 2026 at 00:46 UTC, `/v1/log/witnesses` reported the values
+below. The tree size and the lag grow with each log entry.
 
 | Field | Value |
 |---|---|
-| `current_tree_size` | 3,243,106 |
+| `current_tree_size` | 3,243,880 |
 | `independent_witness_count` | 112 keys |
 | `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
 | `independent_operator_count` | 1 |
-| `freshest_independent_witness_entries_behind` | 11 |
+| `freshest_independent_witness_entries_behind` | 20 |
 | `head_is_independently_witnessed` | `false` |
 | `head_is_witnessed_by_independent_operator` | `false` |
 
