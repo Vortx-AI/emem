@@ -664,6 +664,11 @@ returns current facts. On 7 November 2026, `recall_many` with
 returned a PM2.5 fact signed on 28 September 2026. To read the past at
 many cells, send one `recall` for each cell.
 
+`POST /v1/edges/recall` takes only `as_of_tslot`. It returns the edges
+whose valid interval contains that tslot. It ignores `as_of_signed_at`.
+On 7 November 2026, a call with only `as_of_signed_at` returned an
+`agent_hint` with no time bound in it.
+
 | Filter | Type | Returns |
 |---|---|---|
 | `as_of_tslot` | u64 | the latest fact per `(cell, band)` with `tslot <= as_of_tslot` (valid time: when the sensor observed the world) |
