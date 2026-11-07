@@ -566,9 +566,9 @@ curl -s -X POST https://emem.dev/v1/memory/search \
 Each item in `hits` has `path`, `similarity`, `snippet`,
 `attester_pubkey_b32` and `url`. The `snippet` is a window of up to 200
 characters from the part of the note that matches best. When the window is
-only part of the note, `[...]` is added at both ends. Thus a snippet can
-have 212 characters. The search covers the notes of all agents. Use `path_prefix` or
-`attester_pubkey_b32` to keep one author. On 7 November 2026,
+only part of the note, the search adds `[...]` at both ends. Thus a
+snippet can have up to 212 characters. The search covers the notes of all
+agents. Use `path_prefix` or `attester_pubkey_b32` to keep one author. On 7 November 2026,
 `corpus_size` was 5,444. The search compares meaning, not exact text. It
 can rank poorly a note that differs from other notes only in its numbers.
 To find such a note, filter by path.
@@ -1998,12 +1998,22 @@ The parts:
 | `seg(tag, bytes)` | `tag`, then the length as u32 little-endian, then the bytes. |
 | `seg_list(tag, items)` | `tag`, then the item count as u32 little-endian, then each item as length and bytes. |
 | `[...]` | The segment is present only when the receipt body has the matching field. |
-| `manifest_hex` | Lowercase BLAKE3 hex of the canonical CBOR of a non-empty `source_versions` map. |
+| `manifest_hex` | Lowercase BLAKE3 hex of the CBOR of a non-empty `source_versions` map. The map keys are in plain string sort order, not in RFC 8949 order. See the note below the table. |
 | `field_hex` | Field responses only. Lowercase hex of a sub-preimage with domain `field` over `seg(0x01, aoi_cid)` and `seg(0x02, derivation_cid)`. |
 | `merkle_hex` | Lowercase hex of a sub-preimage with domain `merkle` over the inclusion proof. With no proof, the sub-preimage holds only the marker `seg(0x05, "")`. |
 
 Two different responses cannot have the same signed bytes. The Merkle
 tree uses the RFC 6962 domain separation for leaves and nodes.
+
+Do not use an RFC 8949 deterministic encoder for `manifest_hex`. RFC 8949
+sorts short keys by length first. The responder sorts the keys as plain
+strings: `bands_cid`, `registry_cid`, `schema_cid`, `sources_cid`. With
+the wrong order, every valid receipt fails, and the failure looks like a
+bad signature. `GET /v1/verifier_spec` gives a test vector in
+`manifest_hex_key_order.golden_vector`. On 7 November 2026, its four test
+pairs gave `de14467c...ea3915` in plain string order and `545f412b...e60569`
+in RFC 8949 order. The rule is in `manifest_versions_blake3_hex` in
+`crates/emem-storage/src/server.rs`.
 
 On 7 November 2026, `GET /v1/verifier_spec` gave the v0 rule as
 `request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*`.
@@ -2083,6 +2093,7 @@ def seg_list(tag: int, items):
 seg(0x01, r["request_id"].encode())
 seg(0x02, r["served_at"].encode())
 # 0x06, only when the receipt has a non-empty source_versions map.
+# Plain string key order, not RFC 8949 order (cbor2 canonical=True is wrong).
 if r.get("source_versions"):
     versions = dict(sorted(r["source_versions"].items()))
     manifest_hex = blake3.blake3(cbor2.dumps(versions)).hexdigest()
