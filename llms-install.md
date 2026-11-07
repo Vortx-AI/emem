@@ -24,8 +24,8 @@ The server has two endpoints:
 
 | Endpoint | Tools listed | Size of the tool list (7 November 2026) |
 |---|---|---|
-| `https://emem.dev/mcp` | 18, the core loop | 76,818 bytes, one page |
-| `https://emem.dev/mcp/full` | all 116 | 354,716 bytes, 9 pages of 2 to 20 tools |
+| `https://emem.dev/mcp` | 18, the core loop | 76,817 bytes, one page |
+| `https://emem.dev/mcp/full` | all 116 | 354,702 bytes, 9 pages of 2 to 20 tools |
 
 On `/mcp/full`, send the `nextCursor` value from each page to get the next page.
 The server cuts the pages by size, at about 45,000 bytes each. The number of pages can change when tool descriptions change.
@@ -42,7 +42,7 @@ curl -sX POST https://emem.dev/mcp \
   -H 'content-type: application/json' \
   -H 'accept: application/json, text/event-stream' \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | jq '.result.tools | length'
-# 18   (6 November 2026)
+# 18   (7 November 2026)
 ```
 
 ## Cline setup
@@ -83,7 +83,7 @@ VS Code and GitHub Copilot use `servers`. Put it in `.vscode/mcp.json`, or in th
 }
 ```
 
-If you use the wrong key, nothing tells you. The file parses, but the server does not load.
+If you use the wrong top-level name, nothing tells you. The file parses, but the server does not load.
 If you are an agent that writes this configuration for a user, identify which editor they use first.
 In VS Code, the tools show only in the **Agent** mode of Copilot Chat.
 Ask mode is the default and shows no tools, so it looks the same as a broken configuration.
@@ -100,11 +100,11 @@ code --add-mcp '{"name":"emem","type":"http","url":"https://emem.dev/mcp"}'
 The endpoints above do not need a library. If you want typed clients, install one of these:
 
 ```bash
-pip install ememdev          # Python, version 2.4.4 on PyPI (6 November 2026)
-npm i @vortxai/emem          # TypeScript, version 2.4.4 on npm (6 November 2026)
+pip install ememdev          # Python, version 2.4.4 on PyPI (7 November 2026)
+npm i @vortxai/emem          # TypeScript, version 2.4.4 on npm (7 November 2026)
 ```
 
-The package names are not `emem`, and the reason is intentional.
+The package names are not `emem`. There are two reasons.
 On PyPI, the name `emem` belongs to a different project.
 npm does not accept `ememdev` because it is too near the name of an existing package, so the JavaScript client has a scope.
 
@@ -130,7 +130,7 @@ The log is append-only. A deletion unpublishes the data. It does not erase it.
 ## Test prompts
 
 - "Ask emem for the elevation at Bengaluru, and quote the fact CID."
-  On 6 November 2026 the value was 915.07 m (`copdem30m.elevation_mean`).
+  On 7 November 2026 the value was 915.07 m (`copdem30m.elevation_mean`).
 - "Use emem to check if Helsinki Airport has surface-water signals that matter for flood risk."
 - "Verify the receipt from the previous answer, and say what the signature proves."
 
@@ -138,7 +138,7 @@ The log is append-only. A deletion unpublishes the data. It does not erase it.
 
 Each receipt has a `preimage_version` field. Read that field and use the rule for that version. Do not assume one version.
 
-| `preimage_version` | Status (6 November 2026) |
+| `preimage_version` | Status (7 November 2026) |
 |---|---|
 | 2 | Current. The signature also covers the inclusion proof. |
 | 1 | Emitted until 5 August 2026. Still valid. The signature does not cover the inclusion proof. |
@@ -157,5 +157,5 @@ The responder makes that document from the same code that signs receipts, so the
 - GitHub MCP Registry: https://github.com/mcp/Vortx-AI/emem
 - Official MCP Registry: `io.github.Vortx-AI/emem`
 - Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
-- Smithery registry entry: https://registry.smithery.ai/servers/vortxai/emem (the web page `smithery.ai/servers/vortxai/emem` returned 404 on 6 November 2026)
+- Smithery registry entry: https://registry.smithery.ai/servers/vortxai/emem (the web page `smithery.ai/servers/vortxai/emem` returned 404 on 7 November 2026)
 - Container: `ghcr.io/vortx-ai/emem:latest`
