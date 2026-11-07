@@ -611,7 +611,8 @@ the supersede. Your signature covers the target and the reason, so
 nobody can change either one later. The responder first checks the
 signature, the namespace owner and the rate limit, as for every write
 (see [Signed writes and namespaces](#signed-writes-and-namespaces)). Only
-the check for an empty `superseded_by` comes before them. Then it
+the path check and the check for an empty `superseded_by` come before
+them. Then it
 applies these rules:
 
 | Case | Result |
@@ -1575,8 +1576,10 @@ The response gives these items:
   `excluded_attesters`, the key and tier of each one (at most 20)
 - `truncated: true` when more items match than `limit`
 - `scan_truncated: true` when the circle holds more than 5,000 index
-  rows. The read stops at the nearest 5,000. Send a smaller `radius_m`
-  or a `fn_key_prefix` to reach the rest.
+  rows. The read scans the index tiles nearest first and stops after
+  5,000 rows. The rows inside one tile have no distance order. Send a
+  smaller `radius_m` to reach the rest. A `fn_key_prefix` makes the
+  scan smaller only for a read of one exact cell.
 - a mark on each value that it is data, not instructions
 - a sentence that says what a signature proves: who concluded
   something, never that it is true

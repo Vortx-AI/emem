@@ -278,13 +278,13 @@ EMEM_URL=http://127.0.0.1:5088 \
 cargo test -p emem-sleep-agent
 ```
 
-The crate has 16 unit tests. None of them calls a real LLM or emem.dev.
+The crate has 15 unit tests. None of them calls a real LLM or emem.dev.
 
 | Test | What it checks |
 |---|---|
 | `merge::tests::mock_llm_merge_writes_superseding_memory` | A full pass with a mock `LlmTransport` and a mock responder. The agent writes the merged text and the provenance trailer to the canonical path, with the inherited kind. |
 | `merge::tests::dry_run_selects_but_never_writes` | A dry run selects a candidate and prints a plan, but makes no LLM call and no write, even when a transport is available. |
-| `merge::tests::provenance_trailer_is_appended_not_replacing` | Only the cluster fixture (two members, first CID). It does not call `apply_merge`, so only the first test checks the trailer text. |
+| `merge::tests::provenance_trailer_is_appended_not_replacing` | It builds a cluster of two notes and asserts that the cluster has two notes and that the first CID is `cid-n/x-1`. It does not call `apply_merge`, so only the first test checks the trailer text. |
 | `candidates::tests::*` (4 tests) | Candidate selection over a JSON fixture: churn grouping, the severity floor, contradiction before churn, and an empty corpus. |
 | `lib::tests::*` (3 tests) | `normalize_stem`, the stem groups, and that the pass summary says `DRY-RUN`. |
 | `llm::tests::*` (4 tests) | The cost estimate from `usage`, and zero cost with no `usage`. No transport when the config names no LLM. The merge prompt holds every cluster entry. |
