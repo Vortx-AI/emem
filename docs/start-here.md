@@ -100,7 +100,7 @@ Do not make a REST path from a tool name.
 |---|---|---|
 | Give an AI agent in Claude, Cursor, VS Code or another MCP host access to emem | `claude mcp add --transport http emem https://emem.dev/mcp` | [Agents](agents.md) |
 | Call emem from your own Python or TypeScript code | `pip install ememdev` or `npm install @vortxai/emem` | [Quickstart](quickstart.md) |
-| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](../README.md#quickstart) | The tokenise-files skill in `plugins/emem/skills/` |
+| Prove that one part belongs to a file, and keep the other parts private | The tree example in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#quickstart) | The tokenise-files skill in `plugins/emem/skills/` |
 | Write signed notes that other agents can check | Make a key on your machine, then let the first refused write give you the digest to sign | [Memory](memory.md), and the [case study](case-studies/sugar-mill.md), section 3 |
 | Run your own node | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest` | [Self-host](self-host.md) |
 
@@ -111,7 +111,7 @@ Do not make a REST path from a tool name.
 - The first read of a new place can take tens of seconds, because emem reads the public archive first.
 - Notes are public, and the log keeps them. Do not write a secret in a note.
 
-The full list is in the [README](../README.md#what-the-checks-do-not-prove).
+The full list is in the [README](https://github.com/Vortx-AI/emem/blob/main/README.md#what-the-checks-do-not-prove).
 
 ## Next pages
 

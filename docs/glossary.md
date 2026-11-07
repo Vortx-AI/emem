@@ -37,7 +37,7 @@ term for one thing.
 | transparency log | The append-only Merkle log of everything emem signs. It follows RFC 6962, the Certificate Transparency standard. | [Protocol, section 9](protocol.md#9-append-only-attestation-log) |
 | STH, signed tree head | A signed snapshot of the log: its size and its root hash. Keep one, and later prove that the log only grew. | [`/v1/log/sth`](https://emem.dev/v1/log/sth) |
 | witness | An independent key that also signs a log head, so a server cannot show different histories to different readers. | [Federation](federation.md) |
-| guard | A checker that resolves each citation in a draft and answers allow or deny with a reason code, such as `PROV_SIG`. | [emem-guard](../crates/emem-guard/README.md) |
+| guard | A checker that resolves each citation in a draft and answers allow or deny with a reason code, such as `PROV_SIG`. | [emem-guard](https://github.com/Vortx-AI/emem/blob/main/crates/emem-guard/README.md) |
 
 ## Tokens
 
@@ -57,7 +57,7 @@ term for one thing.
 | fact plane, note plane | Facts come only from emem's own readers, enrolled devices and keys that the operator lists. Any key can write notes. Each plane has its own trust rules. | [Federation](federation.md) |
 | supersede | Mark your own older note as replaced by a newer note. The old bytes stay readable, and readers see `superseded_by`. | [Memory](memory.md) |
 | derive | Record a value that you computed from signed facts, signed with your key. For a pure operation (`delta`, `mean`, `sum`) emem computes it again before it records it. | [Protocol, section 5.2](protocol.md#52-derivativefact) |
-| `ulp_gap` | The distance, in steps of the last float digit, between emem's new calculation and your value. 0 means the bits are the same. | [README](../README.md) |
+| `ulp_gap` | The distance, in steps of the last float digit, between emem's new calculation and your value. 0 means the bits are the same. | [README](https://github.com/Vortx-AI/emem/blob/main/README.md#memory-that-changes-without-losing-its-history) |
 | memory kinds | Labels for a note from the CoALA agent-memory taxonomy: `episodic` (events), `semantic` (facts), `procedural` (methods), `resource`. | [Memory](memory.md) |
 | A2A | The agent-to-agent protocol. The agent card lists 18 main tools as A2A skills. `/v1/a2a/skills` lists all 116 tools (7 November 2026). | [`/.well-known/agent-card.json`](https://emem.dev/.well-known/agent-card.json), [`/v1/a2a/skills`](https://emem.dev/v1/a2a/skills) |
 | SSE | Server-Sent Events: an HTTP stream of new writes. It does not replay old events. | [Memory](memory.md) |
