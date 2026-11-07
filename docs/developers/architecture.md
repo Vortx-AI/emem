@@ -281,10 +281,11 @@ The responder key signs each materialized fact. Its
 `derivation.fn_key` names the function that made the value.
 
 On 7 November 2026, `GET /v1/materializers` lists 113 bands. The
-`agent_card` reports 115 materializer-wired band names. Most of them use
-these prefix families: `s2.*`, `overture.*`, `weather.*`, `era5.*`, `cams.*`,
-`marine.*`, `power.*`, `terraclimate.*`, `modis.*`, `geotessera.*`,
-`hansen.*`, `forest_change.*`, `soilgrids.*`, `firms.*`, `chirps.*`.
+`agent_card` reports 115 materializer-wired band names. In the 113 listed
+bands, the largest prefix families are `indices.*` (19), `s2.*` (13),
+`weather.*` (8), `modis.*`, `power.*`, `cams.*` and `era5.*` (7 each), and
+`soilgrids.*` (6). The code also has `chirps.*` and `geotessera.*`
+bands, but the emem.dev list did not show them that day.
 The dispatch table is `band_materializer_meta` in
 `emem-api-rest/src/lib.rs`.
 
@@ -311,8 +312,8 @@ filter from scanning one cell again for each tslot.
 
 `HammingThenRerank` sets its oversampling factor from an exponential
 moving average of `|hamming_top_k ∩ cosine_top_k| / k`. The average
-uses lock-free `AtomicU64` storage, decay 0.05 and a warm-up of about
-50 calls. Before warm-up the factor is 4.
+uses lock-free `AtomicU64` storage and gives each new value a weight of
+0.05. For the first 50 calls the factor is 4.
 
 When the query cell has no vector for the band, `find_similar` returns
 `ErrorCode::CidNotFound`. The hint names the bands that the cell does
