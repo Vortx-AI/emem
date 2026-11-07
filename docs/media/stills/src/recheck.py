@@ -6,11 +6,14 @@
 1. Finds every emem:fact: and emem:bundle: token in the saved data of the
    stills and films, resolves each one (read-only), and compares the live
    value with every saved copy of the same fact id.
-2. Gets the current signed tree head and a consistency proof from the head
+2. Reads again the file (emem:tree:) and device (emem:trace:) tokens of
+   what-crosses.webp: the tree root and leaf must match the saved ones, and
+   trace_verify must still admit the trace.
+3. Gets the current signed tree head and a consistency proof from the head
    in log-proof.webp to it, and checks both offline with the plugin's
    verify_log.py.
 
-Read-only calls, about one per token plus three for the log, with a 0.5 s
+Read-only calls, about one per token plus three for what-crosses and two for the log, with a 0.5 s
 pause between calls. Standard library only. Exit 0 when every check passed.
 """
 from __future__ import annotations
@@ -27,6 +30,7 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 DATA_DIRS = [ROOT / "docs/media/stills/src/data", ROOT / "docs/media/films/src"]
+CROSSES = ROOT / "docs/media/stills/src/data/crosses"
 LOG_HEAD = ROOT / "docs/media/stills/src/data/log/inclusion_fuji.json"
 VERIFY_LOG = ROOT / "plugins/emem/skills/emem-transparency-log/scripts/verify_log.py"
 BASE = "https://emem.dev"
@@ -94,6 +98,33 @@ def check_tokens():
     return bad == 0
 
 
+def check_crosses():
+    """Read again the file and device tokens of what-crosses.webp and compare."""
+    ok = True
+    saved = json.loads((CROSSES / "tree_row1.json").read_text())
+    try:
+        live = call(f"/v1/tree/{saved['file_cid']}?row=1")
+        same = all(live.get(k) == saved[k] for k in ("root_b32", "leaf_b32", "rows", "note_root_matches"))
+        ok &= same
+        print(f"tree    {'ok  ' if same else 'DIFF'} {saved['token']}  rows {live.get('rows')}")
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        print(f"ERROR   tree: {e}")
+    time.sleep(0.5)
+    tr_saved = json.loads((CROSSES / "trace_resolve.json").read_text())
+    try:
+        tr = call("/v1/trace_resolve", {"token": "emem:trace:" + tr_saved["trace_cid"]})
+        time.sleep(0.5)
+        v = call("/v1/trace_verify", {"trace": tr["trace"], "profile": tr["trace"]["device"]["substrate_profile"]})
+        same = tr["trace_cid"] == tr_saved["trace_cid"] and v.get("verdict") == "admit"
+        ok &= same
+        print(f"trace   {'ok  ' if same else 'DIFF'} emem:trace:{tr['trace_cid'][:12]}...  verdict {v.get('verdict')}")
+    except Exception as e:  # noqa: BLE001
+        ok = False
+        print(f"ERROR   trace: {e}")
+    return ok
+
+
 def check_log(out):
     first = json.loads(LOG_HEAD.read_text())["sth"]["tree_size"]
     now = call("/v1/log/sth")
@@ -114,6 +145,7 @@ def main():
     out = a.out or pathlib.Path(tempfile.mkdtemp(prefix="emem-recheck-"))
     out.mkdir(parents=True, exist_ok=True)
     ok = check_tokens()
+    ok = check_crosses() and ok
     ok = check_log(out) and ok
     return 0 if ok else 1
 
