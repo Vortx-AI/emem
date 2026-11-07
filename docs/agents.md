@@ -1907,9 +1907,16 @@ anyone fetch the log leaf that a verdict names. The page
 ## Verify a receipt offline
 
 The field `preimage_version` in each receipt selects the signing rule.
-emem.dev signs new receipts with v2. On 7 November 2026,
-`GET /v1/verifier_spec` gave `receipt.current_emitted_version: 2`. Older
-receipts use v1, and they still verify. Both rules hash a
+There are three rules:
+
+| `preimage_version` | Rule | Signed today |
+|---|---|---|
+| absent or `0` | v0: a plain join of the fields with `\|` | No. `POST /v1/verify_receipt` still verifies them. |
+| `1` | v1: the tagged byte stream below | No. These receipts still verify. |
+| `2` | v2: v1 plus segment `0x0b`, the inclusion proof | Yes |
+
+On 7 November 2026, `GET /v1/verifier_spec` gave
+`receipt.current_emitted_version: 2`. The v1 and v2 rules hash a
 domain-separated, length-prefixed byte stream:
 
 ```
@@ -1939,12 +1946,10 @@ The parts:
 Two different responses cannot have the same signed bytes. The Merkle
 tree uses the RFC 6962 domain separation for leaves and nodes.
 
-Receipts from before the cutover have no `preimage_version` field. They
-verify under the first rule, a plain join. On 7 November 2026,
-`GET /v1/verifier_spec` gave it as
+On 7 November 2026, `GET /v1/verifier_spec` gave the v0 rule as
 `request_id|served_at|[scope|][as_of|][edges|][manifest|]primitive|cell,*|cid,*`.
 The optional parts are present only when the receipt has them. The
-trailing commas are part of the rule.
+trailing commas are part of the rule. The script below does not do v0.
 
 The public key is in `responder_pubkey_b32` (base32, no padding) and in
 the byte array `responder`. Both hold the same 32-byte Ed25519 key.
@@ -1957,7 +1962,7 @@ This script verifies a live receipt. It needs four packages:
 pip install requests blake3 cbor2 cryptography
 ```
 
-On 7 November 2026 the script printed
+At 08:20 UTC on 7 November 2026 the script printed
 `VALID, signed by 777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka`.
 The script does not build segments `0x03` to `0x05`. It stops with a
 message for a receipt that has `scope`, `as_of` or `edge_cids`. Send such a
