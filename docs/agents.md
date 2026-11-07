@@ -1227,6 +1227,12 @@ curl -sS -X POST https://emem.dev/v1/guard/verdict \
 { "action": "allow", "checked": 1, "advisory": true, "receipt": { ... } }
 ```
 
+<img src="media/stills/guard-check.webp" alt="Three drafts checked by live calls to POST /v1/guard/verdict on 7 November 2026. The cited fact is the Table Mountain elevation, 1069.01 m. Draft 1 states 1069.01 m and cites the fact: citation verified, allow. Draft 2 cites the same fact but states 1250 m: deny, PROV_VALUE, fix correct_value. Draft 3 states 1250 m with no citation: allow by default, deny CLAIM_UNGROUNDED with claim_gating=true. Each receipt verifies." width="540">
+
+The still shows four live verdicts on one cited fact. The claim rule is off by
+default and narrow. It finds a place name only after a word such as "at" or
+"in", so it did not flag "Table Mountain rises to 1250 m." on 7 November 2026.
+
 Read `checked` for what it says. It counts the citations the responder looked
 at, not the ones that resolved, so a token this responder does not hold still
 counts: change one character of that cid and the same body comes back as

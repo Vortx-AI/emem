@@ -10,6 +10,7 @@ The new files follow [visual-language.md](visual-language.md).
 | README line (7 November 2026) | Now | Proposed | Why |
 |---|---|---|---|
 | 211, section "Why you can trust it" | `docs/media/readme/02-verify.gif` (1,034,577 bytes, a screen recording of the verify page) | Poster `docs/media/films/emem-fact-to-check-poster.webp` linked to `docs/media/films/emem-fact-to-check.mp4` | The section says that one changed byte changes the id and that the receipt verifies. The film shows both with live values: the receipt passes, then one changed character in the receipt fails with `signature_invalid`. |
+| 225, under the paragraph about `emem-guard` | `docs/media/readme/04-guard.gif` (231,519 bytes, a screen recording) | `docs/media/stills/guard-check.webp` (184,624 bytes) | The paragraph says that the guard answers allow or deny with a reason and a `fix`. It also says that a stricter claim rule is off by default. The still shows live verdicts on one Table Mountain fact: allow, then deny `PROV_VALUE` with `correct_value`. An uncited number passes by default and fails with `claim_gating=true`. |
 
 ## Markup for the swap at line 211
 
@@ -17,7 +18,13 @@ The new files follow [visual-language.md](visual-language.md).
 <a href="docs/media/films/emem-fact-to-check.mp4"><img src="docs/media/films/emem-fact-to-check-poster.webp" alt="Film, 33 seconds, silent. Mount Fuji becomes the cell defi.zb592.nUkO.zEzE. emem signs one fact there: copdem30m.elevation_mean 3539.04 m. Agent A passes the emem:fact token to Agent B. Agent B resolves it and verify_receipt returns valid. One changed character in the receipt gives signature_invalid. Live calls to emem.dev on 7 November 2026." width="720"></a>
 ```
 
-Do not delete `02-verify.gif` before the signed README stops using it.
+## Markup for the swap at line 225
+
+```html
+<img src="docs/media/stills/guard-check.webp" alt="Three drafts checked by live calls to POST /v1/guard/verdict on 7 November 2026. The cited fact is the Table Mountain elevation, 1069.01 m. Draft 1 states 1069.01 m and cites the fact: citation verified, allow. Draft 2 cites the same fact but states 1250 m: deny, PROV_VALUE, fix correct_value. Draft 3 states 1250 m with no citation: allow by default, deny CLAIM_UNGROUNDED with claim_gating=true. Each receipt verifies." width="720">
+```
+
+Do not delete `02-verify.gif` or `04-guard.gif` before the signed README stops using them.
 
 ## Additions
 
