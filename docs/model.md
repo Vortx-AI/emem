@@ -321,8 +321,10 @@ These items are missing, in order of dependency:
 
 1. Composition over more than one step, as signed objects. The worlds
    bake already derives splats from facts with bilinear weights that you
-   can derive again. But the splat layer is in a sidecar, not in the
-   fact model.
+   can derive again. But a script outside the responder
+   (`examples/3d-worlds/make_splats.py`, run by
+   `scripts/bake_worlds.sh`) writes the splats to files. They are not
+   facts.
 2. The one-traversal `lineage(O)` graph from
    [Open formal work](#open-formal-work).
 3. A target language. For example, you ask for a mesh at a cell. The
@@ -376,7 +378,7 @@ The mechanisms above already give most of an execution substrate:
 |---|---|
 | What exists at this cell? | every recall returns `bands_already_attested_at_cell` |
 | What is still valid? | `temporal_route` ranks the bands by staleness score in `cite_now`, and the bands for an intent in `fetch_for_intent` |
-| What replaced what? | supersede edges |
+| What replaced what? | for notes, the `superseded_by` field that `emem_memory_supersede` sets ([memory.md](./memory.md#reading-superseding-and-deleting)) |
 | Why believe it? | the receipt |
 | How do I state a goal? | a recall with a band list is `ensure`: you state what must exist, and the responder decides to use a stored value or to fetch |
 
