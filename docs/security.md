@@ -489,14 +489,19 @@ python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py recall.json
 ```
 
 Check that the log holds the entry for that receipt. Use the
-`merkle_proof.log_entry_hash` from the receipt, and the `sth.tree_size`
-from the head:
+`merkle_proof.log_entry_hash` from the receipt. Do not add `tree_size`:
+the script checks the proof against the head inside the same response.
+A proof at an older size gives `INVALID` when the log has grown.
 
 ```sh
 curl -s https://emem.dev/v1/log/sth -o sth.json
-curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>&tree_size=<tree_size>' -o inclusion.json
+curl -s 'https://emem.dev/v1/log/inclusion?entry_hash=<log_entry_hash>' -o inclusion.json
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py inclusion inclusion.json
 ```
+
+The head inside `inclusion.json` can be newer than `sth.json`. To
+connect them, save its `sth` object as `inclusion_sth.json`. Then run
+the `consistency` command below with `sth.json` and `inclusion_sth.json`.
 
 Keep `sth.json`. Later, get a new head and prove that the log only grew
 between the two heads:
@@ -507,15 +512,14 @@ curl -s 'https://emem.dev/v1/log/consistency?first=<old tree_size>&second=<new t
 python3 plugins/emem/skills/emem-transparency-log/scripts/verify_log.py consistency sth.json new_sth.json consistency.json
 ```
 
-On 7 November 2026 all three checks gave `VALID` against emem.dev. The
-inclusion proof was for leaf 2,463,431 at `tree_size` 3,243,860, with 22
-hashes. The consistency proof went from size 3,243,767 to 3,243,860, with
-19 hashes.
+On 7 November 2026 at 02:47 UTC all three checks gave `VALID` against
+emem.dev. The receipt was from a recall at Mount Fuji. Its inclusion
+proof was for leaf 2,788,378 at `tree_size` 3,245,983, with 22 hashes.
+The consistency proof went from size 3,245,983 to 3,245,984, with 14
+hashes.
 
-The scripts do not check two things. The `inclusion` command verifies the
-head inside the inclusion response, so compare its `root_b32` with the
-`sth.json` that you kept. The link from the log entry to the receipt's
-Merkle root is step 7 of
+The scripts do not check the link from the log entry to the receipt's
+Merkle root. That is step 7 of
 [protocol §9.6.1](./protocol.md#961-check-an-inclusion-proof-by-hand).
 Do that step by hand.
 
