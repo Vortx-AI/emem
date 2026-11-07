@@ -105,8 +105,8 @@ query with the same bound later and compare the answer. A receipt without
 a bound has no `as_of` block, so old receipts still verify.
 
 A read with only `as_of_tslot` can fetch and sign the fact again on a miss.
-The tslot stays the same, but `signed_at` can change. The tslot 20589 fact
-in the table above was signed on the day of the call. To get the same
+The tslot stays the same, but `signed_at` can change. emem signed the tslot
+20589 fact in the table above on the day of the call. To get the same
 signed fact later, also send `as_of_signed_at`.
 
 A past `as_of_signed_at` does not fetch new data on a miss. emem signs a
