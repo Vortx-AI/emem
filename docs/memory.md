@@ -1270,7 +1270,8 @@ curl -s -X POST https://emem.dev/v1/memory_contradictions \
   -d '{"cell_prefix":"defi.zb592","limit":3}'
 ```
 
-It scanned 67 keys and found 2 records. Both were at cell
+It scanned 67 keys and found 2 records. The `GET` form with the same
+`cell_prefix` scanned the same 67 keys. Both were at cell
 `defi.zb592.nemu.zEvE`:
 
 | `band` | `tslot` | `kind` | `severity` | `disagreement_scope` | attestations |
@@ -1278,7 +1279,10 @@ It scanned 67 keys and found 2 records. Both were at cell
 | `copdem30m.provenance` | 0 | `mixed` | 1.0 | `multi_attester` | 89 |
 | `geotessera.multi_year` | 54 | `vector` | `null` | `same_attester_provider_substitution` | 5 |
 
-The second record has a `null` severity. Its vectors contain `null`
+The first record has 89 facts from 89 distinct attesters. Each value is
+a map, not a number, a vector or text. So the scan uses the `mixed`
+scorer, which always gives 1.0. The
+second record has a `null` severity. Its vectors contain `null`
 (NaN) entries, so the cosine score is not a number. The scan does not
 drop such a record. Its `providers[]` shows `geotessera_multi_year@1`
 for two facts and `geotessera_multi_year@2` for three.
