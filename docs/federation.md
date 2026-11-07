@@ -1,860 +1,1048 @@
-# Federation & scale-out (design)
+# Federation and scale-out (design)
 
-> Status: **design**. None of the multi-host routing below ships yet in the 1.x line.
-> What ships today is the substrate that makes it safe: content
-> addressing, signed receipts, multi-attester contradiction scoring, and a
-> deterministic refinement loop. This document is the plan for turning one
-> hosted responder + self-hosted nodes into a federation, and for breaking
-> the single-host write ceiling along the way.
+This page is a design. Most of it does not ship. The table below says what
+runs today and what does not. The rest of the page explains the plan and the
+reasons for it.
+
+| Part | State in 2.4.4, checked on 7 November 2026 |
+|---|---|
+| Content addressing, signed receipts, offline verification | ships |
+| Multi-attester index and `memory_contradictions` scoring | ships |
+| Transparency log with witness co-signatures (`/v1/log/*`) | ships |
+| Witness job `scripts/witness_peers.py` and its timer | ships, runs on emem.dev every 15 minutes |
+| Node identity: `/.well-known/did.json`, `_emem-node` DNS check | ships |
+| `federation` block in `/.well-known/emem.json` | ships |
+| Enlistment ladder (`GET /v1/enlist`) | ships; enforcement is on by default |
+| `cid_v1` beside `fact_cid` on recall | ships |
+| `docker-compose.yml` for a witness node | ships |
+| Read federation (peer resolve, §4a) | not built |
+| Write sharding (§4b) | not built; its first premise was false |
+| Cross-node disagreement (§4c) | not built |
+| Routing and directory (§4d) | not built |
+| C2SP checkpoints, SCITT receipts, export and import (§9c) | not built |
 
 ## 1. Why scale out: the single-host ceiling
 
-emem today is one process: an `emem-server` binary over a single embedded
-`sled` store plus an append-only merkle log. Two limits are already
-visible in production:
+Today emem is one process. The `emem-server` binary writes facts to one
+embedded store and one append-only Merkle log. The store is `facts.redb`
+(the default of `EMEM_HOT_BACKEND`). Before the redb cutover it was a `sled`
+database. Production showed two limits.
 
-- **Write contention is a single-writer bottleneck.** Every cold write
-  funnels through one `sled` instance and one append-only merkle log. The
-  log append was moved off the async worker (group-fsync via
-  `spawn_blocking`) and the per-write index flushes were coalesced, but the
-  *ordering* is still a single writer. On 2026-06-02 a fan-out of ~96
-  in-flight materialise tasks (16 cells × 6 bands on one EUDR plot)
-  saturated sled + the HTTP client and wedged `/v1/recall` for *every*
-  cell. The fix that day was to cap concurrency; the structural fix is to
-  stop funnelling all writes through one store.
-- **The runtime has silently stalled** (2026-05-31, -06-12, -06-15): the
-  process stays alive but the tokio runtime wedges (CLOSE-WAIT pileup,
-  accept backlog saturates). The `emem-watchdog` turns that into a
-  ~2-minute self-heal, but a single process is a single failure domain.
+The first limit is one writer. Every cold write uses one store and
+one log. Two changes lowered the cost: the log append moved off
+the async worker (group fsync in `spawn_blocking`), and the store now merges
+per-write index flushes. The order of writes still comes from one writer. On
+2026-06-02, about 96 materialise tasks ran at the same time (16 cells by 6
+bands on one EUDR plot). They saturated `sled` and the HTTP client, and
+`/v1/recall` stopped for every cell. The fix that day was a concurrency cap.
+The structural fix is to stop sending all writes through one store.
 
-Vertical tuning (done in Phases 0 and 1) lowered the constant factors. The
-ceiling itself (one writer, one failure domain, one machine's RAM/disk/GPU)
-is structural. Scale-out removes it.
+The second limit is one failure domain. On 2026-05-31, 2026-06-12 and
+2026-06-15 the process stayed alive but the tokio runtime stopped. Sockets
+piled up in CLOSE-WAIT and the accept backlog filled. `emem-watchdog` restarts
+the process in about 2 minutes. One process is still one failure domain.
+
+This tuning made each write cheaper. It did not remove the
+ceiling: one writer, one failure domain, and the RAM and disk of one machine.
+Scale-out removes it.
 
 ## 2. What already makes federation possible
 
-Federation is unusually cheap here because the hard part (*trust without a
-central authority*) is already solved by the data model:
+The hard part of federation is trust without a central authority. The data
+model already gives that.
 
-- **Content addressing.** A fact id is `blake3(canonical_cbor(fact))`. The
-  same `(cell, band, tslot, value, derivation)` hashes to the same id on
-  every machine. An id *is* the bytes' fingerprint, so any node can serve
-  any id and the client re-derives the hash to confirm it got the right
-  bytes.
-- **Offline-verifiable signatures.** Every receipt is ed25519-signed over a
-  domain-separated, length-prefixed preimage and verifies against the
-  responder's public key with no call back to that responder. A client
-  trusts the *signature*, not the server.
-- **Registry CIDs pin provenance.** Every receipt carries `bands_cid`,
-  `algorithms_cid`, `sources_cid`, `schema_cid`. A peer running drifted
-  registries returns a different `bands_cid` on `/health`; divergence is
-  visible *before* any data flows.
-- **Read-resolution already exists.** `/v1/fetch` resolves a fact by id;
-  `memory_token` / `memory_bundle` mint `fact_url`s explicitly meant to be
-  "handed to any other peer"; `responder_pubkey_b32` is surfaced so callers
-  can detect a multi-responder setup.
-- **Disagreement is already a first-class value.** The multi-attester index
-  + `memory_contradictions` score where two attesters signed different
-  values at the same `(cell, band, tslot)`, per band kind (scalar spread /
-  vector cosine / categorical mode-share). Federation makes "two attesters"
-  mean "two nodes" without changing the scoring.
-- **Refinement is deterministic.** A fact is re-derived when a newer
-  attestation or a `disagrees_with` edge lands; the same loop works
-  whether the trigger is local or from a peer.
+- Content addressing. A fact id is `blake3(canonical_cbor(fact))`. The same
+  `(cell, band, tslot, value, derivation)` gives the same id on every machine.
+  Any node can serve any id. The client hashes the bytes again to confirm it
+  got the right ones.
+- Offline signatures. Every receipt carries an Ed25519 signature over a
+  domain-separated, length-prefixed preimage. It verifies against the
+  responder's public key with no call back to that responder. A client trusts
+  the signature, not the server.
+- Registry CIDs. Every receipt carries `bands_cid`, `algorithms_cid`,
+  `sources_cid` and `schema_cid`. A peer with different registries shows a
+  different `bands_cid` on `/health`. You see the difference before any data
+  moves.
+- Fetch by id. `/v1/fetch` returns a fact by id. `memory_token` and
+  `memory_bundle` make `fact_url` values that any peer can use.
+  `responder_pubkey_b32` tells a caller which responder signed.
+- Disagreement as data. The multi-attester index and `memory_contradictions`
+  score places where two attesters signed different values at one
+  `(cell, band, tslot)`. The score depends on the band kind: spread for
+  scalars, cosine for vectors, mode share for categories. With federation,
+  "two attesters" can mean "two nodes". The scoring does not change.
+- Deterministic refinement. A newer attestation or a `disagrees_with` edge
+  makes the responder derive the fact again. The same loop works for a
+  trigger from a peer.
 
-The model is effectively a **content-addressed CRDT**: facts merge by id,
-and conflicts are *recorded* (multi-attester + `disagrees_with` edges), not
-resolved by a vote. That is the property that lets independent nodes
-converge without consensus.
+The model is a content-addressed CRDT. Facts merge by id. The store records a
+conflict (multi-attester rows and `disagrees_with` edges). No vote settles
+it. That lets independent nodes converge without consensus.
 
 ## 3. End state
 
-Many responders, one address space. A content id means the same bytes
-everywhere; every responder signs under its own key; a client trusts the
-signature, not the server. Where two responders disagree at a key, the
-network records it, and the shared memory gets *more* trustworthy as more
-agents read and write against it.
+Many responders share one address space. A content id means the same bytes on
+every node. Each responder signs with its own key, and a client trusts the
+signature, not the server. When two responders disagree at a key, the network
+records the disagreement. More readers and writers make the shared memory
+more trustworthy, because each disagreement becomes visible evidence.
 
 ## 4. Design, in phases
 
-Each phase is independently shippable and useful on its own. Read
-federation first (lowest risk, immediate value); write sharding second (the
-contention fix); cross-node disagreement third; automatic routing last.
+Each phase is useful alone and can ship alone. The order is: read federation
+first (lowest risk), write sharding second (the contention fix), cross-node
+disagreement third, and automatic routing last.
 
-### 4a: Read federation (peer resolve)  ·  *the thin prototype*
+### 4a: Read federation (peer resolve), the thin prototype
 
-On a local id miss, fetch the id from configured peers and **verify before
-trusting**: re-derive `blake3(canonical_cbor(fact)) == requested_id` and
-check the responder signature against the peer's published pubkey. Cache
-the verified fact locally (it is now equally ours; the id proves it).
+When a node does not hold an id, it asks its configured peers. It verifies
+the answer before it trusts it. It checks that
+`blake3(canonical_cbor(fact)) == requested_id`. It checks the responder
+signature against the peer's published key. Then it caches the fact. The id
+proves the bytes, so the cached copy is as good as the original.
 
-- Config: `EMEM_PEERS=https://a.example,https://b.example` (static list).
-- Surface: extend `/v1/fetch` (and `memory_token/resolve`) so a 404
-  becomes a peer fan-out → first verified hit wins.
-- Trust: a peer that returns bytes whose hash ≠ the requested id, or a bad
-  signature, is ignored (and the mismatch logged). **No peer is trusted to
-  be honest, only to be checkable.**
-- Risk: low. Read-only, verify-before-cache, no write-path change.
+- Configuration: a static list, `EMEM_PEERS=https://a.example,https://b.example`.
+  The variable exists today with a smaller meaning: the peers that this node
+  witnesses, listed in `/.well-known/emem.json` (§8d item 2). The prototype
+  would make the same list the peers that this node asks.
+- Surface: `/v1/fetch` and `memory_token/resolve`. A local 404 becomes a
+  query to each peer. The first verified answer wins.
+- Trust: the node ignores a peer that returns a wrong hash or a bad
+  signature, and logs the mismatch. No peer needs to be honest. Each peer
+  only needs to be checkable.
+- Risk: low. It only reads, it verifies before it caches, and it does not
+  change the write path.
 
-This is the recommended first build; see §6.
+This is the recommended first build. Section 6 gives the steps.
 
 ### 4b: Write sharding (break the single-writer ceiling)
 
-Shard the write path by `cell64` prefix. **The premise this plan used to
-rest on is false and the plan needs re-deriving before anyone builds it.**
+The plan is to shard the write path by `cell64` prefix. The premise this plan
+used to rest on is false. Re-derive the plan before anyone builds it.
 
-It said the grid is Hilbert-ordered, so a contiguous prefix range is a
-contiguous patch of Earth. The active codec is 21 bits of latitude by 22
-of longitude, and a Hilbert curve requires equal-bit axes, which
-`crates/emem-codec/src/geo.rs` states plainly: "Hilbert locality at the
-cell-key level is dropped here". Only the bigram ALPHABET is
-Hilbert-ordered.
+The old premise said the grid is Hilbert-ordered, so a contiguous prefix range
+is a contiguous patch of Earth. The active codec uses 21 bits of latitude and
+22 bits of longitude. A Hilbert curve needs axes with equal bits.
+`crates/emem-codec/src/geo.rs` says so: "Hilbert locality at the cell-key
+level is dropped here". Only the bigram alphabet is Hilbert-ordered.
 
-Measured against the live responder rather than argued: from one origin,
-a neighbour 10 m north and a cell 1 km north share the SAME two leading
-bigrams of four. A neighbour 10 m east shares three. So prefix depth
-separates the longitude axis from the latitude axis and carries no
-information about distance along latitude, which is exactly the property
-a spatial shard would need.
+A test on the live responder confirmed it. From one origin, a cell 10 m north
+and a cell 1 km north share the same 2 leading bigrams of 4. A cell 10 m east
+shares 3. Prefix depth separates longitude from latitude. It carries no
+information about distance along latitude, and a spatial shard needs exactly
+that information.
 
-What survives: prefix ranges still partition the space disjointly, so
-sharding by prefix still gives N parallel single-writers, which was the
-load-bearing half. What does not survive is "spatially coherent region":
-a node owning a prefix range owns a set of cells that is not a patch, so
-any argument about locality of upstream fetches, tile reuse or cache
-warmth has to be re-derived or dropped.
+What remains true: prefix ranges still split the space into disjoint sets. So
+N prefix owners still give N parallel single writers, which was the main
+benefit. What is no longer true: a prefix range is not a patch of land. Any
+argument about local upstream fetches, tile reuse or warm caches needs a new
+derivation, or you drop it.
 
-- Each node owns one or more `cell64` prefix ranges; writes for a cell go
-  to its owner (or are forwarded there). N owners ⇒ N parallel
-  single-writers instead of one global one.
-- The merkle log shards per owner-range: parallel append-only logs, each a
-  single writer, each independently snapshot/replayable. The global
-  inclusion-proof story becomes per-shard proofs + a shard directory (see
-  §4d) rather than one global tree.
-- Reads stay global via §4a: any node resolves any id from the owner (or a
-  cached copy) and verifies offline.
+- Each node owns one or more `cell64` prefix ranges. A write for a cell goes
+  to its owner, or the receiving node forwards it there. N owners give N
+  parallel writers.
+- The Merkle log splits per owner range. Each range has its own append-only
+  log with one writer. An operator can snapshot and replay each log alone.
+  Inclusion proofs become per-shard proofs plus a shard directory (§4d).
+- Reads stay global through §4a. Any node resolves any id from the owner or a
+  cached copy, and verifies it offline.
 
 ### 4c: Cross-node disagreement (federate the multi-attester index)
 
-When a node resolves an id from a peer and already holds a *different*
-value at the same `(cell, band, tslot)`, append it to the multi-attester
-index exactly as a second local attester would. `memory_contradictions`
-then scores cross-node disagreement with zero new machinery, and a
-`disagrees_with` edge triggers the existing refinement loop.
+A node can resolve an id from a peer while it holds a different value at the
+same `(cell, band, tslot)`. In that case it adds the peer's value to the
+multi-attester index, as for a second local attester. `memory_contradictions`
+then scores the cross-node disagreement with no new code. A `disagrees_with`
+edge starts the existing refinement loop.
 
-### 4d: Routing / directory (which node owns a cell)
+### 4d: Routing and directory (which node owns a cell)
 
-Start static, evolve to gossip:
+Start with static configuration and move to gossip:
 
-1. **Static ownership map** (config): `cell64`-prefix → owner URL, plus a
-   peer list. Deterministic, debuggable, good enough for a handful of
-   nodes.
-2. **Rendezvous / consistent hashing** on prefix ranges so ownership
-   rebalances predictably as nodes join/leave.
-3. **Gossip directory**: nodes advertise which `cell64` ranges they hold
-   (and their pubkey + registry CIDs), so resolution and write-routing stop
-   needing static config. This is the only genuinely new distributed
-   component; everything before it is config + the existing verify path.
+1. Static ownership map in configuration: `cell64` prefix to owner URL, plus
+   a peer list. It is deterministic, easy to debug and enough for a few nodes.
+2. Rendezvous or consistent hashing on prefix ranges. Ownership then moves in
+   a predictable way when nodes join or leave.
+3. Gossip directory. Each node advertises its `cell64` ranges, its public key
+   and its registry CIDs. Resolution and write routing then need no static
+   configuration. This is the only new distributed component. The steps before
+   it use configuration and the existing verify path.
 
 ## 5. Trust model
 
-No node trusts another node's *compute*; it only verifies its *output*:
+No node trusts the compute of another node. It only verifies the output.
 
-- **Bytes**: re-derive the blake3 id; reject on mismatch.
-- **Signature**: ed25519 verify offline against the peer's published
-  pubkey; reject on mismatch.
-- **Registry alignment**: compare the peer's four manifest CIDs against
-  ours; a drifted peer is *usable but flagged* (its facts land as a
-  distinct attester, so disagreements surface in contradiction scoring
-  rather than silently overwriting).
+| Check | How | On failure |
+|---|---|---|
+| Bytes | compute the BLAKE3 id again | reject |
+| Signature | verify Ed25519 offline against the peer's published key | reject |
+| Registry alignment | compare the peer's four manifest CIDs with the local ones | accept, but flag |
 
-There is no global lock, no cross-node transaction, no leader. Convergence
-is by content address; conflict is recorded, not voted on.
+A flagged peer's facts land as a separate attester. Their disagreements then
+show in contradiction scoring and do not overwrite local facts.
+
+There is no global lock, no cross-node transaction and no leader. Nodes
+converge by content address. Each node records a conflict. No node votes on it.
 
 ### 5a. Enlistment: who may write, and what they proved
 
-Federation makes the write question sharper, not softer. One responder's bad
-entity binding becomes every peer's bad entity binding, so the property that
-has to survive scale-out is **who was entitled to write, checkable by a third
-party that trusts neither node**.
+Federation makes the write question more important. One responder's bad
+entity binding becomes the bad binding of every peer. So the property that
+must survive scale-out is this: a third party that trusts neither node can
+check who had the right to write.
 
-The objection that forced this is worth quoting, because it is correct and it
-is not "add OAuth". `NousResearch/hermes-agent#79583`, closed 2026-08-25:
+The objection that forced this design is correct, and its answer is not
+"add OAuth". It is from `NousResearch/hermes-agent#79583`, closed 2026-08-25:
 
-> a no-auth shared memory that arbitrary agents read AND write is a textbook
-> cross-agent prompt-injection and data-poisoning surface: anyone can plant
-> content that other agents will recall as fact.
->
-> Signed provenance mitigates attribution, not injected-instruction risk.
+```text
+a no-auth shared memory that arbitrary agents read AND write is a textbook
+cross-agent prompt-injection and data-poisoning surface: anyone can plant
+content that other agents will recall as fact.
 
-The second sentence is the one to internalise. A signature says *who* wrote a
-thing. It does not stop a reader obeying it, and it does not say the writer was
-entitled to write *there*. Anyone can mint an ed25519 key, so "signed" is a
-floor, not a bar.
+Signed provenance mitigates attribution, not injected-instruction risk.
+```
 
-**Reads are never gated, at any tier, on any surface.** A reader cannot poison
-anything, and gating reads would trade the one property that makes this
-substrate worth using for no security gain at all. There is no account, no
-bearer token that grants anything, and no payment anywhere in the ladder.
+The second sentence matters most. A signature says who wrote a thing. It does
+not stop a reader from obeying it. It does not say the writer had the right to
+write there. Anyone can make an Ed25519 key, so a signature is the minimum,
+not the bar.
 
-**Writes are gated on blast radius, never on identity.** The question is not
-"how much do we trust this key" but "how far does what it writes reach, and
-what did it prove commensurate with that":
+No tier and no surface gates a read. A reader cannot poison
+anything. A read gate would cost the main property of the substrate and add
+no security. There is no account, no bearer token that grants anything, and
+no payment in the ladder.
 
-| Surface | Min tier | Why |
+The gate on a write depends on its reach, never on identity. The question is how far a write
+reaches, and what the writer proved in proportion to that reach. The live
+ladder at `GET /v1/enlist` on 7 November 2026:
+
+| Surface | Minimum tier | Why |
 |---|---|---|
-| read anything | `T0` | never gated |
-| own-namespace prose | `T1` | the floor, and free: a stranger's agent writes on first contact with nothing but a signature |
-| shared entity address space | `T3` | `entity` + `entity_link` change what *every* agent resolves a name to |
-| fact plane | `T4` | no caller can write a fact today by any route; this states the rule rather than relying on the absence of a door |
+| read anything | `T0_anonymous` | never gated |
+| own-namespace prose | `T1_keyed` | the floor, and free: a stranger's agent writes on first contact with only a signature |
+| shared entity address space | `T3_declared` | `entity` and `entity_link` change what every agent resolves a name to |
+| fact plane | `T4_affiliated` | only three writers may write an address: the responder's materialiser, a device enrolled through the OS-trace gate, and a key in `EMEM_FACT_PLANE_WRITERS`. Storage refuses all others with 403 `level_too_low` |
 
-A **tier is a record of which check passed, never a score**. `trust:
-caller_decides` is the best property on the roster and this must not erode it.
-No tier says a party is trustworthy; each says what was verified and what a
-peer may conclude. The full ladder is served, machine-readable, at
-`GET /v1/enlist`.
+An earlier version of this row said that no caller could write a fact by
+any route. That was wrong: the three writers above can. The rule is in
+`crates/emem-storage/src/lib.rs`. On a test node, `EMEM_FACT_PLANE_OPEN=1`
+lets any signing key write facts, and the server says so at boot.
 
-**Why DNS and `.well-known` rather than OAuth.** Browser OAuth 2.1 + Dynamic
-Client Registration authenticates a *session*: did a human, in a browser, just
-now authorise this client. An autonomous agent has neither, so DCR degrades to
-a bearer token that proves possession and says nothing about accountability,
-and it is structurally uncompletable headless. What an agent needs
-authenticated is the **principal**: who is accountable for what this key says.
-That is name control, solved three times already by DKIM, ACME and Certificate
-Transparency.
+Derivations and edges take no address. They stay open at T1.
+
+Two rungs of the ladder are not complete. The responder does not compute
+`T5_corroborated` yet, so no key reaches it. For `T2_named` it checks the
+signed `profile.md`, but it does not enforce a unique nick. Both gaps are in
+the `computed_here` block of `GET /v1/enlist` (7 November 2026).
+
+A tier records which check passed. It is never a score. `trust:
+caller_decides` stays true. No tier says that a party is trustworthy. Each
+tier says what the responder checked and what a peer may conclude from it.
+
+#### Why DNS and `.well-known`, not OAuth
+
+Browser OAuth 2.1 with Dynamic Client Registration (DCR) authenticates a
+session: a human in a browser just authorised this client. An autonomous
+agent has no human and no browser. DCR then becomes a bearer token. The token
+proves possession and says nothing about accountability. A headless agent
+also cannot complete the flow. What an agent needs is proof of who is
+accountable for what a key says. That is name control, which DKIM, ACME and
+Certificate Transparency already solve.
 
     _emem-agent.vortx.ai   TXT   "v=emem1; k=<52-char key>; nick=cosmos-eye"
 
-The decisive property is **re-verification by a third party**. A bearer token
-proves nothing to a third agent; a DNS record proves the same thing to
-everyone, for ever, without trusting the responder that recorded it, and it
-survives that responder's compromise, because the evidence does not live on
-its disk. That is the same argument that makes emem's receipts worth having,
-turned on identity. For federation it is the load-bearing one: a peer node can
-re-check an affiliation itself instead of inheriting our verdict.
+The decisive property is that a third party can verify again. A bearer token
+proves nothing to a third agent. A DNS record proves the same thing to
+everyone, at any time, without trust in the responder that recorded it. It
+also survives a compromise of that responder, because the evidence is not on
+its disk. For federation this is the main argument: a peer node checks an
+affiliation itself and does not inherit another node's verdict.
 
-Every attestation carries `checked_at`, is rendered with its age, and expires,
-because a check from last month is a claim about the present made from the
-past. Verification targets must be public names: IP literals, local names, and
-any name resolving into private, loopback, link-local or CGNAT space are
-refused, and redirects are not followed. The residual gap between resolving a
-name and connecting to it is not closed, and is documented as a bound rather
-than described as safe.
+Each attestation carries `checked_at`, shows its age and expires after 30
+days (`EVIDENCE_TTL_SECS` in `enlistment.rs`). A check from last month is a
+claim about the present made from the past. A verification target must be a
+public name. The responder refuses IP literals, local names, and names that
+resolve into private, loopback, link-local or CGNAT space. It does not follow
+redirects. The gap between resolving a name and connecting to it is still
+open. The code documents it as a known limit, not as safe.
 
-**Shipping state.** The ladder, the checks and the gate are live; enforcement
-is off by default (`EMEM_ENLISTMENT_ENFORCE=1`). `entity` and `entity_link`
-have accepted anonymous writes since they shipped, so a gate turned on in one
-deploy would break every peer mid-flight to close a hole that has been open for
-months. Shadow mode records exactly who would be refused and why, and returns
-that verdict to the caller in the response rather than only to a log, so a
-writer learns before the day it matters.
+#### What is live
+
+The ladder, the checks and the gate are live. Enforcement is on by default
+in the code (`enlistment_enforcing` in `crates/emem-api-rest/src/lib.rs`).
+An operator turns it off with `EMEM_ENLISTMENT_ENFORCE` set to `0`, `off`,
+`false` or `shadow`. emem.dev sets `EMEM_ENLISTMENT_ENFORCE=1`
+(`deploy/systemd/emem-server.service`).
+Earlier releases defaulted to shadow mode. `entity` and
+`entity_link` accepted anonymous writes from the day they shipped, so
+enforcement in one deploy would have broken every peer at once.
+Shadow mode records which writes the gate would
+refuse, and why.
+It returns that verdict to the caller in the response, not only to a log, so
+a writer learns before enforcement starts.
 
 ## 6. The first build: a peer-resolve prototype
 
-The smallest slice that proves federation end-to-end and is safe on the
-live serving path:
+This is the smallest slice that proves federation end to end and is safe on
+the live serving path. Nobody has built it yet.
 
 ```
 EMEM_PEERS=https://emem.dev,https://mirror.example   # static peer list
 
 GET /v1/fetch/<fact_cid>:
-  1. local hit?            → serve (unchanged)
-  2. local miss + peers?   → for each peer, GET /v1/fetch/<cid>:
+  1. local hit?            -> serve (unchanged)
+  2. local miss + peers?   -> for each peer, GET /v1/fetch/<cid>:
        a. re-derive blake3(canonical_cbor(body)) == <cid>   else skip peer
        b. verify ed25519 receipt signature vs peer pubkey   else skip peer
-       c. first peer that passes both → cache locally + serve, citing the
+       c. first peer that passes both -> cache locally + serve, citing the
           originating responder pubkey in the response
-  3. no peer has it        → typed 404 (unchanged)
+  3. no peer has it        -> typed 404 (unchanged)
 ```
 
-Properties: read-only, verify-before-cache, no write-path or schema
-change, no new distributed state. It exercises content addressing +
-offline verification across a process boundary (the whole trust model)
-without committing to sharding or routing. Everything in §4b through §4d builds on
-the verify primitive this establishes.
+It only reads, it verifies before it caches, and it changes no write path and
+no schema. It adds no distributed state. It tests content addressing and
+offline verification across a process boundary, which is the whole trust
+model. It does not commit to sharding or routing. Sections 4b to 4d build on
+the verify step it adds.
 
 ## 7. Non-goals (for now)
 
-- **No consensus protocol.** Facts merge by id; disagreements are recorded.
-  A BFT/raft layer would contradict the "trust the signature, not the
-  server" model.
-- **No global deletion guarantee.** Content-addressed + replicated data
-  cannot be unilaterally un-published from peers; deletion/redaction across
-  a federation is an open policy question (see §8), not a v1 feature.
-- **No cross-node compute trust.** A node never runs another node's
-  algorithm and trusts the result; it re-derives or re-verifies.
+- No consensus protocol. Facts merge by id, and nodes record disagreements. A
+  BFT or Raft layer would contradict "trust the signature, not the server".
+- No global deletion guarantee. One node cannot remove content-addressed,
+  replicated data from its peers. Deletion and redaction across a federation
+  is an open policy question (§7a), not a feature.
+- No cross-node compute trust. A node never runs the algorithm of another
+  node and trusts the result. It derives or verifies again.
 
 ### 7a. Open questions
 
-- **Prefix-ownership rebalancing** when a node joins/leaves mid-write:
-  hand-off protocol + the window where two nodes think they own a range.
-- **Pubkey distribution / rotation**: bootstrapping which pubkeys to trust
-  (the `key_epoch` field anticipates rotation; the distribution channel is
-  undesigned).
-- **Per-shard merkle proofs.** The global inclusion story under §4b: a
-  client verifying a fact needs the right shard's proof + a trustable shard
-  directory.
-- **GDPR / redaction** across replicas (see §7 non-goal); likely a
-  signed-tombstone + refusal-to-serve convention rather than true deletion.
+| Question | What is missing |
+|---|---|
+| Prefix-ownership rebalancing | a hand-off protocol for a node that joins or leaves during a write. Also a rule for the time when two nodes both think they own a range |
+| Public key distribution and rotation | `key_epoch` allows rotation. No design says yet how peers learn which keys to trust |
+| Per-shard Merkle proofs | under §4b a client needs the right shard's proof and a shard directory it can trust |
+| GDPR and redaction across replicas | probably a signed tombstone plus a refusal to serve, not true deletion |
 
 ## 8. The four-node network, and anyone after that
 
-The nodes, decided 2026-09-02:
+The owner decided these roles on 2026-09-02. The last column is what
+`scripts/verify_node.py` reported for each origin on 7 November 2026.
 
-| Node | Hardware | Role |
+| Node | Planned role | State on 7 November 2026 |
 |---|---|---|
-| `emem.dev` | A100, moving to AWS | full node: materialisers, GPU paths, the write plane it has today |
-| `eudr.dev` | small CPU | read replica, verifier, witness |
-| `vrtx.ai` | good CPU | read replica, witness, writes under its own attester namespace |
-| `geo.qa` | good CPU | read replica, witness, writes under its own attester namespace |
-| anyone else | theirs | read federation and witnessing, writes under their own namespace |
+| `emem.dev` | full node: materialisers and the write plane | meets the witness bar (5 of 5) |
+| `geo.qa/emem` | read replica and witness; writes under its own attester namespace | meets the witness bar (5 of 5) |
+| `eudr.dev` | read replica, verifier and witness | not a node: 1 of 4 checks met (`/.well-known/did.json` only); the fifth check, that the STH key and the `/live` key agree, needs both routes |
+| `vrtx.ai` | read replica and witness; writes under its own attester namespace | no answer |
+| anyone else | read federation and witnessing; writes under their own namespace | see §8e |
 
-### 8a. Phase 0 is not new code. It is turning on what is already built.
+`eudr.dev` is not a node, but its domain vouches for one witness key. On 7
+November 2026 `/v1/log/witnesses` listed it as the only independent operator
+domain.
 
-`/v1/log/witness` accepts an ed25519 co-signature over `(tree_size, root)` and
-verifies both the signature and that the root matches the tree at that size.
-`/v1/log/consistency` proves one head is an append-only prefix of another.
-`/v1/log/witnesses` lists what has been co-signed. All of it ships today.
+### 8a. The witness routes ship today
 
-**And it was idle.** On 2026-09-02 the log stood at 1,539,209 entries with
-`head_is_witnessed: false`, three distinct witnesses, and the freshest
-co-signature 58,145 entries behind. The signatures that existed were made by
-hand and stopped. The mechanism that makes a multi-node network safe **without
-consensus** was built, deployed, documented, and not running.
+These routes ship today:
 
-It runs now. `scripts/witness_peers.py` fetches every peer's `/v1/log/sth`,
-verifies the responder's signature over the PreimageV1 bytes, proves growth
-from the head this node last co-signed with `/v1/log/consistency` (an exact
-port of `emem_attest::translog::verify_consistency`, checked against four
-served proofs and a tampered one before its first signature left the box),
-and co-signs. `deploy/systemd/emem-witness.timer` runs it every 15 minutes. Later that
-day `head_is_witnessed` was `true` at 1,541,075, zero entries behind. Each new
-node installs the same unit pointed at the other three; the pin it keeps in
-`~/.config/emem/witness_state.json` is the evidence a peer's consistency proof
-must satisfy.
+| Route | What it does |
+|---|---|
+| `GET /v1/log/sth` | the signed tree head |
+| `POST /v1/log/witness` | accepts an Ed25519 co-signature over `(tree_size, root)`; checks the signature and that the root matches the tree at that size |
+| `GET /v1/log/consistency` | proves one head is an append-only prefix of another |
+| `GET /v1/log/inclusion` | proves an entry is in the tree; `tree_size` selects a past head, and an unknown argument gets 400 |
+| `GET /v1/log/witnesses` | lists the co-signatures and the witness lag |
 
-Since the same day the job also spot-checks custody, which a co-signature
-says nothing about: four leaves per tick, sampled from the co-signed root and
-the witness key so no peer knows them in advance, bytes re-hashed, inclusion
-proved against the STH the route returns, and that STH proved an append-only
-extension of the co-signed head. `/v1/log/inclusion` proves against the
-current head and silently ignores a `tree_size` argument; the first draft
-passed one, every proof failed against the older root, and the binding now
-goes through a consistency proof instead. A route that refused an unknown
-argument would have said so in one line.
+On 2026-09-02 the routes were idle. The log held 1,539,209 entries,
+`head_is_witnessed` was `false`, three witnesses existed, and the freshest
+co-signature was 58,145 entries behind. People had made the signatures by
+hand, and then stopped.
 
-Two things the controls caught before they shipped, kept here because every
-node operator will write this job once. A verifier written from memory of RFC
-6962 had the spine-advance parity inverted: it rejected every real proof while
-still rejecting tampered ones, which looks like rigour and is not. And
-"same tree_size" is not "unchanged": a log that rewrites an entry in place
-keeps its count and changes its root, and the first draft co-signed that
-without comparing roots. The job now refuses a same-size, different-root head
-as a rewrite, and a dry run never advances the pin, because the pin records
-what was co-signed, not what was looked at.
+Now a job runs them. `scripts/witness_peers.py` does these steps for each
+peer:
 
-What that buys, precisely: **a node cannot show two different histories to two
-different peers without one of them holding a signed head that fails a
-consistency proof.** That is Certificate Transparency's gossip property, and it
-is the whole reason this network does not need a chain.
+1. Fetch the peer's `/v1/log/sth` and verify the responder signature over
+   the PreimageV1 bytes.
+2. Check the signer against the peer's `did.json` and its `_emem-node` DNS
+   record (§8d).
+3. Prove growth from the last head it co-signed, with `/v1/log/consistency`.
+   The proof check is a port of `emem_attest::translog::verify_consistency`.
+   Before its first co-signature, the port ran against four served proofs
+   and one tampered proof.
+4. Co-sign the head.
+5. Spot-check custody (below). `EMEM_WITNESS_SAMPLES` sets the number of
+   leaves, 4 by default.
 
-**Measured both directions, 2026-09-05.** Outbound, this node co-signs
-`https://geo.qa/emem`: tree_size 72, unchanged root, signer resolved to
-`did:web:geo.qa:emem`, four sampled leaves re-hashed and proved. Inbound, and
-this is the half that actually buys the property above, an independent witness
-co-signs this log: `ttecxvf3drdt...`, 88 entries behind a 5,000 limit, with 43
-of the last 200 co-signatures made by a key that is not ours. This tree stood
-at 1,618,506. Two of the four nodes are up, so phase 0 is real and it is a
-pair, not a mesh.
+`deploy/systemd/emem-witness.timer` runs the job every 15 minutes. The job
+keeps its pin in `~/.config/emem/witness_state.json`. A peer's next
+consistency proof must extend that pin. The job needs a witness key in
+`~/.config/emem/agent_identity.json` and the `pynacl` and `blake3` packages.
+It reads the key file even with `--dry-run`. §8e shows how to make a key and
+do a dry run.
 
-**`head_is_witnessed` does not measure federation, and it is the first number
-anyone will reach for.** `storage_liveness.py`, the watchdog's write canary,
-co-signs the current head every two minutes to time a write and catch a store
-that answers reads while refusing them. That is a good probe, and it shares a
-key and an endpoint with witnessing, so the flag ends up answering "did
-anything sign this head" and is almost always true. A node cannot catch itself
-serving two histories, so the number worth alarming on is the lag of witnesses
-that are NOT this node: `scripts/external_witness_lag.py`, run every 30 minutes
-by `emem-witness-lag.timer`, exits 2 on a stale peer and 3 when no peer is
-witnessing at all. Those are different repairs, which is why they are different
-exit codes.
+The custody check matters because a co-signature says nothing about custody.
+The job samples 4 leaves per run from the co-signed root and the witness key,
+so no peer knows them in advance. It re-hashes the bytes and proves inclusion
+against the head the route returns. Then it proves that head extends the
+co-signed head. A peer can ask that its entries stay private. For an origin
+in `~/.config/emem/entries_private.json`, the job checks inclusion only and
+does not read the entries. `geo.qa` asked for this, because from
+2026-11-06 its node logs reads about a partner's private area. The job
+also checks inclusion only when the entries route of a peer answers 401 or
+403 (`audit_custody` in `scripts/witness_peers.py`). It does not count that
+answer as a custody failure.
 
-### 8b. What we take from web3, and what we refuse
+In September `/v1/log/inclusion` ignored `tree_size`, so the
+first draft failed every proof against the older root. On 7 November 2026 the
+route used `tree_size` and refused an unknown argument with 400.
 
-Taken, because they were the real advances and emem already has them:
-content addressing, so an id is a fingerprint and any node may serve it;
-key-based identity with no accounts; Merkle inclusion proofs; and gossiped
-transparency logs, which are Certificate Transparency's idea rather than a
-blockchain's.
+Two bugs appeared before the job shipped. Every node operator will write
+this job once, so this page records them.
 
-Refused, each for a stated reason:
+- A verifier written from memory of RFC 6962 had the spine-advance parity
+  inverted. It rejected every real proof and still rejected tampered ones.
+  That looks like rigour and is not.
+- The same `tree_size` does not mean "unchanged". A log that rewrites an
+  entry in place keeps its size and changes its root. The first draft
+  co-signed that without a root comparison. The job now refuses a same-size,
+  different-root head as a rewrite. A dry run never moves the pin, because
+  the pin records what the job co-signed, not what it read.
 
-- **No token, and no incentive layer.** A token turns "who may write" into a
-  market and creates the sybil pressure it then has to defend against. Nothing
-  here is scarce: the expensive resource is upstream fetches, and those are
-  already bounded per node.
-- **No global consensus, no chain, no validator set.** This is a
-  content-addressed CRDT: facts merge by id and **conflict is recorded, not
-  voted on**. Consensus would be strictly worse than what exists, because it
-  forces one answer where two attesters legitimately disagree, and that
-  disagreement is the signal `memory_contradictions` exists to surface. There
-  is nothing to capture because there is no leader.
-- **No on-chain anchoring as a dependency.** A node may anchor a tree head
-  anywhere it likes; nothing may require it, or the network inherits that
-  chain's liveness and cost.
-- **No "decentralised therefore trustless".** Every node is trusted for
-  nothing and verified for two things: the bytes hash to the id, and the
-  signature checks against a published key. That is the entire trust model and
-  it does not improve with more nodes.
+What witnessing buys: a node cannot show two histories to two peers unless
+one peer holds a signed head that fails a consistency proof. That is the
+gossip property of Certificate Transparency. It is the reason this network
+needs no chain.
 
-### 8c. The three attacks, and which one is actually open
+#### Measured state
 
-**Serving wrong bytes: closed.** A peer returning bytes whose blake3 does not
-equal the requested id is detected by the reader, always, without trusting
-anyone. A hostile node can withhold, not forge.
+On 2026-09-05 both directions worked. Outbound, emem.dev co-signed
+`https://geo.qa/emem` at tree size 72. The root did not change, the signer
+resolved to `did:web:geo.qa:emem`, and 4 sampled leaves re-hashed and proved.
+Inbound, an independent witness (`ttecxvf3drdt...`) co-signed emem.dev's log
+88 entries behind. Of the last 200 co-signatures, 43 came from a key that
+emem.dev does not hold. The emem.dev tree then held 1,618,506 entries.
 
-**Split view: closed by 8a, open until then.** A node showing different
-histories to different peers is exactly what witnessing detects, and today
-nothing is witnessing.
+On 7 November 2026 at 02:29 UTC, `GET /v1/log/witnesses` on emem.dev
+returned:
 
-**Sybil writes: open, and not closable by identity.** Anyone can mint unlimited
-ed25519 keys, so counting signatures is worthless and always will be. The
-answer is not to gate identity -- that would cost the property this substrate
-exists for -- but that **weight is the reader's judgement, not the network's**:
-`trust: caller_decides`. Sybils multiply signatures, not credibility. What the
-network owes a reader is the evidence to judge with: who signed, what they
-proved (the T0-T4 ladder), whether that proof is re-checkable by a third party
-(DNS/`.well-known`, per §5a), and where signers disagree. A reader who weighs
-an unaffiliated key the same as a DNS-verified one has made a choice; a network
-that made it for them would be the thing we are avoiding.
+| Field | Value |
+|---|---|
+| `current_tree_size` | 3,245,740 |
+| `count` (co-signatures) | 49,589 |
+| `independent_witness_count` | 112 keys |
+| `witness_keys_by_tier` | 111 `key_only`, 1 `org_vouched`, 1 `self_operator` |
+| `independent_operator_count` | 1 |
+| `independent_operator_domains` | `eudr.dev` |
+| `freshest_independent_operator_entries_behind` | 5 |
+| `head_is_witnessed_by_independent_operator` | `false` |
+| `head_is_independently_witnessed` | `false` |
 
-The honest bound: this makes poisoning **attributable and visible**, not
-impossible. A reader that ignores provenance is still poisonable, and no
+Thus nearly all witness keys have no vouching. The lag changes from
+minute to minute. At 07:02 UTC on the same day,
+`freshest_independent_operator_entries_behind` was 23 and
+`freshest_independent_witness_entries_behind` was 2. At 08:13 UTC, both
+fields were 38. The tier counts were the same each time.
+
+The outbound direction also ran that day. `GET /v1/log/witnesses` on
+`https://geo.qa/emem` at 07:55 UTC showed that emem.dev's key
+(`k572x7go72uo...`) co-signed the geo.qa head at tree size 142 at 07:47 UTC,
+0 entries behind. geo.qa lists that key as `key_only`, because geo.qa holds
+no fresh enlistment evidence for it. Each row shows this in its `tier`
+field, and the totals show `witness_keys_by_tier` `{"key_only": 1}`.
+So on geo.qa, `head_is_independently_witnessed` was `true` and
+`head_is_witnessed_by_independent_operator` was `false`.
+
+#### Read the independent fields, not `head_is_witnessed`
+
+`head_is_witnessed` does not measure federation. `storage_liveness.py`, the
+watchdog write canary, co-signs the current head every 2 minutes. It times a
+write and catches a store that answers reads but refuses writes. It shares a
+key and an endpoint with witnessing. So `head_is_witnessed` answers "did
+anything sign this head". A node cannot catch itself showing two histories.
+Six reads over two minutes on 7 November 2026 gave `true` three times. The
+node's own co-signature was 0 or 1 entry behind the head each time.
+
+The fields that bear on split view leave out `self_witness_pubkey_b32`.
+Of these, read `head_is_witnessed_by_independent_operator` and
+`freshest_independent_operator_entries_behind` first. They count only
+`org_vouched` witnesses. An `org_vouched` key has DNS TXT or well-known
+evidence for its operator domain, and that evidence is younger than 30 days.
+A key under one of the node's own domains (`EMEM_TLS_DOMAINS` or the public
+origin host) is `self_operator`, not `org_vouched`.
+`head_is_independently_witnessed` and `independent_witness_count`
+count any key that is not the node's own. Keys cost nothing to make, so
+those two fields do not count parties (`witness_tier` in
+`crates/emem-api-rest/src/lib.rs`).
+
+`scripts/external_witness_lag.py` alarms when no other key witnesses the log.
+It does not check for a vouched operator.
+It reads the co-signature list, not the operator fields. It drops each key
+that you give with `--self-key` and checks the freshest of the rest. Give it
+every key your host signs with, or it counts them as independent.
+`emem-witness-lag.timer` runs it every 30 minutes. The exit codes differ
+because the repairs differ:
+
+| Exit | Meaning |
+|---|---|
+| 0 | an independent witness is within `--max-behind` entries (default 5000) |
+| 2 | independent witnesses exist, but all are older than `--max-behind` |
+| 3 | no independent witness at all |
+| 4 | the script could not read `/v1/log/witnesses` |
+
+On 7 November 2026, `--origin https://emem.dev` with no `--self-key` printed
+`ok` and named `k572x7go72uo` as 0 entries behind. That key belongs to
+emem.dev itself, so that `ok` is false. The unit at
+`deploy/systemd/emem-witness-lag.service` passes it with `--self-key`.
+
+### 8b. What emem takes from web3, and what it refuses
+
+emem takes the real advances, and it already has them:
+
+- content addressing, so an id is a fingerprint and any node may serve it;
+- key-based identity with no accounts;
+- Merkle inclusion proofs;
+- gossiped transparency logs, which come from Certificate Transparency, not
+  from a blockchain.
+
+emem refuses these, each for a stated reason:
+
+- No token and no incentive layer. A token makes "who may write" a market,
+  and that creates the sybil pressure it must then defend against. Nothing
+  here is scarce. The expensive resource is upstream fetches, and each node
+  already limits them.
+- No global consensus, no chain, no validator set. This is a
+  content-addressed CRDT: facts merge by id, and nodes record a conflict
+  and do not vote on it. Consensus forces one answer where two attesters can both be
+  right. That disagreement is the signal `memory_contradictions` surfaces.
+  There is no leader, so there is nothing to capture.
+- No on-chain anchoring as a dependency. A node may anchor a tree head on any
+  chain. No rule may require it, or the network takes on that chain's
+  liveness and cost.
+- No "decentralised, therefore trustless". The network trusts no node for
+  anything and verifies each node for two things. The bytes hash to the id,
+  and the signature checks against a published key. That is the whole trust
+  model, and more nodes do not improve it.
+
+### 8c. The three attacks, and which one is open
+
+| Attack | State | Why |
+|---|---|---|
+| A node serves wrong bytes | closed | the reader checks the BLAKE3 hash against the id, with no trust in anyone; a hostile node can withhold bytes, not forge them |
+| Split view | closed by §8a, open while independent witnesses lag the head | a node that shows two histories fails a consistency proof at one of its witnesses. On 7 November 2026 emem.dev had one independent operator domain, and its newest co-signature was behind the head. "Measured state" in §8a gives the values |
+| Sybil writes | open, and identity cannot close it | anyone can make unlimited Ed25519 keys, so a count of signatures is worthless |
+
+The answer to sybil writes is not an identity gate. That gate would cost the
+property this substrate exists for. Weight is the reader's judgement, not the
+network's: `trust: caller_decides`. Sybils add signatures, not credibility.
+The network owes the reader the evidence to judge:
+
+- who signed;
+- what they proved (the T0 to T5 ladder; the code does not compute T5 yet, §5a);
+- whether a third party can check that proof again (DNS or `.well-known`, §5a);
+- where signers disagree.
+
+A reader who gives an unaffiliated key the same weight as a DNS-verified key
+has made a choice. A network that made that choice for the reader would be
+the thing this design avoids.
+
+The honest limit: this makes poisoning attributable and visible, not
+impossible. An attacker can still poison a reader that ignores provenance. No
 protocol fixes that.
 
 ### 8d. Order of work
 
-1. **Witness mesh across the four.** No server change. Closes split view.
-   Running since 2026-09-02 and verified both ways on 2026-09-05, for the two
-   nodes that exist: `emem.dev` and `geo.qa` witness each other. `eudr.dev` and
-   `vrtx.ai` are not up, so this is a witnessed pair and calling it a mesh
-   would be flattering it.
-2. **Peer resolve** (§4a, `EMEM_PEERS`). Still not implemented, and the old
-   note here is now wrong in a way worth keeping straight: `EMEM_PEERS` IS read
-   by a crate, at `emem-api-rest/src/lib.rs`, but only to DECLARE peers in the
-   `federation` block of `/.well-known/emem.json`. No read path resolves against
-   a peer, and there is no `peer_resolve` in any crate. A declared peer and a
-   queried peer are different things and the well-known file only proves the
-   first. Read-only, verify-before-cache, when it is built.
-3. **Node identity in DNS. Done 2026-09-05, both halves.**
-   `_emem-node.emem.dev` and `_emem-node.geo.qa` carry `v=emem1; k=<pubkey>`,
-   and both match the key their node actually signs with. The record went up on
-   2026-09-02 and for three days nothing read it, which made it decoration:
+1. Witness mesh across the four nodes. No server change. It closes split
+   view. It has run since 2026-09-02 and worked both ways on 2026-09-05. Only
+   `emem.dev` and `geo.qa` are nodes, so this is a witnessed pair, not a mesh.
+2. Peer resolve (§4a). Not built. `emem-api-rest/src/lib.rs` reads
+   `EMEM_PEERS`, but only to list peers in the `federation` block of
+   `/.well-known/emem.json`. No read path asks a peer, and no crate has a
+   `peer_resolve`. A declared peer and a queried peer are different things.
+   The well-known file proves only the first.
+3. Node identity in DNS. Done on 2026-09-05, both halves.
+   `_emem-node.emem.dev` and `_emem-node.geo.qa` carry `v=emem1; k=<pubkey>`.
+   Each matches the key its node signs with (checked again on 7 November
+   2026).
+
+   The record went up on 2026-09-02, and for three days nothing read it.
    `identify_signer` asks the peer's own web server for
-   `/.well-known/did.json`, so on its own it established only that the box
-   agrees with itself.
+   `/.well-known/did.json`. Alone, that proves only that the box agrees with
+   itself.
 
-   `verify_node_dns` now resolves the TXT for each peer and compares it to the
-   `responder_pubkey_b32` of the STH whose signature was just checked. A
-   mismatch is a finding and the head is not co-signed; a missing record reads
-   `unchecked` and does not block, because a witness that refuses every peer
-   who has not published one witnesses nothing. Resolution goes over DoH to the
-   same resolver `enlistment.rs` uses for `_emem-agent`, so an operator debugs
-   one resolver rather than two and the job needs no DNS tooling on the box.
+   `verify_node_dns` in the witness job now resolves the TXT record for each
+   peer. It compares the record with the `responder_pubkey_b32` of the STH it
+   just verified. A mismatch is a finding, and the job does not co-sign. A
+   missing record reads `unchecked` and does not block, because a witness that
+   refuses every peer without a record witnesses nothing. The lookup uses DoH
+   to the same resolver that `enlistment.rs` uses for `_emem-agent`. An
+   operator debugs one resolver, and the job needs no DNS tools on the host.
 
-   Verified against a control first, because a check that passes is not
-   evidence it can fail: the real key at `geo.qa` confirms, `emem.dev`'s key at
-   `geo.qa` is a `DNS MISMATCH` and blocks, `emem.dev`'s own key at `emem.dev`
-   confirms, and a domain with no record reads `unchecked` and does not block.
+   The check ran against controls first, because a check that passes is no
+   evidence that it can fail:
 
-   What it buys: moving a peer's key now takes both their web server and their
-   DNS zone, which are usually different systems under different operators.
-4. **Cross-node disagreement** (§4c): a peer's facts land as a distinct
-   attester, so existing contradiction scoring works unchanged.
-5. **Routing** (§4d) last, and only if read federation proves insufficient.
+   | Case | Result |
+   |---|---|
+   | the real key at `geo.qa` | confirms |
+   | `emem.dev`'s key at `geo.qa` | `DNS MISMATCH`, blocks |
+   | `emem.dev`'s key at `emem.dev` | confirms |
+   | a domain with no record | `unchecked`, does not block |
 
-Write sharding (§4b) stays where §4b leaves it: its premise was found false and
-it needs re-deriving before anyone builds it.
+   An attacker who wants to move a peer's key now needs both its web server
+   and its DNS zone. Different people usually run those two systems.
+4. Cross-node disagreement (§4c). A peer's facts land as a separate attester,
+   so the existing contradiction scoring works without change.
+5. Routing (§4d). Last, and only if read federation is not enough.
+
+Write sharding (§4b) stays where §4b leaves it. Its premise was false, so someone
+must derive the plan again before anyone builds it.
 
 ### 8e. What each new node must publish before it counts as joined
 
-Two roles, because the first version of this section had one and our only peer
-failed it. geo.qa is a PRIVATE deployment: `/emem/health`,
-`/emem/.well-known/emem.json` and `/emem/openapi.json` all answer 401, so the
-four registry CIDs it holds are not readable by anyone. Under the old wording
-that made it unjoined, which is absurd, because it is a perfectly good witness
-and has been co-signing this log for days. A node that holds no public data is
-arguably a BETTER witness, not a worse one. So the bar depends on what the node
-asks to be trusted for.
+There are two roles. The first version of this section had one role, and the
+only peer of emem.dev failed it. `geo.qa` is a private deployment. Its `/emem/health`,
+`/emem/.well-known/emem.json` and `/emem/openapi.json` answer 401, so nobody
+can read its four registry CIDs. The old rule called it "not joined". That was
+wrong: it is a good witness and has co-signed this log since September. A
+node that holds no public data can be a better witness. So the bar depends on
+what the node asks others to trust.
 
-**A WITNESS** attests that it saw a head. It must publish, without credentials:
+A witness attests that it saw a head. It must publish these, with no
+credentials:
 
-- `/v1/log/sth`, so its own head is checkable
-- a stable `responder_pubkey_b32` (in the STH, and in `/live`)
+- `/v1/log/sth`, so a third party can check its own head;
+- a stable `responder_pubkey_b32`, in the STH and in `/live`;
 - `_emem-node.<domain> TXT "v=emem1; k=<52-char key>"`, so a third party can
-  bind the key to the name without asking either of us
-- `/.well-known/did.json`, so the signer resolves to a DID
+  bind the key to the name without asking either node;
+- `/.well-known/did.json`, so the signer resolves to a DID.
 
-That is the whole list. It is deliberately short: witnessing is the one job that
-gets stronger the less the witness holds, and a bar that demands a corpus keeps
-out exactly the parties whose independence is worth most. geo.qa meets this and
-is joined as a witness.
+That is the whole list. It is short on purpose. The witness job is the one job
+that gets stronger the less the witness holds. A bar that demands a corpus
+keeps out the parties whose independence is worth most. `geo.qa` meets this
+bar and has joined as a witness.
 
-**A RESOLVER** additionally asks readers to fetch facts from it, so it must
-publish everything a reader needs to check what it serves:
+A resolver also asks readers to fetch facts from it. It must also publish
+what a reader needs to check those facts:
 
 - the four registry CIDs (`algorithms_cid`, `bands_cid`, `schema_cid`,
-  `sources_cid`) readable without a credential, because a fact means nothing
-  without the registries it was signed against
-- `/openapi.json`, so its surface is enumerable rather than guessed
-- `/.well-known/emem.json` with a `federation` block naming who it witnesses
+  `sources_cid`), with no credential, because a fact means nothing without
+  the registries its signature binds;
+- `/openapi.json`, so a reader can list its surface;
+- `/.well-known/emem.json` with a `federation` block that names the nodes it
+  witnesses.
 
-No node is a resolver today, including this one's peers, because read
-federation (§4a) is not built. The role exists so the bar is written before it
-is needed rather than after someone asks.
+On 7 November 2026 emem.dev published everything on this list. It is still
+not a resolver for other nodes, because read federation (§4a) does not exist yet.
+The role exists so that the bar is ready before someone needs it.
 
-**How to check a node against this**, from anywhere, with no credential:
-`scripts/verify_node.py https://<origin>` prints each requirement and what the
-node answered, and exits non-zero on a witness that does not meet the witness
-bar. Run it before adding an origin to `EMEM_PEERS`, and expect a resolver to
-fail the resolver half until §4a exists.
+#### Check a node against this bar
+
+Run this from any host. It needs no credential:
+
+```sh
+python3 scripts/verify_node.py https://geo.qa/emem
+python3 scripts/verify_node.py --role resolver https://emem.dev
+```
+
+The script prints each requirement and the node's answer. It exits non-zero
+when a node fails the witness bar. Run it before you add an origin to
+`EMEM_PEERS`. On 7 November 2026 the first command printed "all 5 met: joined
+as witness", and the second printed "all 8 met: joined as resolver". The
+script checks only what a node publishes. It does not mean that peers fetch
+facts from that node.
+
+#### Start a witness node
+
+`docker-compose.yml` at the repository root starts a node that meets the
+witness bar. [Self-host](self-host.md#use-docker-compose) covers the
+container. A node that joins gets mutual witnessing only. Nobody resolves
+facts across nodes yet.
+
+Set these before `docker compose up -d`. The compose file reads them from
+the shell or from a `.env` file.
+
+| Variable | Compose default | What to set |
+|---|---|---|
+| `EMEM_PUBLIC_URL` | `http://localhost:5051` | the public `https://` name of the node; `did.json` and the `federation` block use it |
+| `EMEM_PEERS` | `https://emem.dev` | the peers this node declares in `/.well-known/emem.json`; give the witness job the same list |
+| `EMEM_CONTACT` | empty | a role address; the node publishes it |
+
+The compose file publishes port 5051 on `127.0.0.1` only. Put your TLS proxy
+on the same host. The compose health check calls `curl`, and the image has no
+`curl`. Docker can show the container as unhealthy while the node serves.
+Check it with `/live` from the host.
+
+#### Join as a witness, step by step
+
+Do these steps after the node answers on its public name. Steps 1 to 3 ran
+on 7 November 2026 against emem.dev and geo.qa. Step 4 is a write to each
+peer, so this page did not run it.
+
+1. Get the node key and publish it in DNS. Replace `<your-domain>`:
+
+   ```sh
+   curl -s https://<your-domain>/live | grep -o '"responder_pubkey_b32":"[a-z0-9]*"'
+   ```
+
+   Then add the record `_emem-node.<your-domain> TXT "v=emem1; k=<that 52-character key>"`.
+   A peer refuses to co-sign you when this record names a different key.
+
+2. Make a witness key. Install the two packages first
+   (`pip install pynacl blake3`). The script does not overwrite a key
+   that exists, and it writes the file with mode `0600`:
+
+   ```sh
+   python3 - <<'EOF'
+   import base64, json, os, pathlib
+   import nacl.signing
+   p = pathlib.Path.home() / ".config/emem/agent_identity.json"
+   p.parent.mkdir(parents=True, exist_ok=True)
+   seed = os.urandom(32)
+   pk = bytes(nacl.signing.SigningKey(seed).verify_key)
+   fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+   os.write(fd, json.dumps({"seed_hex": seed.hex(),
+       "pubkey_b32": base64.b32encode(pk).decode().rstrip("=").lower()}).encode())
+   os.close(fd)
+   print(json.loads(p.read_text())["pubkey_b32"])
+   EOF
+   ```
+
+   It prints the 52-character public key. Back up the file. A new key
+   restarts every peer's view of you at first contact.
+
+3. Do a dry run from the repository root. It verifies each peer and samples
+   4 leaves, but it does not co-sign and it does not write a pin:
+
+   ```sh
+   python3 scripts/witness_peers.py --dry-run --peers https://emem.dev,https://geo.qa/emem
+   ```
+
+   On 7 November 2026 it printed, in part:
+
+   ```text
+     https://emem.dev: verified, first contact at 3246243; nothing to prove growth from yet; signer identified as did:web:emem.dev; DNS confirms via _emem-node.emem.dev; dry run, not submitted
+       audited 4 sampled leaves under root qprlxpsl (entries re-hashed): all verify
+     https://geo.qa/emem: verified, first contact at 142; nothing to prove growth from yet; signer identified as did:web:geo.qa:emem; DNS confirms via _emem-node.geo.qa; dry run, not submitted
+       audited 4 sampled leaves under root eilb6ozb (inclusion only, the entries are private): all verify
+
+     0 head(s) co-signed, 0 peer(s) failed, 2 attempted, as xkbcrpjj
+   ```
+
+   It exits 0 when every peer passes and 1 when one fails.
+
+4. Run the job for real, without `--dry-run`. This posts a co-signature to
+   each peer's `/v1/log/witness` and writes the pin to
+   `~/.config/emem/witness_state.json`. To run it every 15 minutes, copy
+   `deploy/systemd/emem-witness.service` and `emem-witness.timer`. Change
+   `User`, `Group`, `WorkingDirectory`, `ExecStart` and `EMEM_PEERS` to
+   match your host. They hold emem.dev values.
+
+5. Publish the witness key. Set `EMEM_WITNESS_PUBKEY_B32` to the key from
+   step 2 in the node's environment. The compose file does not pass this
+   variable, so add it under `environment:`. The node then lists the key in
+   `/.well-known/did.json`. A peer counts your co-signatures under an
+   operator domain only when the key has fresh enlistment evidence there
+   (§5a, `GET /v1/enlist`).
+
+6. Ask each peer to add your origin to its own witness job. Then check your
+   node with `python3 scripts/verify_node.py https://<your-domain>`. It
+   prints "all 5 met: joined as witness" when the node meets the bar.
 
 ---
 
-*Companion to the "Where this is going" section of the README and the
-`connect-and-evolve` doc. The federation diagram is at
-`docs/diagrams/federation.png`.*
+*[examples/connect-and-evolve.md](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md)
+is a companion to this page. The diagram `docs/diagrams/federation.png`
+shows the target design: eight responders that resolve one content id. It
+is an illustration, not the live network. On 7 November 2026,
+`federation.peers` in `https://emem.dev/.well-known/emem.json` listed one
+peer (`https://geo.qa/emem`), and no node resolves facts from another node.*
 
-## 9. What the DePIN and open-protocol peers built that we did not
+## 9. What DePIN and open-protocol networks built that emem has not
 
-Read §8b first: no token, no chain, no consensus. This section is about what
-the physical-infrastructure networks and the federated protocols learned that
-needs none of those, and where emem is behind them. Every "emem today" claim
-below was checked against the code on 2026-09-02, with paths. Every peer claim
-links to the document it came from, in the references at the end.
+Read §8b first: no token, no chain, no consensus. This section covers what
+physical-infrastructure (DePIN) networks and federated protocols learned
+that needs none of those, and where emem is behind them. The "emem today"
+claims match the code on 2026-09-02. The status notes (shipped, half
+built, not built) and the live values match the code and emem.dev on
+7 November 2026. Each peer claim comes from a document in the
+references at the end.
 
 ### 9a. DePIN with the token removed
 
-A DePIN network meets three problems a hosted service never does. The token is
-how most of them pay for the answers. The answers are separable from the
-token.
+A DePIN network meets three problems that a hosted service never meets. Most
+of them pay for the answers with a token. The answers work without the token.
 
-**Proof that physical work happened.** Helium's Proof of Coverage: a
-challenger picks a target from verifiable entropy (block hash plus an
-ephemeral key), the target broadcasts, nearby hotspots witness the packet and
-report time of arrival, signal strength and quality, and the challenger
-submits those receipts. Verification is deterministic replay. Gaming was
-handled first by physics (RF has range) and later by a witness-similarity
-denylist. emem's equivalent is the fact plane: a band-typed measurement,
-signed by the responder that made it, with the upstream named. What emem lacks
-is the **witness receipt**: nobody but the responder signs that a fact was
-served. A dispute needs two signatures on the same bytes, and today there is
-one.
+Proof that physical work happened. In Helium's Proof of Coverage, a
+challenger picks a target from verifiable entropy (a block hash plus an
+ephemeral key). The target broadcasts. Nearby hotspots witness the packet and
+report time of arrival, signal strength and quality. The challenger submits
+those receipts, and verification is a deterministic replay. Physics limited
+gaming first (radio has a range), and later a witness-similarity denylist.
+In emem the fact plane does this job: a band-typed measurement, signed by the
+responder that made it, with the upstream named. emem lacks a witness
+receipt. Only the responder signs that it served a fact. A dispute needs two
+signatures on the same bytes, and today there is one.
 
-**Proof that custody continues.** Filecoin's WindowPoSt: every sealed sector
-is challenged inside a 24-hour proving period cut into 48 deadlines, and a
-missed proof is a fault that forfeits collateral. Take the collateral away and
-the mechanism is still there: random challenges, sampled from a commitment,
-answered from the bytes. emem's log is exactly such a commitment, 1.54M leaves
-under a signed root, and **we sample nothing from it**. The witness job
-co-signs a head. It never asks the peer for a leaf.
+Proof that custody continues. In Filecoin's WindowPoSt, each sealed sector
+gets a challenge in a 24-hour proving period of 48 deadlines. A missed proof
+is a fault that costs collateral. Without the collateral, the mechanism still
+works: random challenges, sampled from a commitment, answered from the bytes.
+emem's log is that kind of commitment. On 2026-09-02 nothing sampled from it.
+The witness job now samples 4 leaves per run (§8a, §9e item 1).
 
-**Roles with different exposure.** The Graph separates Indexers (stake and
-serve), Fishermen (dispute with a Proof of Indexing), and Arbitrators
-(decide), with slashing at 2.5% of self-stake. Without stake the roles are
-still real. emem has a responder (writes facts), attesters (write notes),
-witnesses (co-sign heads), and a reputation score with a leaderboard at
-`/v1/contributors` that no code path reads. It has no **auditor** (checks
-served bytes against the log) and no working **disputer**: a signed
-`disagrees_with` edge exists, and `memory_view` never surfaces an inbound one.
+Roles with different exposure. The Graph separates Indexers (stake and
+serve), Fishermen (dispute with a Proof of Indexing) and Arbitrators
+(decide). A slash takes 2.5% of self-stake. Without stake, the roles are still
+real. emem has a responder (writes facts), attesters (write notes), witnesses
+(co-sign heads), and a reputation leaderboard at `/v1/contributors` that no
+code path reads. Since September the witness job audits served bytes against
+the log, so witnesses now do part of the auditor role. emem has no working
+disputer. A signed `disagrees_with` edge exists, and `memory_view` does not
+show an inbound one.
 
 The three jobs a token does, and what does them here:
 
 | Token job | Web3 mechanism | emem today | Gap |
 |---|---|---|---|
-| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs`; 240 writes/min per attester; DNS TXT and org vouching | the code default is shadow; emem.dev enforces (`EMEM_ENLISTMENT_ENFORCE=1` in its unit), and on 2026-09-02 every key on the roster read T1, its own agents included, so the shared entity space was closed to everyone |
-| Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, the Nostr relay and ATProto PDS model | none needed at four nodes |
-| Settlement | on-chain transfer | none | a payment rail without a token exists (9b) |
+| Sybil cost on writes | stake (The Graph: 100,000 GRT minimum) | ladder T0 to T5 in `enlistment.rs` (T5 not computed yet); 240 writes per minute per attester; DNS TXT and organisation vouching | the code default now enforces (earlier releases used shadow mode), and emem.dev sets it explicitly. On 2026-09-02 every key read T1, the operator's own agents too, so no key could write to the shared entity space (fixed, §9d) |
+| Reward for serving | issuance (The Graph: 3% a year) | none; operators run a node because they need the data, as in the Nostr relay and ATProto PDS model | none needed at four nodes |
+| Settlement | on-chain transfer | none | a payment rail without a token exists (§9b) |
 
 ### 9b. Tokenisation: what it settles, and the rail that replaced it
 
-The thing a token settled in 2021 is settled in 2026 by a header. x402 is an
-HTTP 402 flow: the server answers `402` with a `PAYMENT-REQUIRED` header
-carrying the requirements, the client retries with `PAYMENT-SIGNATURE`, a
-facilitator verifies and settles (stablecoins on several chains, extensible to
-card rails), and the server answers with `PAYMENT-RESPONSE`. It is stewarded
-by a Linux Foundation body, has no native token, and is in production. The
-official MCP registry already lists x402-metered MCP servers next to ours.
-Google's Agent Payments Protocol (v0.2, April 2026) supplies the human-mandate
-side and carries x402 as an A2A extension.
+In 2026 an HTTP header settles what a token settled in 2021. x402 is an HTTP
+402 flow:
+
+1. The server answers `402` with a `PAYMENT-REQUIRED` header that carries the
+   requirements.
+2. The client retries with `PAYMENT-SIGNATURE`.
+3. A third-party settlement service verifies and settles. It uses
+   stablecoins on several chains and can extend to card rails.
+4. The server answers with `PAYMENT-RESPONSE`.
+
+A Linux Foundation body stewards x402. It has no native token and runs in
+production. The official MCP registry lists x402-metered MCP servers next to
+emem. Google's Agent Payments Protocol (v0.2, April 2026) supplies the human
+mandate and carries x402 as an A2A extension.
 
 emem already answers `402`: `ComputeQuotaExceeded` maps to `PAYMENT_REQUIRED`
-in `lib.rs`. It is a quota error wearing a payment status. The header is what
-tells the two apart, and ours has none, so no agent can mistake the one for the
-other today. That stays true until someone decides otherwise.
+in `lib.rs`. It is a quota error with a payment status. The header tells the
+two apart. emem sends no such header, so no agent can mistake the quota error
+for a payment request. That stays true until someone decides otherwise.
 
-The decision this document records: **reads are free at every tier, on every
-node, and a self-hosted node never sees a price.** The two surfaces where sybil
-pressure is real are `SharedEntitySpace` (T3) and `FactPlane` (T4). The public
-node may, behind a flag that ships off, answer those in the x402 shape with a
-facilitator URL read from the environment. The smaller move came first, and had already been made: emem.dev
-enforces the ladder. What that revealed on 2026-09-02 is that enforcement
-without vouching closes the shared space to the operator's own agents, all
-of which read T1. The vouching document (9c.3) is what makes enforcement a
-policy instead of a lock-out.
+This page records a decision: reads are free at every tier, on every node,
+and a self-hosted node never sees a price. Sybil pressure is real on two
+surfaces: `SharedEntitySpace` (T3) and `FactPlane` (T4). Behind a flag that
+ships off, the public node may answer those in the x402 shape. The URL of
+the settlement service would come from the environment. None of this exists
+yet. The smaller step
+came first: emem.dev enforces the ladder. On 2026-09-02 that showed that
+enforcement without vouching locks out the operator's own agents, which all
+read T1. The vouching document (§9c.3) turns enforcement into a policy and
+not a lock-out.
 
-Two surfaces promise what no code does, and both are the kind of drift this
-project has learned to treat as lying. `Cost.credits` in `receipt.rs` is a
-`u64` that is always 0. The error text in the `compute_quota_exceeded` error text tells a throttled
-caller that high-score attesters get larger quotas, and nothing reads
-`AttesterStats::score()` to widen anything. Given "tiers are records of what
-was checked, never scores", the sentence goes, not the code.
+Two surfaces promised what no code did. This project treats that kind of
+drift as a false claim. `Cost.credits` in `crates/emem-fact/src/receipt.rs`
+is a `u64` that is always 0. The `compute_quota_exceeded` error text told a
+throttled caller that high-score attesters get larger quotas, and nothing
+read `AttesterStats::score()` to widen anything. Tiers record checks and are
+never scores, so the docs lost the sentence and the code stayed.
 
 ### 9c. The missing layers, each with the standard it should speak
 
-1. **Checkpoint interop.** The C2SP checkpoint is three lines (origin, tree
-   size in decimal, base64 root) plus signature lines of the form
-   `— <name> base64(4-byte key id || signature)`, key id being the first four
-   bytes of SHA-256 over `name || 0x0A || 0x01 || pubkey`. A C2SP witness takes
-   `POST /add-checkpoint` with an `old <size>` line, the consistency proof,
-   a blank line and the checkpoint, and answers 200 with cosignature lines,
-   409 with the size it holds, 422 when the proof fails. Our witness surface
-   is a JSON body over a private preimage. The wrinkle: our tree hashes with
-   blake3, and a C2SP witness checks consistency per RFC 6962 §2.1.2, which is
-   SHA-256, so an off-the-shelf witness could co-sign our signature and could
-   not check our proof. The fix is a second, SHA-256 tree over the same entry
-   bytes, one extra 32-byte hash per append. The payoff is every existing
-   witness in the Sigstore and Go ecosystems running against emem with no
-   code, and our job witnessing any of their logs.
+1. Checkpoint interop. Not built. A C2SP checkpoint is three lines (origin,
+   tree size in decimal, base64 root) plus signature lines of the form
+   `— <name> base64(4-byte key id || signature)`. The key id is the first four
+   bytes of SHA-256 over `name || 0x0A || 0x01 || pubkey`. A C2SP witness
+   takes `POST /add-checkpoint` with an `old <size>` line, the consistency
+   proof, a blank line and the checkpoint. It answers 200 with cosignature
+   lines, 409 with the size it holds, or 422 when the proof fails. emem's
+   witness surface is a JSON body over a private preimage. One problem: emem's
+   tree hashes with BLAKE3, and a C2SP witness checks consistency per RFC 6962
+   §2.1.2, which is SHA-256. An existing witness could co-sign emem's
+   signature but could not check its proof. The fix is a second SHA-256 tree
+   over the same entry bytes, one extra 32-byte hash per append. Then every
+   witness in the Sigstore and Go ecosystems runs against emem with no new
+   code. emem's job can then witness their logs.
 
-2. **SCITT receipts.** RFC 9943 (June 2026) is the model emem grew into
-   without the envelope: a Transparency Service, Signed Statements
-   (`COSE_Sign1`), Receipts (COSE, carrying a proof over a verifiable data
-   structure), a Registration Policy, an append-only log. A Relying Party
-   "MAY decide to verify only a single Receipt that is acceptable to them".
-   Adapter: `Accept: application/cose` on `/v1/log/inclusion` answers with a
-   COSE receipt per draft-ietf-cose-merkle-tree-proofs. Same tree caveat: the
-   registered algorithm is RFC 9162 over SHA-256, so this waits on item 1.
-   Payoff: a supply-chain verifier that has never heard of emem checks an emem
-   fact with the tooling it already runs.
+2. SCITT receipts. Not built. RFC 9943 (June 2026) is the model emem grew
+   into without the envelope. Its parts are a Transparency Service, Signed
+   Statements (`COSE_Sign1`) and Receipts. A Receipt is COSE with a proof over
+   a verifiable data structure. SCITT also has a Registration Policy and an
+   append-only log. A Relying
+   Party "MAY decide to verify only a single Receipt that is acceptable to
+   them". The adapter: `Accept: application/cose` on `/v1/log/inclusion`
+   returns a COSE receipt per draft-ietf-cose-merkle-tree-proofs. The same
+   tree problem applies, because the registered algorithm is RFC 9162 over
+   SHA-256. This waits for item 1. Then a supply-chain verifier that does not
+   know emem checks an emem fact with the tools it already runs.
 
-3. **Node identity.** A node today is a responder key. `_emem-node` is one
-   line of prose at §8d. The agent ladder already follows NIP-05's rule, which
-   is "identify, not verify": a DNS name maps to a key, redirects are refused,
-   private targets are refused. Do the same for nodes, and publish
-   `/.well-known/did.json` (`did:web:emem.dev`) listing the responder key and
-   the witness key. ATProto's DID documents separate a signing key from
-   rotation keys; emem's revocation is a doc comment in `key.rs`. One JSON
-   document, no new cryptography, and every DID and Verifiable Credential
-   verifier can resolve our keys. Shipped 2026-09-02; the witness job now reads a peer's `did.json` and refuses to co-sign a head whose signer the domain does not list, reported as a finding, while a peer without the document is reported as unchecked and still witnessed.
+3. Node identity. Shipped on 2026-09-02. The agent ladder follows the NIP-05
+   rule "identify, not verify". A DNS name maps to a key. The responder
+   refuses redirects and private targets. Nodes now follow the same rule.
+   `/.well-known/did.json` (`did:web:emem.dev`) lists the responder key and
+   the witness key. Every DID and Verifiable Credential verifier can resolve
+   emem's keys, with no new cryptography. The witness job reads a peer's
+   `did.json`. It refuses to co-sign a head whose signer the domain does not
+   list, and reports that as a finding. It reports a peer without the
+   document as unchecked and still witnesses it. One gap remains. ATProto's
+   DID documents separate a signing key from rotation keys. emem's revocation
+   is only a doc comment in `key.rs`.
 
-4. **Portability.** ATProto's promise is that an account migrates to a new
-   PDS "without the server's involvement", because a repository is
-   self-certifying: a signed commit names an MST root, the tree names records
-   by CID, and the whole thing exports as one CAR file. emem has
-   `memory_bundle` (the caller picks the triples), `/v1/log/entries`, per-fact
-   `GET`, and the air-gapped container. It has no "everything I wrote, with
-   its inclusion proofs and the head, as one file", and no import at all.
-   This is the feature that makes "voluntary, full privacy" a fact instead of
-   a sentence: an agent can leave a node with its memory and its proofs.
-   Build `GET /v1/agents/:pubkey/export` (CBOR: the STH, this attester's
-   entries, one inclusion proof each) and `emem import`, which re-verifies
-   every proof before it writes a byte.
+4. Portability. Not built. ATProto lets an account move to a new PDS
+   "without the server's involvement", because a repository certifies itself.
+   A signed commit names an MST root. The tree names records by CID. The
+   whole repository exports as one CAR file. emem has `memory_bundle` (the
+   caller picks the triples), `/v1/log/entries`, per-fact `GET` and the
+   air-gapped container. It has no single file of "everything I wrote, with
+   its inclusion proofs and the head", and no import. This feature lets an
+   agent leave a node with its memory and its proofs. The plan has two
+   parts. `GET /v1/agents/:pubkey/export` returns CBOR: the STH, the
+   attester's entries and one inclusion proof for each. `emem import`
+   verifies every proof again before it writes a byte.
 
-5. **Content addressing interop.** blake3 is multihash `0x1e` in the
-   multiformats table (draft). A CIDv1 for an emem fact is
-   `0x01 0x55 0x1e 0x20` followed by the 32-byte digest, base32 lower with
-   the `b` prefix, no rehashing. Expose it as `cid_v1` next to `fact_cid`.
-   IPFS, Filecoin and ATProto tooling then addresses our facts natively. The
+5. Content addressing interop. Shipped: `cid_v1` sits beside `fact_cid` on
+   recall facts. BLAKE3 is multihash `0x1e` in the multiformats table
+   (draft). The CIDv1 of an emem fact is `0x01 0x55 0x1e 0x20` followed by the
+   32-byte digest. It uses lower-case base32 with the `b` prefix. The responder
+   computes no new hash.
+   IPFS, Filecoin and ATProto tools can address emem facts directly. The
    `IpldConnector` stub stays unbound until an operator registers a
-   blockstore, as it says.
+   blockstore.
 
-6. **Replication with proof of custody.** `SegmentBackup` in `merkle_log.rs`
-   is a trait with zero implementors. The first one pulls a peer's
-   `/v1/log/entries` into a local segment. Then the witness job gains an
-   audit step: each tick, derive k indices from the co-signed root, fetch those
-   entries and their inclusion proofs from the peer, and check the leaf hash
-   and the proof against the root it just co-signed. That is WindowPoSt with
-   no ZK and no collateral. A peer that dropped bytes fails inside one tick,
-   and the failure is a signed head plus a failed fetch, which is evidence.
+6. Replication with proof of custody. Half built. The audit step runs in the
+   witness job (§8a). `SegmentBackup` in `merkle_log.rs` is still a trait with
+   no backend. The first one will copy a peer's `/v1/log/entries` into
+   a local segment. With the audit step, this is WindowPoSt with no ZK and no
+   collateral. A peer that dropped bytes fails within one run, and the
+   evidence is a signed head plus a failed fetch.
 
-7. **Peer discovery without a DHT.** Nostr puts `relays` in the NIP-05
-   record; ATProto puts the PDS endpoint in the DID document. Put `peers` and
-   `witnesses` (origins and node keys) into `/.well-known/emem.json`. Four
-   entries in a signed file. The DHT is refused until there are more nodes
+7. Peer discovery without a DHT. Shipped as a file. Nostr puts `relays` in
+   the NIP-05 record. ATProto puts the PDS endpoint in the DID document.
+   emem puts `peers` and the witness data in the `federation` block of
+   `/.well-known/emem.json`. A DHT stays refused until there are more nodes
    than a file can hold.
 
-8. **C2PA on rendered pixels.** `cell_scene_rgb` and `scene_png` produce
-   images. A C2PA 2.2 manifest (a `c2pa.hash.data` hard binding, a
-   `c2pa.actions` `created` entry with `digitalSourceType`, `COSE_Sign1` over
-   an X.509 key on the C2PA trust list) lets that image carry provenance into
-   browsers and newsrooms that will never speak emem, with the `fact_cid` as
-   an assertion. C2PA has no hardware capture attestation; our OS-trace
-   substrate is the device half it lacks. Later.
+8. C2PA on rendered pixels. Later. `cell_scene_rgb` and `scene_png` make
+   images. A C2PA 2.2 manifest would carry an image's provenance into
+   browsers and newsrooms that do not speak emem. The `fact_cid` would be an
+   assertion in it. The manifest needs three parts:
+   - a `c2pa.hash.data` hard binding;
+   - a `c2pa.actions` `created` entry with `digitalSourceType`;
+   - `COSE_Sign1` over an X.509 key on the C2PA trust list.
 
-### 9d. Acceptors: where emem is accepted, where it is missing, where it drifted
+   C2PA has no hardware capture attestation. emem's OS-trace substrate is
+   the device half that it lacks.
 
-**Accepted.** The official MCP registry (`io.github.Vortx-AI/emem`, 2.4.0
-latest, remote `https://emem.dev/mcp`). The Docker MCP catalog. ghcr for
-`emem`, `emem-airgap` and `emem-encode`. PyPI `ememdev` 2.4.0. npm
-`@vortxai/emem`. The Dify marketplace.
+### 9d. Acceptors: where emem has a listing, where it has none, where it drifted
 
-**Missing.**
+Listed, checked on 7 November 2026:
 
-- **LlamaIndex.** `sdks/llama-index-tools-emem` is at 2.4.4 and its tests run
-  in CI. It is not on PyPI and not in `run-llama/llama_index`, which is where
-  LlamaHub lists from. Publish it, then open the upstream PR.
-- **n8n.** Not started, per `docs/registries/integration-targets.md`. n8n has
-  a community-node registry; Zapier needs their platform. n8n first.
-- **The C2SP and SCITT ecosystems.** Acceptors only once we speak the format
-  (9c.1, 9c.2). Every witness already running is a free auditor after that.
-- **A one-command node.** No compose file exists; there are twenty systemd
-  units. "Anyone can host" is priced by this. Write it for the small CPU
-  replica first, because that is what eudr.dev is.
+| Channel | State |
+|---|---|
+| Official MCP registry, `io.github.Vortx-AI/emem` | 2.4.4 is latest; remote `https://emem.dev/mcp` |
+| PyPI `ememdev` | 2.4.4 |
+| npm `@vortxai/emem` | 2.4.4 |
+| GHCR | `emem`, `emem-airgap`, `emem-encode` images |
+| Docker MCP catalog, Dify marketplace | listed (Dify at 2.2.0 on 2026-09-05; not checked again) |
 
-**Drifted.**
+Not listed yet:
 
-Four of the entries below (the vouching document, the missing-file ambiguity,
-the A2A card's missing DID, and the MCP version header) were fixed in source on
-2026-09-05 and are described here as they still behave in production. This box
-has no cargo; they go live when CI builds the next image. Everything else in
-this list is unfixed.
+- LlamaIndex. `sdks/llama-index-tools-emem` is at 2.4.4 and its tests run in
+  CI. It is not on PyPI (404 on 7 November 2026) and not in
+  `run-llama/llama_index`, where LlamaHub lists from. Publish it, then open
+  the upstream PR.
+- n8n. The node source is in `integrations/n8n` (`n8n-nodes-emem`). It is not
+  on npm (404 on 7 November 2026). Zapier needs their platform, so n8n comes
+  first.
+- The C2SP and SCITT ecosystems. They can accept emem only after emem speaks
+  their format (§9c items 1 and 2). After that, every running witness is a
+  free auditor.
 
+A one-command node was on this list. `docker-compose.yml` now exists (§8e).
 
-- **Dify** is live at 2.2.0 while every other surface is 2.4.0. The plugin
-  source is not in this repository, so `version_surfaces.py` cannot see it and
-  it will drift on every release until it is vendored under `integrations/`
-  and added to the bump surfaces.
-- **The MCP registry** carries thirteen older versions, 0.0.2 through 2.1.0,
-  all `active`. A client that lists the server sees fourteen entries. Mark the
-  old ones deprecated from the publisher.
-- **The quota promise** in the `compute_quota_exceeded` error text (9b).
-- **`/.well-known/emem-agents.json` serves an empty list, and the ladder
-  believes it.** `config/emem-agents.json` names nine first-party keys. The
-  handler reads that path RELATIVE to the working directory, the server runs in
-  a container whose `WORKDIR` is `/`, the `Dockerfile` never `COPY`s `config/`,
-  no bind mount supplies it and `EMEM_AGENTS_WELL_KNOWN` is unset. So the file
-  is absent, and the handler's `.ok()` turns absent into `{"agents": []}`. Asked
-  on 2026-09-05 to re-check its own substrate key against its own domain, this
-  node answered `ok: false`, "has 0 agent entr(ies), none naming this key
-  unexpired".
+Drifted. On 2026-09-05 this list had seven items. Fixes for four were in
+source that day, and the image built later. On 7 November 2026 they are live:
 
-  **It has not bitten yet, and it is dated.** `/v1/agents` still shows eight
-  keys at `T4_affiliated`, on evidence recorded 2026-09-02T20:54Z while the
-  document was still served, back when this ran on the other box. Evidence
-  stands for `EVIDENCE_TTL_SECS`, thirty days, so those tiers hold until
-  2026-10-02 and then every one of them falls to T1. Any re-check before that
-  fails today. With `EMEM_ENLISTMENT_ENFORCE=1` also on, the node is enforcing
-  a ladder while publishing the empty document that ladder reads, and the cache
-  is the only reason nothing has broken. The vouching described in §9e.3 is
-  configured, not served, and on a 27-day fuse.
-- **A missing vouching file is indistinguishable from vouching for nobody.**
-  The comment above the handler says "a missing file serves an empty list" and
-  means it as a convenience. It is the same shape as the two faults
-  `perception_liveness.py` and `external_witness_lag.py` were written for: an
-  answer that stays well-formed, correctly served and quietly wrong. A node
-  that vouches for no one and a node that cannot find its config should not
-  return the same bytes. Serve the count, and let the operator's own probe
-  assert it.
-- **The A2A card does not point back at the node identity.** `did.json` lists
-  the agent card as its `#a2a` service, and the card names the responder key
-  but never the DID, the log, or the federation block. Discovery works in one
-  direction only: from the DID you find the card, from the card you cannot find
-  the DID.
-- **MCP protocol version, header against body.** A client offering an
-  unsupported version gets `2025-11-25` negotiated in the result and
-  `mcp-protocol-version: 2025-03-26` in the header of the same response. On a
-  supported version the two agree, so this is only the fallback path, and it
-  tells a strict client the session is one version while the server runs
-  another.
-- **The Claude connector directory** needs a re-submission; the compliance
-  surface is built (`docs/registries/anthropic-claude-connectors-submission.md`).
+| Item | State on 7 November 2026 |
+|---|---|
+| `/.well-known/emem-agents.json` served an empty list, because `config/` never reached the container and the handler turned "no file" into `{"agents": []}` | fixed: serves `count` 16, `source` `config`, `source_path` `config/emem-agents.json` |
+| a missing vouching file looked the same as vouching for nobody | fixed: the route sends `count`, `source` and `source_path` beside `agents`, and a load failure warns at startup |
+| the A2A card did not point back at the node identity | fixed: `responder` carries `did`, `did_document` and `federation` |
+| MCP protocol version: for an unsupported client version, the header said `2025-03-26` and the body said `2025-11-25` | fixed: header and body both say `2025-11-25` |
+| the MCP registry keeps old versions active | still open: 18 versions, 0.0.2 to 2.4.4, all `active`; mark the old ones deprecated from the publisher |
+| Dify lags the other surfaces | still open on 2026-09-05; the plugin source is not in this repository, so `scripts/version_surfaces.py` cannot see it; vendor it under `integrations/` |
+| the quota promise in the `compute_quota_exceeded` error text (§9b) | fixed: removed |
+
+The empty vouching list had a dated risk. Evidence stands for 30 days. The
+cached `T4_affiliated` tiers from 2026-09-02 would have fallen to T1 on
+2026-10-02, while emem.dev enforced the ladder. The fix shipped as a fallback
+path. If the operator sets `EMEM_AGENTS_WELL_KNOWN`, the handler reads that
+file. If not, it tries the relative `config/` path, then
+`$EMEM_DATA/emem-agents.json`. The image does not include a roster on
+purpose. The document says that the operator of a domain vouches for these
+keys. One roster in every self-hosted image would make each operator vouch
+for keys they never chose.
+
+The Claude connector directory needs a new submission. The compliance
+material is in `docs/registries/anthropic-claude-connectors-submission.md`.
 
 ### 9e. Order of work, with the core kept first
 
-Ranked by what each buys the four-node network per unit of change. Nothing
-below touches the fact plane, the token scheme, or the preimages.
+The ranking is by what each item buys the four-node network per unit of
+change. Nothing here touches the fact plane, the token scheme or the
+preimages.
 
-1. **Audit sampling in the witness job.** Done 2026-09-02, `audit_custody` in
-   `scripts/witness_peers.py`. "Co-signed" is now "co-signed and spot-checked".
-2. **Enforce the ladder on `SharedEntitySpace`.** Already on at emem.dev
-   (`EMEM_ENLISTMENT_ENFORCE=1`), which is why 3 below is a correctness fix:
-   until the node vouched for its own agents, none of them could write there.
-3. **`peers`, `witnesses` and `_emem-node` for the four nodes, plus
-   `did:web`.** Code done 2026-09-02: `/.well-known/did.json`, the `federation`
-   block in `/.well-known/emem.json`, and `/.well-known/emem-agents.json`
-   (this node vouching for its own agents, which the ladder had only ever
-   fetched from other domains). The `_emem-node` TXT is the owner's DNS
-   entry; the well-known file says what a peer should find there. **Two of the
-   three are only half-landed, checked 2026-09-05.** The DNS entry exists for
-   both live nodes and matches the key each one signs with, and nothing reads
-   it (§8d.3). The vouching document is configured with nine keys and served
-   empty, because the config never reaches the container (§9d). Neither is a
-   design problem and both are currently untrue in production, which is the
-   worse kind of gap: the docs describe what was built, and the node serves
-   something else.
-4. **Remove the quota promise; drop or wire `Cost.credits`.** The promise is
-   gone. `Cost.credits` stays as a zero until a receipt-schema change is
-   worth its own deploy.
-5. **`cid_v1`.** Done, beside `fact_cid` on recall facts.
-6. **A compose file for a CPU replica and the first `SegmentBackup`
-   implementor.** Medium. This is what brings eudr.dev up.
-7. **Namespace export and import.** Medium to large. The portability keystone.
-8. **C2SP checkpoint and `add-checkpoint`, with the SHA-256 shadow tree.**
-   Medium. Then the SCITT receipt on top of it.
-9. **Publish the LlamaIndex tool and open the upstream PR; vendor Dify;
-   deprecate the old registry versions.** Owner work, hours.
-10. **x402 on T3 and T4 writes, flag off.** A decision before a line of code.
-11. **C2PA on rendered scenes.** Later.
+| # | Item | State on 7 November 2026 |
+|---|---|---|
+| 1 | Audit sampling in the witness job (`audit_custody` in `scripts/witness_peers.py`) | done 2026-09-02 |
+| 2 | Enforce the ladder on `SharedEntitySpace` | on at emem.dev (`EMEM_ENLISTMENT_ENFORCE=1`); item 3 was the correctness fix that let its own agents write |
+| 3 | `peers`, `witnesses`, `_emem-node` and `did:web` for the four nodes | code done 2026-09-02; DNS records exist and the witness job reads them (§8d); vouching document served (§9d) |
+| 4 | Remove the quota promise; drop or wire `Cost.credits` | promise removed; `Cost.credits` stays 0 until a receipt-schema change is worth its own deploy |
+| 5 | `cid_v1` | done, on recall facts |
+| 6 | A compose file for a CPU replica, and the first `SegmentBackup` backend | compose file done; `SegmentBackup` not started |
+| 7 | Namespace export and import | not started; medium to large; the portability keystone |
+| 8 | C2SP checkpoint and `add-checkpoint`, with the SHA-256 shadow tree; then the SCITT receipt | not started; medium |
+| 9 | Publish the LlamaIndex tool and open the upstream PR; vendor Dify; deprecate old registry versions | owner work, hours; not done |
+| 10 | x402 on T3 and T4 writes, flag off | a decision before any code |
+| 11 | C2PA on rendered scenes | later |
 
-**Added 2026-09-05, from a survey of the live surface.** These sit above 6 in
-the order, because each is a fix to something already claimed rather than
-something new, and the first two are cheap.
+A survey of the live surface on 2026-09-05 added five fixes above item 6,
+because each fixed something already claimed. All five are live on 7 November
+2026. Three are in §9d: the vouching path and its count, the A2A card, and the
+MCP version header. These are the other two:
 
-All five are now fixed in source and ride the next CI image build; this box has
-no cargo, so nothing below is live until that image is pulled. `cargo check`,
-`cargo clippy --all-targets -- -D warnings` and `cargo fmt --check` are clean
-for both crates.
+- Witness independence. `head_is_witnessed` keeps its meaning, because peers
+  read it. The two places that show witness state use different field names:
 
-- **The vouching path.** Falls back to `$EMEM_DATA/emem-agents.json` after the
-  relative `config/` path, which is the one location a packaged node always
-  has and whose contents belong to that operator. Deliberately not baked into
-  the image: the document asserts that the operator of a domain vouches for
-  these keys, so shipping one roster to every self-hoster would have them
-  attesting to keys they never chose. The roster is already staged at
-  `var/emem/emem-agents.json`, so the node picks it up on the next restart
-  with no unit change. `count`, `source` and `source_path` are served beside
-  `agents`, and a load failure warns once at startup, so "no file" and "no
-  agents" stop returning the same bytes.
-- **Witness independence.** `head_is_witnessed` stays as it was, since peers
-  read it, and is now accompanied by `head_is_independently_witnessed`,
-  `freshest_independent_witness_entries_behind`, `independent_witness_count`,
-  `independent_cosignature_count` and `self_witness_pubkey_b32`, on the route
-  and in the federation block. Computed over every stored row, not the
-  returned page: the declared key held 82 of the newest 100.
-- **`live_perception.cameras_with_retained_clips`** read upstream's
-  `clips_retained` instead of counting inside the returned camera page, which
-  is `cameras_returned` of `camera_count`, 5 of 267 at Trafalgar Square.
-- **The MCP version header** mirrors the body's negotiation rule on the
-  unsupported-version path.
-- **The A2A card** carries `did`, `did_document` and `federation` under
-  `responder`.
+  | Place | Independence fields |
+  |---|---|
+  | `GET /v1/log/witnesses` | `head_is_independently_witnessed`, `freshest_independent_witness_entries_behind`, `independent_witness_count`, `independent_cosignature_count`, `self_witness_pubkey_b32`, `independent_operator_count`, `independent_operator_domains`, `head_is_witnessed_by_independent_operator`, `freshest_independent_operator_entries_behind` |
+  | `federation.witnesses` in `/.well-known/emem.json` | `head_is_independently_witnessed`, `freshest_independent_witness_entries_behind`, `independent_witnesses`, `independence_note` |
 
+  The federation block has no operator fields and no cosignature count.
+  Read `/v1/log/witnesses` for the operator view. The route counts every
+  stored row, not only the returned page. On 2026-09-05 the declared key
+  held 82 of the newest 100 rows.
+- `live_perception.cameras_with_retained_clips` read upstream's
+  `clips_retained`. Before, it counted only inside the returned camera page,
+  which held `cameras_returned` of `camera_count` cameras (5 of 267 at
+  Trafalgar Square).
 
 Still refused: a token, a chain, consensus, a DHT at this size, and the word
 "trustless".
 
 References, all read on 2026-09-02:
-x402 <https://www.x402.org/> and <https://github.com/coinbase/x402>;
-AP2 <https://ap2-protocol.org/>;
-RFC 9943 <https://datatracker.ietf.org/doc/rfc9943/>;
-COSE receipts <https://datatracker.ietf.org/doc/draft-ietf-cose-merkle-tree-proofs/>;
-C2SP <https://c2sp.org/tlog-checkpoint>, <https://c2sp.org/tlog-witness>, <https://c2sp.org/signed-note>;
-AT Protocol <https://atproto.com/guides/overview>, <https://atproto.com/specs/repository>;
-NIP-05 <https://github.com/nostr-protocol/nips/blob/master/05.md>;
-C2PA 2.2 <https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html>;
-Helium PoC <https://github.com/novalabsxyz/devdocs/blob/master/blockchain/proof-of-coverage.md>;
-Filecoin PoSt <https://spec.filecoin.io/algorithms/pos/post/>;
-The Graph glossary <https://thegraph.com/docs/en/resources/glossary/>;
-multicodec table <https://github.com/multiformats/multicodec/blob/master/table.csv>;
-MCP registry <https://registry.modelcontextprotocol.io/v0/servers?search=emem>.
+
+- x402 <https://www.x402.org/> and <https://github.com/coinbase/x402>
+- AP2 <https://ap2-protocol.org/>
+- RFC 9943 <https://datatracker.ietf.org/doc/rfc9943/>
+- COSE receipts <https://datatracker.ietf.org/doc/draft-ietf-cose-merkle-tree-proofs/>
+- C2SP <https://c2sp.org/tlog-checkpoint>, <https://c2sp.org/tlog-witness>, <https://c2sp.org/signed-note>
+- AT Protocol <https://atproto.com/guides/overview>, <https://atproto.com/specs/repository>
+- NIP-05 <https://github.com/nostr-protocol/nips/blob/master/05.md>
+- C2PA 2.2 <https://spec.c2pa.org/specifications/specifications/2.2/specs/C2PA_Specification.html>
+- Helium PoC <https://github.com/novalabsxyz/devdocs/blob/master/blockchain/proof-of-coverage.md>
+- Filecoin PoSt <https://spec.filecoin.io/algorithms/pos/post/>
+- The Graph glossary <https://thegraph.com/docs/en/resources/glossary/>
+- multicodec table <https://github.com/multiformats/multicodec/blob/master/table.csv>
+- MCP registry <https://registry.modelcontextprotocol.io/v0/servers?search=emem>

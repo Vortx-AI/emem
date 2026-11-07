@@ -22,10 +22,8 @@ python emem_mcp_geospatial_agent.py
 1. Connects to `https://emem.dev/mcp` via Streamable HTTP.
 2. Auto-discovers all emem MCP tools (locate, recall, compare, verify, etc.).
 3. Creates a FunctionAgent that reasons over the tools.
-4. Asks whether Helsinki Airport, Finland (60.3172, 24.9633) appears to be
-   low-lying or flood-prone.
-5. The agent recalls elevation, land cover, surface water, and summarises
-   with signed `fact_cid`s from the receipts.
+4. Asks what the signed record says about the elevation of South Mumbai.
+5. The agent answers with the `fact_cid` and says how to verify it.
 
 ## Notes
 

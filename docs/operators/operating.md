@@ -1,502 +1,531 @@
-# operating emem
+# Operate a public node
 
-This doc is for the operator running an emem responder in production.
-It assumes you already understand `docs/developers/architecture.md` (system
-topology) and `docs/protocol.md` (wire bytes). For build, test, and
-contribution workflows see `docs/developers/developing.md`.
+This page is for the operator of a public emem node, such as `https://emem.dev`. Start with
+[Self-host](../self-host.md). It shows how to run a node, what is in the data directory, and the main environment
+variables. This page adds what a large node needs: image pinning, TLS, limits, monitoring, tuning, backup and fixes
+for known problems.
 
-## What you're running
+For build, test and contribution steps, read [Developing](../developers/developing.md). For the wire bytes, read
+[Protocol](../protocol.md).
 
-A single Rust binary `emem-server` listening on one port for HTTP plus
-the MCP JSON-RPC endpoint at `/mcp`. No GPU or model sidecar is
-needed. Local sled DB for the hot cache; an append-only
-Merkle log under `<EMEM_DATA>/log/`. ed25519 responder identity
-persisted at `<EMEM_DATA>/identity.secret.b32` with mode 0600.
+Each default and count on this page comes from the code or from `https://emem.dev` on 7 November 2026.
 
-Default ports:
+## What runs
 
-- `5051` — plain HTTP, the dev default. Behind a reverse proxy in
-  most production setups.
-- `443` — TLS via `rustls` + `rustls-acme` (Let's Encrypt
-  TLS-ALPN-01). Activated by setting `EMEM_TLS_DOMAINS`.
+A node is one process, `emem-server`. It serves REST and MCP (`/mcp`) on one port. It needs no GPU and no model
+sidecar.
 
-Port `5050` is permanently unavailable on the canonical dev host: it
-is held by an unrelated `tile_server.py` for a different project.
-Anywhere you see "5050" in old notes, treat it as 5051 today.
-
-## Quick deploy
-
-### Docker
-
-```
-docker run -d \
-  --name emem \
-  --restart unless-stopped \
-  -p 5051:5051 \
-  -v emem_data:/var/emem \
-  -e EMEM_BIND=0.0.0.0:5051 \
-  -e EMEM_DATA=/var/emem \
-  ghcr.io/vortx-ai/emem:v2.4.4
-```
-
-Published tags are `:latest`, `:main`, `:<short-sha>`, and three release
-forms: `:v2.4.4` (the git ref name), `:2.4.4` (bare) and `:2.4` (moves
-within the minor). The bare forms were added after v1.4.0 shipped, so
-v1.4.0 exists only as `:v1.4.0`; every release from v2.0.0 on carries
-all three.
-
-For anything long-lived, pin the digest rather than any tag, as the
-HuggingFace Space does. A tag can be moved or deleted; a digest cannot.
-
-The image runs as UID 65532 on `debian:trixie-slim` (glibc 2.41 —
-required by `ort-sys`). It pre-applies
-`cap_net_bind_service=+ep` on `/usr/local/bin/emem-server` so binding
-:443 inside the container does not need `--cap-add`. The healthcheck
-uses the bash builtin `</dev/tcp/127.0.0.1/${EMEM_BIND##*:}` so the
-runtime image does not need curl.
-
-The `:0.0` major-tag is the recommended pin. Do not pin `:latest`:
-the HuggingFace Space used to ride `:latest` and was vulnerable to a
-silent regression there; it now pins `:0.0` (set 2026-05-08).
-
-### Bare-metal (systemd user unit)
-
-The maintained dev host runs this way. Walk through:
-
-1. Build:
-
-   ```
-   cargo build --release -p emem-cli
-   ```
-
-2. Copy the example unit. It runs the native binary; emem.dev itself runs
-   the published container under `deploy/systemd/emem-server.service`, the
-   exact unit installed at `/etc/systemd/system/emem-server.service`.
-
-   ```
-   cp ops/systemd/emem-server.service.example \
-     ~/.config/systemd/user/emem-server.service
-   ```
-
-3. Edit the `Environment=` lines to match the host: `WorkingDirectory=`
-   your checkout, `EMEM_DATA=<checkout>/var/emem`, `EMEM_BIND=127.0.0.1:5051`,
-   and `EMEM_TLS_DOMAINS=` the names your node answers on. The example's
-   values are one maintainer's host; none of them is required.
-
-4. Reload and start:
-
-   ```
-   systemctl --user daemon-reload
-   systemctl --user enable --now emem-server.service
-   systemctl --user status emem-server
-   ```
-
-5. Cap journald retention to 30 days to match the privacy posture:
-
-   ```
-   sudo install -m 0644 ops/systemd/journald-30day-retention.conf \
-     /etc/systemd/journald.conf.d/30day-retention.conf
-   sudo systemctl restart systemd-journald
-   sudo journalctl --vacuum-time=30d
-   ```
-
-CAP_NET_BIND_SERVICE handling depends on whether the unit is user-
-or system-installed:
-
-- **User unit** (this template, installed under `~/.config/systemd/user/`):
-  the kernel does not honour `AmbientCapabilities=` for the user-mode
-  systemd manager because there is no UID transition for it to prime.
-  The working pattern is `setcap cap_net_bind_service=+ep` on the
-  binary; `scripts/redeploy.sh` re-applies it after every
-  `cargo build --release` (the strip removes the file cap).
-- **System unit** (installed under `/etc/systemd/system/`, runs with
-  `User=emem`): uncomment the `AmbientCapabilities=CAP_NET_BIND_SERVICE`
-  line in the service file. The system manager primes the cap before
-  the UID transition, so the binary doesn't need a file cap.
-
-See "Known operational risks" below for the 2026-04-30 incident this
-covers.
-
-### TLS
-
-Set `EMEM_TLS_DOMAINS=emem.dev,www.emem.dev` and (optionally)
-`EMEM_TLS_BIND=0.0.0.0:443`. The server uses `rustls-acme` with
-TLS-ALPN-01. On first start it provisions certs and caches them under
-`<EMEM_DATA>/acme.cache/`. There is no Caddy, no nginx, no Cloudflare
-in the path — the binary terminates TLS itself.
-
-| Variable | Default | Purpose |
+| Listener | Address | When |
 |---|---|---|
-| `EMEM_TLS_DOMAINS` | unset | comma-separated FQDNs; activates ACME |
-| `EMEM_TLS_BIND` | `0.0.0.0:443` | TLS listener |
-| `EMEM_TLS_CONTACT` | `mailto:avijeet@vortx.ai` | Let's Encrypt ACME contact and `/.well-known/security.txt` Contact |
-| `EMEM_TLS_STAGING` | unset | `=1` to use the Let's Encrypt staging directory while testing the deploy path |
+| Plain HTTP | `EMEM_BIND`, default `0.0.0.0:5051` | Always. With TLS on, the default moves to `127.0.0.1:5051`. |
+| HTTPS | `EMEM_TLS_BIND`, default `0.0.0.0:443` | Only when you set `EMEM_TLS_DOMAINS`. |
 
-When TLS is on, the plain HTTP listener at `EMEM_BIND` stays up in
-parallel for local MCP clients and the live-demo binary. Set
-`EMEM_REDIRECT_HTTPS=1` if you want plain HTTP to 308-redirect to the
-TLS host instead.
+All state is under `EMEM_DATA`. See [What is in the data directory](#what-is-in-the-data-directory).
 
-### Content-Security-Policy
+## Deploy with the image
 
-The server emits a strict CSP header on every response. The default
-policy allows `https://esm.sh` in **both** `script-src` and
-`connect-src` so the `/verify` page can dynamically import
-`@noble/curves@1.6.0/ed25519` and `@noble/hashes@1.5.0/blake3` to
-verify Ed25519 receipts in the browser. Without those allowances the
-page silently degrades to the server-side `/v1/verify_receipt` path
-and labels itself "CDN libs unavailable" — which reads as a verify
-failure even though the math behind it works.
+```bash
+docker run -d --name emem --restart unless-stopped \
+    --stop-timeout 60 \
+    -p 5051:5051 \
+    -v emem-data:/var/emem \
+    ghcr.io/vortx-ai/emem:v2.4.4
+```
+
+The image sets `EMEM_DATA=/var/emem`. The entry point sets `EMEM_BIND` to `0.0.0.0:${PORT:-5051}` when you do not
+set it.
+
+`docker stop` waits 10 seconds by default, then kills the process. At stop, the node closes `facts.redb` within
+`EMEM_STOP_GRACE_S`, default 60 seconds. A kill during that close marks the file for recovery, and the next start
+can take many minutes. `--stop-timeout 60` makes the container wait the same 60 seconds. If you change one value,
+change the other.
+
+### Image tags
+
+The `publish` workflow (`.github/workflows/publish.yml`) pushes these tags. The registry had each example tag on
+7 November 2026.
+
+| Tag | Example | Moves |
+|---|---|---|
+| Release, git ref name | `:v2.4.4` | No |
+| Release, bare | `:2.4.4` | No |
+| Minor | `:2.4` | Yes, to the newest patch of that minor |
+| Branch | `:main` | Yes, on each push to `main` |
+| Default branch | `:latest` | Yes, on each push to `main` |
+| Commit | `:<short-sha>` | No |
+
+Release `v1.4.0` has only the `:v1.4.0` form. The bare forms started after that release. There is no `:0.0` tag.
+
+`:latest` and `:main` follow `main`, so they can hold code that is in no release. On 7 November 2026, `:latest` and
+`:v2.4.4` had different digests.
+
+For a long-lived node, pin the digest, not a tag. A maintainer can move or delete a tag. Nobody can change a digest.
+On 7 November 2026, `:v2.4.4` had this digest:
 
 ```text
-content-security-policy: default-src 'self';
-  script-src 'self' https://www.googletagmanager.com https://esm.sh 'unsafe-inline';
-  connect-src 'self' https://www.google-analytics.com https://esm.sh;
-  img-src 'self' data: https:;
-  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
-  font-src 'self' data: https://fonts.gstatic.com;
-  frame-ancestors 'self' https://huggingface.co https://*.hf.space;
-  base-uri 'self'; form-action 'self'
+ghcr.io/vortx-ai/emem@sha256:1b8ec823e13caaa2f5813628e4787f7d038e1713c097e62bd511b71d93f859a8
 ```
 
-If you put a reverse proxy in front of emem, do not override this
-header with a stricter policy unless you also drop `/verify` from your
-deployment. The header is built once at router construction in
-`crates/emem-api-rest/src/lib.rs` (`security_headers` middleware) and
-intentionally has no env-var override — the offline-verify path is a
-load-bearing trust claim and must remain wired by default.
+The Hugging Face Space pins a digest in
+[`huggingface-space/Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/huggingface-space/Dockerfile).
 
-## Environment variables
+### What the image contains
 
-The full set the responder reads. Defaults are what the binary picks
-when the variable is unset.
+These facts come from the runtime stage of [`Dockerfile`](https://github.com/Vortx-AI/emem/blob/main/Dockerfile).
 
-| Variable | Default | Purpose |
-|---|---|---|
-| `EMEM_BIND` | `0.0.0.0:5051` | plain HTTP bind |
-| `EMEM_DATA` | `./var/emem` | data dir; `:memory:` for ephemeral |
-| `EMEM_SECRET_B32` | (loaded from `<EMEM_DATA>/identity.secret.b32`) | ed25519 secret override, base32-nopad |
-| `EMEM_AUTO_MATERIALIZE` | unset (off) | enable lazy fetch on `/v1/recall` miss |
-| `EMEM_MATERIALIZE_SHARE` | `0.5` | the fraction of the per-minute cold-fetch ceiling (`EMEM_MATERIALIZE_PER_MIN`) one requester (hashed client address) may spend; the total still caps everyone |
-| `EMEM_WARM_INTERVAL_SECS` | `0` (off) | the densification warmer: every this many seconds (the last pass is kept in `<EMEM_DATA>/warm_state.json`, so restarts keep the schedule), read the list and warm each entry (`cells`, `bands` or `band`, optional `start_unix`/`end_unix`): without a window with the recall a visitor makes, with one through the backfill preparer; the production unit sets 21600 and `scripts/redeploy.sh` links the list from `config/warm_priority.json` |
-| `EMEM_WARM_PRIORITY` | `<EMEM_DATA>/warm_priority.json` | the warmer's list; the emem.dev container binds `config/` read-only and points this at `/config/warm_priority.json`, so a `git pull` changes the next pass |
-| `EMEM_WARM_MAX_IO_PRESSURE` | `10` | a due pass waits while more than this percent of the last minute was stalled on IO (`/proc/pressure/io` some avg60); keeps the warmer off a booting store and a busy box, for at most one interval, after which it runs anyway |
-| `EMEM_WARM_BUDGET_MS` | `30000` | the warmer's budget per entry per pass; what does not finish detaches and persists, and the next pass converges |
-| `EMEM_ABSENCE_RECHECK_SECS` | `21600` | how long this responder's own Absence stands as the answer before a recall asks upstream again; `0` re-asks every time |
-| `EMEM_MEMORY_SEARCH_POLL_SECS` | `60` | memory-search indexer pass; the indexed set and vectors stay resident, so a pass reads no index rows |
-| `EMEM_TIMEOUT_SECS` | 180 | per-request gateway timeout (clamped 1..=600) |
-| `EMEM_MATERIALIZER_TIMEOUT_SECS` | 14 | per-upstream timeout (clamped 2..=240) |
-| `EMEM_TILE_STORE_GB` | `40` | disk the tile store may use for whole local copies of the static forest rasters (Hansen GFC, JRC GFC2020 tiles, the JRC TMF mirror, ESA WorldCover), kept under `<EMEM_DATA>/tile_store/`. The first range read of such a tile starts a background download; once the copy is on disk at its published length, reads of that url are served from it. The least recently used copies go first, and a copy is refused if it would leave the disk under 30 GB free. `0` turns the store off |
-| `EMEM_MATERIALIZER_RETRIES` | 2 | per-upstream retries (clamped 1..=5) |
-| `EMEM_BODY_LIMIT_MB` | 8 | request body cap (clamped 1..=256) |
-| `EMEM_RATE_LIMIT_RPS` | 50 | global token-bucket fill (clamped 0.01..=1000) |
-| `EMEM_RATE_LIMIT_BURST` | 200 | burst capacity (clamped 1..=100000) |
-| `EMEM_TRUST_FORWARDED` | unset | `=1` to honour `X-Forwarded-For` for rate limiting |
-| `EMEM_REDIRECT_HTTPS` | unset | `=1` to redirect plain HTTP to TLS |
-| `EMEM_ALLOWED_ORIGINS` | `*` | CORS allowlist; comma-separated |
-| `EMEM_MCP_ALLOWED_ORIGINS` | the MCP hosts compiled in (claude.ai, chatgpt.com, cursor.com) plus emem.dev | extra origins allowed every MCP call; comma-separated. Add your own site's origin here |
-| `EMEM_MCP_BROWSER_READS` | on | from any other origin, MCP answers the handshake, listings and `readOnlyHint: true` tools and refuses the rest with 403; `=0` refuses them all (a node whose tools reach private data) |
-| `EMEM_WORLDS_DIR` | `var/worlds`, relative to the working directory | baked splat worlds served at `/v1/worlds`; set an absolute path when the process does not start in the checkout (the container image starts in `/`). The listing reports `root_exists` |
-| `EMEM_PUBLIC_URL` | derived from `EMEM_TLS_DOMAINS` | canonical origin for `/.well-known/emem.json` and User-Agent |
-| `EMEM_SECURITY_POLICY_URL` | unset | `Policy:` line in `/.well-known/security.txt` |
-| `EMEM_OVERTURE_RELEASE` | (auto-discover newest) | pin Overture monthly release |
-| `EMEM_OVERTURE_PARALLEL` | per-host default | parallel range reads against the Overture S3 bucket |
-| `EMEM_SCAN_CELL_LIMIT` | 10000 | sled scan-row cap |
-| `EMEM_COVERAGE_MATRIX_LIMIT` | 32768 | per-band index scan cap for `/v1/coverage_matrix` |
-| `EMEM_DEMOS_DIR` | `<EMEM_DATA>/demos` (or `var/demos`) | livedemo / realdemo output dir |
-| `EMEM_TOPIC_MODEL_DIR` | `<EMEM_DATA>/models/bge-base-en-v1.5` | topic-router ONNX directory |
-| `EMEM_TOPIC_BACKEND` | ort | force `=keyword` to skip the BERT path |
-| `EMEM_TOPIC_USE_GPU` | unset | `=1` to enable CUDA EP on the topic router (requires CUDA dylib) |
-| `EMEM_TOPIC_THRESHOLD` | 0.35 | cosine threshold for ort backend topic match |
-| `EMEM_GA_MEASUREMENT_ID` | unset | substituted into `web/index.html` at startup; unset strips the GA block entirely |
-| `EMEM_NOMINATIM_BASE` | upstream OSM | self-host override for the secondary geocoder |
-| `EMEM_PHOTON_BASE` | komoot Photon | primary geocoder override |
-| `EMEM_GEOCODER_TTL_SECS` | sane default | cache TTL for `/v1/locate` |
-| `EMEM_NO_NETWORK` | unset | `=1` to forbid all upstream calls (offline mode for tests) |
-| `ORT_DYLIB_PATH` | (none) | path to `libonnxruntime.so.*` for the topic router and ort 2.x |
-| `LD_LIBRARY_PATH` | (none) | extra library paths (CUDA 12 runtime, ORT bundle) |
-| `RUST_LOG` | `info` | tracing filter, e.g. `info,emem_storage=debug,rustls_acme=info` |
-| `HF_HUB_OFFLINE` | `1` (enforced) | forbid the HuggingFace hub client from touching the network at runtime; all model snapshots must be pre-staged under `<EMEM_DATA>/hf_cache/` and `<EMEM_DATA>/models/` |
-
-## Disk layout
-
-`<EMEM_DATA>/` after a few weeks of running:
-
-```
-<EMEM_DATA>/
-├── identity.secret.b32          ed25519 secret, mode 0600
-├── cache.sled/                  sled hot cache (4 trees: canonical_index, facts, attesters, fact_proofs)
-├── log/
-│   └── merkle.log.{0,1,...}     append-only segments, ~1 GiB rotation
-├── geocoder.sled/               /v1/locate cache (separate sled DB)
-├── hf_cache/                    HuggingFace model snapshots
-├── models/
-│   └── bge-base-en-v1.5/        topic-router ONNX (~435 MB) + tokenizer.json
-├── tile_store/                  whole copies of static forest tiles, each with a .json naming its url (EMEM_TILE_STORE_GB)
-├── acme.cache/                  Let's Encrypt cert cache
-└── demos/                       livedemo / realdemo output (override with EMEM_DEMOS_DIR)
-```
-
-The whole `<EMEM_DATA>/` is portable. Snapshot it to S3 or GCS for
-backup; because the responder is content-addressed end-to-end, replay
-on a fresh host produces byte-identical receipts as long as the
-schema CID resolves and the responder identity is the same.
-
-If you migrate to a new host and want a stable responder pubkey, copy
-`identity.secret.b32` first. Otherwise the server generates a fresh
-key on first start and persists it.
-
-## Monitoring
-
-| Endpoint | Purpose |
+| Setting | Value |
 |---|---|
-| `GET /health` | liveness — uptime, manifest CIDs, responder pubkey, started_at_unix_s, version |
-| `GET /metrics` | Prometheus exporter — request counts, latency histograms by path, materialization counters |
-| `GET /v1/coverage_matrix` | per-band live status: `has_materializer`, `facts_count`, `last_attested_unix_s`, `tempo_seconds`, `responder_pubkey_b32`, `wired_subkeys` for family aliases |
-| `GET /v1/data_availability` | temporal coverage — `history_available_from_unix` / `history_available_to_unix` per band |
-| `GET /v1/manifests` | active `bands_cid`, `algorithms_cid`, `sources_cid`, `schema_cid`, `registry_cid` |
-| `GET /v1/agent_stats` | aggregate tool call counts by agent platform |
-| `GET /v1/demos` | list of saved livedemo/realdemo runs |
+| Base | `debian:trixie-slim` |
+| User | `emem`, uid 65532 |
+| Port 443 | The binary has `cap_net_bind_service=+ep`, so it binds 443 without `--cap-add` |
+| Health check | `bash` opens a TCP connection to the listen port. The image has no `curl`. |
+| Ports | `5051` and `443` |
 
-For the systemd deploy, tail logs with:
+### How emem.dev runs
 
+emem.dev runs the image with `docker run` under the system unit
+[`deploy/systemd/emem-server.service`](https://github.com/Vortx-AI/emem/blob/main/deploy/systemd/emem-server.service).
+That unit runs `:latest` with `--network host` and `--user 1000:1000`. It sets `TimeoutStopSec=150`, mounts
+`config/` read-only, and turns on the warmer. It is for a store of about 98 GB. Read it for these settings, but do
+not copy it for a small node.
+
+The maintainers deploy emem.dev with `pending_deploy.sh` after the `publish` workflow passes. See
+[AGENTS.md](https://github.com/Vortx-AI/emem/blob/main/AGENTS.md#build). Do not use `scripts/redeploy.sh` on that
+host. That script builds on the host and restarts a user unit that production does not use.
+
+## Deploy the binary under systemd
+
+[Self-host](../self-host.md#run-the-binary-under-systemd) has a minimal user unit. The repository also has a longer
+example,
+[`ops/systemd/emem-server.service.example`](https://github.com/Vortx-AI/emem/blob/main/ops/systemd/emem-server.service.example).
+Its values are from one maintainer's host. Change `WorkingDirectory=`, `EMEM_DATA`, `EMEM_TLS_DOMAINS` and
+`EMEM_TLS_CONTACT` before you use it. Remove the `ORT_DYLIB_PATH`, `LD_LIBRARY_PATH` and `EMEM_GA_MEASUREMENT_ID`
+lines: the current binary does not use them to run.
+
+```bash
+cp ops/systemd/emem-server.service.example ~/.config/systemd/user/emem-server.service
+systemctl --user daemon-reload
+systemctl --user enable --now emem-server.service
+systemctl --user status emem-server
 ```
+
+To keep journal logs for 30 days at most, as the emem.dev privacy page says:
+
+```bash
+sudo mkdir -p /etc/systemd/journald.conf.d
+sudo install -m 0644 ops/systemd/journald-30day-retention.conf \
+    /etc/systemd/journald.conf.d/30day-retention.conf
+sudo systemctl restart systemd-journald
+sudo journalctl --vacuum-time=30d
+```
+
+### Bind port 443 as a user that is not root
+
+The way to give the binary permission to bind port 443 depends on the unit type.
+
+| Unit type | What works |
+|---|---|
+| User unit, in `~/.config/systemd/user/` | `sudo setcap 'cap_net_bind_service=+ep' target/release/emem-server` after each build. `AmbientCapabilities=` fails with `status=218/CAPABILITIES`, because the user manager has no UID change that can give the permission. |
+| System unit, in `/etc/systemd/system/` with `User=` | `AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit. The binary does not need the file permission. |
+
+A new build removes the file permission. On 30 April 2026 this stopped the emem.dev user unit from binding port 443.
+`Restart=on-failure` with `RestartSec=2` then restarted it 1560 times in 30 minutes. `scripts/redeploy.sh` applies
+`setcap` again after each build. Use it only on a node that runs the binary directly.
+
+## Turn on TLS
+
+The binary serves TLS itself, with `rustls` and Let's Encrypt (`rustls-acme`, TLS-ALPN-01). You do not need a
+reverse proxy.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EMEM_TLS_DOMAINS` | unset | Comma-separated domains. When set, the node gets certificates and serves TLS. |
+| `EMEM_TLS_BIND` | `0.0.0.0:443` | The TLS listener. |
+| `EMEM_TLS_CONTACT` | unset | Your ACME contact, for example `mailto:ops@example.com`. With TLS on, the node does not start without it. |
+| `EMEM_TLS_STAGING` | unset | `1` uses the Let's Encrypt staging directory. Use it while you test. |
+| `EMEM_REDIRECT_HTTPS` | unset | `1` makes the plain listener answer with a 308 redirect to HTTPS when the `Host` header is one of `EMEM_TLS_DOMAINS`. A request to another host, such as `127.0.0.1:5051`, gets a normal answer. A request with `X-Forwarded-Proto: https` also gets a normal answer. |
+
+The node keeps certificates in `$EMEM_DATA/acme.cache/`. Port 443 must be open to the internet, because TLS-ALPN-01
+connects to it.
+
+In the image, the plain listener does not move to loopback when you turn on TLS. The entry point always sets
+`EMEM_BIND`, so add `-e EMEM_BIND=127.0.0.1:5051`. This example needs a domain that points to the host. It did not
+run for this page, because the test host has no public domain.
+
+```bash
+docker run -d --name emem --restart unless-stopped \
+    --stop-timeout 60 \
+    -p 443:443 \
+    -v emem-data:/var/emem \
+    -e EMEM_TLS_DOMAINS=node.example.com \
+    -e EMEM_TLS_CONTACT=mailto:ops@example.com \
+    -e EMEM_BIND=127.0.0.1:5051 \
+    ghcr.io/vortx-ai/emem:v2.4.4
+```
+
+The image health check connects to `127.0.0.1` on the port in `EMEM_BIND`, so it still works. See also
+[Self-host, Turn on TLS](../self-host.md#turn-on-tls).
+
+## Content-Security-Policy
+
+The node sends a strict CSP header on each response. `build_csp` in `crates/emem-api-rest/src/lib.rs` makes it. The
+policy has no environment override. On 7 November 2026, emem.dev sent this policy. This page does not show the
+`'sha256-…'` hashes.
+
+```text
+default-src 'self';
+script-src 'self' https://esm.sh https://cdn.redocly.com 'sha256-…';
+connect-src 'self' https://esm.sh https://server.arcgisonline.com;
+img-src 'self' data: blob: https:;
+style-src 'self' https://fonts.googleapis.com 'sha256-…';
+style-src-attr 'unsafe-inline';
+font-src 'self' data: https://fonts.gstatic.com;
+worker-src 'self' blob:;
+frame-ancestors 'self' https://huggingface.co https://*.hf.space https://geo.qa https://*.geo.qa;
+base-uri 'self'; form-action 'self'
+```
+
+The node computes the hashes at start from the inline scripts and styles of the pages compiled into the binary. There
+is no `'unsafe-inline'` for scripts.
+
+The `/verify` page imports the Ed25519 and BLAKE3 code from `https://esm.sh`. Without `esm.sh` in `script-src` and
+`connect-src`, the page cannot verify in the browser. It then uses `/v1/verify_receipt` on the server and shows
+"CDN libs unavailable". If you put a reverse proxy in front of the node, do not replace this header.
+
+## Environment variables for a public node
+
+[Self-host](../self-host.md#environment-variables) lists the main variables. This table adds the ones for limits,
+upstreams and background work. Each default comes from the code.
+
+### Limits
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EMEM_RATE_LIMIT_RPS` | `10` | Tokens per second in the rate limit of each client address, from 0.01 to 1000. |
+| `EMEM_RATE_LIMIT_BURST` | `120` | The bucket size of the rate limit, from 1 to 100000. |
+| `EMEM_TRUST_FORWARDED` | unset | `1` takes the client address from `X-Forwarded-For`. Set it only behind a proxy that you control. |
+| `EMEM_TIMEOUT_SECS` | `40` | The timeout of one request, from 1 to 600 seconds. |
+| `EMEM_ASK_TIMEOUT_SECS` | `30` | The time budget of `/v1/ask`, from 10 to 180 seconds. |
+| `EMEM_BODY_LIMIT_MB` | `16` | The maximum request body, from 1 to 256 MB. |
+| `EMEM_ALLOWED_ORIGINS` | unset | Comma-separated CORS origins. If unset, the node sends `access-control-allow-origin: *`. |
+| `EMEM_MCP_ALLOWED_ORIGINS` | unset | More origins that may call every MCP method. The binary always allows `https://claude.ai`, `https://chatgpt.com`, `https://chat.openai.com`, `https://cursor.com`, `https://emem.dev`, `https://www.emem.dev`, the origin `null`, and requests with no `Origin`. Sandboxed frames and `file:` pages send `Origin: null`. |
+| `EMEM_MCP_BROWSER_READS` | on | From any other origin, MCP answers the handshake, the lists and the read-only tools, and refuses the rest. `0` refuses all of them. Use `0` when your tools reach private data. |
+| `EMEM_SCAN_CELL_LIMIT` | `10000` | The maximum rows in one cell scan of the hot store. |
+| `EMEM_COVERAGE_MATRIX_LIMIT` | `50000` | The maximum index rows that `/v1/coverage_matrix` reads, from 1000 to 100000. |
+| `EMEM_RECALL_MANY_CONCURRENCY` | `16` | Cells that `/v1/recall_many` resolves at the same time, from 1 to 256. |
+
+### Upstream reads
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EMEM_MATERIALIZE_PER_MIN` | `600` | Upstream reads per minute on a recall miss, for all clients together, from 1 to 100000. |
+| `EMEM_MATERIALIZE_SHARE` | `0.5` | The part of `EMEM_MATERIALIZE_PER_MIN` that one client address can use. A value must be more than 0 and 1 at most, or the node uses `0.5`. |
+| `EMEM_MATERIALIZE_GLOBAL_LIMIT` | `12` | Band materializations that run at the same time in the whole process, from 1 to 256. |
+| `EMEM_MATERIALIZE_CONCURRENCY` | `8` | Band materializations that one request runs at the same time, from 1 to 32. |
+| `EMEM_ASK_COLD_BAND_CAP` | `8` | Bands with no stored fact that one `/v1/ask` call materializes, from 1 to 64. The node defers the other bands with a note. |
+| `EMEM_HUNTER_SLOW_BAND_CAP` | `8` | Cells that one hunter sweep reads for the slow MODIS land surface temperature bands (`modis.lst_day_8day`, `modis.lst_night_8day`), from 1 to 32. |
+| `EMEM_MATERIALIZER_TIMEOUT_SECS` | `14` | The timeout of one upstream read, from 2 to 240 seconds. |
+| `EMEM_MATERIALIZER_RETRIES` | `2` | How many times the node tries one ORNL MODIS read, from 1 to 5. |
+| `EMEM_ABSENCE_RECHECK_SECS` | `21600` | How long the node answers with its own signed absence before it asks the upstream again. `0` asks each time. |
+| `EMEM_TILE_STORE_GB` | `40` | Disk for whole local copies of static forest rasters (Hansen GFC, JRC GFC2020, JRC TMF, ESA WorldCover) in `$EMEM_DATA/tile_store/`. The node removes the least recently used copy first. It does not store a copy that leaves less than 30 GB free. It does not copy a file larger than 8 GB; it reads that file by range. `0` turns the store off. |
+| `EMEM_S2_CATALOGUES` | `mpc,element84` | The Sentinel-2 STAC catalogues, in order. The node knows only `mpc` and `element84` and ignores other names. |
+| `EMEM_RETIRED_BANDS` | empty | A comma-separated list of bands that this node does not materialize, added to the bands that the code retires. emem.dev sets `geotessera,clay_v1,prithvi_eo2,galileo`. |
+| `EMEM_OVERTURE_RELEASE` | newest | Pins one Overture release. |
+| `EMEM_OVERTURE_PARALLEL` | `32` | Parallel range reads to the Overture bucket, from 1 to 256. |
+| `EMEM_OVERTURE_SKIP_WARMUP` | unset | `1` skips the Overture warmup at start. Use it on a node with no internet access. |
+| `EMEM_EARTHDATA_TOKEN` or `EMEM_EARTHDATA_TOKEN_FILE` | unset | A NASA Earthdata token. Without it, an `opera_dist.*` recall gets an error (`not_enabled`). With it, the recall also gets an error, because the code has no fetch yet (`NotImplemented`, `opera_dist.rs`). In both cases the node signs nothing. |
+| `EMEM_WRI_GDM_CACHE` | unset | The absolute path of a local copy of the WRI drivers of forest loss COG (295 MB, from Zenodo). Without it, a `wri_gdm.driver_class` recall gets an error and the node signs nothing. |
+| `EMEM_PHOTON_BASE` | `https://photon.komoot.io` | The first network geocoder for `/v1/locate`. |
+| `EMEM_NOMINATIM_BASE` | `https://nominatim.openstreetmap.org` | The second network geocoder. |
+| `EMEM_GEOCODER_TTL_SECS` | `2592000` (30 days) | How long the node keeps a geocoder answer in `geocoder.sled/`. |
+
+### Background work
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EMEM_WARM_INTERVAL_SECS` | `0` (off) | Runs the warmer every this many seconds. The warmer recalls each entry in its list, so the first visitor finds the facts ready. emem.dev uses `21600`. |
+| `EMEM_WARM_PRIORITY` | `$EMEM_DATA/warm_priority.json` | The warmer's list. Each entry has `cells`, `bands` or `band`, and an optional `start_unix` and `end_unix`. emem.dev uses `/config/warm_priority.json`, from [`config/warm_priority.json`](https://github.com/Vortx-AI/emem/blob/main/config/warm_priority.json). |
+| `EMEM_WARM_BUDGET_MS` | `30000` | The time for one entry in one pass. Work that does not finish continues in the background. |
+| `EMEM_WARM_MAX_IO_PRESSURE` | `10` | A pass waits while IO stalls are above this percent (`/proc/pressure/io`, `some avg60`). It waits one interval at most. |
+| `EMEM_SHUTDOWN_GRACE_S` | `3` | Seconds that open connections get to finish at stop, 30 at most. |
+| `EMEM_STOP_GRACE_S` | `60` | The stop grace of the container, from 5 to 3600 seconds. Set it to your `docker stop -t` value. The node closes `facts.redb` before this time ends, so a kill does not leave the file for recovery. |
+
+The memory TTL pass, the combine pass and the refinement pass are also background work. All three are off by
+default. The files in `deploy/` do not turn them on. [Self-host, Memory variables](../self-host.md#memory-variables)
+lists their variables.
+
+### Identity, discovery and logs
+
+| Variable | Default | What it does |
+|---|---|---|
+| `EMEM_SECRET_B32` | unset | The responder secret in base32. If unset, the node reads `$EMEM_DATA/identity.secret.b32`, or makes it. |
+| `EMEM_PUBLIC_URL` | the first TLS domain | The origin in `/.well-known/emem.json`, `did.json` and the outbound User-Agent. |
+| `EMEM_SECURITY_POLICY_URL` | unset | Adds a `Policy:` line to `/.well-known/security.txt`. |
+| `EMEM_TOPIC_MODEL_DIR` | `$EMEM_DATA/models/bge-base-en-v1.5` | The BGE model for the topic router and memory search. The default applies only when you set `EMEM_DATA`, as the image does. With both unset, the router uses its keyword backend and logs a warning. |
+| `EMEM_TOPIC_THRESHOLD` | `0.35` | The cosine threshold for a topic match in `/v1/ask`. If unset, the node uses `_routing.threshold` in `topics-v0.json`, which is also `0.35`. |
+| `EMEM_DEMOS_DIR` | `var/demos`, from the working directory | The directory that `/v1/demos` serves. |
+| `EMEM_WORLDS_DIR` | `var/worlds`, from the working directory | The directory that `/v1/worlds` serves. The image starts in `/`, so set an absolute path there. |
+| `EMEM_SPLATS_DIR` | `$EMEM_DATA/splats-site` | The static files that `/splats/` serves. The repository does not include them. If the directory is empty, `/splats/` gives 404. |
+| `RUST_LOG` | `info` | The log filter, for example `info,emem_storage=debug,rustls_acme=info`. |
+
+The binary reads more variables than these tables show. Helper functions read some of them, and
+`EMEM_WARM_PRIORITY` uses `env::var_os`. A search for `env::var("EMEM_` misses them. So search for every quoted
+`EMEM_` name. On 7 November 2026 this gave 273 names. The list can also hold a quoted name that is not an
+environment variable.
+
+```bash
+grep -rhoE '"EMEM_[A-Z0-9_]+"' crates | sort -u
+```
+
+## What is in the data directory
+
+[Self-host](../self-host.md#what-is-in-the-data-directory) lists the main paths. A large node also has these:
+
+```text
+$EMEM_DATA/
+├── identity.secret.b32     the responder secret, mode 0600
+├── facts.redb              fact rows and bodies (the default hot backend)
+├── cache.sled/             memory notes, attesters, fact proofs, the device gate, agent stats
+├── log/
+│   ├── merkle.log.<n>      append-only log segments, a new one after 1 GiB
+│   └── merkle.leaves.<n>.v1
+├── lance/                  vector indexes
+├── geocoder.sled/          the /v1/locate cache
+├── tile_store/             local copies of static forest rasters
+├── models/                 optional model files
+├── splats-site/            the files that /splats/ serves, when you add them
+├── acme.cache/             TLS certificates
+├── warm_priority.json      the warmer's list, when you put it here
+└── warm_state.json         the time of the last warmer pass
+```
+
+`EMEM_HOT_BACKEND=sled` puts fact rows back in `cache.sled/`. It is the rollback path. `emem-sled-slim` copies the
+live sled trees into a new `cache.sled.slim/` and leaves out the fact trees that `facts.redb` now holds. Before it
+leaves out a tree, it copies into `facts.redb` each key of that tree that `facts.redb` does not have. It never
+overwrites a key that `facts.redb` holds. It deletes nothing. You rename the directories yourself. On emem.dev,
+the copy was 40 GB from 41 GB, so the maintainers kept the original (header of `emem-sled-slim.rs`).
+
+### Back up and move a node
+
+Stop the node, then copy the whole `$EMEM_DATA/`. sled and redb lock their files, and a copy of a running store
+can be inconsistent.
+
+Each fact has a content address, so a copy on a new host serves the same `fact_cid` values. Old receipts still
+verify, because the signature covers the bytes and not the host. New receipts get a new `request_id` and time.
+
+Copy `identity.secret.b32` first. Without it, the node makes a new key. Agents that pinned the old
+`responder_pubkey_b32` then refuse its receipts.
+
+## Monitor
+
+| Endpoint | What it gives |
+|---|---|
+| `GET /live` | Liveness. It reads no storage, so you can poll it during a deploy. |
+| `GET /health` | Uptime, version, manifest CIDs, the responder key and corpus statistics. It can be slower. |
+| `GET /metrics` | Prometheus text: requests, rate-limited requests, attestations, recalls, MCP calls and latency buckets. |
+| `GET /v1/coverage_matrix` | Each band: `has_materializer`, `facts_count`, `last_attested_unix_s`, `tempo_seconds`. |
+| `GET /v1/materializers` | The registered materializers, in pages of 20. `pagination.total` is the count. |
+| `GET /v1/data_availability` | The time range that each band covers. |
+| `GET /v1/manifests` | The active registry CIDs and the entry count of each registry. |
+| `GET /v1/agent_stats` | Requests and errors by client family (`by_family`), calls by tool (`by_tool`), status classes and latency. |
+| `GET /v1/demos` | Saved demo runs. |
+
+Check the node:
+
+```bash
+curl -sS http://127.0.0.1:5051/health | jq '{ok, version, uptime_seconds, responder_pubkey_b32, bands_cid, schema_cid}'
+curl -sS http://127.0.0.1:5051/v1/coverage_matrix | jq '.totals'
+curl -sS 'http://127.0.0.1:5051/v1/materializers?page_size=1' | jq '.pagination.total'
+```
+
+On 7 November 2026, emem.dev gave these values:
+
+| Value | emem.dev |
+|---|---|
+| `bands_declared` | 94 |
+| `bands_with_materializer` | 69 |
+| `bands_with_facts` | 49 |
+| Materializers (`pagination.total`) | 113 |
+| Bands in the band manifest (`/v1/manifests`, `covers.bands`) | 43 |
+
+`total_facts` in `/v1/coverage_matrix` stops at `EMEM_COVERAGE_MATRIX_LIMIT`. It is not the corpus size. A fall in
+`bands_with_materializer` after an upgrade means a materializer is missing, or the registry went back to an older
+version.
+
+To read the logs of a user unit:
+
+```bash
 journalctl --user -u emem-server -f
 ```
 
-Bump verbosity per-module with `RUST_LOG=info,emem_storage=debug,
-rustls_acme=info`. The interesting subsystems are `emem_storage`
-(materialization, attestation), `emem_api_rest` (request shape),
-`rustls_acme` (cert renewal), and `emem::topic_router` (ort warmup).
+For the container, use `docker logs -f emem`.
 
-A useful one-liner for "is this responder healthy":
+## Tune
 
+### Big area queries
+
+`/v1/query_region` reads stored facts only. It does not fetch from upstreams. It returns at most 65,536 facts. The
+area that one call covers depends on the request field:
+
+| Field | Cells | Area |
+|---|---|---|
+| `bbox`, an array `[west, south, east, north]` | A sample. By default, 64 to 1024 cells, from the area. `max_cells` sets 1 to 1024. | Any size |
+| `geometry: "bbox:..."` | Every cell in the box, 4096 at most | About 0.6 km by 0.6 km |
+| `geometry: "cells:..."` | The listed cells, 4096 at most | The listed cells |
+
+The cell pitch is about 9.55 m. On 7 November 2026, emem.dev accepted a `bbox:` geometry of 0.005 degrees on each
+side near Tokyo. It refused 0.0058 degrees with `invalid_cell`. That error text says the cap covers 6.4 km. That
+figure is wrong: 4096 cells form a square of 64 by 64 cells.
+
+To read every cell of a bigger area, get the cells in pages from `/v1/cells_in_bbox` (4096 cells per page at most).
+Then send each page to `/v1/recall_many` (256 cells per call at most) with a `budget_ms`. `/v1/recall_many` fetches a
+missing band from its upstream.
+
+### The topic router
+
+`/v1/ask` uses the `ort` backend with `BAAI/bge-base-en-v1.5` on the CPU. It routes to the 27 topics in
+`crates/emem-core/data/topics-v0.json`. Put the model on disk before the first start:
+
+```bash
+scripts/install-topic-model.sh
 ```
-curl -sS http://127.0.0.1:5051/health | jq '{
-  ok, version, uptime_seconds, responder_pubkey_b32,
-  bands_cid, schema_cid
-}'
-```
 
-Confirm the route surface and bands at the same time:
+The script downloads `model.onnx` (about 435 MB) and `tokenizer.json` to `$EMEM_TOPIC_MODEL_DIR`. If the warmup
+takes more than 90 seconds, the node starts anyway. The first `/v1/ask` then waits for the warmup to finish.
+`EMEM_TOPIC_BACKEND=keyword` loads no model.
 
-```
-curl -sS http://127.0.0.1:5051/v1/coverage_matrix \
-  | jq '.totals, (.bands | length)'
-```
+The router runs on the CPU only. The build links the bundled CPU ONNX Runtime and has no CUDA feature, so no
+variable turns on a GPU. A comment in `topic_router.rs` names `EMEM_TOPIC_USE_GPU`, but no code reads it.
 
-The expected shape today is ~124 distinct band names surfaced (those
-124 names route into the 43 cube slots that sum to 1792-D); lower
-numbers mean a registry CID rolled back or a materializer was removed.
-`/v1/materializers` reports the 20 live materializer registrations
-directly.
+## Run more than one node
 
-## Tuning
+A node runs on one host. There is no clustering, no leader election and no replicated store.
 
-### Request path
+- For more reads, start a second node on a copy of `$EMEM_DATA/`. Its receipts verify, because it has the same key
+  and the facts have content addresses.
+- Writes need one primary, because the Merkle log has one writer. For more writers, run separate nodes with
+  separate keys. The unit of trust is `(responder_pubkey, fact_cid)`.
+- Nodes can witness each other's log heads. See [Federation](../federation.md).
 
-- Big bbox queries: `/v1/query_region` caps at 4096 cells (bbox
-  geometry) and 65,536 facts total. Beyond that, switch to an
-  explicit `cells:c1,c2,...` list or split the bbox client-side.
-- `/v1/find_similar` with a structured filter: per-cell claim
-  evaluation memoizes verdicts across repeated tslots. Corpora
-  larger than ~1 M cells should layer Lance or FAISS in front; the
-  in-process scan is honest but linear.
-- Recall on a miss with `EMEM_AUTO_MATERIALIZE=1`: 30-second
-  per-upstream timeout, retried twice. Six concurrent fetches will
-  saturate a typical host's outbound bandwidth without disk
-  pressure.
-- `/v1/recall_many` accepts up to 256 cells in one request and
-  returns ETag/304 on repeat calls (same canonical request → same
-  CID → 304). Use it instead of N×`/v1/recall`.
+### Upstream mirrors
 
-### sled
-
-- Hot cache lives at `<EMEM_DATA>/cache.sled`. Log-structured;
-  auto-compacts in the background.
-- Exclusive lock per process. `emem-purge-fnkey --apply` requires the
-  server stopped or sled returns `IO error: Resource temporarily
-  unavailable`.
-- `EMEM_SCAN_CELL_LIMIT` (default 10000) caps the per-cell prefix
-  scan inside the cache. Increase only if you have a known
-  high-density corpus and have measured the latency hit.
-
-### Topic router
-
-- Default backend is ort + `BAAI/bge-base-en-v1.5` (CPU). Warmup
-  budget at startup is 90 s; if the load takes longer the server
-  starts anyway and `/v1/ask` falls back to the keyword backend
-  until the OnceLock initializer completes.
-- Pre-stage the model with `scripts/install-topic-model.sh`, which
-  pulls `tokenizer.json` and `model.onnx` (~435 MB) into
-  `$EMEM_TOPIC_MODEL_DIR`. This avoids the cold-start fetch and
-  keeps the server's first call fast.
-- GPU off by default. To use CUDA EP, set
-  `ORT_DYLIB_PATH=/opt/onnxruntime-1.22.0-cuda12/lib/libonnxruntime.so.1.22.0`
-  and `EMEM_TOPIC_USE_GPU=1`. Operationally the CPU path is fine for
-  the 27-topic registry — ~110 ms warm end-to-end.
-
-### Retired GPU sidecar
-
-Earlier versions ran Clay, Prithvi, Galileo and a JEPA-v2 dynamics head
-on a Python GPU sidecar. It is gone, and so are its `EMEM_SIDECAR_*`,
-`EMEM_GALILEO_*` and `EMEM_PRITHVI_*` variables. Facts it signed still
-recall and verify.
-
-## Fail-over and HA
-
-The deployment model today is single-host. There is no built-in
-clustering, no leader election, no replicated sled. What you can
-do:
-
-- **Read replicas**: point a second `emem-server` at a snapshot of
-  `<EMEM_DATA>/` and serve reads. Receipts continue to verify
-  because the responder identity is the file-pinned ed25519 key, and
-  facts are content-addressed.
-- **Writes**: attestations still need a single primary because the
-  append-only Merkle log is single-writer. If you need multi-writer
-  attestation today, run separate responders with separate
-  identities and federate at the agent layer — `(responder_pubkey,
-  fact_cid)` is the trust unit.
-
-Mirroring on the connector side (multiple upstreams configured for
-the same materializer):
-
-| Connector | Mirroring |
+| Connector | Mirrors |
 |---|---|
-| Sentinel-2 / Sentinel-1 STAC | Sentinel-2: MS Planetary Computer primary, Element84 fallback (`EMEM_S2_CATALOGUES` reorders); Sentinel-1 RTC: Planetary Computer |
-| Terraclimate NCSS | dual: UI primary, NCAR RDA secondary (added 2026-05-08) |
-| Cop-DEM 30 m | single (Copernicus S3) |
-| Hansen GFC | single |
-| WorldPop | single (slow; see below) |
-| DMSP-OLS | single, frozen 1992-2013 |
-| ESA WorldCover | single |
-| OSM / Overture | single (Overture snapshot pinning via `EMEM_OVERTURE_RELEASE`) |
+| Sentinel-2 STAC | Microsoft Planetary Computer, then Element84. `EMEM_S2_CATALOGUES` changes the order. |
+| TerraClimate | `thredds.northwestknowledge.net`, then the NCAR RDA mirror |
+| Other connectors | One upstream each |
 
-When a dual-mirror connector falls back, the receipt's `Source.url`
-records which mirror actually served the bytes — you can
-post-process `/v1/sources` traffic to confirm primary vs secondary
-hit rate.
+The `Source.url` of a fact names the mirror that served the bytes.
 
-## Known operational risks
+## Fix common problems
 
-| Risk | Today's mitigation | Future |
+### The unit restarts every 2 seconds after a build
+
+The log shows `Permission denied (os error 13)` on bind. The build removed the file permission. Check it:
+
+```bash
+getcap target/release/emem-server
+```
+
+Empty output means no permission. Run `sudo setcap 'cap_net_bind_service=+ep' target/release/emem-server`, then
+`systemctl --user restart emem-server`. See [Bind port 443](#bind-port-443-as-a-user-that-is-not-root).
+
+### A recall returns no fact for a band
+
+Find the band in the coverage matrix:
+
+```bash
+curl -sS http://127.0.0.1:5051/v1/coverage_matrix | jq '.bands[] | select(.band=="<band>")'
+```
+
+| Result | Cause |
+|---|---|
+| `has_materializer: false` | The node cannot read this band from an upstream. Only a signed write can add it. |
+| `has_materializer: true` | Check that `EMEM_AUTO_MATERIALIZE` is not `0`. Then read the log for the upstream error. |
+
+### The node refuses an attestation
+
+The node does not log the reason. It returns the reason to the client. In most cases the answer is HTTP 422 with
+code `bad_signature` and a message that starts with `attestation verification failed:`. A subject outside every
+address space gives HTTP 400 with code `unaddressable_subject`.
+
+The usual causes are leaves in the wrong order before the Merkle root, or a signature over the wrong preimage.
+`crates/emem-fact/tests/round_trip.rs` tests both. Reproduce the problem there first.
+
+### A receipt verifies on the node but a client refuses it
+
+The client builds a different preimage. New receipts use preimage v1 or v2, with tagged and length-prefixed segments.
+Old receipts use v0. [Protocol](../protocol.md) has the byte-by-byte preimage. The reference code is
+`sign_receipt_v1_inner` in `crates/emem-storage/src/server.rs`. Test the receipt with `POST /v1/verify_receipt`.
+
+### `/v1/locate` is slow or empty
+
+The `via` field of the answer names the layer that answered. The node tries its embedded gazetteers and its cache
+first, then Photon, then Nominatim. If Photon is down, set `EMEM_PHOTON_BASE` to another instance.
+`EMEM_NOMINATIM_BASE` does the same for Nominatim.
+
+### Certificate renewal fails
+
+```bash
+journalctl --user -u emem-server | grep -i acme
+docker logs emem 2>&1 | grep -i acme        # for the container
+```
+
+The usual causes: the internet cannot reach port 443, `EMEM_TLS_CONTACT` is wrong, or you hit the Let's Encrypt rate
+limit. Use `EMEM_TLS_STAGING=1` while you test.
+
+### Known risks
+
+| Risk | What reduces it now |
+|---|---|
+| A build removes the file permission | `scripts/redeploy.sh` applies `setcap` again. A system unit can use `AmbientCapabilities=`. |
+| A slow upstream, such as the WorldPop Stats API, holds a large recall open | `/v1/recall_many` takes 256 cells at most. `budget_ms` returns the cells that are ready. `EMEM_MATERIALIZE_PER_MIN` caps upstream reads. |
+| DMSP-OLS stops at 2013 | The dataset ends there. `/v1/data_availability` says so. |
+| A topic model load takes more than 90 seconds | The node starts anyway. Run `scripts/install-topic-model.sh` before the first start. |
+
+## Upgrade
+
+1. Save the manifests: `curl -sS http://127.0.0.1:5051/v1/manifests > pre.json`.
+2. Pull the new image, or build the new binary, and restart.
+3. Get `/v1/manifests` again and compare it with `pre.json`.
+4. Find each changed CID in [CHANGELOG.md](https://github.com/Vortx-AI/emem/blob/main/CHANGELOG.md) for that release.
+
+For the container, a restart does not change the image. Remove the container and start a new one on the same volume.
+Replace `<new-tag>` with the release tag or digest.
+
+```bash
+curl -sS http://127.0.0.1:5051/v1/manifests > pre.json
+docker pull ghcr.io/vortx-ai/emem:<new-tag>
+docker stop -t 60 emem && docker rm emem
+docker run -d --name emem --restart unless-stopped --stop-timeout 60 \
+    -p 5051:5051 -v emem-data:/var/emem ghcr.io/vortx-ai/emem:<new-tag>
+curl -sS http://127.0.0.1:5051/v1/manifests > post.json
+diff <(jq -S . pre.json) <(jq -S . post.json)
+```
+
+`/v1/manifests` has no time fields. Two reads from emem.dev on 7 November 2026 gave the same bytes. So each line
+that `diff` shows is a registry change.
+
+The schema CID pins the byte layout of a fact. Old facts keep their old `schema_cid`, `bands_cid` and
+`sources_cid`, so they verify after an upgrade.
+
+## Demo binaries for a bug report
+
+These binaries are in `crates/emem-cli/src/bin/`. The first five run against a local node by default, port 5051.
+`EMEM_BASE_URL` changes the node. `emem-demo`, `emem-livedemo`, `emem-realdemo` and `emem-connect-demo` sign
+attestations with a new key and write them to the node. Run them only against your own node. A default node
+refuses these writes (`fact_plane_closed`), so start a test node with `EMEM_FACT_PLANE_OPEN=1` for them. Do not set
+it on a node that other people use.
+
+| Binary | Output | Use |
 |---|---|---|
-| `cap_net_bind_service` stripped on `cargo build --release` | `redeploy.sh` re-applies `setcap` after every release build; system-mode units can also use `AmbientCapabilities=CAP_NET_BIND_SERVICE` (does not work for user units — kernel restriction) | unchanged |
-| WorldPop 2-4 s/cell upstream latency | accepted; cap on `/v1/query_region` keeps blast radius small | pre-bake the global 1 km² raster to COG in S3 (deferred, infra decisions outstanding) |
-| Terraclimate NCSS single endpoint | NCAR RDA fallback registered (2026-05-08); receipt records which mirror served | watch SLA on both |
-| DMSP-OLS frozen at 2013 | `/v1/data_availability` reports `history_available_to_unix=2013-12-31` honestly | dataset is genuinely complete; no fix needed |
-| HF Space dependency on `:latest` | pinned to an immutable digest in `huggingface-space/Dockerfile` (the `:0.0` tag this row once named no longer exists) | bump the digest deliberately on each release |
-| sled lock contention | `emem-purge-fnkey` requires server stopped; documented | none planned |
-| Topic router cold load >90 s | server starts anyway; keyword backend handles `/v1/ask` until ort thread returns | pre-warm with `scripts/install-topic-model.sh` |
-| Empty SDK directories (`sdks/emem-{py,ts}`) | integrate via REST or MCP — see `docs/developers/developing.md` | populate when API surface stabilises |
+| `emem-demo` | console | Writes 3 facts, then calls each read primitive |
+| `emem-livedemo` | `var/demos/<UTC>/` | Each primitive, with the JSON, a curl command and a BLAKE3 hash per step |
+| `emem-realdemo` | `var/demos/realdata_<UTC>/` | Reads Cop-DEM 30 m tiles, attests two bands per place, then calls each read primitive |
+| `emem-connect-demo` | console and exit code | Runs [connect and evolve](https://github.com/Vortx-AI/emem/blob/main/examples/connect-and-evolve.md): two keys sign facts that disagree, then it reads the edges and the contradiction |
+| `emem-ask-eval` | console and exit code | A check of `/v1/ask` routing. No CI job runs it. |
+| `emem-demo-device` | enrolls a device and posts a trace | Needs an operator endorser key and a root ftrace capture. The default node is `https://emem.dev`, so set `--base` to your node. `--dry-run` sends nothing. |
+| `emem-purge-fnkey` | changes the store (dry run by default) | Removes facts by `derivation.fn_key` from `cache.sled/` only, so it acts only with `EMEM_HOT_BACKEND=sled`. Stop the node first. |
+| `emem-sled-slim` | console; with `--apply`, a new `cache.sled.slim/` | Lists each sled tree and its size (dry run by default). `--apply` copies the live trees into the new directory, first copies missing fact keys into `facts.redb`, and deletes nothing. Stop the node first. |
 
-The cap_net_bind_service incident: on 2026-04-30 a sequence of
-`cargo build --release` smoke tests stripped the file capability
-between rebuilds, the systemd user unit could not bind :443, and
-`Restart=on-failure` with `RestartSec=2` produced **1560 restarts in
-30 minutes** before the operator noticed. The remediation pattern is
-`scripts/redeploy.sh`, which re-runs `setcap` after every release
-build. A 2026-05-08 sweep tried to add `AmbientCapabilities=` as a
-systemd-native alternative and discovered the kernel does not honour
-that directive for user-mode systemd: there's no UID transition for
-the user manager to prime, so the unit fails with
-`status=218/CAPABILITIES`. The directive only works for system-mode
-units (installed under `/etc/systemd/system/` with an explicit
-`User=` line). The corrected guidance in
-`ops/systemd/emem-server.service.example` now documents both paths
-explicitly; user-mode deployments stay on `setcap` via redeploy.sh.
-
-## Troubleshooting recipes
-
-**Service flapping right after a `cargo build --release`.**
-Symptom: `systemctl --user status emem-server` shows
-`Restart=` triggering every 2 s; logs show `Permission denied (os
-error 13)` on bind. Diagnose with
-`getcap target/release/emem-server` (empty output = no cap).
-Fix: either rely on `AmbientCapabilities=` (newer unit file, no
-action) or run `sudo setcap cap_net_bind_service=+ep
-target/release/emem-server` and `systemctl --user restart
-emem-server.service`. If you didn't update the unit file yet, use
-`scripts/redeploy.sh` — that's its job.
-
-**`/v1/recall` returns 500 with `MaterializeMiss`.**
-Either no materializer is wired for that band, or
-`EMEM_AUTO_MATERIALIZE=1` is not set. Check
-`curl -s http://127.0.0.1:5051/v1/coverage_matrix | jq '.bands[]
-| select(.band=="<your_band>")'`. If `has_materializer:false` the
-band needs a third-party Attestation; if `true`, set
-`EMEM_AUTO_MATERIALIZE=1` and retry.
-
-**Attestation rejected.**
-`journalctl --user -u emem-server | grep AttestationInvalid` for
-the reason. Most common: leaves not sorted before merkle_root, or
-the signature is over the wrong preimage. Both shapes are tested
-in `crates/emem-fact/tests/round_trip.rs`; reproduce there before
-re-attesting.
-
-**Receipt verifies on-host but client rejects.**
-Preimage mismatch. The server preimage is
-`blake3(request_id|served_at|primitive|cells,...|fact_cids,...)`
-with literal `|` separators between fields and `,` between list
-elements (trailing comma included). The reference is
-`crates/emem-storage/src/server.rs:119`. The CLI implements the
-same byte sequence in `crates/emem-cli/src/main.rs::run_verify`.
-
-**`/v1/locate` returns 504 or empty.**
-The cascade is `wide_bbox_lookup → embedded_gazetteer_lookup →
-geonames-68k → sled cache → Photon → Nominatim`. Photon is the
-primary network upstream; if it is down `EMEM_PHOTON_BASE` lets you
-self-host or swap, and `EMEM_NOMINATIM_BASE` lets you redirect the
-secondary. Polygon geometry is resolved by
-`overture.rs::division_polygon_near` (the Overture `divisions/
-division_area` parquet); Nominatim is only the long-tail polygon
-fallback. Set `EMEM_NO_NETWORK=1` to confirm the embedded + cache
-layers work in isolation; the response's `via` field names the layer
-that answered.
-
-**ACME cert renewal failing.**
-`journalctl --user -u emem-server | grep -i acme`. Common
-problems: port 443 not reachable from the public internet (ACME
-TLS-ALPN-01 needs an inbound connection), wrong contact email,
-or hitting the Let's Encrypt rate limit during testing. For
-testing iterate against staging with `EMEM_TLS_STAGING=1`.
-
-## Upgrades
-
-- `0.0.x` bumps are CBOR-stable for facts: the schema CID pins
-  the exact byte layout. Old facts continue to verify under their
-  old `schema_cid`.
-- Manifest CIDs (`bands_cid`, `algorithms_cid`, `sources_cid`)
-  may change between minors; old facts under the old CIDs
-  continue to verify because the receipt and the fact itself
-  reference the CID that was active at attestation time.
-- The protocol's content-addressing means a fresh deploy can
-  serve old facts as long as the schema CID resolves;
-  `<EMEM_DATA>/` is portable across hosts and across versions.
-- Before rolling forward, capture
-  `curl -s http://127.0.0.1:5051/v1/manifests > /tmp/pre.json`,
-  upgrade, and diff against `/v1/manifests` after restart. Any
-  CID that changed should match the changelog entry for the
-  release.
-
-## Demos for diagnosis
-
-When you need a reproducible bundle for a bug report or a
-regression test, the demo binaries write everything to disk:
-
-| Binary | Output | Purpose |
-|---|---|---|
-| `emem-demo` | console only | smoke test, 3 cells × 1 band |
-| `emem-livedemo` | `var/demos/<UTC>/` (override `EMEM_DEMOS_DIR`) | full audit trail: 4 cells × 2 bands × 3 tslots, every primitive, per-step JSON + curl repro + blake3 |
-| `emem-realdemo` | `var/demos/realdata_<UTC>/` | live-ingest validation, Cop-DEM 30 m for Mt Fuji / Mt Everest / Grand Canyon |
-| `emem-ask-eval` | console + exit code | `/v1/ask` routing check, run by hand (no CI job runs it) |
-| `emem-purge-fnkey` | sled mutations (default dry-run) | drop facts by `derivation.fn_key`; **server must be stopped** |
-
-The livedemo output is the canonical artifact for "what was the
-protocol doing on date X". `GET /v1/demos`, `GET /v1/demos/:run`,
-`GET /v1/demos/:run/:file` serve them straight from disk; agents
-can replay any past run without re-executing it.
-
-For wire-byte details and CID rules, see `docs/protocol.md`. For
-contributing changes, see `docs/developers/developing.md`.
+The node serves saved runs at `GET /v1/demos`, `GET /v1/demos/:run` and `GET /v1/demos/:run/:file`.

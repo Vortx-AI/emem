@@ -9,7 +9,7 @@ block, and reports the verdict plus signed fact_cids and the responder
 pubkey so the answer is independently verifiable.
 
 Install:
-    pip install 'crewai[tools]' 'mcp[cli]'
+    pip install 'crewai[tools]' 'crewai-tools[mcp]'
 
 Usage:
     export OPENAI_API_KEY="sk-..."

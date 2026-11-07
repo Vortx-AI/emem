@@ -7,7 +7,7 @@ signed facts from the shared memory, citing receipts any agent can re-verify.
 ## Install
 
 ```bash
-pip install agno openai
+pip install agno openai fastmcp
 ```
 
 ## Run

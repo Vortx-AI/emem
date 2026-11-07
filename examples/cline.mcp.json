@@ -1,7 +1,8 @@
 {
-  "_doc": "Cline (VS Code extension): open the Cline chat → click the MCP server icon → 'Edit MCP Settings' → paste this. Or save to ~/.cline/mcp.json. Cline supports stdio bridge via mcp-remote for older versions.",
+  "_doc": "Cline (VS Code extension): open the MCP Servers icon, go to the Configure tab, click Configure MCP Servers, and paste the emem entry under mcpServers. The Cline CLI reads ~/.cline/data/settings/cline_mcp_settings.json. Keep \"type\": \"streamableHttp\": without it Cline uses the legacy SSE transport, and https://emem.dev/mcp accepts only POST (Streamable HTTP).",
   "mcpServers": {
     "emem": {
+      "type": "streamableHttp",
       "url": "https://emem.dev/mcp",
       "disabled": false,
       "autoApprove": ["emem_locate", "emem_recall", "emem_find_similar", "emem_tools", "emem_verify_receipt", "emem_memory_token_resolve"]

@@ -19,7 +19,7 @@ import asyncio
 import os
 
 from llama_index.tools.mcp import BasicMCPClient, McpToolSpec
-from llama_index.core.agent.function_calling import FunctionAgent
+from llama_index.core.agent.workflow import FunctionAgent
 from llama_index.llms.openai import OpenAI
 
 EMEM_MCP_URL = os.getenv("EMEM_MCP_URL", "https://emem.dev/mcp")
