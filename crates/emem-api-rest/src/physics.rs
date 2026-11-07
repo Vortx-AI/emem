@@ -775,7 +775,7 @@ const WAVE_MAX_STEPS: usize = 200_000;
 const WAVE_MIN_OCEAN_FRACTION: f64 = 0.5;
 
 /// The deepest cell of the seaward profile (after the offshore-to-coast
-/// reverse — index 0 in the FD solver) must have at least this much
+/// reverse — index 0 in the FD solver) must have more than this much
 /// water under it for the sinusoidal offshore forcing to attach to a
 /// physical wave. Without it, c² = g·h shrinks to numerical noise at the
 /// boundary and the integration is meaningless. Surfaced via the
@@ -850,9 +850,9 @@ enum ProfileClassification {
     /// Profile is oceanic enough — at least
     /// [`WAVE_MIN_OCEAN_FRACTION`] of cells are deeper than
     /// [`WAVE_OCEAN_DEPTH_THRESHOLD_M`] AND the offshore boundary cell
-    /// has at least [`WAVE_MIN_OFFSHORE_DEPTH_M`] of water.
+    /// has more than [`WAVE_MIN_OFFSHORE_DEPTH_M`] of water.
     Oceanic,
-    /// Offshore boundary cell is too shallow (< [`WAVE_MIN_OFFSHORE_DEPTH_M`]).
+    /// Offshore boundary cell is too shallow (<= [`WAVE_MIN_OFFSHORE_DEPTH_M`]).
     OffshoreBoundaryTooShallow,
     /// Too few cells in the profile are oceanic
     /// (< [`WAVE_MIN_OCEAN_FRACTION`] over [`WAVE_OCEAN_DEPTH_THRESHOLD_M`]).
@@ -928,7 +928,7 @@ fn land_locked_profile_error(
     let message = match classification {
         ProfileClassification::OffshoreBoundaryTooShallow => format!(
             "land-locked seaward profile from coastal_cell={coastal_cell}: \
-             offshore boundary cell has depth {:.2} m, need >= {:.1} m. \
+             offshore boundary cell has depth {:.2} m, need more than {:.1} m. \
              The seaward walk did not reach genuinely deep water — `c² = g·h` \
              at the boundary collapses to numerical noise and the explicit-FD \
              integration would just propagate the sinusoidal forcing across a \
@@ -2095,6 +2095,22 @@ mod tests {
             classify_seaward_profile(&[0.5]),
             ProfileClassification::OffshoreBoundaryTooShallow
         );
+        // The offshore check is strict: a boundary at exactly the minimum
+        // depth is rejected, so the message must not say it would pass.
+        assert_eq!(
+            classify_seaward_profile(&[WAVE_MIN_OFFSHORE_DEPTH_M]),
+            ProfileClassification::OffshoreBoundaryTooShallow
+        );
+        let err = land_locked_profile_error(
+            ProfileClassification::OffshoreBoundaryTooShallow,
+            "c",
+            &["c".to_string()],
+            &[WAVE_MIN_OFFSHORE_DEPTH_M],
+            &[7.0],
+            1,
+        );
+        let msg = err.1.message;
+        assert!(msg.contains("depth 5.00 m, need more than 5.0 m"), "{msg}");
         // Two cells, one deep one shallow: 1/2 == 50%, exactly at the
         // boundary. Per `< WAVE_MIN_OCEAN_FRACTION` (strict), 50% does
         // NOT trip the fraction check — the offshore-boundary check
