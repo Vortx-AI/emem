@@ -20,7 +20,7 @@ curl -s -X POST https://emem.dev/v1/explain \
 ```
 
 On 7 November 2026 it returned HTTP 200 in 1.6 s with `"signed": false`,
-`"model": "google.gemma-3-12b-it"` and a three-sentence `explanation`. The
+`"model": "google.gemma-3-12b-it"` and a short `explanation`. The
 `source` object holds the signed answer (elevation 3539.04 m), its receipt
 and the fact cid `qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq`.
 
@@ -119,8 +119,10 @@ The sidecar caches each successful explanation on disk. The key is a
 BLAKE2b hash of the system prompt, the model id and the fields sent to the
 model. Two questions that resolve to the same signed facts share one entry.
 A different model gets a new entry. The sidecar does not cache errors
-or fallback answers. A cache hit reports `tokens_in`, `tokens_out` and `latency_ms` as 0
-and keeps the first values under `origin_*`.
+or fallback answers. On a cache hit, the sidecar sets `tokens_in`, `tokens_out` and
+`latency_ms` to 0 if they are present, and keeps the first values under
+`origin_*`. The `bedrock` backend sets all three. The `cosmos` backend
+sets only `latency_ms`. The `gemma` backend sets none of them.
 
 You can delete the cache directory at any time. Nothing in it is a fact
 or a note.
@@ -151,7 +153,14 @@ the request.
 - The name. The directory has the name `gemma_explain` because the sidecar
   first loaded Gemma on a local GPU. That loader is gone. Since 21 June
   2026 the sidecar calls a separate model service.
-- `emem-explain-sidecar.service`. This systemd unit still sets
+- `deploy/systemd/emem-explain-sidecar.service`. This unit sets
+  `EMEM_EXPLAIN_GEMMA_BASE=http://127.0.0.1:5014` (a local llama.cpp server)
+  and `EMEM_EXPLAIN_GEMMA_MODEL=qwen2.5-1.5b-instruct-q4_k_m`. So it does not
+  use the shim on port 5015. Its header comment still says Bedrock. On
+  7 November 2026, emem.dev answered with `model` set to
+  `google.gemma-3-12b-it`. The `gemma` backend copies that field from
+  `EMEM_EXPLAIN_GEMMA_MODEL`, so production does not run this unit as written.
+- `python/gemma_explain/emem-explain-sidecar.service`. This systemd unit still sets
   `EMEM_EXPLAIN_MODEL=google/gemma-4-12B-it`, a GPU device and a
   `transformers` virtual environment. The code does not read
   `EMEM_EXPLAIN_MODEL` and does not need a GPU. Update the unit before you

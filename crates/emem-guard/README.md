@@ -7,7 +7,7 @@ in the text still verify, and does a measurable claim cite anything at all.
 
 You need it if you run AI agents and want a gate in front of them that you
 can audit later. It is a separate binary in the [emem](../../README.md)
-workspace. It shares no code path with the emem responder.
+workspace. The responder's `/v1/guard/verdict` route uses the same crate.
 
 Try the same engine on emem.dev first. This call needs no key and blocks
 nothing:
@@ -54,8 +54,9 @@ We did not run these commands for this page, because this host has no Rust
 toolchain. The flags and defaults come from `src/bin/emem-guard.rs`.
 
 On first run the binary makes a node key, opens a log in `./var/guard` and
-listens on `127.0.0.1:8080`. Use `--bind ADDR` or the `PORT` variable to
-change the address. `emem-guard --help` lists every flag.
+listens on `127.0.0.1:8080`. Use `--bind ADDR` to change the address. If you
+set `PORT` and no `--bind`, the node listens on `0.0.0.0:$PORT`, which is every
+interface. `emem-guard --help` lists every flag.
 
 Without `--responder` the node holds no corpus. It signs and logs every
 verdict, but it verifies no citation. `GET /health` then reports
@@ -63,21 +64,25 @@ verdict, but it verifies no citation. `GET /health` then reports
 
 ## Checkpoints
 
-The node has nine routes into one engine. The same evidence gives the same
-verdict through each route. Seven routes are open standards. Two are for one
-vendor.
+The node has nine verdict routes into one engine. The same evidence gives the
+same verdict through each route. Seven routes are open. Two are for one vendor.
+`server.rs` registers 16 routes in total. The others are health, the contract
+and the log reads.
 
 | Checkpoint | Who calls it | Route |
 |---|---|---|
 | emem native | any agent, on any model or framework | `POST /verdict` |
+| emem native, explicit name | the same handler as `POST /verdict` | `POST /verdict/native` |
 | MCP tools/call | any MCP host or proxy, for a tool call or a tool result | `POST /verdict/mcp` |
 | OpenAI shape | any OpenAI-compatible client, chat or moderations body | `POST /verdict/openai` |
 | CloudEvents 1.0 | Knative, Dapr, Argo Events and other event meshes | `POST /verdict/cloudevent` |
 | OPA-style policy point | OPA-compatible clients, Envoy external authorisation | `POST /verdict/policy` |
 | Batch | many transcripts in one request, for example an archive scan | `POST /verdict/batch` |
-| Log read | anyone who checks a verdict without trust in the node | `GET /log/entry/{leaf}` |
 | Anthropic Inference hooks | claude.ai, Cowork and Claude Code in a Claude Enterprise org | `POST /verdict/anthropic-hook` |
 | Claude Code client hooks | agents on the Platform API, Bedrock and Vertex, which Inference hooks do not see | `POST /verdict/claude-code` |
+
+A denial names a log leaf. Anyone can fetch it with `GET /log/entry/{leaf}`
+and check the verdict without trust in the node.
 
 `GET /.well-known/emem-guard.json` publishes the full contract: routes, deny
 codes, fixes and active rules. An agent can integrate from that document

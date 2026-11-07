@@ -111,7 +111,8 @@ the binary.
 ## Step 5: pick your checkpoint
 
 A checkpoint is any place where your system stops and asks whether to continue.
-The node serves nine verdict routes, and all of them use the same engine. Two
+The node serves nine verdict routes, and all of them use the same engine.
+`POST /verdict/native` is a second name for `POST /verdict`. Two
 are specific to one vendor and seven belong to nobody. That is deliberate: a
 gate that only one company's product can reach is a gate for that company's
 customers only.

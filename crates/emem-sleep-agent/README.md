@@ -1,8 +1,9 @@
 # emem-sleep-agent
 
-`emem-sleep-agentd` is an opt-in background worker. It finds memory notes
-that contradict each other or that change often. It asks an LLM to merge
-each group into one note, then writes that note back as a new version.
+`emem-sleep-agentd` is an opt-in background worker. It finds groups of
+memory notes with near-duplicate names, and places where signed facts
+disagree. It asks an LLM to merge each group into one note, then writes
+that note back as a new version.
 Operators who run their own emem responder can use it to keep memory
 notes tidy. It is off by default.
 
@@ -32,14 +33,19 @@ The full design is in [docs/sleep-agent.md](../../docs/sleep-agent.md).
 The agent sends `emem_memory_create` with no `attester` block. A release
 build of the responder refuses every unsigned memory write (401
 `memory_attestation_required`). It accepts one only when the operator sets
-`EMEM_MEMORY_OPEN=1` or `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. The policy is
-in `memory_write_policy` in `crates/emem-api-rest/src/lib.rs`.
+`EMEM_MEMORY_OPEN=1` or `EMEM_MEMORY_HARDEN_DESTRUCTIVE=1`. Any value
+other than `0`, `false` or empty turns a switch on.
+`EMEM_MEMORY_REQUIRE_ATTESTER` overrides both switches and refuses every
+unsigned write again. The policy is in `memory_write_policy` in
+`crates/emem-api-rest/src/lib.rs`.
 
-Even on an open responder, the agent cannot write these paths (403
-`memory_namespace_violation`):
+Even on an open responder, some paths stay closed to the agent:
 
-- paths under `/memories/by_attester/`
-- an open-namespace path that another key created
+| Path | Answer |
+|---|---|
+| under `/memories/by_attester/` | 401 `memory_attestation_required`, because the write has no signature |
+| under `/memories/.well-known/` | 403 `memory_namespace_violation`, for every key |
+| an open-namespace path that another key created | 403 `memory_namespace_violation` |
 
 emem.dev requires an attester on every memory write, so it refuses the
 merges. The responder signs a receipt for each write it accepts. The
@@ -50,10 +56,12 @@ note itself carries no signature from the agent.
 The worker drives a running responder over its public REST and MCP API.
 It links no emem crate, and no other crate depends on it.
 
-1. Select candidates. The agent ranks memory paths by contradiction
-   severity from `POST /v1/memory_contradictions`. It also groups paths
-   with near-duplicate names, or paths with many versions, from
-   `emem_memory_list_by_kind`. Contradictions rank above churn.
+1. Select candidates. The agent reads `POST /v1/memory_contradictions`.
+   Each result is a (cell, band, tslot) where signed facts disagree. For
+   each one, the agent makes a candidate at
+   `/memories/reconciled/<cell>/<band>` with no source note. It also
+   groups paths with near-duplicate names from `emem_memory_list_by_kind`.
+   Contradictions rank above name groups.
 2. Merge. The agent asks the configured LLM for one note per group. The
    note must keep every distinct fact and state each disagreement.
 3. Write back. The agent writes the merged note to the group's canonical
@@ -62,7 +70,8 @@ It links no emem crate, and no other crate depends on it.
 
 On 7 November 2026, `POST https://emem.dev/v1/memory_contradictions` with
 `{"min_severity":0.3,"limit":8}` returned 8 contradictions. It scanned
-44,682 keys.
+44,682 keys. The band in the first result was
+`overture.transportation.road_length_m`.
 
 This crate adds an LLM step on top of the deterministic refinement loop
 (`EMEM_REFINEMENT_ENABLED`). That loop draws a `disagrees_with` edge for
@@ -129,12 +138,13 @@ before you trust this route.
 | `EMEM_SLEEP_AGENT_TOPN` | 8 | candidates per pass (minimum 1) |
 | `EMEM_SLEEP_AGENT_BUDGET_USD` | 0.50 | spend limit per pass |
 | `EMEM_SLEEP_AGENT_MIN_SEVERITY` | 0.3 | lowest contradiction severity that counts |
-| `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | versions before a path counts as high-churn (minimum 2) |
+| `EMEM_SLEEP_AGENT_CHURN_THRESHOLD` | 3 | no effect yet. The agent counts every path as one version, so the threshold never decides (minimum 2) |
 | `EMEM_SLEEP_AGENT_CHURN_KINDS` | `semantic,episodic,resource` | memory kinds scanned for churn |
 | `EMEM_SLEEP_AGENT_ATTESTER` | `sleep_agent_v1` | read into the config, but no write sends it |
 
-The agent checks the budget before each LLM call. It does not start a
-call that would exceed the limit. The cost is an estimate from the
+The agent checks the budget before each LLM call. It starts no new call
+after the estimated spend reaches the limit. The last call can go over
+the limit. The cost is an estimate from the
 token counts that the endpoint reports, at $0.50 per million input tokens
 and $1.50 per million output tokens. The `/v1/ask` route reports a cost
 of 0.

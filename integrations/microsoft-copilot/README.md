@@ -18,7 +18,7 @@ open.
 | `manifest.json` | App manifest, schema `devPreview`, version 2.4.4. It has one `agentConnectors` entry for `https://emem.dev/mcp`, with authorization `None`. |
 | `mcptools.json` | The core tool list that `tools/list` on `/mcp` returns: 18 tools. |
 | `intro.md` | The documentation page of the connector. |
-| `color.png` | Colour icon, 192 x 192 pixels, a copy of `web/icon-192.png`. |
+| `color.png` | Colour icon, 192 x 192 pixels, made from `web/icon-192.png`. |
 | `outline.png` | Outline icon, 32 x 32 pixels, white on a transparent background. |
 
 ## Make the upload file
@@ -35,7 +35,7 @@ zip ../emem-copilot.zip manifest.json mcptools.json intro.md color.png outline.p
 
 `mcptools.json` becomes old when the description or schema of a core tool
 changes. This command writes a new copy from the live server. It ran on
-7 November 2026.
+7 November 2026, to a scratch file. We did not replace the committed file.
 
 ```sh
 curl -s -X POST https://emem.dev/mcp -H 'Content-Type: application/json' \

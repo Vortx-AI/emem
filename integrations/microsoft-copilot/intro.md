@@ -30,7 +30,8 @@ The connector serves the 18 core tools of emem. They make a loop:
 | Cite facts | `emem_memory_token`, `emem_memory_bundle` |
 | Verify facts | `emem_verify_receipt` |
 
-`emem_tools` lists the other tools of the server and runs any of them by name.
+`emem_tools` lists the other tools of the server. A client calls any of them by
+name with `tools/call`.
 
 Nine core tools only look up data. Seven more can measure and sign a new fact
 when nobody has made the reading yet: `emem_recall`, `emem_ask`,
@@ -43,8 +44,9 @@ never overwrite a fact.
 
 Reads need no authentication. Two tools write shared identities:
 `emem_entity` and `emem_entity_link`. They need an attester block that the
-caller signs with their own Ed25519 key. Without that block, they refuse with
-HTTP 403, and the error names the missing field. The connector does not send
+caller signs with their own Ed25519 key. Without that block, the REST route
+refuses with HTTP 403, and the error names the missing field. Over MCP, the
+same refusal comes back as a tool error. The connector does not send
 or store a user identity.
 
 ## Known limitations

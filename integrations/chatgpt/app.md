@@ -85,7 +85,8 @@ of this statement.
 The app exposes two write tools, `emem_entity` and `emem_entity_link`. They
 change the shared address space. Thus each call needs an ed25519 attester
 block, signed with a keypair that the caller makes locally. The caller must
-also hold a tier on the enlistment ladder at https://emem.dev/v1/enlist.
+also hold tier T3 (declared) on the enlistment ladder at
+https://emem.dev/v1/enlist.
 
 ## Contact
 

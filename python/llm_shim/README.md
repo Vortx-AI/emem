@@ -6,10 +6,12 @@ Amazon Bedrock (the Converse API). It adds a daily spend cap, a response
 cache and a fallback to a local model.
 
 You need this page if you operate an emem node and use its model features.
-Four callers use the shim. They are the `gemma` backend of the explain
-sidecar ([`python/gemma_explain/`](../gemma_explain/README.md)), the default
-text model of `emem-server` (`EMEM_A2A_LLM_URL`), `scripts/agent_ack.py`
-and `bench/experience/adapters.py`. The read primitives (`locate`, `recall`,
+Callers include the `gemma` backend of the explain sidecar
+([`python/gemma_explain/`](../gemma_explain/README.md)), the default text
+model of `emem-server` (`EMEM_A2A_LLM_URL`), `scripts/agent_ack.py`,
+`scripts/agent_reply.py` and `bench/experience/adapters.py`. The unit
+`deploy/systemd/emem-agent-reply.service` sends `scripts/agent_reply.py` to
+port 5015. The read primitives (`locate`, `recall`,
 `verify_receipt`) do not call a model, so a client of emem.dev does not
 need the shim.
 
@@ -78,8 +80,8 @@ The shim has no authentication. Bind it to a loopback address only.
 
 The answer always names `LLM_SHIM_MODEL` in `model`, whatever model name
 the caller sent. A Bedrock answer also carries `x_budget_spent_usd`,
-`x_budget_cap_usd`, `x_latency_ms` and `x_cache` (`miss`, or `bypass`
-above the cache temperature limit).
+`x_budget_cap_usd`, `x_latency_ms` and `x_cache`. Its value is `miss`, or
+`bypass (temperature above cache limit)`.
 
 | case | HTTP status | body |
 |---|---|---|

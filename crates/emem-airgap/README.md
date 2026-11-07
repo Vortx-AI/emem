@@ -23,8 +23,9 @@ sh quickstart.sh ./mynode
 ```
 
 We did not run the quickstart for this page, because the host had no Docker.
-We ran every `emem-airgap` and `emem-encode` command below on 7 November 2026.
-We used the binaries from the published `latest` images (linux/amd64).
+We ran the `emem-airgap` and `emem-encode` binaries directly on 7 November 2026.
+We took them from the published `latest` images (linux/amd64). We did not run
+any `docker` command on this page.
 
 ## Read more
 
@@ -41,7 +42,8 @@ key signs it. Anyone with the record and the payload can check both offline.
 They need no account and nothing from this repository.
 
 The payload stays where it is. Only the record leaves. A record is under 1 KB
-for any payload size: in the run below, two records took 1,517 bytes. On a
+for any payload size: in the run below, two records and the run report took
+1,517 bytes. On a
 slow link, this is the important part.
 
 | You get | You do not get |
@@ -86,8 +88,9 @@ You can use a release binary, an image, or a source build. See
 [Install it](#install-it). This run uses three local directories:
 
 ```bash
-mkdir -p in out data
-cp frame_001.tif in/
+mkdir -p in/orbit_1 out data
+cp frame_001.tif in/                # 30,000 bytes
+echo hello > in/orbit_1/scene.tif   # 6 bytes, in a subdirectory
 emem-airgap \
   --input  in \
   --output out \
@@ -115,12 +118,13 @@ The decoder writes the summary to stderr and the run report as JSON to stdout.
 | `--output` | `EMEM_AIRGAP_OUTPUT` | The directory the records go to |
 | `--profile` | `EMEM_AIRGAP_PROFILE` | The substrate profile id from the registry, for example `orbital.satellite.v1` |
 | `--platform` | `EMEM_AIRGAP_PLATFORM` | The device platform id, for example `nvidia.jetson-orin` |
-| `--observed-at` | `EMEM_AIRGAP_OBSERVED_AT` | The time to sign into every record: RFC 3339 UTC, or the word `now` |
+| `--observed-at` | `EMEM_AIRGAP_OBSERVED_AT` | The time to sign into every record: `YYYY-MM-DDTHH:MM:SSZ`, or the word `now` |
 
 The node signs `--observed-at` into every record, so it never takes the time
 from the system clock by default. A node with a wrong clock would then sign a
-false statement. The node checks only the shape of the value. A value such as
-`yesterday` stops the run. An unattended node on a timer passes the literal
+false statement. The node checks only the shape of the value. It accepts exactly
+`YYYY-MM-DDTHH:MM:SSZ`, with no fractional seconds and no offset. A value such
+as `yesterday` stops the run. An unattended node on a timer passes the literal
 `now`, which uses the machine clock on purpose. If the platform gives you a
 better time than the payload's own clock, pass that time. Only you can know if
 the clock is right.
@@ -138,7 +142,7 @@ the clock is right.
 | `--max-trace-bytes` | `EMEM_AIRGAP_MAX_TRACE_BYTES` | 16 MiB | The largest file the node reads from `--traces` |
 | `--max-depth` | `EMEM_AIRGAP_MAX_DEPTH` | 32 | How deep the walk goes into `--input` |
 | `--flat` | `EMEM_AIRGAP_FLAT=1` | off | Write every record into the top of `--output`, with the path in the filename |
-| `--seed-file` | `EMEM_AIRGAP_SEED_FILE` | none | Read the node seed from a file |
+| `--seed-file` | `EMEM_AIRGAP_SEED_FILE` | none | Accepted, but the code does not read its value. Use `EMEM_AIRGAP_SEED_FILE` to read the node seed from a file |
 
 Each flag takes its value after a space or an equals sign. The node refuses a
 flag that it does not have, and suggests a close match if there is one. Run
@@ -181,7 +185,8 @@ against one output mount. Two nodes can receive payloads with the same name.
 Both records are true, and both stay.
 
 The run report names each file that the node did not record, and why. It also
-names any `.part` files that an unfinished run left behind. The node does not
+names any `.part` files that an unfinished run left behind at the top of
+`--output`. It does not look in subdirectories. The node does not
 delete them. On a host with parallel containers, a `.part` file can belong to a
 node that is writing now.
 
@@ -232,10 +237,16 @@ all the time. Make the host write to a temporary file and rename it into place.
 These commands need only the binary. They need no network and no server.
 
 ```bash
-emem-airgap identity --data data                                  # the node's public key, for the endorser
-emem-airgap verify out/frame_001.tif.*.custody.json in/frame_001.tif   # a record, and the file it covers
-emem-airgap verify-join out/join_request.*.json                   # a join request, for the endorser
+emem-airgap identity --data data
+emem-airgap verify out/frame_001.tif.ibed2l3i.20261107T090000Z.custody.json in/frame_001.tif
+emem-airgap verify-join out/join_request.ibed2l3i.json
 ```
+
+`identity` prints the node's public key for the endorser. `verify` checks a
+record, and the file it covers. `verify-join` checks a join request. Put your
+own node's short key in place of `ibed2l3i`. Give `verify` the full record
+name. A later run writes a second record for the same file, and a `*` pattern
+then matches both.
 
 On 7 November 2026, `verify` printed this and exited 0:
 
@@ -246,8 +257,9 @@ name       frame_001.tif
 payload    MATCHES in/frame_001.tif
 ```
 
-With a different file, it printed `payload    DOES NOT MATCH` and exited 1. So
-`verify` can gate a script or a CI job. You can leave out the payload argument
+With a different file, it printed `payload    DOES NOT MATCH` and exited 1. A
+bad signature prints `signature  INVALID` and also exits 1. So `verify` can
+gate a script or a CI job. You can leave out the payload argument
 to check only the signature.
 
 The identity file is mode 600 and belongs to the user that created it. If the
@@ -648,11 +660,13 @@ described above.
 
 On an orbital payload, use `orbital.counters.v1`. On any other Linux host with
 no kernel tracing, use `host.counters.v1`. Both require four layers: scheduler,
-memory, storage and network. Each comes from `/proc` on every Linux system. Any
+memory, storage and network. Each comes from `/proc` on every Linux system: `/proc/schedstat`,
+`/proc/meminfo`, `/proc/diskstats` and `/proc/net/dev`. Any
 user can read them, with no mount and no extra privilege.
 
 The registry (`crates/emem-core/data/substrates-v0.json`) explains why other
-profiles do not work here:
+profiles do not work here. Every other profile that takes a trace requires
+`sensor_bus`, `signal` or `inference`. This encoder has no source for any of them:
 
 | Profile | Required layers | Can this encoder satisfy it |
 | --- | --- | --- |
@@ -665,8 +679,8 @@ Two profile names exist for one evidence level because the node signs the
 profile into every record, and nobody can correct it later. The profile must be
 true about what the node is and about what evidence it made.
 `orbital.counters.v1` copies each substrate field from `orbital.satellite.v1`.
-It differs in two places only. Its required layers are the four an orbital node
-can produce. Its `provenance_class` is `direct_sensor`, not
+It differs in three places. Its required layers are the four an orbital node
+can produce. Its `evidence_layers` is `[trace]`, not `[trace, signal]`. Its `provenance_class` is `direct_sensor`, not
 `attested_execution`, because counters do not attest execution. A spacecraft
 that used `host.counters.v1` would sign records that say they came from a
 generic host.

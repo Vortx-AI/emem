@@ -42,8 +42,8 @@ curl -s https://vortx-ai-emem.hf.space/health
 ```
 
 The reply has `"ok":true` and the node version. Read more in
-[docs/agents.md](../docs/agents.md) (how to use emem from an agent) and
-[docs/operators/operating.md](../docs/operators/operating.md) (how to run a node).
+[docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md) (how to use emem from an agent) and
+[docs/operators/operating.md](https://github.com/Vortx-AI/emem/blob/main/docs/operators/operating.md) (how to run a node).
 
 ## How the Space differs from emem.dev
 
@@ -99,7 +99,7 @@ longer, because the Space fetches the source data first.
 ## Connect an MCP client
 
 The MCP endpoint is `https://vortx-ai-emem.hf.space/mcp` (Streamable HTTP).
-Use the client configs in [examples/](../examples/) and change the URL from
+Use the client configs in [examples/](https://github.com/Vortx-AI/emem/tree/main/examples) and change the URL from
 `https://emem.dev/mcp` to the Space URL.
 
 Claude Desktop does not connect to a remote URL from
@@ -149,11 +149,14 @@ All of these paths returned HTTP 200 from the Space on 7 November 2026.
 A response from a read primitive, for example `recall`, carries a signed
 receipt. The receipt holds the fact ids, the node key and an Ed25519
 signature. You can check it offline with the Space key. The
-[emem-verify-receipt skill](../plugins/emem/skills/emem-verify-receipt/) has a
+[emem-verify-receipt skill](https://github.com/Vortx-AI/emem/tree/main/plugins/emem/skills/emem-verify-receipt) has a
 small Python verifier. `/v1/locate` does not return a receipt.
 
 ## Source and licence
 
 The source is at [github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem),
 under Apache-2.0. The official MCP Registry entry `io.github.Vortx-AI/emem`
-points to `https://emem.dev/mcp`, not to the Space.
+points to `https://emem.dev/mcp`, not to the Space. On 7 November 2026, the
+[emem.dev reference page](https://emem.dev/reference#client-setup) also lists
+emem in ChatGPT, the Claude directory and the GitHub MCP Registry. That page has
+the install guide for each host.

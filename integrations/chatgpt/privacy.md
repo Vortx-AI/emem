@@ -16,7 +16,8 @@ Earth-observation data. It returns a receipt with every answer.
 
 Seven of the eighteen tools in this app can sign NEW facts into the public
 store when a requested band is cold. On those seven tools, `readOnlyHint` is
-false. The responder makes these facts from public Earth-observation sources,
+false. It is also false on the two entity tools below, so 9 of the 18 tools
+have it. The responder makes these facts from public Earth-observation sources,
 never from data that a user sent.
 
 ### What ChatGPT sends to emem
@@ -44,6 +45,8 @@ holds these fields:
 - method, path and GET query string
 - response status and duration
 - the user-agent, accept and traceparent headers
+- the agent family that the server reads from the user-agent
+- the content id of the receipt, when the response has one
 - a **blake3-hashed, truncated IP** (8-byte base32, one-way)
 
 systemd-journald deletes entries after **30 days** (`MaxRetentionSec=30day`).
@@ -71,8 +74,9 @@ and both refuse a ChatGPT user.**
 
 Both tools change what other agents resolve a name to. Thus both need an
 ed25519 attester block, signed with a keypair that the caller makes locally.
-A ChatGPT user has no such key, so both tools return a 403 that names the
-missing field. No user content gets into the store through this app.
+A ChatGPT user has no such key, so both tools refuse and name the
+missing field. The REST route returns HTTP 403. Over MCP, the refusal is a
+tool error. No user content gets into the store through this app.
 
 Anything that an agent writes to the shared store from another client is
 world-readable and permanent, unless the agent seals it. The full statement

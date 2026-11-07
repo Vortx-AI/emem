@@ -44,10 +44,10 @@ app is not a map or a geocoder.
   user's behalf.
 - **It sends no user identity.** ChatGPT sends the place or question; no
   account, session or user identifier is transmitted. See [privacy.md](privacy.md).
-- **Writes, which this app does not use, are gated.** They require an ed25519
-  attester block signed by a locally generated keypair, and a published
-  enlistment ladder governs which surfaces a given attester may write to
-  (https://emem.dev/v1/enlist). Reads are never gated at any tier.
+- **Writes are gated, including the two entity tools in this app.** They require an ed25519
+  attester block, signed with a keypair that the caller makes locally. A
+  published enlistment ladder (https://emem.dev/v1/enlist) sets which
+  surfaces each attester can write to. Reads are never gated at any tier.
 - **Provenance is typed.** Every fact records how it was produced
   (direct sensor, deterministic index, model output, human curated) so a
   consumer can tell a measurement from an inference. Model prose is served

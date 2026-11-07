@@ -91,7 +91,7 @@ real place, ChatGPT calls emem to do three things:
 2. Read the signed facts at that address.
 3. Return a short citation token for each fact.
 
-The token is about 50 characters long. It stays the same through a summary or
+The token is about 83 characters long. It stays the same through a summary or
 a model change. `emem_memory_token_resolve` returns the same signed bytes for
 it in any session, for any agent.
 
@@ -113,7 +113,8 @@ The live annotations on 7 November 2026 put the tools in three groups:
 connector looks for.
 
 The two gated writes need an ed25519 attester block from a key at tier T3.
-Without one, the server refuses with HTTP 403 and returns the digest to sign.
+Without one, the REST route refuses with HTTP 403 and returns the digest to
+sign. Over MCP, the same refusal comes back as a tool error.
 A ChatGPT user has no such key, so in this app these tools refuse. The ladder
 of tiers is at `https://emem.dev/v1/enlist`.
 

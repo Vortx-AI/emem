@@ -22,7 +22,8 @@ and [docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md).
 
 Every value comes back with an `emem:fact:` token. Later, in another session
 or another process, the token resolves to the same signed bytes. Anyone can
-check those bytes against the responder's published key. Thus the receiver
+check the signature on those bytes. To be sure of the signer, compare the key
+in the receipt with the responder's published key. Thus the receiver
 of an answer can check it without trust in the agent that wrote it.
 
 | Tool | What it does |
@@ -32,8 +33,8 @@ of an answer can check it without trust in the agent that wrote it.
 | `resolve_token` | Gets the signed record for an `emem:fact:` token from another source |
 | `verify_receipt` | Checks the signature of a receipt against the key in the receipt |
 
-The package depends on `llama-index-core` (0.13 or later, before 0.15) and
-`httpx`. The version is 2.4.4, the same as the rest of emem.
+The package needs Python 3.10 or later. It depends on `llama-index-core`
+(0.13 or later, before 0.15) and `httpx`. The version is 2.4.4, the same as the rest of emem.
 
 ## Call the tools directly
 

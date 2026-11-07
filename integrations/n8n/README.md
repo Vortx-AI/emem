@@ -48,8 +48,8 @@ The **Tool** list has nine tools: `emem_locate`, `emem_recall`, `emem_ask`,
 `emem_verify_receipt`, `emem_memory_token`, `emem_entity`,
 `emem_guard_verdict`, `emem_find_similar` and `emem_memory_contradictions`.
 For a different tool, select **Custom Tool** and type its exact name.
-`tools/list` on `/mcp/full` returned 116 tools on 7 November 2026, in pages of
-12. The schemas are at [emem.dev/mcp](https://emem.dev/mcp).
+`tools/list` on `/mcp/full` returned 116 tools on 7 November 2026, in 9 pages
+of different sizes. Follow `nextCursor` to get the next page. The schemas are at [emem.dev/mcp](https://emem.dev/mcp).
 
 The node reads the first text block of the MCP result and parses it as JSON.
 If the text is not JSON, the output has one field, `raw_text`. Read facts
