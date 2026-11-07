@@ -873,126 +873,161 @@ list cells.
 
 ### Client surfaces, ranked by leverage
 
-- **A first-class SDK.** In the repo today: typed clients for Python and
-  TypeScript, plus a LangChain `BaseStore` adapter (`emem-langmem`) that
-  signs its writes, each wrapping the REST surface so a signed receipt is
-  the only new thing a caller learns. **The Python package is installable as of 2026-07-17** (`ememdev` on PyPI, a real wheel verified by clean-environment install and a live call), and the npm client shipped too as `@vortxai/emem` (scoped because npm refuses `ememdev` as too similar to `okemdev`), verified the same way; both registries are at 1.2.1. The history that made this bullet necessary: Every
-  `ememdev` release on PyPI (0.0.9, 0.1.0 and 1.0.0) is about 2.4 KB of
-  metadata containing no Python modules: a root-anchored `/src/` pattern in
-  the repo's `.gitignore` was re-anchored by the build backend to the SDK
-  directory, so each wheel built clean and empty, and `pip install ememdev`
-  then `import emem` raises `ModuleNotFoundError`. CI tested the source
-  tree over `PYTHONPATH` and never the artefact, so it stayed green
-  throughout. `ememdev` failed more quietly: it has never been
-  published, and it did not compile, carrying three type errors under
-  `strict` that no CI job ran `tsc` to catch.
+Status on 7 November 2026, checked against PyPI, npm and `sdks/`:
 
-  The builds are fixed. Three publish workflows (`publish-pypi.yml`,
-  `publish-pypi-langmem.yml`, `publish-npm.yml`) each build the artefact,
-  look inside it, install it into a fresh environment and import it, and
-  refuse to upload anything that ships no modules or will not import.
-  `ememdev` is bumped past 1.0.0 because PyPI versions are immutable and
-  the empty releases can only be superseded, never replaced. The SDK
-  itself moved meanwhile: v1.1.0 adds `ememdev[signing]` and an `ememdev`
-  CLI (whoami / sign / write) with a standard identity at
-  `~/.emem/agent_ed25519.pem`, mirror-tested against the Rust preimage,
-  so the signed write path is one command from the repo until the first
-  verified publish lands. One more trap is
-  external: the PyPI name `emem` belongs to an unrelated company's real
-  package, so the install name stays `ememdev` and the import name is a
-  decision to make deliberately before the first verified publish, either
-  rename the module to match the install name or document the divergence
-  loudly. A developer who guesses `pip install emem` installs someone
-  else's library.
+| surface | status |
+|---|---|
+| Python SDK `ememdev` | ships, 2.4.4 on PyPI |
+| TypeScript SDK `@vortxai/emem` | ships, 2.4.4 on npm |
+| LangChain `BaseStore` adapter `emem-langmem` | ships, 2.4.4 on PyPI |
+| LlamaIndex tools `llama-index-tools-emem` | in `sdks/`, not on PyPI |
+| warm-and-retry wrapper for the first cold read | not built |
+| framework adapters over the SDK | not built |
+| native stdio MCP transport | not built |
+| robotics transport and edge encoder | not built |
 
-  Open, and each blocked on a human once. PyPI registers a Trusted
-  Publisher per project, so `ememdev` and `emem-langmem` each need one
-  registered before their first upload. npm cannot register a trusted
-  publisher for a package that does not exist, so the first `ememdev`
-  npm publish needs an API token. The npm package is `ememdev`, unscoped,
-  the same name as the pip install: the `emem` name on npm is squatted by
-  an unrelated package, and a scope would have needed an org nobody can
-  claim. After that first upload each ships from one
-  `workflow_dispatch`. Then a warm-and-retry wrapper that hides the
-  cold-start timeout on first read.
-- **Framework adapters as thin wrappers over the SDK.** LangChain,
-  LlamaIndex, CrewAI, the Claude Agent SDK, the OpenAI Agents SDK. Build
-  one SDK and make each adapter a thin layer over it; hand-maintaining six
-  integrations against raw MCP is a maintenance trap. Medium leverage, and
-  only after the SDK ergonomics above land.
-- **A native stdio MCP transport.** The server speaks Streamable HTTP at
-  `/mcp`, which is what Docker-hosted directory listings (Glama) run, and
-  the docs recommend the `mcp-remote` bridge for hosts that need stdio.
-  A native stdio transport would make the one-click, no-bridge listings
-  work directly. Open, and lower priority than the SDK because the bridge
-  already covers it.
-- **Robotics, as a single lighthouse.** Real and aligned with the fleet
-  story, and now with its trust contract pinned: the `robot.fleet.v1`
-  profile in the substrates manifest and the `emem.os_trace.v1` record
-  in `emem-trace` define exactly what a robot must capture (syscalls,
-  scheduler, memory, sensor bus, energy, thermal, on-device inference)
-  for its writes to be admitted. What remains is the edge encoder that
-  produces those windows on-robot, offline sync, and a non-HTTP
-  transport, because ROS 2 and intermittent-connectivity robots are
-  the wrong shape for an HTTP MCP call. Do not start the transport
-  until the SDK, the signed-write path, and tenancy are solid; when it
-  starts, one flagship design partner beats a generic ROS package. A
-  runnable two-vendor HTTP example ships today at
-  `examples/fleet-memory/`; upgrading it to trace-bound writes is step
-  six in `docs/plans/encoder-substrates.md`.
+#### SDKs: ship
+
+The Python and TypeScript clients wrap the REST surface. A caller learns
+one new thing: the signed receipt. `emem-langmem` signs its writes.
+
+| package | install | import or package name |
+|---|---|---|
+| Python | `pip install ememdev` | `import ememdev` |
+| TypeScript | `npm install @vortxai/emem` | `@vortxai/emem` |
+| LangChain | `pip install emem-langmem` | `emem_langmem` |
+
+Do not run `pip install emem`. That PyPI name belongs to an unrelated
+package. The unscoped npm name `ememdev` is not published.
+
+The Python package has a CLI, `ememdev`, with three commands: `whoami`,
+`sign` and `write`. Install `ememdev[signing]` to use it. The default key
+is `~/.emem/agent_ed25519.pem`, or `$EMEM_HOME/agent_ed25519.pem`
+(`sdks/emem-py/src/ememdev/identity.py`).
+
+Why the publish workflows check the artefact: PyPI releases 0.0.9, 0.1.0
+and 1.0.0 of `ememdev` are about 2.4 KB each and contain no Python
+module. A root-anchored `/src/` line in `.gitignore` was re-anchored by
+the build backend to the SDK directory. Each wheel built clean and empty.
+CI tested the source tree, not the wheel, so it stayed green. PyPI
+versions are immutable, so later versions supersede the empty ones.
+
+Now `publish-pypi.yml`, `publish-pypi-langmem.yml` and `publish-npm.yml`
+each build the artefact, look inside it, install it into a clean
+environment and import it. They refuse to upload an artefact that has no
+modules or does not import.
+
+Not built: a wrapper that warms a cell and retries when the first read
+hits a cold-start timeout. `sdks/emem-py/src/ememdev/client.py` has no
+retry logic.
+
+#### Framework adapters: not built as packages
+
+Example configs ship in `examples/` for LangChain, LlamaIndex, CrewAI,
+Agno, AutoGen, Mastra and Semantic Kernel. The plan is one SDK with a
+thin adapter per framework, not hand-kept integrations against raw MCP.
+This work starts after the SDK is stable.
+
+#### Native stdio MCP transport: not built
+
+The server speaks Streamable HTTP at `/mcp`. No binary in `crates/`
+speaks stdio. Hosts that need stdio use the `mcp-remote` bridge, as
+[integrations.md](integrations.md) shows. A native transport would let
+directory listings work without the bridge. It has lower priority than
+the SDK, because the bridge already works.
+
+#### Robotics: the trust contract ships, the transport does not
+
+Ships:
+
+- The `robot.fleet.v1` profile in `crates/emem-core/data/substrates-v0.json`.
+- The `emem.os_trace.v1` record in `emem-trace`. It defines what a robot
+  must capture for its writes to be admitted: syscalls, scheduler, memory,
+  sensor bus, energy, thermal and on-device inference.
+- A two-vendor HTTP example in `examples/fleet-memory/`.
+
+Not built: the edge encoder that makes trace windows on the robot,
+offline sync, and a non-HTTP transport. ROS 2 robots with intermittent
+links do not fit an HTTP MCP call. The plan starts the transport only
+after the SDK, the signed-write path and tenancy are solid. One design
+partner comes before a generic ROS package. Step 6 in
+[plans/encoder-substrates.md](plans/encoder-substrates.md) upgrades the
+fleet example to trace-bound writes.
 
 ### Distribution: being findable and installable
 
-Adoption is a distribution problem before it is a content problem, and
-the two leaks sit at the top of the funnel: a developer cannot install
-the SDK yet (above), and an agent browsing a registry does not find the
-server. Nothing here ships a new capability; all of it decides whether
-the existing ones are found.
+These items add no new function. They decide if developers and agents
+find the functions that exist.
 
-- **Registry listings and a server card.** More ships here than the
-  first draft of this item claimed. Ships today: the official MCP
-  Registry listing (`io.github.Vortx-AI/emem`, published automatically
-  on every `v*` tag by `.github/workflows/mcp-publish.yml` over OIDC,
-  current at the workspace version), and the server card at
-  `/.well-known/mcp.json`, generated from the same tool registry as
-  `tools/list` so it cannot drift, stating the honest auth posture:
-  reads open, writes ed25519-attested. Open: the third-party
-  directories (mcp.so, Smithery, glama.ai, PulseMCP,
-  awesome-mcp-servers), each needing a human account or PR. The
-  canonical copy for those submissions is
-  [registries/metadata-pack.md](registries/metadata-pack.md); the older
-  files in that directory carry April counts and are history, not
-  copy.
-- **Framework integrations as published packages.** The LangChain,
-  LlamaIndex, CrewAI, Agno, AutoGen, and Mastra examples exist as config
-  files. The channel that compounds is being an installable, listed
-  integration inside the frameworks developers already use.
-  `emem-langmem`, the BaseStore adapter that signs its writes, publishes
-  first, then the framework directories. Gated on the first verified SDK
-  publish above.
-- **A launch that lands after the leaks are fixed.** One top-of-funnel
-  moment, led by the demonstrable claim (the same token resolves to the
-  same bytes for anyone, and the receipt verifies offline), not by
-  satellites. The assets are the one-call win at the top of the README,
-  a sixty-second recording of the cite-then-verify loop across two
-  processes, the worlds, and one completable tutorial that ends in a
-  token the reader can paste anywhere and a `/verify` link. Deliberately
-  gated on the SDK publish and the registry listings: a launch that
-  drives installs to an empty wheel burns the one spike.
-- **A public reliability signal.** Registries and evaluators weight
-  liveness. Open: an uptime signal for the hosted node, freshness
-  signals the README does not have to restate (latest release, CI
-  state), and aggregate, non-identifying usage counts if and only if
-  they are consistent with the privacy policy.
-- **A doc-lint gate.** Ships as of 2026-07-16: `scripts/doc_lint.py`
-  runs in CI and fails on em and en dashes (legacy files ride a visible
-  burn-down list inside the script that can only shrink), on the
-  banned-vocabulary and buzzword lists, and on relative doc links that
-  do not resolve; the convention itself is written down in
-  CONTRIBUTING.md. On its first run it caught eight broken source links
-  and one integrations row pointing at an example directory that does
-  not exist. Open: parsing every token example in the docs, and burning
-  the legacy dash list down to empty.
+| item | status |
+|---|---|
+| official MCP Registry listing | ships |
+| server card at `/.well-known/mcp.json` | ships |
+| Smithery listing | ships through a workflow, needs a Smithery key |
+| other third-party directories | open, each needs a person |
+| framework integrations as listed packages | open |
+| launch | open, waits for the items above |
+| public reliability signal | open |
+| doc-lint gate | ships |
+
+#### Registry listings and the server card
+
+The official MCP Registry lists `io.github.Vortx-AI/emem`. On 7 November
+2026 the latest version there was 2.4.4. `.github/workflows/mcp-publish.yml`
+publishes on every `v*` tag through OIDC.
+
+The server card at `/.well-known/mcp.json` comes from the same tool
+registry as `tools/list`, so the two cannot drift. It states the auth
+model: reads are open, writes need an Ed25519 signature.
+
+`.github/workflows/publish-smithery.yml` pushes an external release to
+Smithery on every release. The listing points at the hosted server, not
+at a copy. The step skips when no Smithery key is configured.
+
+Open: mcp.so, glama.ai, PulseMCP and awesome-mcp-servers. Each needs a
+human account or a pull request. Use
+[registries/metadata-pack.md](registries/metadata-pack.md) as the copy
+for these submissions. The older files in that directory carry April
+counts. They are history, not copy.
+
+#### Framework integrations as listed packages
+
+The examples in `examples/` are config files, not packages. The plan is
+to publish installable integrations that the framework directories list.
+`emem-langmem` is on PyPI. `llama-index-tools-emem` and the n8n node
+`n8n-nodes-emem` (`integrations/n8n/`) are in the repo, but neither was
+on its registry on 7 November 2026.
+
+#### Launch
+
+One launch, after the SDK publish and the registry listings. It leads
+with the claim that anyone can check: the same token resolves to the
+same bytes for anyone, and the receipt verifies offline. Planned assets:
+
+- the one-call example at the top of the README
+- a 60-second recording of cite-then-verify across two processes
+- the worlds
+- one tutorial that ends in a token the reader can paste anywhere, with a
+  `/verify` link
+
+#### Public reliability signal
+
+Open: an uptime signal for the hosted node. Open: release and CI status
+that the README does not have to restate. Total usage counts that
+identify nobody come only if the privacy policy allows them.
+
+#### Doc-lint gate
+
+`scripts/doc_lint.py` runs in CI (`ci.yml`). It fails on em and en
+dashes, on banned words and buzzwords, and on relative doc links that do
+not resolve. On its first run it found eight broken source links and one
+integrations row that pointed at a missing example directory.
+
+Files older than the gate are on a burn-down list in the script. A file
+on the list may only shrink. On 7 November 2026 one file was left:
+`docs/plans/v0.0.8-and-v0.0.9.md`, with 37 dashes.
+
+Open: a check that parses every token example in the docs.
 
 ### What agents building on emem actually hit
 
