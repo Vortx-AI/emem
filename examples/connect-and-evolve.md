@@ -82,6 +82,25 @@ Here one responder key read the road length from
 `overture_road_length_m@1` and later from `overture_road_length_m@2`.
 The two values differ, so both stay on record.
 
+To see the reader of each fact, get the fact by its CID from
+`GET /v1/facts/{cid}`:
+
+```bash
+curl -sS "$EMEM/v1/facts/6tww5qimzfma6xx2uly2cerpvxkficl4fkw6nxckrz22ajkn3tkq" \
+  | jq -c '{fn_key: .derivation.fn_key, value}'
+curl -sS "$EMEM/v1/facts/qklwofpxehwv54y4znfymseau3h3p2tl6sptjmtxe7nzba765m3q" \
+  | jq -c '{fn_key: .derivation.fn_key, value}'
+```
+
+Output on 7 November 2026:
+
+```json
+{"fn_key":"overture_road_length_m@1","value":8.452728843233139}
+{"fn_key":"overture_road_length_m@2","value":0.0}
+```
+
+A plain `POST /v1/recall` for this band returns only the newer fact.
+
 The full response also has `corpus_scanned`, `time_taken_ms`,
 `scan_truncated`, `agent_hint` and a signed `receipt`. The receipt's
 `fact_cids` cite every disputed fact. For this cell, it cites the two
