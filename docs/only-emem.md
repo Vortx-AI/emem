@@ -140,6 +140,7 @@ why (`enforce_open_namespace_owner` and `validate_attester_binding` in
 
 | `details.reason` | Cause |
 |---|---|
+| `vault_owner_mismatch` | Another key wrote this `vault` entry. Only that key can change or delete it. |
 | `namespace_mismatch` | The path is under the `by_attester/` prefix of another key. `details.expected_short` gives your prefix. |
 | `owner_key_mismatch` | Another key with the same 8-character prefix wrote this file first. |
 | `open_namespace_owner_mismatch` | Another key made this path outside `by_attester/`. |

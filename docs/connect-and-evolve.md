@@ -44,8 +44,9 @@ A read with `as_of_tslot` equal to `valid_to` still returns the edge. A
 read with a later tslot does not. The test
 `forward_recall_edges_valid_to_boundary` in
 `crates/emem-storage/src/lib.rs` holds this rule. The doc comment on
-`EdgeFact.valid_to` says "exclusive", but the read path does not work
-that way.
+`EdgeFact.valid_to` says "exclusive", and the module comment in
+`crates/emem-fact/src/edge.rs` says the same. The read path does not
+work that way.
 
 ## Read the edges of a fact
 

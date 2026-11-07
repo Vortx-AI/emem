@@ -405,8 +405,8 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   ([how emem compares](how-emem-compares.md)).
 - By default, every reader can read what an agent writes. Only a `vault`
   entry stays sealed against other callers (next item). The roadmap adds no
-  other read isolation. emem isolates writes only. Under `/memories/by_attester/<pubkey8>/`, the path names the
-  owner. Elsewhere, the first attester that creates a path owns it. A legacy
+  other read isolation. emem isolates writes only. Under
+  `/memories/by_attester/<pubkey8>/`, the path names the owner. Elsewhere, the first attester that creates a path owns it. A legacy
   record with no recorded author refuses writes from every key. The prefix
   `/memories/.well-known/` refuses API writes from every key. The operator
   puts files there out of band.

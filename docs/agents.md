@@ -514,8 +514,9 @@ curl -s -X POST https://emem.dev/v1/find_similar \
 Read `neighbors` and `interpretation`. The score compares surface texture, not
 climate. `returned_k` can be lower than `requested_k`. On 7 November 2026,
 this call asked for 3 and returned 2. emem.dev no longer makes new
-embeddings, so the index holds only the vectors that it stored before. The default band is the 128-dimension
-`geotessera` vector. `mode` selects the scoring:
+embeddings, so the index holds only the vectors that it stored before.
+The default band is the 128-dimension `geotessera` vector. `mode` selects
+the scoring:
 
 | `mode` | How it scores | Trade-off |
 |---|---|---|
@@ -1428,10 +1429,11 @@ lists only `emem_intent`. To count tools, count the names.
 
 Every tool carries the four MCP hints. On 7 November 2026, 51 tools
 had `readOnlyHint: false`: the 8 `write` tools and 43 others. Some reads
-change the corpus: on a miss, `emem_recall`, `emem_ask` and the other fetching tools sign and store a new
-fact. These tools also set `openWorldHint: true`. The memory verbs and the
-entity writes (`emem_entity`, `emem_entity_link`) are writes. Five memory verbs, and
-no other tools, set `destructiveHint: true`: `emem_memory_create`,
+change the corpus: on a miss, `emem_recall`, `emem_ask` and the other
+fetching tools sign and store a new fact. These tools also set
+`openWorldHint: true`. The memory verbs and the entity writes
+(`emem_entity`, `emem_entity_link`) are writes. Five memory verbs, and no
+other tools, set `destructiveHint: true`: `emem_memory_create`,
 `emem_memory_str_replace`, `emem_memory_insert`, `emem_memory_delete` and
 `emem_memory_rename`. The reason for each hint is in
 `integrations/chatgpt/tool-annotations.md`.
