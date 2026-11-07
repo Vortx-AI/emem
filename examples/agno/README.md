@@ -54,11 +54,19 @@ We also made the emem calls that the agent needs, on the same day:
 | call | result on 7 November 2026 |
 |---|---|
 | `emem_locate` with `Helsinki Airport, Finland` | `cell64` is `defi.zb6ae.nihE.rAvo`; `place_label` starts "Helsinki-Vantaan lentoasema (aerodrome)" |
-| `emem_recall` on that cell | in `facts[]`: `copdem30m.elevation_mean` 49.94 m, `surface_water.recurrence` 0 %, `esa_worldcover.lc_2021` 30 (grassland) |
+| `emem_recall` on that cell, `bands` `copdem30m.elevation_mean`, `surface_water.recurrence`, `esa_worldcover.lc_2021` | in `facts[]`: `copdem30m.elevation_mean` 49.94 m, `surface_water.recurrence` 0 %, `esa_worldcover.lc_2021` 30 (grassland) |
+| `emem_recall` on that cell, no `bands` | `facts[]` has 1 of 26 facts and an `_emem_truncation` note. `POST /v1/recall` with the same `cell` returns all 26 |
 | `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` and `details.code` `ambiguous_place` |
 
 If the model sends the place name to `emem_recall`, emem refuses to guess.
 The model must call `emem_locate` first and then recall by `cell`.
+
+An MCP tool result has a default limit of 24,000 bytes
+(`mcp_response_budget_bytes` in `crates/emem-api-rest/src/lib.rs`). On 7
+November 2026 the 26 facts at this cell were larger than that limit. So emem
+kept the first fact and added an `_emem_truncation` note. The note gives the
+index where the omitted facts start. The model gets the values it needs when it
+sends `bands`. The REST route has no limit.
 
 ## Notes
 
