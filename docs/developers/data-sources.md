@@ -12,7 +12,7 @@ and it is on by default.
 
 All default sources are keyless. The node needs no account and no API key to read them.
 
-![open pixel to signed receipt, in eight steps](/docs/diagrams/02-data-flow.svg)
+![The path of one value in six steps: an open pixel is read with an HTTP Range request, a stateless connector makes a PrimaryFact or Derivative, canonical CBOR encodes it, BLAKE3 gives its content id, and the responder signs the fact. The same bytes give the same content id on every machine.](/docs/diagrams/02-data-flow.svg)
 *The path of one value from an upstream tile to a fact you can cite. The same upstream and the same registries give the same CID.*
 
 ```text

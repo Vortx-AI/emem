@@ -52,7 +52,7 @@ on `/v1/recall_polygon`) come from the Fields of The World global
 product. It has about 3.17 billion field polygons (CC-BY-4.0). The node
 reads them with PMTiles range reads.
 
-![emem architecture: one binary, two wire surfaces](/docs/diagrams/01-architecture.svg)
+![emem architecture. Open-data sources (STAC and COG) feed one responder binary on the first miss. MCP and REST clients reach the same handlers, such as recall, find_similar, verify and hunt. The responder reads its manifests (bands, algorithms, sources, schema) and appends every write to a signed log with a Merkle root per batch.](/docs/diagrams/01-architecture.svg)
 *The whole stack in one figure. The text diagram below shows the same shape.*
 
 ## Process topology
