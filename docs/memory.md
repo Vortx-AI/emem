@@ -1656,5 +1656,11 @@ What the substrate gives you:
   `preimage_blake3_hex`, `signer_pubkey_b32` and other fields. Use
   `valid` to decide. It is true only when the signature holds, no Merkle
   proof fails and no fact that you send fails to match the receipt. When
-  it is false, `reason` names the cause, for example `signature_invalid`,
-  `merkle_proof_invalid` or `fact_mismatch`.
+  it is false, `reason` names the cause: `signature_invalid`,
+  `receipt_reshaped_after_signing`, `merkle_proof_invalid` or
+  `fact_mismatch`. `receipt_reshaped_after_signing` means the signed body
+  is intact, but the proof or `preimage_version` changed after the
+  responder signed it.
+  `failure_detail` gives the remedy in prose. `merkle_proof_valid` is
+  null when the receipt has no proof or the responder does not hold the
+  first fact.
