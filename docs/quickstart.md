@@ -10,7 +10,7 @@ This page takes you from nothing to a signed answer that you check yourself. Rea
 
 ## What you get
 
-- The elevation of one 10 m cell on Mount Fuji, as a signed fact.
+- The elevation at one 10 m cell on Mount Fuji, as a signed fact.
 - A receipt that you check in your own process, with no call to emem.dev.
 - A token that gives the same signed fact to another agent.
 
@@ -48,6 +48,9 @@ curl -sX POST https://emem.dev/v1/recall \
          "bands":["copdem30m.elevation_mean"]}' | jq '.facts[0].value'
 # 3539.042236328125
 ```
+
+The value is in metres. It is the Copernicus GLO-30 pixel (30 m) that contains the centre of the cell. The band
+name ends in `_mean`, but the responder reads one pixel.
 
 ### Python
 
@@ -274,7 +277,7 @@ ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep this fi
 
 # WRITE: signs a note with your key and stores it on emem.dev
 ememdev write --path /memories/by_attester/<pubkey8>/runbook.md \
-    --body "Mount Fuji: Cop-DEM mean elevation 3539 m at the cell locate picked."
+    --body "Mount Fuji: Copernicus DEM elevation 3539 m at the cell locate picked."
 ```
 
 Only the key that wrote a note can supersede it or delete it. Thus, test with a key that you keep.
