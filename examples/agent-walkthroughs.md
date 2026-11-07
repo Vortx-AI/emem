@@ -214,9 +214,15 @@ jq '{receipt}' resolved.json \
 ```
 
 `resolve` returns the signed fact body and a new receipt for it. If the
-token names a cell that is not the cell of the fact, `resolve` returns
-HTTP 409. If the responder does not hold the fact, it returns HTTP 404.
-Both codes came back on 7 November 2026.
+token names a different valid cell, `resolve` returns HTTP 409. If the
+responder does not hold the fact, it returns HTTP 404. Both codes came back
+on 7 November 2026.
+
+If the cell in the token does not parse, `resolve` finds the fact by its
+`fact_cid` only. The response is HTTP 200 with `cell_matches: false` and
+`degraded: true`. On 7 November 2026, the token above gave this result
+when its cell ended in `rIhf`, not `rIhe`. Treat `degraded: true` as a
+failure, and cite `canonical_token` from the response.
 
 `verify_receipt` is the responder that checks its own receipt. It is not an
 independent check. For an independent check, use the Python SDK or
