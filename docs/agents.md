@@ -200,8 +200,8 @@ not one JSON object. On 7 November 2026, this question gave 6 events. Their
 `answer`. The `detail` of the `answer` event is the same JSON that a plain
 call returns. A failed ask ends with a `failed` stage. The four main
 events also have `new_fact_cids`, the CIDs that stage added. Join these
-lists, in stage order, to get the `fact_cids` of the answer. The JSON answer lists
-the four main stages, `located` to `scored`, in `reasoning.steps`.
+lists, in stage order, to get the `fact_cids` of the answer. The JSON answer
+lists the four main stages, `located` to `scored`, in `reasoning.steps`.
 Details: [Questions about the corpus, not about a place](#questions-about-the-corpus-not-about-a-place).
 
 ### Job: turn a place name into an address
@@ -444,7 +444,8 @@ in `results[0].result`. On 7 November 2026 it held only `delta_fact` and
 `receipt`, with no `phenology` block. To get that block, call `emem_diff`.
 
 For the `emem_diff` call above, on 7 November 2026, the `phenology` block
-said that the two readings were 95 days apart in the seasonal cycle. Thus the delta mixes the season with real change.
+said that the two readings were 95 days apart in the seasonal cycle. Thus
+the delta mixes the season with real change.
 
 Branch on `phenology.same_doy`, not on the `caution` text. The block has
 `doy_a`, `doy_b`, `doy_gap_days`, `same_doy` and `years_apart`. The gap is
