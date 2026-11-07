@@ -96,12 +96,16 @@ def robot_b(handoff, receipt):
     v = post("/v1/verify_receipt", {"receipt": receipt})
     print(f"receipt valid     : {v.get('valid')} (server-side check)")
     try:
-        offline_verify(receipt)
-        print("offline verify    : VALID (recomputed locally, no trust in the responder)")
+        ok = offline_verify(receipt)
     except ImportError:
         print("offline verify    : skipped (pip install blake3 cbor2 cryptography to run it)")
-    except Exception as e:  # cryptography raises InvalidSignature
-        print(f"offline verify    : INVALID ({type(e).__name__})")
+    except Exception as e:  # a bug or a malformed receipt, not a bad signature
+        print(f"offline verify    : ERROR ({e!r})")
+    else:
+        if ok:
+            print("offline verify    : VALID (recomputed locally, no trust in the responder)")
+        else:
+            print("offline verify    : INVALID (signature does not match the preimage)")
 
 
 def merkle_binding(proof):
@@ -133,11 +137,14 @@ def merkle_binding(proof):
 
 
 def offline_verify(r):
-    """Recompute the v1 or v2 preimage and check ed25519, entirely locally."""
+    """Recompute a recall receipt's preimage and check ed25519, entirely
+    locally. Covers the v1 segments and the v2 MERKLE segment that a recall
+    receipt uses; it has no SCOPE, AS_OF, EDGES or FIELD segment."""
     import base64
 
     import cbor2
     from blake3 import blake3
+    from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
     h = blake3()
@@ -169,7 +176,11 @@ def offline_verify(r):
 
     s = r["responder_pubkey_b32"].upper()
     pk = base64.b32decode(s + "=" * ((-len(s)) % 8))
-    Ed25519PublicKey.from_public_bytes(pk).verify(bytes(r["signature"]), h.digest())
+    try:
+        Ed25519PublicKey.from_public_bytes(pk).verify(bytes(r["signature"]), h.digest())
+    except InvalidSignature:
+        return False
+    return True
 
 
 if __name__ == "__main__":

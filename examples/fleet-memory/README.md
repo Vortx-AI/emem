@@ -11,8 +11,8 @@ share no backend and no credentials, and B does not have to trust A.
 - Python 3 and network access to `https://emem.dev`.
 - `requests`. For the offline signature check, also `blake3`, `cbor2` and
   `cryptography`.
-- No key and no account. The script sends no signed writes. On a recall
-  miss, the responder fetches and signs the band itself.
+- No key and no account. The script sends no writes. Every call is a read.
+  On a recall miss, the responder fetches and signs the band itself.
 
 ## What you get
 
@@ -49,7 +49,9 @@ offline verify    : VALID (recomputed locally, no trust in the responder)
 Done. The map entry outlives both robots, both sessions, and both vendors; any third fleet can repeat robot B's half verbatim.
 ```
 
-Without `blake3`, `cbor2` and `cryptography`, the last line says `skipped`.
+Without `blake3`, `cbor2` and `cryptography`, the offline line says `skipped`.
+It says `INVALID` only when the signature does not match the preimage.
+Any other error, for example a malformed receipt, prints `ERROR`.
 The fact ids change when the responder signs a newer reading.
 
 ## What each step shows
@@ -60,7 +62,7 @@ The fact ids change when the responder signs a newer reading.
 | A checks the alias | `POST /v1/entity/resolve` with B's phrasing | Two phrasings resolve to one `entity_cid`. |
 | A reads the ground | `POST /v1/locate`, then `POST /v1/recall` | Each fact carries a `memory_token` and a provenance class. |
 | B resolves the tokens | `POST /v1/memory_token/resolve` | B gets the same signed bytes that A read. |
-| B checks the receipt | `POST /v1/verify_receipt`, then a local check | The local check rebuilds the BLAKE3 preimage (v1 or v2) and checks the Ed25519 signature. |
+| B checks the receipt | `POST /v1/verify_receipt`, then a local check | The local check rebuilds the BLAKE3 preimage and checks the Ed25519 signature. It covers the v1 segments and the v2 `MERKLE` segment that a recall receipt uses. |
 
 The server-side check is the responder checking itself. The offline check is
 the one that does not trust the responder.
