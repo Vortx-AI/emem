@@ -119,9 +119,8 @@ what you missed.
 ## Code style
 
 - **No `unsafe`.** Every crate carries `#![forbid(unsafe_code)]` at the top,
-  except three that do not yet: `emem-airgap`, `emem-scorecard` and
-  `emem-sleep-agent`. They use no `unsafe`; add the attribute when you
-  next edit them.
+  except two that do not yet: `emem-scorecard` and `emem-sleep-agent`.
+  They use no `unsafe`; add the attribute when you next edit them.
 - **No `unwrap()` on user-facing paths.** Use `?` with structured errors;
   the `MaterializeMiss` / `CidNotFound` types are designed to surface
   honest gaps without panicking. `unwrap()` is fine inside tests.
