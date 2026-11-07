@@ -24,9 +24,13 @@ The schema enum for the visual `verdict` also lacks one value (see
 ## Per-cell verdict
 
 The endpoint samples each plot at one or more cell64s.
-A plot without a polygon (a GeoJSON Point or a `bbox`) of 4 ha or less uses 1 cell,
-unless the commodity is cattle.
+These plots use 1 cell, unless the commodity is cattle:
+
+- a GeoJSON Point (the endpoint gives it an area of 0.01 ha)
+- a `bbox` of 4 ha or less
+
 Every other plot in the request uses one shared count, `max_cells_per_plot`.
+A polygon always uses this count, also when its area is 4 ha or less.
 If the operator does not set it, the sampler uses about 110 cells per hectare of the
 largest plot in the request.
 The sampler takes the area of each plot's bounding box, not the area inside the polygon.
@@ -34,7 +38,8 @@ Thus a long or irregular polygon gets more cells than its own area needs.
 The derived count is at least 55 and at most 51,200.
 If no plot geometry gives an area, the count is 64.
 The endpoint clamps a count that the operator sets to 1 through 51,200.
-The verdict runs **`eudr_compliance@1`** on each cell, from two static COG baselines:
+The verdict runs **`eudr_compliance@1`** on each cell.
+It reads three bands from two static COG baselines, JRC GFC2020 and Hansen GFC:
 
 | Band | Role |
 |---|---|
@@ -61,9 +66,9 @@ It needs 4 HTTP reads instead of about 1,760, and took about 3 s instead of 180 
 This batched read is on by default. An operator can set `EMEM_EUDR_BATCH_PATH=0` to read each cell on its own.
 
 The batched path also reads the JRC TMF v1.2025 deforestation year on every cell.
-The per-cell path does not read TMF. It reads only the three bands in the table above.
 It reads a COG copy of the JRC tiles with HTTP Range requests.
-The plot result reports it as `tmf_cross_check`, which shows where TMF and Hansen agree on
+The per-cell path does not read TMF. It reads only the three bands in the table above.
+The plot result reports the TMF reading as `tmf_cross_check`, which shows where TMF and Hansen agree on
 loss after the cut-off.
 TMF does not change the verdict.
 A cell can show loss after the cut-off in TMF but not in Hansen.
