@@ -82,7 +82,7 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 | Cursor 0.42 and later | MCP (`url` only) | none | [`examples/cursor.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json) |
 | Cline (VS Code) | MCP (`streamableHttp`) | none | [`examples/cline.mcp.json`](https://github.com/Vortx-AI/emem/blob/main/examples/cline.mcp.json). Keep `"type": "streamableHttp"`. Without it Cline uses legacy SSE, and `GET /mcp` returns 405. |
 | Gemini CLI | extension install | none | Run `gemini extensions install https://github.com/Vortx-AI/emem`. It reads [`gemini-extension.json`](https://github.com/Vortx-AI/emem/blob/main/gemini-extension.json) at the repository root. |
-| OpenAI Custom GPT Action | OpenAPI 3.1 | none | [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) |
+| OpenAI Custom GPT Action | OpenAPI 3.1 | none | Steps below. [`examples/openai-gpt-action.json`](https://github.com/Vortx-AI/emem/blob/main/examples/openai-gpt-action.json) holds the setup URLs and the GPT instructions text. It is not an OpenAPI document. |
 | LangChain | MCP through an adapter | none | [`examples/langchain/`](https://github.com/Vortx-AI/emem/tree/main/examples/langchain) |
 | LlamaIndex | MCP through an adapter | none | [`examples/llamaindex/`](https://github.com/Vortx-AI/emem/tree/main/examples/llamaindex) |
 | AutoGen | MCP tool | none | [`examples/autogen/`](https://github.com/Vortx-AI/emem/tree/main/examples/autogen) |
@@ -99,6 +99,18 @@ Older hosts speak stdio only. Use the `mcp-remote` bridge:
 
 For a Custom GPT, import `https://emem.dev/openapi.action.json`, not `/openapi.json`. On 7 November 2026 the full
 document was 405,695 bytes and the action document was 126,810 bytes. A Custom GPT cannot hold the full document.
+The action document is OpenAPI 3.1.0, version 2.4.4, with 39 operations on 38 paths (7 November 2026).
+
+The example file gives these steps to add emem to a Custom GPT. They need an OpenAI account. Nobody ran them for
+this page:
+
+1. In the GPT builder, open Actions and select Add.
+2. Select Import from URL and enter `https://emem.dev/openapi.action.json`.
+3. Set Authentication to None.
+4. Set the privacy policy URL to `https://emem.dev/privacy`.
+5. Paste the `custom_gpt_instructions` text from the example file into the GPT instructions.
+
+The instructions text tells the model which tool to call and to cite emem tokens. It has 3,108 characters.
 
 A host that has no row here reaches the same 116 tools at the same URL. The rows are the runtimes with a checked-in
 example or a known config.
