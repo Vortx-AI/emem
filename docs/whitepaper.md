@@ -391,7 +391,8 @@ the identical bytes and verifies the receipt offline.*
 </picture>
 
 *Figure 3 applied to one live fact at Mount Fuji. On 7 November 2026
-the token resolved to the same fact id and the same value, 3,539.04 m.*
+the token resolved to the same fact id and the same value, 3,539.04 m.
+Contains modified Copernicus Sentinel data 2025.*
 
 | Token | Shape | Dereferences to |
 |---|---|---|
@@ -1024,8 +1025,10 @@ each step offline:
    fact's batch and returns its audit path to the current signed tree head.
 2. `GET /v1/log/entries?start=<i>&end=<i+1>` returns the bytes of that
    entry. Their BLAKE3 must equal the `entry_hash_b32` of the proof.
-3. The client decodes the attestation in those bytes and finds the fact
-   in it.
+3. The attestation in those bytes holds the body of each fact as
+   canonical CBOR. Hash the CBOR bytes of each fact as stored. One BLAKE3
+   hash must equal the fact id. Do not decode the CBOR and encode it
+   again: another encoder can give different bytes and a different hash.
 
 On 7 November 2026 the Mount Fuji elevation fact `qejpz7cg...` gave entry
 2,463,431 of 3,248,898. The entry was one attestation of 1,235 bytes
