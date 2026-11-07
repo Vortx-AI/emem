@@ -299,7 +299,7 @@ digest in the refusal.
 | Memory bundle | `POST /v1/memory_bundle` | `{triples}` or `{fact_cids}`, plus `purpose?`, `scope?` | signed envelope + `emem:bundle:<bundle_cid>` |
 | Memory bundle resolve | `GET /v1/memory_bundle/<token>` | path param | same envelope |
 | Memory file write | MCP `emem_memory_create` | `{path, file_text, kind?, attester}` | `file_cid` + signed receipt; a `vault` write returns neither ([kinds](#the-kinds)) |
-| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, kind?, attester}` for `str_replace`; `{path, insert_line, new_str, kind?, attester}` for `insert`. Without `kind`, the file keeps its kind. | new `file_cid` + receipt |
+| Memory file edit | MCP `emem_memory_str_replace`, `emem_memory_insert` | `{path, old_str, new_str, kind?, attester}` for `str_replace`; `{path, insert_line, new_str, kind?, attester}` for `insert`. Without `kind`, or with an unknown `kind`, the file keeps its kind. | new `file_cid` + receipt |
 | Memory file supersede | MCP `emem_memory_supersede` | `{path, superseded_by, reason?, attester}` | readers of `path` get `superseded_by` and a `_superseded` banner; the bytes stay |
 | Memory file read | MCP `emem_memory_view` | `{path}` or `{file_cid}`, plus `view_range?`, `view?`, `offset?`, `kind?`, `vault_capability?` | content with its `authorship` block, or a directory listing. With `view_range`, `window` gives `total_lines` and the lines served; a window past the end is empty, with `past_end` true |
 | Memory file read, plain | `GET /memories/<path>` | path | the note as `text/markdown`, `ETag` = its `file_cid` |
@@ -345,10 +345,17 @@ The match is case-sensitive. Send the kind in lower case.
 The list tool refuses `Episodic`, and `emem_memory_create` stores it
 as `resource`.
 The refusal message names only four kinds. The list tool also takes
-`core` and `vault`. A `vault` list is always empty, because a `vault`
-entry is not in the kind index.
+`core` and `vault`. A sealed `vault` entry is not in the kind index,
+so a `vault` list never shows one.
 On 7 November 2026, the `core` and `vault` lists on emem.dev were
 empty, and `bogus` and `Episodic` gave the refusal above.
+
+An edit (`str_replace` or `insert`) with an unknown `kind` keeps the
+kind that the file has. An edit with `kind` `vault` does not seal the
+note. The note stays plain text and gets the kind `vault` in the kind
+index. Search still finds it, and a `vault` list shows it. Only `emem_memory_create` seals an entry
+(`crates/emem-api-rest/src/lib.rs`, `memory_str_replace_inner` and
+`memory_insert_inner`).
 
 A directory listing from `emem_memory_view` puts the kinds in this
 order: `core`, `procedural`, `semantic`, `episodic`, `resource`.
