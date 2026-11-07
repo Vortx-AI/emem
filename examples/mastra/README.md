@@ -69,10 +69,20 @@ not change.
 We did not see the agent answer, because that needs a real OpenAI key.
 
 We called `emem_hunt` with the same arguments over MCP on 7 November 2026. It
-returned 8 hotspots with the algorithm `algal_bloom_chlorophyll_ndci@1`. The
-first hotspot was cell `defi.zb5de.rAsI.wEfA`, with primary band
-`indices.ndvi` at -0.216 and gate band `indices.ndwi` at 0.537.
-Each hotspot had a `fact_cid` and a `facts_url`. The `facts_url` is a GET
+returned 8 hotspots with `algorithm_key` `algal_bloom_chlorophyll_ndci@1`.
+This table shows the fields of the first hotspot, `hotspots[0]`:
+
+| field | value on 7 November 2026 |
+|---|---|
+| `cell64` | `defi.zb5de.rAsI.wEfA` |
+| `primary_band` | `indices.ndvi` |
+| `value` | -0.216 |
+| `gate_band` | `indices.ndwi` |
+| `gate_value` | 0.537 |
+| `fact_cid` | `utzsidsqpw3dbyphz4oidafddlkdu32ty5dphgbkhaeyjfnd442a` |
+
+The responder public key is in `receipt.responder_pubkey_b32`. Each hotspot
+also had a `facts_url`. The `facts_url` is a GET
 on `/v1/recall`, which accepts only POST, so it returns 405. To read the
 facts, send `POST /v1/recall` with the `cell64`.
 
