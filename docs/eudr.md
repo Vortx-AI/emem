@@ -332,6 +332,8 @@ response envelope.
 ### Time budget
 
 The visual block reads 8 cells of the plot by default (`EMEM_EUDR_VISUAL_CELLS`, 1 to 32).
+The responder does not clamp this variable: a value outside 1 to 32 gives the default of 8.
+The responder clamps the variables in the table below to their range.
 It reads 2 bands for each year from 2020 through the current year.
 In 2026 that is 7 years × 8 cells × 2 bands = 112 reads for each plot.
 
@@ -344,8 +346,8 @@ In 2026 that is 7 years × 8 cells × 2 bands = 112 reads for each plot.
 
 If the visual budget runs out, the plot still gets its verdict.
 The visual block then has `verdict: "incomplete"`.
-The endpoint stores the reads that finished, so the next request for the same plot
-completes the block.
+The endpoint stores the reads that finished, and a later request for the same plot reuses them.
+If the upstream reads are slow, the block can need more than one more request.
 The 280 s default stays below the client and edge cut of about 300 s.
 Thus a call that cannot finish gets a clear 504 response before the connection closes.
 
