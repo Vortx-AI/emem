@@ -13,8 +13,10 @@ problems.
 
 Two properties matter more to a machine than to a person:
 
-- Every fact that a read returns has a signed receipt. A second machine can
-  check the claim of the first machine and does not have to trust it.
+- Every fact that a read returns has a content id, `fact_cid`. `POST
+  /v1/recall` also returns a signed receipt over these ids. A second machine
+  can check the claim of the first machine and does not have to trust it.
+  The weather and soil routes return no receipt (see [A sprayer](#a-sprayer)).
 - Every place has one address. Two machines that resolve "this field"
   separately get the same cell64. They do not get two descriptions that only a
   human can match.
@@ -177,6 +179,10 @@ curl -s -X POST https://emem.dev/v1/terrain \
   -d '{"cell":"defi.zb4e3.vopU.fEyO"}'
 ```
 
+This is the cell that `POST /v1/locate` returns for "Nashik", at 20.00 N,
+73.79 E. The sprayer example uses the same cell. For your own machine, use the
+cell of your field.
+
 The response has `centre_elevation_m`, a `slope` block, `ruggedness` and
 `topo_position`. The `slope` block gives the cell size. The top-level
 `input_fact_cids` lists the fact ids that the response used. The response
@@ -249,10 +255,13 @@ curl -s -X POST https://emem.dev/v1/trajectory \
   -d '{"cell":"defi.zb493.xuqA.zcb5f","band":"indices.ndvi","window":[20325,20690]}'
 ```
 
-The window is a pair of Unix epoch-day slots. On 7 November 2026, the `series`
+This is the cell that `POST /v1/locate` returns for "Bengaluru", at 12.97 N,
+77.59 E. The satellite example uses the same cell. The window is a pair of
+Unix epoch-day slots. On 7 November 2026, the `series`
 had 25 points. Each point has its own `fact_cid` and `token`. Every point links
-back to the signed observation that it came from. A second machine can check
-any point again.
+back to the signed observation that it came from. The response also has one
+`receipt`, and its `fact_cids` list holds the ids of all 25 points. A second
+machine can check any point again.
 
 Observations are sparse and have irregular spacing. A satellite records when
 it passes, not on your schedule. Do not expect consecutive slots. To see which
