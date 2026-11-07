@@ -268,8 +268,27 @@ With `ndvi_only`, only NDVI cleared the plot, because S1 VV did not run.
 
 ### Receipts
 
-Each annual NDVI and S1 backscatter value is a signed Primary fact under the responder's
-identity.
+The response has one Ed25519 `receipt` for the whole call.
+It signs the per-cell fact CIDs of every plot and the CID of each loss-year histogram fact.
+It also signs the cell64 of each sampled cell.
+Check it offline at `/verify`, or with `POST /v1/verify_receipt`.
+
+Large calls hit two caps.
+The table gives the defaults; both env vars accept 256 to 51,200.
+
+| Cap | Default | Env var | When the cap applies |
+|---|---|---|---|
+| Fact CIDs in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_FACTS` | The receipt keeps the first 2048 CIDs in sort order. The response adds `receipt_fact_cids_capped: true`, `receipt_fact_cids_total` and `receipt_fact_cids_cap`. |
+| Cells in the receipt | 2048 | `EMEM_EUDR_RECEIPT_MAX_CELLS` | The receipt lists the centroid cell of each plot. The response adds `receipt_cells_truncated: true`, `receipt_cells_total` and `receipt_cells_cap`. |
+
+Because of the sort, two calls with the same inputs sign the same bytes.
+A capped receipt does not sign every fact, but the endpoint stores every fact.
+Each plot's `per_cell_rows_cid` addresses all of its facts.
+Every fact CID in the response resolves at `/v1/facts/<cid>`.
+
+The receipt does not sign the visual evidence facts.
+Each annual NDVI and S1 backscatter value is a separate signed Primary fact under the
+responder's identity.
 Each entry in `visual_evidence.years[]` carries `ndvi_fact_cids[]` and `s1_fact_cids[]`.
 An auditor can cite the exact upstream fact with these CIDs.
 The auditor can check its signature at `/verify/<fact_cid>` and does not need to trust the
@@ -318,8 +337,8 @@ The standard `pass` statement of compliance makes a claim about both deforestati
 degradation.
 For this reason, the response carries a `degradation_disclaimer`.
 The operator must handle degradation with a separate layer.
-The JRC TMF `jrc_tmf.degradation_year` band is available on request.
-The endpoint does not read it, and it does not enter the verdict.
+You can recall the JRC TMF `jrc_tmf.degradation_year` band by name.
+`/v1/eudr_dds` does not read it, and it does not enter the verdict.
 The `legality_disclaimer` for Article 9(1)(b) works the same way.
 Both disclaimers state the limits of the Earth-observation verdict.
 
