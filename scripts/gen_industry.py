@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Generate the industry gallery scenes in the Mithila SVG hand.
 
-Each scene: a live bundle of the real emem bands this industry reads, signed
+Each scene: an example bundle of the real emem bands this industry reads, signed
 into one receipt, handed to the parties that act on it. One template, a data
-table of accurate per-industry content. Writes docs/diagrams/<key>.svg and a
+table of per-industry content. The values are
+illustrative, not reads at one real cell. Writes docs/diagrams/<key>.svg and a
 PNG preview under /tmp for visual checking.
 
 Usage: python3 scripts/gen_industry.py [key ...]   (default: all)
@@ -88,7 +89,7 @@ def scene(spec):
         s.dot(px + 30, ry - 5, 4.5, DYES[i % len(DYES)])
         s.text(px + 46, ry, name, 13, INK, font=MONO)
         s.text(px + pw - 22, ry, val, 13, DYES[i % len(DYES)], font=MONO, anchor="end", weight="bold")
-    s.text(px + pw / 2, py + ph + 30, "each value a signed fact at one cell", 11.5,
+    s.text(px + pw / 2, py + ph + 30, "example values · each a signed fact", 11.5,
            INK_SOFT, font=MONO, anchor="middle")
 
     # ---- the place those facts come from: a geolocation cell -------------
@@ -102,7 +103,7 @@ def scene(spec):
                cell_cy - sz + k * 2 * sz / 3, INK_SOFT, 0.8, op=0.45)
     s.rect(cell_cx - sz / 3, cell_cy - sz / 3, 2 * sz / 3, 2 * sz / 3, fill=LEAF, op=0.22, stroke=INK, sw=1.4)
     s.circle(cell_cx, cell_cy, 7, stroke=INK, sw=1.2); s.dot(cell_cx, cell_cy, 3.6, VERMIL)
-    s.text(cell_cx, cell_cy + sz + 28, spec.get("cell", "cell defi.zb5cf.nura.zd83c"), 11.5,
+    s.text(cell_cx, cell_cy + sz + 28, spec.get("cell", "the site's cell64"), 11.5,
            INK, font=MONO, anchor="middle")
     s.text(cell_cx, cell_cy + sz + 46, "one cell · about 9.55 m", 11, INK_SOFT, font=MONO, anchor="middle")
 
