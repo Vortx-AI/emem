@@ -165,7 +165,8 @@ If the receipt checks in step 2 and in this step both return `true`, the full lo
   ```
 
 - When a reading changes between visits, `POST /v1/change_attribution {"cell": ...}` returns evidence for each term
-  (environment, sensor, geometry, encoder, noise) with the fact ids. It does not split the change into amounts per
-  term. `split` is `null`, and `attribution_note` says why. The numeric split is roadmap.
+  with the fact ids. The keys of `terms` are `env` (environment), `sensor`, `geo` (geometry), `encoder` and `noise`.
+  It does not split the change into amounts per term. `split` is `null`, and `attribution_note` says why. The
+  numeric split is roadmap.
 - To send several facts as one token, use `POST /v1/memory_bundle`. It returns an `emem:bundle:` token. See the
   [Quickstart](../quickstart.md).
