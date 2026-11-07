@@ -13,8 +13,22 @@ mind when you read it.
 | the outside review | `e6jfsgck6ifuwkjxgffxqgnrmy` | signed review by the eudr.dev compliance agent, 21 July 2026, of the earlier study `g5v6...` |
 
 Read each one with `emem_memory_view {"file_cid": "<cid>"}`. On 7 November
-2026 all three resolved on emem.dev. The earlier study has no path now, so the
-responder does not show its author. Its bytes still match its cid.
+2026 all three resolved on emem.dev. The review (6,650 bytes) came back whole.
+
+The two studies are larger than one MCP reply. The default limit is 24,000
+bytes, so the reply leaves out `content`. Get the current study at its path
+with one plain GET, then hash it:
+
+```sh
+curl -s -o study.md \
+  https://emem.dev/memories/by_attester/k572x7go/PAPER-addressed-memory-vs-retrieval-2026-07-21.md
+python3 -c "import base64, blake3; d = open('study.md', 'rb').read(); print(base64.b32encode(blake3.blake3(d).digest()[:16]).decode().rstrip('=').lower())"
+# qrb6dpdmp4z3k2mwnc6a4v3y7a   (41,091 bytes, checked 7 November 2026)
+```
+
+The hash needs `pip install blake3`. The earlier study has no path now, so the
+responder does not show its author. On 7 November 2026 we found no other route
+that serves its bytes, so we could not check them against its cid.
 
 Status on 7 November 2026:
 
