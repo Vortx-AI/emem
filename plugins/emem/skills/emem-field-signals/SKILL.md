@@ -117,11 +117,13 @@ ends. `observations.warmed` shows which bands finished the warm-up in
 the budget. CAMS smoke bands are in `sensors_not_evaluated` with the
 reason: they are 0.4° model fields.
 
-On 7 November 2026 this call took 25 s. It gave `verdict: "signal_only"`,
-`burn_events: 0` and a median of 6 clear dates for each cell. Two of
-seven cell signals were `single_sensor_signal`. The receipt named 195
-fact cids. On 28 September 2026 the same call gave `inconclusive`,
-because the responder had not fetched the Sentinel-2 facts yet.
+On 7 November 2026 this call gave `verdict: "signal_only"` and
+`burn_events: 0`. Each of the 16 cells had a median of 14 clear dates.
+Two of ten cell signals were `single_sensor_signal`. The receipt named
+451 fact cids. These counts grow while the warm-up adds facts: an
+earlier call on the same day saw 6 clear dates and 195 fact cids. On
+28 September 2026 the same call gave `inconclusive`, because the
+responder had not fetched the Sentinel-2 facts yet.
 
 ## Step 3: get the crop water use
 
