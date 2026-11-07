@@ -396,8 +396,9 @@ cell64 grid did not change. See [CHANGELOG.md](../CHANGELOG.md).
   independent operator, `eudr.dev`. At 10:17 UTC its last co-signature was
   106 entries behind the head
   (`freshest_independent_operator_entries_behind`). So
-  `head_is_independently_witnessed` was `false`. The lag changes with each
-  write.
+  `head_is_independently_witnessed` was `false`. At 10:25 UTC the lag was 0
+  and the field was `true`. The lag changes with each write and each
+  co-signature.
 - The corpus is small. On 7 November 2026 `GET /v1/coverage` reported
   `total_cells` 2,424. The first read of a new place can take tens of
   seconds.
