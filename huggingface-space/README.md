@@ -25,85 +25,141 @@ models: []
 datasets: []
 ---
 
-# emem: shared, verifiable memory for machines and AI
+# emem node on Hugging Face Spaces
 
-This Space runs an **emem node**, the same binary as [emem.dev](https://emem.dev).
-Encode where the data lives, decode with any AI: sources sign small records of
-what they hold and the bytes stay put, while any model resolves a short token
-back to the exact signed record and checks it offline with ed25519.
+This folder holds the files for the emem Space on Hugging Face. The Space runs
+`emem-server`, the same server program as [emem.dev](https://emem.dev), as a
+second public node. Its address is `https://vortx-ai-emem.hf.space`.
 
-## What this Space gives you
+Use it when you want to try emem on a node other than emem.dev. Use it also
+when you want an example of how to run your own node from the published image.
+Most agents should use `https://emem.dev/mcp`. That node runs the newest release.
 
-- A live MCP endpoint at `${SPACE_URL}/mcp` (Streamable HTTP).
-- A REST and OpenAPI 3.1 surface at `${SPACE_URL}/v1/...`.
-- The same tool surface as emem.dev: 115 MCP tools, 115 wired measurements
-  from open Earth archives, and 168 composition algorithms (live counts at
-  `/v1/agent_card`).
-- No key to read. Apache-2.0. Pure Rust.
+Try it. This call needs no key:
 
-The hosted node at `https://emem.dev/mcp` is the one most agents use; it is
-also listed in ChatGPT, the Claude directory, the official MCP Registry and the
-GitHub MCP Registry. Install guides for every host:
-[emem.dev/reference#client-setup](https://emem.dev/reference#client-setup).
+```bash
+curl -s https://vortx-ai-emem.hf.space/health
+```
 
-## How to connect
+The reply has `"ok":true` and the node version. Read more in
+[docs/agents.md](https://github.com/Vortx-AI/emem/blob/main/docs/agents.md) (how to use emem from an agent) and
+[docs/operators/operating.md](https://github.com/Vortx-AI/emem/blob/main/docs/operators/operating.md) (how to run a node).
 
-### Claude Desktop
+## How the Space differs from emem.dev
 
-Add this to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+The two nodes run the same program, but they are separate nodes. On
+7 November 2026 the live values were these:
+
+| | Space | emem.dev |
+|---|---|---|
+| Version | 2.4.2 | 2.4.4 |
+| Key that signs facts (`responder_pubkey_b32`) | `2hi4tnjizc2zl5e4h6hdwkmxphh2fbax3iu6jpmjypf2y4dsgidq` | `777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka` |
+| MCP tools (`band_taxonomy.tools.count` in `/v1/agent_card`) | 115 | 116 |
+| Composition algorithms | 168 | 172 |
+| Wired measurements (`materializer_wired`) | 127 | 115 |
+
+The Space runs on the Hugging Face `cpu-basic` hardware tier.
+
+Each node signs facts with its own key. To check a fact from the Space, use
+the key from the Space's own `/.well-known/emem.json`, at
+`federation.node.responder_pubkey_b32`. The key of emem.dev does not verify it.
+
+The Space keeps its own small corpus. On 7 November 2026, `/health` reported
+108 cells (`corpus.distinct_cells`) and 25 bands (`corpus.distinct_bands`). A cell that emem.dev already holds can be empty on the
+Space. The Space then fetches the value from the open source when you ask.
+
+The `Dockerfile` pins the image by digest, not by tag. The Space version
+changes only when someone changes that digest and pushes the Space. The
+comment in the `Dockerfile` gives the command that shows the newest digest.
+
+## Read a signed fact from the Space
+
+Find the cell for a place:
+
+```bash
+curl -s https://vortx-ai-emem.hf.space/v1/locate \
+  -H 'content-type: application/json' \
+  -d '{"q":"Mt Fuji"}'
+```
+
+On 7 November 2026 the reply had `"cell64":"defi.zb592.nemu.zEvO"`. Read the
+elevation there:
+
+```bash
+curl -s https://vortx-ai-emem.hf.space/v1/recall \
+  -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb592.nemu.zEvO","bands":["elevation"]}'
+```
+
+The reply had one fact, `copdem30m.elevation_mean`, with the value
+3766.73486328125 m. The `receipt` holds the fact id, the Ed25519 signature and
+the Space key. The first call on a cell that the Space does not hold can take
+longer, because the Space fetches the source data first.
+
+## Connect an MCP client
+
+The MCP endpoint is `https://vortx-ai-emem.hf.space/mcp` (Streamable HTTP).
+For Claude Code or Cursor, copy
+[examples/claude-code.mcp.json](https://github.com/Vortx-AI/emem/blob/main/examples/claude-code.mcp.json) or
+[examples/cursor.mcp.json](https://github.com/Vortx-AI/emem/blob/main/examples/cursor.mcp.json).
+Change the URL from `https://emem.dev/mcp` to the Space URL.
+
+Claude Desktop does not connect to a remote URL from
+`claude_desktop_config.json`, so do not copy the `url` entry in
+`examples/claude-desktop.json`. Use one of these two methods:
+
+- In Claude Desktop, open Customize > Connectors, click + Add, choose Add
+  custom connector, and enter the Space MCP URL.
+- In `claude_desktop_config.json`, run the `mcp-remote` bridge. This needs
+  Node.js.
 
 ```json
 {
   "mcpServers": {
     "emem-hf": {
-      "type": "http",
-      "url": "https://YOUR-SPACE.hf.space/mcp"
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://vortx-ai-emem.hf.space/mcp"]
     }
   }
 }
 ```
 
-(Replace `YOUR-SPACE` with the real hostname this Space is published on.)
-
-### Cursor / Cline
-
-See the paste-ready configs in the
-[examples directory](https://github.com/Vortx-AI/emem/tree/main/examples)
-of the upstream repo, and swap the `url` field to point at this Space.
-
-### curl
-
-```bash
-curl -s https://YOUR-SPACE.hf.space/health
-curl -s https://YOUR-SPACE.hf.space/v1/agent_card
-curl -s https://YOUR-SPACE.hf.space/v1/locate \
-  -H 'content-type: application/json' \
-  -d '{"q":"Mt Fuji"}'
-```
+We did not run either Claude Desktop method against the Space. A plain MCP
+`tools/list` call to the Space returned 18 tools on 7 November 2026. That is
+the short starter list. The tool `emem_tools` finds the others.
 
 ## Endpoints
 
-| path                              | purpose                                                     |
-|-----------------------------------|-------------------------------------------------------------|
-| `GET /health`                     | Liveness                                                    |
-| `GET /v1/agent_card`              | Capability advertisement for AI agents                      |
-| `GET /openapi.json`               | OpenAPI 3.1 spec                                            |
-| `GET /.well-known/emem.json`      | Responder pubkey + manifests for offline receipt verification |
-| `POST /mcp`                       | MCP JSON-RPC 2.0                                            |
-| `POST /v1/recall`                 | Recall facts at a cell × bands                              |
-| `POST /v1/locate`                 | Geocode → cell64                                            |
-| `POST /v1/find_similar`           | Embedding-space neighbour search                            |
-| `POST /v1/intent`                 | Free-text question → plan                                   |
-| `GET /v1/algorithms`              | Browse the composition-recipe registry                      |
-| `GET /v1/cells/:cell/scene.png`   | Sentinel-2 L2A 256×256 RGB thumbnail                        |
-| `GET /v1/coverage_map.svg`        | Live world map of attested cells                            |
+All of these paths returned HTTP 200 from the Space on 7 November 2026.
+`/openapi.json` lists every path.
 
-## Privacy & verification
+| Path | What it does |
+|---|---|
+| `GET /health` | Shows that the node is up, with its version, key and corpus size |
+| `GET /v1/agent_card` | Describes the node for agents, with live counts |
+| `GET /openapi.json` | Gives the OpenAPI 3.1 description of the REST surface |
+| `GET /.well-known/emem.json` | Gives the node key and the manifest digests for offline checks |
+| `POST /mcp` | Takes MCP JSON-RPC 2.0 requests |
+| `POST /v1/locate` | Changes a place name into a `cell64` |
+| `POST /v1/recall` | Reads signed facts at a cell |
+| `POST /v1/find_similar` | Finds cells with a similar stored embedding |
+| `GET /v1/algorithms` | Lists the composition algorithms |
+| `GET /v1/cells/:cell/scene.png` | Gives a Sentinel-2 true-colour picture of the cell |
+| `GET /v1/coverage_map.svg` | Draws a world map of the cells the node holds |
 
-Every read returns a signed receipt with the responder's ed25519 public key,
-the request canonicalisation hash, and the fact CIDs, verifiable offline by
-any client. The pubkey is at `/.well-known/emem.json`.
+## Verify a receipt
 
-## Source code
+A response from a read primitive, for example `recall`, carries a signed
+receipt. The receipt holds the fact ids, the node key and an Ed25519
+signature. You can check it offline with the Space key. The
+[emem-verify-receipt skill](https://github.com/Vortx-AI/emem/tree/main/plugins/emem/skills/emem-verify-receipt) has a
+small Python verifier. `/v1/locate` does not return a receipt.
 
-[github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem), Apache-2.0.
+## Source and licence
+
+The source is at [github.com/Vortx-AI/emem](https://github.com/Vortx-AI/emem),
+under Apache-2.0. The official MCP Registry entry `io.github.Vortx-AI/emem`
+points to `https://emem.dev/mcp`, not to the Space. On 7 November 2026, the
+[emem.dev reference page](https://emem.dev/reference#client-setup) also lists
+emem in ChatGPT, the Claude directory and the GitHub MCP Registry. That page has
+the install guide for each host.

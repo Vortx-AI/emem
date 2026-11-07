@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # A session checkpoint outlives its agent: run 1 parks state as one
-# signed memory file, run 2 (a different identity, a different
-# process, later) resumes from it and verifies it trusted nobody.
+# signed memory file, run 2 (a different process, later, with no key)
+# resumes from it and checks the file_cid and the receipt signature.
 #
 # Everything runs against a THROWAWAY local responder with its own
 # temp data dir, so this script touches no shared node and no real
@@ -43,18 +43,34 @@ CHECKPOINT
 RUN1_ID=$(HOME="$WORK/agent-run-1" ememdev whoami | python3 -c \
   "import sys,json; print(json.load(sys.stdin)['pubkey_short'])")
 CHECKPOINT_PATH="/memories/by_attester/${RUN1_ID}/checkpoint-survey-task.md"
-WRITE=$(HOME="$WORK/agent-run-1" ememdev write \
+# Sign the v2 digest (--base absent: nothing is at the path yet).
+# `ememdev write` in 2.4.4 signs the retired v1 digest, which the
+# responder refuses with reason v1_retired.
+ATTESTER=$(HOME="$WORK/agent-run-1" ememdev sign --verb create --base absent \
   --path "$CHECKPOINT_PATH" \
-  --kind episodic \
-  --base-url "$BASE" \
   --body-file "$WORK/checkpoint.md")
-FILE_CID=$(echo "$WRITE" | python3 -c "import sys,json; print(json.load(sys.stdin)['file_cid'])")
+FILE_CID=$(python3 - "$BASE" "$CHECKPOINT_PATH" "$WORK/checkpoint.md" "$ATTESTER" <<'PY'
+import json, sys, urllib.request
+base, path, body_file, attester = sys.argv[1:5]
+args = {"path": path, "file_text": open(body_file, encoding="utf-8").read(),
+        "kind": "episodic", **json.loads(attester)}
+call = {"jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "emem_memory_create", "arguments": args}}
+req = urllib.request.Request(f"{base}/mcp", data=json.dumps(call).encode(),
+                             headers={"content-type": "application/json"})
+result = json.load(urllib.request.urlopen(req))["result"]
+body = json.loads(result["content"][0]["text"])
+if result.get("isError") or "file_cid" not in body:
+    sys.exit(f"memory_create refused: {body}")
+print(body["file_cid"])
+PY
+)
 echo "    parked at $CHECKPOINT_PATH"
 echo "    file_cid  $FILE_CID"
 echo "    the ONE LINE run 1 leaves behind (in a report, an issue, anywhere):"
 echo "    $CHECKPOINT_PATH  cid $FILE_CID"
 
-echo "==> run 2: a DIFFERENT identity resumes, trusting nobody"
+echo "==> run 2: a different process with no key resumes and checks the bytes"
 curl -s -X POST "$BASE/mcp" -H 'content-type: application/json' -d "{
   \"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",
   \"params\":{\"name\":\"emem_memory_view\",\"arguments\":{\"path\":\"$CHECKPOINT_PATH\"}}}" \

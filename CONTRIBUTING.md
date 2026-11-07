@@ -1,4 +1,4 @@
-# Contributing to emem
+# Contribute to emem
 
 emem is a Cargo workspace. Rust 1.91, edition 2021, 19 crates, one binary
 (`emem-server`) at the centre. The agent-facing surface is a single axum
@@ -6,130 +6,174 @@ router in `crates/emem-api-rest/src/lib.rs`; everything else feeds into it.
 
 ## Where to start
 
+You need Rust 1.91 or later, `g++`, `protoc` with the protobuf
+well-known types, and `mdbook` 0.5.2. Build the docs site first: the
+server embeds `docs/book/`, so `cargo build` fails without it.
+
 ```bash
 git clone https://github.com/Vortx-AI/emem && cd emem
+mdbook build docs && rm -f docs/book/book.toml
 cargo build --workspace
 cargo run --release --bin emem-server   # 0.0.0.0:5051
 ```
 
-Hit `http://127.0.0.1:5051/v1/discover` to see the full bootstrap; that's
-the same JSON an agent gets. `crates/emem-cli/src/bin/emem-livedemo.rs`
-exercises every primitive end-to-end and dumps signed receipts under
-`var/demos/<UTC>/`.
+Open `http://127.0.0.1:5051/v1/discover` to see the bootstrap document.
+An agent gets the same JSON. `emem-livedemo` runs every primitive and
+writes the signed receipts under `var/demos/<UTC>/`. Its first write signs
+a fact with a new key, and a default node refuses it (`fact_plane_closed`).
+To see every step pass, start a test node with `EMEM_FACT_PLANE_OPEN=1`,
+as [Pick a binary](docs/developers/developing.md#pick-a-binary) shows.
+[docs/developers/developing.md](docs/developers/developing.md) has the
+setup details and the daily workflows.
 
 ## Ground rules
 
-**No stubs, no silent fallbacks.** Don't commit `todo!()`, `unimplemented!()`,
-"lands in vX" comments, hardcoded fake values, or empty handlers wired into
-the router. If a code path needs an upstream that isn't reachable, return a
-typed `ErrorCode` (`SourceFetchFailed`, `Unauthorized`, `BandNotMaterialised`)
-with a clear message. That's real semantics. If a feature is out of scope,
-delete it rather than leaving a placeholder. Empty results must distinguish
-"wrong query" from "place is empty": `recall` returns `bands_available` so
-the caller can tell.
+**No stubs, no silent fallbacks.** Do not commit `todo!()`, `unimplemented!()`,
+"lands in vX" comments, hardcoded fake values, or empty handlers in
+the router. If a code path needs an upstream that is not reachable, return a
+typed `ErrorCode` (for example `SourceFetchFailed`, `Unauthorized` or
+`CidNotFound`) with a clear message. If a feature is out of scope,
+delete it. Do not leave a placeholder. An empty result must tell
+"wrong query" from "place is empty": `recall` returns
+`bands_already_attested_at_cell` so the caller can tell.
 
 **Receipts must round-trip.** Any change to a primitive's response, signing
-preimage, or fact-CBOR layout has to keep `verify_receipt` green against
-old receipts. Run `cargo test -p emem-fact` and replay a receipt from
-`var/demos/` before opening the PR.
+preimage, or fact-CBOR layout must keep `verify_receipt` green against
+old receipts. Before you open the PR, run `cargo test -p emem-fact`.
+Then check a saved response from `var/demos/` with the offline verifier:
 
-**Open licences, open data.** Every dep stays MIT / Apache-2.0 / BSD / ISC
-(`cargo deny check licenses`). New default-build connectors must use
-no-auth open data (Copernicus, JRC, Hansen, ESA, OSM, met.no, Open-Meteo,
-Tessera, …). Keyed providers go behind an operator-registered connector,
-opt-in.
+```bash
+python3 plugins/emem/skills/emem-verify-receipt/scripts/verify.py \
+  var/demos/<UTC>/<step>.resp.json
+```
+
+It prints `VALID` and exits 0, or prints `INVALID` and exits 1. Exit 3
+means the receipt has a segment the script does not rebuild. Then use
+`POST /v1/verify_receipt`.
+
+**Open licences, open data.** Every dependency stays MIT, Apache-2.0, BSD
+or ISC. No CI job checks licences, so check a new dependency yourself.
+CI runs `cargo audit` for security advisories. New default-build
+connectors must use open data that needs no key (for example Copernicus,
+JRC, Hansen, ESA, OSM, met.no, Open-Meteo). A provider that needs a key
+goes behind an opt-in connector that the operator registers.
 
 **Docs follow the house prose convention.** Short sentences, plain words,
 no em or en dashes (use a comma, a colon, or a full stop). State what
 ships and what is open in the same paragraph; never present roadmap as
-capability. Every number in prose must trace to a registry or a
-measurement (`python3 scripts/sync_counts.py` checks the known ones), and
-every claim must be verifiable against the code as written. A withdrawn
-claim is recorded, not silently deleted; the whitepaper's section 18 is
-the pattern. A CI doc-lint for the mechanical parts is roadmap work; until
-it lands, review enforces this by hand.
+a feature. Every number in prose must trace to a registry or a
+measurement. `python3 scripts/sync_counts.py` checks the known ones.
+Every claim must agree with the code as written. Record a withdrawn
+claim; do not silently delete it. Section 18 of
+[docs/whitepaper.md](docs/whitepaper.md) shows the pattern.
+`scripts/doc_lint.py` enforces the mechanical parts in CI (dashes,
+buzzwords, links). `scripts/ste_lint.py` checks sentence length and plain
+words; run it on your changed lines.
+[docs/writing-docs.md](docs/writing-docs.md) gives the rules and both
+commands.
 
-## Adding a band
+## Add a data source
 
-1. Add the entry to `crates/emem-core/data/bands-v0.json`. Each band has
-   `dim_offset`, `dim_count`, `tempo`, `privacy_class`, `materializer`.
-2. Wire the materialiser. Add a connector module under
-   `crates/emem-fetch/src/<your_source>.rs` and register it in
-   `crates/emem-fetch/src/connectors.rs`.
-3. Map band → connector in the dispatch table in
-   `crates/emem-api-rest/src/lib.rs` (search for the existing band you're
-   modelling on, e.g. `weather.temperature_2m`).
-4. The new band auto-discovers via `/v1/bands` once the manifest CID rolls
-   forward. No router change needed.
+A new band needs a fetch module in `emem-fetch` and a materializer in
+`emem-api-rest`. [Add a connector](docs/developers/data-sources.md#add-a-connector)
+in `data-sources.md` gives all ten steps. Three of them are easy to miss:
 
-## Adding an algorithm
+1. Add the band key to `all_materializable_bands` in
+   `crates/emem-api-rest/src/lib.rs`. If the key is not there,
+   `/v1/bands`, `/v1/materializers` and `/v1/data_availability` do not show it.
+2. A dotted key, such as `copdem30m.elevation_mean`, needs no change to
+   `crates/emem-core/data/bands-v0.json`. Only a new cube slot changes that
+   file. The `dims` of all bands must then still add up to 1792.
+3. Return `Ok(None)` for a real empty result and `Err` for an upstream
+   failure. Never invent a default value.
 
-1. Append to `crates/emem-core/data/algorithms-v0.json` with a unique
-   versioned key (`my_score@1`), `inputs` (band names), `formula` (string,
-   evaluable), `output_unit`, `references`.
-2. The algorithm is now visible at `GET /v1/algorithms` and routable from
-   `/v1/locate`'s `algorithms_for_topic`.
-3. If the formula needs evaluation logic the existing engine doesn't
-   handle, extend `crates/emem-primitives/src/<…>` rather than inlining it
-   in the router.
+The `SourceConnector` trait in `crates/emem-fetch/src/lib.rs` is the
+transport layer. The HTTPS, GCS and IPLD connectors that use it are in
+`connectors.rs`. A new data source does not use it.
 
-## Adding a connector
+Test the parser offline with `cargo test -p emem-fetch <name>`. Put
+network tests in `crates/emem-fetch/tests/live_cog_fetch.rs`. They skip when
+you set `EMEM_NO_NETWORK=1`.
 
-1. Create `crates/emem-fetch/src/<source>.rs`. Implement `SourceConnector`
-   with `kind`, `fetch`, and `range_read` for COG sources.
-2. Register the source in `crates/emem-core/data/sources-v0.json`
-   (`scheme`, `endpoint`, `licence`, `attribution`).
-3. Add an integration test under `crates/emem-fetch/tests/` patterned on
-   `live_cog_fetch.rs`. Live tests skip when `EMEM_NO_NETWORK=1` is set.
+## Add an algorithm
+
+1. Append an entry to `crates/emem-core/data/algorithms-v0.json`. Each entry
+   needs `key` (unique and versioned, for example `my_score@1`), `kind`,
+   `inputs`, `formula`, `output`, `when_to_use`, `primitive` and `citation`.
+   `kind` is `solo`, `combined` or `embedding`. `output.kind` is `scalar`,
+   `classification` or `vector`. The `formula` is plain math for people.
+   The registry does not load if two keys are the same or if `inputs` is
+   empty.
+2. To let the node compute the value, add an `evaluation` expression tree.
+   Without it, the node only lists the recipe and the agent applies the
+   formula. If the tree needs a new operation, add it to `Expr` in
+   `crates/emem-core/src/algorithms.rs`.
+3. If the entry has `parameters`, give each parameter an object with the
+   same key in `learned_from`. That object needs a `basis`: `literature`,
+   `operational_default` or `fitted`. A `fitted` basis also needs
+   `estimator`, `corpus_cid` and `held_out`. The `flood_risk@2` entry is an
+   example.
+4. The algorithm shows at `GET /v1/algorithms`. To route `/v1/ask` and
+   `/v1/locate` to it, add its key to the `algorithms` list of a topic in
+   `crates/emem-core/data/topics-v0.json`.
+
+A change to a registry file moves its manifest CID. Run
+`cargo test -p emem-core` after the change.
 
 ## Tests
 
 ```bash
 cargo fmt --all
 cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-EMEM_NO_NETWORK=1 cargo test --workspace   # CI default: skips network
+EMEM_NO_NETWORK=1 cargo test --workspace --lib --bins --tests
+cargo test -p emem-fetch --test live_cog_fetch   # live network tests
 ```
 
-Live network tests run when `EMEM_NO_NETWORK` is unset; they hit real
-public COGs and STAC endpoints (Cop-DEM, Hansen, JRC GSW, Sentinel-2
-L2A) and tolerate upstream flakiness so they don't break CI.
+CI runs the tests with the network blocked and `EMEM_NO_NETWORK=1`.
+The live tests read public COGs and STAC endpoints (Copernicus DEM,
+Hansen, JRC GSW, Sentinel-2 L2A). Run them after you change a connector
+or the source registry.
+[docs/developers/developing.md](docs/developers/developing.md#run-the-tests-and-lints)
+lists the CI jobs.
 
 ## Commits and PRs
 
 - One logical change per PR.
 - Branch from `main`. Descriptive name: `feat/diff-derivative`,
   `fix/sled-prefix-scan`, `docs/agent-card-examples`.
-- Conventional prefixes welcome (`feat:`, `fix:`, `docs:`, `refactor:`,
-  `test:`, `chore:`) but not enforced.
-- Never use `--no-verify`. If a hook fails, fix the underlying issue and
-  push a new commit; don't bypass.
+- Write the commit subject in sentence case, 72 characters or fewer. The
+  body says why, and names any wire or protocol effect.
+- Conventional prefixes (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`,
+  `chore:`) are optional.
+- Never use `--no-verify`. If a hook fails, fix the cause and push a new
+  commit.
 - Never add `Co-Authored-By: Claude` (or any AI co-author trailer) to
   commit messages.
-- If the change touches a primitive, attach a fresh
-  `var/demos/<UTC>/trace.json` from `emem-livedemo` showing it green.
+- If the change touches a primitive, attach a new
+  `var/demos/<UTC>/trace.json` from `emem-livedemo` that shows it green.
 
-## Reporting bugs
+## Report a bug
 
-GitHub issues. Include:
+Open a GitHub issue. Include:
 
-- Server version (`/health` JSON: `version`, `responder_pubkey_b32`).
-- Minimal reproduction (curl command + body, or MCP `tools/call` payload).
-- Expected vs actual (paste the receipt or error envelope verbatim).
-- For receipt issues: include the full receipt JSON. We replay the
-  preimage and verify offline; short receipts speed this up.
+- The server version (`version` and `responder_pubkey_b32` in `GET /health`).
+- A short reproduction (the curl command and body, or the MCP
+  `tools/call` payload).
+- The expected and the actual result. Paste the receipt or the error
+  envelope as it came.
+- For a receipt problem, the full receipt JSON. The maintainers replay
+  the preimage and verify it offline.
 
 ## Security
 
-Vulnerability disclosure: see [SECURITY.md](SECURITY.md). Email
-`avijeet@vortx.ai` directly for sensitive issues rather than opening a
-public issue.
+For a vulnerability, read [SECURITY.md](SECURITY.md). Do not open a public
+issue. Send an email to `avijeet@vortx.ai`.
 
 ## Code of conduct
 
-By participating you agree to abide by [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
+When you take part, you agree to follow [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).
 
 ## License
 
-Apache-2.0 (see [LICENSE](LICENSE)). No CLA. By contributing you agree your
-contributions are licensed under the same terms as the rest of the repo.
+Apache-2.0 (see [LICENSE](LICENSE)). No CLA. When you contribute, you agree
+to license your contribution under the same terms as the rest of the repo.

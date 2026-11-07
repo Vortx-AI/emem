@@ -1,0 +1,217 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>22 hashes prove one fact is in a log of 3,248,898</title>
+<style>
+:root { --bg:#0d1117; --panel:#161b22; --line:#30363d; --text:#e6edf3; --muted:#8b949e;
+        --id:#79c0ff; --ok:#7ee787; --bad:#ff7b72; --sig:#d2a8ff; --tok:#ffa657; }
+* { box-sizing:border-box; margin:0; padding:0; }
+html,body { width:1080px; height:960px; background:var(--bg); overflow:hidden; }
+body { font-family: "DejaVu Sans", system-ui, sans-serif; color:var(--text); }
+.mono { font-family: "DejaVu Sans Mono", ui-monospace, monospace; }
+#steps { position:absolute; left:60px; right:60px; top:48px; display:flex; gap:12px; }
+#steps div { flex:1; height:64px; border-radius:12px; border:2px solid var(--line); color:var(--muted);
+             font-size:30px; display:flex; align-items:center; justify-content:center; gap:10px; }
+#steps div b { font-size:30px; width:42px; height:42px; border-radius:21px; border:2px solid currentColor;
+               display:inline-flex; align-items:center; justify-content:center; }
+#steps div.on { color:var(--text); border-color:var(--id); background:var(--panel); }
+#steps div.done { color:var(--id); }
+.scene { position:absolute; left:60px; right:60px; top:150px; bottom:90px; opacity:0; }
+h1 { font-size:46px; font-weight:700; line-height:1.15; margin-bottom:30px; }
+p.say { font-size:32px; line-height:1.35; color:var(--muted); margin-top:24px; }
+.card { background:var(--panel); border:2px solid var(--line); border-radius:18px; padding:26px 32px; }
+.k { font-size:30px; color:var(--muted); margin-bottom:6px; }
+.v { font-size:36px; }
+.id { color:var(--id); } .ok { color:var(--ok); } .bad { color:var(--bad); } .sig { color:var(--sig); } .tok { color:var(--tok); }
+.row { margin-bottom:20px; }
+.big { font-size:84px; font-weight:700; }
+.pill { display:inline-block; padding:6px 18px; border-radius:30px; border:2px solid currentColor; font-size:32px; font-weight:700; }
+.two { display:flex; gap:24px; } .two > .card { flex:1; min-width:0; }
+#foot { position:absolute; left:60px; right:60px; bottom:18px; font-size:30px; line-height:1.3; color:var(--muted); }
+#ladder div { font-size:30px; line-height:1.5; white-space:pre; color:var(--muted); }
+#ladder div.cur { color:var(--text); }
+.hl { background:rgba(255,123,114,0.22); color:var(--bad); }
+</style>
+<script src="log-climb-data.js"></script>
+</head>
+<body>
+<div id="steps">
+  <div data-s="1"><b>1</b>Fact</div><div data-s="2"><b>2</b>Climb</div><div data-s="3"><b>3</b>Root</div>
+  <div data-s="4"><b>4</b>Tamper</div><div data-s="5"><b>5</b>Grow</div>
+</div>
+
+<!-- 1 fact -->
+<section class="scene" data-t="0,5.2" data-step="1">
+  <h1>emem logs each signed batch as one entry. This batch holds one fact.</h1>
+  <div class="card">
+    <div class="row"><div class="k">Mount Fuji, copdem30m.elevation_mean</div><div class="v"><span class="big" id="val" style="font-size:64px"></span> m</div></div>
+    <div class="row" data-in="1.4"><div class="k">fact_cid</div><div class="v mono id" id="fcid"></div></div>
+    <div data-in="2.4"><div class="k">its batch in the append-only log</div>
+      <div class="v">entry <b class="tok" id="m1"></b> of <b id="n1"></b></div>
+      <div class="k" style="margin-top:6px" id="ebytes"></div></div>
+  </div>
+  <p class="say" data-in="3.4">An agent can check the entry without the other 3 million.</p>
+</section>
+
+<!-- 2 climb -->
+<section class="scene" data-t="5.2,21.4" data-step="2">
+  <h1 style="font-size:42px">Hash the entry up the tree. Each step joins one block of other entries.</h1>
+  <svg id="bar" width="960" height="250" viewBox="0 0 960 250"></svg>
+  <div style="display:flex; gap:30px; align-items:flex-start; margin-top:8px">
+    <div style="width:310px">
+      <div class="k">hashes used</div><div class="v"><span class="big" id="kk">0</span><span style="font-size:40px"> of 22</span></div>
+      <div class="k" style="margin-top:8px">entries covered</div><div class="v mono id" id="cov"></div>
+    </div>
+    <div id="ladder" class="mono" style="flex:1"></div>
+  </div>
+</section>
+
+<!-- 3 root -->
+<section class="scene" data-t="21.4,26.4" data-step="3">
+  <h1>The climb ends at the root that emem signed.</h1>
+  <div class="two">
+    <div class="card"><div class="k">root the agent computes</div><div class="v mono id" id="r1"></div>
+      <div class="k" style="margin-top:14px">from 1 leaf + 22 hashes</div></div>
+    <div class="card" data-in="22.4"><div class="k">signed tree head, <span id="at1"></span> UTC</div><div class="v mono id" id="r2"></div>
+      <div class="k" style="margin-top:14px">size <span id="n2"></span>, Ed25519 <span class="ok">valid</span></div></div>
+  </div>
+  <div data-in="23.6" style="margin-top:28px"><span class="pill ok">inclusion valid</span></div>
+  <p class="say" data-in="24.2">The agent checks this offline, with one leaf, 22 hashes and the public key.</p>
+</section>
+
+<!-- 4 tamper -->
+<section class="scene" data-t="26.4,31.4" data-step="4">
+  <h1>Change one character in hash 10, and the climb misses the root.</h1>
+  <div class="card">
+    <div class="row"><div class="k">hash 10 of the proof</div><div class="v mono" style="font-size:31px" id="h10"></div></div>
+    <div class="row" data-in="27.8"><div class="k">root the agent computes</div>
+      <div class="v mono"><span class="bad" id="rb"></span> <span style="color:var(--muted)">is not</span> <span class="id" id="rs"></span></div></div>
+    <div data-in="28.8"><span class="pill bad">inclusion invalid</span></div>
+  </div>
+  <p class="say" data-in="29.4">If the entry or any hash changes, the climb does not reach the signed root.</p>
+</section>
+
+<!-- 5 grow -->
+<section class="scene" data-t="31.4,38.0" data-step="5">
+  <h1>The log only grows. A second proof shows that.</h1>
+  <svg id="grow" width="960" height="150" viewBox="0 0 960 150"></svg>
+  <div class="two" style="margin-top:6px">
+    <div class="card"><div class="k">head pinned at <span id="at0"></span></div><div class="v">size <span class="mono" id="f0"></span></div></div>
+    <div class="card" data-in="32.6"><div class="k">head at <span id="at2"></span></div><div class="v">size <span class="mono" id="f1"></span></div></div>
+  </div>
+  <div data-in="33.8" style="margin-top:22px; font-size:32px"><span id="nh"></span> hashes prove that no earlier entry changed.
+    <span class="pill ok" style="margin-left:10px">consistency valid</span></div>
+  <p class="say" data-in="35.0">emem recorded the fact and did not change it between the two heads. That does not show that the elevation is true.</p>
+</section>
+
+<div id="foot">Live reads, emem.dev, 7 November 2026 (recall, log).<br>
+Checked offline with verify_log.py. Copernicus GLO-30 DEM.</div>
+
+<script>
+const L = window.LOG, DUR = 38.0, S0 = 6.0, DT = 0.62;
+const clamp = (x, a, b) => Math.max(a, Math.min(b, x));
+const ease = x => { x = clamp(x, 0, 1); return x * x * (3 - 2 * x); };
+const fmt = x => Math.round(x).toLocaleString('en-US');
+const short = (s, k) => s.slice(0, k) + '…';
+const $ = id => document.getElementById(id);
+const hm = s => s.slice(11, 19);
+$('val').textContent = L.fact.value.toFixed(2);
+$('fcid').textContent = short(L.fact.fact_cid, 26);
+$('m1').textContent = fmt(L.leaf_index);
+$('ebytes').textContent = `1 fact, ${fmt(L.entry_bytes)} bytes, signed ${L.attested_at.slice(0, 10)}`; $('n1').textContent = fmt(L.tree_size);
+$('r1').textContent = short(L.steps[21].acc, 16); $('r2').textContent = short(L.sth.root, 16);
+$('at1').textContent = hm(L.sth.signed_at); $('n2').textContent = fmt(L.tree_size);
+const o = L.bad.orig, p = L.bad.pos;
+const h10ok = short(o, 30), h10bad = `${o.slice(0, p)}<span class="hl">${L.bad.hash[p]}</span>${o.slice(p + 1, 30)}…`;
+$('rb').textContent = short(L.bad.root, 10); $('rs').textContent = short(L.sth.root, 10);
+$('at0').textContent = hm(L.cons.first_at) + ' UTC'; $('at2').textContent = hm(L.sth.signed_at) + ' UTC';
+$('f0').textContent = fmt(L.cons.first); $('f1').textContent = fmt(L.cons.second); $('nh').textContent = L.cons.hashes;
+
+// view window per step: the covered range fills about 55 % of the bar, then the whole log at the end
+const N = L.tree_size, M = L.leaf_index;
+function win(lo, hi) {
+  const w = Math.min(N, Math.max(12, (hi - lo) / 0.55)), c = (lo + hi) / 2;
+  let a = c - w / 2; a = clamp(a, 0, N - w);
+  return [a, a + w];
+}
+const views = [win(M, M + 1)].concat(L.steps.map(s => win(s.lo, s.hi)));
+function view(f) {  // f = steps done, fractional; interpolate centre and log width
+  const i = clamp(Math.floor(f), 0, views.length - 2), k = ease(f - i);
+  const [a0, b0] = views[i], [a1, b1] = views[i + 1];
+  const w = Math.exp(Math.log(b0 - a0) * (1 - k) + Math.log(b1 - a1) * k);
+  const c = (a0 + b0) / 2 * (1 - k) + (a1 + b1) / 2 * k;
+  const a = clamp(c - w / 2, 0, N - w);
+  return [a, a + w];
+}
+const X0 = 20, XW = 920;
+function bar(t) {
+  const f = clamp((t - S0) / DT, 0, 22);
+  const done = Math.floor(f), [va, vb] = view(f);
+  const X = e => X0 + (e - va) / (vb - va) * XW;
+  const r = (a, b, y, h, fill, op, stroke) => {
+    const x1 = clamp(X(a), X0 - 4, X0 + XW + 4), x2 = clamp(X(b), X0 - 4, X0 + XW + 4);
+    return x2 - x1 < 0.3 ? '' : `<rect x="${x1}" y="${y}" width="${Math.max(x2 - x1, 2)}" height="${h}" rx="4" fill="${fill}" fill-opacity="${op}" stroke="${stroke || 'none'}" stroke-width="2"/>`;
+  };
+  let g = `<rect x="${X0}" y="30" width="${XW}" height="70" rx="6" fill="#161b22" stroke="#30363d" stroke-width="2"/>`;
+  if (done > 0) { const s = L.steps[done - 1]; g += r(s.lo, s.hi, 30, 70, '#79c0ff', 0.32); }
+  if (done < 22) {  // the block being joined now
+    const s = L.steps[done], k = ease((f - done) / 0.6);
+    g += r(s.a, s.b, 30, 70, '#d2a8ff', 0.25 + 0.35 * k, '#d2a8ff');
+  }
+  { const x1 = X(M), x2 = X(M + 1), w = Math.max(x2 - x1, 5); g += `<rect x="${(x1 + x2) / 2 - w / 2}" y="22" width="${w}" height="86" rx="3" fill="#ffa657"/>`; }
+  const lx = clamp(X(M + 0.5), X0, X0 + XW);
+  g += `<line x1="${lx}" x2="${lx}" y1="8" y2="22" stroke="#ffa657" stroke-width="4"/>`;
+  g += `<text x="${X0}" y="128" fill="#8b949e" font-size="30" font-family="DejaVu Sans Mono">${fmt(va)}</text>`;
+  g += `<text x="${X0 + XW}" y="128" fill="#8b949e" font-size="30" text-anchor="end" font-family="DejaVu Sans Mono">${fmt(vb)}</text>`;
+  g += `<text x="480" y="128" fill="#8b949e" font-size="30" text-anchor="middle">bar shows ${fmt(vb - va)} entries</text>`;
+  // whole log, with the view window marked
+  g += `<rect x="${X0}" y="170" width="${XW}" height="22" rx="4" fill="#161b22" stroke="#30363d" stroke-width="2"/>`;
+  const wa = X0 + va / N * XW, wb = Math.max(X0 + vb / N * XW, wa + 3);
+  g += `<rect x="${wa}" y="164" width="${wb - wa}" height="34" rx="3" fill="none" stroke="#e6edf3" stroke-width="2"/>`;
+  g += `<rect x="${X0 + M / N * XW - 2}" y="170" width="4" height="22" fill="#ffa657"/>`;
+  g += `<text x="${X0}" y="230" fill="#8b949e" font-size="30">whole log: 0 to ${fmt(N)}</text>`;
+  g += `<text x="${X0 + XW}" y="230" fill="#ffa657" font-size="30" text-anchor="end">orange: the Fuji entry</text>`;
+  $('bar').innerHTML = g;
+  $('kk').textContent = done;
+  $('cov').textContent = fmt(done ? L.steps[done - 1].hi - L.steps[done - 1].lo : 1);
+  let rows = '<div>hash  entries side    new hash</div>';
+  for (let i = Math.max(0, done - 4); i < Math.min(22, done + 1); i++) {
+    const s = L.steps[i], size = s.b - s.a, cur = i === done || (done === 22 && i === 21);
+    const side = s.left ? 'left ' : 'right';
+    rows += `<div class="${cur ? 'cur' : ''}">${String(i + 1).padStart(2, ' ')}  <span class="sig">${fmt(size).padStart(9, ' ')}</span> ${side} → <span class="id">${i < done ? s.acc.slice(0, 8) + '…' : '…'}</span></div>`;
+  }
+  $('ladder').innerHTML = rows;
+}
+
+function seek(t) {
+  let step = 1;
+  for (const s of document.querySelectorAll('.scene')) {
+    const [a, b] = s.dataset.t.split(',').map(Number);
+    const op = Math.min(ease((t - a) / 0.45), b >= DUR ? 1 : ease((b - t) / 0.45));
+    s.style.opacity = t >= a - 0.01 && t < b + 0.01 ? op : 0;
+    s.style.transform = `translateY(${(1 - ease((t - a) / 0.45)) * 24}px)`;
+    if (t >= a) step = +s.dataset.step;
+  }
+  for (const d of document.querySelectorAll('#steps div')) {
+    const n = +d.dataset.s;
+    d.className = n === step ? 'on' : n < step ? 'done' : '';
+  }
+  for (const e of document.querySelectorAll('[data-in]')) {
+    const k = ease((t - +e.dataset.in) / 0.4);
+    e.style.opacity = k; e.style.transform = `translateY(${(1 - k) * 16}px)`;
+  }
+  bar(t);
+  $('h10').innerHTML = t >= 27.0 ? h10bad : h10ok;
+  // grow: the earlier head, then 6 entries appended at the right end (drawn wide so they show)
+  const k = ease((t - 32.6) / 0.8), X0 = 20, XW = 920, old = XW - 60;
+  let g = `<rect x="${X0}" y="20" width="${old}" height="60" rx="6" fill="#79c0ff" fill-opacity="0.3" stroke="#79c0ff" stroke-width="2"/>`;
+  g += `<text x="${X0 + old / 2}" y="60" text-anchor="middle" fill="#e6edf3" font-size="30">first ${fmt(L.cons.first)} entries: unchanged</text>`;
+  for (let i = 0; i < 6; i++) g += `<rect x="${X0 + old + 4 + i * 9.5}" y="20" width="7" height="60" rx="2" fill="#7ee787" opacity="${k}"/>`;
+  g += `<text x="${X0 + XW}" y="118" text-anchor="end" fill="#7ee787" font-size="30" opacity="${k}">+${L.cons.second - L.cons.first} new entries in 40 s</text>`;
+  g += `<text x="${X0}" y="118" fill="#8b949e" font-size="30">not to scale</text>`;
+  $('grow').innerHTML = g;
+  return { t, step };
+}
+window.film = { duration: DUR, fps: 30, ready: document.fonts.ready.then(() => true), seek: t => Promise.resolve(seek(t)) };
+seek(0);
+</script>
+</body></html>

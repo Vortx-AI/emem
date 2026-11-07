@@ -1,7 +1,18 @@
-# Semantic Kernel + emem MCP Agent
+# Semantic Kernel agent with emem over MCP
 
-A Microsoft Semantic Kernel kernel that connects to emem over MCP (Streamable HTTP)
-and answers questions about real places with signed facts from the shared memory, citing receipts any agent can re-verify.
+This example connects a Microsoft Semantic Kernel kernel to the emem MCP
+server. The model finds a place, reads a signed fact there, and checks the
+receipt of that fact.
+
+## What you need
+
+- Python 3.10 or later. We tested with Python 3.12.
+- An OpenAI API key for the model. emem reads need no key.
+
+## What you get
+
+The model runs three steps for South Mumbai and prints each one: locate,
+recall the elevation, and verify the receipt.
 
 ## Install
 
@@ -11,31 +22,70 @@ pip install semantic-kernel
 
 ## Run
 
+Run these commands from the root of the repository.
+
 ```bash
 export OPENAI_API_KEY="sk-..."
-python emem_mcp_geospatial_agent.py
+python examples/semantic-kernel/emem_mcp_geospatial_agent.py
 ```
 
-Optional:
+To use a different emem node, set `EMEM_MCP_URL`. The default is
+`https://emem.dev/mcp`.
 
-```bash
-export EMEM_MCP_URL="https://emem.dev/mcp"
-```
+## What the script does
 
-## What it does
+1. It connects to `https://emem.dev/mcp` over Streamable HTTP with
+   `MCPStreamableHttpPlugin`. The plugin loads the emem tools. You do not
+   register them by hand.
+2. It removes `emem_echo_verify` from the plugin. Semantic Kernel cannot load
+   that tool, because one parameter has two JSON Schema types
+   (`["string", "number"]`). The script does not need it.
+3. It adds the plugin to a kernel with the `gpt-4o` model and automatic
+   function calls.
+4. It asks the model to locate South Mumbai, recall its elevation
+   (`copdem30m.elevation_mean`), and verify the receipt.
 
-1. Connects to `https://emem.dev/mcp` via Streamable HTTP using
-   `MCPStreamableHttpPlugin`.
-2. Auto-discovers all emem MCP tools (locate, recall, compare, verify, etc.).
-3. Creates a Semantic Kernel kernel with a geospatial verification system message.
-4. Resolves South Mumbai to its canonical cell64 address, recalls elevation,
-   then verifies the returned `fact_cid` receipt.
-5. Shows each step: locate, recall, verify.
+## Test status
+
+On 7 November 2026 we installed `semantic-kernel` 1.47.0 (with mcp 1.30.0).
+The script loaded the emem tools and stopped at the OpenAI call, because we
+used a test key. We did not run the model part. Without step 2, the script
+stopped at `kernel.add_plugin` with a pydantic `ValidationError`.
+
+We also made the emem calls that the model needs, on the same day:
+
+| call | result on 7 November 2026 |
+|---|---|
+| `emem_locate` with `South Mumbai` | `cell64` `defi.zb4d7.zb8ec.zf21e`, `place_label` "South Mumbai (precinct of the city of Mumbai)" |
+| `emem_recall` on that cell, band `copdem30m.elevation_mean` | `facts[0].value` is 6.56 m |
+| `POST /v1/verify_receipt` with that receipt | `signature_valid: true`, `merkle_proof_valid: true` |
+| `emem_recall` with the place name | tool error `no_geocoder_match`: the name is ambiguous. Over REST it is HTTP 400 with `code` `no_geocoder_match` and `details.code` `ambiguous_place` |
+
+If the model sends the place name to `emem_recall`, emem refuses to guess.
+The model must use the cell from `emem_locate`. The prompt tells the model to
+do this.
+
+`emem_verify_receipt` is the responder checking its own signature. It is not
+an independent check. For an independent check, verify the receipt offline.
+See [Verify the receipt](../../docs/quickstart.md#verify-the-receipt).
+
+## Known issue
+
+On 7 November 2026 this script stops in `kernel.add_plugin` with
+semantic-kernel 1.47.0. Two `/mcp` tools give a parameter a list of types:
+`emem_echo_verify.claimed_value` is `["string", "number"]`, and
+`emem_intent` has two more. Semantic Kernel accepts only one type for each
+parameter, so the plugin does not load. The other framework examples load
+the same tools.
 
 ## Notes
 
-- No API key needed for emem (reads are anonymous).
-- Any Semantic Kernel-compatible model service works, swap `OpenAIChatCompletion`
-  for Azure OpenAI, Anthropic Claude, or another provider.
-- emem tools are auto-discovered via `MCPStreamableHttpPlugin`, no manual tool
-  registration needed.
+- Any Semantic Kernel chat service can drive the model. Change
+  `OpenAIChatCompletion` to Azure OpenAI or to the service for another
+  provider.
+- `/mcp` lists 18 core tools. `https://emem.dev/mcp/full` lists all tools in
+  pages. On 7 November 2026 it had 116 tools in 9 pages, and 8 pages earlier
+  that day. The server cuts a page at about 45,000 bytes, so the page count
+  and the tools on each page change when the server changes. The plugin loaded
+  only the first page (12 tools with 9 pages, 13 with 8). That page did not
+  have `emem_recall` or `emem_verify_receipt`. Keep `/mcp` for this script.

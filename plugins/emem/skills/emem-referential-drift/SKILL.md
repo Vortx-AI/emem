@@ -1,153 +1,212 @@
 ---
 name: emem-referential-drift
-description: Stops two agents, or one agent across two sessions, from reporting different numbers for the same reading. Pins a value to a citation token another party resolves to byte-identical signed bytes, grades a value about to be said against what was signed, asks why a number moved when the words held, and finds where the corpus disagrees with itself. Use when a figure is carried between contexts, when two sources report different values for one place, when a number changed and nobody can say what changed, or before publishing a number the agent did not read from a token in this turn.
+description: Stops two agents, or one agent in two sessions, from reporting different numbers for the same reading. Pins a value to a citation token that another party resolves to the same signed bytes. Grades a value that you are about to say against the signed value. Asks why a number moved when the words did not. Finds where the corpus disagrees with itself. Use it when a figure moves between contexts. Use it when two sources give different values for one place. Use it when a number changed and nobody can say why. Use it before you publish a number that you did not read from a token in this turn.
 ---
 
 # emem-referential-drift
 
-> **Network use.** The commands in this skill send and receive JSON (and, where a step says so, an image or a raster file) to `https://emem.dev` only, the service the plugin's MCP server connects to. Nothing they download is executed. This skill ships no scripts. Its commands read no environment variable, key or credential, and the only local files they read are ones an earlier step saved from `https://emem.dev`.
+| | |
+|---|---|
+| Use it when | A number moves between agents, sessions or documents, and it must stay the signed number. |
+| You need | A cell64, or an `emem:fact:` token. No key. |
+| You get | A citation token, a match grade (`matches`, `drift`), a per-term change ledger, and a list of signed disagreements. |
+| Calls | `emem_recall`, `emem_memory_token_resolve`, `emem_echo_verify`, `emem_change_attribution`, `emem_memory_contradictions`. Each has a REST route. |
 
-Referential drift has two sides. **Words move**: "the north field",
-"plot 14" and a cell64 turn out to be one object, or one phrase ends up
-meaning two. **Values move**: a number is copied, rounded, paraphrased
-and re-summarised until it arrives somewhere as a fact nobody can trace.
+> **Network use.** The commands in this skill send JSON to `https://emem.dev` and receive JSON from it. Where a step says so, they also receive an image or a raster file. `https://emem.dev` is the service that the MCP server of the plugin connects to. The commands do not execute what they download. This skill ships no scripts. The commands read no environment variable, key or credential. They read only local files that an earlier step saved from `https://emem.dev`.
+
+Referential drift has two sides. On the words side, "the north field",
+"plot 14" and a cell64 are one object, or one phrase means two objects.
+On the values side, agents copy, round and summarise a number until
+nobody can trace it.
 
 The words side is [`emem-shared-identity`](../emem-shared-identity/SKILL.md).
 This skill is the values side.
 
-Each call below is a tool of the plugin's MCP server. Without MCP, send
-the same JSON body to the REST route the text names.
-`emem_change_attribution` is outside the short tool list the server
+Each call below is a tool of the MCP server of the plugin. Without MCP,
+send the same JSON body to the REST route that the step names.
+`emem_change_attribution` is not in the short tool list that the server
 shows. The server runs it by name through `tools/call`. If your host
 calls only listed tools, use the REST route.
 
-## Carry a token to the number, not the number
+## Step 1: get the token for the reading
 
-Every fact a recall returns already carries its citation in
-`memory_token`. Take the one for the reading you mean; `current_by_band`
-names the latest. Call `emem_recall` (REST
-`POST https://emem.dev/v1/recall`) with:
+Each fact that a recall returns has its citation in `memory_token`.
+`current_by_band` names the fact cid of the latest reading for each band.
+Call `emem_recall` with this body:
 
 ```json
 {"cell": "defi.zb493.zezo.zcb35", "bands": ["weather.temperature_2m"]}
 ```
 
-Save the result's JSON text as `recall.json`, then pick the token:
+Without MCP, save the result and pick the token of the current reading:
 
 ```sh
+curl -s -X POST https://emem.dev/v1/recall -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.zezo.zcb35","bands":["weather.temperature_2m"]}' -o recall.json
 jq -r '.current_by_band["weather.temperature_2m"] as $c
        | .facts[] | select(.fact_cid == $c) | .memory_token' recall.json
 ```
 
-`facts[]` is ordered oldest first, so `.facts[0]` is the oldest reading,
-not the current one. If you hold a cell and a fact cid from somewhere
-else, `POST /v1/memory_token {"cell":..,"fact_cid":..,"band":..}` builds
-the same token (field `memory_token`) and adds the band's provenance
-block.
+`facts[]` is in order from oldest to newest. Thus `.facts[0]` is the
+oldest reading, not the current one. On 7 November 2026 at 02:05 UTC
+this cell held 13 temperature facts, from 23 July to 7 November 2026.
+The current token changes each time a newer reading lands.
 
-The token is `emem:fact:<cell64>:<fact_cid>`. Any agent resolves it to
-the byte-identical signed object. Call `emem_memory_token_resolve`
-(REST `POST https://emem.dev/v1/memory_token/resolve`) with:
+If you have a cell and a fact cid from a different source, build the
+same token with `POST https://emem.dev/v1/memory_token`. Send
+`{"cell": ..., "fact_cid": ..., "band": ...}` and read `memory_token`.
+The result also has the provenance block of the band.
 
-```json
-{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}
+## Step 2: resolve the token, quote the signed string
+
+The token is `emem:fact:<cell64>:<fact_cid>`. Each agent that resolves
+it gets the same signed object. Call `emem_memory_token_resolve`, or:
+
+```sh
+curl -s -X POST https://emem.dev/v1/memory_token/resolve -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq"}' \
+  | jq -c '{value_verbatim, unit, band, kind}'
 ```
 
-Read `value_verbatim`, `unit`, `band` and `kind` in the result.
+On 7 November 2026 this returned
+`{"value_verbatim":"28.0","unit":"degC","band":"weather.temperature_2m","kind":"primary"}`.
+A signed fact does not change, so this token gives the same answer on
+each day.
 
-Recorded on 2026-09-28: `{"value_verbatim":"28.0","unit":"degC","band":"weather.temperature_2m","kind":"primary"}`.
-Quote `value_verbatim`, the exact decimal string that was signed;
-re-typing the JSON number is where precision gets lost.
-`POST /v1/memory_token/resolve_many` resolves a list in one call.
+Quote `value_verbatim`. It is the exact decimal string that the responder signed.
+If you type the JSON number again, you can lose precision.
 
-## Grade yourself before you speak
+To resolve many tokens in one call, send `{"tokens": [...]}` to
+`POST https://emem.dev/v1/memory_token/resolve_many`. The limit is
+256 tokens (`max_tokens`). Each entry of `items[]` has `ok` and
+`resolution`. The value is at `items[].resolution.value_verbatim`.
 
-`POST /v1/echo_verify` (MCP `emem_echo_verify`) compares the value you
-are about to emit with the fact your token names. Call it with:
+## Step 3: grade the number before you say it
 
-```json
-{"token": "emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq", "claimed_value": 0.74}
+`emem_echo_verify` (REST `POST https://emem.dev/v1/echo_verify`)
+compares the value that you are about to write with the fact that your
+token names:
+
+```sh
+curl -s -X POST https://emem.dev/v1/echo_verify -H 'content-type: application/json' \
+  -d '{"token":"emem:fact:defi.zb493.zezo.zcb35:nflpddk7zsncywguwjzk5koksseqfyx4jnngkuryrnd4aykqlpfq","claimed_value":28.0}' \
+  | jq -c '{matches, drift}'
 ```
 
-Read `matches` and `drift` in the result.
+The check compares the strings first, then the numbers. Results on
+7 November 2026:
 
-Recorded on 2026-09-28: `claimed_value` 28.0 gave `matches: true`;
-0.74 gave `matches: false, drift: "wrong"`.
+| Signed value | `claimed_value` | `matches` | `drift` |
+|---|---|---|---|
+| `28.0` | `28.0` | `true` | `null` |
+| `28.0` | `28` | `true` | `null` |
+| `28.0` | `"28"` with `"strict": true` | `false` | `reformatted` |
+| `23.9` | `24` | `false` | `rounded` |
+| `28.0` | `0.74` | `false` | `wrong` |
 
-This is the cheapest check here and the one a language model needs
-most, because the failure it catches is one you cannot feel: you
-paraphrased a number three turns ago and have carried the paraphrase
-since. Run it on any figure you did not read in this turn from a
+The `23.9` row uses the token
+`emem:fact:defi.zb493.zezo.zcb35:ofo334twyt6ss3kco6bwljgwy3qiwzqi4grzhog4kwgcpydb6frq`.
+The other rows use the `28.0` token above.
+
+`rounded` means that you lost precision. `wrong` means that you have a
+different number. Use `strict` when the digits themselves matter, for
+example in a compliance report. The receipt in the result signs the
+resolution of the token. It does not sign your claim.
+
+This is the cheapest check in this skill. It finds a failure that you
+cannot see yourself: a number that you paraphrased some turns before.
+Run it on each figure that you did not read in this turn from a
 resolved token.
 
-## When the number moved and the words did not
+## Step 4: ask why a number moved
 
-`POST /v1/change_attribution` (MCP `emem_change_attribution`) answers
-"why is this readout different from last year's" as a per-term
-**evidence ledger**:
+Use `emem_change_attribution` (REST
+`POST https://emem.dev/v1/change_attribution`) when the words held and
+the readout changed between visits:
 
-- `terms.env`: label-free index pairs (NDVI, NBR, NDWI) with raw deltas
-  and both fact cids.
-- `terms.sensor`: what each visit was observed through, scene id per
-  band, and whether the path changed between visits.
-- `observed`: the year-over-year embedding change.
-
-Call it with the cell, and read `observed` and `terms`:
-
-```json
-{"cell": "defi.zb493.zezo.zcb35"}
+```sh
+curl -s -X POST https://emem.dev/v1/change_attribution -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.zezo.zcb35"}' \
+  | jq -c '{observed, split, terms: (.terms | keys)}'
 ```
 
-Expect `compute_timeout` on a cold cell: it materialises both visits
-across several bands, which can pass the 40 s transport budget (it did
-on 2026-09-28). Retrying the same call at once does not help. Recall the
-cell's index bands first, then ask again once their background fetch has
-landed. This tool does not take an MCP `task` param: only `emem_eudr_dds`
-and `emem_hunt` run as tasks.
+The result is a ledger of evidence for each term. Each term cites its
+fact cids:
 
-Two limits, both load-bearing:
+| Term | What it holds |
+|---|---|
+| `terms.env` | Index pairs (NDVI, NBR, NDWI) from Sentinel-2, with raw deltas. |
+| `terms.sensor` | The observation path of each visit, per band, and if that path changed. |
+| `terms.noise` | The scene classification (`s2.scl`) at each visit, and if the class changed. |
+| `terms.encoder` | If the embedding recipe changed between the two vintages. |
+| `terms.geo` | Not estimated. This build has no registration-residual surface. |
+| `observed` | The change in the multi-year embedding, where the store holds a vector. |
 
-- **There is no numeric split.** The ledger is evidence per term, not
-  shares of the change. Do not report "60% environmental".
-- **`observed` needs a retired band.** The embedding encoders are
-  withdrawn on emem.dev, so `observed` exists only where a vector was
-  stored. `terms.env` comes from Sentinel-2 indices and is unaffected;
-  lean on it.
+On 7 November 2026 this call returned all six keys for this cell, with
+`split: null` and `n_env_evidence_bands: 3`.
 
-## Where the corpus disagrees with itself
+Two limits apply:
 
-`POST /v1/memory_contradictions` (MCP `emem_memory_contradictions`)
-surfaces two or more independent attesters who signed **different
-values for the same place, band and time**, with a 0 to 1 severity.
-Call it with:
+- The result has no numeric split. `split` is `null`, and
+  `attribution_note` says that the split is roadmap work. Do not report
+  a share such as "60% environmental".
+- `observed` needs a stored embedding. emem.dev no longer computes the
+  embedding band, so `observed` is present only where the store already
+  holds a vector. `terms.env` comes from Sentinel-2 indices and does not need
+  the embedding. Use it first.
 
-```json
-{"cell": "defi.zb493.zezo.zcb35", "min_severity": 0.2, "limit": 20}
+On a cold cell the call can return `compute_timeout`, because it fetches
+several bands for two visits. This occurred on 28 September 2026. An
+immediate retry does not help. Recall the index bands of the cell first,
+wait for the background fetch, then call again. This tool does not
+accept the MCP `task` parameter. Only `emem_eudr_dds` and `emem_hunt`
+run as tasks.
+
+## Step 5: find where the corpus disagrees
+
+`emem_memory_contradictions` (REST
+`POST https://emem.dev/v1/memory_contradictions`) finds two or more
+signed values that disagree for the same place, band and time:
+
+```sh
+curl -s -X POST https://emem.dev/v1/memory_contradictions -H 'content-type: application/json' \
+  -d '{"cell":"defi.zb493.zezo.zcb35","min_severity":0.2,"limit":20}' \
+  | jq -c '{found: (.contradictions | length), corpus_scanned, scan_truncated}'
 ```
 
-Read the number of entries in `contradictions`, `corpus_scanned` and
-`scan_truncated`.
+On 7 November 2026 this returned 0 contradictions, with
+`corpus_scanned: 6` and `scan_truncated: false`.
 
-Every field is optional: `cell_prefix` scopes to a region, `band` to one
-measurement, `window_unix_s` to a period. Read `scan_truncated` before
-you report "none found".
+All fields are optional. `cell_prefix` limits the scan to a region.
+`band` limits it to one measurement. `window_unix_s` limits it to a
+period. Without a scope, the scan stops at a cap. On 7 November 2026 a
+call with only `{"limit": 3}` scanned 44702 facts and returned
+`scan_truncated: true`. Read `scan_truncated` before you report "none
+found".
 
-A contradiction is not an error to hide. Report both signatures and who
-signed them rather than picking a winner or averaging; a mean of two
-disagreeing signatures is signed by neither.
+Each entry has a `severity` from 0 to 1 and a `disagreement_scope`:
 
-## When you need to prove the ledger itself
+| `disagreement_scope` | Meaning |
+|---|---|
+| `multi_attester` | Two or more different keys signed different values. |
+| `same_attester_provider_substitution` | One key signed values from two different upstream sources. This is one witness that changed instruments, not two witnesses. |
 
-If the question becomes "could this responder have shown someone else a
-different history", use the transparency log:
+Do not hide a contradiction. Report each signed value and its
+`attester_pubkey_b32`. Do not choose a winner, and do not average. No
+key signed the mean of two values that disagree.
+
+## When you must prove the log itself
+
+Sometimes the question is: "Could this responder show a different
+history to someone else?" For that question, use
 [`emem-transparency-log`](../emem-transparency-log/SKILL.md).
 
-## Pitfalls
+## Common mistakes
 
-- **Quoting a number without its token.** Once the number leaves with no
-  handle, nothing downstream can detect drift.
-- **Resolving once and paraphrasing after.** The paraphrase is the
-  drift. Re-resolve, or quote `value_verbatim`.
-- **Taking `facts[0]` as current.** It is the oldest reading.
-- **Reading a split out of change_attribution.** It returns evidence per
-  term, not shares.
+| Mistake | Result | Do this |
+|---|---|---|
+| You quote a number without its token. | Nobody downstream can find drift. | Put the `emem:fact:` token next to the number. |
+| You resolve once, then paraphrase. | The paraphrase is the drift. | Resolve again, or quote `value_verbatim`. |
+| You take `facts[0]` as the current value. | You report the oldest reading. | Use `current_by_band`. |
+| You read a split out of change attribution. | You report shares that no key signed. | Report the evidence for each term. |
+| You read `same_attester_provider_substitution` as two witnesses. | You count one source twice. | Read `disagreement_scope` first. |

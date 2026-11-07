@@ -1,0 +1,5 @@
+# Saved responses live in src-packs/; run `python3 docs/media/src_data.py unpack` to restore them here.
+stills/src/data/
+films/src/data/
+diagrams/src/data/
+__pycache__/

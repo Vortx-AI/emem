@@ -1,5 +1,5 @@
 {
-  "_doc": "Save this as `.cursor/mcp.json` at your project root, OR open Cursor → Settings → MCP and add a Streamable-HTTP MCP server pointing at https://emem.dev/mcp (HTTPS-only on the hosted instance). Cursor 0.42+ supports the Streamable-HTTP MCP transport directly; older versions need mcp-remote.",
+  "_doc": "Save this file as .cursor/mcp.json at your project root, or as ~/.cursor/mcp.json for all projects. You can also open Cursor Settings > MCP and add a server with the URL https://emem.dev/mcp. The hosted server uses HTTPS and the Streamable HTTP transport. If your Cursor version cannot use a server URL, run the mcp-remote bridge from npm instead.",
   "mcpServers": {
     "emem": {
       "url": "https://emem.dev/mcp"

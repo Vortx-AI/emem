@@ -15,21 +15,20 @@ before its data was read, every input is a signed emem token, and every method i
 Forest Change, an independent Landsat product.
 
 The first win, the lab's seasonal NDVI rule under F1, did not replicate, and F1 itself misled: it rewarded the
-registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. Under the Matthews correlation
-(MCC), registered in advance from the fifth experiment on, two rules beat the registry rule in all four experiments,
-on four disjoint sets of 19, 7, 10 and 8 forests: the lab's seasonal NBR rule (MCC 0.381, 0.457, 0.262 and 0.262,
-against 0.295, 0.145, 0.098 and 0.013) and the forest desk's held NDVI drop (0.356, 0.284, 0.202 and 0.301). A rule
-found by a search and then fixed, `lab:seasonal_canopy_loss@1`, beat it on the 18 forests it had never seen. The
-seasonal NBR rule flags 1.2 to 4.6% of stable forest; the registry rule flags 46 to 62%. In managed forests a
-registered hypothesis held: the sub-pixel rules after a cloud screen scored best of all (MCC 0.389 for the
-10th-percentile rule).
+registry's `deforestation_alert_ndvi_drop@1` for flagging up to 74% of stable forest. From the fourth experiment on, the
+lab registered the Matthews correlation (MCC) in advance. Two rules beat the registry rule in each of the first four MCC
+experiments, on four disjoint sets of 19, 7, 10 and 8 forests. The lab's seasonal NBR rule scored MCC 0.381, 0.457,
+0.262 and 0.262, against 0.295, 0.145, 0.098 and 0.013. The forest desk's held NDVI drop scored 0.356, 0.284, 0.202 and
+0.301. In the memory experiment that came next, on six forests (section 5.13), neither beat it. A rule found by a search
+and then fixed, `lab:seasonal_canopy_loss@1`, beat it in its next two tests, on 18 forests it had never seen. The
+seasonal NBR rule flags 1.2 to 4.6% of stable forest; the registry rule flags 46 to 62%. In managed forests a registered
+hypothesis held: the sub-pixel rules after a cloud screen scored best of all (MCC 0.389 for the 10th-percentile rule).
 
 Detectors built on each cell's own memory came next. Each keeps a seasonal normal per band over five years, applies a
-matched filter across bands and sensors, and calibrates its alarm on the cell's remembered noise. Under Hansen in
-2022 and 2023 the first memory detectors scored MCC 0.25 to 0.30 against 0.06. The version with Landsat 8 and 9 in the
+matched filter across bands and sensors, and calibrates its alarm on the cell's remembered noise. Under Hansen in 2022
+and 2023 the three best memory detectors scored MCC 0.25 to 0.30 against 0.06. The version with Landsat 8 and 9 in the
 same optical memory scored 0.42 against 0.06 on nine forests that had loss before the window. It beat the registry rule
-with forests as the resampled unit (+0.03 to +0.69); against the same detector without Landsat, the interval spans
-zero.
+with forests as the resampled unit (+0.03 to +0.69); against the same detector without Landsat, the interval spans zero.
 
 The record also shows how such results mislead. One experiment's MCC of 0.93 was a single clearing holding 56 of its
 59 loss cells, and intervals that resampled cells made it look certain; resampled by forest, the same lead runs from
@@ -45,15 +44,17 @@ are replicated:
 The later memory detectors pool higher but disagree too much across forests to be called better. A second reference,
 JRC TMF, marked too few of the cells as lost to judge any method.
 
-The record also bounds these rules. Their wins are pooled: site by site, each beats the registry rule at 38% to 80%
-of the sites with both loss and stable forest, depending on the rule and the site set. They find 91% of the 400 m cells where half the forest or more was cleared, as the
-registry rule does, but only 20% of those where 5 to 10% was. Combining them does not help, because they miss the
-same small clearings. The cloud screen helped detectors that compare single passes or read percentiles in 7 of 12
-tests and never hurt them, and never helped the rule that waits for a drop to hold. Sub-pixel rules won once and
-failed to beat the registry rule twice. Read at 200 m cells instead of 400 m, scored on the same Hansen pixels, every
-detector found more of the lost forest with no more false alarms, and the 10th-percentile rule gained with an interval
-clear of zero; on forests with small clearings, the seasonal NBR rule went from finding none of the loss to pixel MCC
-0.343.
+The record also bounds these rules. Their wins come from pooled scores. Take only the sites with both loss and stable
+forest. Two rules have site counts: the seasonal NBR rule and the held NDVI drop. Site by site, each beats the registry
+rule at 44% to 80% of them (sections 5.7 and 5.9). Where clearing took half the cell or more, they find 91% of the 400 m
+cells, as the registry rule does. Where clearing took 5 to 10%, they find only 20%. A combination of them does not help,
+because they miss the same small clearings. The cloud screen helped detectors that compare single passes or read
+percentiles in 7 of 12 tests and never hurt them. It never helped the rule that waits for a drop to hold. Sub-pixel
+rules beat the registry rule in two experiments (sections 5.8 and 5.12) and failed to beat it in two (sections 5.5 and
+5.6). The cell-size test read 200 m cells instead of 400 m and scored both on the same Hansen pixels. At 200 m every
+detector found more of the lost forest, and the share of stable forest flagged barely moved. The 10th-percentile rule
+gained with an interval clear of zero. On forests with small clearings, the seasonal NBR rule went from finding none of
+the loss to pixel MCC 0.343.
 
 ## 1. Question
 
@@ -72,8 +73,9 @@ Neither entry states how well it does. We measure that, and test whether other r
 **Series.** For each site, a grid of 12 x 12 square cells over a box 4.8 km a side (each cell about 0.16 km²), and
 one signed `field_series` response per index (NDVI and NBR) over 1 January 2023 to 28 October 2026, from
 Sentinel-2 L2A scenes spread evenly in time. The lab asked for 96 scenes; the server's budget of 12,000 cell-scenes
-per request caps 144 cells at 83, and in the two MCC experiments each site kept 63 to 83 clear passes. Each cell's row per pass gives its median and its 10th and 90th
-percentiles over pixels the scene classification left clear. Passes `field_series` marks suspect are left out.
+per request caps 144 cells at 83. In the first two MCC experiments (sections 5.5 and 5.6), each site kept 63 to 83
+clear passes. Each cell's row per pass gives its median and its 10th and 90th percentiles over pixels the scene
+classification left clear. The lab leaves out passes that `field_series` marks suspect.
 
 **Reference.** Hansen Global Forest Change v1.13 loss year and 2000 tree cover (Landsat, 30 m), read for the same box
 through `band_raster` (`forest_raster@1`), and decoded from emem's canonical grid encoding.
@@ -84,6 +86,17 @@ is LOSS when 5% or more of its pixels lost cover in 2024 or 2025, and STABLE whe
 
 **Scoring window.** A method flags a cell when it sees loss dated 1 January 2024 to 31 March 2026; the reference is
 annual, so a loss seen early in 2026 can be 2025's.
+
+**Later changes.** The later experiments change some of this setup, and each section states its change:
+
+| section | change |
+|---|---|
+| 5.10 | 200 m cells nested in 400 m cells, scored over Hansen pixels |
+| 5.11 | each forest read twice, once with Sen2Cor's snow class rejected |
+| 5.13 | Sentinel-1 VH and NDMI added, with up to five years of each cell's past |
+| 5.14 | loss in 2022 and 2023, flags dated 1 January 2022 to 31 March 2024, also scored against JRC TMF |
+| 5.15 | Landsat 8 and 9 added to the optical memory |
+| 5.19, 5.20 | a method chosen per forest from 2022 and 2023, then scored on 2024 and 2025 |
 
 ## 3. Methods under test
 
@@ -112,14 +125,19 @@ starting level 0.3 or 0.4; post window 30 or 45 days) and scores them by leave-o
 site is scored by the variant with the best score on the other sites, so every scored cell comes from a site its
 rule never saw.
 
+**Memory detectors.** From section 5.13 on, the lab also tests detectors that compare each pass with the cell's own
+remembered past, in five versions (`lab:memory_optical@1` to `lab:memory_hls_emp@5`). Sections 5.13, 5.14, 5.15 and 5.20
+describe them, and section 5.21 gives the status of each.
+
 ## 4. Protocol
 
 Each experiment's plan was published as a signed note before any data was read, with the question, the reference,
 the labels, every method's source hash and the deciding score. A method beats the registry baseline
 `deforestation_alert_ndvi_drop@1` when the 95% interval of its score minus the baseline's, from a paired bootstrap of
-2,000 resamples of cells with a fixed seed, lies wholly above zero. The first three experiments registered F1 as the
-deciding score; the scaled experiment and every one since registered the Matthews correlation (MCC), for the reason in
-section 6.1.
+2,000 resamples with a fixed seed, lies wholly above zero. The resampled unit is the cell, except in section 5.10
+(400 m blocks) and in sections 5.15, 5.18, 5.19 and 5.20 (forests). Section 7 says why that matters. The first three
+experiments registered F1 as the deciding score. The scaled experiment and every one since registered the Matthews
+correlation (MCC), for the reason in section 6.1.
 
 A method that wins is proposed and waits. It is **replicated** when a later experiment on sites that no earlier
 experiment scored also finds it better, and **not replicated** when any later experiment does not. A rerun on sites
@@ -383,6 +401,10 @@ effect on the desk's held drop (-0.062 to +0.011).
 The three MCC experiments cover 36 scored forests on three disjoint site sets, and all their inputs are cached, so
 the questions below are answered from signed data without reading anything new. Every recomputation first reproduced
 the published pooled scores and intervals exactly. None was registered, so none decides anything.
+
+The picture reads the two rules from the lab's three signed result notes. It was drawn on 7 November 2026.
+
+<p align="center"><img src="../media/stills/canopy-rules.webp" width="420" alt="Two canopy-loss rules in the three MCC experiments, from three signed result notes of key mujzmxes. Section 5.5, 19 scored forests: the registry rule deforestation_alert_ndvi_drop@1 finds 85% of lost forest and flags 53% of stable forest, MCC 0.295; the seasonal rule seasonal_loss_nbr@1 finds 25% and flags 2%, MCC 0.381. Section 5.6, 7 forests: registry 71% and 57%, MCC 0.145; seasonal 35% and 1%, MCC 0.457. Section 5.8, 10 forests: registry 74% and 62%, MCC 0.098; seasonal 23% and 5%, MCC 0.262. All three note signatures are valid when checked offline."></p>
 
 **Detection depends on how much of the cell was cleared.** Over the 960 loss cells:
 
@@ -951,8 +973,10 @@ cell's median, which every rule except the two sub-pixel ones reads. That is why
 rules, which wait for the median to fall, while the single-difference registry rule kept recall by alarming often.
 The sub-pixel readings (the 10th percentile, the share of green pixels) were the program's answer to this. Neither
 beat the baseline at scale or on the seven fresh forests, and on those the 10th-percentile rule scored below zero.
-Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area; the next step is a finer
-cell or the raster itself (section 7).
+They won later, on the ten forests of section 5.8 and in managed forests (section 5.12), but not on clearing frontiers.
+Reading a 400 m cell's percentiles is not enough to see a clearing a twentieth of its area. Section 5.10 tested a
+finer cell. At 200 m every detector found more of the lost pixels. The 10th-percentile rule gained with an interval
+clear of zero. No detector in this paper reads the raster itself.
 
 ### 6.3 What the first win was
 
@@ -999,14 +1023,17 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 ### 6.6 What an agent should do with this
 
 - To watch many tropical forests and act only on what is likely real, use `lab:seasonal_loss_nbr@1` or
-  `lab:seasonal_canopy_loss@1`: over five disjoint sets of forests they beat the registry rule by about 0.17 MCC,
-  though the strict status rule reads them not replicated after one tie (section 5.21). Read a silence as "no large
-  loss seen", not as "no loss": they find nine in ten cells where half the forest went, and one in five where a
-  twentieth did.
+  `lab:seasonal_canopy_loss@1`: pooled over eight and six disjoint sets of forests, they beat the registry rule by
+  +0.12 and +0.15 MCC (section 5.21). The strict status rule reads them not replicated after one tie (section 5.13).
+  Read a silence as "no large loss seen", not as "no loss". The three quiet rules include seasonal NBR. They find
+  nine in ten cells where half the forest went. They find one in five where clearing took 5 to 10% (section 5.9).
 - Where harvests take part of a cell, use `lab:subcell_loss_p10@1+screen` (section 5.12), and not on clearing
   frontiers.
 - In snowy boreal forest, do not trust any of them (section 5.11).
-- `lab:memory_mv_fusion@2` won the one experiment it has entered; wait for its next.
+- `lab:memory_optical@1` is replicated and forest-dependent, by +0.21 MCC (section 5.21). It is the one method above
+  the registry rule in every climate class it ran in (section 5.18, post hoc).
+- The later memory detectors pool higher, but no test shows them better, because their forests disagree (I² 96 to 99%,
+  section 5.21). `lab:memory_hls_emp@4` won the one experiment it has entered (section 5.15); wait for its next.
 - To find every clearing at one site, the registry's `deforestation_alert_ndvi_drop@1` finds more of it, and most of
   what it flags is not loss; check each flag against a second source.
 - Do not use a rule whose status is mixed on the strength of its best result.
@@ -1015,10 +1042,12 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 
 ## 7. Limitations
 
-- Cells are 400 m and the loss label needs 5% of a cell; smaller clearings are outside what was scored.
+- Cells are 400 m in every experiment except the cell-size test (section 5.10). The loss label needs 5% of a cell,
+  so the scores leave out smaller clearings.
 - Hansen is annual and Landsat-based; detection dates are compared with a year, not a day.
 - Site sets were chosen by hand for known activity; pooled scores weight sites by their labelled cells.
-- Two of 21 sites failed to load in the sub-cell experiment and are reported as unscored, not dropped silently.
+- Two sites, Merauke and Menabe, failed to load in the sub-cell experiment and again in the scaled one. The report
+  lists them as unscored and does not drop them silently.
 - The rules were written or parameterised by people; the search explored settings, not new rule families.
 - Pooling weights each site by its labelled cells, so a site with many loss cells (Bosawas, 135) moves the pooled score
   more than a site with five. Section 5.7 reports per site for that reason.
@@ -1032,11 +1061,16 @@ imagery, with the accuracy and area estimates that good practice prescribes (Olo
 - Snow is not screened by default; rejecting it cuts false alarms in snow but adds no skill (section 5.11).
 - Heavy reads fail: the fusion experiment lost four of ten forests to server timeouts and upstream errors, which cost
   it power.
-- The program's status rule turns a single tie into not replicated (section 5.21); its verdicts are kept as
-  registered, and a meta-analysis is reported beside them.
-- The status rule was tightened after the third replication (section 5.13). The change only demotes.
+- The strict status rule turned a single tie into not replicated. Since 29 October a random-effects meta-analysis
+  decides status (rule v2, section 5.21), and the strict verdicts appear beside it. The lab adopted rule v2 after
+  it saw the experiments that the rule judges, so every status is exploratory
+  ([program](program.md#2-the-unit-of-research-is-an-experiment-held-in-emem-memory), section 2).
+- Before rule v2, the lab tightened the strict rule once, after the third replication (section 5.8). That change only
+  demoted.
 - Cells are the unit the experiments score, and the label rule (5% of a 400 m cell) never counts a clearing under about 0.8 ha. Section 5.17 scores clearings by size against chance; at 400 m the methods miss most small ones.
-- Every interval in sections 5.1 to 5.14 resamples cells. Where loss comes in clearings, that overstates certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
+- Every interval in sections 5.1 to 5.14, except 5.10, resamples cells. Where loss comes in clearings, that overstates
+  certainty: a clearing is one event seen in many cells. Section 5.21 measures how much on two experiments; from the
+  two-optical-sensor experiment on, forests are the resampled unit that decides, and every result reports both.
 
 ## 8. Reproducing this
 
@@ -1051,6 +1085,12 @@ Every artefact is in emem memory under the lab's key and readable with `memory_v
 | canopy-loss-scaled-2024-2025 | `research/experiments/canopy-loss-scaled-2024-2025-2026-10-29/plan.md` (`ls7ckvg4tkwnxafpo3q2bgkktu`) | `.../result.md` | `emem:fact:defi.zb391.mAfO.zcb6f:mw6r3fd4cwvn6giqrk43a6hj4fnaklsku5fk3nsie7azsqinal3a` |
 | canopy-loss-mcc-replication-2024-2025 | `research/experiments/canopy-loss-mcc-replication-2024-2025-2026-10-29/plan.md` (`phqhgqyqikkb3ezjfubwafmugq`) | `.../result.md` (`xwdaqkz4trxnlgxlbinf7ll6pe`) | `emem:fact:defi.zb4c5.zf90f.zedcb:qalxjsyhyianw5rd52geunqd25o3wxb5pwlqy56rumpkyrvd4gea` |
 | canopy-loss-third-replication-2024-2025 | `research/experiments/canopy-loss-third-replication-2024-2025-2026-10-29/plan.md` (`c73ovt5juw6ebmjsuista46624`) | `.../result.md` (`sioynhojljozkjwzrha7wczlym`) | `emem:fact:defi.zb3b0.pebO.gIfo:dd6xcxxyybclpofvfmgnsyr7xqeygj27tedngpmoz7iwqtk3i3fq` |
+
+The table lists the first seven experiments. Each later section names its own plan: section 5.10
+(`w5sfgf4sczudavcmkgaj7x564a`), 5.11 (`w54isezafoxudzsqffpcbazcbu`), 5.12 (`2qi3f5hui526dvsoiz7ryv5voy`), 5.13
+(`s6ld3nyqfaeekcoaotbxl2geny`), 5.14 (`nppiqq7e6wznwzwpa4kfxuvele`), 5.15 (`mmsumwdn3d4ohgiiqiih4tnnbm`) and the
+completed replication in 5.21 (`u24aifkusddf2zyyhoyhvygwtm`). The method selections of sections 5.19 and 5.20 name
+their experiments by key.
 
 The lab's code (`agents/lab.py`, the experiment runner and their tests) is in the emem-world repository, which stays
 private until peer review; the plans, results, proposals and signed records it wrote are public in emem memory now.

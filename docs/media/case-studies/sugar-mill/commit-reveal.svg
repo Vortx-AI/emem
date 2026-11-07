@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 624" width="640" height="624" role="img" aria-labelledby="t d">
+  <title id="t">Panel 4 commit-then-reveal timeline, 6 November 2026 (UTC)</title>
+  <desc id="d">Seven steps from top to bottom. Before 20:29 each team puts the sha256 of its secret in the plan. At 20:29 a signed public note fixes the plan, the draw script, the tested file and both commitments. At 20:30 team A reveals its secret to team B. At 21:30 team B checks it against the commitment: it matches, and the hash is of the hex text. At 21:35 an addendum explains this rule and does not change the plan. Not yet done on 6 November 2026: team B reveals, then the draw script runs; later come the cards, the blind reads and the score. The draw script stops if a secret does not match its commitment.</desc>
+  <style>
+    text { font-family: system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; fill: #e6edf3; }
+    .h { font-size: 20px; font-weight: 600; }
+    .sub { font-size: 16px; fill: #8b949e; }
+    .time { font-size: 16px; font-weight: 600; fill: #79c0ff; }
+    .later { fill: #8b949e; }
+    .lab { font-size: 16px; }
+    .note { font-size: 16px; fill: #8b949e; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 16px; fill: #ffa657; }
+    .line { stroke: #8b949e; stroke-width: 2; }
+    .dot { fill: #161b22; stroke: #e6edf3; stroke-width: 2; }
+    .key { fill: #7ee787; }
+    .wait { fill: #0d1117; stroke: #8b949e; stroke-width: 2; stroke-dasharray: 4 3; }
+  </style>
+  <rect x="0" y="0" width="640" height="624" rx="8" fill="#0d1117"/>
+
+  <text class="h" x="24" y="40">Panel 4, 6 November 2026 (UTC)</text>
+  <text class="sub" x="24" y="64">Nothing is drawn before both secrets are revealed.</text>
+
+  <line class="line" x1="156" y1="110" x2="156" y2="350"/>
+  <line class="line" x1="156" y1="350" x2="156" y2="470" stroke-dasharray="6 5"/>
+
+  <circle class="dot" cx="156" cy="110" r="9"/>
+  <text class="time" x="136" y="116" text-anchor="end">before 20:29</text>
+  <text class="lab" x="180" y="116">Each team puts sha256(secret) in the plan.</text>
+
+  <circle class="key" cx="156" cy="170" r="10"/>
+  <text class="time" x="136" y="176" text-anchor="end">20:29</text>
+  <text class="lab" x="180" y="176">A signed public note fixes the plan, the draw</text>
+  <text class="lab" x="180" y="198">script, the tested file and both commitments.</text>
+
+  <circle class="dot" cx="156" cy="230" r="9"/>
+  <text class="time" x="136" y="236" text-anchor="end">20:30</text>
+  <text class="lab" x="180" y="236">Team A reveals its secret to team B.</text>
+
+  <circle class="dot" cx="156" cy="290" r="9"/>
+  <text class="time" x="136" y="296" text-anchor="end">21:30</text>
+  <text class="lab" x="180" y="296">Team B checks it: match. The hash is of the</text>
+  <text class="lab" x="180" y="318">hex TEXT, not of the raw bytes.</text>
+
+  <circle class="dot" cx="156" cy="350" r="9"/>
+  <text class="time" x="136" y="356" text-anchor="end">21:35</text>
+  <text class="lab" x="180" y="356">An addendum explains the rule.</text>
+  <text class="lab" x="180" y="378">The plan does not change.</text>
+
+  <circle class="wait" cx="156" cy="410" r="9"/>
+  <text class="time later" x="136" y="416" text-anchor="end">next</text>
+  <text class="lab" x="180" y="416">Team B reveals. Then the draw script runs</text>
+  <text class="lab" x="180" y="438">as written.</text>
+
+  <circle class="wait" cx="156" cy="470" r="9"/>
+  <text class="time later" x="136" y="476" text-anchor="end">later</text>
+  <text class="lab" x="180" y="476">Cards, blind reads, score.</text>
+
+  <text class="mono" x="24" y="526">seed = int(sha256("&lt;secret A&gt;|&lt;secret B&gt;")[:16], 16)</text>
+  <text class="note" x="24" y="550">The draw script stops if a secret does not match its commitment.</text>
+  <text class="note" x="24" y="574">Green dot: the signed public note.</text>
+  <text class="note" x="24" y="598">Dashed: not yet done on 6 November 2026.</text>
+</svg>

@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
 """Shared-memory diagrams in the Mithila SVG hand: the one-memory hero scene,
-the two-agent memt handoff, and the compaction-survival panel.
+the two-agent token handoff, and the compaction-survival panel.
 
 Vector SVG into docs/diagrams/, plus the 1600x1040 PNG twins under
-docs/diagrams/png/ that the README embeds. Token and character counts in the
-handoff panel are measured, not asserted: 79 chars via len(), 46-49 BPE
-tokens via tiktoken cl100k_base/o200k_base against the live token
-memt:defi.zb493.xuqA.zcb5f:yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala
-and ~1,600 tokens for the full signed response it stands in for
-(3,979 bytes live on 2026-07-02; the payload grows as the cell accrues
-attested bands, so re-measure rather than trust this comment).
+docs/diagrams/png/ (no page embeds them on 7 November 2026). The handoff
+panel shows an emem:fact: token of about 84 characters. Measure any token
+or byte count again before you put it in a label; the signed payload grows
+as the cell gets more bands.
 
 Usage: python3 scripts/gen_shared_memory.py [name ...]
 """
@@ -81,7 +78,7 @@ def shared_memory():
             avoid.append((x, y, 92))
     _ground(s, avoid=avoid)
     _header(s, "One memory, many agents",
-            "any agent writes signed facts · any agent recalls them · every agent checks for itself")
+            "emem signs the facts · any agent recalls them and signs notes · each checks for itself")
 
     # flows between agents and the memory. Writes are turmeric (attest),
     # reads leaf-green (signed recall), the audit read vermilion-dashed.
@@ -108,9 +105,9 @@ def shared_memory():
             _agent(s, x, y, col, label if i == 0 else "", None)
 
     # verbs on the flows
-    s.text(492, 330, "attest: signed write", 11.5, TURMERIC, font=MONO, weight="bold")
+    s.text(492, 330, "write a signed note", 11.5, TURMERIC, font=MONO, weight="bold")
     s.text(1108, 330, "recall: signed fact", 11.5, LEAF, font=MONO, anchor="end", weight="bold")
-    s.text(470, 726, "write + read", 11.5, INK_SOFT, font=MONO)
+    s.text(470, 726, "note + recall", 11.5, INK_SOFT, font=MONO)
     s.text(1130, 726, "verify offline", 11.5, VERMIL, font=MONO, anchor="end", weight="bold")
 
     # the memory itself
@@ -128,14 +125,14 @@ def shared_memory():
     s.text(CX, LOGY + 36, "append-only · every fact signed · addressed by its content", 11.5,
            INK_SOFT, font=MONO, anchor="middle")
 
-    _footer(s, "A fact written by one agent is memory for every agent that comes after.",
+    _footer(s, "A fact signed once is memory for every agent that comes after.",
             "no shared password, no shared database to trust: each reader re-derives the id and checks the signature")
     s.save(f"{OUT}/34-shared-memory.svg")
     return "34-shared-memory"
 
 
 def two_agents():
-    """The memt handoff: agent A recalls, hands a token to agent B, agent B
+    """The token handoff: agent A recalls, hands a token to agent B, agent B
     resolves and verifies without trusting A. Measured numbers on the card."""
     s = Svg(1600, 1040, seed=35); W, H = s.W, s.H
     AX, AY = 250, 460
@@ -161,10 +158,10 @@ def two_agents():
 
     # 2. the token card A hands to B
     _card(s, tx, ty, tw, th, "the whole handoff · one line", title_col=INK)
-    s.text(tx + 24, ty + 82, "memt:defi.zb493.xuqA.zcb5f:", 13, INDIGO, font=MONO, weight="bold")
+    s.text(tx + 24, ty + 82, "emem:fact:defi.zb493.xuqA.zcb5f:", 13, INDIGO, font=MONO, weight="bold")
     s.text(tx + 24, ty + 106, "yqbolgeoycqkvj3zkxukb4bjw4odhpwvfzqo3fbgwf4spk45zala", 11.5, INK, font=MONO)
-    s.text(tx + 24, ty + 140, "79 characters · about 50 BPE tokens", 10.5, INK_SOFT, font=MONO)
-    s.text(tx + 24, ty + 162, "stands in for a signed response of ~1,600 tokens", 10.5, INK_SOFT, font=MONO)
+    s.text(tx + 24, ty + 140, "84 characters, one line", 10.5, INK_SOFT, font=MONO)
+    s.text(tx + 24, ty + 162, "stands in for about 3,100 bytes (7 Nov 2026)", 10.5, INK_SOFT, font=MONO)
     s.seal(tx + tw - 34, ty + 30, 9, fill=LEAF)
     s.flow((AX + 62, AY - 10), (tx - 8, ty + th / 2), TURMERIC, 1.6, op=0.9, bow=-30, glow=True)
     s.flow((tx + tw + 8, ty + th / 2), (BX - 62, BY - 10), TURMERIC, 1.6, op=0.9, bow=-30, glow=True)
@@ -214,7 +211,7 @@ def compaction():
     avoid.append((914, 820, 300))
     _ground(s, avoid=avoid)
     _header(s, "Memory outlives the context window",
-            "compaction keeps the one-line address and drops the payload · the payload re-hydrates on demand")
+            "compaction drops the payload and keeps the one-line token · resolve the token to get the payload back")
 
     def ctx_card(x, y, w, h, turn, state, lines):
         s.rect(x, y, w, h, fill=PAPER, op=0.80, stroke=INK, sw=2.2, rx=12)
@@ -228,22 +225,22 @@ def compaction():
 
     ctx_card(*cards[0][:4], cards[0][4], cards[0][5], [
         ("USER: survey the plot", INK_SOFT, False),
-        ("recall: elevation 38.3 m", INK, False),
+        ("recall: elevation 38.27 m", INK, False),
         ("recall: ndvi 0.61", INK, False),
         ("receipt: signed, verified", LEAF, False),
         ("full JSON payloads", INK_SOFT, False),
         ("...", INK_SOFT, False),
-        ("memt:defi.zb6d9...:sroz...", INDIGO, True),
+        ("emem:fact:defi.zb6d9...:sroz...", INDIGO, True),
     ])
     ctx_card(*cards[1][:4], cards[1][4], cards[1][5], [
         ("summary of turns 1-59", INK_SOFT, False),
         ("payloads gone", VERMIL, False),
         ("...", INK_SOFT, False),
-        ("memt:defi...:sroz...", INDIGO, True),
+        ("emem:fact:defi.zb6d9...:sroz...", INDIGO, True),
     ])
     ctx_card(*cards[2][:4], cards[2][4], cards[2][5], [
         ("summary of summaries", INK_SOFT, False),
-        ("memt:defi...:sroz...", INDIGO, True),
+        ("emem:fact:defi.zb6d9...:sroz...", INDIGO, True),
     ])
 
     # compaction arrows between cards, labelled once above the row
@@ -277,7 +274,7 @@ def compaction():
     s.text(MX, MY + LR * 1.5 + 22, "the shared memory", 12.5, INK, font=MONO, anchor="middle", weight="bold")
 
     _footer(s, "What the summarizer keeps is an address, not a paraphrase.",
-            "a 79-character line survives any compaction · the exact signed bytes come back when needed")
+            "a line of about 84 characters survives any compaction · the exact signed bytes come back when needed")
     s.save(f"{OUT}/36-memory-outlives-the-context-window.svg")
     return "36-memory-outlives-the-context-window"
 

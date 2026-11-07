@@ -1,65 +1,99 @@
 # emem-langmem
 
-LangChain `BaseStore` backed by [emem.dev](https://emem.dev) — drop-in
-agent memory for LangGraph with ed25519 receipts and content-addressed
-recall.
+`emem-langmem` is a LangChain key-value store that keeps its values as
+signed memory notes on an emem responder. Use it when a LangChain agent
+must keep notes that other agents can read and check.
 
-## Install
+`EmemStore` is a `langchain_core.stores.BaseStore[str, bytes]`.
+It is not a LangGraph store (`langgraph.store.base.BaseStore`). A
+LangGraph graph compiles with it, but a node that calls `store.get` or
+`store.put` fails with `AttributeError`. We checked this with
+langgraph 1.0.1 on 7 November 2026.
+
+Try it. Reads need no key:
 
 ```bash
 pip install emem-langmem
 ```
 
-## Use
-
 ```python
 from emem_langmem import EmemStore
-from langgraph.graph import StateGraph
 
-store = EmemStore(base_url="https://emem.dev", signing_key=SEED)
-
-graph = StateGraph(...).compile(store=store)
+store = EmemStore()  # https://emem.dev, or EMEM_BASE_URL
+path = "/memories/by_attester/y6dg4qz6/integration-friction-log-2026-08-11.md"
+print(store.mget([path])[0][:38])
+# b'# Integration friction log, 2026-08-11'
 ```
 
-`SEED` is a raw 32-byte ed25519 seed that you own and persist, for
-example `os.urandom(32)` once, then kept wherever the agent's other
-secrets live. It signs every write, and the responder requires that:
-an unattested write is refused unless the operator opened the responder
-with `EMEM_MEMORY_OPEN=1`. The key also decides where the store writes.
+Version 2.4.4 is on PyPI (uploaded 18 October 2026). It needs Python
+3.9 or later, `langchain-core` 0.3, `httpx`, `blake3` and `cryptography`.
+The source is in
+[sdks/emem-langmem](https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem).
+For the memory wire format, read
+[docs/memory.html](https://emem.dev/docs/memory.html).
 
-`EmemStore` implements the four `BaseStore` verbs by issuing MCP
-`tools/call` requests to the emem responder against the six Anthropic
-memory-tool verbs:
+## Write with a signing key
 
-| BaseStore verb | emem MCP tool   | Signed |
-|----------------|-----------------|--------|
-| `mget(keys)`   | `emem_memory_view`   | read, no signature |
-| `mset(pairs)`  | `emem_memory_create` | yes |
-| `mdelete(ks)`  | `emem_memory_delete` | yes |
-| `yield_keys`   | `emem_memory_view` (directory walk) | read, no signature |
+```python
+import os
+from emem_langmem import EmemStore
+
+SEED = os.urandom(32)  # make it once, then keep it with the agent's other secrets
+store = EmemStore(signing_key=SEED)
+store.mset([((("notes",), "today"), b"field 7 looked dry")])
+```
+
+The `mset` call is a write. We did not run it against emem.dev.
+
+`SEED` is a raw 32-byte Ed25519 seed. It signs every write. The
+responder refuses an unsigned write, unless the operator started it with
+`EMEM_MEMORY_OPEN=1`. The key also sets where the store writes. If you
+lose the seed, you lose write access to that namespace.
+
+`EmemStore` sends each `BaseStore` verb as an MCP `tools/call` request
+to the responder:
+
+| BaseStore verb | emem MCP tool | Signed |
+|---|---|---|
+| `mget(keys)` | `emem_memory_view` | no, it is a read |
+| `mset(pairs)` | `emem_memory_create` | yes |
+| `mdelete(keys)` | `emem_memory_view`, then `emem_memory_delete` | yes |
+| `yield_keys(prefix=)` | `emem_memory_view` on a directory | no, it is a read |
+
+The async verbs `amget`, `amset`, `amdelete` and `ayield_keys` do the
+same work over `httpx.AsyncClient`.
+
+Values are bytes. The store sends text bytes as UTF-8 and other bytes
+as base64. `mset` writes with the memory kind `resource`. To change it,
+pass `default_kind` (`episodic`, `semantic`, `procedural` or `resource`).
 
 ## Namespaces
 
 With a signing key, the store roots itself at
-`/memories/by_attester/<pubkey8>/`, where `<pubkey8>` is the first 8
-characters of your base32 pubkey. Only that key can write there, so
-agents sharing one responder cannot overwrite each other. LangChain
-calls `mget(("ns","key"))` and the store reads
-`/memories/by_attester/<pubkey8>/ns/key`.
+`/memories/by_attester/<pubkey8>/`. `<pubkey8>` is the first 8
+characters of your base32 public key. Only that key can write there, so
+agents that share one responder cannot overwrite each other.
+
+A key can be a string or a `(namespace, key)` tuple. The tuple
+`(("notes",), "today")` reads and writes
+`/memories/by_attester/<pubkey8>/notes/today`.
 
 ```python
-store.root              # '/memories/by_attester/aoqqpp7t'
-store.signer.pubkey_b32 # the full base32 pubkey
+store.root               # '/memories/by_attester/ys3ez46s' (example)
+store.signer.pubkey_b32  # the full base32 public key, 52 characters
 ```
 
-A key that starts with `/` is taken as a literal absolute path and is
-left alone, which is how you reach outside your own root. Writing into
-another key's namespace is refused with a 403. Without a signing key the
-root stays `/memories` and writes go out unattested. See
-[docs/memory.html](https://emem.dev/docs/memory.html) for the wire format.
+A key that starts with `/` is an absolute path. The store does not
+change it, so you can read outside your own root. If you write into the
+namespace of a different key, the responder refuses it with a 403. Without a signing
+key, the root is `/memories` and writes go out unsigned.
 
-`EmemSigner` is public if you drive the memory tools yourself and need
-the same `attester` block:
+`mget` returns `None` for a key that does not exist. `yield_keys` on a
+namespace that has no notes yet raises `EmemStoreError` with
+`cid_not_found`.
+
+`EmemSigner` is public. Use it when you call the memory tools yourself
+and need the same `attester` block:
 
 ```python
 from emem_langmem import EmemSigner
@@ -69,40 +103,60 @@ signer.attester_block("create", f"{signer.namespace_root}/n.md", b"hi")
 # {'pubkey_b32': '...', 'sig_b32': '...'}
 ```
 
-Async variants `amget` / `amset` / `amdelete` / `ayield_keys` are
-implemented over `httpx.AsyncClient`.
-
-## Self-host
+## Use your own responder
 
 ```python
 EmemStore(base_url="http://127.0.0.1:5051")
 ```
 
-or set `EMEM_BASE_URL` in the environment.
+You can also set `EMEM_BASE_URL` in the environment.
 
-## Receipts
+## Get the receipt
 
-Every read and write returns an ed25519 receipt from the emem responder.
-The receipt is currently dropped at the `BaseStore` interface boundary
-(LangChain's contract has no receipt slot). To inspect receipts, call
-the underlying MCP tool directly:
+The responder returns an Ed25519 receipt with each memory read and
+write. The `BaseStore` interface has no place for it, so `EmemStore`
+drops it. To get the receipt, call the MCP tool directly:
 
 ```python
-import json, httpx, uuid
+import json, uuid
+import httpx
+
+path = "/memories/by_attester/y6dg4qz6/integration-friction-log-2026-08-11.md"
 r = httpx.post(
     "https://emem.dev/mcp",
     json={
         "jsonrpc": "2.0",
         "id": str(uuid.uuid4()),
         "method": "tools/call",
-        "params": {
-            "name": "emem_memory_view",
-            "arguments": {"path": "/memories/my/note.txt"},
-        },
+        "params": {"name": "emem_memory_view", "arguments": {"path": path}},
     },
+    timeout=60,
 ).json()
-print(r["result"]["structuredContent"]["receipt"])
+body = json.loads(r["result"]["content"][0]["text"])
+print(body["file_cid"], body["receipt"]["primitive"])
+# fhoisfurm535cqzrigsauqmf6e emem.memory_file
 ```
+
+On 7 November 2026, emem.dev sent the tool result as JSON text in
+`result.content[0].text`, with no `structuredContent`.
+
+To check the receipt offline, use the emem Python client
+(`pip install "ememdev[signing]"`):
+
+```python
+from ememdev.verify import verify_receipt_offline
+
+v = verify_receipt_offline(body["receipt"])
+print(v.ok, v.state, v.signer_b32[:8])
+# True verified 777er3yi
+```
+
+We ran this on 7 November 2026. The receipt had `preimage_version` 2.
+The function checks the signature against the key in the receipt. Compare
+`v.signer_b32` with `federation.node.responder_pubkey_b32` in
+[/.well-known/emem.json](https://emem.dev/.well-known/emem.json).
+You can also paste the receipt into the
+[verify page](https://emem.dev/verify).
 
 ## License
 

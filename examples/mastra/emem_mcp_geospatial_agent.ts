@@ -1,18 +1,21 @@
-// Mastra + emem MCP example — algal-bloom hotspots over Lake Erie.
+// Mastra + emem MCP example: algal-bloom hotspots over Lake Erie.
 //
-// Wires a Mastra Agent to the emem MCP server (Streamable HTTP), lets
-// the agent auto-discover all tools, and asks it to hunt for active
-// algal-bloom hotspots. The agent dispatches `emem_hunt` and reports
-// each hotspot with its cell64, NDVI/NDWI values, and fact_cid.
+// Wires a Mastra Agent to the emem MCP server (Streamable HTTP) and
+// gives it the tools that MCPClient gets. /mcp/full sends its tools in
+// pages, and MCPClient reads only the first page (12 tools on
+// 7 November 2026, with emem_hunt). Then it asks the agent to hunt for active
+// algal-bloom hotspots. MCPClient puts the server name before each tool
+// name, so the agent calls `emem_emem_hunt`. It reports each hotspot
+// with its cell64, NDVI and NDWI values, and fact_cid.
 //
 // Install:
-//   npm install @mastra/core @mastra/mcp @ai-sdk/openai
+//   npm install   (in this directory; package.json pins the versions)
 //
 // Run:
 //   export OPENAI_API_KEY="sk-..."
 //   npx tsx emem_mcp_geospatial_agent.ts
 //
-// emem itself requires no API key — reads are anonymous and
+// emem itself requires no API key. Reads are anonymous and
 // ed25519-signed. The OpenAI key is only for the model driving the
 // agent.
 
@@ -26,7 +29,7 @@ const EMEM_MCP_URL = process.env.EMEM_MCP_URL ?? "https://emem.dev/mcp/full";
 
 const QUESTION =
   "Using the emem MCP tools, find the most likely active algal bloom " +
-  "hotspots over Lake Erie. Call emem_hunt with event='algal_bloom' " +
+  "hotspots over Lake Erie. Call the tool emem_emem_hunt with event='algal_bloom' " +
   "and region='Lake Erie'. For each hotspot, report the cell64, the " +
   "primary band value, the gate band value, and the fact_cid. Do not " +
   "invent fact_cids; only quote what the tool returns. End with the " +

@@ -1,15 +1,17 @@
 # Summary
 
-<!-- Reading map: pitch (Introduction → Why an agent benefits → What only emem
-     does) → differentiators (Connect & evolve) → math (Whitepaper, Protocol) →
-     surfaces (Agents, Memory substrate, Registries) → ops (Errors, Self-host,
-     Architecture, Operating). Start at the top; each section assumes the one
-     before it. -->
+<!-- Reading map: first steps (Introduction, Start here, Glossary, emem in
+     depth, Why an agent benefits, Quickstart, first verified memory). Then
+     the differentiators (What only emem does, Connect & evolve). Then Security,
+     Protocol, Research, Surfaces, Developers, Operators. A new reader starts
+     at the top. -->
 
 [Introduction](./intro.md)
+[Start here (10 minutes)](./start-here.md)
+[Glossary](./glossary.md)
 [emem in depth](./emem-in-depth.md)
 [Why an agent benefits from emem](./why-agents.md)
-[Quickstart (60 seconds)](./quickstart.md)
+[Quickstart](./quickstart.md)
 [Your first verified memory (10 minutes)](./tutorials/first-verified-memory.md)
 [What only emem does](./only-emem.md)
 [Connect & evolve](./connect-and-evolve.md)
@@ -37,10 +39,10 @@
 
 # Research
 
-<!-- These four are the record, including the parts that went against us. Order
-     matters: the scorecard states what we measured and what we refused to
-     claim, the statistics section carries the threats to validity, and the
-     collaboration log is the raw signed argument the other two are drawn from. -->
+<!-- These pages are the record, including the parts that went against us.
+     The program page and its children state each experiment. The benchmark,
+     statistics and comparison pages state what we measured and what we refused
+     to claim. The collaboration log is the raw signed argument behind them. -->
 
 - [The research program: algorithms for agents, settled by experiment](./research/program.md)
   - [Finding sudden canopy loss from Sentinel-2 cell series](./research/canopy-loss-2026-10.md)
@@ -51,6 +53,7 @@
 - [Benchmarks and methods](./benchmarks.md)
 - [Statistics, cost, and threats to validity](./paper-section-statistics-and-threats.md)
 - [The collaboration log](./collaboration-log.md)
+- [Case study: three teams and one sugar mill study](./case-studies/sugar-mill.md)
 
 # Surfaces
 
@@ -73,6 +76,7 @@
 - [Architecture](./developers/architecture.md)
 - [Data sources](./developers/data-sources.md)
 - [Developing](./developers/developing.md)
+- [How to write emem docs](./writing-docs.md)
 - [Inference](./developers/inference.md)
 
 # Operators

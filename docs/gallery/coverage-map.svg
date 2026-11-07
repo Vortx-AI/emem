@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 800" width="1440" height="800">
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="t" viewBox="0 0 1440 800" width="1440" height="800">
+<title id="t">World map of where emem held signed facts in an older snapshot: 223 cells and 18157 facts in 1 degree bins, log-scale density. The counts are not current.</title>
 <defs><style>
 .h1  { font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-weight: 600; font-size: 22px; fill: #1a1a1a; }
 .dek { font-family: 'Source Serif 4','Source Serif Pro',Georgia,serif; font-style: italic; font-size: 13.5px; fill: #4a4a4a; }

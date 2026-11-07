@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Protocol gallery diagrams in the Mithila SVG hand: architecture, the
-decentralised federation, and the trust plane (the v1 receipt preimage).
+decentralised federation, and the trust plane (the v2 receipt preimage).
 
 Vector SVG into docs/diagrams/, matching the README's architecture.png /
 federation.png / engram. PNG previews under /tmp.
@@ -27,15 +27,15 @@ def architecture():
     _header(s, "One binary, signed end to end",
             "the same handlers answer MCP and REST · reads need no auth · every write is logged")
 
-    # left: 46 sources feed in
+    # left: the registered sources feed in; 5 of 46 have no reader (intro.md)
     for i in range(9):
         y = CY - 210 + i * 52
         s.roundel(SRCX, y, 13, DYES[i % len(DYES)],
                   inner=["ring", "hatch", "leaf"][i % 3])
         s.flow((SRCX + 18, y), (CX - LR - 60, CY + (y - CY) * 0.25), INK_SOFT, 1.0, op=0.5, bow=16 * math.sin(i))
-    s.text(SRCX, CY - 250, "46 sources", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(SRCX, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
-    s.text(SRCX, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(SRCX + 30, CY - 250, "41 of 46 sources", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(SRCX + 26, CY + 268, "STAC + COG, signed", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(SRCX + 26, CY + 286, "on the first miss", 11, INK_SOFT, font=MONO, anchor="middle")
 
     # top: clients
     for (cx, label, col) in [(CX - 170, "MCP", TEAL), (CX + 170, "REST", INDIGO)]:
@@ -75,11 +75,13 @@ def architecture():
            anchor="middle", weight="bold")
 
     # manifests row top-right (under the frieze, clear of the title)
-    s.text(W - 520, 142, "manifests:", 11, INK, font=MONO, weight="bold")
-    for i, m in enumerate(["bands_cid", "algorithms_cid", "sources_cid", "schema_cid"]):
-        x = W - 408 + i * 96
+    # Place each item after the previous label's mono width, so no label runs under the next seal.
+    s.text(W - 560, 142, "manifests:", 11, INK, font=MONO, weight="bold")
+    x = W - 448
+    for i, m in enumerate(["bands", "algorithms", "sources", "schema"]):
         s.seal(x, 138, 8, fill=[INDIGO, LEAF, TURMERIC, LAC][i])
-        s.text(x + 12, 142, m.split("_")[0], 10.5, INK_SOFT, font=MONO)
+        s.text(x + 12, 142, m, 9.5, INK_SOFT, font=MONO)
+        x += 12 + len(m) * 8.2 + 22
     s.save(f"{OUT}/01-architecture.svg")
     return "01-architecture"
 
@@ -119,15 +121,15 @@ def federation():
             s.qpath((a[0], a[1]), ctrl, (b[0], b[1]), INK_SOFT, 1.1, op=0.6)
     s.lotus(CX, CY, 78)
     s.seal(CX + 66, CY - 66, 11, fill=LEAF)
-    s.text(CX, CY + 116, "one content id", 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(CX, CY + 136, "resolved byte-for-byte", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(CX, CY + 142, "one content id", 13, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(CX, CY + 162, "resolved byte-for-byte", 11, INK_SOFT, font=MONO, anchor="middle")
     inners = ["fish", "leaf", "hatch", "ring"]
     for i, (x, y, col) in enumerate(nodes):
         s.roundel(x, y, 32, col, signed=True, petal=(i % 2 == 0), inner=inners[i % 4])
         # push labels below for the lower nodes, above for the upper nodes
         below = y >= CY
-        s.text(x, y + (54 if below else -50), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(x, y + (72 if below else -34), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
+        s.text(x, y + (54 if below else -72), "responder", 11, INK, font=MONO, anchor="middle", weight="bold")
+        s.text(x, y + (74 if below else -52), "key:" + pubs[i], 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     def client(cx, cy, near):
         s.circle(cx, cy, 17, fill=PAPER, stroke=INK, sw=1.5)
@@ -144,7 +146,7 @@ def federation():
     client(CX + R + 116, CY + 150, nodes[6])
     s.text(CX - R - 116, CY - 186, "client", 11, INK, font=MONO, anchor="middle", weight="bold")
     s.text(CX - R - 116, CY - 120, "verifies offline", 10.5, INK_SOFT, font=MONO, anchor="middle")
-    s.text(W / 2, H - 76, "Eight responders, one content id — resolved byte-for-byte under eight keys.",
+    s.text(W / 2, H - 76, "Eight example responders, one content id, same bytes under eight keys. On 7 Nov 2026 emem.dev had one peer.",
            16, INK, font=SERIF, anchor="middle", italic=True)
     s.save(f"{OUT}/08-decentralised.svg")
     return "08-decentralised"
@@ -157,26 +159,26 @@ def trust_plane():
     segs = [("domain", '"emem.preimage.v1" · "receipt"'), ("request_id", "ULID"),
             ("served_at", "ISO 8601"), ("[scope]·[as_of]", "optional, tagged"),
             ("[edges]·[manifest]", "optional, tagged"), ("primitive", "emem.recall"),
-            ("cells[]", "len-prefixed list"), ("fact_cids[]", "len-prefixed list")]
+            ("cells[]", "len-prefixed list"), ("fact_cids[]", "len-prefixed list"),
+            ("[field]", "optional, tagged"), ("merkle", "proof digest or absent")]
     ph = 60 + len(segs) * 38
     bx, rx = 760, 1156
     avoid = [(px + pw / 2, py + ph / 2, pw * 0.62), (bx, CY, 70), (rx, CY, 170),
-             (W / 2, 150, 600), (W / 2, H - 110, 640)]
+             (rx, CY + 200, 120), (W / 2, 150, 600), (W / 2, H - 126, 640)]
     _ground(s, avoid=avoid)
     _header(s, "The trust plane",
             "what a responder signs, and how anyone re-checks it without trusting the server")
 
     # corner motifs in the open band above the row
-    s.bird(180, 280, 34, col=TEAL, angle=0.12)
+    s.bird(640, 330, 34, col=TEAL, angle=0.12)
     s.sun(W - 160, 280, 26, col=TURMERIC)
     s.fish(150, H - 230, 24, col=INDIGO, angle=-0.12)
     s.vine(250, H - 240, 520, H - 252, col=LEAF, n=4, amp=16)
 
-    # left: the v1 preimage as a stack of tagged, length-prefixed segments
+    # left: the v2 preimage (v1 segments plus a merkle segment) as a stack of tagged, length-prefixed segments
     s.rect(px, py, pw, ph, fill=PAPER, op=0.78, stroke=INK, sw=2.2, rx=12)
     s.rect(px + 5, py + 5, pw - 10, ph - 10, stroke=INK, sw=0.8, rx=9, op=0.5)
-    s.text(px + 22, py + 36, "preimage_version 1", 14, INK, font=MONO, weight="bold")
-    s.text(px + pw - 20, py + 36, "tagged · len-prefixed", 10.5, INK_SOFT, font=MONO, anchor="end")
+    s.text(px + 22, py + 36, "preimage_version 2", 14, INK, font=MONO, weight="bold")
     s.line(px + 18, py + 50, px + pw - 18, py + 50, INK_SOFT, 1.0, op=0.6)
     for i, (tag, desc) in enumerate(segs):
         ry = py + 78 + i * 38
@@ -204,8 +206,9 @@ def trust_plane():
     s.text(kx, CY - 52, "ed25519", 11, INK, font=MONO, anchor="middle", weight="bold")
     s.lotus(rx, CY, 100)
     s.seal(rx + 84, CY - 84, 13, fill=LEAF)
-    s.text(rx, CY + 130, "RECEIPT", 14, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, CY + 150, "signed · merkle proof", 11.5, INK_SOFT, font=MONO, anchor="middle")
+    # below the lotus medallion (radius 1.46 * 100), so the bud ring does not cross the label
+    s.text(rx, CY + 180, "RECEIPT", 14, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(rx, CY + 204, "signed · merkle proof", 11.5, INK_SOFT, font=MONO, anchor="middle")
 
     # identity note top-right
     s.seal(1392, CY - 196, 10, fill=INDIGO)
@@ -213,13 +216,13 @@ def trust_plane():
     s.text(1392, CY - 154, "/.well-known/emem.json", 10.5, INK_SOFT, font=MONO, anchor="middle")
 
     # footer recipe
-    s.line(220, H - 158, W - 220, H - 158, INK_SOFT, 0.8, op=0.45)
-    s.dot(220, H - 158, 2.4, VERMIL); s.dot(W - 220, H - 158, 2.4, VERMIL)
-    s.text(W / 2, H - 122, "verify offline:  digest = blake3(preimage);  ed25519.verify(sig, digest, pubkey)",
+    s.line(220, H - 174, W - 220, H - 174, INK_SOFT, 0.8, op=0.45)
+    s.dot(220, H - 174, 2.4, VERMIL); s.dot(W - 220, H - 174, 2.4, VERMIL)
+    s.text(W / 2, H - 138, "verify offline:  digest = blake3(preimage);  ed25519.verify(sig, digest, pubkey)",
            14, INK, font=MONO, anchor="middle")
-    s.text(W / 2, H - 90, "merkle tree: RFC 6962 leaf/node domain separation · duplicate leaves rejected",
+    s.text(W / 2, H - 106, "merkle tree: RFC 6962 leaf/node domain separation · duplicate leaves rejected",
            11.5, INK_SOFT, font=MONO, anchor="middle")
-    s.text(W / 2, H - 60, "the same blake3 + ed25519 check runs in your browser at /verify",
+    s.text(W / 2, H - 76, "the same blake3 + ed25519 check runs in your browser at /verify",
            11.5, INK_SOFT, font=MONO, anchor="middle")
     s.save(f"{OUT}/10-trust-plane.svg")
     return "10-trust-plane"
@@ -258,7 +261,7 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
     rx = 1392
     n = len(stages)
     xs = [x0 + (x1 - x0) * i / (n - 1) for i in range(n)]
-    avoid = [(W / 2, 150, 600), (W / 2, H - 80, 640), (rx, ys, 170)]
+    avoid = [(W / 2, 150, 600), (W / 2, H - 104, 640), (rx, ys, 170), (rx, ys + 190, 110)]
     for x in xs:
         avoid.append((x, ys, 90))
     _ground(s, avoid=avoid)
@@ -270,17 +273,20 @@ def _pipeline(name, seed, title, sub, stages, endlabel, endsub, footer):
         if i:
             s.flow((xs[i - 1] + 36, ys), (xs[i] - 36, ys), INK_SOFT, 1.4, op=0.7)
         s.roundel(xs[i], ys, 34, col, petal=(i % 2 == 0), inner=inners[i % len(inners)])
-        s.text(xs[i], ys + 56, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
+        # below the petal tips (r * 1.55), so the spikes do not cross the label
+        s.text(xs[i], ys + 74, lab, 12, INK, font=MONO, anchor="middle", weight="bold")
         if sub2:
-            s.text(xs[i], ys + 74, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+            s.text(xs[i], ys + 92, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
     s.flow((xs[-1] + 36, ys), (rx - 112, ys), LEAF, 1.6, op=0.85, glow=True)
     s.lotus(rx, ys, 92); s.seal(rx + 76, ys - 76, 12, fill=LEAF)
-    s.text(rx, ys + 122, endlabel, 13, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(rx, ys + 142, endsub, 11, INK_SOFT, font=MONO, anchor="middle")
-    s.line(220, H - 116, W - 220, H - 116, INK_SOFT, 0.8, op=0.45)
-    s.dot(220, H - 116, 2.4, VERMIL); s.dot(W - 220, H - 116, 2.4, VERMIL)
-    s.text(W / 2, H - 80, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 50, "anyone re-checks the receipt at /verify · no trust in the server",
+    # below the lotus medallion (radius 1.46 * 92), so the bud ring does not cross the label
+    s.text(rx, ys + 166, endlabel, 13, INK, font=MONO, anchor="middle", weight="bold")
+    for k, line in enumerate(endsub.split("\n")):
+        s.text(rx, ys + 190 + 22 * k, line, 11, INK_SOFT, font=MONO, anchor="middle")
+    s.line(220, H - 140, W - 220, H - 140, INK_SOFT, 0.8, op=0.45)
+    s.dot(220, H - 140, 2.4, VERMIL); s.dot(W - 220, H - 140, 2.4, VERMIL)
+    s.text(W / 2, H - 104, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
+    s.text(W / 2, H - 78, "anyone re-checks the receipt at /verify · checked against the published key",
            11.5, INK_SOFT, font=MONO, anchor="middle")
     s.save(f"{OUT}/{name}.svg"); return name
 
@@ -297,12 +303,12 @@ def data_flow():
 
 def anatomy():
     return _pipeline("03-anatomy-of-a-request", 3, "Anatomy of a recall",
-        "a place name in, a signed fact out, in about 180 ms",
+        "a place name in, a signed fact out",
         [("place name", "\"Denver\"", INDIGO), ("locate", "cell64", TEAL),
          ("cache miss", "cold", VERMIL), ("fetch tile", "upstream COG", TURMERIC),
          ("sign", "ed25519", LAC)],
         "RECEIPT", "fact_cid + proof",
-        "A cold read costs about 180 ms; a warm one is under ten, and cite-able forever after.")
+        "On 7 Nov 2026 a first read took 0.6 to 1.7 s. A warm read took under 0.1 s.")
 
 
 def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
@@ -310,11 +316,11 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
     """A ring of stages flowing clockwise into a central lotus. Shared by the
     agent loop and the cite economy."""
     s = Svg(1600, 1040, seed=seed); W, H = s.W, s.H
-    CX, CY = 800, 600; R = 296; LR = 84
+    CX, CY = 800, 570; R = 296; LR = 84
     pos = []
     for i in range(len(stages)):
         th = math.radians(phase + i * 360 / len(stages))
-        pos.append((CX + R * math.cos(th), CY + R * math.sin(th) * 0.92))
+        pos.append((CX + R * math.cos(th), CY + R * math.sin(th) * 0.86))
     avoid = [(CX, CY, LR + 60), (W / 2, 150, 600), (W / 2, H - 80, 640)]
     for (x, y) in pos:
         avoid.append((x, y, 96))
@@ -334,13 +340,20 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
         x, y = pos[i]
         s.roundel(x, y, 33, col, signed=(lab == signed_lab), petal=(i % 2 == 0),
                   inner=inners[i % len(inners)])
-        below = y >= CY - 10
-        s.text(x, y + (52 if below else -52), lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
-        s.text(x, y + (70 if below else -34), sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+        # petal tips reach 1.55 r (51 px); labels sit clear of them
+        if abs(x - CX) < 10 and y > CY:
+            s.text(x + 62, y - 3, lab, 12.5, INK, font=MONO, weight="bold")
+            s.text(x + 62, y + 15, sub2, 10.5, INK_SOFT, font=MONO)
+        elif y >= CY - 10:
+            s.text(x, y + 74, lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
+            s.text(x, y + 92, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
+        else:
+            s.text(x, y - 80, lab, 12.5, INK, font=MONO, anchor="middle", weight="bold")
+            s.text(x, y - 62, sub2, 10.5, INK_SOFT, font=MONO, anchor="middle")
     s.lotus(CX, CY, LR)
     s.seal(CX + LR * 0.84, CY - LR * 0.84, 11, fill=LEAF)
-    s.text(CX, CY + LR + 40, centre[0], 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(CX, CY + LR + 60, centre[1], 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(CX, CY + LR * 1.5 + 26, centre[0], 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(CX, CY + LR * 1.5 + 46, centre[1], 11, INK_SOFT, font=MONO, anchor="middle")
     s.line(220, H - 112, W - 220, H - 112, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 112, 2.4, VERMIL); s.dot(W - 220, H - 112, 2.4, VERMIL)
     s.text(W / 2, H - 76, footer, 16, INK, font=SERIF, anchor="middle", italic=True)
@@ -349,12 +362,12 @@ def _cycle(name, seed, title, sub, stages, centre, signed_lab, bead, footer,
 
 def agent_loop():
     return _cycle("04-agent-loop", 4, "The agent loop",
-        "ask, recall, cite, act, and the memory is better for the next turn",
+        "ask, recall, cite, act, then leave a signed note for the next agent",
         [("ask", "free text", INDIGO), ("recall", "signed fact", TEAL),
          ("cite", "fact_cid", LEAF), ("act", "in the world", TURMERIC),
-         ("write back", "a new memory", LAC)],
-        ("the shared memory", "grows each turn"), "recall", LEAF,
-        "Every claim the agent makes carries a handle the next agent can re-check.")
+         ("write back", "a signed note", LAC)],
+        ("facts from emem", "notes from agents"), "recall", LEAF,
+        "A claim that cites a fact_cid is one the next agent can check.")
 
 
 def fact_to_reasoning():
@@ -405,8 +418,8 @@ def fact_to_reasoning():
     # the signed answer flows out to a receipt lotus on the right
     s.flow((cwx + cww + 6, CY), (1396 - 96, CY), LEAF, 1.6, op=0.85, glow=True)
     s.lotus(1396, CY, 86); s.seal(1396 + 72, CY - 72, 12, fill=LEAF)
-    s.text(1396, CY + 116, "cited answer", 12.5, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1396, CY + 136, "points at a fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1396, CY + 162, "cited answer", 12.5, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1396, CY + 182, "points at a fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
 
     s.line(220, H - 114, W - 220, H - 114, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 114, 2.4, VERMIL); s.dot(W - 220, H - 114, 2.4, VERMIL)
@@ -435,8 +448,8 @@ def memory_vs_stac():
     s.bird(W - 170, H - 220, 36, col=LAC, angle=-0.06)
 
     # top row: raw STAC (long chain, uncited)
-    s.text(150, ty - 16, "raw STAC", 13, INK, font=MONO, weight="bold")
-    s.text(150, ty + 6, "you carry it", 11, INK_SOFT, font=MONO)
+    s.text(80, ty - 16, "raw STAC", 13, INK, font=MONO, weight="bold")
+    s.text(80, ty + 6, "you carry it", 11, INK_SOFT, font=MONO)
     for i, lab in enumerate(stac):
         if i:
             s.flow((xs[i - 1] + 28, ty), (xs[i] - 28, ty), INK_SOFT, 1.2, op=0.6)
@@ -444,18 +457,18 @@ def memory_vs_stac():
                   inner="hatch" if i < len(stac) - 1 else "ring")
         s.text(xs[i], ty + 46, lab, 11, INK, font=MONO, anchor="middle", weight="bold")
     s.text(1322, ty - 6, "uncited", 13, VERMIL, font=MONO, anchor="middle", weight="bold")
-    s.text(1322, ty + 14, "no handle", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1322, ty + 14, "no token", 11, INK_SOFT, font=MONO, anchor="middle")
 
     # bottom row: emem (one recall -> signed)
-    s.text(150, by - 16, "emem", 13, INK, font=MONO, weight="bold")
-    s.text(150, by + 6, "it carries it", 11, INK_SOFT, font=MONO)
+    s.text(80, by - 16, "emem", 13, INK, font=MONO, weight="bold")
+    s.text(80, by + 6, "it carries it", 11, INK_SOFT, font=MONO)
     s.roundel(360, by, 31, INDIGO, petal=True, inner="fish")
     s.text(360, by + 52, "one recall", 12, INK, font=MONO, anchor="middle", weight="bold")
     s.flow((400, by), (1322 - 100, by), LEAF, 1.7, op=0.85, glow=True)
     s.leaf(640, by - 34, 16, col=LEAF, angle=0.2); s.bud(940, by - 36, 16, col=VERMIL)
     s.lotus(1322, by, 82); s.seal(1322 + 68, by - 68, 12, fill=LEAF)
-    s.text(1322, by + 112, "signed number", 12, INK, font=MONO, anchor="middle", weight="bold")
-    s.text(1322, by + 132, "+ fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
+    s.text(1322, by + 156, "signed number", 12, INK, font=MONO, anchor="middle", weight="bold")
+    s.text(1322, by + 176, "+ fact_cid", 11, INK_SOFT, font=MONO, anchor="middle")
 
     s.line(220, H - 114, W - 220, H - 114, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 114, 2.4, VERMIL); s.dot(W - 220, H - 114, 2.4, VERMIL)
@@ -466,20 +479,20 @@ def memory_vs_stac():
 
 def cite_economy():
     return _cycle("07-cite-economy", 7, "The cite economy",
-        "a fact that gets used gets found; citation is the discovery signal",
+        "each read counts a citation for the key that signed the fact",
         [("attester", "signs a fact", INDIGO), ("content id", "names the bytes", TEAL),
-         ("agent cites", "the CID", LEAF), ("registry", "CAS update", TURMERIC),
-         ("score grows", "more cites", LAC), ("discovery", "favours it", VERMIL)],
-        ("the fact", "gathers cites"), "attester", TURMERIC,
-        "The more an answer is cited, the easier the next agent finds it.")
+         ("agent reads", "the fact", LEAF), ("registry", "counts the read", TURMERIC),
+         ("score grows", "per signer", LAC), ("leaderboard", "ranks signers", VERMIL)],
+        ("the signer", "gathers cites"), "attester", TURMERIC,
+        "Citations rank signers at /v1/contributors. They do not change what recall returns.")
 
 
 def address_algebra():
     s = Svg(1600, 1040, seed=9); W, H = s.W, s.H
     rows = [("cell", "64", "four base-65,536 bigrams", "defi.zb493.xuqA.zcb5f", INDIGO),
-            ("tslot", "64", "base32-nopad leb128, t. prefix", "t.aaaaagy", TEAL),
+            ("tslot", "64", "t. + base32-nopad leb128", "t.aaaaagy", TEAL),
             ("cid", "32 B blake3", "base32-nopad-lowercase", "qi3jo4sq…l2hgjtwm", LEAF),
-            ("vec", "1792-D fp16", "12-byte prefix in receipts", "full vector via recall", LAC)]
+            ("vec", "1792-D fp16", "12-byte hash id (vec64)", "full vector via /v1/state", LAC)]
     tx, ty, tw = 196, 300, 1208
     rh = 118
     cols = [tx + 100, tx + 320, tx + 560, tx + 900]
@@ -513,9 +526,9 @@ def address_algebra():
 
     s.line(220, H - 142, W - 220, H - 142, INK_SOFT, 0.8, op=0.45)
     s.dot(220, H - 142, 2.4, VERMIL); s.dot(W - 220, H - 142, 2.4, VERMIL)
-    s.text(W / 2, H - 104, "The active grid is about 9.55 m at the equator; adjacent cells share a string prefix,",
+    s.text(W / 2, H - 104, "The active grid is about 9.55 m at the equator. Next-door cells usually share the first two parts,",
            15, INK, font=SERIF, anchor="middle", italic=True)
-    s.text(W / 2, H - 74, "so an LLM that emits defi.zb493… already lands in roughly the right place.",
+    s.text(W / 2, H - 74, "but so do cells on the same latitude band across the world: use neighborhood_cells.",
            15, INK, font=SERIF, anchor="middle", italic=True)
     s.save(f"{OUT}/09-address-algebra.svg"); return "09-address-algebra"
 
@@ -526,7 +539,7 @@ def _encoders(name, seed, title, sub, footer):
     oy = 312
     sats = [("Sentinel-2", TEAL), ("Sentinel-1", INDIGO), ("HLS", LEAF), ("MODIS", TURMERIC), ("DEM", LAC)]
     sxs = [320 + i * 248 for i in range(len(sats))]
-    encs = [("spectral indices", INDIGO), ("SAR backscatter", TEAL), ("terrain", LEAF), ("phenology", LAC)]
+    encs = [("spectral indices", INDIGO), ("SAR backscatter", TEAL), ("terrain", LEAF), ("surface temperature", LAC)]
     epos = [(CX + ER * math.cos(math.radians(-90 + i * 90)),
              CY + ER * math.sin(math.radians(-90 + i * 90)) * 0.92) for i in range(len(encs))]
     avoid = [(CX, CY, LR + 60), (W / 2, 150, 600), (W / 2, H - 80, 640)]
@@ -559,13 +572,20 @@ def _encoders(name, seed, title, sub, footer):
         x, y = epos[i]
         s.line(CX, CY, x, y, INK_SOFT, 0.9, op=0.4)
         s.roundel(x, y, 24, col, signed=True, inner=inners[i])
-        ly = y - 38 if y < CY else y + 40
-        s.text(x, ly, lab, 11, INK, font=MONO, anchor="middle", weight="bold")
+        # beside the roundel: above and below are taken by the orbit labels,
+        # the spoke and the responder caption; a paper plate keeps the orbit
+        # flow lines off the text
+        tw = len(lab) * 7.0 * s.fscale + 10
+        s.rect(x - 37 - tw if x < CX - 10 else x + 37, y - 9, tw, 18, fill=PAPER, rx=4, op=0.92)
+        if x < CX - 10:
+            s.text(x - 42, y + 4, lab, 11, INK, font=MONO, anchor="end", weight="bold")
+        else:
+            s.text(x + 42, y + 4, lab, 11, INK, font=MONO, weight="bold")
 
     # ground (centre): the responder fuses + signs
     s.lotus(CX, CY, LR)
     s.seal(CX + LR * 0.84, CY - LR * 0.84, 13, fill=LEAF)
-    s.text(CX, CY + LR + 40, "the responder · decodes + fuses + signs", 12.5,
+    s.text(CX, CY + ER * 0.92 + 70, "the responder · decodes + fuses + signs", 12.5,
            INK, font=MONO, anchor="middle", weight="bold")
 
     s.line(220, H - 116, W - 220, H - 116, INK_SOFT, 0.8, op=0.45)
@@ -584,17 +604,17 @@ def encoders_split():
 def fusion():
     return _encoders("33-fusion-orbit-and-ground", 33,
         "Fusion: orbit and ground",
-        "many modalities, one cell, one signed record the next agent can cite",
-        "S1, S2, DEM and climate fuse at one cell into a record with a content id.")
+        "many modalities, one cell, signed facts the next agent can cite",
+        "S1, S2, DEM and climate facts meet at one cell. Each one is signed and has a content id.")
 
 
 def agent_to_token():
     return _pipeline("38-agent-to-token", 38, "From your agent to a token",
-        "the whole loop: read with no account, verify with no trust, keep one line",
+        "the whole loop: read with no account, verify offline, keep one line",
         [("your agent", "any model", INDIGO), ("MCP · REST", "same handlers", TEAL),
          ("recall", "hit, or fetch once", LEAF), ("open sources", "on the first miss", TURMERIC),
          ("signed fact", "blake3 · ed25519", LAC)],
-        "MEMORY TOKEN", "84 chars · resolves anywhere",
+        "MEMORY TOKEN", "about 84 chars\nresolves anywhere",
         "The agent keeps one line; any agent, on any model, resolves the same bytes.")
 
 

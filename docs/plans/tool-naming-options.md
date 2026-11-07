@@ -1,43 +1,37 @@
-# Tool naming consistency: an options memo
+# Tool naming: should emem rename its MCP tools?
 
-> Checked 2026-09-29: the recommendation held and no `emem_` tool was renamed.
-> The count is now 114, not 107, and two of the additions, `search` and
-> `fetch`, carry no `emem_` prefix because a ChatGPT connector looks those
-> names up; `emem_triple_consensus` is gone with the retired foundation models.
-> The gate on new tool names suggested below was not built. The live list is
-> `emem_tools`, or `GET /v1/tools`.
+Status: decision memo for the owner. It is a plan, not a shipped change.
+Nobody renamed a tool. Do not rename a tool until the owner decides.
 
-Status: decision memo for the owner. Nothing here has been done. No tool has
-been renamed and none should be until this is decided.
+The first version of this memo is from 11 August 2026. It used https://emem.dev
+and the external scorer at https://glama.ai/mcp/servers/Vortx-AI/emem/score.
+This edit checks it again on 7 November 2026. Each number below carries its date.
 
-Written 2026-08-11 against the live responder at https://emem.dev and the
-external scorer at https://glama.ai/mcp/servers/Vortx-AI/emem/score.
+## Recommendation
 
-## Why this memo exists, and one correction to the premise
+Do not rename the tools. A rename breaks callers that you cannot update.
+The score gain is small, and the same gain comes from cheaper work.
+[Recommendation in detail](#recommendation-in-detail) gives the reasons.
 
-Glama scores an MCP server on two axes. Tool Definition Quality is 70 percent
-of the total and is computed as `60% x mean + 40% x minimum` across tools, so
-the worst tool sets a floor. Server Coherence is the other 30 percent, and
-Naming Consistency is one of its four dimensions, alongside Disambiguation,
-Tool Count and Completeness.
+## What changed between August and November 2026
 
-The premise this memo was commissioned under was that Naming Consistency
-scores 3 out of 5. It does not, as of the page fetched 2026-08-11: it scores
-**4 out of 5**, and the scorer's own comment now ends "The inconsistency is
-minor and the overall scheme remains predictable." The 3 out of 5 and its
-harsher wording belong to an earlier evaluation.
+| Item | 11 August 2026 | 7 November 2026 |
+|---|---|---|
+| Tools on `/mcp/full` | 107, all with the `emem_` prefix | 116; `search` and `fetch` have no prefix, because a ChatGPT connector calls those names |
+| `emem_triple_consensus` | listed | removed with the retired foundation models |
+| Tools that Glama scores | 16 | 18 (the core list that `/mcp` advertises) |
+| Glama Naming Consistency | 4 of 5 ("the inconsistency is minor") | 3 of 5, scored 19 October 2026 |
+| Lowest tool score | 4.0 (`emem_guard_verdict`) | 4.2 (`emem_memory_token` and `emem_memory_token_resolve`) |
+| Unknown tool name | tool result with `isError: true` | JSON-RPC error `-32602` that suggests the nearest names |
+| Gate on new tool names in `scripts/` | suggested | not built |
 
-That changes the question. The gap being argued over is one point on one of
-four dimensions inside the smaller half of the score, and the scorer has
-already said in writing that it considers the problem cosmetic. The arithmetic
-below puts a number on it.
+The live tool list is `emem_tools` (MCP) or `GET /v1/tools` (REST).
 
 ## The inconsistency is real
 
-It is worth being clear that the scorer is describing something true. All 107
-tool names share the `emem_` prefix; after that they follow five different
-grammatical patterns. Grouped mechanically by the shape of the name after the
-prefix:
+All tool names except `search` and `fetch` start with `emem_`.
+After the prefix, the names follow five grammatical patterns.
+This count is from 11 August 2026, over the 107 tools of that day:
 
 | Pattern | Count | Examples |
 |---|---|---|
@@ -47,163 +41,166 @@ prefix:
 | Verb last | 12 | `emem_entity_resolve`, `emem_entity_link`, `emem_memory_token_resolve` |
 | Noun phrase, no verb | 45 | `emem_guard_verdict`, `emem_band_raster`, `emem_triple_consensus` |
 
-Two specific things an agent could reasonably trip over:
+An agent can make two mistakes because of this.
 
-1. **The same verb sits on both sides of the name.** `emem_verify_receipt`
-   puts `verify` first; `emem_echo_verify` and `emem_trace_verify` put it
-   last. `emem_find_similar` puts the verb first; `emem_entity_resolve`,
-   `emem_cube_resolve` and `emem_raster_resolve` put it last. Nothing in the
-   surface tells you which convention a given tool follows, so the name cannot
-   be guessed and has to be looked up.
-2. **The `emem_memory_*` family is internally inconsistent.** It contains
-   `emem_memory_create`, `emem_memory_insert`, `emem_memory_delete`,
-   `emem_memory_rename` and `emem_memory_view`, which are noun then verb; also
-   `emem_memory_search`, same shape; and also `emem_memory_bundle`,
-   `emem_memory_token` and `emem_memory_contradictions`, which are noun then
-   noun. So `emem_memory_search` is an action and `emem_memory_token` is a
-   thing, and the names do not signal the difference.
+1. The same verb is at the start of some names and at the end of others.
+   On 7 November 2026, `verify` starts `emem_verify_receipt` and ends
+   `emem_echo_verify` and `emem_trace_verify`. `resolve` ends six names,
+   for example `emem_entity_resolve` and `emem_raster_resolve`.
+   The name does not show the convention, so the agent must look it up.
+2. The `emem_memory_*` family mixes actions and things. It has 14 tools
+   on 7 November 2026. `emem_memory_create`, `emem_memory_search` and
+   `emem_memory_view` are actions. `emem_memory_bundle`, `emem_memory_token`
+   and `emem_memory_contradictions` are things. The names do not show
+   which is which.
 
-`emem_at` is a preposition and is the single hardest name to place in any
-scheme.
+`emem_at` is a preposition. It does not fit any naming scheme.
 
-## What a rename would break
+Glama gave the same reasons on 19 October 2026. It names `search` and
+`fetch` as unprefixed. It says that the set mixes verb names such as
+`locate` and `recall` with noun names such as `memory_token` and `entity`.
 
-A tool name is not an internal symbol. It is the public call surface, and it
-is copied into places that do not update when the server does.
+## What a rename breaks
 
-* **Every doc and page that names a tool.** `emem_` tool names appear across
-  README.md, docs/, the baked web pages and the whitepaper. These are fixable
-  in one pass, and `scripts/sync_counts.py` would catch counts, but nothing
-  currently gates that a tool name mentioned in prose still exists.
-* **Both SDKs.** The published `@vortxai/emem` and `ememdev` packages pin
-  names. A rename means a release on both registries, and every pinned
-  dependency keeps calling the old name until its owner upgrades.
-* **Cached clients, which is the serious one.** The MCP specification tells
-  clients they may cache the tool list, and gives servers `ttlMs` and
-  `cacheScope` to encourage it: "Deterministic ordering enables clients to
-  reliably cache the tool list and improves LLM prompt cache hit rates."
-  A client holding a cached list calls the old name and gets
-  `-32602 unknown tool`. Verified live on 2026-08-11:
+A tool name is the public call surface. Other people copy it into places
+that do not change when the server changes.
 
-  ```
-  tool error (-32602): unknown tool 'emem_find_similiar';
-  call tools/list for the catalog
-  ```
+| Place | Effect of a rename |
+|---|---|
+| Docs, `README.md` and the web pages | You can fix them in one pass. No check finds a tool name in prose that no longer exists. `scripts/sync_counts.py` checks counts only. |
+| The two SDKs (`@vortxai/emem` on npm, `ememdev` on PyPI) | Both need a release. A caller that pins an old version keeps the old names. |
+| Clients that cache the tool list | The MCP specification lets clients cache the list and gives servers `ttlMs` and `cacheScope` for it. It says that a fixed order lets clients cache the list and improves prompt cache hit rates. A cached client calls the old name and gets an error. This is the largest cost. |
+| `server.json` and MCP directory entries | Other people crawl them on their own schedule. |
+| Signed notes that name a tool | Notes are content addressed. Nobody can edit them, so old names stay in the record. |
 
-  This is returned as a tool result with `isError: true`, which is the
-  recoverable form the specification recommends, and the message names the
-  recovery. That is about as soft as this failure can be made, but it is still
-  a failed call in someone else's agent loop that we caused.
-* **The MCP registry listing and directory entries.** `server.json` and the
-  registry copies describe the surface. Those are re-crawled on someone else's
-  schedule, not ours.
-* **The arcade and the A2A agents.** Other agents hold signed notes citing
-  tool names. Those notes are content addressed and cannot be edited, so the
-  historical record would permanently reference names that no longer resolve.
+On 7 November 2026, a call to an unknown name returns a JSON-RPC error:
 
-## Does MCP have an alias or deprecation mechanism?
+```json
+{"error": {"code": -32602, "message": "Unknown tool: emem_find_similiar. Did you mean emem_find_similar? emem_tools lists the catalog."}, "id": 1, "jsonrpc": "2.0"}
+```
 
-**No.** Checked against the current specification, 2026-07-28, the revision
-after the 2025-11-25 one this server serves. A tool definition carries exactly
-`name`, `title`, `description`, `icons`, `inputSchema`, `outputSchema`,
-`annotations` and `_meta`. There is no deprecation flag, no alias field, no
-`renamedFrom`, and the prose says nothing about renaming tools. The only
-relevant guidance is that names "SHOULD be unique within a server".
+The suggestion comes from an edit distance over the tool list
+(`mcp_unknown_tool_message` in `crates/emem-api-rest/src/lib.rs`).
+It helps after a small typo. A renamed tool usually differs by more
+characters, so the error then gives no suggestion. The call still fails.
 
-Three mechanisms exist that partly substitute:
+## Aliases and deprecation in MCP
 
-1. **`title` is already decoupled from `name`.** The specification defines
-   `title` as the optional human readable display name. This server already
-   sets it: `emem_find_similar` carries the title "k-NN over the corpus by
-   embedding". So the presentation layer is already free of the naming scheme.
-   Whether Glama scores `name` or `title` matters here, and its comment quotes
-   the `emem_` prefix and the underscore patterns, so it is reading `name`.
-2. **`notifications/tools/list_changed`** tells subscribed clients the list
-   moved. It does not help a client that is not subscribed, and it does not
-   make an old name resolve.
-3. **Server side aliasing, which needs no protocol support and already
-   works.** `tools/call` dispatch is independent of what `tools/list`
-   advertises. Verified live on 2026-08-11: `emem_capabilities` is not on the
-   first `tools/list` page at `/mcp`, and calling it at `/mcp` returns a
-   normal result. So old names could keep dispatching indefinitely while only
-   new names are advertised. This is the real deprecation path if a rename
-   ever happens, and it costs one lookup table.
+The MCP specification has no alias field and no deprecation flag.
+The memo checked this on 28 July 2026, in the revision after 2025-11-25.
+The server speaks 2025-11-25 (from `initialize` on 7 November 2026).
+The specification says only that names "SHOULD be unique within a server".
 
-## What the score would plausibly become
+Three mechanisms do part of the job.
 
-Stated as arithmetic with the assumption made visible: the four coherence
-dimensions are assumed equally weighted, which the page does not confirm.
+1. `title` is separate from `name`. It is the display name for people.
+   The server sets it. On 7 November 2026, `emem_find_similar` has the
+   title "k-NN over the corpus by embedding". Glama quotes name fragments
+   in its comments, so it reads `name`, not `title`.
+2. `notifications/tools/list_changed` tells a subscribed client that the
+   list changed. It does not make an old name work. On 7 November 2026
+   the server declares `listChanged: false`, so it does not send it.
+3. The server can keep an old name working without protocol support.
+   `tools/call` does not depend on what `tools/list` advertises.
+   On 7 November 2026, `emem_capabilities` is not in the 18 tools on
+   `/mcp`. A call to it at `/mcp` still returns a normal result.
+   So after a rename, a lookup table could keep the old names working
+   while `tools/list` shows only the new names.
 
-Current, from the page on 2026-08-11:
+## What the score could become
 
-* Coherence dimensions: Disambiguation 4, Naming 4, Tool Count 5,
-  Completeness 4. Mean 4.25.
-* Tool scores: mean 4.7 across 16 scored tools, minimum 4.0
-  (`emem_guard_verdict`).
-* Tool Definition Quality = `0.6 x 4.7 + 0.4 x 4.0` = 4.42.
-* Overall = `0.7 x 4.42 + 0.3 x 4.25` = **4.369**.
+The arithmetic uses two assumptions. The page does not confirm either.
 
-If a full rename lifted Naming from 4 to 5 and nothing else moved:
+- Tool Definition Quality is 70 percent of the total. It is
+  `0.6 x mean + 0.4 x minimum` over the scored tools.
+- Server Coherence is 30 percent. Its four dimensions have equal weight:
+  Disambiguation, Naming Consistency, Tool Count and Completeness.
 
-* Coherence mean becomes 4.5. Overall = `0.7 x 4.42 + 0.3 x 4.5` = **4.444**.
-* Gain: **+0.075 out of 5**, about 1.5 percent.
+With these assumptions, one point on one coherence dimension adds
+`0.3 x 0.25 x 1 = 0.075` to the total out of 5.
 
-Compare that with the `emem_guard_verdict` annotation fix that already
-shipped, in commit 6d54683, and is live but has not been rescored. Its
-Behavioral Transparency was marked 1 out of 5 for a contradiction that no
-longer exists. If a rescore takes that tool to roughly 4.8, the floor rises to
-the next lowest tool at 4.2:
+### Score on 11 August 2026
 
-* Tool Definition Quality = `0.6 x 4.75 + 0.4 x 4.2` = 4.53.
-* Overall = `0.7 x 4.53 + 0.3 x 4.25` = **4.446**.
-* Gain: **+0.077 out of 5**.
+| Input | Value |
+|---|---|
+| Coherence | Disambiguation 4, Naming 4, Tool Count 5, Completeness 4; mean 4.25 |
+| Tool scores | mean 4.7 over 16 tools, minimum 4.0 (`emem_guard_verdict`) |
+| Tool Definition Quality | `0.6 x 4.7 + 0.4 x 4.0 = 4.42` |
+| Total | `0.7 x 4.42 + 0.3 x 4.25 = 4.369` |
 
-So renaming all 107 tools and waiting for a rescore of an already shipped
-one line annotation change are worth the same amount, to three decimal
-places. One of them is free and already done.
+The memo compared two changes on that day:
 
-The reason is structural, not a coincidence. Naming is a quarter of the
-30 percent axis, so it can move the total by at most `0.3 x 0.25 x 1/5`.
-The minimum tool score is 40 percent of the 70 percent axis and has no such
-divisor. The rubric is built to punish one bad tool, not an untidy scheme.
+| Change | New total | Gain |
+|---|---|---|
+| Rename all tools; Naming goes from 4 to 5 | 4.444 | +0.075 |
+| Rescore `emem_guard_verdict` after the annotation fix in commit 6d54683 (about 4.8; the floor becomes the next tool, 4.2) | 4.446 | +0.077 |
 
-## Recommendation
+Glama had marked the Behavioral Transparency of `emem_guard_verdict` 1 out of 5.
+The reason was a contradiction in its annotations that commit 6d54683 removed.
 
-**Do not rename anything.** Three reasons, in order of weight:
+The rescore happened. On 19 October 2026, `emem_guard_verdict` scored 4.5.
 
-1. The measurable gain is +0.075 out of 5. The cost is a coordinated break
-   across two SDK registries, every doc, the registry listings, and every
-   cached client, plus a permanent mismatch with signed historical notes that
-   cannot be rewritten.
-2. The scorer has already downgraded this from a real complaint to a minor
-   one, in its own words, and moved it from 3 to 4. The remaining point may
-   not be reachable at all: `emem_at` and the bare nouns are not going to fit
-   a verb_noun scheme without names that are worse to read.
-3. The same gain is available from work already finished. The floor, not the
-   naming, is what the rubric actually weights.
+### Score on 19 October 2026
 
-**Instead, if the naming point is wanted later**, the cheap version is to hold
-new tools to one convention rather than converting the existing 107. A gate in
-`scripts/` could require that any newly added tool name matches
-`emem_<noun>_<verb>` or a short allowlist, which stops the spread at zero cost
-to callers, since it only ever applies to names nobody has called yet. That is
-a small, reversible change and does not need this decision.
+| Input | Value |
+|---|---|
+| Coherence | Disambiguation 3, Naming 3, Tool Count 3, Completeness 4; mean 3.25 |
+| Tool scores | mean 4.544 over 18 tools, minimum 4.2 (`emem_memory_token`, `emem_memory_token_resolve`) |
+| Tool Definition Quality | `0.6 x 4.544 + 0.4 x 4.2 = 4.407` |
+| Total | `0.7 x 4.407 + 0.3 x 3.25 = 4.060`; the page shows 4.1 |
 
-**Cost if the owner overrules this and wants the rename anyway:** roughly one
-day of edits across docs, SDKs and registry files, plus a server side alias
-table that must be kept forever, plus two SDK releases, plus an unbounded tail
-of cached clients calling old names. The alias table is what makes it safe,
-and it is also what makes it permanent: the inconsistency does not actually go
-away, it just stops being advertised.
+The formula gives 4.060. Rounded to one decimal, that is the 4.1 on the page.
+That supports the two assumptions. It does not prove them.
 
-## What I could not verify
+| Change | New total | Gain |
+|---|---|---|
+| Rename all tools; Naming goes from 3 to 4 | 4.134 | +0.075 |
+| Lift the two 4.2 tools to 4.6; the floor becomes 4.4 | 4.134 | +0.075 |
 
-* Whether Glama weights the four coherence dimensions equally. The arithmetic
-  above assumes it does. If Naming is weighted lower, the rename is worth even
-  less; if higher, proportionally more, but it cannot exceed
-  `0.3 x 1/5 = 0.06` per dimension point even if Naming were the only
-  dimension that mattered at 100 percent weight, which it plainly is not.
-* Whether Glama scores `name` or the combination of `name` and `title`. Its
-  comment quotes name fragments, which is why this memo treats it as `name`.
-* When Glama will next rescore. The page carries no scoring timestamp, so the
-  +0.077 from the `emem_guard_verdict` fix is projected, not observed.
+The result is the same as in August. The minimum tool score is 40 percent
+of the 70 percent part. The naming score is one quarter of the 30 percent part.
+So the rubric punishes one weak tool more than an untidy naming scheme.
+
+## Recommendation in detail
+
+Do not rename anything. The reasons, most important first:
+
+1. The gain is +0.075 out of 5. The cost is a coordinated break across
+   two SDK registries, the docs, the directory listings and every cached
+   client. Signed notes keep the old names for ever.
+2. The last point may not be reachable. `emem_at` and the bare nouns do
+   not fit a verb and noun scheme without names that are harder to read.
+3. Better descriptions on the lowest scored tools give the same gain.
+   They break no caller.
+
+Glama called the problem minor in August. In October it scored Naming 3
+and did not call it minor. This changes the size of the gap, not the
+arithmetic. Reason 1 still holds.
+
+If the owner wants the naming point later, apply one convention to new
+tools only. A check in `scripts/` could require that a new tool name
+matches `emem_<noun>_<verb>` or a short allowlist. Nobody calls a new
+name yet, so the check costs callers nothing. It is small and you can
+remove it. This check does not exist on 7 November 2026.
+
+If the owner wants the rename anyway, the cost is:
+
+- about one day of edits across docs, SDKs and registry files;
+- a server alias table that must stay for ever;
+- two SDK releases;
+- an unknown number of cached clients that call old names.
+
+The alias table makes the rename safe. It also makes it permanent: the old
+names still work, so the inconsistency stays. Only the advertised list changes.
+
+## What this memo could not check
+
+- Whether Glama gives the four coherence dimensions equal weight. If
+  the Naming weight is lower, the rename is worth less. If Naming were the
+  only dimension, one point would add `0.3` out of 5. That is the upper limit.
+  The August memo gave `0.06`. That was the fraction `0.3 x 1/5`, not a
+  score out of 5.
+- Whether Glama scores `name` alone or `name` with `title`. Its comments
+  quote name fragments, so this memo assumes `name`.
+- When Glama scores again. The 19 October 2026 score is the latest that
+  the page showed on 7 November 2026.

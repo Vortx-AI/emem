@@ -1,0 +1,189 @@
+[
+ {
+  "path": "stills/src/data/a2a/scene.png",
+  "url": "https://emem.dev/v1/cells/defi.zb27d.xobA.lAkA/scene.png?datetime=2024-01-01/2024-03-31&max_cloud=5",
+  "sha256": "a6d5f6189516c7a71a8f9f95c894e523bb6dc6bb009569dd70cf7d620266d805",
+  "bytes": 168658
+ },
+ {
+  "path": "stills/src/data/hero/scene.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=138.711,35.347,138.751,35.379&datetime=2025-11-01/2025-12-31&max_cloud=10",
+  "sha256": "94276028dbe667c1e7289a26fa9bfa80b029693a012aaa1f85ab17ea147f5d35",
+  "bytes": 353726
+ },
+ {
+  "path": "stills/src/data/recall/scene-420.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=6.49,46.437,6.62,46.527&datetime=2026-07-01/2026-10-31&max_cloud=5",
+  "sha256": "4c952fbfe74558be7b026d7e9d65d19262eee409bd2234a1354a73ddfb746a41",
+  "bytes": 343854,
+  "resize_lanczos": 420
+ },
+ {
+  "path": "stills/src/data/scene-2024-08-01.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-07-31/2024-08-02&max_cloud=50",
+  "sha256": "8e8ab3b3330cca630f7c00a631aa76439abebaff72fd04b714bce0749d8571fe",
+  "bytes": 55972
+ },
+ {
+  "path": "stills/src/data/scene-2024-10-22.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-10-21/2024-10-23&max_cloud=50",
+  "sha256": "61e8984acf2704050d63c46db11eb80ee06a11069810bc0ba50720510b7fde08",
+  "bytes": 44179
+ },
+ {
+  "path": "stills/src/data/fields/scene-2025-06-22.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.7171,41.9846,-93.6861,42.0100&datetime=2025-06-21/2025-06-23&max_cloud=50",
+  "sha256": "a7c54c888a3f46a4e25a3c6e37bf65ecc7f3d3b48c6fd910d7a23f52746425ba",
+  "bytes": 166699
+ },
+ {
+  "path": "stills/src/data/similar/n0.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=31.06697,30.03317,31.08777,30.05117&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "beeb8033e56c41d1bcde9dc7381901ea29d365010bf16f2beab270612360b2b5",
+  "bytes": 101055
+ },
+ {
+  "path": "stills/src/data/similar/n1.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-9.16130,38.71607,-9.13823,38.73407&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "f5a6190403d3087ae6d9d8651d4978324f4d19db8c3255d41a2aeadca2071053",
+  "bytes": 120873
+ },
+ {
+  "path": "stills/src/data/similar/n2.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-0.69145,21.12738,-0.67215,21.14538&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "2f029a2da39c35cee34183a40972bbab1329c58b1e92aeec83a4d494f684af4d",
+  "bytes": 91236
+ },
+ {
+  "path": "stills/src/data/similar/n3.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-116.01141,37.99191,-115.98857,38.00991&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "509d1817dfed03e75674a5f88b1192c938c17abe649a6ccea635212778421b93",
+  "bytes": 82417
+ },
+ {
+  "path": "stills/src/data/similar/n4.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=35.48483,31.74841,35.50600,31.76641&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "77eb84d3d1f652ce868cfba473577c83e806ff914b2a3593c8c0fb7dc00f16d5",
+  "bytes": 100824
+ },
+ {
+  "path": "stills/src/data/similar/n5.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=31.33417,29.93009,31.35495,29.94809&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "3cdce306146960b1bc44470d605cf5b91dc09e46a1c80cbded5155b39361a80a",
+  "bytes": 102621
+ },
+ {
+  "path": "stills/src/data/similar/n6.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-87.66888,41.84288,-87.64472,41.86088&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "19e7ebd063a6889e09cd7aee87ab391df667523775206067a2c9c485294a8a5d",
+  "bytes": 118015
+ },
+ {
+  "path": "stills/src/data/similar/seed.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=55.31732,25.16626,55.33721,25.18426&datetime=2024-03-01/2024-10-31&max_cloud=5",
+  "sha256": "928a8553b2628f07106e5ccaf994aa273a402bd8797104ca0d923f8885888259",
+  "bytes": 108524
+ },
+ {
+  "path": "films/src/data/season/2024-02-15.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-02-14/2024-02-16&max_cloud=100",
+  "sha256": "ad7b8ff20679922659202de12a5a22f6d21a59cb91276f6f71e2e9bfc133a39a",
+  "bytes": 50286
+ },
+ {
+  "path": "films/src/data/season/2024-03-11.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-03-10/2024-03-12&max_cloud=100",
+  "sha256": "fb2b62628594745768c1d024a4aae1190888f0e04652c4fb07fad346c700422b",
+  "bytes": 49856
+ },
+ {
+  "path": "films/src/data/season/2024-04-13.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-04-12/2024-04-14&max_cloud=100",
+  "sha256": "62b1065a582b5fecb2afc6a8dc97c466f24297c4247316dd8509d62ad93a2137",
+  "bytes": 50149
+ },
+ {
+  "path": "films/src/data/season/2024-05-25.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-05-24/2024-05-26&max_cloud=100",
+  "sha256": "c5a68ee6050d52258a97f5422352dfd2fe2a4a667d2d586fb5816e849257f424",
+  "bytes": 50107
+ },
+ {
+  "path": "films/src/data/season/2024-07-12.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-07-11/2024-07-13&max_cloud=100",
+  "sha256": "89c2f46f23537edcaa3f7abd1c09d31c40519be67a5714320357a57993a4fea5",
+  "bytes": 54447
+ },
+ {
+  "path": "films/src/data/season/2024-08-01.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-07-31/2024-08-02&max_cloud=100",
+  "sha256": "8e8ab3b3330cca630f7c00a631aa76439abebaff72fd04b714bce0749d8571fe",
+  "bytes": 55972
+ },
+ {
+  "path": "films/src/data/season/2024-10-02.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-10-01/2024-10-03&max_cloud=100",
+  "sha256": "4a7d082849f74bdaafd09607a902f12a0f150a57b476d1c229a06b6e45beef41",
+  "bytes": 46689
+ },
+ {
+  "path": "films/src/data/season/2024-10-22.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-10-21/2024-10-23&max_cloud=100",
+  "sha256": "61e8984acf2704050d63c46db11eb80ee06a11069810bc0ba50720510b7fde08",
+  "bytes": 44179
+ },
+ {
+  "path": "films/src/data/season/2024-11-21.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-11-20/2024-11-22&max_cloud=100",
+  "sha256": "3641da2599d6f7e27e13777d17e398660ba27c07107fbcd45bf333c6415d59dd",
+  "bytes": 47169
+ },
+ {
+  "path": "films/src/data/season/2024-12-06.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2024-12-05/2024-12-07&max_cloud=100",
+  "sha256": "c7a06cde1be1396324994067d6d49d3b604b9e10ab08ea127e7a389d6c5d72df",
+  "bytes": 47133
+ },
+ {
+  "path": "films/src/data/season/2025-03-06.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-03-05/2025-03-07&max_cloud=100",
+  "sha256": "a05a107509266cc6ef4fa591ce0b5aa03cfc8deb7c58148ab212ef3e7b308249",
+  "bytes": 59593
+ },
+ {
+  "path": "films/src/data/season/2025-04-07.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-04-06/2025-04-08&max_cloud=100",
+  "sha256": "879ff9a9674ad95d1b4179664b8e399140c898772beb7874940f03d3452cb55f",
+  "bytes": 49635
+ },
+ {
+  "path": "films/src/data/season/2025-05-10.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-05-09/2025-05-11&max_cloud=100",
+  "sha256": "945a4359ae9425b6ed981587bd6511f690f5cc89f6ffa6e6101cf34a400e24c8",
+  "bytes": 49117
+ },
+ {
+  "path": "films/src/data/season/2025-06-06.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-06-05/2025-06-07&max_cloud=100",
+  "sha256": "7a279dffd6d52a102f06ca26ce8e42dbf4a07aab10b127f4a169e98c20cbb298",
+  "bytes": 39825
+ },
+ {
+  "path": "films/src/data/season/2025-07-07.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-07-06/2025-07-08&max_cloud=100",
+  "sha256": "142609df003edc93cb4dd1c421cd04dfe05cd524b7037be20ed378604ded28ac",
+  "bytes": 53250
+ },
+ {
+  "path": "films/src/data/season/2025-10-17.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-10-16/2025-10-18&max_cloud=100",
+  "sha256": "3282ba29e37c4445454a8d456073a8cfc812ff5c87dc0306927e249fdefe6962",
+  "bytes": 44053
+ },
+ {
+  "path": "films/src/data/season/2025-11-14.png",
+  "url": "https://emem.dev/v1/scene.png?bbox=-93.706,41.996,-93.688,42.008&datetime=2025-11-13/2025-11-15&max_cloud=100",
+  "sha256": "90453a588a28ee3ca78c91db1df0a5918afb37af397de1e5ff97d72a5a7c9c0b",
+  "bytes": 48885
+ }
+]

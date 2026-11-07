@@ -1,60 +1,81 @@
 # ChatGPT App Submission Notes
 
+These notes are for the OpenAI reviewer of the emem app. The last section
+tells the operator how to pass the domain check before a submission.
+
 ## For reviewers
 
-**emem is shared, verifiable memory for AI agents.** It is public,
-open-source (Apache-2.0) and free to read with no key and no account.
+emem gives AI agents a shared memory that anyone can verify. It is public and
+open source (Apache-2.0). Reads are free and need no key and no account.
 
-The problem it addresses is not search. A model's memory ends where its context
-does: when a session is compacted, a task hands off, or the model is swapped,
-what the model verified turns into a paraphrase and the paraphrase drifts. emem
-gives every place one canonical address and every observation one signed fact,
-so a citation survives leaving the conversation and can be re-checked by anyone
-who receives it.
+The app solves a memory problem. A model's memory ends where its context ends.
+A client compacts a session, a task goes to another agent, or a new model
+replaces the old one. Then the facts that the model checked become a paraphrase, and the
+paraphrase drifts.
 
-**What that means for a ChatGPT user.** A place-based answer comes back as a
-measurement with an ed25519 receipt attached, plus a short token that resolves
-anywhere to the byte-identical signed value. The user can verify the answer at
-https://emem.dev/verify without trusting emem, and can hand the token to
-another agent that will read the same bytes.
+emem gives each place one canonical address and each observation one signed
+fact. A citation stays valid outside the conversation. Anyone who receives it
+can check it again.
 
-**Earth is the substrate, not the subject.** Satellites and sensors fill this
-memory today because their output can be recomputed from the cited source. The
-app is not a map or a geocoder.
+For a ChatGPT user, a place-based answer is a measurement with an ed25519
+receipt. It also has a short token. The token resolves anywhere to the same
+signed bytes. The user can verify the answer at https://emem.dev/verify, with
+no trust in emem. The user can also give the token to another agent, which
+then reads the same bytes.
+
+Satellites and sensors fill this memory today, because anyone can recompute
+their output from the cited source. The app is not a map and not a geocoder.
 
 ## Safety and scope
 
-- **No user data is written.** Nine of the eighteen tools are strictly read-only.
-  Seven more (`emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`,
-  `emem_memory_bundle`, and `search` and `fetch`, the two names a ChatGPT
-  connector looks up, which project `emem_recall`) materialise and sign new facts into emem's publicly
-  readable store when a requested band is cold, which is why their
-  `readOnlyHint` is false. What they write is derived from public
-  Earth-observation sources, never from anything the user sent. Nothing is ever
-  overwritten or removed, so `destructiveHint` is false everywhere.
-- **Two tools can write, and both are gated.** `emem_entity` mints a shared
-  identity and `emem_entity_link` binds a phrasing to one. Those change what
-  every other agent resolves a name to, so they require an ed25519 attester
-  block signed by a locally generated keypair; unsigned callers get a 403 that
-  names the missing field. A ChatGPT user has no such key, so in this app both
-  decline rather than write. This is the honest version of a claim an earlier
-  draft made as "none of emem's write verbs is exposed", which stopped being
-  true when the submission grew to the full core surface.
-- **It does not modify user data** and takes no external write action on the
-  user's behalf.
-- **It sends no user identity.** ChatGPT sends the place or question; no
-  account, session or user identifier is transmitted. See [privacy.md](privacy.md).
-- **Writes, which this app does not use, are gated.** They require an ed25519
-  attester block signed by a locally generated keypair, and a published
-  enlistment ladder governs which surfaces a given attester may write to
-  (https://emem.dev/v1/enlist). Reads are never gated at any tier.
-- **Provenance is typed.** Every fact records how it was produced
-  (direct sensor, deterministic index, model output, human curated) so a
-  consumer can tell a measurement from an inference. Model prose is served
-  separately and labelled `signed:false`, because prose is never evidence.
-- **Failure is typed rather than hidden.** A confirmed absence is signed and
-  citeable, an unknown is typed and never poses as a value, and a refusal names
-  its reason.
+The 18 tools fall into three groups (live `/mcp` annotations, 7 November
+2026):
+
+| Group | Tools | What they write |
+|---|---|---|
+| Read-only (9) | `emem_locate`, `emem_memory_token`, `emem_memory_token_resolve`, `emem_verify_receipt`, `emem_memory_contradictions`, `emem_guard_verdict`, `emem_tools`, `emem_echo_verify`, `emem_entity_resolve` | Nothing. |
+| Can sign new facts (7) | `emem_ask`, `emem_recall`, `emem_find_similar`, `emem_intent`, `emem_memory_bundle`, `search`, `fetch` | When a requested band is cold, they fetch public Earth observation data and sign new facts. |
+| Gated writes (2) | `emem_entity`, `emem_entity_link` | A shared identity, or a link from a phrasing to one. |
+
+`search` and `fetch` call `emem_recall` under the two names that a ChatGPT
+connector looks for.
+
+The seven tools in the second group put new facts in emem's public store.
+That is why their `readOnlyHint` is false. These facts come from public Earth
+observation sources, never from what the user sent. No tool overwrites or
+removes data, so `destructiveHint` is false on all 18 tools.
+
+`emem_entity` mints a shared identity. `emem_entity_link` binds a phrasing to
+an identity. Both change the name that every other agent resolves, so each
+call needs an ed25519 attester block. The caller signs it with a keypair that
+the caller makes locally. The caller must also hold tier T3 on the enlistment
+ladder, which `https://emem.dev/v1/enlist` publishes. Without a signature, the server refuses
+with HTTP 403 and returns the digest to sign. Over MCP, the refusal is a tool error. A ChatGPT user has no such key,
+so in this app both tools refuse and write nothing.
+
+An earlier draft of this page said "none of emem's write verbs is exposed".
+That stopped being true when the app grew to the full core loop of 18 tools.
+The two gated tools above are the correct statement.
+
+What the app does not do:
+
+- It does not change user data.
+- It takes no external action for the user.
+- It sends no user identity. ChatGPT sends the place or the question, and no
+  account, session or user identifier. See [privacy.md](privacy.md).
+- It never gates a read, at any tier.
+
+How the app labels what it returns:
+
+- Each fact records how emem made it, as one of seven provenance classes:
+  `direct_sensor`, `deterministic_index`, `estimator`, `attested_execution`,
+  `model_output`, `human_curated` and `unclassified`. A reader can tell a
+  measurement from an inference.
+- emem serves model prose apart from facts, with the label `signed: false`.
+  Prose is never evidence.
+- A confirmed absence is a signed fact that a user can cite.
+- An unknown has a type and never shows as a value.
+- A refusal names its reason.
 
 ## Links
 
@@ -71,53 +92,68 @@ app is not a map or a geocoder.
 
 ## Listed on
 
-Each of these was checked to resolve at the time this file was generated.
+We checked each listing on 7 November 2026.
 
-- GitHub MCP registry: https://github.com/mcp/Vortx-AI/emem
-- Official MCP registry: `io.github.Vortx-AI/emem`
-- Dify marketplace: https://marketplace.dify.ai/plugin/vortx-ai/emem
-- Glama: https://glama.ai/mcp/servers/Vortx-AI/emem
-- Smithery: https://smithery.ai/servers/vortxai/emem
-- Hugging Face Space: https://huggingface.co/spaces/vortx-ai/emem
-- GHCR: `ghcr.io/vortx-ai/emem:v2.4.4` (also `:latest`)
+| Directory | Address | Check |
+|---|---|---|
+| GitHub MCP registry | https://github.com/mcp/Vortx-AI/emem | Page returns 200. |
+| Official MCP registry | `io.github.Vortx-AI/emem` | Registry API lists versions up to 2.4.4. |
+| Dify marketplace | https://marketplace.dify.ai/plugin/vortx-ai/emem | Page returns 200. |
+| Glama | https://glama.ai/mcp/servers/Vortx-AI/emem | Page returns 200. |
+| Smithery | https://smithery.ai/servers/vortxai/emem | The registry API at `registry.smithery.ai` lists `vortxai/emem`. The web page returned 404 to a script; it returned 404 for other servers too. |
+| Hugging Face Space | https://huggingface.co/spaces/vortx-ai/emem | Page returns 200. |
+| GHCR | `ghcr.io/vortx-ai/emem:v2.4.4`, also `:latest` | Both tags resolve. |
 
 ## Technical
 
-- Transport: Streamable HTTP. The server negotiates MCP **2025-11-25** and also
-  accepts 2025-06-18, 2025-03-26 and 2024-11-05; a request that sends no
-  `MCP-Protocol-Version` header is read as 2025-03-26, which is a fallback and
-  not the preferred version.
+- Transport: Streamable HTTP. The server prefers MCP 2025-11-25. It also
+  accepts 2025-06-18, 2025-03-26 and 2024-11-05. A request with no
+  `MCP-Protocol-Version` header gets 2025-03-26 as a fallback.
 - Authentication: none for reads.
-- **116 MCP tools available; the 16 of the core loop exposed in this app.** `/mcp` advertises the 18
-  tools of the core loop to keep a client's context small, `/mcp/full`
-  advertises all 116, and every tool is callable by name from either.
-- Content addressing: blake3 over canonical CBOR, base32-encoded. These are not
-  IPFS CIDs and do not begin with `bafy`.
-- Signatures: ed25519, verifiable offline against the key published at
-  `/.well-known/emem.json`.
-- Pure Rust server, Apache-2.0.
+- Tools: `/mcp` lists the 18 tools of the core loop, to keep a client's
+  context small. `/mcp/full` lists all 116 tools. A client can call any tool
+  by name on either endpoint.
+- Content addressing: BLAKE3 over canonical CBOR, encoded as base32. These are
+  not IPFS CIDs and do not start with `bafy`.
+- Signatures: ed25519. Verify them offline against the key at
+  `/.well-known/emem.json`, field `federation.node.responder_pubkey_b32`.
+- Server: pure Rust, Apache-2.0.
 
-## Before submitting
+## Pass the domain check
 
-The portal issues a **new domain-verification token for every submission**, and
-it is the one value in this process that must not enter the repository. It does
-not: `/.well-known/openai-apps-challenge` reads `EMEM_APPS_CHALLENGE` from the
-environment and answers 404 when that is unset, so a node with no token
-configured says so rather than serving a stale one.
+The portal issues a new domain-verification token for each submission. This
+token must not go into the repository. The route
+`/.well-known/openai-apps-challenge` reads `EMEM_APPS_CHALLENGE` from the
+environment. When that variable is not set, the route returns 404. Thus a node
+with no token says so and never serves an old one. On 7 November 2026,
+emem.dev returned 404 on this route.
 
-Set it on the host before starting a submission, not in source:
+Set the token on the host before you start a submission. Do not put it in
+source.
 
-```
-sudo systemctl edit emem-server        # Environment=EMEM_APPS_CHALLENGE=<token>
-sudo systemctl restart emem-server
-curl -s https://emem.dev/.well-known/openai-apps-challenge
-```
+1. Run `sudo systemctl edit emem-server`. Under `[Service]`, add the line
+   `Environment=EMEM_APPS_CHALLENGE=<token>`.
+2. Make sure that the `docker run` line of the unit has `-e EMEM_APPS_CHALLENGE \`.
+   This flag sends the host variable into the container.
+3. Restart the server and read the route:
 
-This paragraph used to say to replace the token in
-`crates/emem-api-rest/src/lib.rs`, naming a function that does not exist. This
-repository is public. An instruction to paste a per-submission credential into
-it is worse than a stale instruction, which is why it is called out here rather
-than quietly deleted.
+   ```sh
+   sudo systemctl restart emem-server
+   curl -s https://emem.dev/.well-known/openai-apps-challenge
+   ```
+
+Step 2 is necessary because production runs the server in a container. The
+unit in `deploy/systemd/emem-server.service` sends only the variables that it
+names with `-e`. On 7 November 2026 it did not name `EMEM_APPS_CHALLENGE`.
+Without step 2, the route stays at 404.
+
+These steps need root on the production host. We did not run them.
+
+An earlier version of this section said to paste the token into
+`crates/emem-api-rest/src/lib.rs`, in a function that does not exist. This
+repository is public. An instruction to put a per-submission credential in it
+is worse than a stale instruction. That is why this note records the error
+and does not delete it.
 
 ## Status
 

@@ -51,6 +51,16 @@ Bundled, it reverses and is the cleanest measurement in the study: flat at 38
 characters and one round trip at every N up to 256, against 26,624 characters and
 256 trips. The latency penalty falls from 7 to 10x to about 1.9x.
 
+On 7 November 2026 we measured the character counts again on live strings.
+The still counts characters only. It does not measure LLM tokens or latency.
+
+<img src="media/stills/citation-cost.webp" alt="Live reads of emem.dev on 7 November 2026 for 19 NDVI facts at the Mount Fuji cell. Characters per fact: the value rounded to 6 decimals 8.7, the value as signed 20.0, the fact token in cell64 form 83.0, the fact token in descriptor form 105.0. One bundle line, emem:bundle:y2k6h2laeo4libfsiebucdw4mu from 23 September 2026, is 38 characters for up to 256 facts. It is shorter than the tokens from N = 1, than the signed values from N = 2 and than the rounded values from N = 5. A log chart shows the four lines growing with N and the bundle flat, with one step per 256 facts." width="540">
+
+[`stills/src/citation_cost.py`](media/stills/src/citation_cost.py) draws the
+still and checks each string against its grammar. The cell64 token is still 83
+characters, as in the August sample. The descriptor token is 105 characters,
+so it costs more than the form costed above.
+
 Where addressing actually wins is narrow and worth stating exactly: at N=128
 selective questions, bundle 100% against context 83% and individual tokens 50%.
 

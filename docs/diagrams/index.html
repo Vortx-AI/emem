@@ -5,7 +5,7 @@
 <title>emem: visual suite (diagrams)</title>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
 <meta name="color-scheme" content="light dark"/>
-<meta name="description" content="Thirty-eight diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and two cover the encoder split. Live renders at /docs/gallery."/>
+<meta name="description" content="Forty-two diagrams: the first ten describe the protocol, twenty are one-page industry pitches, and twelve cover the encoder split, shared memory, device trust and the guard. Live renders at /docs/gallery."/>
 <link rel="canonical" href="https://emem.dev/docs/diagrams/"/>
 <meta property="og:type" content="website"/>
 <meta property="og:url" content="https://emem.dev/docs/diagrams/"/>
@@ -85,6 +85,7 @@
   figcaption p { margin: 0; color: var(--mut); font-size: 14px; line-height: 1.5; }
   h2.section { font-size: 14px; color: var(--mut); letter-spacing: 3px; text-transform: uppercase; font-weight: 600; margin: 8px 0 24px; padding-top: 24px; border-top: 1px solid var(--line); }
   h2.section:first-of-type { border-top: 0; padding-top: 0; }
+  p.section-note { color: var(--mut); font-size: 14px; line-height: 1.5; max-width: 64ch; margin: -12px 0 24px; }
   footer { padding: 24px 80px 64px; color: #6c7396; font-size: 13px; border-top: 1px solid var(--line); }
   footer a { color: var(--mut); text-decoration: none; }
   footer a:hover { color: var(--hi); }
@@ -118,11 +119,10 @@
 <div class="statusbar"><div class="statusbar-inner"><a href="/" class="brand"><img src="https://vortx.ai/assets/vortx-logo-36.gif" alt="">emem</a><span class="spacer"></span><a href="/">home</a><a href="/how-it-works">how it works</a><a href="/solutions">solutions</a><a href="/reference">reference</a><a href="/docs" class="on">docs</a><a href="/verify">verify</a><a href="https://github.com/Vortx-AI/emem" rel="noopener">github</a></div></div>
 <header>
   <h1>the visual suite</h1>
-  <p>Thirty-eight diagrams. The first ten describe the protocol, twenty are
-     one-page pitches, one chart, one line, for the businesses, governments, and
-     industries deploying real AI agents in 2026, and the rest cover the encoder
-     split, shared memory, and the orbit-to-ground device-trust substrate. Each is a 16:9 SVG with calm motion; open any tile to see it
-     full size. For live, signed renders of real cells, see
+  <p>Forty-two diagrams. The first ten describe the protocol. Twenty show one
+     industry use each, with one chart and one line. The rest cover sensor
+     decoding, shared memory, device trust and the guard. Each is an SVG, and
+     all but one have slow motion. Open any tile to see it full size. For live, signed renders of real cells, see
      <a href="/docs/gallery">/docs/gallery</a>.</p>
 </header>
 <nav>
@@ -161,266 +161,282 @@
   <a href="#28">28 forestry</a>
   <a href="#29">29 EUDR</a>
   <a href="#30">30 maritime</a>
-  <a href="#40">40 guard</a>
+  <br/><br/>
+  <strong style="color:#cfd9ff">memory</strong>
+  <a href="#31">31 encoders</a>
+  <a href="#33">33 fusion</a>
+  <a href="#34">34 shared memory</a>
+  <a href="#35">35 two agents</a>
+  <a href="#36">36 context window</a>
+  <a href="#37">37 change</a>
+  <a href="#38">38 agent to token</a>
+  <a href="#39">39 orbit trust</a>
+  <br/><br/>
+  <strong style="color:#cfd9ff">guard</strong>
+  <a href="#40">40 checkpoints</a>
+  <a href="#41">41 verdict path</a>
+  <a href="#42">42 DLP chassis</a>
+  <a href="#43">43 deployments</a>
 </nav>
 <main>
   <h2 class="section">Protocol: what emem is</h2>
   <div class="grid">
 
     <figure id="01"><a href="/docs/diagrams/01-architecture.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="emem system architecture diagram"><img src="/docs/diagrams/01-architecture.svg" alt="emem system architecture diagram" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/01-architecture.svg" aria-label="One responder binary serves MCP and REST from the same handlers. Reads need no auth. On the first miss it fetches STAC and COG data. On 7 November 2026, 41 of its 46 registered sources had a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root. Manifests list the bands, algorithms, sources and schema."><img src="/docs/diagrams/01-architecture.svg" alt="One responder binary serves MCP and REST from the same handlers. Reads need no auth. On the first miss it fetches STAC and COG data. On 7 November 2026, 41 of its 46 registered sources had a reader. It signs each fact and appends it to a BLAKE3-chained log. Each batch gets a Merkle root. Manifests list the bands, algorithms, sources and schema." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">01 / 10 · ARCHITECTURE</div>
         <h2>the simple architecture</h2>
-        <p>One Rust binary, two wire surfaces (REST, MCP) sharing handlers. Storage is sled plus an append-only Merkle log. Everything else is open data on the wire.</p>
+        <p>One Rust binary serves REST and MCP from the same handlers. It stores facts in sled and in an append-only Merkle log. All other data is open data that it reads from upstream sources. On 7 November 2026, 41 of the 46 registered sources had a reader.</p>
       </figcaption>
     </a></figure>
 
     <figure id="02"><a href="/docs/diagrams/02-data-flow.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="how data moves through emem"><img src="/docs/diagrams/02-data-flow.svg" alt="how data moves through emem" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/02-data-flow.svg" aria-label="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact. The same bytes give the same content id on every machine."><img src="/docs/diagrams/02-data-flow.svg" alt="A range request reads an open pixel. A stateless connector turns it into a fact. Canonical CBOR encodes the fact, and BLAKE3 gives the content id of the signed fact. The same bytes give the same content id on every machine." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">02 / 10 · DATA FLOW</div>
         <h2>how data moves</h2>
-        <p>From an open pixel to a signed receipt, in eight steps. Same upstream + same registries ⇒ same CID, byte-for-byte.</p>
+        <p>From an open pixel to a signed fact in five steps: a range read, a stateless connector, canonical CBOR, a BLAKE3 content id and the signed fact. The same bytes give the same content id on every machine.</p>
       </figcaption>
     </a></figure>
 
     <figure id="03"><a href="/docs/diagrams/03-anatomy-of-a-request.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="anatomy of a recall request"><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="anatomy of a recall request" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/03-anatomy-of-a-request.svg" aria-label="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid. On 7 November 2026 a first read took 0.6 to 1.7 s, and a warm read took under 0.1 s."><img src="/docs/diagrams/03-anatomy-of-a-request.svg" alt="A recall in five steps. A place name such as Denver goes through locate to a cell64. A cache miss starts a fetch of the upstream COG tile. An Ed25519 signature returns a receipt with the fact_cid. On 7 November 2026 a first read took 0.6 to 1.7 s, and a warm read took under 0.1 s." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">03 / 10 · REQUEST</div>
         <h2>anatomy of a recall</h2>
-        <p>A swimlane timeline of <code>POST /v1/recall</code>, warm path is ~2 ms; the cold-path branch shows the lazy materializer in dashed amber.</p>
+        <p>A recall in five steps: a place name, <code>locate</code> to a cell64, a cache miss, a fetch of the upstream COG tile, and a signed receipt. One test host timed recalls on 7 November 2026. A first recall of a new cell took 0.6 to 1.7 s. A repeat recall took less than 0.1 s.</p>
       </figcaption>
     </a></figure>
 
     <figure id="04"><a href="/docs/diagrams/04-agent-loop.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="how an agent uses emem"><img src="/docs/diagrams/04-agent-loop.svg" alt="how an agent uses emem" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/04-agent-loop.svg" aria-label="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace. The next agent can check a claim that cites a fact_cid."><img src="/docs/diagrams/04-agent-loop.svg" alt="A loop of five steps: the agent asks, recalls a signed fact, cites its fact_cid, acts, and writes a signed note in its own namespace. The next agent can check a claim that cites a fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">04 / 10 · AGENT LOOP</div>
-        <h2>how an agent actually uses us</h2>
-        <p>Discover, locate, recall, reason, verify. The loop is open; skip steps once first contact is done.</p>
+        <h2>how an agent uses emem</h2>
+        <p>The agent asks, recalls, cites, acts and writes back. It cites the <code>fact_cid</code> it read. It writes a signed note in its own namespace for the next agent to read.</p>
       </figcaption>
     </a></figure>
 
     <figure id="05"><a href="/docs/diagrams/05-fact-to-reasoning.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/05-fact-to-reasoning.svg" aria-label="how a fact reaches the model context"><img src="/docs/diagrams/05-fact-to-reasoning.svg" alt="how a fact reaches the model context" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/05-fact-to-reasoning.svg" aria-label="A signed elevation fact for Denver, 1609 m with its cell and fact_cid, goes into the context window. The model answers with the value and cites the fact_cid."><img src="/docs/diagrams/05-fact-to-reasoning.svg" alt="A signed elevation fact for Denver, 1609 m with its cell and fact_cid, goes into the context window. The model answers with the value and cites the fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">05 / 10 · REASONING</div>
         <h2>fact → reasoning</h2>
-        <p>The shape of a signed fact in the LLM's context window. The agent reasons over the value but cites the CID, grounded and reproducible.</p>
+        <p>This is a signed fact as it sits in the model context window. The agent reasons over the value and cites the CID, so another agent can fetch the same fact. The fact is real: on 7 November 2026 a recall at <code>defi.zb5c4.guxe.nuxe</code> returned 1609 m. On that day, locate "Denver" gave a nearby cell, <code>defi.zb5c4.gupI.nuxo</code>, at 1622.8 m. A new read can give a different cell and value.</p>
       </figcaption>
     </a></figure>
 
     <figure id="06"><a href="/docs/diagrams/06-memory-vs-stac.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/06-memory-vs-stac.svg" aria-label="memory vs STAC catalog"><img src="/docs/diagrams/06-memory-vs-stac.svg" alt="memory vs STAC catalog" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/06-memory-vs-stac.svg" aria-label="With raw STAC the agent picks a scene, reads pixels, undoes scaling and masks, and gets an uncited number. With emem one recall returns a signed number and its fact_cid."><img src="/docs/diagrams/06-memory-vs-stac.svg" alt="With raw STAC the agent picks a scene, reads pixels, undoes scaling and masks, and gets an uncited number. With emem one recall returns a signed number and its fact_cid." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">06 / 10 · NEIGHBOURS</div>
         <h2>why a memory, not a catalog</h2>
-        <p>STAC points to where the bytes live; emem answers the question at the place. STAC is one of seven upstream connectors, not the protocol.</p>
+        <p>STAC points to where the bytes are. emem answers the question at the place. emem uses STAC to find scenes, but STAC is not part of the protocol.</p>
       </figcaption>
     </a></figure>
 
     <figure id="07"><a href="/docs/diagrams/07-cite-economy.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="the cite-economy"><img src="/docs/diagrams/07-cite-economy.svg" alt="the cite-economy" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/07-cite-economy.svg" aria-label="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score at /v1/contributors. Citations do not change what recall returns."><img src="/docs/diagrams/07-cite-economy.svg" alt="A cycle in four steps. An attester signs a fact. An agent reads it. The registry counts the read for the signer. The leaderboard ranks signers by score at /v1/contributors. Citations do not change what recall returns." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">07 / 10 · ECONOMICS</div>
         <h2>the cite-economy</h2>
-        <p>No token, no chain, no minting. The unit is the citation; the currency is the CID; the receipt is the receipt.</p>
+        <p>Each served read counts a citation for the key that signed the fact. The score ranks signers at /v1/contributors. It does not change what recall returns.</p>
       </figcaption>
     </a></figure>
 
     <figure id="08"><a href="/docs/diagrams/08-decentralised.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="the decentralised topology"><img src="/docs/diagrams/08-decentralised.svg" alt="the decentralised topology" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/08-decentralised.svg" aria-label="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline. On 7 November 2026 emem.dev had one peer."><img src="/docs/diagrams/08-decentralised.svg" alt="Eight illustrative responders, each with its own key, resolve one content id to the same bytes. A client verifies offline. On 7 November 2026 emem.dev had one peer." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">08 / 10 · TOPOLOGY</div>
         <h2>the decentralised way</h2>
-        <p>Many independent responders, the same registries, the same CIDs. Verification needs only the pubkey, no central anything.</p>
+        <p>Each responder signs under its own key, and the same registries give the same CIDs. The eight nodes are illustrative: on 7 November 2026 emem.dev declared one peer, geo.qa/emem. Verification needs only the public key.</p>
       </figcaption>
     </a></figure>
 
     <figure id="09"><a href="/docs/diagrams/09-address-algebra.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="cell64 plus band plus tslot becomes a CID"><img src="/docs/diagrams/09-address-algebra.svg" alt="cell64 plus band plus tslot becomes a CID" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/09-address-algebra.svg" aria-label="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator. Next-door cells usually share the first two parts of the cell64, but so do far cells on the same latitude band."><img src="/docs/diagrams/09-address-algebra.svg" alt="A table of four wire forms: cell64 (64 bits, four bigrams), tslot (64 bits, base32 leb128), cid (32-byte BLAKE3, base32) and vec (1792-D fp16). The grid is about 9.55 m at the equator. Next-door cells usually share the first two parts of the cell64, but so do far cells on the same latitude band." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">09 / 10 · ALGEBRA</div>
         <h2>address algebra</h2>
-        <p>cell + band + tslot → canonical CBOR → blake3 → 26-character base32 CID. The address that survives every translation.</p>
+        <p>The four wire forms and their sizes: cell, tslot, cid and vec. A CID is the BLAKE3 hash of the whole fact in canonical CBOR, written as 52 base32 characters.</p>
       </figcaption>
     </a></figure>
 
     <figure id="10"><a href="/docs/diagrams/10-trust-plane.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/10-trust-plane.svg" aria-label="receipts, merkle log, offline verify"><img src="/docs/diagrams/10-trust-plane.svg" alt="receipts, merkle log, offline verify" loading="lazy" decoding="async"/></object>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/10-trust-plane.svg" aria-label="The fields of a version 2 receipt preimage are hashed with BLAKE3 and signed with Ed25519. The last field binds the Merkle inclusion proof, or states that there is none. Anyone checks the signature offline with the public key from /.well-known/emem.json."><img src="/docs/diagrams/10-trust-plane.svg" alt="The fields of a version 2 receipt preimage are hashed with BLAKE3 and signed with Ed25519. The last field binds the Merkle inclusion proof, or states that there is none. Anyone checks the signature offline with the public key from /.well-known/emem.json." loading="lazy" decoding="async"/></object>
       <figcaption>
         <div class="num">10 / 10 · TRUST</div>
         <h2>the trust plane</h2>
-        <p>Preimage, signature, Merkle path, offline verify. Five steps to accept a fact without ever calling the issuer back.</p>
+        <p>The receipt preimage is hashed with BLAKE3 and signed with Ed25519. Anyone checks it offline with the public key from <code>/.well-known/emem.json</code>, with no call back to the responder.</p>
       </figcaption>
     </a></figure>
 
   </div>
 
   <h2 class="section">Industry: one chart, one line</h2>
+  <p class="section-note">The values in these twenty charts are examples. They are not readings at the cell shown. Recall the cell to get the signed values.</p>
   <div class="grid">
 
     <figure id="11"><a href="/docs/diagrams/11-insurance-pc.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/11-insurance-pc.svg" aria-label="P&amp;C insurance underwriting"><img src="/docs/diagrams/11-insurance-pc.svg" alt="P&amp;C insurance underwriting" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">11 · INSURANCE · P&amp;C</div><h2>property &amp; casualty</h2><p>Pricing-error per parcel collapses from a fat noisy cloud to a tight, regulator-replayable band.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/11-insurance-pc.svg" aria-label="emem for property &amp; casualty underwriting. Five signed facts at one cell, with example values: copdem30m.elevation_mean 12 m, surface_water.recurrence 4 %, indices.ndwi -0.10, firms.active_fires no fire, population 1,240 /km². They feed one parcel-risk receipt, which underwriter, actuary and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/11-insurance-pc.svg" alt="emem for property &amp; casualty underwriting. Five signed facts at one cell, with example values: copdem30m.elevation_mean 12 m, surface_water.recurrence 4 %, indices.ndwi -0.10, firms.active_fires no fire, population 1,240 /km². They feed one parcel-risk receipt, which underwriter, actuary and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">11 · INSURANCE · P&amp;C</div><h2>property &amp; casualty</h2><p>An underwriter prices one parcel from five signed facts: elevation, water recurrence, NDWI, active fires and population. The actuary and the regulator act on the same receipt.</p></figcaption>
     </a></figure>
 
     <figure id="12"><a href="/docs/diagrams/12-reinsurance-cat.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/12-reinsurance-cat.svg" aria-label="reinsurance cat modeling"><img src="/docs/diagrams/12-reinsurance-cat.svg" alt="reinsurance cat modeling" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">12 · INSURANCE · CAT</div><h2>reinsurance &amp; cat models</h2><p>Three vendors, three AALs, until they cite the same CIDs and the cone closes around treaty pricing.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/12-reinsurance-cat.svg" aria-label="emem for reinsurance catastrophe. Five signed facts at one cell, with example values: surface_water.recurrence 22 %, weather.wind_speed_10m 38 m/s, marine.wave_height 4.2 m coastal, copdem30m.elevation_mean 3 m, firms.active_fires active. They feed one cat-layer receipt, which reinsurer, cat modeler and rating agency act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/12-reinsurance-cat.svg" alt="emem for reinsurance catastrophe. Five signed facts at one cell, with example values: surface_water.recurrence 22 %, weather.wind_speed_10m 38 m/s, marine.wave_height 4.2 m coastal, copdem30m.elevation_mean 3 m, firms.active_fires active. They feed one cat-layer receipt, which reinsurer, cat modeler and rating agency act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">12 · INSURANCE · CAT</div><h2>reinsurance &amp; cat models</h2><p>Cat modelers cite the same signed facts for a layer: water recurrence, wind speed, coastal wave height, elevation and active fires. A disagreement then points to a fact.</p></figcaption>
     </a></figure>
 
     <figure id="13"><a href="/docs/diagrams/13-parametric-insurance.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/13-parametric-insurance.svg" aria-label="parametric insurance"><img src="/docs/diagrams/13-parametric-insurance.svg" alt="parametric insurance" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">13 · INSURANCE · PARAMETRIC</div><h2>parametric triggers</h2><p>The signed weather fact crosses 39 °C and the contract fires itself. Basis-risk arguments become CID arguments.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/13-parametric-insurance.svg" aria-label="emem for parametric insurance. Five signed facts at one cell, with example values: chirps.precip_daily_mm 61 mm, indices.ndwi +0.34, sentinel1_raw VV -19 dB, modis.lst_day_8day 314 K, weather.wind_speed_10m 31 m/s. They feed one trigger receipt, which insurer, reinsurer and farmer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/13-parametric-insurance.svg" alt="emem for parametric insurance. Five signed facts at one cell, with example values: chirps.precip_daily_mm 61 mm, indices.ndwi +0.34, sentinel1_raw VV -19 dB, modis.lst_day_8day 314 K, weather.wind_speed_10m 31 m/s. They feed one trigger receipt, which insurer, reinsurer and farmer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">13 · INSURANCE · PARAMETRIC</div><h2>parametric triggers</h2><p>A parametric payout cites the facts that set it off: daily rainfall, NDWI, SAR backscatter, land surface temperature and wind speed.</p></figcaption>
     </a></figure>
 
     <figure id="14"><a href="/docs/diagrams/14-csrd-disclosure.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/14-csrd-disclosure.svg" aria-label="CSRD ESRS E1 disclosure"><img src="/docs/diagrams/14-csrd-disclosure.svg" alt="CSRD ESRS E1 disclosure" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">14 · DISCLOSURE · CSRD</div><h2>climate disclosure</h2><p>From a 200-page ESRS E1 filing to a 26-character handle in four hops, limited assurance ready by default.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/14-csrd-disclosure.svg" aria-label="emem for CSRD / ESRS E1 climate disclosure. Five signed facts at one cell, with example values: copdem30m.elevation_mean 8 m, surface_water.recurrence 6 %, modis.lst_day_8day 314 K, indices.ndvi 0.22, koppen BWh. They feed one disclosure receipt, which CFO, auditor and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/14-csrd-disclosure.svg" alt="emem for CSRD / ESRS E1 climate disclosure. Five signed facts at one cell, with example values: copdem30m.elevation_mean 8 m, surface_water.recurrence 6 %, modis.lst_day_8day 314 K, indices.ndvi 0.22, koppen BWh. They feed one disclosure receipt, which CFO, auditor and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">14 · DISCLOSURE · CSRD</div><h2>climate disclosure</h2><p>An ESRS E1 physical-risk claim carries its cell and five signed facts. The auditor checks the receipt offline.</p></figcaption>
     </a></figure>
 
     <figure id="15"><a href="/docs/diagrams/15-defense-geoint.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/15-defense-geoint.svg" aria-label="defense GEOINT"><img src="/docs/diagrams/15-defense-geoint.svg" alt="defense GEOINT" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">15 · GOVERNMENT · GEOINT</div><h2>defense intelligence</h2><p>Six sensors, one cell, six signers. Multi-source fusion that survives the FOIA, the courtroom, and the shift change.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/15-defense-geoint.svg" aria-label="emem for defence &amp; GEOINT. Five signed facts at one cell, with example values: sentinel1_raw VV -11 dB, indices.ndvi 0.31, modis.lst_day_8day 306 K, esa_worldcover.lc_2021 built, copdem30m.elevation_mean 220 m. They feed one fusion receipt, which analyst, command and coalition act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/15-defense-geoint.svg" alt="emem for defence &amp; GEOINT. Five signed facts at one cell, with example values: sentinel1_raw VV -11 dB, indices.ndvi 0.31, modis.lst_day_8day 306 K, esa_worldcover.lc_2021 built, copdem30m.elevation_mean 220 m. They feed one fusion receipt, which analyst, command and coalition act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">15 · GOVERNMENT · GEOINT</div><h2>defense intelligence</h2><p>An analyst, a command and a coalition partner read five open-source facts at one cell. Each checks the receipt with the responder public key only.</p></figcaption>
     </a></figure>
 
     <figure id="16"><a href="/docs/diagrams/16-disaster-response.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/16-disaster-response.svg" aria-label="disaster response"><img src="/docs/diagrams/16-disaster-response.svg" alt="disaster response" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">16 · GOVERNMENT · EM</div><h2>disaster response</h2><p>An incident commander and a citizen, looking at the same byte. Six agencies, one common operating picture.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/16-disaster-response.svg" aria-label="emem for disaster response. Five signed facts at one cell, with example values: firms.active_fires active fire, indices.ndwi flood +0.3, sentinel1_raw VV -19 dB, weather.wind_speed_10m 22 m/s, population 1,240 /km². They feed one situation receipt, which federal EM, fire service, utility ops and public portal act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/16-disaster-response.svg" alt="emem for disaster response. Five signed facts at one cell, with example values: firms.active_fires active fire, indices.ndwi flood +0.3, sentinel1_raw VV -19 dB, weather.wind_speed_10m 22 m/s, population 1,240 /km². They feed one situation receipt, which federal EM, fire service, utility ops and public portal act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">16 · GOVERNMENT · EM</div><h2>disaster response</h2><p>Four response groups use one cell and the same signed facts: active fires, NDWI, SAR backscatter, wind speed and population.</p></figcaption>
     </a></figure>
 
     <figure id="17"><a href="/docs/diagrams/17-urban-planning.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/17-urban-planning.svg" aria-label="urban planning"><img src="/docs/diagrams/17-urban-planning.svg" alt="urban planning" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">17 · GOVERNMENT · CITY</div><h2>urban planning</h2><p>A planning permit a citizen can audit on their phone, every cited number has a public, durable address.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/17-urban-planning.svg" aria-label="emem for urban planning &amp; permits. Five signed facts at one cell, with example values: surface_water.recurrence 3 %, copdem30m.elevation_mean 5 m, esa_worldcover.lc_2021 built, indices.ndvi 0.18, population 3,400 /km². They feed one permit receipt, which planner, citizen and council act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/17-urban-planning.svg" alt="emem for urban planning &amp; permits. Five signed facts at one cell, with example values: surface_water.recurrence 3 %, copdem30m.elevation_mean 5 m, esa_worldcover.lc_2021 built, indices.ndvi 0.18, population 3,400 /km². They feed one permit receipt, which planner, citizen and council act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">17 · GOVERNMENT · CITY</div><h2>urban planning</h2><p>A planning permit cites five signed facts at one cell. A citizen checks the receipt offline on a phone, with no call to the issuer.</p></figcaption>
     </a></figure>
 
     <figure id="18"><a href="/docs/diagrams/18-land-registry.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/18-land-registry.svg" aria-label="land registry cadastre"><img src="/docs/diagrams/18-land-registry.svg" alt="land registry cadastre" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">18 · GOVERNMENT · LAND</div><h2>land registry</h2><p>Forging a parcel record means forging the rest of the universe. Tampering becomes mathematical, not legal.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/18-land-registry.svg" aria-label="emem for land registry &amp; title. Five signed facts at one cell, with example values: esa_worldcover.lc_2021 cropland, forest_change.lossyear none, indices.ndvi 0.66, surface_water.recurrence 2 %, copdem30m.elevation_mean 41 m. They feed one title receipt, which registrar, surveyor and bank act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/18-land-registry.svg" alt="emem for land registry &amp; title. Five signed facts at one cell, with example values: esa_worldcover.lc_2021 cropland, forest_change.lossyear none, indices.ndvi 0.66, surface_water.recurrence 2 %, copdem30m.elevation_mean 41 m. They feed one title receipt, which registrar, surveyor and bank act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">18 · GOVERNMENT · LAND</div><h2>land registry</h2><p>A registrar, a surveyor and a bank resolve the same parcel token to the same bytes: land cover, forest loss, NDVI, water recurrence and elevation.</p></figcaption>
     </a></figure>
 
     <figure id="19"><a href="/docs/diagrams/19-esg-investing.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/19-esg-investing.svg" aria-label="ESG investing"><img src="/docs/diagrams/19-esg-investing.svg" alt="ESG investing" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">19 · FINANCE · ESG</div><h2>ESG investing</h2><p>A fund factsheet that lets the LP click through to the actual fact. ESG scores with the receipts attached.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/19-esg-investing.svg" aria-label="emem for ESG investing. Five signed facts at one cell, with example values: forest_change.lossyear 2021, firms.active_fires 2 detections, protected.is_protected_area yes, modis.lst_day_8day 311 K, indices.ndvi 0.44. They feed one esg-score receipt, which portfolio mgr, asset owner and ratings provider act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/19-esg-investing.svg" alt="emem for ESG investing. Five signed facts at one cell, with example values: forest_change.lossyear 2021, firms.active_fires 2 detections, protected.is_protected_area yes, modis.lst_day_8day 311 K, indices.ndvi 0.44. They feed one esg-score receipt, which portfolio mgr, asset owner and ratings provider act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">19 · FINANCE · ESG</div><h2>ESG investing</h2><p>An ESG score carries its receipts: forest loss, active fires, protected-area status, land surface temperature and NDVI at each cell.</p></figcaption>
     </a></figure>
 
     <figure id="20"><a href="/docs/diagrams/20-carbon-mrv.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/20-carbon-mrv.svg" aria-label="carbon credit MRV"><img src="/docs/diagrams/20-carbon-mrv.svg" alt="carbon credit MRV" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">20 · FINANCE · CARBON</div><h2>carbon credit MRV</h2><p>A 100,000-tonne credit where each tonne carries the pixels that justify it. ICVCM-grade integrity, audit-ready.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/20-carbon-mrv.svg" aria-label="emem for voluntary carbon-market MRV. Five signed facts at one cell, with example values: forest_change.treecover2000 82 %, forest_change.lossyear none, firms.active_fires no fire, soilgrids.soc_0_30cm 48 g/kg, indices.ndvi 0.81. They feed one carbon certificate, which registry, auditor and buyer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/20-carbon-mrv.svg" alt="emem for voluntary carbon-market MRV. Five signed facts at one cell, with example values: forest_change.treecover2000 82 %, forest_change.lossyear none, firms.active_fires no fire, soilgrids.soc_0_30cm 48 g/kg, indices.ndvi 0.81. They feed one carbon certificate, which registry, auditor and buyer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">20 · FINANCE · CARBON</div><h2>carbon credit MRV</h2><p>A carbon credit cites the signed facts it rests on: tree cover, forest loss, fires, soil organic carbon and NDVI. A later audit resolves the same facts.</p></figcaption>
     </a></figure>
 
     <figure id="21"><a href="/docs/diagrams/21-commodity-trading.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/21-commodity-trading.svg" aria-label="commodity trading"><img src="/docs/diagrams/21-commodity-trading.svg" alt="commodity trading" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">21 · FINANCE · COMMODITIES</div><h2>commodity trading</h2><p>A weekly desk note the back-office can replay in three years. Trade on a yield forecast where every field has a citation.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/21-commodity-trading.svg" aria-label="emem for soft-commodity trading desks. Five signed facts at one cell, with example values: indices.ndvi 0.74, soilgrids.bdod_0_30cm 1.32 kg/dm³, weather.temperature_2m 28 °C, weather.precipitation_mm 8 mm, modis.lst_day_8day 304 K. They feed one desk-note receipt, which trader, risk and back-office act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/21-commodity-trading.svg" alt="emem for soft-commodity trading desks. Five signed facts at one cell, with example values: indices.ndvi 0.74, soilgrids.bdod_0_30cm 1.32 kg/dm³, weather.temperature_2m 28 °C, weather.precipitation_mm 8 mm, modis.lst_day_8day 304 K. They feed one desk-note receipt, which trader, risk and back-office act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">21 · FINANCE · COMMODITIES</div><h2>commodity trading</h2><p>A weekly desk note cites NDVI, soil bulk density, air temperature, precipitation and land surface temperature. The back office can replay it years later.</p></figcaption>
     </a></figure>
 
     <figure id="22"><a href="/docs/diagrams/22-real-estate.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/22-real-estate.svg" aria-label="real estate due diligence"><img src="/docs/diagrams/22-real-estate.svg" alt="real estate due diligence" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">22 · INDUSTRY · CRE</div><h2>real estate &amp; REITs</h2><p>An OM page the lender can re-verify the night before close, every claim about the parcel has a 26-character handle.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/22-real-estate.svg" aria-label="emem for real-estate due diligence. Five signed facts at one cell, with example values: surface_water.recurrence 0 %, copdem30m.elevation_mean 18 m, indices.ndwi -0.08, modis.lst_day_8day 309 K, esa_worldcover.lc_2021 built. They feed one due-diligence receipt, which buyer, lender and insurer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/22-real-estate.svg" alt="emem for real-estate due diligence. Five signed facts at one cell, with example values: surface_water.recurrence 0 %, copdem30m.elevation_mean 18 m, indices.ndwi -0.08, modis.lst_day_8day 309 K, esa_worldcover.lc_2021 built. They feed one due-diligence receipt, which buyer, lender and insurer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">22 · INDUSTRY · CRE</div><h2>real estate &amp; REITs</h2><p>A buyer, a lender and an insurer act on one due-diligence receipt. Each claim about the parcel has a citable token.</p></figcaption>
     </a></figure>
 
     <figure id="23"><a href="/docs/diagrams/23-mining-exploration.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/23-mining-exploration.svg" aria-label="mining exploration"><img src="/docs/diagrams/23-mining-exploration.svg" alt="mining exploration" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">23 · INDUSTRY · MINING</div><h2>mineral exploration</h2><p>A vendor data lake that doesn't need a vendor. Stop building n×n integrations; start citing one address.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/23-mining-exploration.svg" aria-label="emem for mining exploration. Five signed facts at one cell, with example values: copdem30m.elevation_mean 1,420 m, indices.ndvi 0.08, esa_worldcover.lc_2021 bare, surface_water.recurrence 0 %, sentinel1_raw VV -9 dB. They feed one context receipt, which geologist, permitting and community act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key. The geophysics stays with the survey."><img src="/docs/diagrams/23-mining-exploration.svg" alt="emem for mining exploration. Five signed facts at one cell, with example values: copdem30m.elevation_mean 1,420 m, indices.ndvi 0.08, esa_worldcover.lc_2021 bare, surface_water.recurrence 0 %, sentinel1_raw VV -9 dB. They feed one context receipt, which geologist, permitting and community act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key. The geophysics stays with the survey." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">23 · INDUSTRY · MINING</div><h2>mineral exploration</h2><p>emem signs the terrain and surface context for exploration: elevation, NDVI, land cover, water recurrence and SAR backscatter. The geophysics stays with the survey.</p></figcaption>
     </a></figure>
 
     <figure id="24"><a href="/docs/diagrams/24-pipeline-monitoring.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/24-pipeline-monitoring.svg" aria-label="pipeline monitoring"><img src="/docs/diagrams/24-pipeline-monitoring.svg" alt="pipeline monitoring" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">24 · INDUSTRY · MIDSTREAM</div><h2>pipeline monitoring</h2><p>An alert that argues for itself, the alert IS the evidence bundle, signed at the moment of attest.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/24-pipeline-monitoring.svg" aria-label="emem for pipeline integrity monitoring. Five signed facts at one cell, with example values: sentinel1_raw VV -12 dB, indices.ndvi 0.21, modis.lst_day_8day 312 K, surface_water.recurrence 1 %, copdem30m.elevation_mean 96 m. They feed one alert receipt, which control room, integrity eng. and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/24-pipeline-monitoring.svg" alt="emem for pipeline integrity monitoring. Five signed facts at one cell, with example values: sentinel1_raw VV -12 dB, indices.ndvi 0.21, modis.lst_day_8day 312 K, surface_water.recurrence 1 %, copdem30m.elevation_mean 96 m. They feed one alert receipt, which control room, integrity eng. and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">24 · INDUSTRY · MIDSTREAM</div><h2>pipeline monitoring</h2><p>Each pipeline alert ships with the facts that raised it: SAR backscatter, NDVI, land surface temperature, water recurrence and elevation.</p></figcaption>
     </a></figure>
 
     <figure id="25"><a href="/docs/diagrams/25-renewable-siting.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/25-renewable-siting.svg" aria-label="renewable siting"><img src="/docs/diagrams/25-renewable-siting.svg" alt="renewable siting" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">25 · INDUSTRY · RENEWABLES</div><h2>renewable siting</h2><p>A scorecard the EPC, the lender, and the village can all click through. Eight bands, eight CIDs, one site score.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/25-renewable-siting.svg" aria-label="emem for renewable-energy siting. Five signed facts at one cell, with example values: weather.wind_speed_10m 7 m/s, esa_worldcover.lc_2021 bare, protected.is_protected_area no, surface_water.recurrence 0 %, population 120 /km². They feed one site-score receipt, which developer, grid operator and lender act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/25-renewable-siting.svg" alt="emem for renewable-energy siting. Five signed facts at one cell, with example values: weather.wind_speed_10m 7 m/s, esa_worldcover.lc_2021 bare, protected.is_protected_area no, surface_water.recurrence 0 %, population 120 /km². They feed one site-score receipt, which developer, grid operator and lender act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">25 · INDUSTRY · RENEWABLES</div><h2>renewable siting</h2><p>Each input to a site score has a public address: wind speed, land cover, protected-area status, water recurrence and population. The lender can fetch each one again.</p></figcaption>
     </a></figure>
 
     <figure id="26"><a href="/docs/diagrams/26-grid-resilience.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/26-grid-resilience.svg" aria-label="grid resilience"><img src="/docs/diagrams/26-grid-resilience.svg" alt="grid resilience" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">26 · INDUSTRY · UTILITIES</div><h2>grid resilience</h2><p>When the inquiry asks "what did you know and when," you point to the cid. Vegetation, wildfire, surge, daily.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/26-grid-resilience.svg" aria-label="emem for grid &amp; transmission resilience. Five signed facts at one cell, with example values: weather.wind_speed_10m 31 m/s, modis.lst_day_8day 317 K, firms.active_fires 1 detection, surface_water.recurrence 0 %, copdem30m.elevation_mean 210 m. They feed one resilience receipt, which grid operator, utility and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/26-grid-resilience.svg" alt="emem for grid &amp; transmission resilience. Five signed facts at one cell, with example values: weather.wind_speed_10m 31 m/s, modis.lst_day_8day 317 K, firms.active_fires 1 detection, surface_water.recurrence 0 %, copdem30m.elevation_mean 210 m. They feed one resilience receipt, which grid operator, utility and regulator act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">26 · INDUSTRY · UTILITIES</div><h2>grid resilience</h2><p>A grid operator, a utility and a regulator cite the same facts at a substation: wind speed, land surface temperature, active fires, water recurrence and elevation.</p></figcaption>
     </a></figure>
 
     <figure id="27"><a href="/docs/diagrams/27-precision-agriculture.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/27-precision-agriculture.svg" aria-label="precision agriculture"><img src="/docs/diagrams/27-precision-agriculture.svg" alt="precision agriculture" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">27 · LAND · PRECISION AG</div><h2>precision agriculture</h2><p>Per-zone math the input brand can audit and the bank can underwrite, per-pixel facts behind every spray pass.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/27-precision-agriculture.svg" aria-label="emem for precision agriculture. Five signed facts at one cell, with example values: indices.ndvi 0.74, indices.ndwi 0.12, soilgrids.phh2o_0_30cm 6.3 pH, weather.precipitation_mm 8 mm, modis.lst_day_8day 302 K. They feed one season receipt, which agronomist, input supplier and lender act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/27-precision-agriculture.svg" alt="emem for precision agriculture. Five signed facts at one cell, with example values: indices.ndvi 0.74, indices.ndwi 0.12, soilgrids.phh2o_0_30cm 6.3 pH, weather.precipitation_mm 8 mm, modis.lst_day_8day 302 K. They feed one season receipt, which agronomist, input supplier and lender act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">27 · LAND · PRECISION AG</div><h2>precision agriculture</h2><p>Per-zone farm decisions cite per-pixel facts: NDVI, NDWI, soil pH, precipitation and land surface temperature. The input supplier and the lender can audit them.</p></figcaption>
     </a></figure>
 
     <figure id="28"><a href="/docs/diagrams/28-forestry-timber.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/28-forestry-timber.svg" aria-label="forestry timber"><img src="/docs/diagrams/28-forestry-timber.svg" alt="forestry timber" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">28 · LAND · FORESTRY</div><h2>forestry &amp; timber</h2><p>A 25-year forest-loss curve where every dot is a 26-character handle. Buyers, certifiers, and underwriters cite the same CIDs.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/28-forestry-timber.svg" aria-label="emem for forestry &amp; timber. Five signed facts at one cell, with example values: forest_change.lossyear 2019, jrc_tmf.deforestation_year none, protected.is_protected_area no, indices.ndvi 0.79, forest_change.treecover2000 78 %. They feed one harvest receipt, which mill, certifier and importer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/28-forestry-timber.svg" alt="emem for forestry &amp; timber. Five signed facts at one cell, with example values: forest_change.lossyear 2019, jrc_tmf.deforestation_year none, protected.is_protected_area no, indices.ndvi 0.79, forest_change.treecover2000 78 %. They feed one harvest receipt, which mill, certifier and importer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">28 · LAND · FORESTRY</div><h2>forestry &amp; timber</h2><p>A harvest receipt travels with the log. It cites the forest loss year, tropical moist forest loss, protected-area status, NDVI and tree cover in 2000.</p></figcaption>
     </a></figure>
 
     <figure id="29"><a href="/docs/diagrams/29-eudr-supply-chain.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/29-eudr-supply-chain.svg" aria-label="EUDR supply chain"><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="EUDR supply chain" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">29 · LAND · EUDR</div><h2>EUDR supply chain</h2><p>Proof of origin that crosses customs in a CID. 38 plots, 6-decimal polygons, one handle in the TRACES NT filing.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/29-eudr-supply-chain.svg" aria-label="emem for EUDR supply chain. Five example signed facts at plot defi.zb3bb.zbb96.jUko: jrc_gfc2020.forest_2020 forest, forest_change.lossyear none, forest_change.treecover2000 82 %, sentinel1_raw VV -7 dB, indices.ndvi 0.80. They feed one EUDR due diligence statement, which operator, customs and importer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key. Legality is not covered."><img src="/docs/diagrams/29-eudr-supply-chain.svg" alt="emem for EUDR supply chain. Five example signed facts at plot defi.zb3bb.zbb96.jUko: jrc_gfc2020.forest_2020 forest, forest_change.lossyear none, forest_change.treecover2000 82 %, sentinel1_raw VV -7 dB, indices.ndvi 0.80. They feed one EUDR due diligence statement, which operator, customs and importer act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key. Legality is not covered." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">29 · LAND · EUDR</div><h2>EUDR supply chain</h2><p>An EUDR plot is checked against the 2020 forest map, forest loss, tree cover, SAR backscatter and NDVI. One signed token goes into the customs filing. Legality is not covered.</p></figcaption>
     </a></figure>
 
     <figure id="30"><a href="/docs/diagrams/30-maritime-ports.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/30-maritime-ports.svg" aria-label="maritime ports"><img src="/docs/diagrams/30-maritime-ports.svg" alt="maritime ports" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">30 · INDUSTRY · MARITIME</div><h2>maritime &amp; ports</h2><p>A pilot, a port authority, and an underwriter, looking at the same byte. Bathymetry, AIS, tide, surge, signed.</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/30-maritime-ports.svg" aria-label="emem for maritime &amp; ports. Five signed facts at one cell, with example values: marine.wave_height 1.8 m, weather.wind_speed_10m 14 m/s, marine.swell_period 9 s, marine.swell_height 0.4 m, marine.wave_direction 250°. They feed one pilotage receipt, which port authority, pilot and vessel master act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key."><img src="/docs/diagrams/30-maritime-ports.svg" alt="emem for maritime &amp; ports. Five signed facts at one cell, with example values: marine.wave_height 1.8 m, weather.wind_speed_10m 14 m/s, marine.swell_period 9 s, marine.swell_height 0.4 m, marine.wave_direction 250°. They feed one pilotage receipt, which port authority, pilot and vessel master act on. One cell is about 9.55 m across. Anyone re-checks the receipt at /verify against the published key." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">30 · INDUSTRY · MARITIME</div><h2>maritime &amp; ports</h2><p>A port authority, a pilot and a vessel master read one signed sea-state bundle: wave height, wind speed, swell period, swell height and wave direction.</p></figcaption>
     </a></figure>
     <figure id="31"><a href="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" aria-label="encoders in orbit, decoders on the ground"><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Encoders in orbit, decoders on the ground" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>the sensors fly; the responder decodes their stacks into signed embeddings</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" aria-label="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and surface temperature. Four deterministic decoders read the same place. It signs each value, and each signed value names its source."><img src="/docs/diagrams/31-encoders-in-orbit-decoders-on-ground.svg" alt="Sentinel-2, Sentinel-1, HLS, MODIS and DEM data go to the responder. It decodes them into spectral indices, SAR backscatter, terrain and surface temperature. Four deterministic decoders read the same place. It signs each value, and each signed value names its source." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">31 · SUBSTRATE</div><h2>Encoders in orbit, decoders on the ground</h2><p>The sensors are in orbit. The responder decodes their data into values and signs each value.</p></figcaption>
     </a></figure>
     <figure id="33"><a href="/docs/diagrams/33-fusion-orbit-and-ground.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/33-fusion-orbit-and-ground.svg" aria-label="fusion: orbit and ground"><img src="/docs/diagrams/33-fusion-orbit-and-ground.svg" alt="Fusion: orbit and ground" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>many modalities, one cell, one signed embedding the next agent can cite</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/33-fusion-orbit-and-ground.svg" aria-label="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder signs each value as a fact with its own content id, so the next agent can cite it."><img src="/docs/diagrams/33-fusion-orbit-and-ground.svg" alt="Sentinel-1, Sentinel-2, DEM and climate data meet at one cell. The responder signs each value as a fact with its own content id, so the next agent can cite it." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">33 · SUBSTRATE</div><h2>Fusion: orbit and ground</h2><p>Data from many sensors meets at one cell. Each value is a signed fact that the next agent can cite.</p></figcaption>
     </a></figure>
     <figure id="34"><a href="/docs/diagrams/34-shared-memory.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/34-shared-memory.svg" aria-label="one memory, many agents"><img src="/docs/diagrams/34-shared-memory.svg" alt="One memory, many agents" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>any agent writes signed facts, any agent recalls them, every agent checks for itself</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/34-shared-memory.svg" aria-label="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later. No reader needs a shared password or database: each reader re-derives the id and checks the signature."><img src="/docs/diagrams/34-shared-memory.svg" alt="Three organisations and an auditor use one shared memory. Agents write signed notes and recall signed facts. The auditor verifies offline a year later. No reader needs a shared password or database: each reader re-derives the id and checks the signature." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">34 · MEMORY</div><h2>One memory, many agents</h2><p>emem signs the facts. Any agent recalls them and signs its own notes. Each agent checks the signatures itself.</p></figcaption>
     </a></figure>
     <figure id="35"><a href="/docs/diagrams/35-two-agents-one-memory.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/35-two-agents-one-memory.svg" aria-label="two agents, one memory"><img src="/docs/diagrams/35-two-agents-one-memory.svg" alt="Two agents, one memory" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">35 · MEMORY</div><h2>Two agents, one memory</h2><p>agent A hands agent B one line of text; agent B verifies it without trusting agent A</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/35-two-agents-one-memory.svg" aria-label="Agent A in company A recalls a signed fact and receipt, then pastes an emem:fact: token of about 84 characters into a message. Agent B in company B resolves the token to the same bytes from any node that holds it and checks the signature offline with the responder public key. Agent B does not trust agent A. On 7 November 2026 the token stood for about 3,100 bytes. The same check runs in a browser at /verify."><img src="/docs/diagrams/35-two-agents-one-memory.svg" alt="Agent A in company A recalls a signed fact and receipt, then pastes an emem:fact: token of about 84 characters into a message. Agent B in company B resolves the token to the same bytes from any node that holds it and checks the signature offline with the responder public key. Agent B does not trust agent A. On 7 November 2026 the token stood for about 3,100 bytes. The same check runs in a browser at /verify." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">35 · MEMORY</div><h2>Two agents, one memory</h2><p>Agent A gives agent B one line of text. Agent B verifies it and does not need to trust agent A.</p></figcaption>
     </a></figure>
     <figure id="36"><a href="/docs/diagrams/36-memory-outlives-the-context-window.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/36-memory-outlives-the-context-window.svg" aria-label="memory outlives the context window"><img src="/docs/diagrams/36-memory-outlives-the-context-window.svg" alt="Memory outlives the context window" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">36 · MEMORY</div><h2>Memory outlives the context window</h2><p>compaction keeps the one-line address and drops the payload; the payload re-hydrates on demand</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/36-memory-outlives-the-context-window.svg" aria-label="A conversation at turn 12 holds full recall payloads and an emem:fact: token. At turns 60 and 300 the context is compacted and the payloads are gone, but the token line stays. Resolving the token brings back the same signed fact, byte for byte, and the signature still verifies. The summary keeps an address, not a paraphrase."><img src="/docs/diagrams/36-memory-outlives-the-context-window.svg" alt="A conversation at turn 12 holds full recall payloads and an emem:fact: token. At turns 60 and 300 the context is compacted and the payloads are gone, but the token line stays. Resolving the token brings back the same signed fact, byte for byte, and the signature still verifies. The summary keeps an address, not a paraphrase." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">36 · MEMORY</div><h2>Memory outlives the context window</h2><p>Compaction drops the payload and keeps the one-line token. Resolve the token to get the payload back.</p></figcaption>
     </a></figure>
 
     <figure id="37"><a href="/docs/diagrams/37-change-decomposition.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/37-change-decomposition.svg" aria-label="change decomposition"><img src="/docs/diagrams/37-change-decomposition.svg" alt="Change decomposition" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">37 · MEMORY</div><h2>Change decomposition</h2><p>why a readout moved, split into the encoder, the world, and the reference terms, each with fact ids</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/37-change-decomposition.svg" aria-label="The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship."><img src="/docs/diagrams/37-change-decomposition.svg" alt="The change at one place is a sum of five terms: the world, the sensor, the geometry, the encoder, and noise. Only the first term is the world. Signed metadata records or pins the other terms. change_attribution@1 ships a signed ledger that lists the evidence for each term. The numeric split of one change among the terms does not ship." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">37 · MEMORY</div><h2>Change decomposition</h2><p>A change in a reading has five terms. The shipped ledger lists evidence for each term with fact ids. The numeric split is roadmap.</p></figcaption>
     </a></figure>
 
     <figure id="38"><a href="/docs/diagrams/38-agent-to-token.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/38-agent-to-token.svg" aria-label="agent to token"><img src="/docs/diagrams/38-agent-to-token.svg" alt="Agent to token" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">38 · MEMORY</div><h2>Agent to token</h2><p>an agent hands another a single token that resolves to the byte-identical signed record and verifies offline</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/38-agent-to-token.svg" aria-label="Left to right: an agent on any model calls recall over MCP or REST. On a miss the responder fetches once from open sources and signs the fact with BLAKE3 and Ed25519. The agent keeps a memory token of about 84 characters that any agent resolves to the same bytes and anyone checks at /verify."><img src="/docs/diagrams/38-agent-to-token.svg" alt="Left to right: an agent on any model calls recall over MCP or REST. On a miss the responder fetches once from open sources and signs the fact with BLAKE3 and Ed25519. The agent keeps a memory token of about 84 characters that any agent resolves to the same bytes and anyone checks at /verify." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">38 · MEMORY</div><h2>Agent to token</h2><p>One agent gives another a single token. It resolves to the same signed bytes, and anyone verifies them offline.</p></figcaption>
     </a></figure>
 
     <figure id="39"><a href="/docs/diagrams/39-orbit-to-ground-trust.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/39-orbit-to-ground-trust.svg" aria-label="orbit to ground trust"><img src="/docs/diagrams/39-orbit-to-ground-trust.svg" alt="Orbit to ground trust" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">39 · SUBSTRATE</div><h2>Orbit-to-ground trust</h2><p>the open archive admitted by recomputability vs an operator device admitted by its OS execution trace, one gate, one memory</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/39-orbit-to-ground-trust.svg" aria-label="Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, a candidate profile that would admit output only with a signed execution trace. emem: a trust gate with eighteen substrate profiles (one active, seventeen candidate) and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet."><img src="/docs/diagrams/39-orbit-to-ground-trust.svg" alt="Three columns. Orbit: the open archive, admitted because anyone can recompute it, and operator satellites, a candidate profile that would admit output only with a signed execution trace. emem: a trust gate with eighteen substrate profiles (one active, seventeen candidate) and seventeen named refusal codes, and the shared memory of cells, signed facts and tokens. Ground: robot fleets, agent swarms and a later auditor. A panel lists the gaps that do not ship yet." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">39 · SUBSTRATE</div><h2>Orbit-to-ground trust</h2><p>The open archive gets in because anyone can recompute it. An operator device gets in only with its signed OS execution trace. Both pass one gate into one memory.</p></figcaption>
     </a></figure>
 
     <figure id="40"><a href="/docs/diagrams/40-guard-checkpoints.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/40-guard-checkpoints.svg" aria-label="nine checkpoints, one engine"><img src="/docs/diagrams/40-guard-checkpoints.svg" alt="Nine checkpoints, one engine" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">40 &middot; GUARD</div><h2>Nine doors, one decision</h2><p>seven of the nine belong to no vendor; the same evidence reaches the same verdict through every one, and a test asserts it</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/40-guard-checkpoints.svg" aria-label="Nine emem-guard routes feed one policy engine that returns allow or deny. Eight are drawn, because /verdict/native is an alias of /verdict. Seven need no vendor: /verdict, /verdict/native, mcp, openai, cloudevent, policy and batch. anthropic-hook needs an enterprise secret and claude-code runs inside the agent. A test asserts that every route reaches the same verdict. Seven routes also answer on emem.dev."><img src="/docs/diagrams/40-guard-checkpoints.svg" alt="Nine emem-guard routes feed one policy engine that returns allow or deny. Eight are drawn, because /verdict/native is an alias of /verdict. Seven need no vendor: /verdict, /verdict/native, mcp, openai, cloudevent, policy and batch. anthropic-hook needs an enterprise secret and claude-code runs inside the agent. A test asserts that every route reaches the same verdict. Seven routes also answer on emem.dev." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">40 &middot; GUARD</div><h2>Nine doors, one decision</h2><p>Nine routes lead to one policy engine. The picture shows eight, because /verdict/native is an alias of /verdict. Seven need no vendor. A test checks that the same evidence gets the same verdict on every route. On 7 November 2026, the seven answered on emem.dev as advisory checks, and the two vendor routes answered 501 requires_your_own_node.</p></figcaption>
     </a></figure>
 
     <figure id="41"><a href="/docs/diagrams/41-guard-verdict-path.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/41-guard-verdict-path.svg" aria-label="the verdict path, in order"><img src="/docs/diagrams/41-guard-verdict-path.svg" alt="One verdict, in order" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>assemble, sign, append, then answer, inside an 800 ms budget; returning first would produce a verdict that was acted on and never recorded</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/41-guard-verdict-path.svg" aria-label="The verdict path in order: scan tokens, resolve, run modules, evaluate, sign with Ed25519, append to the log, then answer. Resolve stops at 400 ms. Each fast module has a 50 ms budget, and three overruns move it to shadow mode. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names."><img src="/docs/diagrams/41-guard-verdict-path.svg" alt="The verdict path in order: scan tokens, resolve, run modules, evaluate, sign with Ed25519, append to the log, then answer. Resolve stops at 400 ms. Each fast module has a 50 ms budget, and three overruns move it to shadow mode. The whole path has an 800 ms budget. Side panels show what happens when the log fails, shadow mode, and what a denial names." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">41 &middot; GUARD</div><h2>One verdict, in order</h2><p>The guard builds the verdict, signs it, appends it to the log and then answers, within 800 ms. If it answered first, a caller could act on a verdict that the log never recorded. If the log cannot take the entry, the guard still answers, with no leaf (<code>leaf=-</code>).</p></figcaption>
     </a></figure>
 
     <figure id="42"><a href="/docs/diagrams/42-guard-dlp-chassis.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/42-guard-dlp-chassis.svg" aria-label="the chassis a DLP engine runs on"><img src="/docs/diagrams/42-guard-dlp-chassis.svg" alt="The chassis your DLP runs on" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">42 &middot; GUARD</div><h2>The chassis your DLP runs on</h2><p>bring the detection in-process, over a webhook, or as a closed engine on a socket; what it gets back is a denial that is evidence rather than a database row</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/42-guard-dlp-chassis.svg" aria-label="A detection engine plugs into emem-guard in process, through a webhook, or through a socket sidecar. Its rules join the native provenance rules, and the first match wins. Each verdict is signed with Ed25519 and appended to a hash chain. The log holds a module id and an evidence digest, never the matched content. A slow module never blocks, and an abstain is never a block."><img src="/docs/diagrams/42-guard-dlp-chassis.svg" alt="A detection engine plugs into emem-guard in process, through a webhook, or through a socket sidecar. Its rules join the native provenance rules, and the first match wins. Each verdict is signed with Ed25519 and appended to a hash chain. The log holds a module id and an evidence digest, never the matched content. A slow module never blocks, and an abstain is never a block." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">42 &middot; GUARD</div><h2>The chassis your DLP runs on</h2><p>A detection engine connects in process, through a webhook, or as a closed engine on a socket. Each denial is signed and appended to a hash-chained log, so it is evidence and not only a database row.</p></figcaption>
     </a></figure>
 
     <figure id="43"><a href="/docs/diagrams/43-guard-deployments.svg">
-      <object class="frame" type="image/svg+xml" data="/docs/diagrams/43-guard-deployments.svg" aria-label="three deployments, one engine"><img src="/docs/diagrams/43-guard-deployments.svg" alt="Three deployments, one engine" loading="lazy" decoding="async"/></object>
-      <figcaption><div class="num">43 &middot; GUARD</div><h2>Three deployments, one engine</h2><p>hosted and advisory, self-hosted and enforcing, or a relay where transcript text never crosses the boundary; who is in the request path decides what a verdict may do</p></figcaption>
+      <object class="frame" type="image/svg+xml" data="/docs/diagrams/43-guard-deployments.svg" aria-label="Three deployments of one guard engine. Hosted on emem.dev it is advisory and blocks nothing. Self-hosted, it sits in your request path, a deny blocks, and your log proves each verdict. As a split relay, transcript text stays home and only digests cross. In all three, an unknown citation is an allow. claim_gating ships off."><img src="/docs/diagrams/43-guard-deployments.svg" alt="Three deployments of one guard engine. Hosted on emem.dev it is advisory and blocks nothing. Self-hosted, it sits in your request path, a deny blocks, and your log proves each verdict. As a split relay, transcript text stays home and only digests cross. In all three, an unknown citation is an allow. claim_gating ships off." loading="lazy" decoding="async"/></object>
+      <figcaption><div class="num">43 &middot; GUARD</div><h2>Three deployments, one engine</h2><p>Hosted, the guard only advises. Self-hosted, it is in your request path and a deny blocks. As a relay, transcript text stays on your side. The position in the request path sets what a verdict can do.</p></figcaption>
     </a></figure>
 
   </div>
 </main>
 <footer>
-  Thirty-eight SVGs · 1920×1080 · animated SMIL · standalone, no JS · made to be embedded anywhere.
+  Forty-two SVGs · 1600×1040 (37 is 900×320) · CSS animation · standalone, no JS · made to be embedded anywhere.
   <br/>
   <a href="/docs/gallery">gallery</a> ·
   <a href="/whitepaper.md">whitepaper</a> ·

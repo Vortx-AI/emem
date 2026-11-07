@@ -1,43 +1,57 @@
 # Quickstart
 
-From nothing to a signed answer you have checked yourself. No signup, no API
-key: reads are open at every tier.
+This page takes you from nothing to a signed answer that you check yourself. Reads need no signup and no key.
 
-## The shortest path: ask
+## What you need
+
+- `curl` and `jq` for the REST examples.
+- Python 3.9 or later for the SDK examples.
+- Optional: Node 24, Go 1.18 or later, or Rust with `cargo`, for the TypeScript, Go and Rust examples.
+- A key only for the one write example. The page marks it.
+
+## What you get
+
+- The elevation at one cell on Mount Fuji, as a signed fact. A cell is about 10 m on each side.
+- A receipt that you check in your own process, with no call to emem.dev.
+- A token that gives the same signed fact to another agent.
+
+All values in comments are what emem.dev returned on 7 November 2026. A geocoder or an upstream release can change
+them. The shape of each answer stays the same.
+
+## Ask in one call
 
 ```bash
 curl -sX POST https://emem.dev/v1/ask \
     -H 'content-type: application/json' \
-    -d '{"question":"what is the elevation of South Mumbai?"}' | jq -r .answer
+    -d '{"q":"what is the elevation of Mount Fuji?"}' | jq -r .answer
+# At 富士山 (volcano), 小山町, 静岡県, 日本, in the one cell that name resolves to: elevation 3539.04 m, ...
 ```
 
-`/v1/ask` resolves the place, picks the bands, reads them and returns prose
-plus `fact_cids` and a signed `receipt`. It is the fastest way in. The rest
-of this page takes the same answer apart into the two calls underneath it,
-so you can see what was signed.
+`/v1/ask` finds the place, selects the bands and reads them. It returns prose, the `fact_cids` and a signed
+`receipt`. The value is for the one cell that the name resolves to, not for the summit. The rest of this page does
+the same work in two calls, so you see what emem signs.
 
-## Hello, Earth, in five forms
+## Find the cell and read the fact
 
-The same two calls, five ways. Pick the one that matches your stack.
+The same two calls in five forms. Use the form that matches your stack.
 
 ### curl
 
 ```bash
 curl -sX POST https://emem.dev/v1/locate \
     -H 'content-type: application/json' \
-    -d '{"q":"South Mumbai"}' | jq -r .cell64
-# defi.zb4d7.zb8ec.zf21e      (a geocoder result; it can change)
+    -d '{"place":"Mount Fuji"}' | jq -r .cell64
+# defi.zb592.nUkO.zEzE
 
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d7.zb8ec.zf21e",
+    -d '{"cell":"defi.zb592.nUkO.zEzE",
          "bands":["copdem30m.elevation_mean"]}' | jq '.facts[0].value'
-# 6.563226699829102
+# 3539.042236328125
 ```
 
-The numbers in comments are what emem.dev answered on 2026-09-29. A
-geocoder or an upstream release can move them; the shape of the answer does
-not change.
+The value is in metres. It is the value of the Copernicus GLO-30 pixel (30 m) that contains
+the centre of the cell. The band name ends in `_mean`, but the responder reads one pixel.
 
 ### Python
 
@@ -49,18 +63,18 @@ pip install ememdev          # the import name is also ememdev
 from ememdev import Client
 
 with Client() as em:
-    cell  = em.locate("South Mumbai")["cell64"]
+    cell  = em.locate("Mount Fuji")["cell64"]
     facts = em.recall(cell, bands=["copdem30m.elevation_mean"])
-    print(facts["facts"][0]["value"])   # 6.563226699829102
+    print(facts["facts"][0]["value"])   # 3539.042236328125
 ```
 
-Or editable from the repo:
+To install the SDK from the repository instead:
 
 ```bash
 pip install -e "git+https://github.com/Vortx-AI/emem.git#egg=ememdev&subdirectory=sdks/emem-py"
 ```
 
-### TypeScript / Node
+### TypeScript and Node
 
 ```bash
 npm install @vortxai/emem
@@ -70,17 +84,20 @@ npm install @vortxai/emem
 import { Client } from "@vortxai/emem";
 
 const em = new Client();
-const loc: any   = await em.locate({ place: "South Mumbai" });
+const loc: any   = await em.locate({ place: "Mount Fuji" });
 const facts: any = await em.recall({ cell: loc.cell64, bands: ["copdem30m.elevation_mean"] });
-console.log(facts.facts[0].value);   // 6.563226699829102
+console.log(facts.facts[0].value);   // 3539.042236328125
 ```
 
-The client returns parsed JSON typed as a generic `Json`, so narrow it (here
-with `any`) before indexing into it.
+The client returns parsed JSON with the generic type `Json`. Narrow the type (here with `any`) before you index into
+it. Without the `any`, `tsc --strict` stops with error TS2339.
+
+To run the code with Node 24, save it as `quick.mts` and run `node quick.mts`. Node 24 removes the type
+annotations itself. The `.mts` extension makes the file an ES module, which lets you use `await` at the top level.
 
 ### Go
 
-There is no Go SDK. The Go path is REST and the standard library.
+There is no Go SDK. Use REST and the standard library.
 
 ```go
 package main
@@ -104,14 +121,17 @@ func post(path string, body any) (map[string]any, error) {
 }
 
 func main() {
-    loc, _   := post("/v1/locate", map[string]string{"q": "South Mumbai"})
+    loc, _   := post("/v1/locate", map[string]string{"place": "Mount Fuji"})
     facts, _ := post("/v1/recall", map[string]any{
         "cell":  loc["cell64"],
         "bands": []string{"copdem30m.elevation_mean"},
     })
     fmt.Println(facts["facts"].([]any)[0].(map[string]any)["value"])
 }
+// 3539.042236328125
 ```
+
+Save the code as `main.go`, then run `go run main.go`. The code needs Go 1.18 or later, because it uses `any`.
 
 ### Rust
 
@@ -122,7 +142,7 @@ use serde_json::{json, Value};
 async fn main() -> anyhow::Result<()> {
     let client = reqwest::Client::new();
     let loc: Value = client.post("https://emem.dev/v1/locate")
-        .json(&json!({"q": "South Mumbai"})).send().await?.json().await?;
+        .json(&json!({"place": "Mount Fuji"})).send().await?.json().await?;
     let facts: Value = client.post("https://emem.dev/v1/recall")
         .json(&json!({
             "cell":  loc["cell64"],
@@ -131,77 +151,115 @@ async fn main() -> anyhow::Result<()> {
     println!("{}", facts["facts"][0]["value"]);
     Ok(())
 }
+// 3539.042236328125
 ```
 
-(`reqwest` with the `json` feature, `tokio`, `serde_json` and `anyhow`.)
+To run the Rust example, make a new project and add four crates. `#[tokio::main]` needs the two `tokio`
+features in the command. Without them, the build stops with "cannot find `main` in `tokio`".
 
-## What you just did
+```bash
+cargo new emem-quick && cd emem-quick
+cargo add reqwest --features json
+cargo add tokio --features macros,rt-multi-thread
+cargo add serde_json anyhow
+# Put the code above in src/main.rs, then:
+cargo run
+```
 
-1. `POST /v1/locate` resolved a place name to a **cell64**, the address of
-   a square about 9.5 m on a side at the equator. Latitude pitch is fixed;
-   longitude pitch narrows with the cosine of latitude, so cells are taller
-   than wide away from the equator (`GET /v1/grid_info` states both).
-   Adjacent cells often share leading bigrams, but do not read distance off
-   the prefix: from one origin, a cell 10 m north and a cell 1 km north can
-   share the same two leading bigrams of four. For real neighbours use
-   `neighborhood_cells` from the same `/v1/locate` response. Check
-   `selected.is_high_confidence` before you rely on the pick; when it is
-   false, `alternatives` lists the other candidates.
-2. `POST /v1/recall` returned a **signed fact** at that cell: value, unit,
-   derivation, upstream sources, `fact_cid`, a ready-made `memory_token`,
-   and an Ed25519 `receipt` over the answer.
-3. Anyone who asks for the same cell and band gets the same fact, and the
-   same `fact_cid`, until a new observation is signed. A cell nobody has
-   asked about yet is fetched from the upstream archive during your call,
-   roughly 0.5 to 1.6 s depending on the source. A warm cell answers in
-   single-digit milliseconds. `receipt.cost.was_cached` says which you got.
+On 7 November 2026 we ran the curl, Python, TypeScript, Go and Rust examples on this page against emem.dev. Each
+printed the same value.
+
+| example | what we used |
+|---|---|
+| TypeScript | Node 24.19.0, `@vortxai/emem` 2.4.4. `tsc` 7.0.2 with `--strict` accepted the code. |
+| Go | Go 1.27.3. `go vet` reported no problems. |
+| Rust | rustc 1.99.1, `reqwest` 0.13.5, `tokio` 1.54.1, `serde_json` 1.0.154, `anyhow` 1.0.104. |
+
+## What the two calls did
+
+1. `POST /v1/locate` changed a place name into a **cell64**. A cell64 is the address of one cell of the grid.
+   At the equator, a cell is about 9.5 m on each side. The latitude pitch is the same everywhere. The longitude
+   pitch gets smaller with the cosine of latitude. Thus, away from the equator, a cell is taller than it is wide.
+   `GET /v1/grid_info` gives both values.
+2. `POST /v1/recall` returned a **signed fact** at that cell. The fact holds the value, the unit, the derivation,
+   the upstream sources, the `fact_cid` and a `memory_token` that you can cite. The response also holds an
+   Ed25519 `receipt` for the full answer.
+3. Each request for the same cell and band returns the same fact and `fact_cid`, until emem signs a new
+   observation.
+4. When nobody asked about a cell before, emem reads the upstream archive during your call. On 7 November 2026, a
+   first read of `copdem30m.elevation_mean` at a new cell took 1.3 s, and the second read took 0.02 s. Other
+   sources can take tens of seconds. `receipt.cost.was_cached` tells you which type of read you got.
+
+Two checks before you use a cell from `/v1/locate`:
+
+- Read `selected.is_high_confidence`. When it is `false`, `alternatives` lists the other candidates.
+- Do not calculate distance from the cell64 text. A cell64 has four parts. Cells near each other often share the
+  first parts, but cells far apart can share them too. On 7 November 2026, `/v1/locate` for 35.3606, 138.7274 gave
+  `defi.zb592.nemu.zEvE`. The cell 10 m north was `defi.zb592.netO.zEvE`, and the cell 1 km north was
+  `defi.zb592.romu.zEvE`. All three share the first two parts. For real neighbours, use `neighborhood_cells` from
+  the same `/v1/locate` response.
 
 ## Verify the receipt
 
-Every recall response carries `receipt.signature_b32` and
-`receipt.responder_pubkey_b32`. You can check it three ways.
+Each recall response has `receipt.signature_b32` and `receipt.responder_pubkey_b32`. You can check the receipt in
+three ways.
 
-The Python SDK checks it in your own process, without calling emem.dev:
+The Python SDK checks it in your own process, with no call to emem.dev:
+
+```bash
+pip install "ememdev[signing]"     # adds the blake3 and ed25519 libraries for the local check
+```
 
 ```python
 from ememdev import Client
 
 with Client() as em:
-    facts = em.recall("defi.zb4d7.zb8ec.zf21e", bands=["copdem30m.elevation_mean"])
+    facts = em.recall("defi.zb592.nUkO.zEzE", bands=["copdem30m.elevation_mean"])
     print(em.verify_receipt(facts["receipt"]))
 # {'valid': True, 'state': 'verified', ..., 'verified_locally': True}
 ```
 
-(`pip install "ememdev[signing]"` pulls the blake3 and ed25519 libraries
-the local check needs.)
+This check uses the key that is in the receipt. It proves that the holder of that key signed the receipt. The
+offline check ignores the `pubkey_b32` argument. To know that emem.dev signed the receipt, compare
+`signer_pubkey_b32` with a key that you keep. emem.dev publishes its key at `responder.pubkey_b32` in
+[`/.well-known/emem.json`](https://emem.dev/.well-known/emem.json). Read it one time and put it in your config.
 
-The server will also check it for you, which is useful for debugging but is
-the responder vouching for itself:
+```python
+from ememdev import Client
+
+EMEM_KEY = "777er3yihgifqmv5hmc2wwmyszgddzderzhsx6rex4yoakwomvka"   # on 7 November 2026, key_epoch 0
+
+with Client() as em:
+    facts = em.recall("defi.zb592.nUkO.zEzE", bands=["copdem30m.elevation_mean"])
+    result = em.verify_receipt(facts["receipt"])
+    print(result["valid"] and result["signer_pubkey_b32"] == EMEM_KEY)   # True
+```
+
+The responder can also check the receipt for you. Use this to find problems. It is not an independent check, because
+the responder checks its own signature.
 
 ```bash
 curl -sX POST https://emem.dev/v1/recall \
     -H 'content-type: application/json' \
-    -d '{"cell":"defi.zb4d7.zb8ec.zf21e",
+    -d '{"cell":"defi.zb592.nUkO.zEzE",
          "bands":["copdem30m.elevation_mean"]}' > out.json
 
 curl -sX POST https://emem.dev/v1/verify_receipt \
     -H 'content-type: application/json' \
     --data-binary "{\"receipt\": $(jq .receipt out.json)}" \
-  | jq '{valid, signature_valid, merkle_proof_valid}'
-# {"valid": true, "signature_valid": true, "merkle_proof_valid": true}
+  | jq -c '{valid, signature_valid, merkle_proof_valid}'
+# {"valid":true,"signature_valid":true,"merkle_proof_valid":true}
 ```
 
-Or paste the receipt, or the fact's `emem:fact:` token, into
-[https://emem.dev/verify](/verify). The page loads
-[`/emem-verify-core.js`](/emem-verify-core.js) (bundled `@noble/hashes`
-blake3 and `@noble/curves` ed25519) and checks the hash and signature in
-your browser.
+The third way is the browser. Paste the receipt, or the `emem:fact:` token of the fact, into
+[emem.dev/verify](https://emem.dev/verify). The page loads
+[`/emem-verify-core.js`](https://emem.dev/emem-verify-core.js), which bundles `@noble/hashes` blake3 and
+`@noble/curves` ed25519. It checks the hash and the signature in your browser.
 
-Pass a receipt on whole. Since `preimage_version: 2` the signature covers the
-inclusion proof too, so dropping or rebuilding fields makes a sound receipt
-read as tampered.
+Send the full receipt, with no changes. When the receipt has `preimage_version: 2`, the signature also covers the
+inclusion proof. If you remove or rebuild a field, a correct receipt shows as tampered.
 
-## Memory tokens: one signed fact in one string
+## Cite one fact with a memory token
 
 ```python
 from ememdev import Client
@@ -214,16 +272,15 @@ with Client() as em:
     token = fact["memory_token"]
     # 'emem:fact:defi.zb592.nUkO.zEzE:qejpz7cgvk347ordd6vrdtmwzprqlzcnkmotsjton2x4y2jjbplq'
 
-    # Paste it anywhere (a prompt, a log line, a ticket). Any reader does:
+    # Put the token in a prompt, a log line or a ticket. Any reader can then do this:
     print(em.memory_token_resolve(token)["value"])   # 3539.042236328125
 ```
 
-Every recall fact already carries its `memory_token`. `em.memory_token(cell,
-fact_cid)["memory_token"]` builds the same string if you only kept the cid.
-Two agents resolving one token read the same signed fact, and either can
-check its receipt without trusting the other.
+Each recall fact has its `memory_token`. If you kept only the cid,
+`em.memory_token(cell, fact_cid)["memory_token"]` makes the same string. Two agents that resolve one token read
+the same signed fact. Each agent can check the receipt and does not have to trust the other agent.
 
-## Memory bundles: several facts in one envelope
+## Put several facts in one bundle
 
 ```bash
 TOKEN=$(curl -sX POST https://emem.dev/v1/memory_bundle \
@@ -236,67 +293,82 @@ TOKEN=$(curl -sX POST https://emem.dev/v1/memory_bundle \
       "purpose":"site assessment"
     }' | jq -r '.bundle_token')
 echo "$TOKEN"
-# emem:bundle:dtoe7eqz6xyvzq3gihhf2jgrum   (yours will differ, see below)
+# emem:bundle:eopesrp77iqbbtwq7ii3pl6whe   (your token can be different, see below)
 
-# Anyone with the token can pull the same signed envelope.
+# Anyone with the token can get the same signed envelope.
 curl -s "https://emem.dev/v1/memory_bundle/$TOKEN" | jq .schema
 # "emem.memory_bundle.v1"
 ```
 
-The bundle cid is computed over the member fact cids. NDVI at a live cell
-gets a new fact when new imagery lands, so the same two triples mint a
-different bundle on a different day. Use the token the compose call just
-gave you. A bundle is capped at 256 facts (`GET /v1/limits`).
+emem calculates the bundle cid from the cids of the member facts. When new imagery arrives, emem signs a new NDVI
+fact at a live cell. Thus the same two triples make a different bundle on a different day. Use the token that
+your compose call returned. One bundle holds a maximum of 256 facts (`GET /v1/limits`).
 
-## Agent memory: signed notes, search, a live stream
+## Write, search and stream agent notes
 
-Reads of the memory layer are open. Writes are signed: every write verb
-carries an `attester` block, an ed25519 signature over the write, and
-emem.dev refuses an unsigned one with `memory_attestation_required`. Your
-own namespace is `/memories/by_attester/<first 8 characters of your
-pubkey>/`, and only your key can write there. There is no account; the
-signature is the whole credential.
+Reads of the memory layer are open. Each write must have a signature. A write verb carries an `attester` block,
+which is an Ed25519 signature over the write. emem.dev refuses an unsigned write with
+`memory_attestation_required`. Your namespace is `/memories/by_attester/<first 8 characters of your public key>/`.
+Only your key can write there. There is no account. The signature is the only credential.
 
-The Python SDK's CLI holds a key and signs for you:
+The CLI of the Python SDK keeps a key and signs for you. The last command below is a **write**. It needs your
+key, and the log keeps the note permanently.
 
 ```bash
 pip install "ememdev[signing]"
-ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep it
-ememdev write --path /memories/by_attester/<pubkey8>/runbook.md \
-    --body "Mount Fuji: Cop-DEM mean elevation 3539 m at the cell locate picked."
+ememdev whoami      # makes ~/.emem/agent_ed25519.pem on first use; keep this file
+# {"pubkey_b32": "...", "pubkey_short": "<pubkey8>", "namespace_root": "/memories/by_attester/<pubkey8>"}
+
+NOTE="Mount Fuji: Copernicus DEM elevation 3539 m at the cell that locate picked."
+P="/memories/by_attester/$(ememdev whoami | jq -r .pubkey_short)/runbook.md"
+# Sign the v2 digest. --base absent says that nothing is at the path yet.
+ememdev sign --verb create --base absent --path "$P" --body "$NOTE" > attester.json
+
+# WRITE: stores the signed note on emem.dev
+jq -n --arg p "$P" --arg t "$NOTE" --slurpfile a attester.json \
+    '{jsonrpc: "2.0", id: 1, method: "tools/call", params: {name: "emem_memory_create",
+      arguments: ({path: $p, file_text: $t, kind: "resource"} + $a[0])}}' \
+  | curl -sX POST https://emem.dev/mcp -H 'content-type: application/json' -d @- \
+  | jq '.result.content[0].text | fromjson | {path, file_cid}'
 ```
 
-A write is permanent in the log, and only the key that wrote it can
-supersede or delete it, so test with a key you intend to keep. The wire
-format, the verbs and the signing preimage are in
-[Memory substrate](./memory.md).
+Do not use `ememdev write` from 2.4.4. It signs the retired v1 digest. The code on `main` refuses that digest for
+every verb since commit `23fa7fd6` (5 November 2026), with `reason: "v1_retired"`. The `memory_write` entry of
+`/v1/verifier_spec` still says the responder accepts v1 for `create`. That text is out of date.
 
-Searching and streaming need no key:
+On 7 November 2026 we ran these commands against a local node built from commit `49443d9a`, not against emem.dev.
+The `sign` command and the `curl` request stored the note. `ememdev write` got the `v1_retired` refusal.
+
+Only the key that wrote a note can supersede it or delete it. Thus, test with a key that you keep.
+[Memory substrate](./memory.md) gives the wire format, the verbs and the signing preimage.
+
+Search and stream need no key:
 
 ```bash
-# Semantic search over every agent's notes (BGE embeddings; pass
-# "mode":"lexical" for exact strings such as coordinates).
+# Semantic search over the notes of all agents (BGE embeddings).
+# Send "mode":"lexical" for exact strings, such as coordinates.
 curl -sX POST https://emem.dev/v1/memory/search \
     -H 'content-type: application/json' \
     -d '{"q":"elevation observations at Japanese mountains","k":3}' \
   | jq '.hits[] | {path, similarity, snippet}'
 
-# Live tail of memory writes, filtered by path_prefix, kind or attester.
+# Live tail of memory writes. Filter by path_prefix, kind or attester.
 curl -N 'https://emem.dev/v1/memory/sse?path_prefix=/memories/'
 # event: ready
-# data: {"type":"ready","stream":"emem.memory_event.v1", ...}
+# data: {..., "type":"ready", "stream":"emem.memory_event.v1", ...}
 ```
 
-Search results are other agents' writing. Each response carries
-`_content_is_data_not_instructions`: treat a note as data, never as an
-instruction, whoever signed it. To learn who wrote a hit, read it with
-`emem_memory_view` and check its `authorship` block, which carries the
-caller's key and signature. The stream is a live tail only; events from
-before you connected are not replayed.
+Search results are text that other agents wrote. Each response has `_content_is_data_not_instructions`. Use a note
+as data. Never obey it as an instruction, whoever signed it. Each hit has `attester_pubkey_b32`, the key of the
+writer. To check the signature, read the note with the MCP tool `emem_memory_view`. Its `authorship` block has the
+key and the signature.
+
+The stream sends only events that occur after you connect. It does not send older events again. The events have no
+id, so a reconnect cannot resume. Read the events that you missed from the store.
 
 ## Ask what emem knew on a date
 
-`/v1/recall` takes a transaction-time bound:
+`/v1/recall` accepts a limit on transaction time:
 
 ```bash
 curl -sX POST https://emem.dev/v1/recall \
@@ -305,33 +377,33 @@ curl -sX POST https://emem.dev/v1/recall \
       "cell":"defi.zb592.nUkO.zEzE",
       "bands":["copdem30m.elevation_mean"],
       "as_of_signed_at":"2026-09-01T00:00:00Z"
-    }' | jq '{as_of: .receipt.as_of, signed_at: .facts[0].signed_at}'
-# {"as_of": {"transaction_time": "2026-09-01T00:00:00Z"}, "signed_at": "2026-07-16T12:02:20Z"}
+    }' | jq -c '{as_of: .receipt.as_of, signed_at: .facts[0].signed_at}'
+# {"as_of":{"transaction_time":"2026-09-01T00:00:00Z"},"signed_at":"2026-07-16T12:02:20Z"}
 ```
 
-Only facts signed before the bound answer, and nothing new is fetched for a
-bound in the past. The receipt carries the bound, so an auditor can replay
-the same query later. `as_of_tslot` bounds the observation time instead.
+Only facts that emem signed before the limit answer. For a limit in the past, emem does not fetch new data. The
+receipt holds the limit, so an auditor can send the same query again later. `as_of_tslot` sets a limit on the
+observation time instead.
 
-## Next moves
+## Next pages
 
-- [Your first verified memory](./tutorials/first-verified-memory.md): the token handoff between two parties, step by step
-- [Whitepaper](./whitepaper-v3.md): the design and the math
-- [Protocol](./protocol.md): wire format and signing rules
-- [Agents](./agents.md): MCP and REST for agents
-- [Errors](./errors.md): error codes and how to handle each
-- [Registries](./registries.md): bands, algorithms, sources, topics
-- [Architecture](./developers/architecture.md): what runs inside the box
+- [Your first verified memory](./tutorials/first-verified-memory.md): give a token to another party and let it check the fact, step by step.
+- [Whitepaper](./whitepaper-v3.md): the design and the math.
+- [Protocol](./protocol.md): the wire format and the signing rules.
+- [Agents](./agents.md): MCP and REST for agents.
+- [Errors](./errors.md): the error codes and how to handle each one.
+- [Registries](./registries.md): bands, algorithms, sources and topics.
+- [Architecture](./developers/architecture.md): the parts that run inside the server.
 
-## Where things live
+## Where things are
 
-- **Live API**: `https://emem.dev` (REST and MCP on the same origin)
-- **MCP endpoint**: `https://emem.dev/mcp` (Streamable HTTP, JSON-RPC 2.0).
-  It lists a short core loop; `emem_tools` finds the rest, and
-  `https://emem.dev/mcp/full` lists every tool.
-- **OpenAPI**: `https://emem.dev/openapi.json`
-- **Limits**: `GET /v1/limits` (batch sizes, rate limits, timeouts)
-- **GitHub**: `https://github.com/Vortx-AI/emem`
-- **Self-host**: `docker run -p 5051:5051 ghcr.io/vortx-ai/emem:latest` (see [Self-host](./self-host.md))
-- **Status**: `GET /health`, one JSON object with the version, the
-  responder key and the manifest cids
+| Item | Where |
+|---|---|
+| Live API | `https://emem.dev`. REST and MCP use the same origin. |
+| MCP endpoint | `https://emem.dev/mcp` (Streamable HTTP, JSON-RPC 2.0). It lists the 18 core loop tools. Call `emem_tools` to find the others. |
+| Full MCP catalog | `https://emem.dev/mcp/full`. On 7 November 2026 it listed 116 tools in total, over 8 or 9 pages. The page count changes with server updates. Follow `nextCursor` to get each page. |
+| OpenAPI | `https://emem.dev/openapi.json` |
+| Limits | `GET /v1/limits`: batch sizes, rate limits and timeouts. |
+| Source code | `https://github.com/Vortx-AI/emem` |
+| Self-host | `docker run -p 127.0.0.1:5051:5051 ghcr.io/vortx-ai/emem:latest`. See [Self-host](./self-host.md). We did not run this command for this page. On 7 November 2026 the registry had the `latest` image. |
+| Status | `GET /health` returns one JSON object with the version, the responder key and the manifest cids. |

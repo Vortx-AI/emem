@@ -1,143 +1,170 @@
 # emem-langmem: LangChain and LangGraph memory on a signed store
 
 `emem-langmem` is a LangChain [`BaseStore`](https://python.langchain.com/api_reference/core/stores/langchain_core.stores.BaseStore.html)
-implementation backed by an emem responder. You hand it to
-`StateGraph.compile(store=...)` and your LangGraph agent's long-term
-memory becomes content-addressed, ed25519-signed, and readable by any
-other agent you choose to share a namespace with.
+that keeps its data on an emem responder.
+It is a key-value store (`mget`, `mset`, `mdelete`, `yield_keys`), not a LangGraph store.
+Call it from a node of your LangGraph agent to keep long-term memory in emem.
+Each value is content-addressed and signed with your Ed25519 key.
+Other agents can read it at the same path.
 
-It is a thin adapter, not a reimplementation. Every operation is one MCP
-`tools/call` against the responder's memory verbs, so anything the store
-can do is also reachable from a plain HTTP client, and nothing about your
-data is locked inside this package.
+The package is a thin adapter.
+Each store operation is one MCP `tools/call` to a memory tool on the responder.
+A plain HTTP client can do the same calls, so your data does not depend on this package.
+
+## What works in version 2.4.4
+
+Version 2.4.4 is the newest release on PyPI on 7 November 2026.
+The source is in [sdks/emem-langmem](https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem).
+
+| Operation | Status in 2.4.4 |
+|---|---|
+| `mget`, `mset`, `mdelete` and their async forms | Work. A refused call raises `EmemStoreError`. |
+| `yield_keys()` with no prefix | Fails on emem.dev. See [Known issues](#known-issues-in-244). |
+| `yield_keys(prefix=...)` | Works when the prefix ends in `/`. Lists only the first part of a large folder. |
+| Receipts | Not returned. `BaseStore` has no place for them. See [Get the receipt](#get-the-receipt). |
+| `StateGraph.compile(store=...)` | Does not work. LangGraph expects a different store interface. See [Known issues](#known-issues-in-244). |
+| Install next to the newest `langgraph` | Not possible. The package needs `langchain-core` below 1.0. |
+
+## Install the package
 
 ```bash
 pip install emem-langmem
 ```
 
-Source lives at
-[sdks/emem-langmem](https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem).
+The package needs Python 3.9 or later.
+It pins `langchain-core>=0.3,<1.0`, `httpx`, `blake3` and `cryptography`.
+On 7 November 2026 the newest `langgraph` (1.2.20) needs `langchain-core` 1.4.7 or later.
+`langgraph` 1.1.7 to 1.1.10 need `langchain-core` 1.3 or later.
+`langgraph` 1.0.10 and 1.1.0 accept `langchain-core` 0.3 directly.
+But they need `langgraph-prebuilt` 1.0.8 or later, and `langgraph-prebuilt` 1.0.2 and later need `langchain-core` 1.0.
+Thus pip installs `langgraph` 1.0.1 or older next to `emem-langmem`.
 
-## The 60-second version
+## Connect a LangGraph agent
+
+Make one store and call it from your nodes.
+Do not give it to `StateGraph.compile(store=...)`. See [Known issues](#known-issues-in-244).
 
 ```python
 import os
 from emem_langmem import EmemStore
-from langgraph.graph import StateGraph
 
 SEED = bytes.fromhex(os.environ["EMEM_AGENT_SEED"])  # 32 raw bytes, yours
 
 store = EmemStore(base_url="https://emem.dev", signing_key=SEED)
-graph = StateGraph(...).compile(store=store)
+
+def remember(state):
+    store.mset([((("notes",), "harvest"), state["summary"])])
+    return state
 ```
 
-`base_url` falls back to `EMEM_BASE_URL`, then to `https://emem.dev`.
+If you do not give `base_url`, the store uses `EMEM_BASE_URL`, then `https://emem.dev`.
+Other arguments: `timeout` (seconds, default 30), `default_kind` (the memory kind for `mset`, default `resource`) and `headers`.
+`EmemStore` is a context manager. `close()` closes the sync and the async HTTP clients.
 
-## The signing key is not optional in practice
+## Give the store a signing key
 
-`signing_key` takes a raw 32-byte ed25519 seed. Generate one once with
-`os.urandom(32)`, then keep it wherever the agent's other secrets live.
-Losing it does not destroy the memories, but it does mean you can no
-longer write to the namespace that holds them.
+`signing_key` takes a raw 32-byte Ed25519 seed, or an `EmemSigner`.
+Make the seed one time with `os.urandom(32)`.
+Keep it with the other secrets of the agent.
+If you lose the seed, your notes stay on the responder, but you cannot write to that folder again.
 
-Two things follow from the key, and both surprise people:
+The key controls two things.
 
-**It decides where you write.** With a key, the store roots itself at
-`/memories/by_attester/<pubkey8>/`, where `<pubkey8>` is the first 8
-characters of your base32 public key. Without one the root stays
-`/memories`.
+The key sets the folder that the store writes to.
+With a key, the store root is `/memories/by_attester/<pubkey8>`.
+`<pubkey8>` is the first 8 characters of your lowercase base32 public key.
+Without a key, the root is `/memories`.
 
 ```python
 store.root               # '/memories/by_attester/aoqqpp7t'
 store.signer.pubkey_b32  # the full base32 public key
 ```
 
-**It decides whether the write is accepted at all.** The public responder
-refuses unattested writes (HTTP 401 over REST, `details.code:
-memory_attestation_required`). An operator can reopen the global
-namespace by starting the server with `EMEM_MEMORY_OPEN=1`, but emem.dev
-does not, so an unsigned `mset` against it is refused. See the known
-issues below for how that refusal reaches you in 2.4.0.
+The key also decides if the responder accepts a write.
+emem.dev refuses a write that has no signature (HTTP 401 over REST, code `memory_attestation_required`).
+An operator can accept unsigned writes with `EMEM_MEMORY_OPEN=1`. emem.dev does not set it.
 
-Under `by_attester/` only the matching key may write, which is what makes
-it safe for several agents to share one responder: they cannot overwrite
-each other. A cross-namespace write returns HTTP 403 with the code
-`memory_namespace_violation`. Outside `by_attester/`, the first attester
-to create a path owns it, and the same code refuses everyone else.
+Under `/memories/by_attester/`, only the key that matches `<pubkey8>` can write.
+Thus several agents can share one responder, and no agent can overwrite the notes of another agent.
+Outside `by_attester/`, the first key that makes a path owns it.
+In both cases, a write by a different key gets HTTP 403 with the code `memory_namespace_violation`.
 
-A key that starts with `/` is treated as a literal absolute path and left
-alone, which is how you deliberately read outside your own root:
+A key that starts with `/` is an absolute path. The store does not change it.
+Use this form to read outside your own root:
 
 ```python
-store.mget([("notes", "harvest")])      # /memories/by_attester/<pk8>/notes/harvest
-store.mget(["/memories/shared/atlas"])  # exactly that path
+store.mget([(("notes",), "harvest")])  # /memories/by_attester/<pk8>/notes/harvest
+store.mget(["/memories/shared/atlas"])   # exactly that path
 ```
 
-## What each verb actually calls
+The namespace must be a tuple, as in `(("notes",), "harvest")`.
+A flat pair such as `("notes", "harvest")` raises `TypeError: unsupported key shape`.
 
-| `BaseStore` verb | emem MCP tool | Signed |
+The responder accepts only paths under `/memories/`, as the Anthropic memory tool specification requires.
+On 7 November 2026 a view of `/etc/passwd` gave `invalid_argument`: the path "must stay under `/memories/`".
+
+## What each store operation calls
+
+| `BaseStore` operation | emem MCP tool | Signed |
 |---|---|---|
-| `mget(keys)` | `emem_memory_view` | no, reads are open |
-| `mset(pairs)` | `emem_memory_create` | yes |
-| `mdelete(keys)` | `emem_memory_delete` | yes, but refused today (see below) |
-| `yield_keys(prefix)` | `emem_memory_view` as a directory walk | no |
+| `mget(keys)` | `emem_memory_view` | No. Reads need no key. |
+| `mset(pairs)` | `emem_memory_create` | Yes, with the v1 preimage. |
+| `mdelete(keys)` | `emem_memory_view`, then `emem_memory_delete` | Yes, with the v2 preimage over the `file_cid` it read. |
+| `yield_keys(prefix)` | `emem_memory_view` on a folder | No. |
 
-The async surface (`amget`, `amset`, `amdelete`, `ayield_keys`) is the
-same set over `httpx.AsyncClient`. `EmemStore` is also a context manager,
-and `close()` releases both clients.
+The async forms (`amget`, `amset`, `amdelete`, `ayield_keys`) make the same calls through `httpx.AsyncClient`.
 
-Paths are assembled from LangChain's `(namespace, key)` tuple by joining
-the parts under the store root, so `mget(("prefs", "tone"))` reads
-`/memories/by_attester/<pk8>/prefs/tone`. One consequence worth knowing:
-the responder restricts memory paths to `/memories/`, per the Anthropic
-memory-tool specification, so a path that escapes that prefix is refused
-by the server rather than by the client.
+The store joins the parts of a LangChain `(namespace, key)` tuple under its root.
+Thus `mget([(("prefs",), "tone")])` reads `/memories/by_attester/<pk8>/prefs/tone`.
+The store sends text values as UTF-8 and other bytes as base64.
 
-## Known issues in 2.4.0
+`mget` gives `None` for a key that has no file.
+With a signing key, `mdelete` does nothing for a key that is not there, as `BaseStore` requires.
+Without a key, it sends the delete, and the responder refusal raises `EmemStoreError`.
 
-Checked against emem.dev and the package source on 2026-09-29. They are
-defects in the adapter, not in the responder.
+## Known issues in 2.4.4
 
-Both are fixed in 2.4.2:
-`mdelete` reads the note's `file_cid` and signs v2 against it, rename signs
-v2 with base `absent`, and a result with `isError: true` raises
-`EmemStoreError` (or `EmemAttestationError` for a signing refusal). If PyPI still shows 2.4.0, install from source to get them.
+These issues are in the adapter, not in the responder.
+We found them on 7 November 2026 in the package source and in reads on emem.dev.
 
-- **`mdelete` is refused.** `EmemSigner` builds only the v1 preimage,
-  `blake3("emem.memory_write|" + verb + "|" + path + "|" + body_hash)`.
-  The responder still accepts v1 for `create`, `str_replace` and
-  `insert`, but verifies `delete` and `rename` against v2 only,
-  `blake3("emem.memory_write.v2|" + verb + "|" + path + "|" + body_hash
-  + "|" + base)`, where `base` is the `file_cid` being replaced. A
-  delete signed here fails with `memory_attestation_invalid`.
-- **Tool errors are not raised.** emem returns a failed MCP tool call as
-  a `result` with `isError: true` and the error in its text. The adapter
-  checks only for a JSON-RPC `error`, so it treats that result as
-  success. A refused `mset` returns without raising, and `mget` on a key
-  that was never written returns the error text as bytes
-  (`b"tool error (-6): cid_not_found: ..."`) instead of `None`.
+`StateGraph.compile(store=...)` takes a `langgraph.store.base.BaseStore`, with `get`, `put` and `search`.
+`EmemStore` has none of these methods.
+A graph node that uses the store from the runtime gets `AttributeError`.
+We read the source of the `langgraph` 1.0.1 wheel. We did not run a graph.
 
-Until these are fixed, check a write by reading it back, and treat an
-`mget` value that starts with `tool error (` as a miss.
+`yield_keys()` with no prefix fails.
+The responder lists a folder only when the path ends in `/` (`memory_view`, `crates/emem-api-rest/src/lib.rs`).
+The store sends its root with no final `/`.
+The responder answers `cid_not_found`, and the store raises `EmemStoreError`.
+Give a prefix that ends in `/`, for example `store.yield_keys(prefix=store.root + "/")` or `store.yield_keys(prefix="notes/")`.
 
-## Receipts, and the one thing this adapter cannot give you
+`yield_keys` can stop early on a large folder.
+The MCP answer has a size limit. When a listing is too large, the responder keeps the first entries.
+It adds an `_emem_truncation` block with the `offset` of the next page.
+The store does not read that block, so it gives only the first page.
+On 7 November 2026 the folder `/memories/by_attester/` had 5,387 entries, and the MCP answer kept 104.
+For a large folder, call `emem_memory_view` yourself with `offset`, and follow `_emem_truncation.next`.
 
-Every read and write returns an ed25519 receipt from the responder. The
-receipt is the point of emem: it is what lets a third party confirm that
-the bytes you were handed are the bytes the responder attests to holding,
-without trusting you or us.
+The store can cut an error message.
+Over MCP, a refusal puts its `details` block (with `how_to_sign`) in the message text.
+`EmemStoreError` keeps only the first 500 characters of that text.
+To see the full refusal, send the same call directly. See [Sign writes yourself](#sign-writes-yourself).
 
-`BaseStore` has no slot for one. LangChain's interface returns values, so
-the receipt is dropped at the interface boundary. That is a limitation of
-the contract this package implements, not something the package is hiding
-from you, and there is no version of it that both satisfies `BaseStore`
-and hands back receipts through the same call.
+The 2.4.0 release had two more defects. The 2.4.2 release fixed them.
+`mdelete` signed only the v1 preimage, so the responder refused it.
+A tool result with `isError: true` did not raise an error.
 
-If you need receipts, call the memory tool directly. It is the same
-endpoint the store uses:
+## Get the receipt
+
+The responder signs a receipt for each file read.
+The receipt lets a third party check that the bytes are the bytes that the responder holds.
+The `BaseStore` interface returns values only, so the store drops the receipt.
+No version of `BaseStore` can return it.
+
+To get the receipt, call the memory tool directly. The store uses the same endpoint:
 
 ```python
-import uuid, httpx
+import json, uuid, httpx
 
 r = httpx.post(
     "https://emem.dev/mcp",
@@ -154,21 +181,24 @@ r = httpx.post(
 result = r["result"]
 if result.get("isError"):
     raise RuntimeError(result["content"][0]["text"])  # e.g. cid_not_found
-print(result["structuredContent"]["receipt"])
+sc = result.get("structuredContent") or json.loads(result["content"][0]["text"])
+print(sc["receipt"])
 ```
 
-Use a path you have written; `aoqqpp7t` stands for your own `pubkey8`.
-The view also carries an `authorship` block with the writer's key, its
-signature and the preimage version it verified under.
+A large note can come back with no `structuredContent`. On 7 November 2026,
+3 of 9 note views on emem.dev had text only. Thus the code reads the text
+when `structuredContent` is missing.
+Replace the path with a path that you wrote. `aoqqpp7t` stands for your own `pubkey8`.
+On 7 November 2026 a file view also had an `authorship` block.
+It gives the key of the writer, the signature, `preimage_version` and the `signed_path`.
+A folder listing has no receipt.
 
-Verify a receipt with `POST /v1/verify_receipt`, or offline at
-[/verify](https://emem.dev/verify), which recomputes the preimage and
-checks the signature against the responder's published public key.
+Check the receipt with `POST /v1/verify_receipt`, or offline at [/verify](https://emem.dev/verify).
+The page computes the preimage again and checks the signature against the public key of the responder.
 
-## Signing it yourself
+## Sign writes yourself
 
-`EmemSigner` is public, so you can drive the memory verbs directly and
-still produce the `attester` block the responder expects:
+`EmemSigner` is public. Use it to call the memory tools directly with a correct `attester` block:
 
 ```python
 from emem_langmem import EmemSigner
@@ -179,32 +209,37 @@ signer.attester_block("create", f"{signer.namespace_root}/note.md", b"hi")
 # {'pubkey_b32': '...', 'sig_b32': '...'}
 ```
 
-The block uses the v1 preimage, which the responder accepts for
-`create`, `str_replace` and `insert`; `delete` and `rename` need v2 (see
-the known issues above). The signature is per verb: it binds the verb,
-the path and a hash of the body, so a `create` signature is not a
-`delete` signature for the same path. `rename` is the one worth reading
-the source for, because its preimage binds the old path through the body
-hash while `path` carries the destination. Any refusal also returns
-`details.how_to_sign` with the digest the responder expected, which is
-the quickest way to see where your preimage differs.
+The signature binds the verb, the path and the BLAKE3 hash of the body.
+Thus a `create` signature is not a `delete` signature for the same path.
+The body is the bytes that the responder hashes for that verb:
 
-The full wire format, the verb list and the error codes are in
-[Memory substrate](../memory.md).
+| Verb | Body that the responder hashes | Preimage |
+|---|---|---|
+| `create` | the `file_text` string as UTF-8 | v1, or v2 with `base=` |
+| `str_replace`, `insert` | the full file after the edit | v1, or v2 with `base=` |
+| `delete` | empty | v2 only: pass `base=` the current `file_cid` |
+| `rename` | the source path | v2 only: use `rename_attester_block(old_path, new_path)` |
 
-## Self-hosting
+`attester_block` raises `ValueError` for `delete` or `rename` without `base`.
+For `str_replace` and `insert`, read the file first, make the edit locally and sign the result.
+For `rename`, the key must own the source and the destination.
+
+If the responder refuses a write, the refusal has `details.how_to_sign` with the digest that it expected.
+Compare it with your digest to find the difference.
+The full wire format, the verbs and the error codes are in [Memory substrate](../memory.md).
+
+## Use your own responder
 
 ```python
 EmemStore(base_url="http://127.0.0.1:5051")
 ```
 
-Everything above is identical against your own responder, including the
-namespace rules, since they are enforced server-side. See
-[Self-host](../self-host.md).
+The responder enforces the folder rules, so they are the same on your own node.
+See [Self-host](../self-host.md).
 
-## Where things live
+## Where to find more
 
-| | |
+| Item | Link |
 |---|---|
 | Package | [`emem-langmem` on PyPI](https://pypi.org/project/emem-langmem/) |
 | Source | [sdks/emem-langmem](https://github.com/Vortx-AI/emem/tree/main/sdks/emem-langmem) |
@@ -212,4 +247,4 @@ namespace rules, since they are enforced server-side. See
 | Wire format | [Memory substrate](../memory.md) |
 | Error codes | [Errors](../errors.md) |
 
-Licensed Apache-2.0.
+The package has the Apache-2.0 license.
