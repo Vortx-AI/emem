@@ -22,7 +22,7 @@ dots, e.g. `dedi.zaf00.bafi.baba`. The integer form is what gets hashed
 and compared; the dotted text form is what shows up inside facts and
 receipts.
 
-![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: an fp16 vector, with a 12-byte prefix in receipts. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
+![A table of the four wire forms. cell: 64 bits, four base-65,536 bigrams. tslot: 64 bits, base32 LEB128 with a t. prefix. cid: a 32-byte BLAKE3 digest in lowercase base32. vec: a 1792-D fp16 vector, with a 12-byte short form (vec64); /v1/state returns the full vector. Cells that are near each other share a string prefix.](/docs/diagrams/09-address-algebra.svg)
 *The four wire forms and their sizes. Section 1 gives the cell, section 2 the tslot and section 3 the CID.*
 
 ### 1.1 Bit layout
