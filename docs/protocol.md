@@ -1478,9 +1478,9 @@ offline):
   ed25519 over `PreimageV1("emem.translog.sth.v1")` with segments
   `1:u64_be(tree_size), 2:root, 3:signed_at, 4:responder_pubkey` (same
   preimage discipline as receipts, section 7.1).
-- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`)
-  returns an audit path proving entry `i` is committed under the STH.
-  Verify with `translog::verify_inclusion`.
+- `GET /v1/log/inclusion?leaf_index=<i>` (or `?entry_hash=<base32>`, or
+  `?fact_cid=<cid>`) returns an audit path proving entry `i` is committed
+  under the STH. Verify with `translog::verify_inclusion`.
 - `GET /v1/log/consistency?first=<m>&second=<n>` returns a proof that the
   tree of size `m` is a prefix of the tree of size `n` (append-only).
   Verify with `translog::verify_consistency` against the `first_root` in
@@ -1512,9 +1512,19 @@ TXT or well-known evidence under a domain, from `GET /v1/enlist`) and
 `self_operator` (this node's declared key, or a key vouched by its own
 domains). `independent_operator_count` counts distinct `org_vouched`
 domains, not keys, since keys are free and domains are not. Each key's
-co-signatures also share the per-key write rate limit. A
-`fact_cid -> leaf_index` index, so an inclusion proof can be requested by
-fact rather than by log position, is the next increment on this substrate.
+co-signatures also share the per-key write rate limit.
+
+You can ask for an inclusion proof by fact: `?fact_cid=` finds the log
+entry through the fact's stored proof. A fact that this responder did not
+sign, or that has no stored proof, returns 404 `CidNotFound`.
+
+![The Mount Fuji elevation fact, 3539.04 m, is entry 2,463,431 of 3,248,898 in the log. A ladder of 22 bars shows its audit path: each bar is one hash, covering from 1 entry at the bottom to 2,097,152 entries at the top. The root computed from them matches the signed tree head of size 3,248,898, and the Ed25519 signature is valid. One character changed in hash 10 gives a different root, and inclusion is invalid. Below, a 14-hash consistency proof links the head of size 3,248,892 (09:28:13 UTC) to the head of size 3,248,898 (09:28:53 UTC): valid.](media/stills/log-proof.webp)
+
+*Live calls to emem.dev on 7 November 2026, checked offline with
+`plugins/emem/skills/emem-transparency-log/scripts/verify_log.py`. The
+log shows that emem recorded the fact and did not remove it. It does not
+show that the value is correct. The script and the saved responses are in
+[media/stills/src/](media/stills/src/log_proof.py).*
 
 #### Memory writes in the log
 
